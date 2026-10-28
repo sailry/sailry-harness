@@ -372,18 +372,20 @@ Eligible prefixes use canonical turn ownership and complete call-ID-paired tool
 batches, including prefixes within completed turns. Parallel results are matched
 only within their batch; original history and provider-added parts are retained.
 Automatic, explicit and model-requested compaction use complete prefixes and a
-validated user-role handoff using less than half the eligible model-visible
-prefix's estimated tokens; owner context is excluded from both sides of that
+validated user-role handoff that uses fewer estimated tokens than the eligible
+model-visible prefix; owner context is excluded from both sides of that
 comparison. Compaction records store only the generated handoff and file ledger.
 Runtime context, plans and loaded skills are restored from their existing owners
 and canonical references through the same composition path for live requests and
-reload. One shared secondary request can retry a transient service error, repair
-formatting or recover from an input capacity failure. Output exhaustion does not
-retry with smaller input. Authorization, content-filter, empty and invalid-handoff
-failures remain terminal. Exhausted transient summary retries retain the context
-and continue when it still fits the captured input capacity.
-Automatic budget and no-reduction failures continue only when a request projection
-saves tokens and fits the captured input capacity. Request-only projections can shorten
+reload. One shared secondary request can retry a transient service error or
+recover from an input capacity failure. Output exhaustion does not
+retry with smaller input. Cancellation, authorization, content-filter and persistence
+failures retain their ordinary failure semantics. Explicit and model-requested
+compaction report unusable handoffs as failures. Preventive automatic maintenance
+retains existing context after empty, unexpected, non-reducing, truncated or
+over-budget summaries and continues whenever its effective request still fits the
+captured input capacity. Exhausted transient summary retries use the same capacity
+check. Request-only projections can shorten
 older ordinary tool results while retaining canonical raw output and references
 readable through the current session's `read_tool_output` service. Applying a
 summary or projection invalidates stale context-size facts, then recomputes the
@@ -458,15 +460,13 @@ persisted events and their original bytes remain unchanged. Models request encry
 reasoning only when catalog metadata advertises reasoning or a positive effort is
 selected, independently of summaries. Older reasoning without encrypted content
 is omitted only from outgoing requests.
-Responses models that declare configuration updates retain their initial
-reasoning setting in canonical Agent state. A changed sent-turn effort becomes a
-typed, provider-owned `configuration_update` at that user input's original
-position; repeated choices add no update. HTTP and WebSocket lower the same
-history before continuation comparison, preserving earlier input and tool
-declarations. Canonical summaries retain the effective setting and reset discarded
-owner updates so restart and replay restore it once. Defaults enable this for
-standard single-agent GPT-6 family Responses models; other models require an
-explicit capability declaration and otherwise retain per-request configuration.
+New turns capture the current model and reasoning effort and send them as ordinary
+request parameters. Summaries use the same captured selection. Changing that
+selection may invalidate provider caching or WebSocket continuation; unchanged
+parameters and history retain the same prefix. Historical configuration-update
+parts remain readable in canonical records but are omitted from outgoing requests
+so they cannot override the current selection. HTTP and WebSocket share this
+projection; ADK owns connection-local continuation and full-request fallback.
 Only verified extensions of canonical history use connection-local continuation.
 Pre-event WebSocket failures select the same adapted request over SSE once;
 absence of an acknowledgement does not prove non-delivery, so this fallback may
@@ -604,10 +604,12 @@ LRU entries. Multi-page reads share a lease renewed by access; one reader reachi
 the end does not release another reader's data. Complete single-page reads bypass
 that cache, so active large reads cannot block small details.
 
-Model declarations are captured in the existing session catalog and reused while
-their exact definition inputs match. Common tools follow declared operations and
-selected mode or role scope; additional tools are discovered through `tool_search`
-from the same captured catalog. Discovery adds declarations and their package
+Model declarations are built from each turn's captured tool instances, without a
+second persistent schema cache. Normal requests and manual summaries prepare the
+same current catalog; automatic summaries reuse the triggering request's
+declarations. Provider adapters serialize tools in stable name order. Common tools
+follow declared operations and selected mode or role scope; additional tools are
+discovered through `tool_search` from that catalog. Discovery adds declarations and their package
 context for later requests without executing tools or increasing permissions.
 The session state row owns loaded-tool membership. Explicitly discovered and
 called tools stay loaded; tools exposed only by a work mode or assistant do not
@@ -619,6 +621,10 @@ declarations. Package updates affect subsequent admission, preserving sent captu
 Node freezes configuration, scope and package revisions at turn admission. Tools
 use the same approval, cancellation and durable outcome boundaries. Work mode
 and permissions are distinct; read-only planning does not authorize side effects.
+Main-session guidance joins a running turn only when their captures match. New
+input after a configuration or tool change keeps its own capture and runs as the
+next queued turn; it never inherits an older selection to force inline insertion.
+Selecting an already queued message preserves its original identity and capture.
 Delegated work uses the same ADK engine and history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.

@@ -32,7 +32,6 @@ fn observe(headers: &HeaderMap) {
 
 pub(super) struct Context {
     pub session: sailry_protocol::SessionId,
-    pub turn: Option<TurnId>,
     pub delegated: bool,
     pub reasoning: reasoning::Resolved,
     pub purpose: Purpose,
@@ -61,31 +60,9 @@ impl Model {
         ingress: &Arc<Ingress>,
         provider: &Provider,
         config: &SessionConfig,
-        mut context: Context,
-    ) -> Result<(Self, Option<effort::Capture>), Fault> {
+        context: Context,
+    ) -> Result<Self, Fault> {
         let (effective, authorized) = current(ingress, provider, config, &context.stop).await?;
-        let origin = history::origin(
-            &effective,
-            &config.model,
-            Some(&authorized.credential),
-            Some(&authorized.grant),
-        );
-        let model = provider
-            .models
-            .iter()
-            .find(|model| model.id == config.model);
-        let configuration = effort::Capture::load(
-            ingress,
-            context.turn,
-            context.session,
-            origin,
-            context.reasoning.effort,
-            effort::supported(provider, model),
-        )
-        .await?;
-        if let Some(capture) = &configuration {
-            context.reasoning = reasoning::resolve(model, provider.api, capture.base())?;
-        }
         let metadata = pooled(
             &ingress.model_clients,
             &effective,
@@ -96,16 +73,13 @@ impl Model {
             &authorized,
         )?;
         metadata.authorize(authorized);
-        Ok((
-            Self {
-                ingress: ingress.clone(),
-                provider: provider.clone(),
-                config: config.clone(),
-                context,
-                metadata,
-            },
-            configuration,
-        ))
+        Ok(Self {
+            ingress: ingress.clone(),
+            provider: provider.clone(),
+            config: config.clone(),
+            context,
+            metadata,
+        })
     }
 
     async fn prepare(&self, request: &LlmRequest, stream: bool) -> Result<Prepared, AdkError> {

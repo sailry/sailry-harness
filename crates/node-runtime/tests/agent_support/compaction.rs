@@ -276,6 +276,21 @@ pub async fn respond_truncated(stream: TcpStream, body: &Value) -> std::io::Resu
     }
 }
 
+pub async fn respond_summary_tool(stream: TcpStream, body: &Value) -> std::io::Result<()> {
+    if is_summary(body) {
+        reply_usage(
+            stream,
+            body,
+            json!({"role":"assistant","tool_calls":[{"index":0,"id":"unexpected-summary-tool","type":"function","function":{"name":plugin_tool("files", "write_file"),"arguments":json!({"path":"unexpected-summary.txt","content":"Unexpected summary side effect"}).to_string()}}]}),
+            true,
+            Some(100),
+        )
+        .await
+    } else {
+        respond_usage(stream, body, None, "Unused", 100).await
+    }
+}
+
 async fn reply_usage(
     stream: TcpStream,
     body: &Value,

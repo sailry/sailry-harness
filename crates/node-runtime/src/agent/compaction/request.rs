@@ -1,4 +1,4 @@
-//! One secondary summary request covers either layout repair or size recovery.
+//! One smaller summary request can recover from an input capacity failure.
 use super::*;
 
 impl Summarizer {
@@ -43,24 +43,6 @@ impl Summarizer {
         }
         let response = summarize(&*self.model, request.clone()).await;
         let response = match response {
-            Ok(response)
-                if !validation::headings(&response.text)
-                    && !response.text.trim().is_empty()
-                    && model::summary_retry() =>
-            {
-                let mut repair = request;
-                model::history::clear_prepared(&mut repair);
-                repair
-                    .contents
-                    .push(Content::new("model").with_text(response.text));
-                repair.contents.push(Content::new("user").with_text(
-                    "Repair only the handoff layout. Preserve the same facts and language, add every required ## heading in the specified order, and return the complete concise handoff. Do not execute tools or continue the task."
-                ));
-                if !self.fits_request(&repair)? {
-                    repair = self.shortened(&repair)?;
-                }
-                summarize(&*self.model, repair).await?
-            }
             Ok(response) => response,
             Err(error) if failure::recoverable(&error) && model::summary_retry() => {
                 let smaller = match self.shortened(&request) {
@@ -81,13 +63,6 @@ impl Summarizer {
                 Stage::Summary,
                 Reason::EmptySummary,
                 "context summary is empty",
-            ));
-        }
-        if !validation::headings(&response.text) {
-            return Err(invalid_at(
-                Stage::Summary,
-                Reason::UnexpectedOutput,
-                "context summary is missing required headings",
             ));
         }
         Ok(response)

@@ -30,7 +30,6 @@ pub(crate) struct Sessions {
     displays: std::collections::BTreeMap<String, sailry_protocol::tool::Display>,
     bindings: std::collections::BTreeMap<String, ApprovalBinding>,
     connections: Vec<sailry_protocol::connection::Resource>,
-    configuration: Option<crate::agent::ModelConfiguration>,
 }
 
 impl Sessions {
@@ -49,16 +48,7 @@ impl Sessions {
             displays: Default::default(),
             bindings: Default::default(),
             connections: Default::default(),
-            configuration: None,
         }
-    }
-
-    pub(crate) fn with_configuration(
-        mut self,
-        configuration: Option<crate::agent::ModelConfiguration>,
-    ) -> Self {
-        self.configuration = configuration;
-        self
     }
 
     pub(crate) fn with_notices(
@@ -487,9 +477,6 @@ impl Sessions {
             &aliases,
         )?;
         if event.author == "user" {
-            if let Some(configuration) = &self.configuration {
-                configuration.record(&mut event);
-            }
             event
                 .provider_metadata
                 .insert(INPUT_TURN.into(), self.input_turn.to_string());

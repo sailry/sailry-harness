@@ -15,8 +15,6 @@ pub(super) struct Registration {
     pub display: Option<(String, sailry_protocol::tool::Display)>,
     /// Core workflow tools enforce their own policy rather than file/process approval.
     pub managed: bool,
-    /// Exact captured declaration inputs, supplied only by their source owner.
-    pub definition: Option<String>,
     /// Registered execution remains captured; discovery exposes its model schema.
     pub deferred: bool,
 }
@@ -30,7 +28,6 @@ impl Registration {
             grouping: Default::default(),
             display: None,
             managed: false,
-            definition: None,
             deferred: false,
         }
     }
@@ -43,23 +40,8 @@ impl Registration {
             grouping: Default::default(),
             display: None,
             managed: true,
-            definition: None,
             deferred: false,
         }
-    }
-
-    pub fn capture(&mut self, schemas: impl serde::Serialize) {
-        let inputs = (
-            self.tool.name(),
-            self.tool.enhanced_description(),
-            self.tool.is_builtin(),
-            schemas,
-        );
-        self.definition = Some(
-            blake3::hash(&serde_json::to_vec(&inputs).expect("tool inputs are serializable"))
-                .to_hex()
-                .to_string(),
-        );
     }
 }
 

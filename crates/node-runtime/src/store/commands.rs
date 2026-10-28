@@ -433,7 +433,7 @@ pub(super) fn execute<'a>(
                 let info = if context.invocation.is_some() {
                     super::plugins::invocations::package(db, caller, context).await?
                 } else {
-                    super::agent::plugin_package(db, context).await?
+                    super::agent::plugin_package(db, request).await?
                 };
                 Ok((
                     Output::PluginSettings(
@@ -454,7 +454,7 @@ pub(super) fn execute<'a>(
                 let info = if context.invocation.is_some() {
                     super::plugins::invocations::package(db, caller, context).await?
                 } else {
-                    super::agent::plugin_package(db, context).await?
+                    super::agent::plugin_package(db, request).await?
                 };
                 Ok((
                     Output::PluginConnection(

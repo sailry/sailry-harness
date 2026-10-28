@@ -70,6 +70,7 @@ impl Context {
             .clone();
         let mut request = self.summarizer.canonical_request(events, &[], tools);
         // Keep the canonical request intact for commit's exact tail match.
+        matching::rebuild(&mut request, events, self.preamble(), "")?;
         let tokens = {
             let mut measured = request.clone();
             let mut outputs = model::history::prepare(&mut measured, None);

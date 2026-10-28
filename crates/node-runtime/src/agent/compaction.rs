@@ -40,17 +40,15 @@ impl Instruction {
 pub(super) fn bind(
     ingress: &Arc<Ingress>,
     model: Arc<dyn Llm>,
-    configuration: Option<model::effort::Capture>,
     invocation: &Invocation,
     stop: CancellationToken,
     instruction: String,
-    tools: std::collections::HashMap<String, serde_json::Value>,
 ) -> (
     adk_core::BeforeModelCallback,
     Arc<dyn adk_core::Tool>,
     Arc<active::Context>,
 ) {
-    let mut summarizer = Summarizer::new(ingress, model, configuration, invocation, stop, tools);
+    let mut summarizer = Summarizer::new(ingress, model, invocation, stop, Default::default());
     summarizer.preamble = Some(Content::new("system").with_text(instruction));
     let context = Arc::new(active::Context::new(
         ingress.clone(),
@@ -70,12 +68,13 @@ pub(super) async fn manual(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
     model: Arc<dyn Llm>,
-    configuration: Option<model::effort::Capture>,
     stop: CancellationToken,
+    instruction: String,
+    tools: std::collections::HashMap<String, serde_json::Value>,
 ) -> Result<(), Fault> {
     let service = ingress.sessions(invocation.turn.id);
     let session = invocation.turn.session.to_string();
-    let result = manual_inner(ingress, invocation, model, configuration, stop).await;
+    let result = manual_inner(ingress, invocation, model, stop, instruction, tools).await;
     if let Err(error) = &result {
         failure::record(
             service.as_ref(),
@@ -95,8 +94,9 @@ async fn manual_inner(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
     model: Arc<dyn Llm>,
-    configuration: Option<model::effort::Capture>,
     stop: CancellationToken,
+    instruction: String,
+    tools: std::collections::HashMap<String, serde_json::Value>,
 ) -> adk_core::Result<()> {
     let service = ingress.sessions(invocation.turn.id);
     let session = invocation.turn.session.to_string();
@@ -114,26 +114,17 @@ async fn manual_inner(
     {
         return Ok(());
     }
-    let mut prompt_session = prompt::Session::load(ingress, invocation)
+    let prompt_session = prompt::Session::load(ingress, invocation)
         .await
         .map_err(|error| {
             adk_core::AdkError::session("captured summary instruction could not be read")
                 .with_source(error)
         })?;
-    let mut summarizer = Summarizer::new(
-        ingress,
-        model,
-        configuration,
-        invocation,
-        stop.clone(),
-        prompt_session.tools(),
-    );
+    let mut summarizer = Summarizer::new(ingress, model, invocation, stop.clone(), tools);
     summarizer.masks = Some(prompt_session.output_masks().map_err(|error| {
         adk_core::AdkError::session("saved output masks are invalid").with_source(error)
     })?);
-    summarizer.preamble = Some(
-        Content::new("system").with_text(prompt_session.instruction(prompt::baseline().to_owned())),
-    );
+    summarizer.preamble = Some(Content::new("system").with_text(instruction));
     // An explicit request covers the newest complete exchanges.
     let Some(cut) = summarizer.prefix(&events, history.completed.into_iter().rev(), 0)? else {
         return Ok(());
@@ -157,7 +148,6 @@ async fn manual_inner(
 #[derive(Clone)]
 struct Summarizer {
     model: Arc<dyn Llm>,
-    configuration: Option<model::effort::Capture>,
     identity: crate::logging::Context,
     turn: TurnId,
     context: Option<u64>,
@@ -190,7 +180,6 @@ impl Summarizer {
     fn new(
         ingress: &Arc<Ingress>,
         model: Arc<dyn Llm>,
-        configuration: Option<model::effort::Capture>,
         invocation: &Invocation,
         stop: CancellationToken,
         tools: std::collections::HashMap<String, serde_json::Value>,
@@ -203,7 +192,6 @@ impl Summarizer {
         });
         Self {
             model,
-            configuration,
             identity: crate::logging::Context {
                 node: Some(ingress.node),
                 session: Some(invocation.turn.session),
@@ -484,7 +472,7 @@ impl Summarizer {
         let mut contents = contents.iter();
         let mut prefix_tokens = vec![0u64; events.len() + 1];
         for (index, event) in events.iter().enumerate() {
-            let tokens = if event.actions.compaction.is_some() || event.content().is_some() {
+            let tokens = if history::summary_parts(event).is_some() {
                 let content = contents.next().expect("history projection preserves order");
                 4 + content.parts.iter().map(estimate::part).sum::<u64>()
             } else {
@@ -587,9 +575,6 @@ impl Summarizer {
                 end_timestamp: last.timestamp,
                 compacted_content: content,
             });
-            if let Some(configuration) = &self.configuration {
-                configuration.compact(&mut event);
-            }
             event.provider_metadata.insert(
                 crate::store::agent::compaction::END_EVENT.into(),
                 last.id.clone(),

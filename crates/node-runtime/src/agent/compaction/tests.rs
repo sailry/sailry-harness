@@ -90,7 +90,6 @@ pub(super) fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarize
     (
         Summarizer {
             model: model.clone(),
-            configuration: None,
             identity: crate::logging::Context::default(),
             turn: TurnId::new(),
             context: Some(16_000),
@@ -533,7 +532,6 @@ async fn discards_cancelled_summary() {
     let stop = CancellationToken::new();
     let summarizer = Summarizer {
         model: model.clone(),
-        configuration: None,
         identity: crate::logging::Context::default(),
         turn: TurnId::new(),
         context: None,
@@ -678,6 +676,7 @@ async fn rejects_unhelpful_verbatim_replacement() {
     events[0].set_content(
         Content::new("user").with_text(summarizer.instruction.as_ref().unwrap().text.clone()),
     );
+    events[1].set_content(Content::new("model").with_text("Verified"));
     let original = serialized(&events);
     let error = summarizer
         .summarize_with(&events, SummaryMode::Automatic)
@@ -923,20 +922,25 @@ fn configures_existing_output_budget() {
 }
 
 #[tokio::test]
-async fn rejects_user_dominated_replacement() {
+async fn retains_user_dominated_replacement() {
     let (summarizer, _) = summarizer(vec![complete("Verified the source")], false);
     let original = "Keep exact constraints. ".repeat(160);
     let mut events = history();
     events[0].set_content(Content::new("user").with_text(original.clone()));
     events[1].set_content(Content::new("model").with_text("Verified evidence. ".repeat(50)));
-    let error = summarizer
+    let source = summarizer
+        .source_tokens(&events, &summarizer.prepare(&events).unwrap().request)
+        .unwrap();
+    let summary = summarizer
         .summarize_with(&events, SummaryMode::Automatic)
         .await
-        .unwrap_err();
-    assert_eq!(
-        failure::classify(&error),
-        (Stage::Summary, Reason::NoReduction)
-    );
+        .unwrap()
+        .unwrap();
+    let content = summary.actions.compaction.unwrap().compacted_content;
+    let saved = 4 + content.parts.iter().map(estimate::part).sum::<u64>();
+    assert!(saved * 2 >= source);
+    assert!(saved < source);
+    assert!(content.parts[0].text().unwrap().contains(&original));
     assert_eq!(
         events[0].content().unwrap().parts[0].text(),
         Some(original.as_str())

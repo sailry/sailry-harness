@@ -62,7 +62,7 @@ async fn independent_resume() {
         provider.models.push(Model {
             id: "fixture-a".into(),
             display_name: None,
-            context: 128,
+            context: 128_000,
             output: 32,
             vision: false,
             tools: false,

@@ -129,7 +129,6 @@ pub(super) fn capabilities(entry: &Value) -> Result<Option<discovery::Capabiliti
         ));
     }
     let value = discovery::Capabilities {
-        configuration_updates: boolean("configuration_updates")?,
         features: Vec::new(),
         vision: boolean("vision")?,
         tools: boolean("tool_call")?,

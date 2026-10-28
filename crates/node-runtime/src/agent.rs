@@ -16,7 +16,6 @@ mod mcp;
 pub(crate) use mcp::check::run as check_mcp;
 pub(crate) mod media;
 pub(crate) mod model;
-pub(crate) use model::effort::Capture as ModelConfiguration;
 pub(crate) mod observation;
 pub(crate) use model::plugin::{
     discover as discover_plugin_models, discover_authorized as discover_authorized_models,
@@ -384,15 +383,8 @@ async fn execute_with(
     } else {
         model::Purpose::Main
     };
-    let built = model::build(ingress, &invocation, &stop, purpose).await?;
-    let model = built.model;
-    if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
-        compaction::manual(ingress, &invocation, model, built.configuration, stop).await?;
-        return Ok(Outcome::default());
-    }
-    let mut inputs = inputs::Batch::capture(ingress, &invocation).await?;
-    inputs.configure(built.configuration.clone());
-    let mut prompt_session = prompt::Session::load(ingress, &invocation).await?;
+    let model = model::build(ingress, invocation, &stop, purpose).await?;
+    let prompt_session = prompt::Session::load(ingress, invocation).await?;
     let resources = Arc::new(crate::plugins::resources::Resources::new(
         ingress.plugins.clone(),
         invocation
@@ -507,10 +499,6 @@ async fn execute_with(
     instruction.push_str("\n\n");
     instruction.push_str(prompt::recipient(invocation.child.is_some()));
     let capability_tools = references::capabilities::tools(&extensions.tools);
-    inputs
-        .select(&invocation, &resources, &capability_tools)
-        .await?;
-    let (input_turn, input_references, content, capability_part) = inputs.current();
     if let Some(title) = title::instruction(
         invocation.title.as_deref(),
         tool_capable,
@@ -519,16 +507,17 @@ async fn execute_with(
         policy.push_str("\n\n");
         policy.push_str(&title);
     }
-    let instruction = prompt_session.instruction(instruction);
-    let summary = model::build(ingress, &invocation, &stop, model::Purpose::Compaction).await?;
+    let summary = if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
+        model.clone()
+    } else {
+        model::build(ingress, invocation, &stop, model::Purpose::Compaction).await?
+    };
     let (compact, compact_tool, context) = compaction::bind(
         ingress,
-        summary.model,
-        summary.configuration,
+        summary,
         &invocation,
         stop.clone(),
         instruction.clone(),
-        prompt_session.tools(),
     );
     if tool_capable {
         extensions
@@ -547,8 +536,25 @@ async fn execute_with(
             ]);
         }
     }
-    let declarations = prompt_session.declarations(&extensions.tools);
+    let declarations = prompt::session::declarations(&extensions.tools);
     let preflight_tools = prompt::session::project(declarations.clone(), &prompt_session.loaded());
+    if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
+        compaction::manual(
+            ingress,
+            invocation,
+            model,
+            stop,
+            instruction,
+            preflight_tools,
+        )
+        .await?;
+        return Ok(Outcome::default());
+    }
+    let mut inputs = inputs::Batch::capture(ingress, invocation).await?;
+    inputs
+        .select(invocation, &resources, &capability_tools)
+        .await?;
+    let (input_turn, input_references, content, capability_part) = inputs.current();
     prompt_session
         .append(ingress, &invocation, policy, environment, personal, &stop)
         .await?;
@@ -620,7 +626,6 @@ async fn execute_with(
     let agent = agent.build().map_err(model::error)?;
     let sessions = Arc::new(
         crate::store::agent::Sessions::new(ingress.clone(), invocation.turn.id)
-            .with_configuration(built.configuration.clone())
             .with_input_turn(input_turn)
             .with_input_source(if invocation.child.is_some() {
                 "parent"

@@ -216,7 +216,6 @@ pub(super) async fn bind(
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
-            registration.capture((&handler.parameters, Option::<Value>::None));
             registration.display = declaration.display.clone().map(|display| {
                 let display = match operation {
                     Some(operation) => operations::connections::display(

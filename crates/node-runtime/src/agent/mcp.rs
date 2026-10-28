@@ -162,7 +162,6 @@ impl Connections {
                             registration.grouping = grouping;
                             registration.display = display.map(|display| (registration.tool.name().into(), display));
                             registration.plugin = Some(config.plugin.clone());
-                            registration.capture((&bound.descriptor.input_schema, &bound.descriptor.output_schema));
                             tools.push(registration);
                         }
                         self.active.push(connection);

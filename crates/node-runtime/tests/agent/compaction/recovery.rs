@@ -146,13 +146,22 @@ async fn continues_after_unavailable_summary() {
 }
 
 #[tokio::test]
-async fn halts_without_valid_recovery() {
+async fn continues_after_unusable_summary() {
     for remote in [false, true] {
         for (text, reason) in [
-            (String::new(), "empty_summary"),
-            ("Expanded handoff evidence ".repeat(400), "no_reduction"),
+            (Some(String::new()), "empty_summary"),
+            (
+                Some("Expanded handoff evidence ".repeat(800)),
+                "no_reduction",
+            ),
+            (None, "unexpected_output"),
+            (None, "truncated_summary"),
         ] {
-            let server = Server::compaction_sequence(false, text, vec![100, 26_000, 100]).await;
+            let server = match text {
+                Some(text) => Server::compaction_text(false, text).await,
+                None if reason == "unexpected_output" => Server::summary_tool().await,
+                None => Server::truncated_summary().await,
+            };
             let fixture = fixture(remote, &server).await;
             std::fs::write(
                 fixture.root.join("source.txt"),
@@ -165,78 +174,132 @@ async fn halts_without_valid_recovery() {
                 "Read source.txt".into(),
             )
             .await;
+            trigger_summary(&fixture).await;
             let message = "Continue with verified evidence";
-            let Output::QueuedTurn(turn) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::SubmitTurn {
-                    session: fixture.session.id,
-                    expected_revision: 1,
-                    message: message.into(),
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("turn expected");
-            };
-            let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+            let (_, turn, after) =
+                submit(&fixture.client, fixture.session.id, message.into()).await;
+            assert_eq!(&after.entries[..before.entries.len()], before.entries);
+            assert!(!after.queue.paused);
+            assert!(after.queue.items.is_empty());
             assert_eq!(
                 after
-                    .runs
-                    .iter()
-                    .find(|run| run.turn == turn.id)
-                    .unwrap()
-                    .status,
-                Status::Failed
-            );
-            assert_eq!(&after.entries[..before.entries.len()], before.entries);
-            assert!(after.queue.paused);
-            assert_eq!(after.queue.items.len(), 1);
-            assert_eq!(after.queue.items[0].turn, turn.id);
-            assert!(!after.queue.items[0].ready);
-            assert!(
-                !after
                     .entries
                     .iter()
-                    .any(|entry| entry.turn == turn.id && entry.author == "user")
+                    .filter(|entry| entry.turn == turn && entry.author == "user")
+                    .flat_map(|entry| &entry.parts)
+                    .filter(|part| matches!(part, Part::Text(text) if text == message))
+                    .count(),
+                1
             );
-            let Output::QueuedMessage(retained) = fixture
-                .client
-                .execute(
-                    fixture
-                        .client
-                        .prepare(Command::ReadQueuedTurn { turn: turn.id }),
-                )
-                .await
-                .unwrap()
-            else {
-                panic!("retained input expected");
-            };
-            assert_eq!(retained.message.text, message);
+            assert_eq!(
+                after
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .filter(|part| matches!(part, Part::ToolResult { .. }))
+                    .count(),
+                1
+            );
+            assert!(after.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
+                matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
+                    && value["failure"]["source"] == "automatic"
+                    && value["failure"]["stage"] == "summary"
+                    && value["failure"]["reason"] == reason
+                    && value["failure"]["continued"] == true)
+            }));
+            assert_no_summary(&fixture, &after).await;
+            assert!(!fixture.root.join("unexpected-summary.txt").exists());
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(
                 requests
                     .iter()
                     .filter(|request| agent_support::compaction::is_summary(request))
                     .count(),
-                1
+                1,
+                "{reason}"
             );
             assert_eq!(
                 requests
                     .iter()
                     .filter(|request| !agent_support::compaction::is_summary(request))
                     .count(),
-                2
+                3
             );
-            assert_eq!(requests.len(), 3);
-            assert!(agent_support::compaction::is_summary(&requests[2]));
-            assert!(
-                !after
-                    .entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .any(|part| matches!(part, Part::Compaction(_)))
-            );
-            assert!(
+            let retained = messages(requests.last().unwrap());
+            assert!(retained.contains("Verified tool evidence"));
+            assert!(!retained.contains("unexpected-summary-tool"));
+            assert_eq!(retained.matches(message).count(), 1);
+            fixture.node.shutdown().await.unwrap();
+            fixture.controller.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn rejects_oversized_context_after_unusable_summary() {
+    for remote in [false, true] {
+        let server = Server::compaction_text(false, "Expanded handoff evidence ".repeat(800)).await;
+        let fixture = fixture(remote, &server).await;
+        std::fs::write(
+            fixture.root.join("source.txt"),
+            "Verified tool evidence\n".repeat(80),
+        )
+        .unwrap();
+        let (_, _, before) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Read source.txt".into(),
+        )
+        .await;
+        trigger_summary(&fixture).await;
+        let message = "x".repeat(256 * 1024);
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: 1,
+                message: message.clone().into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected");
+        };
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            after
+                .runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Failed
+        );
+        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert!(after.queue.paused);
+        assert_eq!(after.queue.items.len(), 1);
+        assert_eq!(after.queue.items[0].turn, turn.id);
+        assert!(!after.queue.items[0].ready);
+        assert!(
+            !after
+                .entries
+                .iter()
+                .any(|entry| entry.turn == turn.id && entry.author == "user")
+        );
+        let Output::QueuedMessage(retained) = fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::ReadQueuedTurn { turn: turn.id }),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("retained input expected");
+        };
+        assert_eq!(retained.message.text, message);
+        assert!(
             after
                 .entries
                 .iter()
@@ -244,22 +307,47 @@ async fn halts_without_valid_recovery() {
                 .any(|part| {
                     matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
                 && value["failure"]["source"] == "automatic"
-                && value["failure"]["stage"] == "summary"
-                && value["failure"]["reason"] == reason
+                && value["failure"]["reason"] == "context_overflow"
                 && value["failure"]["continued"] == false)
                 })
         );
-            let count: i64 = fixture.node.with_storage(|db| Box::pin(async move {
-            db.prepare("SELECT count(*) FROM agent_events WHERE json_type(body,'$.actions.compaction')='object'")
-                .await.map_err(crate::database_fixture::fault)?
-                .query_row(()).await.map_err(crate::database_fixture::fault)?
-                .get(0).map_err(crate::database_fixture::fault)
-        })).await.unwrap();
-            assert_eq!(count, 0);
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
-        }
+        assert_no_summary(&fixture, &after).await;
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3);
+        assert!(agent_support::compaction::is_summary(&requests[2]));
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
     }
+}
+
+async fn trigger_summary(fixture: &Fixture) {
+    let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+    provider.models[0].compaction_tokens = Some(100);
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        }))
+        .await
+        .unwrap();
+}
+
+async fn assert_no_summary(fixture: &Fixture, page: &Page) {
+    assert!(
+        !page
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .any(|part| matches!(part, Part::Compaction(_)))
+    );
+    let count: i64 = fixture.node.with_storage(|db| Box::pin(async move {
+        db.prepare("SELECT count(*) FROM agent_events WHERE json_type(body,'$.actions.compaction')='object'")
+            .await.map_err(crate::database_fixture::fault)?
+            .query_row(()).await.map_err(crate::database_fixture::fault)?
+            .get(0).map_err(crate::database_fixture::fault)
+    })).await.unwrap();
+    assert_eq!(count, 0);
 }
 
 #[tokio::test]

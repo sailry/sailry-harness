@@ -121,8 +121,7 @@ pub(in crate::store) async fn execute(
             expected_revision,
         } => {
             let (session, runs) =
-                guidance::select(db, caller, request, *turn, *recipient, *expected_revision)
-                    .await?;
+                guidance::select(db, *turn, *recipient, *expected_revision).await?;
             changed.extend(runs);
             session
         }

@@ -810,7 +810,7 @@ impl Database {
         } else if context.invocation.is_some() {
             super::invocations::package(&self.connection, caller, context).await
         } else if context.turn.is_some() {
-            crate::store::agent::plugin_package(&self.connection, context).await
+            crate::store::agent::plugin_package(&self.connection, request).await
         } else if let Some(info) =
             crate::store::dispatch::jobs::package(&self.connection, self.node, caller, request)
                 .await?

@@ -3,6 +3,10 @@ use super::*;
 
 #[path = "live/compaction.rs"]
 mod compaction;
+#[path = "live/efficiency.rs"]
+mod efficiency;
+#[path = "live/files.rs"]
+mod files;
 
 #[derive(serde::Deserialize)]
 struct Source {

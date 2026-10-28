@@ -42,7 +42,7 @@ async fn rejects_expanding_outputs() {
     let events = history();
     let original = serialized(&events);
     let tokens = estimate::tokens(&events) as usize;
-    for length in [tokens * 2, tokens * 4 + 1, 32 * 1024 + 1] {
+    for length in [tokens * 4 + 1, tokens * 8 + 1, 32 * 1024 + 1] {
         let (summarizer, model) = summarizer(vec![complete(&"x".repeat(length))], false);
         let error = summarizer
             .summarize_with(&events, SummaryMode::Automatic)
@@ -70,6 +70,55 @@ fn preserves_canonical_prefix() {
     );
     assert!(prepared.request.tools.is_empty());
     assert!(prepared.request.previous_response_id.is_none());
+}
+
+#[test]
+fn ignores_obsolete_controls_at_boundaries() {
+    let (summarizer, _) = summarizer(vec![], false);
+    let mut events = history();
+    let content: Content = serde_json::from_value(json!({
+        "role":"user", "parts":[
+            {"text":"App-authored reference header"},
+            {"provider_data":{"origin":{"provider":"responses","model":"fixture","scope":"owner"},"parts":[
+                {"configuration_update":{"effort":"high"}}
+            ]}},
+            {"text":"Original user instruction"}
+        ]
+    })).unwrap();
+    events[0].set_content(content.clone());
+    events[0]
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_PART.into(), "2".into());
+    let mut control = Event::new("old-control");
+    control.author = "user".into();
+    control.set_content(Content {
+        role: "user".into(),
+        parts: vec![content.parts[1].clone()],
+    });
+    events.insert(0, control);
+    let original = serde_json::to_vec(&events).unwrap();
+    assert_eq!(
+        summarizer
+            .prefix(&events, [3, 2, 1].into_iter(), 0)
+            .unwrap(),
+        Some(3)
+    );
+    let request = summarizer.prepare(&events).unwrap().request;
+    assert_eq!(request.contents.len(), 4);
+    assert_eq!(
+        request.contents[1].parts,
+        Content::new("user")
+            .with_text("App-authored reference header")
+            .with_text("Original user instruction")
+            .parts
+    );
+    assert!(
+        request.contents.last().unwrap().parts[0]
+            .text()
+            .unwrap()
+            .contains("History message 0: input_source=user; original_text_part=1")
+    );
+    assert_eq!(serde_json::to_vec(&events).unwrap(), original);
 }
 
 #[test]
@@ -203,8 +252,16 @@ fn preserves_exact_recent_window() {
 
 #[tokio::test]
 async fn compares_model_visible_source() {
-    let (mut summarizer, model) =
-        summarizer(vec![complete(&"handoff evidence ".repeat(1200))], false);
+    let response = complete(&"handoff evidence ".repeat(3000));
+    let candidate = 4 + response
+        .content
+        .as_ref()
+        .unwrap()
+        .parts
+        .iter()
+        .map(estimate::part)
+        .sum::<u64>();
+    let (mut summarizer, model) = summarizer(vec![response], false);
     summarizer.context = Some(128_000);
     let mut events = history();
     events[1]
@@ -236,7 +293,11 @@ async fn compares_model_visible_source() {
     });
     events.push(result);
     let request = summarizer.prepare(&events).unwrap().request;
-    assert!(summarizer.source_tokens(&events, &request).unwrap() < estimate::tokens(&events));
+    let visible = summarizer.source_tokens(&events, &request).unwrap();
+    let canonical = estimate::tokens(&events);
+    assert!(visible < canonical);
+    assert!(candidate >= visible);
+    assert!(candidate < canonical);
     let error = summarizer
         .summarize_with(&events, SummaryMode::Automatic)
         .await

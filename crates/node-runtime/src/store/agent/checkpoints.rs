@@ -249,7 +249,7 @@ pub(super) async fn capture(
     {
         Some(adk_core::Part::FunctionCall { name, .. }) => {
             if let Some(context) = &request.plugin {
-                let package = super::plugins::package(&transaction, context).await?;
+                let package = super::plugins::package(&transaction, request).await?;
                 // The trusted handler may prepare arguments from the exact claimed call.
                 // Retain the resulting request digest, with the same frozen package and scope.
                 context.turn == Some(turn)

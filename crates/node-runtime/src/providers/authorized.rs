@@ -150,8 +150,6 @@ fn parse(
                 metadata::limits(entry, &["context_window"])?,
                 metadata::limits(entry, &["max_output_tokens"])?,
                 discovery::Capabilities {
-                    configuration_updates: metadata::capabilities(entry)?
-                        .and_then(|value| value.configuration_updates),
                     features: if authentication == Authentication::ChatGptOAuth {
                         features(entry)?
                     } else {
@@ -173,7 +171,6 @@ fn parse(
                 metadata::limits(limits, &["max_context_window_tokens"])?,
                 metadata::limits(limits, &["max_output_tokens"])?,
                 discovery::Capabilities {
-                    configuration_updates: boolean(supports, "configuration_updates")?,
                     features: Vec::new(),
                     vision: boolean(supports, "vision")?,
                     web_search: boolean(supports, "web_search")?,

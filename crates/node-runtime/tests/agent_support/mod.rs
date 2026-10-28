@@ -60,6 +60,7 @@ enum Reply {
         usage: Arc<Vec<i32>>,
     },
     TruncatedSummary,
+    SummaryTool,
     Overflow,
     EarlyLength,
     Summary {
@@ -272,6 +273,9 @@ impl Server {
     }
     pub async fn truncated_summary() -> Self {
         Self::serve(Reply::TruncatedSummary).await
+    }
+    pub async fn summary_tool() -> Self {
+        Self::serve(Reply::SummaryTool).await
     }
     /// Rejects the fifth conversation request as too long until a summary exists.
     pub async fn context_overflow() -> Self {
@@ -668,6 +672,10 @@ async fn respond(
     if let Reply::TruncatedSummary = reply {
         records.lock().unwrap().push(body.clone());
         return compaction::respond_truncated(stream, &body).await;
+    }
+    if let Reply::SummaryTool = reply {
+        records.lock().unwrap().push(body.clone());
+        return compaction::respond_summary_tool(stream, &body).await;
     }
     if let Reply::Summary {
         usage,

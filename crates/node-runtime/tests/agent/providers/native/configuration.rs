@@ -19,12 +19,12 @@ async fn select(current: &mut Fixture, effort: Effort) {
     current.session = session;
 }
 
-async fn capability(current: &mut Fixture, enabled: bool) {
+async fn capabilities(current: &mut Fixture) {
     let mut provider = current.provider.clone();
     provider.models[0].efforts = vec![Effort::Low, Effort::High, Effort::Max];
     provider.models[0].capabilities = Some(
         serde_json::from_value(json!({
-            "reasoning":true, "configuration_updates":enabled,
+            "reasoning":true,
         }))
         .unwrap(),
     );
@@ -74,7 +74,7 @@ fn updates(body: &Value) -> Vec<&Value> {
 }
 
 fn preserves(left: &Value, right: &Value) {
-    for name in ["model", "instructions", "tools", "reasoning", "include"] {
+    for name in ["model", "instructions", "tools", "include"] {
         assert_eq!(
             serde_json::to_vec(&left[name]).unwrap(),
             serde_json::to_vec(&right[name]).unwrap(),
@@ -84,7 +84,7 @@ fn preserves(left: &Value, right: &Value) {
 }
 
 #[tokio::test]
-async fn preserves_prefix_across_effort_changes() {
+async fn applies_effort_at_request_boundary() {
     for remote in [false, true] {
         for websocket in [false, true] {
             let server = Server::transport(
@@ -98,7 +98,7 @@ async fn preserves_prefix_across_effort_changes() {
             )
             .await;
             let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-            capability(&mut current, true).await;
+            capabilities(&mut current).await;
             current
                 .node
                 .set_model_transport_fixture(adk_model::openai::WsOptions {
@@ -107,53 +107,33 @@ async fn preserves_prefix_across_effort_changes() {
                 });
             select(&mut current, Effort::Max).await;
             complete(&current, "Original request").await;
-            // Settings that were never sent must not create adjacent input updates.
+            // Only the setting selected when sending belongs to the new turn.
             select(&mut current, Effort::Low).await;
             select(&mut current, Effort::High).await;
             complete(&current, "Changed effort request").await;
             complete(&current, "Same effort request").await;
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), 3, "remote={remote}, websocket={websocket}");
-            assert!(updates(&requests[0].body).is_empty());
-            assert_eq!(
-                updates(&requests[1].body),
-                [&json!({"type":"configuration_update","reasoning":{"effort":"high"}})]
-            );
-            for request in &requests {
-                assert_eq!(request.body["reasoning"]["effort"], "max");
-                assert!(!request.body.to_string().contains("provider_data"));
-                assert!(
-                    !request
-                        .body
-                        .to_string()
-                        .contains("configuration_update\",\"reasoning\":{\"effort\":\"low")
-                );
+            assert_eq!(requests[0].body["reasoning"]["effort"], "max");
+            for request in &requests[1..] {
+                assert_eq!(request.body["reasoning"]["effort"], "high");
                 preserves(&requests[0].body, &request.body);
             }
+            for request in &requests {
+                assert!(updates(&request.body).is_empty());
+                assert!(!request.body.to_string().contains("provider_data"));
+            }
+            // A changed setting starts a complete request; unchanged settings
+            // can continue the provider's existing response.
+            assert!(requests[1].body.get("previous_response_id").is_none());
             if websocket {
-                assert_eq!(requests[1].body["previous_response_id"], "native-response");
                 assert_eq!(requests[2].body["previous_response_id"], "native-response");
-                assert_eq!(requests[1].body["input"][0]["type"], "configuration_update");
-                assert!(updates(&requests[2].body).is_empty());
-                assert_eq!(server.upgrades.lock().unwrap().len(), 1);
             } else {
                 let first = requests[0].body["input"].as_array().unwrap();
                 let second = requests[1].body["input"].as_array().unwrap();
                 let third = requests[2].body["input"].as_array().unwrap();
-                assert_eq!(
-                    serde_json::to_vec(first).unwrap(),
-                    serde_json::to_vec(&second[..first.len()]).unwrap()
-                );
-                assert_eq!(
-                    serde_json::to_vec(second).unwrap(),
-                    serde_json::to_vec(&third[..second.len()]).unwrap()
-                );
-                assert_eq!(updates(&requests[2].body), updates(&requests[1].body));
-                assert!(
-                    requests
-                        .iter()
-                        .all(|request| request.body.get("previous_response_id").is_none())
-                );
+                assert_eq!(first, &second[..first.len()]);
+                assert_eq!(second, &third[..second.len()]);
             }
             let events = super::stateless::fixture::events(&current.node, current.session.id).await;
             let events: Vec<adk_core::Event> = events
@@ -166,7 +146,7 @@ async fn preserves_prefix_across_effort_changes() {
                 .collect();
             assert_eq!(user.len(), 3);
             assert_eq!(user[0].provider_metadata["sailry.context.input_part"], "0");
-            assert_eq!(user[1].provider_metadata["sailry.context.input_part"], "1");
+            assert_eq!(user[1].provider_metadata["sailry.context.input_part"], "0");
             assert_eq!(user[2].provider_metadata["sailry.context.input_part"], "0");
             assert_eq!(
                 user.iter()
@@ -176,7 +156,7 @@ async fn preserves_prefix_across_effort_changes() {
                         adk_core::Part::ConfigurationUpdate { .. }
                     ))
                     .count(),
-                1
+                0
             );
             current.controller.close().await.unwrap();
             current.node.shutdown().await.unwrap();
@@ -189,7 +169,7 @@ async fn restores_effort_after_restart_and_compaction() {
     for remote in [false, true] {
         let server = summary_server().await;
         let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-        capability(&mut current, true).await;
+        capabilities(&mut current).await;
         current
             .node
             .set_model_transport_fixture(adk_model::openai::WsOptions {
@@ -246,13 +226,16 @@ async fn restores_effort_after_restart_and_compaction() {
             serde_json::to_vec(old).unwrap(),
             serde_json::to_vec(&restored[..old.len()]).unwrap()
         );
-        assert_eq!(updates(&requests[2].body).len(), 1);
-        assert_eq!(requests[4].body["input"][0]["type"], "configuration_update");
-        assert_eq!(updates(&requests[4].body).len(), 1);
+        assert_eq!(requests[0].body["reasoning"]["effort"], "max");
+        assert!(
+            requests[1..]
+                .iter()
+                .all(|request| request.body["reasoning"]["effort"] == "high")
+        );
         assert!(
             requests
                 .iter()
-                .all(|request| request.body["reasoning"]["effort"] == "max")
+                .all(|request| updates(&request.body).is_empty())
         );
         current.controller.close().await.unwrap();
         current.node.shutdown().await.unwrap();
@@ -260,48 +243,13 @@ async fn restores_effort_after_restart_and_compaction() {
 }
 
 #[tokio::test]
-async fn omits_updates_without_model_capability() {
-    for remote in [false, true] {
-        let server = Server::start(ModelApi::Responses, Reply::Text).await;
-        let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-        current
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                enabled: Arc::new(|| false),
-                ..Default::default()
-            });
-        capability(&mut current, true).await;
-        select(&mut current, Effort::Max).await;
-        complete(&current, &"Initial request evidence ".repeat(200)).await;
-        select(&mut current, Effort::High).await;
-        complete(&current, "Updated request").await;
-        capability(&mut current, false).await;
-        select(&mut current, Effort::Low).await;
-        complete(&current, "Unsupported request").await;
-        capability(&mut current, true).await;
-        select(&mut current, Effort::High).await;
-        complete(&current, "Restore supported request").await;
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 4);
-        assert_eq!(requests[2].body["reasoning"]["effort"], "low");
-        assert!(updates(&requests[2].body).is_empty());
-        assert_eq!(requests[3].body["reasoning"]["effort"], "max");
-        assert_eq!(updates(&requests[3].body).len(), 1);
-        assert_eq!(updates(&requests[3].body)[0]["reasoning"]["effort"], "high");
-        current.controller.close().await.unwrap();
-        current.node.shutdown().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn restores_owner_after_unsupported_compaction() {
+async fn uses_selected_model_during_compaction() {
     for remote in [false, true] {
         let server = summary_server().await;
         let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-        capability(&mut current, true).await;
+        capabilities(&mut current).await;
         let mut other = current.provider.models[0].clone();
         other.id = "fixture-b".into();
-        other.capabilities.as_mut().unwrap().configuration_updates = Some(false);
         current.provider.models.push(other);
         let Output::Provider(provider) = execute(
             &current.client,
@@ -378,47 +326,20 @@ async fn restores_owner_after_unsupported_compaction() {
         complete(&current, "Keep the restored setting").await;
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 5);
-        assert!(updates(&requests[2].body).is_empty());
-        assert_eq!(updates(&requests[3].body).len(), 1);
-        assert_eq!(updates(&requests[4].body).len(), 1);
-        assert_eq!(updates(&requests[3].body)[0]["reasoning"]["effort"], "high");
-        assert_eq!(requests[3].body["reasoning"]["effort"], "max");
+        assert_eq!(requests[2].body["model"], "fixture-b");
+        assert_eq!(requests[3].body["model"], "fixture-a");
+        assert_eq!(requests[0].body["reasoning"]["effort"], "max");
+        for request in &requests[1..] {
+            assert_eq!(request.body["reasoning"]["effort"], "high");
+        }
+        assert!(
+            requests
+                .iter()
+                .all(|request| updates(&request.body).is_empty())
+        );
         let restored = requests[3].body["input"].as_array().unwrap();
         let next = requests[4].body["input"].as_array().unwrap();
-        assert_eq!(
-            serde_json::to_vec(restored).unwrap(),
-            serde_json::to_vec(&next[..restored.len()]).unwrap()
-        );
-        let events = super::stateless::fixture::events(&current.node, current.session.id).await;
-        let events: Vec<adk_core::Event> = events
-            .iter()
-            .map(|body| serde_json::from_slice(body).unwrap())
-            .collect();
-        let user: Vec<_> = events
-            .iter()
-            .filter(|event| event.author == "user")
-            .rev()
-            .take(2)
-            .collect();
-        assert!(
-            !user[0].content().unwrap().parts.iter().any(|part| matches!(
-                part.provider_part(),
-                adk_core::Part::ConfigurationUpdate { .. }
-            ))
-        );
-        assert_eq!(
-            user[1]
-                .content()
-                .unwrap()
-                .parts
-                .iter()
-                .filter(|part| matches!(
-                    part.provider_part(),
-                    adk_core::Part::ConfigurationUpdate { .. }
-                ))
-                .count(),
-            1
-        );
+        assert_eq!(restored, &next[..restored.len()]);
         current.controller.close().await.unwrap();
         current.node.shutdown().await.unwrap();
     }

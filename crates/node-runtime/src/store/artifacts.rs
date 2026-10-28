@@ -178,7 +178,7 @@ async fn write(
             ));
         }
     }
-    let package = super::agent::plugins::package(db, context).await?;
+    let package = super::agent::plugins::package(db, request).await?;
     let allowed_classes = package
         .extension
         .as_ref()

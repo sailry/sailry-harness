@@ -117,8 +117,6 @@ pub(in crate::store) async fn tag(
 
 pub(super) async fn select(
     db: &Connection,
-    caller: NodeId,
-    request: &Request,
     source: TurnId,
     target: TurnId,
     expected_revision: u64,
@@ -148,44 +146,20 @@ pub(super) async fn select(
             clear(db, source.session, Some(recipient)).await?;
         }
     }
-    let mut changed = Vec::new();
-    let selected = if same_capture(db, &source, &target).await? {
-        source.turn
+    if same_capture(db, &source, &target).await? {
+        runs::retry(db, source.turn).await?;
+        tag(db, source.turn, target.turn).await?;
     } else {
-        // This explicit guidance command admits a new turn with the recipient's
-        // capture. The original sent turn and its configuration remain immutable.
-        let queued = message(db, source.turn).await?;
-        let input: (String, Vec<u8>) = {
-            let mut statement = db
-                .prepare("SELECT request,caller FROM agent_pending WHERE turn=?1")
-                .await
-                .map_err(storage_error)?;
-            let row = statement
-                .query_row([source.turn.to_string()])
-                .await
-                .map_err(storage_error)?;
-            let mapped: turso::Result<_> =
-                (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
-            mapped.map_err(storage_error)?
-        };
-        let turn = inherit(db, caller, request, &target, &queued.message).await?;
-        changed.push(runs::stop(db, source.turn).await?);
-        // Keep the exact current message ledger reference, including prior edits.
+        // An input with different settings remains an ordinary queued turn.
+        // Its capture, edited message and queue position remain unchanged.
         db.execute(
-            "UPDATE agent_pending SET request=?2,caller=?3 WHERE turn=?1",
-            params![turn.id.to_string(), input.0, input.1],
-        )
-        .await
-        .map_err(storage_error)?;
-        changed.push(runs::get(db, turn.id).await?);
-        turn.id
-    };
-    runs::retry(db, selected).await?;
-    tag(db, selected, target.turn).await?;
-    if !changed.iter().any(|run| run.turn == selected) {
-        changed.push(runs::get(db, selected).await?);
+            "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL",
+            [source.turn.to_string()],
+        ).await.map_err(storage_error)?;
+        runs::start(db, source.turn).await?;
+        pause(db, source.session, false).await?;
     }
-    Ok((source.session, changed))
+    Ok((source.session, vec![runs::get(db, source.turn).await?]))
 }
 
 /// Admits input with the recipient's frozen configuration and capabilities.
@@ -240,11 +214,11 @@ pub(in crate::store) async fn guide(
             "guidance requires a delegated child",
         ));
     }
-    super::super::super::sessions::writable(
-        &super::super::super::commands::session(db, target.session).await?,
-    )?;
-    let turn = inherit(db, caller, request, &target, message).await?;
-    tag(db, turn.id, target.turn).await?;
+    let session = super::super::super::commands::session(db, target.session).await?;
+    let turn = create(db, caller, request, session, message, true).await?;
+    if same_capture(db, &runs::get(db, turn.id).await?, &target).await? {
+        tag(db, turn.id, target.turn).await?;
+    }
     Ok((
         Output::QueuedTurn(turn.clone()),
         Some(super::super::activity::queued(db, turn).await?),

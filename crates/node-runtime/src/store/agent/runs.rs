@@ -436,11 +436,8 @@ async fn claim_with(
             .transpose()?,
     )
     .await?;
-    let plugins = if queued.turn.kind == RunKind::Task {
-        crate::store::agent::plugins::packages(&transaction, &queued.turn.plugins).await?
-    } else {
-        Vec::new()
-    };
+    let plugins =
+        crate::store::agent::plugins::packages(&transaction, &queued.turn.plugins).await?;
     let plugin_settings = super::super::plugins::settings::capture(&transaction, &plugins).await;
     let provider: Option<Provider> = provider
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))

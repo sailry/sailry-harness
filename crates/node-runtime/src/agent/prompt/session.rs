@@ -1,4 +1,4 @@
-//! Stable request declarations and changing context use canonical ADK state.
+//! Current tool declarations and changing context use canonical ADK state.
 use super::instructions::{self, Scope};
 use crate::{
     agent::catalog::Registration,
@@ -11,81 +11,40 @@ use adk_core::{Content, Event, Part, ToolContext};
 use adk_session::{GetRequest, SessionService};
 use sailry_link::CancellationToken;
 use sailry_protocol::{Fault, TurnId, conversation::reference::Target, tool::Operation};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
 };
 
-const SNAPSHOT: &str = "sailry.context.declarations";
 pub(in crate::agent) const POLICY: &str = "sailry.context.policy";
 const ENVIRONMENT: &str = "sailry.context.environment";
 const PERSONAL: &str = "sailry.context.personal";
 pub(in crate::agent) use crate::store::agent::LOADED_TOOLS;
 pub(crate) const METADATA: &str = "sailry.context";
 
-#[derive(Clone, Default, Serialize, Deserialize)]
-struct Snapshot {
-    instruction: Option<String>,
-    tools: Option<BTreeMap<String, Declaration>>,
-}
-
-impl Snapshot {
-    fn instruction(&mut self, current: String) -> String {
-        self.instruction.get_or_insert(current).clone()
-    }
-
-    fn declarations(&mut self, tools: &[Registration]) -> BTreeMap<String, Declaration> {
-        let captured = self.tools.get_or_insert_with(BTreeMap::new);
-        let selected: std::collections::BTreeSet<_> =
-            tools.iter().map(|entry| entry.tool.name()).collect();
-        captured.retain(|name, _| selected.contains(name.as_str()));
-        for entry in tools {
-            let definition = entry.definition.clone().unwrap_or_else(|| {
-                let inputs = (
-                    entry.tool.name(),
-                    entry.tool.enhanced_description(),
-                    entry.tool.is_builtin(),
-                    entry.tool.parameters_schema(),
-                );
-                blake3::hash(&serde_json::to_vec(&inputs).expect("tool inputs serialize"))
-                    .to_hex()
-                    .to_string()
-            });
-            if let Some(previous) = captured.get_mut(entry.tool.name()) {
-                previous.deferred = entry.deferred;
-            }
-            let previous = captured.get(entry.tool.name());
-            if previous.is_some_and(|previous| previous.definition.as_ref() == Some(&definition)) {
-                continue;
-            }
-            let current = Declaration {
-                value: entry.tool.declaration(),
-                builtin: entry.tool.is_builtin(),
-                definition: Some(definition),
-                deferred: entry.deferred,
-            };
-            if previous != Some(&current) {
-                captured.insert(entry.tool.name().into(), current);
-            }
-        }
-        captured.clone()
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone)]
 pub(in crate::agent) struct Declaration {
     value: Value,
-    builtin: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    definition: Option<String>,
-    #[serde(default)]
     deferred: bool,
 }
 
+pub(in crate::agent) fn declarations(tools: &[Registration]) -> BTreeMap<String, Declaration> {
+    tools
+        .iter()
+        .map(|entry| {
+            (
+                entry.tool.name().to_owned(),
+                Declaration {
+                    value: entry.tool.declaration(),
+                    deferred: entry.deferred,
+                },
+            )
+        })
+        .collect()
+}
+
 pub(in crate::agent) struct Session {
-    snapshot: Snapshot,
     state: HashMap<String, Value>,
     sessions: Sessions,
 }
@@ -104,18 +63,7 @@ impl Session {
             .await
             .map_err(super::super::model::error)?;
         let state = session.state().all();
-        let snapshot = state
-            .get(SNAPSHOT)
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()
-            .map_err(|_| Fault::invalid("captured model declarations are invalid"))?
-            .unwrap_or_default();
-        Ok(Self {
-            snapshot,
-            state,
-            sessions,
-        })
+        Ok(Self { state, sessions })
     }
 
     pub fn output_masks(&self) -> Result<super::super::model::history::Masks, Fault> {
@@ -128,28 +76,8 @@ impl Session {
             .map_err(|_| Fault::invalid("saved output masks are invalid"))
     }
 
-    pub fn instruction(&mut self, current: String) -> String {
-        self.snapshot.instruction(current)
-    }
-
     pub fn loaded(&self) -> BTreeSet<String> {
         loaded(self.state.get(LOADED_TOOLS))
-    }
-
-    pub fn tools(&self) -> HashMap<String, Value> {
-        project(
-            self.snapshot.tools.clone().unwrap_or_default(),
-            &self.loaded(),
-        )
-    }
-
-    pub fn declarations(&mut self, tools: &[Registration]) -> BTreeMap<String, Declaration> {
-        let mut declarations = self.snapshot.declarations(tools);
-        let loaded = self.loaded();
-        for (name, declaration) in &mut declarations {
-            declaration.deferred &= !loaded.contains(name);
-        }
-        declarations
     }
 
     pub async fn append(
@@ -190,7 +118,6 @@ impl Session {
         let Some(event) = capture(
             invocation.turn.id,
             &self.state,
-            &self.snapshot,
             [
                 (POLICY, policy),
                 (ENVIRONMENT, environment),
@@ -244,7 +171,6 @@ impl Session {
         let Some(event) = capture(
             invocation.turn.id,
             &current.state,
-            &current.snapshot,
             [
                 (POLICY, policy),
                 (ENVIRONMENT, environment),
@@ -262,7 +188,6 @@ impl Session {
 fn capture(
     turn: TurnId,
     state: &HashMap<String, Value>,
-    snapshot: &Snapshot,
     current: [(&str, String); 3],
     guides: &[instructions::Guide],
 ) -> Result<Option<Event>, Fault> {
@@ -287,11 +212,6 @@ fn capture(
             content.push(guide.render());
             event.actions.state_delta.insert(guide.key(), identity);
         }
-    }
-    let snapshot = serde_json::to_value(snapshot)
-        .map_err(|_| Fault::invalid("model declarations could not be captured"))?;
-    if state.get(SNAPSHOT) != Some(&snapshot) {
-        event.actions.state_delta.insert(SNAPSHOT.into(), snapshot);
     }
     if event.actions.state_delta.is_empty() {
         return Ok(None);
@@ -319,7 +239,7 @@ pub(crate) fn compose(
     state.retain(|key, _| {
         matches!(
             key.as_str(),
-            SNAPSHOT | POLICY | ENVIRONMENT | PERSONAL | super::super::compaction::active::MASKS
+            POLICY | ENVIRONMENT | PERSONAL | super::super::compaction::active::MASKS
         ) || key.starts_with("sailry.context.guide:")
     });
     let mut current = BTreeMap::new();

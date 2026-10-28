@@ -130,6 +130,9 @@ pub(super) async fn bind(
     assistants::apply(invocation, &mut bound)?;
     selection::apply(invocation, &mut bound)?;
     selection::defer(invocation, &mut bound.tools)?;
+    bound
+        .loaded
+        .retain(|name| bound.tools.iter().any(|entry| entry.tool.name() == name));
     if let Some(search) = search::bind(
         invocation,
         stop,

@@ -748,32 +748,6 @@ impl Context {
         saved += self.retain(&mut projected, &mut outputs, false)?;
         let projection = outputs.limit(&mut projected, self.window())?;
         let changed = self.state.project(projection)?;
-        let after = outputs.tokens(&projected)?;
-        let initial = if failure
-            .as_ref()
-            .is_some_and(|error| !failure::transient(error))
-        {
-            let mut baseline = projected.clone();
-            matching::rebuild(&mut baseline, &history.events, self.preamble(), invocation)?;
-            baseline.contents.extend_from_slice(pending);
-            let baseline_revisions = model::history::revisions(&history.events);
-            let mut baseline_outputs =
-                model::history::prepare(&mut baseline, Some(&baseline_revisions));
-            baseline_outputs.remask(&mut baseline, &masks);
-            if let Err(error) = baseline_outputs.limit(&mut baseline, self.window())
-                && !model::context_overflow(&error)
-            {
-                return Err(error);
-            }
-            baseline_outputs.tokens(&baseline)?
-        } else {
-            0
-        };
-        let failure = match failure {
-            // Exhausted transient retries continue with the retained context.
-            Some(error) if !failure::transient(&error) && after >= initial => return Err(error),
-            failure => failure,
-        };
         if failure.is_some() {
             self.state.record(tokens)?;
         }

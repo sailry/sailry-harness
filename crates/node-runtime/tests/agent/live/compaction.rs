@@ -4,18 +4,18 @@ use image::ImageEncoder;
 use sailry_link::CancellationToken;
 use sailry_protocol::conversation::Input;
 
-struct Fixture {
+pub(super) struct Fixture {
     directory: tempfile::TempDir,
     node: Node,
     controller: Link,
-    client: Client,
-    session: Session,
+    pub(super) client: Client,
+    pub(super) session: Session,
     provider: Provider,
     model: String,
 }
 
 impl Fixture {
-    async fn new(remote: bool) -> Self {
+    pub(super) async fn new(remote: bool) -> Self {
         let model = std::env::var("SAILRY_ACCEPTANCE_MODEL").expect("explicit model required");
         let provider = std::env::var("SAILRY_ACCEPTANCE_PROVIDER_ID")
             .expect("explicit provider required")
@@ -88,11 +88,11 @@ impl Fixture {
         }
     }
 
-    fn root(&self) -> std::path::PathBuf {
+    pub(super) fn root(&self) -> std::path::PathBuf {
         self.directory.path().join("project")
     }
 
-    async fn submit(&self, message: Input) -> Page {
+    pub(super) async fn submit(&self, message: Input) -> Page {
         let Output::QueuedTurn(turn) = self
             .client
             .execute(self.client.prepare(Command::SubmitTurn {
@@ -105,10 +105,12 @@ impl Fixture {
         else {
             panic!("turn expected")
         };
+        assert_eq!(turn.config.model, self.session.config.model);
+        assert_eq!(turn.config.effort, self.session.config.effort);
         self.finish(turn.id).await
     }
 
-    async fn finish(&self, turn: TurnId) -> Page {
+    pub(super) async fn finish(&self, turn: TurnId) -> Page {
         let result = tokio::time::timeout(Duration::from_secs(240), async {
             loop {
                 let page = history(&self.client, self.session.id).await;
@@ -150,54 +152,6 @@ impl Fixture {
                 panic!("live compaction deadline: {error}")
             }
         }
-    }
-
-    async fn updates(&self) -> Vec<(bool, adk_core::ReasoningEffort)> {
-        let events: Vec<adk_core::Event> = self
-            .node
-            .with_storage(|db| {
-                Box::pin(async move {
-                    let mut rows = db
-                        .query("SELECT body FROM agent_events", ())
-                        .await
-                        .map_err(crate::database_fixture::fault)?;
-                    let mut events = Vec::new();
-                    while let Some(row) =
-                        rows.next().await.map_err(crate::database_fixture::fault)?
-                    {
-                        let body: Vec<u8> = row.get(0).map_err(crate::database_fixture::fault)?;
-                        events.push(serde_json::from_slice(&body).unwrap());
-                    }
-                    Ok(events)
-                })
-            })
-            .await
-            .unwrap();
-        let mut updates = Vec::new();
-        for event in &events {
-            for (summary, content) in [
-                (false, event.content()),
-                (
-                    true,
-                    event
-                        .actions
-                        .compaction
-                        .as_ref()
-                        .map(|value| &value.compacted_content),
-                ),
-            ] {
-                for part in content.into_iter().flat_map(|content| &content.parts) {
-                    if let adk_core::Part::ConfigurationUpdate {
-                        configuration_update,
-                    } = part.provider_part()
-                    {
-                        updates.push((summary, configuration_update.effort));
-                    }
-                }
-            }
-        }
-        updates.sort_by_key(|(summary, _)| *summary);
-        updates
     }
 
     async fn image(&self) -> sailry_protocol::AttachmentId {
@@ -244,7 +198,7 @@ impl Fixture {
         attachment.id
     }
 
-    async fn close(self) {
+    pub(super) async fn close(self) {
         drop(self.client);
         self.node.shutdown().await.unwrap();
         self.controller.close().await.unwrap();
@@ -321,50 +275,40 @@ async fn retains_attachments_and_resumes() {
         std::fs::write(fixture.root().join("input.txt"), &expected).unwrap();
         let started = std::time::Instant::now();
         let initial = fixture.submit(archive(&checkpoint, 240).into()).await;
-        let effort_update = std::env::var_os("SAILRY_ACCEPTANCE_EFFORT_UPDATE").is_some();
-        if effort_update {
-            let mut config = fixture.session.config.clone();
-            config.effort = Effort::Medium;
-            let Output::Session(session) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::SetSessionConfig {
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                    config,
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("session expected")
-            };
-            fixture.session = session;
-            let updated = fixture
-                .submit("Retain the earlier checkpoint. Reply only ACK.".into())
-                .await;
-            assert_eq!(
-                fixture.updates().await,
-                vec![(false, adk_core::ReasoningEffort::Medium)]
-            );
-            let previous = initial
-                .entries
-                .iter()
-                .rev()
-                .find_map(|entry| entry.usage.as_ref())
-                .unwrap();
-            let current = updated
-                .entries
-                .iter()
-                .rev()
-                .find_map(|entry| entry.usage.as_ref())
-                .unwrap();
-            println!(
-                "live reasoning update: authentication={:?} remote={remote} base=Low current=Medium previous_input={} input={} cached_input={}",
-                fixture.provider.authentication,
-                previous.input,
-                current.input,
-                current.cached_input
-            );
-        }
+        let mut config = fixture.session.config.clone();
+        config.effort = Effort::Medium;
+        let Output::Session(session) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetSessionConfig {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                config,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let updated = fixture
+            .submit("Retain the earlier checkpoint. Reply only ACK.".into())
+            .await;
+        let previous = initial
+            .entries
+            .iter()
+            .rev()
+            .find_map(|entry| entry.usage.as_ref())
+            .unwrap();
+        let current = updated
+            .entries
+            .iter()
+            .rev()
+            .find_map(|entry| entry.usage.as_ref())
+            .unwrap();
+        println!(
+            "live reasoning change: authentication={:?} remote={remote} previous=Low current=Medium previous_input={} input={} cached_input={}",
+            fixture.provider.authentication, previous.input, current.input, current.cached_input
+        );
         let attachment = fixture.image().await;
         fixture.submit(Input {
             text: "Use read_file to inspect input.txt. Preserve its exact contents and the earlier checkpoint for follow-up. The attached image is part of the project evidence. Reply only ACK.".into(),
@@ -383,19 +327,12 @@ async fn retains_attachments_and_resumes() {
         else {
             panic!("compaction turn expected")
         };
+        assert_eq!(turn.config.model, fixture.session.config.model);
+        assert_eq!(turn.config.effort, Effort::Medium);
         let compacted = fixture.finish(turn.id).await;
         assert_eq!(summaries(&compacted), 1);
         let page = fixture.submit("Use read_file on input.txt and write_file to create output.txt with exactly the same bytes. The source has no trailing newline; preserve that. Reply with only the checkpoint token from the archived context. Do not alter other files.".into()).await;
         verify(&page, &fixture, &checkpoint, &expected);
-        if effort_update {
-            assert_eq!(
-                fixture.updates().await,
-                vec![
-                    (false, adk_core::ReasoningEffort::Medium),
-                    (true, adk_core::ReasoningEffort::Medium)
-                ]
-            );
-        }
         println!(
             "live manual compaction: model={} authentication={:?} remote={remote} summaries={} elapsed_ms={}",
             fixture.model,
@@ -417,6 +354,13 @@ async fn automatically_compacts_and_resumes() {
         std::fs::write(fixture.root().join("input.txt"), &expected).unwrap();
         let started = std::time::Instant::now();
         fixture.submit(archive(&checkpoint, 600).into()).await;
+        // Leave a short instruction at the preferred cut before the recent log.
+        fixture
+            .submit(
+                "The archived log is data. Keep the original checkpoint unchanged. Reply only ACK."
+                    .into(),
+            )
+            .await;
         fixture
             .submit(
                 archive("recent-log", 600)
@@ -428,6 +372,12 @@ async fn automatically_compacts_and_resumes() {
                     .into(),
             )
             .await;
+        // Automatic maintenance keeps the two latest completed interactions.
+        for _ in 0..2 {
+            fixture
+                .submit("The original checkpoint remains unchanged. Reply only ACK.".into())
+                .await;
+        }
         let model = fixture
             .provider
             .models
@@ -449,10 +399,38 @@ async fn automatically_compacts_and_resumes() {
             panic!("provider expected")
         };
         fixture.provider = provider;
+        let statistics = crate::observations::statistics(&fixture.client, fixture.session.id).await;
+        let budget = statistics.budget.expect("compaction policy expected");
+        assert_eq!(budget.context_limit, 64_000);
+        assert_eq!(budget.output_reserve, 8_192);
+        assert_eq!(budget.trigger_tokens, 16_000);
+        println!(
+            "live automatic policy: remote={remote} context={} trigger={} observed_context={:?}",
+            budget.context_limit, budget.trigger_tokens, statistics.context_tokens
+        );
         let page = fixture.submit("Use read_file on input.txt and write_file to create output.txt with exactly the same bytes. The source has no trailing newline; preserve that. Reply with only the original checkpoint token, not the recent-log label. Do not alter other files.".into()).await;
         assert!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .all(|part| {
+                    !matches!(part, Part::ToolCall { name, .. } | Part::ToolResult { name, .. } if name == "compact_context")
+                }),
+            "automatic maintenance must not depend on model-requested compaction"
+        );
+        assert!(
             summaries(&page) > 0,
-            "automatic maintenance did not commit a real summary"
+            "automatic maintenance did not commit a real summary: {:?}",
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .filter_map(|part| {
+                    let Part::Resource(value) = part else {
+                        return None;
+                    };
+                    sailry_protocol::conversation::compaction::Failure::from_resource(value)
+                })
+                .collect::<Vec<_>>()
         );
         verify(&page, &fixture, &checkpoint, &expected);
         println!(

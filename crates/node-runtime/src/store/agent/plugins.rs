@@ -7,15 +7,43 @@ pub(in crate::store) use references::{assistant, capture, configuration, package
 
 pub(in crate::store) async fn package(
     db: &Connection,
-    context: &plugin::Context,
+    request: &Request,
 ) -> Result<plugin::Info, Fault> {
-    let run = calls::active(
+    let context = request
+        .plugin
+        .as_ref()
+        .ok_or_else(|| Fault::new(ErrorCode::PermissionDenied, "plugin provenance is required"))?;
+    let run = runs::get(
         db,
         context
             .turn
             .ok_or_else(|| sailry_protocol::Fault::invalid("plugin turn is required"))?,
     )
     .await?;
+    // Turn initialization reads its captured context before declaring summary tools.
+    // It does not grant compaction permission to invoke those tools or mutate state.
+    if run.kind != RunKind::Task
+        && !matches!(
+            request.command,
+            Command::ReadPluginValue { .. }
+                | Command::ReadPluginConversationValue { .. }
+                | Command::ListPluginKeys { .. }
+                | Command::SearchPluginValues(_)
+                | Command::ReadPluginSettings { .. }
+                | Command::ReadPluginConnection { .. }
+                | Command::ReadSession { .. }
+                | Command::ReadConversation { .. }
+                | Command::ReadTurn { .. }
+        )
+    {
+        return Err(Fault::invalid("context compaction cannot invoke tools"));
+    }
+    if run.status != Status::Running {
+        return Err(Fault::new(
+            ErrorCode::Conflict,
+            "plugin turn is no longer running",
+        ));
+    }
     if Some(run.session) != context.session {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,

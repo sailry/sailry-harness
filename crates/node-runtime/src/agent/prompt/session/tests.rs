@@ -2,12 +2,10 @@ use super::*;
 use adk_core::{AdkError, Tool};
 use async_trait::async_trait;
 use sailry_protocol::{Permission, WorkMode};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Fixture {
     description: String,
     parameters: Value,
-    captures: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -24,11 +22,6 @@ impl Tool for Fixture {
         Some(self.parameters.clone())
     }
 
-    fn declaration(&self) -> Value {
-        self.captures.fetch_add(1, Ordering::Relaxed);
-        json!({"name":self.name(),"description":self.description(),"parameters":self.parameters})
-    }
-
     async fn execute(&self, _: Arc<dyn ToolContext>, _: Value) -> adk_core::Result<Value> {
         Err(AdkError::tool("fixture tools do not execute"))
     }
@@ -38,107 +31,30 @@ fn tools(description: &str) -> Vec<Registration> {
     vec![Registration::managed(Arc::new(Fixture {
         description: description.into(),
         parameters: json!({"type":"object"}),
-        captures: Default::default(),
     }))]
 }
 
-fn captured(
-    description: &str,
-    parameters: Value,
-    captures: &Arc<AtomicUsize>,
-) -> Vec<Registration> {
-    let tool = Arc::new(Fixture {
-        description: description.into(),
-        parameters,
-        captures: captures.clone(),
-    });
-    let mut registration = Registration::managed(tool.clone());
-    registration.capture((&tool.parameters, Option::<Value>::None));
-    vec![registration]
+#[test]
+fn uses_current_definitions() {
+    let first = project(declarations(&tools("First description")), &BTreeSet::new());
+    let changed = project(
+        declarations(&tools("Changed description")),
+        &BTreeSet::new(),
+    );
+    assert_eq!(first["fixture"]["description"], "First description");
+    assert_eq!(changed["fixture"]["description"], "Changed description");
+    assert!(project(declarations(&[]), &["fixture".into()].into()).is_empty());
 }
 
 #[test]
-fn reuses_exact_inputs_across_restores() {
-    let captures = Arc::new(AtomicUsize::new(0));
-    let schema = json!({"type":"object","properties":{"path":{"type":"string"}}});
-    let mut snapshot = Snapshot::default();
-    let first = snapshot.declarations(&captured("Read a file", schema.clone(), &captures));
-    assert_eq!(captures.load(Ordering::Relaxed), 1);
-    let state = serde_json::to_value(&snapshot).unwrap();
-    let mut snapshot: Snapshot = serde_json::from_value(state.clone()).unwrap();
-    let unchanged = snapshot.declarations(&captured("Read a file", schema, &captures));
-    assert_eq!(captures.load(Ordering::Relaxed), 1);
-    assert_eq!(
-        project(first, &BTreeSet::new()),
-        project(unchanged, &BTreeSet::new())
-    );
-    assert_eq!(serde_json::to_value(&snapshot).unwrap(), state);
-    let changed = snapshot.declarations(&captured(
-        "Read a file",
-        json!({"type":"object","properties":{"path":{"type":"string"},"limit":{"type":"integer"}}}),
-        &captures,
-    ));
-    assert_eq!(captures.load(Ordering::Relaxed), 2);
-    assert!(
-        project(changed, &BTreeSet::new())["fixture"]["parameters"]["properties"]
-            .get("limit")
-            .is_some()
-    );
-    let changed = snapshot.declarations(&captured(
-        "Read the selected file",
-        json!({"type":"object"}),
-        &captures,
-    ));
-    assert_eq!(captures.load(Ordering::Relaxed), 3);
-    assert_eq!(
-        project(changed, &BTreeSet::new())["fixture"]["description"],
-        "Read the selected file"
-    );
-    assert!(snapshot.declarations(&[]).is_empty());
-    snapshot.declarations(&captured(
-        "Read a file",
-        json!({"type":"object"}),
-        &captures,
-    ));
-    assert_eq!(captures.load(Ordering::Relaxed), 4);
-}
-
-#[test]
-fn reuses_native_and_managed_definitions() {
-    let captures = Arc::new(AtomicUsize::new(0));
-    let tool: Arc<dyn Tool> = Arc::new(Fixture {
-        description: "Current definition".into(),
-        parameters: json!({"type":"object"}),
-        captures: captures.clone(),
-    });
-    let mut snapshot = Snapshot::default();
-    snapshot.declarations(&[Registration::managed(tool.clone())]);
-    snapshot.declarations(&[Registration::managed(tool)]);
-    assert_eq!(captures.load(Ordering::Relaxed), 1);
-    let changed = Arc::new(Fixture {
-        description: "Changed definition".into(),
-        parameters: json!({"type":"object","properties":{"path":{"type":"string"}}}),
-        captures: captures.clone(),
-    });
-    let declarations = snapshot.declarations(&[Registration::managed(changed)]);
-    assert_eq!(captures.load(Ordering::Relaxed), 2);
-    assert_eq!(
-        project(declarations, &BTreeSet::new())["fixture"]["description"],
-        "Changed definition"
-    );
-}
-
-#[test]
-fn restores_discovered_declarations() {
-    let mut snapshot = Snapshot::default();
+fn intersects_discovery_with_current_tools() {
     let mut tools = tools("Deferred capability");
     tools[0].deferred = true;
-    let declarations = snapshot.declarations(&tools);
-    assert!(project(declarations.clone(), &BTreeSet::new()).is_empty());
-    let loaded: BTreeSet<_> = ["fixture".into()].into();
-    let expected = project(declarations, &loaded);
-    assert_eq!(expected.len(), 1);
-    assert!(expected.contains_key("fixture"));
+    assert!(project(declarations(&tools), &BTreeSet::new()).is_empty());
+    let loaded: BTreeSet<_> = ["fixture".into(), "removed".into()].into();
+    let selected = project(declarations(&tools), &loaded);
+    assert_eq!(selected.len(), 1);
+    assert!(selected.contains_key("fixture"));
     let state = [(LOADED_TOOLS.into(), json!(["fixture"]))].into();
     let (state, _) = compose(state, &[]);
     assert!(!state.contains_key(LOADED_TOOLS));
@@ -156,97 +72,24 @@ fn current(mode: WorkMode) -> [(&'static str, String); 3] {
 }
 
 #[test]
-fn restores_the_first_request_prefix() {
-    let mut snapshot = Snapshot::default();
-    let instruction = snapshot.instruction(super::super::baseline().into());
-    let declarations = snapshot.declarations(&tools("First description"));
-    let captured = serde_json::to_value(&snapshot).unwrap();
-    let mut resumed: Snapshot = serde_json::from_value(captured.clone()).unwrap();
-    assert_eq!(
-        resumed.instruction("Changed instructions".into()),
-        instruction
-    );
-    let restored = resumed.declarations(&tools("First description"));
-    assert_eq!(
-        serde_json::to_value(&restored).unwrap(),
-        serde_json::to_value(&declarations).unwrap()
-    );
-    assert_eq!(serde_json::to_value(resumed).unwrap(), captured);
-
-    let projected = project(declarations, &BTreeSet::new());
-    let expected = json!({
-        "name":"fixture","description":"First description","parameters":{"type":"object"}
-    });
-    assert_eq!(projected.len(), 1);
-    assert_eq!(projected["fixture"], expected);
-    assert_eq!(project(restored, &BTreeSet::new()), projected);
-    assert!(!instruction.contains("This turn uses Ask permission"));
-    assert!(!instruction.contains("This is a planning turn"));
-}
-
-#[test]
-fn updates_the_captured_catalog() {
-    let mut snapshot = Snapshot::default();
-    let instruction = snapshot.instruction(super::super::baseline().into());
-    let first = snapshot.declarations(&tools("First description"));
-    let captured = serde_json::to_value(&snapshot).unwrap();
-    let mut resumed: Snapshot = serde_json::from_value(captured).unwrap();
-    let changed = resumed.declarations(&tools("Changed description"));
-    assert_eq!(
-        resumed.instruction("Changed instructions".into()),
-        instruction
-    );
-    assert_eq!(
-        project(first, &BTreeSet::new())["fixture"]["description"],
-        "First description"
-    );
-    assert_eq!(
-        project(changed, &BTreeSet::new())["fixture"]["description"],
-        "Changed description"
-    );
-    let empty = resumed.declarations(&[]);
-    assert!(project(empty, &BTreeSet::new()).is_empty());
-    let persisted = serde_json::to_value(&resumed).unwrap();
-    assert_eq!(persisted["tools"], json!({}));
-    let mut restored: Snapshot = serde_json::from_value(persisted).unwrap();
-    assert!(restored.declarations(&[]).is_empty());
-    assert_eq!(restored.instruction("Changed again".into()), instruction);
-}
-
-#[test]
 fn appends_only_changed_runtime_context() {
     let turn = TurnId::new();
-    let mut snapshot = Snapshot::default();
-    snapshot.instruction(super::super::baseline().into());
-    snapshot.declarations(&tools("First description"));
-    let first = capture(
-        turn,
-        &HashMap::new(),
-        &snapshot,
-        current(WorkMode::Code),
-        &[],
-    )
-    .unwrap()
-    .unwrap();
+    let first = capture(turn, &HashMap::new(), current(WorkMode::Code), &[])
+        .unwrap()
+        .unwrap();
     let state: HashMap<String, Value> =
         serde_json::from_value(serde_json::to_value(&first.actions.state_delta).unwrap()).unwrap();
     assert!(
-        capture(turn, &state, &snapshot, current(WorkMode::Code), &[])
+        capture(turn, &state, current(WorkMode::Code), &[])
             .unwrap()
             .is_none()
     );
-    let changed = capture(
-        TurnId::new(),
-        &state,
-        &snapshot,
-        current(WorkMode::Plan),
-        &[],
-    )
-    .unwrap()
-    .unwrap();
+    let changed = capture(TurnId::new(), &state, current(WorkMode::Plan), &[])
+        .unwrap()
+        .unwrap();
     assert_eq!(changed.actions.state_delta.len(), 1);
     assert!(changed.actions.state_delta.contains_key(POLICY));
-    assert_eq!(state[SNAPSHOT], serde_json::to_value(&snapshot).unwrap());
+    assert!(!state.contains_key("sailry.context.declarations"));
     let text = changed
         .content()
         .unwrap()
@@ -265,28 +108,20 @@ fn appends_only_changed_runtime_context() {
 #[test]
 fn defers_temporarily_mounted_tools() {
     let turn = TurnId::new();
-    let mut snapshot = Snapshot::default();
-    snapshot.declarations(&tools("Initially selected tool"));
-    let first = capture(
-        turn,
-        &HashMap::new(),
-        &snapshot,
-        current(WorkMode::Code),
-        &[],
-    )
-    .unwrap()
-    .unwrap();
+    let first = capture(turn, &HashMap::new(), current(WorkMode::Code), &[])
+        .unwrap()
+        .unwrap();
     let state: HashMap<String, Value> = first.actions.state_delta.into_iter().collect();
     assert!(loaded(state.get(LOADED_TOOLS)).is_empty());
     let mut deferred = tools("Initially selected tool");
     deferred[0].deferred = true;
-    let declarations = snapshot.declarations(&deferred);
+    let declarations = declarations(&deferred);
     assert!(project(declarations, &loaded(state.get(LOADED_TOOLS))).is_empty());
-    let changed = capture(turn, &state, &snapshot, current(WorkMode::Code), &[])
-        .unwrap()
-        .unwrap();
-    assert!(!changed.actions.state_delta.contains_key(LOADED_TOOLS));
-    assert!(!changed.actions.state_delta.contains_key(POLICY));
+    assert!(
+        capture(turn, &state, current(WorkMode::Code), &[])
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -332,16 +167,10 @@ fn materializes_exact_captured_context() {
             "path":"AGENTS.md","revision":"next","content":"Current guide content",
         }),
     );
-    let mut snapshot = Snapshot::default();
-    snapshot.instruction("Never copy declarations".into());
-    let expected = project(
-        snapshot.declarations(&tools("Latest exact schema")),
-        &BTreeSet::new(),
+    changed.actions.state_delta.insert(
+        "sailry.context.declarations".into(),
+        json!({"instruction":"Never copy declarations", "tools":{"stale":{"value":{"name":"stale"}}}}),
     );
-    changed
-        .actions
-        .state_delta
-        .insert(SNAPSHOT.into(), serde_json::to_value(snapshot).unwrap());
     let events = [initial, changed];
     let captured = events
         .iter()
@@ -354,12 +183,7 @@ fn materializes_exact_captured_context() {
     assert!(!text.contains("Old policy"));
     assert!(!text.contains("Old guide content"));
     assert!(!text.contains("Never copy declarations"));
-    // The materialized event is a read projection, not a stored summary action.
-    let mut projected = Event::new("summary");
-    projected.actions.state_delta = state;
-    let restored: Snapshot =
-        serde_json::from_value(projected.actions.state_delta[SNAPSHOT].clone()).unwrap();
-    assert_eq!(project(restored.tools.unwrap(), &BTreeSet::new()), expected);
+    assert!(!state.contains_key("sailry.context.declarations"));
     let restored: Vec<Event> =
         serde_json::from_slice(&serde_json::to_vec(&events).unwrap()).unwrap();
     let captured = restored

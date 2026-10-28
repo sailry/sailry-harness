@@ -147,6 +147,12 @@ where
 
 fn project(request: &mut LlmRequest, origin: &ProviderOrigin) {
     adk_core::history::for_provider(&mut request.contents, origin);
+    for content in &mut request.contents {
+        content
+            .parts
+            .retain(|part| !matches!(part.provider_part(), Part::ConfigurationUpdate { .. }));
+    }
+    request.contents.retain(|content| !content.parts.is_empty());
     coalesce(&mut request.contents);
 }
 
@@ -267,6 +273,37 @@ mod tests {
             expires_at_ms: None,
             revoked: false,
         }
+    }
+
+    #[tokio::test]
+    async fn ignores_historical_configuration_updates() {
+        let origin = origin(&provider(), "fixture", None, None);
+        let stored = serde_json::json!({
+            "role":"user", "parts":[
+                {"provider_data":{"origin":origin,"parts":[
+                    {"configuration_update":{"effort":"max"}}
+                ]}},
+                {"text":"Original task"}
+            ]
+        });
+        let content: Content = serde_json::from_value(stored).unwrap();
+        let original = serde_json::to_vec(&content).unwrap();
+        let mut control_only = content.clone();
+        control_only.parts.truncate(1);
+        let request = LlmRequest::new("fixture", vec![control_only, content.clone()]);
+        let stream = generate(request, origin, None, |request| async move {
+            assert_eq!(request.contents.len(), 1);
+            assert_eq!(request.contents[0].role, "user");
+            assert_eq!(
+                request.contents[0].parts,
+                Content::new("user").with_text("Original task").parts
+            );
+            Ok(Box::pin(futures::stream::empty()) as LlmResponseStream)
+        })
+        .await
+        .unwrap();
+        drop(stream);
+        assert_eq!(serde_json::to_vec(&content).unwrap(), original);
     }
 
     #[test]

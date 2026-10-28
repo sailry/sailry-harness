@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 use std::collections::BTreeSet;
 #[path = "plugins/arguments.rs"]
 mod arguments;
@@ -86,7 +87,7 @@ async fn scopes_tool_switches_to_the_execution_node() {
         .await;
         progress::install(&client).await;
         progress::install(&origin).await;
-        let server = Server::tools(vec![]).await;
+        let server = Server::scripted_tools(vec![]).await;
         let session = approvals::prepare_packages(&client, &server, &root, &[]).await;
         let mut plugins: Vec<(String, Vec<String>)> = Vec::new();
         for package in [
@@ -135,7 +136,14 @@ async fn scopes_tool_switches_to_the_execution_node() {
                 .await
                 .unwrap();
         }
-        for enabled in [true, false, true] {
+        let memory = plugin_tool("memory", "search_memory");
+        let common = [
+            ("git", "git_status"),
+            ("commands", "run_command"),
+            ("files", "read_file"),
+            ("worktrees", "list_worktrees"),
+        ];
+        for (index, enabled) in [true, false, true].into_iter().enumerate() {
             if !server.requests.lock().unwrap().is_empty() {
                 for (name, _) in &plugins {
                     let Output::Plugin(info) = client
@@ -155,6 +163,12 @@ async fn scopes_tool_switches_to_the_execution_node() {
                         .unwrap();
                 }
             }
+            let mut calls = vec![("tool_search".into(), json!({"query":memory,"limit":1}))];
+            if enabled {
+                calls.push((memory.clone(), json!({"query":""})));
+            }
+            server.replace_tools(calls);
+            let start = server.requests.lock().unwrap().len();
             let turn = approvals::submit(&client, session.id).await;
             let page = finished(&client, session.id, turn).await;
             assert_eq!(
@@ -165,25 +179,85 @@ async fn scopes_tool_switches_to_the_execution_node() {
                     .status,
                 Status::Completed
             );
-            let requests = server.requests.lock().unwrap();
-            let tools: BTreeSet<_> = requests.last().unwrap()["tools"]
+            let details = tool_details(&client, &page).await;
+            let searched = details
+                .iter()
+                .filter(|(name, _)| name == "tool_search")
+                .last()
+                .unwrap()
+                .1
+                .result
+                .as_ref()
+                .unwrap();
+            let discovered: BTreeSet<_> = searched["tools"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .filter_map(|tool| tool["function"]["name"].as_str())
+                .map(|tool| tool["name"].as_str().unwrap())
                 .collect();
-            for (_, declarations) in &plugins {
-                for name in declarations {
-                    assert_eq!(tools.contains(name.as_str()), enabled, "{name}");
+            assert_eq!(
+                discovered.contains(memory.as_str()),
+                enabled,
+                "remote={remote}, enabled={enabled}: {searched}"
+            );
+            let executed: Vec<_> = details.iter().filter(|(name, _)| name == &memory).collect();
+            assert_eq!(executed.len(), if index < 2 { 1 } else { 2 });
+            if enabled {
+                assert_eq!(searched["tools"][0]["name"], memory);
+                assert!(executed.last().unwrap().1.result.as_ref().unwrap()["entries"].is_array());
+            }
+            assert!(page.approvals.is_empty());
+            let requests = server.requests.lock().unwrap();
+            let names = |request: &serde_json::Value| -> BTreeSet<String> {
+                request["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|tool| tool["function"]["name"].as_str().map(str::to_owned))
+                    .collect()
+            };
+            let initial = names(&requests[start]);
+            let tools = names(requests.last().unwrap());
+            for (package, name) in common {
+                let name = plugin_tool(package, name);
+                assert_eq!(initial.contains(&name), enabled, "{name}");
+                assert_eq!(tools.contains(&name), enabled, "{name}");
+            }
+            assert_eq!(initial.contains(&memory), enabled && index > 0);
+            assert_eq!(tools.contains(&memory), enabled);
+            for (package, name) in [
+                ("commands", "write_command"),
+                ("delegation", "spawn_agent"),
+                ("progress", "update_plan"),
+                ("worktrees", "create_worktree"),
+            ] {
+                assert!(
+                    !tools.contains(&plugin_tool(package, name)),
+                    "{package}/{name}"
+                );
+            }
+            if !enabled {
+                for (_, declarations) in &plugins {
+                    assert!(declarations.iter().all(|name| {
+                        !initial.contains(name)
+                            && !tools.contains(name)
+                            && !discovered.contains(name.as_str())
+                    }));
                 }
             }
             let request = requests.last().unwrap();
             let instructions = node_context(request, "Work mode");
-            for rule in [
-                "Use update_plan for substantial multi-step tasks",
-                "When an answer or action depends on earlier preferences or decisions",
-            ] {
-                assert_eq!(instructions.contains(rule), enabled, "{rule}");
+            assert!(!instructions.contains("Use update_plan for substantial multi-step tasks"));
+            let memory_rule =
+                "When an answer or action depends on earlier preferences or decisions";
+            assert_eq!(instructions.contains(memory_rule), enabled && index > 0);
+            if enabled && index == 0 {
+                assert!(
+                    searched["sailry_context"]
+                        .as_str()
+                        .unwrap()
+                        .contains(memory_rule)
+                );
             }
             assert!(
                 request["messages"][0]

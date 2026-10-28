@@ -13,14 +13,22 @@ fn names(request: &Value) -> Vec<&str> {
 
 #[tokio::test]
 async fn loads_captured_tools_and_restores_selection() {
+    restores_selection("tool_search", json!({"query":"manage_plugins","limit":1})).await;
+}
+
+#[tokio::test]
+async fn remembers_direct_calls_without_discovery() {
+    restores_selection("manage_plugins", json!({"action":"list"})).await;
+}
+
+async fn restores_selection(name: &str, arguments: Value) {
     for remote in [false, true] {
-        let server = Server::tools(vec![(
-            "tool_search".into(),
-            json!({"query":"manage_plugins","limit":1}),
-        )])
-        .await;
+        let server = Server::tools(vec![(name.into(), arguments.clone())]).await;
         let mut fixture = process::Fixture::packages(remote, &server, &["files"]).await;
-        let turn = approvals::submit(&fixture.client, fixture.session.id).await;
+        if name == "manage_plugins" {
+            planning::configure(&mut fixture, sailry_protocol::WorkMode::Plan).await;
+        }
+        let turn = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(
             page.runs
@@ -30,6 +38,17 @@ async fn loads_captured_tools_and_restores_selection() {
                 .status,
             Status::Completed
         );
+        if name == "manage_plugins" {
+            let result = tool_details(&fixture.client, &page)
+                .await
+                .into_iter()
+                .find(|(tool, _)| tool == name)
+                .expect("direct management call")
+                .1
+                .result
+                .expect("direct management result");
+            assert!(result["plugins"].is_array(), "{result:?}");
+        }
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
         let first = &requests[0];
@@ -65,7 +84,7 @@ async fn loads_captured_tools_and_restores_selection() {
         } else {
             fixture.node.local()
         });
-        let turn = approvals::submit(&fixture.client, fixture.session.id).await;
+        let turn = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(
             page.runs
@@ -82,4 +101,20 @@ async fn loads_captured_tools_and_restores_selection() {
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
+}
+
+async fn submit(fixture: &process::Fixture) -> TurnId {
+    let Output::QueuedTurn(turn) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Inspect the available capabilities".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    turn.id
 }

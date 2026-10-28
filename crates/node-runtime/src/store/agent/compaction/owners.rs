@@ -18,7 +18,7 @@ pub(super) async fn read(
              WHERE h.session=?1 AND h.sequence<=?2
              AND json_type(e.body,'$.actions.compaction') IS NULL
              AND EXISTS(SELECT 1 FROM json_each(e.body,'$.actions.state_delta') field
-               WHERE field.key IN ('sailry.context.declarations','sailry.context.policy',
+               WHERE field.key IN ('sailry.context.policy',
                  'sailry.context.environment','sailry.context.personal','sailry.context.masked_outputs')
                OR field.key GLOB 'sailry.context.guide:*')
              ORDER BY h.sequence",

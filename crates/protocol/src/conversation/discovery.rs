@@ -50,9 +50,6 @@ pub struct Model {
 /// Missing fields are unknown; only explicit provider metadata is represented.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capabilities {
-    /// Supports append-only reasoning changes in standard Responses requests.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub configuration_updates: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<super::features::Feature>,
     pub vision: Option<bool>,

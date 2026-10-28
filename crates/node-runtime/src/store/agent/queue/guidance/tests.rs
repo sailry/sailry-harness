@@ -26,24 +26,9 @@ async fn admitted(fixture: &mut Fixture) -> (TurnId, TurnId) {
     .await
     .unwrap();
     let source = fixture.queued().await;
-    let request = Request::new(
-        fixture.database.node,
-        Command::GuideQueuedTurn {
-            turn: source,
-            recipient: active,
-            expected_revision: 1,
-        },
-    );
-    select(
-        &fixture.database.connection,
-        fixture.database.node,
-        &request,
-        source,
-        active,
-        1,
-    )
-    .await
-    .unwrap();
+    select(&fixture.database.connection, source, active, 1)
+        .await
+        .unwrap();
     (active, source)
 }
 
@@ -834,6 +819,121 @@ mod controller {
             panic!("turn expected")
         };
         turn.id
+    }
+
+    #[tokio::test]
+    async fn rejects_another_session() {
+        let mut fixture = Fixture::new().await;
+        let (active, _) = admitted(&mut fixture).await;
+        let session =
+            crate::store::commands::session(&fixture.database.connection, fixture.session)
+                .await
+                .unwrap();
+        let Output::Session(other) = crate::store::agent::tests::command(
+            &mut fixture.database,
+            &fixture.events,
+            Command::CreateSession {
+                project: session.project,
+                worktree: Some(session.worktree),
+                config: Some(session.config),
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        let Output::QueuedTurn(source) = crate::store::agent::tests::command(
+            &mut fixture.database,
+            &fixture.events,
+            Command::QueueTurn {
+                session: other.id,
+                expected_revision: other.revision,
+                message: "Keep the original scope".into(),
+            },
+        )
+        .await
+        else {
+            panic!("turn expected")
+        };
+        assert_eq!(
+            select(&fixture.database.connection, source.id, active, 1)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::Conflict
+        );
+        assert_eq!(
+            runs::get(&fixture.database.connection, source.id)
+                .await
+                .unwrap()
+                .status,
+            Status::Queued
+        );
+        assert_eq!(
+            runs::get(&fixture.database.connection, active)
+                .await
+                .unwrap()
+                .status,
+            Status::Running
+        );
+        assert_eq!(
+            super::super::super::message(&fixture.database.connection, source.id)
+                .await
+                .unwrap()
+                .turn,
+            source
+        );
+    }
+
+    #[tokio::test]
+    async fn queues_new_settings_without_joining() {
+        let mut fixture = Fixture::new().await;
+        let (active, joined) = admitted(&mut fixture).await;
+        let session =
+            crate::store::commands::session(&fixture.database.connection, fixture.session)
+                .await
+                .unwrap();
+        let mut config = session.config.clone();
+        config.effort = Effort::High;
+        crate::store::agent::tests::command(
+            &mut fixture.database,
+            &fixture.events,
+            Command::SetSessionConfig {
+                session: fixture.session,
+                expected_revision: session.revision,
+                config: config.clone(),
+            },
+        )
+        .await;
+        let queued = guide(&mut fixture, active, "Use the latest settings").await;
+        let message = super::super::super::message(&fixture.database.connection, queued)
+            .await
+            .unwrap();
+        assert_eq!(message.turn.config, config);
+        assert_eq!(message.message.text, "Use the latest settings");
+        assert_eq!(
+            super::super::super::permissions::config(&fixture.database.connection, active)
+                .await
+                .unwrap(),
+            session.config
+        );
+        let queue = read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        assert_eq!(
+            queue.items.iter().map(|item| item.turn).collect::<Vec<_>>(),
+            [joined, queued]
+        );
+        assert_eq!(queue.items[0].guidance, Some(active));
+        assert_eq!(queue.items[1].guidance, None);
+        assert!(queue.items[1].ready);
+        assert_eq!(
+            runs::get(&fixture.database.connection, active)
+                .await
+                .unwrap()
+                .status,
+            Status::Running
+        );
     }
 
     #[tokio::test]

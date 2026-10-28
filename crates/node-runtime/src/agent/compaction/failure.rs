@@ -93,6 +93,8 @@ pub(super) fn projectable(error: &adk_core::AdkError) -> bool {
         classify(error).1,
         Reason::HistoryMismatch
             | Reason::NoFittingPrefix
+            | Reason::EmptySummary
+            | Reason::UnexpectedOutput
             | Reason::TruncatedSummary
             | Reason::SummaryTooLarge
             | Reason::NoReduction
@@ -205,6 +207,32 @@ pub(super) async fn record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn projects_unusable_summaries_without_crossing_terminal_boundaries() {
+        for reason in [
+            Reason::EmptySummary,
+            Reason::UnexpectedOutput,
+            Reason::TruncatedSummary,
+            Reason::SummaryTooLarge,
+            Reason::NoReduction,
+        ] {
+            let error = invalid_at(Stage::Summary, reason, "Unusable summary");
+            assert!(projectable(&error), "{reason:?}");
+            assert!(!projectable(&error.with_upstream_status(401)));
+            let mut cancelled = invalid_at(Stage::Summary, reason, "Cancelled summary");
+            cancelled.category = adk_core::ErrorCategory::Cancelled;
+            assert!(!projectable(&cancelled));
+        }
+        for (stage, reason) in [
+            (Stage::Request, Reason::AuthorizationFailed),
+            (Stage::Summary, Reason::ContentFiltered),
+            (Stage::Persistence, Reason::PersistenceFailed),
+            (Stage::Unknown, Reason::Unknown),
+        ] {
+            assert!(!projectable(&invalid_at(stage, reason, "Terminal failure")));
+        }
+    }
 
     #[test]
     fn separates_budget_and_terminal_reasons() {

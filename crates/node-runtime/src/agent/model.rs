@@ -4,7 +4,6 @@ mod call;
 pub(in crate::agent) use call::{is_summary, summary_retry, summary_scope};
 mod cloud;
 mod diagnostics;
-pub(super) mod effort;
 mod errors;
 mod features;
 pub(super) mod history;
@@ -51,7 +50,7 @@ pub(super) async fn build(
     invocation: &Invocation,
     stop: &CancellationToken,
     purpose: Purpose,
-) -> Result<Built, Fault> {
+) -> Result<Arc<dyn Llm>, Fault> {
     let provider = invocation.provider.as_ref().ok_or_else(|| {
         Fault::new(
             ErrorCode::NotConfigured,
@@ -59,15 +58,11 @@ pub(super) async fn build(
         )
     })?;
     let config = &invocation.turn.config;
-    let Built {
-        model: inner,
-        configuration,
-    } = configure(
+    let inner = configure(
         ingress,
         provider,
         config,
         invocation.turn.session,
-        Some(invocation.turn.id),
         invocation.child.is_some(),
         stop,
         purpose,
@@ -77,51 +72,43 @@ pub(super) async fn build(
         .models
         .iter()
         .find(|model| model.id == config.model);
-    Ok(Built {
-        model: Arc::new(attachments::Model {
-            inner: Arc::new(retry::Model {
-                inner,
-                ingress: ingress.clone(),
-                turn: Some(invocation.turn.id),
-                session: invocation.turn.session,
-                stop: stop.clone(),
-                limit: provider.retry_limit(),
-                compaction: matches!(purpose, Purpose::Compaction),
-            }),
+    Ok(Arc::new(attachments::Model {
+        inner: Arc::new(retry::Model {
+            inner,
             ingress: ingress.clone(),
-            turn: invocation.turn.id,
-            vision: metadata.is_none_or(|model| model.vision)
-                && provider
-                    .binding
-                    .as_ref()
-                    .and_then(|binding| binding.adapter.as_ref())
-                    .is_none_or(|adapter| adapter.capabilities.vision),
-            api: attachments::api(provider, opencode::api(provider.api, &config.model)?),
-            window: history::Window::new(provider, &config.model),
-            tools: metadata.is_none_or(|model| model.tools)
-                && provider
-                    .binding
-                    .as_ref()
-                    .and_then(|binding| binding.adapter.as_ref())
-                    .is_none_or(|adapter| adapter.capabilities.tools),
+            turn: Some(invocation.turn.id),
+            session: invocation.turn.session,
             stop: stop.clone(),
-            identity: crate::logging::Context {
-                node: Some(ingress.node),
-                session: Some(invocation.turn.session),
-                turn: Some(invocation.turn.id),
-                provider: Some(provider.id),
-                provider_name: Some(provider.name.clone()),
-                model: Some(config.model.clone()),
-                ..Default::default()
-            },
+            limit: provider.retry_limit(),
+            compaction: matches!(purpose, Purpose::Compaction),
         }),
-        configuration,
-    })
-}
-
-pub(super) struct Built {
-    pub model: Arc<dyn Llm>,
-    pub configuration: Option<effort::Capture>,
+        ingress: ingress.clone(),
+        turn: invocation.turn.id,
+        vision: metadata.is_none_or(|model| model.vision)
+            && provider
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.adapter.as_ref())
+                .is_none_or(|adapter| adapter.capabilities.vision),
+        api: attachments::api(provider, opencode::api(provider.api, &config.model)?),
+        window: history::Window::new(provider, &config.model),
+        tools: metadata.is_none_or(|model| model.tools)
+            && provider
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.adapter.as_ref())
+                .is_none_or(|adapter| adapter.capabilities.tools),
+        stop: stop.clone(),
+        identity: crate::logging::Context {
+            node: Some(ingress.node),
+            session: Some(invocation.turn.session),
+            turn: Some(invocation.turn.id),
+            provider: Some(provider.id),
+            provider_name: Some(provider.name.clone()),
+            model: Some(config.model.clone()),
+            ..Default::default()
+        },
+    }))
 }
 
 pub(super) async fn configured(
@@ -137,14 +124,13 @@ pub(super) async fn configured(
         provider,
         config,
         session,
-        None,
         delegated,
         stop,
         Purpose::Helper,
     )
     .await?;
     Ok(Arc::new(retry::Model {
-        inner: inner.model,
+        inner,
         ingress: ingress.clone(),
         turn: None,
         session,
@@ -166,11 +152,10 @@ async fn configure(
     provider: &Provider,
     config: &SessionConfig,
     session: sailry_protocol::SessionId,
-    turn: Option<TurnId>,
     delegated: bool,
     stop: &CancellationToken,
     purpose: Purpose,
-) -> Result<Built, Fault> {
+) -> Result<Arc<dyn Llm>, Fault> {
     if !provider.enabled
         || (!provider.models.is_empty()
             && !provider.models.iter().any(|model| model.id == config.model))
@@ -195,7 +180,6 @@ async fn configure(
     }
     let resolved = reasoning::resolve(metadata, api, config.effort)?;
     let effort = resolved.effort;
-    let mut configuration = None;
     let inner = if provider.api == ModelApi::Plugin {
         let mut config = config.clone();
         config.effort = effort;
@@ -220,20 +204,6 @@ async fn configure(
             credential.as_ref().map(|(credential, _)| credential),
             None,
         );
-        configuration = effort::Capture::load(
-            ingress,
-            turn,
-            session,
-            origin.clone(),
-            effort,
-            effort::supported(provider, metadata),
-        )
-        .await?;
-        let resolved = match &configuration {
-            Some(capture) => reasoning::resolve(metadata, api, capture.base())?,
-            None => resolved,
-        };
-        let effort = resolved.effort;
         let websocket = matches!(purpose, Purpose::Main)
             .then(|| {
                 ingress
@@ -281,13 +251,12 @@ async fn configure(
         )
     } else {
         crate::providers::login::validate(provider)?;
-        let (model, captured) = authorization::Model::new(
+        let model = authorization::Model::new(
             ingress,
             provider,
             config,
             authorization::Context {
                 session,
-                turn,
                 delegated,
                 reasoning: resolved,
                 purpose,
@@ -295,23 +264,16 @@ async fn configure(
             },
         )
         .await?;
-        configuration = captured;
         let model = Arc::new(model);
         if matches!(purpose, Purpose::Main) {
             let _ = model.preconnect().await;
         }
         model as Arc<dyn Llm>
     };
-    Ok(Built {
-        model: if api == ModelApi::Responses {
-            features::wrap(
-                effort::wrap(inner, configuration.clone()),
-                config.features.clone(),
-            )
-        } else {
-            inner
-        },
-        configuration,
+    Ok(if api == ModelApi::Responses {
+        features::wrap(inner, config.features.clone())
+    } else {
+        inner
     })
 }
 

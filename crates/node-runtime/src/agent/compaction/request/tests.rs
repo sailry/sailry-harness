@@ -1,16 +1,12 @@
 use super::*;
-use crate::agent::compaction::tests::{complete, handoff, history, summarizer};
+use crate::agent::compaction::tests::{complete, history, summarizer};
 use adk_core::{FunctionResponseData, LlmResponse, LlmResponseStream};
 use std::collections::VecDeque;
-use std::sync::{
-    Mutex,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Mutex;
 
 struct Sequence {
     responses: Mutex<VecDeque<adk_core::Result<LlmResponse>>>,
     requests: Mutex<Vec<LlmRequest>>,
-    recovered: AtomicBool,
 }
 
 #[async_trait]
@@ -24,9 +20,6 @@ impl Llm for Sequence {
         stream: bool,
     ) -> adk_core::Result<LlmResponseStream> {
         assert!(stream);
-        if self.recovered.swap(false, Ordering::Relaxed) {
-            assert!(model::summary_retry());
-        }
         self.requests.lock().unwrap().push(request);
         let response = self
             .responses
@@ -48,7 +41,6 @@ fn outcomes(
     let model = Arc::new(Sequence {
         responses: Mutex::new(responses.into()),
         requests: Mutex::default(),
-        recovered: AtomicBool::new(false),
     });
     let (mut summary, _) = summarizer(vec![], false);
     summary.model = model.clone();
@@ -92,31 +84,29 @@ fn draft(text: &str) -> LlmResponse {
 }
 
 #[tokio::test]
-async fn repairs_headings_once() {
-    let (summary, model, events) = setup(vec![
-        draft("Verified source findings"),
-        complete("Verified findings"),
-    ]);
+async fn accepts_plain_handoff_once() {
+    let (summary, model, events) = setup(vec![draft("Verified source findings")]);
+    let original = serde_json::to_vec(&events).unwrap();
     let event = summary
         .summarize_with(&events, SummaryMode::Automatic)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        event.actions.compaction.unwrap().compacted_content.role,
-        "user"
+    let content = event.actions.compaction.unwrap().compacted_content;
+    assert_eq!(content.role, "user");
+    assert!(
+        content.parts[0]
+            .text()
+            .unwrap()
+            .starts_with("Verified source findings")
     );
     let requests = model.requests.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(
-        serde_json::to_vec(&requests[0].contents).unwrap(),
-        serde_json::to_vec(&requests[1].contents[..requests[0].contents.len()]).unwrap()
-    );
-    assert_eq!(requests[1].contents.last().unwrap().role, "user");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(serde_json::to_vec(&events).unwrap(), original);
 }
 
 #[tokio::test]
-async fn does_not_multiply_recovery_and_repair() {
+async fn accepts_plain_handoff_after_overflow() {
     let overflow = adk_core::AdkError::new(
         adk_core::ErrorComponent::Model,
         adk_core::ErrorCategory::InvalidInput,
@@ -124,38 +114,24 @@ async fn does_not_multiply_recovery_and_repair() {
         "prompt is too long: 140000 tokens > 128000 maximum",
     )
     .with_upstream_status(400);
-    let (summary, model, events) = outcomes(vec![
-        Err(overflow),
-        Ok(draft("Still missing required headings")),
-    ]);
+    let (summary, model, events) =
+        outcomes(vec![Err(overflow), Ok(draft("Verified source findings"))]);
     let original = serde_json::to_vec(&events).unwrap();
-    let error = summary
+    let event = summary
         .summarize_with(&events, SummaryMode::Automatic)
         .await
-        .unwrap_err();
-    assert_eq!(
-        failure::classify(&error),
-        (Stage::Summary, Reason::UnexpectedOutput)
+        .unwrap()
+        .unwrap();
+    assert!(
+        event.actions.compaction.unwrap().compacted_content.parts[0]
+            .text()
+            .unwrap()
+            .starts_with("Verified source findings")
     );
     let requests = model.requests.lock().unwrap();
     assert_eq!(requests.len(), 2);
     assert!(estimate::request(&requests[1]).unwrap() < estimate::request(&requests[0]).unwrap());
     assert_eq!(serde_json::to_vec(&events).unwrap(), original);
-}
-
-#[tokio::test]
-async fn transport_retry_consumes_layout_repair() {
-    let (summary, model, events) = setup(vec![draft("Still missing required headings")]);
-    model.recovered.store(true, Ordering::Relaxed);
-    let error = summary
-        .summarize_with(&events, SummaryMode::Automatic)
-        .await
-        .unwrap_err();
-    assert_eq!(
-        failure::classify(&error),
-        (Stage::Summary, Reason::UnexpectedOutput)
-    );
-    assert_eq!(model.requests.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -193,5 +169,4 @@ async fn keeps_focus_separate_from_user_history() {
             .unwrap()
             .contains("Keep the Git rebase")
     );
-    assert!(validation::headings(&handoff("Known facts")));
 }

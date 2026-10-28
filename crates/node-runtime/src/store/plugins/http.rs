@@ -11,7 +11,7 @@ pub(super) async fn prepare(
         .as_ref()
         .ok_or_else(|| Fault::new(ErrorCode::PermissionDenied, "plugin provenance is required"))?;
     let info = if context.turn.is_some() {
-        super::super::agent::plugin_package(&db.connection, context).await?
+        super::super::agent::plugin_package(&db.connection, request).await?
     } else {
         settings::current(&db.connection, &context.package).await?
     };

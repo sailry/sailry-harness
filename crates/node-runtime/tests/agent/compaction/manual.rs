@@ -24,6 +24,69 @@ fn summaries(page: &Page) -> usize {
 }
 
 #[tokio::test]
+async fn loads_captured_plugin_context() {
+    for remote in [false, true] {
+        let server = Server::summary(100).await;
+        let fixture = Fixture::packages(remote, &server, &["files", "goals"]).await;
+        let Output::Plugin(package) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadPlugin {
+                name: "goals".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("goals package expected")
+        };
+        if !package.summary.enabled {
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::SetPluginEnabled {
+                    name: "goals".into(),
+                    expected_revision: package.summary.revision,
+                    enabled: true,
+                }))
+                .await
+                .unwrap();
+        }
+        std::fs::write(
+            fixture.root.join("source.txt"),
+            "Retained file evidence\n".repeat(200),
+        )
+        .unwrap();
+        let (_, _, before) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Read the evidence before the handoff".into(),
+        )
+        .await;
+        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
+        assert!(turn.plugins.iter().any(|package| package.name == "goals"));
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
+        assert_eq!(run.status, Status::Completed, "{run:?}");
+        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(summaries(&after), 1);
+        {
+            let requests = server.requests.lock().unwrap();
+            let summary = requests.last().unwrap();
+            assert!(agent_support::compaction::is_summary(summary));
+            assert_eq!(summary["tools"], requests[requests.len() - 2]["tools"]);
+            assert_eq!(summary["tool_choice"], "none");
+        }
+        let (_, _, continued) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Continue with the retained evidence".into(),
+        )
+        .await;
+        assert_eq!(summaries(&continued), 1);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn bounds_materialized_attachments() {
     let text = format!(
         "Inline payload start\n{}\nInline payload end",
@@ -857,7 +920,7 @@ async fn preserves_cancelled_configuration() {
 }
 
 #[tokio::test]
-async fn rejects_unhelpful_covered_input() {
+async fn retains_covered_input_in_smaller_handoffs() {
     for remote in [false, true] {
         let server = Server::summary(100).await;
         let fixture = fixture(remote, &server).await;
@@ -867,18 +930,30 @@ async fn rejects_unhelpful_covered_input() {
         let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
         let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
-        assert_eq!(run.status, Status::Failed, "{run:?}");
+        assert_eq!(run.status, Status::Completed, "{run:?}");
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
-        assert_eq!(summaries(&after), 0);
-        assert!(
-            after
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| {
-                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure" && value["failure"]["reason"]=="no_reduction")
-                })
-        );
+        assert_eq!(summaries(&after), 1);
+        let summary = after
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| match part {
+                Part::Compaction(text) => Some(text),
+                _ => None,
+            })
+            .unwrap();
+        let source = before
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| match part {
+                Part::Text(text) => Some(text.len()),
+                _ => None,
+            })
+            .sum::<usize>();
+        assert!(summary.len() < source);
+        assert!(summary.len() * 2 >= source);
+        assert!(summary.contains(&original));
         assert!(
             after
                 .entries

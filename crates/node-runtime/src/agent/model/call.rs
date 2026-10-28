@@ -18,7 +18,7 @@ pub(in crate::agent) async fn summary_scope<T>(future: impl Future<Output = T>) 
     SUMMARY_RECOVERY.scope(Cell::new(false), future).await
 }
 
-/// Transport retry, formatting repair and input-budget recovery share one attempt.
+/// Transport retry and input-budget recovery share one attempt.
 pub(in crate::agent) fn summary_retry() -> bool {
     SUMMARY_RECOVERY
         .try_with(|used| !used.replace(true))

@@ -37,8 +37,30 @@ pub(super) fn project(event: &Event, invocation: &str) -> Option<Content> {
 pub(super) fn prefix(events: &[Event]) -> Vec<Content> {
     events
         .iter()
-        .filter_map(|event| project(event, ""))
+        .filter_map(|event| summary_parts(event).map(|(content, _)| content))
         .collect()
+}
+
+// Attribution follows the parts that survive removal of obsolete effort controls.
+pub(super) fn summary_parts(event: &Event) -> Option<(Content, Option<usize>)> {
+    let mut content = project(event, "")?;
+    let original = event
+        .provider_metadata
+        .get(crate::store::agent::INPUT_PART)
+        .and_then(|index| index.parse::<usize>().ok());
+    let mut input = None;
+    let mut retained = Vec::with_capacity(content.parts.len());
+    for (index, part) in content.parts.into_iter().enumerate() {
+        if matches!(part.provider_part(), Part::ConfigurationUpdate { .. }) {
+            continue;
+        }
+        if original == Some(index) {
+            input = Some(retained.len());
+        }
+        retained.push(part);
+    }
+    content.parts = retained;
+    (!content.parts.is_empty()).then_some((content, input))
 }
 
 pub(super) fn eligible(events: &[Event]) -> Vec<Content> {
@@ -89,9 +111,15 @@ pub(super) fn eligible(events: &[Event]) -> Vec<Content> {
                 .contains_key(crate::store::agent::compaction::END_EVENT)
             {
                 // Exact owner data is reinjected independently, never summarized.
-                content.parts.truncate(1);
+                content.parts = content
+                    .parts
+                    .into_iter()
+                    .find(|part| matches!(part, Part::Text { .. }))
+                    .into_iter()
+                    .collect();
             }
             content.parts.retain_mut(|part| match part {
+                part if matches!(part.provider_part(), Part::ConfigurationUpdate { .. }) => false,
                 Part::FunctionCall { id, name, .. } => {
                     !protected.contains(&(id.clone(), name.clone()))
                 }
@@ -117,9 +145,9 @@ pub(super) fn eligible(events: &[Event]) -> Vec<Content> {
 
 pub(super) fn attribution(events: &[Event]) -> String {
     let mut lines = Vec::new();
-    for (index, event) in events
+    for (index, (event, part)) in events
         .iter()
-        .filter(|event| project(event, "").is_some())
+        .filter_map(|event| summary_parts(event).map(|(_, part)| (event, part)))
         .enumerate()
     {
         if event.author != "user" {
@@ -130,11 +158,7 @@ pub(super) fn attribution(events: &[Event]) -> String {
             .get(crate::store::agent::INPUT_SOURCE)
             .map(String::as_str)
             .unwrap_or("unknown");
-        let part = event
-            .provider_metadata
-            .get(crate::store::agent::INPUT_PART)
-            .map(String::as_str)
-            .unwrap_or("none");
+        let part = part.map_or_else(|| "none".into(), |index| index.to_string());
         lines.push(format!(
             "History message {index}: input_source={source}; original_text_part={part}"
         ));

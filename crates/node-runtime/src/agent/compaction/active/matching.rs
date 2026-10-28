@@ -253,6 +253,44 @@ mod tests {
         assert!(request.previous_response_id.is_none());
     }
 
+    #[test]
+    fn restores_obsolete_controls_for_tail_matching() {
+        let (summarizer, _) = super::super::super::tests::summarizer(vec![], false);
+        let mut events = super::super::super::tests::history();
+        let retained: Content = serde_json::from_value(json!({
+            "role":"user", "parts":[
+                {"provider_data":{"origin":{"provider":"responses","model":"fixture","scope":"owner"},"parts":[
+                    {"configuration_update":{"effort":"high"}}
+                ]}},
+                {"text":"Retained user instruction"}
+            ]
+        })).unwrap();
+        let mut control = Event::new("old-control");
+        control.author = "user".into();
+        control.set_content(Content {
+            role: "user".into(),
+            parts: vec![retained.parts[0].clone()],
+        });
+        let mut input = Event::new("old-input");
+        input.author = "user".into();
+        input.set_content(retained);
+        events.extend([control, input]);
+        let original = serde_json::to_vec(&events).unwrap();
+        let preamble = summarizer.preamble.as_ref().unwrap();
+        let mut request = summarizer.canonical_request(&events, &[], Default::default());
+        rebuild(&mut request, &events, preamble, "").unwrap();
+        assert_eq!(tail(&request, &events[2..], preamble, ""), Some(3));
+        let summary = summarizer.prepare(&events).unwrap().request;
+        assert!(
+            summary
+                .contents
+                .iter()
+                .flat_map(|content| &content.parts)
+                .all(|part| { !matches!(part.provider_part(), Part::ConfigurationUpdate { .. }) })
+        );
+        assert_eq!(serde_json::to_vec(&events).unwrap(), original);
+    }
+
     fn result(id: &str, text: &str) -> Content {
         Content {
             role: "user".into(),

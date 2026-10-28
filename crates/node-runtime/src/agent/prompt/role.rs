@@ -1,27 +1,17 @@
 //! Promote only the captured preamble; dynamic context belongs to ADK history.
 use super::session::{self, Declaration};
 use adk_core::{AdkError, BeforeModelCallback, BeforeModelResult, Content, LlmRequest};
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 pub(in crate::agent) fn bind(
     instruction: String,
     declarations: BTreeMap<String, Declaration>,
 ) -> BeforeModelCallback {
     let expected = Content::new("user").with_text(instruction);
-    // Clone one captured map so provider iteration stays stable within this invocation.
-    // A restored invocation validates the same schemas, not a persisted HashMap order.
-    let mounted = Arc::new(Mutex::new((
-        Default::default(),
-        session::project(declarations.clone(), &Default::default()),
-    )));
     let declarations = Arc::new(declarations);
     Box::new(move |context, mut request| {
         let expected = expected.clone();
         let declarations = declarations.clone();
-        let mounted = mounted.clone();
         Box::pin(async move {
             promote(&mut request, &expected)?;
             let mut loaded = session::loaded(
@@ -30,20 +20,9 @@ pub(in crate::agent) fn bind(
                     .and_then(|state| state.get(session::LOADED_TOOLS))
                     .as_ref(),
             );
+            // Direct calls are persisted before ADK's state projection learns their names.
             loaded.extend(session::called(&request.contents));
-            let mut mounted = mounted
-                .lock()
-                .map_err(|_| AdkError::agent("tool declarations are unavailable"))?;
-            if mounted.0 != loaded {
-                let tools = session::project((*declarations).clone(), &loaded);
-                // Calling an already mounted tool changes loaded state without
-                // changing declarations. Keep its map's provider iteration order.
-                if mounted.1 != tools {
-                    mounted.1 = tools;
-                }
-                mounted.0 = loaded;
-            }
-            request.tools = mounted.1.clone();
+            request.tools = session::project((*declarations).clone(), &loaded);
             Ok(BeforeModelResult::Continue(request))
         })
     })
