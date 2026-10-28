@@ -15,7 +15,14 @@ async fn keeps_helper_usage_separate_from_context() {
             .purpose = Some(canonical::Purpose::Compaction);
         event
     };
-    fixture.append([helper(800, 40)]).await;
+    let maintenance = helper(800, 40);
+    let projected =
+        crate::agent::engine::history::project(&fixture.database.connection, &maintenance)
+            .await
+            .unwrap()
+            .unwrap();
+    assert!(projected.metadata.usage.as_ref().unwrap().is_compaction);
+    fixture.append([maintenance]).await;
     let statistics = read(&fixture.database.connection, fixture.session)
         .await
         .unwrap();

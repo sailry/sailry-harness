@@ -125,7 +125,12 @@ pub(super) fn project(record: &Record) -> gdk::MessageMetadata {
             time_to_first_token_ms: timing
                 .and_then(|timing| timing.first_token_us)
                 .map(|value| value / 1000),
-            is_compaction: matches!(record.kind, Kind::Compaction(_)),
+            is_compaction: matches!(record.kind, Kind::Compaction(_))
+                || record
+                    .metadata
+                    .execution
+                    .as_ref()
+                    .is_some_and(|execution| execution.purpose == Some(Purpose::Compaction)),
             ..gdk::MessageUsage::default()
         }));
     }

@@ -1,7 +1,7 @@
 use super::*;
 use goose_provider_types::{
     base::{MessageStream, stream_from_single_message},
-    conversation::token_usage::{ProviderUsage, Usage},
+    conversation::token_usage::{CostSource, ProviderStats, ProviderUsage, Usage},
     errors::ProviderError,
 };
 use rmcp::model::{
@@ -53,7 +53,22 @@ impl Provider for Fixture {
         }
         Ok(stream_from_single_message(
             Message::assistant().with_text(format!("Summary {index}")),
-            ProviderUsage::new("fixture".into(), Usage::default()),
+            ProviderUsage::new(
+                "fixture".into(),
+                Usage {
+                    input_tokens: Some(12),
+                    output_tokens: Some(10),
+                    total_tokens: Some(22),
+                    cache_read_input_tokens: Some(3),
+                    ..Default::default()
+                },
+            )
+            .with_cost(0.01, CostSource::ProviderReported)
+            .with_stats(ProviderStats {
+                elapsed_ms: Some(2),
+                time_to_first_token_ms: Some(1),
+                ..Default::default()
+            }),
         ))
     }
 }
@@ -103,6 +118,7 @@ fn operation(provider: Arc<Fixture>) -> ToolPairs {
     ToolPairs::new(
         provider,
         ModelConfig::new("fixture").with_thinking_effort(ThinkingEffort::High),
+        TurnId::new(),
         10_000,
         0.8,
     )
@@ -148,6 +164,7 @@ async fn protects_current_kickoff_and_batches_old_pairs() {
     ));
     history.push(Message::user().with_generated_id().with_text("Next task"));
     let original = history.clone();
+    let started = chrono::Utc::now();
     let effects = effects(
         operation
             .run(&session(&history), &history, &emit)
@@ -155,8 +172,8 @@ async fn protects_current_kickoff_and_batches_old_pairs() {
             .unwrap(),
     );
     assert_eq!(history, original);
-    assert_eq!(effects.len(), 3 * BATCH);
-    for (index, group) in effects.chunks_exact(3).enumerate() {
+    assert_eq!(effects.len(), 4 * BATCH);
+    for (index, group) in effects.chunks_exact(4).enumerate() {
         for (effect, source) in group[..2].iter().zip(&history.messages()[1 + index * 2..]) {
             let Effect::Conversation(ConversationEffect::SetMessageVisibility {
                 message_id,
@@ -179,6 +196,36 @@ async fn protects_current_kickoff_and_batches_old_pairs() {
         assert!(!summary.is_user_visible());
         assert!(summary.is_agent_visible());
         assert!(summary.id.is_some());
+        assert!(summary.metadata.usage.is_none());
+        let Effect::Records(records) = &group[3] else {
+            panic!("usage record expected")
+        };
+        assert_eq!(records.len(), 1);
+        let charge = &records[0];
+        assert_eq!(charge.turn, operation.turn);
+        assert_eq!(charge.provenance.author, "system");
+        assert!(charge.created >= started && charge.created <= chrono::Utc::now());
+        assert!(charge.created.timestamp() > summary.created);
+        let message = charge.message().unwrap();
+        assert!(message.content.is_empty());
+        assert_eq!(message.model.as_deref(), Some("fixture"));
+        let usage = message.usage.as_ref().unwrap();
+        assert_eq!(
+            (usage.input, usage.output, usage.total),
+            (Some(12), Some(10), Some(22))
+        );
+        assert_eq!(usage.cache_read, Some(3));
+        assert_eq!(usage.cost, Some(0.01));
+        let runtime = charge.metadata.runtime.as_ref().unwrap();
+        assert!(!runtime.agent_visible && !runtime.user_visible);
+        let execution = charge.metadata.execution.as_ref().unwrap();
+        assert_eq!(execution.purpose, Some(canonical::Purpose::Compaction));
+        assert!(execution.context_tokens.is_none());
+        let timing = execution.timing.as_ref().unwrap();
+        assert_eq!(
+            (timing.elapsed_us, timing.first_token_us),
+            (Some(2000), Some(1000))
+        );
     }
     let requests = provider.requests.lock().unwrap();
     assert_eq!(requests.len(), BATCH);
@@ -200,7 +247,7 @@ async fn summarizes_parallel_siblings_once() {
             .await
             .unwrap(),
     );
-    assert_eq!(result.len(), 3 * BATCH / 2);
+    assert_eq!(result.len(), 4 * BATCH / 2);
     let requests = provider.requests.lock().unwrap();
     assert_eq!(requests.len(), BATCH / 2);
     assert!(requests[0].1.contains("Exact result 0-0"));
@@ -222,7 +269,7 @@ async fn preserves_unsummarized_failures() {
             .await
             .unwrap(),
     );
-    assert_eq!(result.len(), 3 * (BATCH - 1));
+    assert_eq!(result.len(), 4 * (BATCH - 1));
     assert_eq!(provider.requests.lock().unwrap().len(), BATCH);
     for effect in result {
         if let Effect::Conversation(ConversationEffect::SetMessageVisibility {
@@ -255,9 +302,12 @@ async fn drains_completed_summaries_after_cancellation() {
     let result = operation
         .finalize_cancellation(&session, &history, &emit)
         .await;
-    assert_eq!(result.len(), 3);
+    assert_eq!(result.len(), 4);
     assert!(
         matches!(&result[2], Effect::Conversation(ConversationEffect::AppendMessage(message)) if message.as_concat_text()=="Summary 1")
+    );
+    assert!(
+        matches!(&result[3], Effect::Records(records) if records.len()==1 && records[0].usage().unwrap().input==Some(12))
     );
     assert!(
         operation

@@ -3,6 +3,7 @@
 //! Sailry's migration plan enables this optional upstream operation; providers
 //! that manage their own context remain excluded. History effects keep one writer.
 use super::{Effect, Session};
+use crate::agent::canonical;
 use async_trait::async_trait;
 use goose_agent::operation::{
     ConversationEffect, Emitter, Operation, OperationResult, applied, messages_since_kickoff,
@@ -18,6 +19,7 @@ use goose_provider_types::{
     model::ModelConfig,
     thinking::ThinkingEffort,
 };
+use sailry_protocol::TurnId;
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
@@ -28,6 +30,7 @@ const BATCH: usize = 10;
 pub(super) struct ToolPairs {
     provider: Arc<dyn Provider>,
     config: ModelConfig,
+    turn: TurnId,
     cutoff: usize,
     enabled: bool,
     output: Mutex<Vec<Effect>>,
@@ -37,6 +40,7 @@ impl ToolPairs {
     pub(super) fn new(
         provider: Arc<dyn Provider>,
         config: ModelConfig,
+        turn: TurnId,
         context: usize,
         threshold: f64,
     ) -> Self {
@@ -46,6 +50,7 @@ impl ToolPairs {
             config: config
                 .with_thinking_effort(ThinkingEffort::Off)
                 .with_prompt_cache_disabled(),
+            turn,
             cutoff: cutoff(context, threshold),
             enabled,
             output: Mutex::default(),
@@ -56,7 +61,11 @@ impl ToolPairs {
         std::mem::take(&mut *self.output.lock().unwrap())
     }
 
-    async fn summarize(&self, conversation: &Conversation, id: &str) -> anyhow::Result<Message> {
+    async fn summarize(
+        &self,
+        conversation: &Conversation,
+        id: &str,
+    ) -> anyhow::Result<(Message, canonical::Record)> {
         let pair = visible_pair(conversation, id)?;
         let formatted = pair
             .iter()
@@ -64,7 +73,7 @@ impl ToolPairs {
             .collect::<Vec<_>>()
             .join("\n");
         let system = "Your task is to summarize a tool call & response pair to save tokens.\n\nReply with a single message that describes what happened. Typically a tool call\nasks for something using a bunch of parameters and then the result is also some\nstructured output. So the tool might ask to look up something on github and the\nreply might be a json document. So you could reply with something like:\n\n\"A call to github was made to get the project status\"\n\nif that is what it was.\n";
-        let (mut summary, _) = self
+        let (mut summary, usage) = self
             .provider
             .complete(
                 &self.config,
@@ -76,7 +85,32 @@ impl ToolPairs {
         summary.role = rmcp::model::Role::User;
         summary.created = pair.last().unwrap().created;
         summary.metadata = MessageMetadata::agent_only();
-        Ok(summary.with_generated_id())
+        // The summary keeps the source time; the billable request belongs to now.
+        let mut charge = canonical::Record::new(
+            self.turn,
+            canonical::Kind::Message(canonical::Message {
+                model: Some(usage.model.clone()),
+                usage: Some(super::history::provider_usage(&usage)?),
+                ..Default::default()
+            }),
+        );
+        charge.provenance.author = "system".into();
+        charge.metadata.execution = Some(canonical::Execution {
+            purpose: Some(canonical::Purpose::Compaction),
+            timing: usage.stats.as_ref().map(|stats| canonical::Timing {
+                elapsed_us: stats.elapsed_ms.map(|value| value.saturating_mul(1000)),
+                first_token_us: stats
+                    .time_to_first_token_ms
+                    .map(|value| value.saturating_mul(1000)),
+            }),
+            ..Default::default()
+        });
+        charge.metadata.runtime = Some(canonical::Runtime {
+            user_visible: false,
+            agent_visible: false,
+            ..Default::default()
+        });
+        Ok((summary.with_generated_id(), charge))
     }
 }
 
@@ -150,8 +184,8 @@ impl Operation<Session, Effect> for ToolPairs {
                 tracing::warn!(%id, "Tool summary has siblings answered elsewhere");
                 continue;
             }
-            let summary = match self.summarize(conversation, &id).await {
-                Ok(summary) => summary,
+            let (summary, charge) = match self.summarize(conversation, &id).await {
+                Ok(result) => result,
                 Err(error) => {
                     tracing::warn!(%error, "Failed to summarize tool pair");
                     continue;
@@ -173,6 +207,7 @@ impl Operation<Session, Effect> for ToolPairs {
                 );
             }
             effects.push(summary.into());
+            effects.push(Effect::Records(vec![charge]));
         }
         let effects = self.take_output();
         if effects.is_empty() {

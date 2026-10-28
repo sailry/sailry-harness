@@ -101,6 +101,7 @@ pub(super) async fn run(
     let tool_pairs = Arc::new(tool_pairs::ToolPairs::new(
         summary.provider.clone(),
         summary.config.clone(),
+        invocation.turn.id,
         context,
         threshold,
     ));
