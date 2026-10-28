@@ -141,7 +141,7 @@ impl Child {
 
 pub(super) type Shared = Arc<tokio::sync::Mutex<Connection>>;
 
-/// A dropped ADK future cannot release an in-flight exclusive service early.
+/// A dropped tool future cannot release an in-flight exclusive service early.
 /// Cleanup uses the connection owner independently of the interrupted turn.
 pub(super) struct Call {
     connection: Shared,
@@ -365,7 +365,7 @@ impl Connection {
     ) -> Result<(Self, Service), Fault> {
         let (transport, completion) = Tracked::new(transport);
         // Keep the transport available for task cancellation after a turn stops.
-        // Node closes it after the ADK task cleanup has finished.
+        // Node closes it after the tool task cleanup has finished.
         let stop = CancellationToken::new();
         let mut owner = Self {
             stop: stop.clone(),

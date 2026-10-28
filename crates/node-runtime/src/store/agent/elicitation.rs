@@ -1,4 +1,4 @@
-//! MCP input lives in canonical ADK metadata, outside provider tool-call batches.
+//! MCP input lives in canonical notices, outside provider tool-call batches.
 use super::*;
 use crate::agent::canonical::ToolIdentity;
 use crate::agent::canonical::{Kind, Notice, Record};

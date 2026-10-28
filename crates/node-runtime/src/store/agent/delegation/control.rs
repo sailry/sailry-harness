@@ -1,4 +1,4 @@
-//! Child control resolves canonical ancestry and reads the existing ADK history.
+//! Child control resolves canonical ancestry and reads the same session history.
 use super::*;
 
 #[cfg(test)]

@@ -306,7 +306,7 @@ fn add(
     cost: Option<&Cost>,
     elapsed: Option<u64>,
 ) -> Result<(), Fault> {
-    // At most MAX_ROWS nonnegative i32 counters are read from canonical ADK events.
+    // At most MAX_ROWS bounded counters are read from canonical records.
     metrics.responses += 1;
     let total = metrics.tokens.get_or_insert(Usage {
         input: 0,

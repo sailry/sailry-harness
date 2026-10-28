@@ -1,4 +1,4 @@
-//! Dart receives the shared conversation projection, not raw ADK events.
+//! Dart receives the shared conversation projection, not raw engine records.
 use super::*;
 use sailry_client::{
     Client,

@@ -1,4 +1,4 @@
-//! Pending input points into the existing command ledger; ADK owns executed history.
+//! Pending input points into the command ledger; canonical records retain executed history.
 use super::*;
 
 mod commands;

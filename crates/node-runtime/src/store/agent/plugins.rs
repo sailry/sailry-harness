@@ -1,4 +1,4 @@
-//! Host operation tools use the same package revisions captured by ADK admission.
+//! Host operation tools use the same package revisions captured by Node admission.
 use super::*;
 mod readonly;
 mod references;

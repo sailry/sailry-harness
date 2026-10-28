@@ -1,4 +1,4 @@
-//! Public calls omit typed SSH credentials; canonical ADK history retains its exact arguments.
+//! Public calls omit typed SSH credentials; canonical history retains their exact arguments.
 use super::*;
 
 pub(super) async fn project(

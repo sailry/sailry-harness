@@ -1,4 +1,4 @@
-//! Input metadata and accepted answers reference the single ADK history.
+//! Input metadata and accepted answers reference the canonical history.
 use super::*;
 use crate::agent::canonical::ToolIdentity;
 use question::{Question, Response, Spec, State};

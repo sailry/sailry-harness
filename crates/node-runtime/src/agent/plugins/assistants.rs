@@ -7,7 +7,7 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         return Ok(());
     };
     let declaration = crate::plugins::conversation::declaration(binding, &invocation.plugins)?;
-    let builtins: BTreeSet<_> = ["ask_user", "set_session_title", "compact_context"]
+    let builtins: BTreeSet<_> = ["ask_user", "set_session_title"]
         .into_iter()
         .map(str::to_owned)
         .chain(references::NAMES.map(str::to_owned))
