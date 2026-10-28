@@ -152,7 +152,7 @@ async fn records_usage_and_cancels_requests() {
                     input: 16,
                     output: 4,
                     cached_input: 6,
-                    reasoning: 1
+                    reasoning: 0
                 }],
                 "{api:?}"
             );

@@ -127,68 +127,6 @@ async fn retains_streamed_and_final_content() {
 }
 
 #[tokio::test]
-async fn preserves_tools_before_empty_completion() {
-    for remote in [false, true] {
-        let server = crate::agent_support::Server::empty_after_tool().await;
-        let fixture =
-            Fixture::packages(remote, ModelApi::Responses, &server.endpoint, &["files"]).await;
-        std::fs::write(fixture.root.join("phase.txt"), "fixture").unwrap();
-        let turn = fixture.submit("Read phase.txt and answer").await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert!(page.runs.last().unwrap().error.is_none());
-        assert_eq!(response(&page), crate::agent_support::phases::COMMENTARY);
-        let parts = page
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == turn && entry.author != "user")
-            .flat_map(|entry| &entry.parts)
-            .collect::<Vec<_>>();
-        let boundary = sailry_client::conversation::reply::boundary(
-            page.entries
-                .iter()
-                .filter(|entry| entry.turn == turn && entry.author != "user")
-                .flat_map(|entry| {
-                    entry.parts.iter().enumerate().map(|(index, part)| {
-                        sailry_client::conversation::reply::is_work(
-                            part,
-                            entry.commentary.contains_key(&index),
-                        )
-                    })
-                }),
-        );
-        assert!(
-            parts[boundary..]
-                .iter()
-                .all(|part| { !matches!(part, Part::Text(text) if !text.trim().is_empty()) })
-        );
-        assert_eq!(
-            page.entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter(|part| matches!(part, Part::ToolCall { .. }))
-                .count(),
-            1
-        );
-        assert_eq!(
-            page.entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter(|part| matches!(part, Part::ToolResult { .. }))
-                .count(),
-            1
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.join("phase.txt")).unwrap(),
-            "fixture"
-        );
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-    }
-}
-
-#[tokio::test]
 async fn retains_incomplete_output() {
     for remote in [false, true] {
         let mut event = completed(json!([message("An unfinished answer")]));

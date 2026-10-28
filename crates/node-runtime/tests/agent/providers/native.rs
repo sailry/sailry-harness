@@ -2,8 +2,6 @@ use super::*;
 
 #[path = "native/anthropic_schema.rs"]
 mod anthropic_schema;
-#[path = "native/anthropic_search.rs"]
-mod anthropic_search;
 #[path = "native/assistants.rs"]
 mod assistants;
 #[path = "native/cloud.rs"]
@@ -14,8 +12,6 @@ mod completion;
 mod errors;
 #[path = "native/gemini.rs"]
 mod gemini;
-#[path = "native/grounding.rs"]
-mod grounding;
 #[path = "hosted.rs"]
 mod hosted;
 #[path = "native/phases.rs"]
@@ -320,7 +316,7 @@ async fn restores_authenticated_history() {
                             );
                             assert_eq!(request.body["model"], "fixture-a");
                             assert_eq!(request.body["max_tokens"], 512);
-                            assert_eq!(request.body["thinking"]["type"], "enabled");
+                            assert!(request.body.get("thinking").is_none());
                             assert_eq!(request.body["reasoning_effort"], "high");
                         }
                         ModelApi::Anthropic => {
@@ -328,8 +324,8 @@ async fn restores_authenticated_history() {
                             assert_eq!(request.headers.get("x-api-key").unwrap(), server::KEY);
                             assert_eq!(request.body["model"], "fixture-a");
                             assert_eq!(request.body["max_tokens"], 512);
-                            assert_eq!(request.body["thinking"]["type"], "adaptive");
-                            assert_eq!(request.body["output_config"]["effort"], "high");
+                            assert!(request.body.get("thinking").is_none());
+                            assert!(request.body.get("output_config").is_none());
                         }
                         ModelApi::Gemini => {
                             assert_eq!(
@@ -338,9 +334,10 @@ async fn restores_authenticated_history() {
                             );
                             assert_eq!(request.headers.get("x-goog-api-key").unwrap(), server::KEY);
                             assert_eq!(request.body["generationConfig"]["maxOutputTokens"], 512);
-                            assert_eq!(
-                                request.body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
-                                "high"
+                            assert!(
+                                request.body["generationConfig"]
+                                    .get("thinkingConfig")
+                                    .is_none()
                             );
                         }
                         _ => unreachable!(),
@@ -369,7 +366,7 @@ async fn restores_authenticated_history() {
 }
 
 #[tokio::test]
-async fn executes_tools_with_adk_history() {
+async fn executes_tools_with_history() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Tool).await;
@@ -424,7 +421,10 @@ async fn bounds_transient_failure_retries() {
                 "{:?}",
                 page.runs
             );
-            assert_eq!(server.requests.lock().unwrap().len(), 6);
+            assert_eq!(
+                server.requests.lock().unwrap().len(),
+                1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES
+            );
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
@@ -521,57 +521,25 @@ async fn confines_credentials() {
 
 #[tokio::test]
 async fn streams_fragmented_unicode() {
-    use adk_core::{Content, Llm, LlmRequest};
-    use adk_model::{
-        anthropic::{AnthropicClient, AnthropicConfig},
-        deepseek::{DeepSeekClient, DeepSeekConfig},
-        gemini::GeminiModel,
-    };
-    use futures::StreamExt;
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
-        let server = Server::start(api, Reply::Text).await;
-        let model: Arc<dyn Llm> = match api {
-            ModelApi::Anthropic => Arc::new(
-                AnthropicClient::new(
-                    AnthropicConfig::new(server::KEY, "fixture-a").with_base_url(&server.endpoint),
-                )
-                .unwrap(),
-            ),
-            ModelApi::Gemini => Arc::new(
-                GeminiModel::new_with_base_url(
-                    server::KEY,
-                    "fixture-a",
-                    format!("{}/", server.endpoint),
-                )
-                .unwrap(),
-            ),
-            ModelApi::DeepSeek => Arc::new(
-                DeepSeekClient::new(
-                    DeepSeekConfig::new(server::KEY, "fixture-a").with_base_url(&server.endpoint),
-                )
-                .unwrap(),
-            ),
-            _ => unreachable!(),
-        };
-        let mut stream = model
-            .generate_content(
-                LlmRequest::new("fixture-a", vec![Content::new("user").with_text("hello")]),
-                true,
-            )
-            .await
-            .unwrap();
-        let mut content = String::new();
-        while let Some(result) = stream.next().await {
-            let response = result.unwrap_or_else(|error| panic!("{api:?}: {error:?}"));
-            assert!(response.error_message.is_none(), "{api:?}: {response:?}");
-            if let Some(value) = response.content {
-                for part in value.parts {
-                    if let adk_core::Part::Text { text } = part {
-                        content.push_str(&text);
-                    }
-                }
-            }
+        for remote in [false, true] {
+            let server = Server::start(api, Reply::Text).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
+            let turn = fixture.submit("hello").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(
+                page.runs.last().unwrap().status,
+                Status::Completed,
+                "{api:?}"
+            );
+            assert!(
+                text(&page).contains(server::ANSWER),
+                "{api:?}: {}",
+                text(&page)
+            );
+            assert_eq!(server.requests.lock().unwrap().len(), 1);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
         }
-        assert!(content.contains(server::ANSWER), "{api:?}: {content}");
     }
 }

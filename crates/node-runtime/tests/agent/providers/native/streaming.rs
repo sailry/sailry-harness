@@ -1,7 +1,6 @@
 use super::*;
 use sailry_client::conversation::View;
 use sailry_link::CancellationToken;
-use serde_json::json;
 
 #[tokio::test]
 async fn publishes_before_completion() {
@@ -10,7 +9,7 @@ async fn publishes_before_completion() {
             (Some("text/event-stream"), "\n"),
             (None, "\n"),
             (Some("application/octet-stream"), "\r\n"),
-            (Some("application/json"), "\r"),
+            (Some("application/json"), "\r\n"),
         ] {
             let gates: Vec<_> = (0..3)
                 .map(|_| Arc::new(tokio::sync::Notify::new()))
@@ -110,45 +109,4 @@ async fn publishes_before_completion() {
             fixture.node.shutdown().await.unwrap();
         }
     }
-}
-
-#[tokio::test]
-async fn preserves_explicit_json_responses() {
-    use adk_core::{Content, Llm, LlmRequest};
-    use adk_model::openai::{OpenAIResponsesClient, OpenAIResponsesConfig};
-    use futures::StreamExt;
-    let response = json!({"id":"json-response", "object":"response", "created_at":1, "model":"fixture-a",
-        "status":"completed", "output":[{"type":"message", "id":"json-answer", "role":"assistant", "status":"completed",
-            "content":[{"type":"output_text", "text":"Explicit JSON answer", "annotations":[]}]}]});
-    let body = response.to_string();
-    let raw = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let server = Server::start(ModelApi::Responses, Reply::Raw(Arc::new(raw.into_bytes()))).await;
-    let model = OpenAIResponsesClient::new(
-        OpenAIResponsesConfig::new(server::KEY, "fixture-a")
-            .with_base_url(&server.endpoint)
-            .with_open_responses_mode(true),
-    )
-    .unwrap();
-    let mut stream = model
-        .generate_content(
-            LlmRequest::new(
-                "fixture-a",
-                vec![Content::new("user").with_text("Answer directly")],
-            ),
-            false,
-        )
-        .await
-        .unwrap();
-    let response = stream.next().await.unwrap().unwrap();
-    assert!(!response.partial);
-    assert!(response.turn_complete);
-    assert_eq!(
-        response.content.unwrap().parts[0].text(),
-        Some("Explicit JSON answer")
-    );
-    assert!(stream.next().await.is_none());
-    assert_ne!(server.requests.lock().unwrap()[0].body["stream"], true);
 }

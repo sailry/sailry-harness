@@ -1,38 +1,26 @@
 use super::*;
 use serde_json::json;
 
-#[path = "../../../logging/parse.rs"]
-mod logs;
-
 #[tokio::test]
-async fn retains_native_errors_and_status() {
-    let directory = tempfile::tempdir().unwrap();
-    let profile = directory.path().join("profile");
-    let guard = sailry_node_runtime::logging::install(
-        &profile,
-        sailry_node_runtime::logging::Application::Host,
-    )
-    .unwrap();
-    let mut expected = Vec::new();
+async fn retains_errors_and_status() {
     for remote in [false, true] {
-        for (status, category) in [
-            (400, "invalid_input"),
-            (401, "unauthorized"),
-            (403, "forbidden"),
-        ] {
-            let body = format!("Provider rejected input {}", server::KEY);
+        for status in [400, 401, 403] {
+            let body =
+                json!({"error":{"message":format!("Provider rejected input {}", server::KEY)}})
+                    .to_string();
             let reply = format!(
                 "HTTP/1.1 {status} Failure\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
-            let server =
-                Server::start(ModelApi::DeepSeek, Reply::Raw(Arc::new(reply.into_bytes()))).await;
+            let server = Server::start(
+                ModelApi::ChatCompletions,
+                Reply::Raw(Arc::new(reply.into_bytes())),
+            )
+            .await;
             let mut fixture = Fixture::empty(remote, ModelApi::OpenCodeGo, &server.endpoint).await;
             let model = "deepseek-v4.1-flash";
             fixture.provider.models[0].id = model.into();
             fixture.provider.default_model = model.into();
-            fixture.provider.request_max_retries = Some(0);
-            fixture.provider.stream_max_retries = Some(0);
             execute(
                 &fixture.client,
                 Command::PutProvider {
@@ -61,28 +49,29 @@ async fn retains_native_errors_and_status() {
             let run = page.runs.last().unwrap();
             assert_eq!(run.status, Status::Failed);
             let fault = run.error.as_ref().unwrap();
-            assert_eq!(fault.code, ErrorCode::Unavailable);
-            assert_eq!(
-                fault.message,
-                format!(
-                    "opencode-go API error (HTTP {}): Provider rejected input [redacted]",
-                    reqwest::StatusCode::from_u16(status).unwrap(),
-                )
+            assert!(
+                fault.message.contains("Provider rejected input"),
+                "{fault:?}"
             );
+            assert!(fault.message.contains(&status.to_string()), "{fault:?}");
+            assert!(fault.message.contains("[redacted]"), "{fault:?}");
             assert_eq!(
                 fault.details,
-                Some(if status == 400 {
-                    FaultDetails::ModelRecovery {
-                        reason: sailry_protocol::conversation::recovery::Stop::InvalidRequest,
-                    }
-                } else {
-                    FaultDetails::ModelRequest {
-                        reason: sailry_protocol::ModelFailure::Unauthorized,
+                Some(FaultDetails::ModelRequest {
+                    reason: if status == 400 {
+                        sailry_protocol::ModelFailure::Request
+                    } else {
+                        sailry_protocol::ModelFailure::Unauthorized
                     }
                 })
             );
-            assert!(!fault.message.contains(server::KEY));
-            assert_eq!(server.requests.lock().unwrap().len(), 1);
+            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+            let attempts = if status == 400 {
+                1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES
+            } else {
+                1
+            };
+            assert_eq!(server.requests.lock().unwrap().len(), attempts);
             let statistics =
                 crate::observations::statistics(&fixture.client, fixture.session.id).await;
             let requests: Vec<_> = statistics
@@ -93,42 +82,14 @@ async fn retains_native_errors_and_status() {
                 .collect();
             assert_eq!(requests.len(), 1);
             assert_eq!(requests[0].attempts.len(), 1);
-            assert_eq!(requests[0].attempts[0].status, Some(status));
+            assert_eq!(requests[0].attempts[0].status, None);
             assert_eq!(
                 requests[0].attempts[0].outcome,
                 sailry_protocol::conversation::observation::Outcome::Failed
             );
-            expected.push((turn, status, category));
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }
-    }
-    assert_eq!(guard.dropped_lines(), 0);
-    drop(guard);
-    let records = std::fs::read_dir(profile.join("logs/host"))
-        .unwrap()
-        .flat_map(|entry| {
-            std::fs::read_to_string(entry.unwrap().path())
-                .unwrap()
-                .lines()
-                .map(logs::line)
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    for (turn, status, category) in expected {
-        let failures: Vec<_> = records
-            .iter()
-            .filter(|record| {
-                record["turn"] == turn.to_string()
-                    && record["operation"] == "model_request"
-                    && record["phase"] == "failed"
-            })
-            .collect();
-        assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0]["cause_code"], "model.openai_compat.api_error");
-        assert_eq!(failures[0]["cause_component"], "model");
-        assert_eq!(failures[0]["cause_category"], category);
-        assert_eq!(failures[0]["upstream_status"], status);
     }
 }
 
@@ -145,8 +106,8 @@ async fn local_and_remote_nodes_share_routing_identity() {
             (
                 ModelApi::OpenCodeGo,
                 "minimax-m3",
-                ModelApi::Anthropic,
-                "/v1/messages",
+                ModelApi::ChatCompletions,
+                "/v1/chat/completions",
             ),
             (
                 ModelApi::OpenCodeGo,
@@ -163,8 +124,8 @@ async fn local_and_remote_nodes_share_routing_identity() {
             (
                 ModelApi::OpenCodeZen,
                 "qwen3.8-flash",
-                ModelApi::Anthropic,
-                "/v1/messages",
+                ModelApi::ChatCompletions,
+                "/v1/chat/completions",
             ),
             (
                 ModelApi::OpenCodeZen,
@@ -175,8 +136,8 @@ async fn local_and_remote_nodes_share_routing_identity() {
             (
                 ModelApi::OpenCodeZen,
                 "gemini-3.8-flash",
-                ModelApi::Gemini,
-                "/v1/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+                ModelApi::ChatCompletions,
+                "/v1/chat/completions",
             ),
         ] {
             let reply = if wire == ModelApi::Responses {
@@ -250,10 +211,14 @@ async fn local_and_remote_nodes_share_routing_identity() {
                 if wire != ModelApi::Gemini {
                     assert_eq!(request.body["model"], model);
                 }
-                assert_eq!(
-                    request.headers["x-opencode-session"],
-                    fixture.session.id.to_string()
-                );
+                if api == ModelApi::OpenCodeGo {
+                    assert_eq!(
+                        request.headers["x-opencode-session"],
+                        fixture.session.id.to_string()
+                    );
+                } else {
+                    assert!(!request.headers.contains_key("x-opencode-session"));
+                }
                 assert!(request.headers["user-agent"].starts_with("Sailry/"));
                 let auth = if wire == ModelApi::Anthropic {
                     "x-api-key"

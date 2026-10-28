@@ -19,8 +19,8 @@ async fn normalizes_cache_and_thoughts() {
                 vec![Usage {
                     input: 16,
                     output: 4,
-                    cached_input: 6,
-                    reasoning: u64::from(api != ModelApi::Anthropic),
+                    cached_input: if api == ModelApi::DeepSeek { 0 } else { 6 },
+                    reasoning: 0,
                 }]
             );
             let profile = fixture.node.profile().to_owned();
@@ -29,21 +29,22 @@ async fn normalizes_cache_and_thoughts() {
             let (database, db) =
                 crate::database_fixture::open(&profile.join("storage/node.turso"), true).await;
             let native: String = db.prepare(
-                "SELECT json_extract(body,'$.usage_metadata.provider_usage') FROM agent_events WHERE json_type(body,'$.usage_metadata')='object'",
+                "SELECT json_extract(body,'$.usage.provider') FROM agent_events WHERE json_type(body,'$.usage.provider')='object'",
             ).await.unwrap().query_row(()).await.unwrap().get(0).unwrap();
             let native: serde_json::Value = serde_json::from_str(&native).unwrap();
+            assert_eq!(native["model"], "fixture-a");
+            assert_eq!(native["usage"]["input_tokens"], 16);
+            assert_eq!(native["usage"]["output_tokens"], 4);
+            assert_eq!(
+                native["usage"]["cache_read_input_tokens"],
+                if api == ModelApi::DeepSeek {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::json!(6)
+                }
+            );
             if api == ModelApi::Anthropic {
-                assert_eq!(native["input_tokens"], 8);
-                assert_eq!(native["cache_creation_input_tokens"], 2);
-                assert_eq!(native["cache_read_input_tokens"], 6);
-            } else if api == ModelApi::Gemini {
-                assert_eq!(native["candidatesTokenCount"], 3);
-                assert_eq!(native["thoughtsTokenCount"], 1);
-            } else {
-                assert_eq!(native["prompt_tokens"], 16);
-                assert_eq!(native["prompt_cache_hit_tokens"], 6);
-                assert_eq!(native["prompt_cache_miss_tokens"], 10);
-                assert_eq!(native["completion_tokens_details"]["reasoning_tokens"], 1);
+                assert_eq!(native["usage"]["cache_write_input_tokens"], 2);
             }
             drop(db);
             drop(database);

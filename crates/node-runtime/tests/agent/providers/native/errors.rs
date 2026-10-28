@@ -83,7 +83,10 @@ async fn retains_http_errors() {
         assert!(error.message.contains(MESSAGE));
         assert!(error.message.contains("[redacted]"));
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        assert_eq!(
+            server.requests.lock().unwrap().len(),
+            1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES
+        );
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }

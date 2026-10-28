@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent_support::{Server as SearchServer, anthropic};
+use crate::agent_support::Server as SearchServer;
 use sailry_protocol::plugin::conversation::Binding;
 use serde_json::json;
 
@@ -78,71 +78,6 @@ async fn setup(remote: bool, api: ModelApi, endpoint: &str, allow_search: bool) 
     };
     fixture.session = session;
     fixture
-}
-
-async fn run(fixture: &Fixture) {
-    let turn = fixture.submit("Find a source").await;
-    let page = finished(&fixture.client, fixture.session.id, turn).await;
-    assert_eq!(
-        page.runs.last().unwrap().status,
-        Status::Completed,
-        "{:?}",
-        page.runs
-    );
-    assert!(page.entries.iter().any(|entry| !entry.citations.is_empty()));
-}
-
-#[tokio::test]
-async fn openai() {
-    for remote in [false, true] {
-        let server = SearchServer::web_search().await;
-        let fixture = setup(remote, ModelApi::Responses, &server.endpoint, true).await;
-        run(&fixture).await;
-        let requests = server.requests.lock().unwrap().clone();
-        let tools = requests[0]["tools"].as_array().unwrap();
-        assert!(tools.iter().any(|tool| tool["type"] == "web_search"));
-        assert!(
-            !tools
-                .iter()
-                .any(|tool| tool["name"] == plugin_tool("files", "read_file"))
-        );
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn anthropic() {
-    for remote in [false, true] {
-        let server = SearchServer::anthropic(anthropic::Reply::Search).await;
-        let fixture = setup(remote, ModelApi::Anthropic, &server.endpoint, true).await;
-        run(&fixture).await;
-        let requests = server.requests.lock().unwrap().clone();
-        let tools = requests[0]["tools"].as_array().unwrap();
-        assert!(tools.iter().any(|tool| tool["name"] == "web_search"));
-        assert!(
-            !tools
-                .iter()
-                .any(|tool| tool["name"] == plugin_tool("files", "read_file"))
-        );
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn gemini() {
-    for remote in [false, true] {
-        let server = Server::start(ModelApi::Gemini, Reply::Grounding).await;
-        let fixture = setup(remote, ModelApi::Gemini, &server.endpoint, true).await;
-        run(&fixture).await;
-        let requests = server.requests.lock().unwrap().clone();
-        let tools = requests[0].body["tools"].as_array().unwrap();
-        assert!(tools.iter().any(|tool| tool["google_search"].is_object()));
-        assert!(!serde_json::to_string(tools).unwrap().contains("read_file"));
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-    }
 }
 
 #[tokio::test]

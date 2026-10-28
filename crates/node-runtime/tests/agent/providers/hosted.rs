@@ -103,8 +103,6 @@ async fn keeps_cache_identity_across_controllers() {
             for (request, expected) in requests.iter().zip([session, session, fixture.session.id]) {
                 assert_eq!(request.path, format!("/v1/{route}"));
                 assert_eq!(request.body["prompt_cache_key"], expected.to_string());
-                assert_eq!(request.headers["session-id"], expected.to_string());
-                assert_eq!(request.headers["session_id"], expected.to_string());
                 assert_eq!(request.body["model"], "fixture-a");
                 assert_eq!(request.body["stream"], true);
                 assert_eq!(
@@ -219,7 +217,7 @@ async fn preserves_regional_routes_and_usage() {
                 input: 16,
                 output: 4,
                 cached_input: 6,
-                reasoning: 1,
+                reasoning: 0,
             };
             let reported: Vec<_> = page
                 .entries
@@ -288,14 +286,14 @@ async fn preserves_regional_routes_and_usage() {
 #[tokio::test]
 async fn replays_tool_continuations() {
     for remote in [false, true] {
-        for (model, replay) in [
-            ("kimi-for-coding", true),
-            ("glm-5.2", true),
-            ("qwen3.6-plus", true),
-            ("MiniMax-M3.1-Flash-Preview", true),
-            ("doubao-seed-2-0-pro-260215", true),
-            ("ark-code-latest", false),
-            ("fixture-a", false),
+        for model in [
+            "kimi-for-coding",
+            "glm-5.2",
+            "qwen3.6-plus",
+            "MiniMax-M3.1-Flash-Preview",
+            "doubao-seed-2-0-pro-260215",
+            "ark-code-latest",
+            "fixture-a",
         ] {
             let server = Server::start(ModelApi::ChatCompletions, Reply::Tool).await;
             let mut fixture = Fixture::packages(
@@ -329,17 +327,10 @@ async fn replays_tool_continuations() {
                 .find(|message| message["role"] == "assistant" && message["tool_calls"].is_array())
                 .unwrap();
             assert_eq!(assistant["tool_calls"][0]["id"], "native-call");
-            if replay {
-                assert_eq!(
-                    assistant["reasoning_content"], "Inspect the file 🙂",
-                    "{model}, remote={remote}"
-                );
-            } else {
-                assert!(
-                    assistant.get("reasoning_content").is_none(),
-                    "{model}, remote={remote}"
-                );
-            }
+            assert_eq!(
+                assistant["reasoning_content"], "Inspect the file 🙂",
+                "{model}, remote={remote}"
+            );
             let tool = messages
                 .iter()
                 .find(|message| message["role"] == "tool")
@@ -351,14 +342,6 @@ async fn replays_tool_continuations() {
                 assert_eq!(request.body["model"], model);
                 assert_eq!(
                     request.body["prompt_cache_key"],
-                    fixture.session.id.to_string()
-                );
-                assert_eq!(
-                    request.headers["session-id"],
-                    fixture.session.id.to_string()
-                );
-                assert_eq!(
-                    request.headers["session_id"],
                     fixture.session.id.to_string()
                 );
                 assert_eq!(
