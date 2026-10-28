@@ -20,6 +20,7 @@ use goose_provider_types::{
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
+mod presentation;
 
 pub(crate) const INPUT_TURN: &str = "sailry.context.input_turn";
 pub(crate) const INPUT_SOURCE: &str = "sailry.context.input_source";
@@ -45,6 +46,8 @@ pub(crate) struct Sessions {
     presentation: Presentation,
     thinking: Option<ThinkingEffort>,
     invocation: Option<Arc<Invocation>>,
+    bindings: BTreeMap<String, ApprovalBinding>,
+    connections: Vec<sailry_protocol::connection::Resource>,
 }
 
 impl Sessions {
@@ -61,6 +64,8 @@ impl Sessions {
             presentation: Presentation::default(),
             thinking: None,
             invocation: None,
+            bindings: BTreeMap::new(),
+            connections: Vec::new(),
         }
     }
     pub(crate) fn with_notices(
@@ -114,10 +119,12 @@ impl Sessions {
         self
     }
     pub(crate) fn with_connection_context(
-        self,
-        _: BTreeMap<String, ApprovalBinding>,
-        _: Vec<sailry_protocol::connection::Resource>,
+        mut self,
+        bindings: BTreeMap<String, ApprovalBinding>,
+        connections: Vec<sailry_protocol::connection::Resource>,
     ) -> Self {
+        self.bindings = bindings;
+        self.connections = connections;
         self
     }
 
@@ -189,10 +196,25 @@ impl Sessions {
                 });
             }
         }
-        event
-            .metadata
-            .presentation
-            .get_or_insert_with(|| self.presentation.clone());
+        if event.metadata.presentation.is_none() {
+            let calls = event
+                .message()
+                .into_iter()
+                .flat_map(|message| &message.content)
+                .filter_map(|block| match &block.kind {
+                    BlockKind::ToolRequest(request) => {
+                        Some((request.name.clone(), request.arguments.clone()))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let captured = self.current_presentation(calls).await?;
+            super::presentation::capture_failures(
+                &mut event,
+                self.ingress.agents.timeline(self.turn).as_deref(),
+            );
+            super::presentation::stamp(&mut event, &captured);
+        }
         let turn = event.turn;
         let (reply, response) = oneshot::channel();
         self.ingress
@@ -267,10 +289,12 @@ impl EffectHandler<Session, Effect> for Sessions {
         let mut pending = Vec::new();
         for effect in effects.iter() {
             if let Effect::Approval { request, binding } = effect {
-                let decision = self
+                let stop = self
                     .ingress
-                    .confirm(self.turn, request.clone(), binding.clone())
-                    .await?;
+                    .agents
+                    .runner(self.turn)
+                    .unwrap_or_else(|| self.ingress.agents.stopped.child_token());
+                let decision = tokio::select! {biased;_=stop.cancelled()=>return Err(Fault::new(ErrorCode::Cancelled,"tool approval was cancelled").into()),decision=self.ingress.confirm(self.turn,request.clone(),binding.clone())=>decision?};
                 match decision {
                     Decision::Approve | Decision::ApproveSession | Decision::ApprovePrefix(_) => {
                         pending.push(Effect::from(ConversationEffect::PatchToolRequestMeta {
@@ -298,13 +322,35 @@ impl EffectHandler<Session, Effect> for Sessions {
                 pending.push(effect.clone());
             }
         }
+        let calls = pending
+            .iter()
+            .flat_map(|effect| match effect {
+                Effect::Conversation(ConversationEffect::AppendMessage(message)) => message
+                    .content
+                    .iter()
+                    .filter_map(|content| match content {
+                        MessageContent::ToolRequest(request) => {
+                            request.tool_call.as_ref().ok().map(|call| {
+                                (
+                                    call.name.to_string(),
+                                    Value::Object(call.arguments.clone().unwrap_or_default()),
+                                )
+                            })
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect();
+        let presentation = self.current_presentation(calls).await?;
         let (reply, response) = oneshot::channel();
         self.ingress
             .submit(Job::Agent(Box::new(super::Operation::Effects {
                 session: session.id.parse()?,
                 turn: self.turn,
                 effects: pending,
-                presentation: self.presentation.clone(),
+                presentation,
                 reply,
             })))
             .await

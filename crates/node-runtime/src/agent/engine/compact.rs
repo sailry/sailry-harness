@@ -90,13 +90,16 @@ impl Compaction {
             files: Mutex::default(),
         };
         let mut output = Output::default();
-        goose_context_management::compact(
-            &model,
-            Some(&Estimator),
-            &conversation.messages().clone(),
-            &mut output,
+        let projected = Conversation::new_unvalidated(
+            conversation
+                .messages()
+                .iter()
+                .filter(|message| !message.is_turn_context())
+                .cloned(),
         )
-        .await?;
+        .agent_visible_messages();
+        goose_context_management::compact(&model, Some(&Estimator), &projected, &mut output)
+            .await?;
         let summary = output
             .summary
             .ok_or_else(|| anyhow::anyhow!("compaction returned no message"))?
@@ -209,7 +212,7 @@ impl Operation<Session, Effect> for Compaction {
                         && !message.is_agent_visible()
                 })
                 .count();
-            if count > 2 {
+            if count >= 2 {
                 return not_applicable();
             }
         } else {

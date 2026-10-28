@@ -142,9 +142,6 @@ pub(crate) struct Context {
     pub guides: BTreeMap<String, Guide>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loaded_tools: Option<BTreeSet<String>>,
-    /// Historical masks remain understood until the GDK runner replaces this owner.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub masked_outputs: Option<BTreeSet<(String, String)>>,
 }
 
 impl Context {
@@ -171,12 +168,6 @@ impl Context {
                 serde_json::json!(value),
             );
         }
-        if let Some(value) = &self.masked_outputs {
-            state.insert(
-                "sailry.context.masked_outputs".into(),
-                serde_json::json!(value),
-            );
-        }
         state
     }
 
@@ -189,10 +180,6 @@ impl Context {
             personal: string("sailry.context.personal"),
             loaded_tools: state
                 .get("sailry.context.loaded_tools")
-                .cloned()
-                .and_then(|value| serde_json::from_value(value).ok()),
-            masked_outputs: state
-                .get("sailry.context.masked_outputs")
                 .cloned()
                 .and_then(|value| serde_json::from_value(value).ok()),
             guides: state

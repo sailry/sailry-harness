@@ -19,7 +19,6 @@ struct Active {
     timeline: Arc<super::observation::Timeline>,
     sources: Arc<Mutex<Vec<super::model::observation::Source>>>,
     observations: Vec<Arc<Mutex<super::model::observation::Capture>>>,
-    compaction: Arc<super::compaction::active::State>,
     halted: Option<Fault>,
 }
 
@@ -65,7 +64,6 @@ impl Controls {
                 observations: Vec::new(),
                 timeline: super::observation::Timeline::new(),
                 sources: Default::default(),
-                compaction: Default::default(),
                 halted: None,
             },
         );
@@ -80,15 +78,6 @@ impl Controls {
             .unwrap()
             .get(&turn)
             .map(|active| active.sources.clone())
-            .unwrap_or_default()
-    }
-
-    pub(super) fn compaction(&self, turn: TurnId) -> Arc<super::compaction::active::State> {
-        self.active
-            .lock()
-            .unwrap()
-            .get(&turn)
-            .map(|active| active.compaction.clone())
             .unwrap_or_default()
     }
 

@@ -215,7 +215,6 @@ async fn retains_canonical_owner_sources() {
                 captured: true,
                 policy: Some("Exact captured policy".into()),
                 environment: Some("Exact captured environment".into()),
-                masked_outputs: Some([("retained-call".into(), "captured-revision".into())].into()),
                 guides: [(
                     "sailry.context.guide:AGENTS.md".into(),
                     records::Guide {
@@ -264,10 +263,6 @@ async fn retains_canonical_owner_sources() {
     assert_eq!(
         first.context.guides["sailry.context.guide:AGENTS.md"].content,
         "Exact captured guide"
-    );
-    assert_eq!(
-        first.context.masked_outputs,
-        Some([("retained-call".into(), "captured-revision".into())].into())
     );
     for original in [&owners, &selected] {
         let saved = first

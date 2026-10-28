@@ -12,12 +12,20 @@ pub(super) use interrupted::retain;
 pub(in crate::store) mod output;
 pub(super) mod pages;
 pub(in crate::store) mod tools;
-// Canonical telemetry remains available to statistics without consuming chat or prompt pages.
-pub(super) const VISIBLE_EVENT: &str =
-    "coalesce(json_extract(e.body,'$.metadata.runtime.user_visible'),1)";
+// Visibility effects keep messages immutable and are scoped to this conversation's membership.
+pub(super) const VISIBLE_EVENT: &str = "coalesce((SELECT json_extract(v.body,'$.user_visible')
+       FROM conversation_events visibility JOIN agent_events v ON v.sequence=visibility.sequence
+       WHERE visibility.session=h.session AND json_extract(v.body,'$.kind')='operation'
+         AND json_extract(v.body,'$.operation')='visibility'
+         AND json_extract(v.body,'$.message')=json_extract(e.body,'$.id')
+       ORDER BY visibility.sequence DESC LIMIT 1),
+       json_extract(e.body,'$.metadata.runtime.user_visible'),1)";
 #[cfg(test)]
 mod tests;
 mod web_search;
+const APPLICATION_STATE: &str = "app:";
+const USER_STATE: &str = "user:";
+const TEMP_STATE: &str = "temp:";
 
 pub(super) fn commentary(value: &Value) -> Option<String> {
     if value["type"] != "message" || value["phase"] != "commentary" {
@@ -163,13 +171,22 @@ async fn write(
                         let mut record=crate::agent::engine::history::capture(&transaction,turn,&message,&BTreeMap::new()).await?;
                         let records::Kind::Message(summary)=record.kind else{unreachable!()};
                         record.kind=records::Kind::Compaction(records::Compaction{boundary,summary,start,end,files});
-                        record.provenance.author="system".into();record
+                        record.provenance.author="system".into();
+                        record.metadata.runtime.get_or_insert_with(Default::default).user_visible=true;
+                        record
                     },
                     Input::Message(message, calls, presentation) => {
                         let mut record = crate::agent::engine::history::capture(&transaction, turn, &message, &calls).await?;
-                        record.metadata.presentation = Some(presentation);
+                        super::presentation::capture_failures(&mut record,None);
+                        super::presentation::stamp(&mut record,&presentation);
                         record
                     }
+                };
+                let previous_visibility = match &event.kind {
+                    Kind::Operation(records::Operation::Visibility { message, .. }) => {
+                        visibility(&transaction, session, message).await?
+                    }
+                    _ => None,
                 };
                 let Some(entry) = insert(&transaction, session, turn, event).await? else {
                     return Ok(None);
@@ -177,16 +194,39 @@ async fn write(
                 let visible: bool = {
                     let mut statement = transaction
                         .prepare(&format!(
-                            "SELECT {VISIBLE_EVENT} FROM agent_events e WHERE e.sequence=?1"
+                            "SELECT {VISIBLE_EVENT} FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE e.sequence=?1 AND h.session=?2"
                         ))
                         .await
                         .map_err(storage_error)?;
                     let row = statement
-                        .query_row([i64::try_from(entry.sequence).map_err(storage_error)?])
+                        .query_row(params![i64::try_from(entry.sequence).map_err(storage_error)?,session.to_string()])
                         .await
                         .map_err(storage_error)?;
                     let mapped: turso::Result<_> = row.get(0);
                     mapped.map_err(storage_error)?
+                };
+                let (revealed, reset) = if let Some((target, before)) = previous_visibility {
+                    let (_, after) = visibility(&transaction, session, &target.id).await?
+                        .ok_or_else(|| Fault::invalid("visibility target is missing"))?;
+                    if before == after {
+                        (None, false)
+                    } else if after {
+                        let mut query = transaction.prepare(&format!(
+                            "SELECT max(e.sequence) FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+                             WHERE h.session=?1 AND e.sequence!=?2 AND {VISIBLE_EVENT}"
+                        )).await.map_err(storage_error)?;
+                        let row=query.query_row(params![session.to_string(),target.sequence as i64]).await.map_err(storage_error)?;
+                        let latest:Option<i64>=row.get(0).map_err(storage_error)?;
+                        if latest.is_none_or(|sequence|sequence < target.sequence as i64) {
+                            (Some(target), false)
+                        } else {
+                            (None, true)
+                        }
+                    } else {
+                        (None, true)
+                    }
+                } else {
+                    (None, false)
                 };
                 let notice =
                     super::super::notifications::system::compaction(&transaction, session, &entry)
@@ -219,12 +259,22 @@ async fn write(
                 let notices =
                     super::super::database::record(&transaction, database.node, changes).await?;
                 Ok(Some((
-                    entry, visible, context, background, statistics, parents, envelope, notices,
+                    entry, visible, revealed, reset, context, background, statistics, parents, envelope, notices,
                 )))
             }
             .await;
-            let Some((entry, visible, context, background, statistics, parents, envelope, notices)) =
-                prepared?
+            let Some((
+                entry,
+                visible,
+                revealed,
+                reset,
+                context,
+                background,
+                statistics,
+                parents,
+                envelope,
+                notices,
+            )) = prepared?
             else {
                 return Ok(());
             };
@@ -240,6 +290,13 @@ async fn write(
                     .publish(database.node, session, Change::Entry(context));
             }
             if visible {
+                database
+                    .feeds
+                    .publish(database.node, session, Change::Entry(entry));
+            }
+            if reset {
+                database.feeds.reset(session);
+            } else if let Some(entry) = revealed {
                 database
                     .feeds
                     .publish(database.node, session, Change::Entry(entry));
@@ -269,6 +326,40 @@ async fn write(
         }
     }
     unreachable!("the final attempt returns its result")
+}
+
+async fn visibility(
+    db: &Connection,
+    session: SessionId,
+    id: &str,
+) -> Result<Option<(Entry, bool)>, Fault> {
+    let mut query = db
+        .prepare(&format!(
+            "SELECT e.sequence,e.turn,e.body,{VISIBLE_EVENT} FROM conversation_events h
+         JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.id=?2"
+        ))
+        .await
+        .map_err(storage_error)?;
+    let row = match query.query_row(params![session.to_string(), id]).await {
+        Ok(row) => row,
+        Err(turso::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(error) => return Err(storage_error(error)),
+    };
+    let sequence: i64 = row.get(0).map_err(storage_error)?;
+    let turn: String = row.get(1).map_err(storage_error)?;
+    let body: Vec<u8> = row.get(2).map_err(storage_error)?;
+    let visible: bool = row.get(3).map_err(storage_error)?;
+    let record: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+    Ok(Some((
+        project(
+            db,
+            sequence as u64,
+            turn.parse().map_err(storage_error)?,
+            &record,
+        )
+        .await?,
+        visible,
+    )))
 }
 
 /// Insert into the caller's existing transaction; this is the same history owner.
@@ -450,8 +541,8 @@ fn changes(event: &Record) -> HashMap<String, Value> {
                 .map(|(key, value)| (key.clone(), value.clone())),
         );
         for (prefix, values) in [
-            (adk_session::KEY_PREFIX_APP, &state.application),
-            (adk_session::KEY_PREFIX_USER, &state.user),
+            (APPLICATION_STATE, &state.application),
+            (USER_STATE, &state.user),
         ] {
             delta.extend(
                 values
@@ -467,12 +558,10 @@ async fn apply_state(db: &Connection, session: SessionId, event: &Record) -> Res
     let context = event.context();
     let delta = changes(event);
     for (key, value) in &delta {
-        if key.starts_with(adk_session::KEY_PREFIX_TEMP) || key == LOADED_TOOLS {
+        if key.starts_with(TEMP_STATE) || key == LOADED_TOOLS {
             continue;
         }
-        let owner = if key.starts_with(adk_session::KEY_PREFIX_APP)
-            || key.starts_with(adk_session::KEY_PREFIX_USER)
-        {
+        let owner = if key.starts_with(APPLICATION_STATE) || key.starts_with(USER_STATE) {
             String::new()
         } else {
             session.to_string()
@@ -669,9 +758,9 @@ pub(in crate::store) async fn rebuild_session(
             for (key, value) in changes(&event) {
                 // Shared app/user state belongs to the Node, not a historical session branch.
                 if (named && key == SESSION_TITLE)
-                    || key.starts_with(adk_session::KEY_PREFIX_TEMP)
-                    || key.starts_with(adk_session::KEY_PREFIX_APP)
-                    || key.starts_with(adk_session::KEY_PREFIX_USER)
+                    || key.starts_with(TEMP_STATE)
+                    || key.starts_with(APPLICATION_STATE)
+                    || key.starts_with(USER_STATE)
                 {
                     continue;
                 }

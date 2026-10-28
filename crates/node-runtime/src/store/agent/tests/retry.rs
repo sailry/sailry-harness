@@ -122,7 +122,7 @@ async fn telemetry_preserves_visible_events() {
             .database
             .connection
             .prepare(&format!(
-                "SELECT {} FROM (SELECT ?1 AS body) e",
+                "SELECT {} FROM (SELECT ?1 AS body) e CROSS JOIN (SELECT '' AS session) h",
                 history::VISIBLE_EVENT
             ))
             .await

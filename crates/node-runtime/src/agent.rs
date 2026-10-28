@@ -2,7 +2,6 @@
 mod approval;
 pub(crate) mod attachments;
 pub(crate) mod canonical;
-pub(crate) mod canonical_bridge;
 mod catalog;
 pub(crate) mod engine;
 pub(crate) use engine::budget as compaction_budget;
@@ -37,10 +36,7 @@ pub(crate) use controls::Controls;
 
 use crate::{
     Error,
-    store::{
-        Ingress,
-        agent::{APP, Invocation, USER},
-    },
+    store::{Ingress, agent::Invocation},
     tasks::Tasks,
 };
 use diagnostics::{Diagnostics, Phase};
@@ -496,12 +492,16 @@ async fn execute_with(
             invocation.turn.session.to_string(),
             stop.clone(),
         ));
-        extensions.tools.push(question::bind(
-            ingress.clone(),
-            invocation,
-            stop.clone(),
-            reviewing,
-        ));
+        extensions.tools.push(
+            question::Question {
+                ingress: ingress.clone(),
+                turn: invocation.turn.id,
+                session: invocation.turn.session.to_string(),
+                stop: stop.clone(),
+                planning: reviewing,
+            }
+            .registration(),
+        );
     }
     let capability_tools = references::capabilities::tools(&extensions.tools);
     if invocation.turn.kind != sailry_protocol::conversation::RunKind::Compaction {

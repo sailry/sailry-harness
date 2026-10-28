@@ -10,15 +10,20 @@ pub(super) async fn run(
     owner: CancellationToken,
 ) -> Result<(Status, Option<String>), Fault> {
     let turn = invocation.turn.id;
-    let status = match wait(ingress, turn, &owner, &token).await {
+    let session = invocation.turn.session;
+    let status = match wait(ingress, turn, session, &owner, &token).await {
         Ok(status) => status,
         Err(fault) => {
-            let result = ingress
-                .finish_queued_child(turn, Status::Failed, Some(fault.clone()))
-                .await;
+            super::super::settlement::queued(
+                ingress,
+                turn,
+                session,
+                Status::Failed,
+                Some(fault.clone()),
+            )
+            .await?;
             ingress.agents.finish(turn);
             ingress.agents.wake.notify_waiters();
-            result?;
             return Err(fault);
         }
     };
@@ -45,12 +50,18 @@ pub(super) async fn run(
                 ErrorCode::OutcomeUnknown,
                 "child execution failed unexpectedly; calls were not replayed",
             );
-            let result = ingress
-                .finish_run_with(turn, Status::Failed, Some(fault.clone()), None, None)
-                .await;
+            super::super::settlement::finish(
+                ingress,
+                turn,
+                session,
+                Status::Failed,
+                Some(fault.clone()),
+                None,
+                None,
+            )
+            .await?;
             ingress.agents.finish(turn);
             ingress.agents.wake.notify_waiters();
-            result?;
             Err(fault)
         }
     }
@@ -59,6 +70,7 @@ pub(super) async fn run(
 async fn wait(
     ingress: &Ingress,
     turn: TurnId,
+    session: SessionId,
     owner: &CancellationToken,
     token: &CancellationToken,
 ) -> Result<Status, Fault> {
@@ -72,10 +84,11 @@ async fn wait(
             } else {
                 Status::Cancelled
             };
-            let result = ingress.finish_queued_child(turn, status, None).await;
+            let status =
+                super::super::settlement::queued(ingress, turn, session, status, None).await?;
             ingress.agents.finish(turn);
             ingress.agents.wake.notify_waiters();
-            return result;
+            return Ok(status);
         }
         let status = ingress.claim_child(turn, token.clone()).await?;
         if status != Status::Queued {

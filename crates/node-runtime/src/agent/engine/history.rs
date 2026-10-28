@@ -172,7 +172,16 @@ pub(crate) async fn capture(
             MessageContent::ToolConfirmationRequest(_) | MessageContent::ActionRequired(_) => {
                 continue;
             }
-            MessageContent::SystemNotification(_) => continue,
+            MessageContent::SystemNotification(notification) => {
+                if notification.notification_type == gdk::SystemNotificationType::CreditsExhausted {
+                    message.error = Some(ResponseError {
+                        code: Some("credits_exhausted".into()),
+                        message: notification.msg.clone(),
+                    });
+                    message.finish = Some(Finish::Failed);
+                }
+                continue;
+            }
         };
         message.content.push(Block { index, kind });
     }

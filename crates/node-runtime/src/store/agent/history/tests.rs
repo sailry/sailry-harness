@@ -159,11 +159,6 @@ async fn preserves_explicit_visibility() {
     });
     let mut visible = telemetry.clone();
     visible.metadata.runtime.as_mut().unwrap().user_visible = true;
-    let mut masked = telemetry.clone();
-    masked.metadata.context = Some(records::Context {
-        masked_outputs: Some(Default::default()),
-        ..Default::default()
-    });
     let mut changed = visible.clone();
     changed.metadata.context = Some(records::Context {
         policy: Some("Captured policy".into()),
@@ -174,7 +169,7 @@ async fn preserves_explicit_visibility() {
         .database
         .connection
         .prepare(&format!(
-            "SELECT {VISIBLE_EVENT} FROM (SELECT ?1 AS body) e"
+            "SELECT {VISIBLE_EVENT} FROM (SELECT ?1 AS body) e CROSS JOIN (SELECT '' AS session) h"
         ))
         .await
         .unwrap();
@@ -182,7 +177,6 @@ async fn preserves_explicit_visibility() {
         (telemetry, false),
         (visible, true),
         (defaulted, true),
-        (masked, false),
         (changed, true),
     ] {
         let body = encode(&record).unwrap();

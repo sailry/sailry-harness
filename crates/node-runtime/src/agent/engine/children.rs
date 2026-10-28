@@ -51,24 +51,15 @@ impl Children {
     pub(super) async fn settle_pending(&self) -> Result<(), Fault> {
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
         for (_, invocation) in pending {
-            loop {
-                match self
-                    .ingress
-                    .finish_queued_child(invocation.turn.id, Status::Cancelled, None)
-                    .await
-                {
-                    Ok(_) => {
-                        self.ingress.agents.finish(invocation.turn.id);
-                        break;
-                    }
-                    Err(error) => {
-                        if self.ingress.agents.stopped.is_cancelled() {
-                            return Err(error);
-                        }
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    }
-                }
-            }
+            crate::agent::settlement::queued(
+                &self.ingress,
+                invocation.turn.id,
+                invocation.turn.session,
+                Status::Cancelled,
+                None,
+            )
+            .await?;
+            self.ingress.agents.finish(invocation.turn.id);
         }
         Ok(())
     }

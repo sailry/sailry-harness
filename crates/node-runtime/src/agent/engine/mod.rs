@@ -13,7 +13,6 @@ use crate::{
         Ingress,
         agent::{Invocation, RuntimeSession as Session, Sessions},
     },
-    tasks::Tasks,
 };
 pub(crate) use children::Children;
 pub(crate) use effects::Effect;
@@ -21,7 +20,7 @@ use goose_agent::{
     events::AgentEvent,
     inference::InferenceRunner,
     machine::{SessionLoader, StateMachine, Step},
-    operation::{Emitter, RunStatus},
+    operation::{Emitter, MachineEffect, RunStatus},
     subagent::SubagentOperation,
     tool::ToolOperation,
 };
@@ -72,7 +71,11 @@ pub(super) async fn run(
     capabilities: BTreeMap<String, Vec<String>>,
     children: Children,
 ) -> Result<Option<String>, Fault> {
-    let context = binding.config.context_limit.unwrap_or(128_000);
+    let context = binding
+        .provider
+        .get_context_limit(&binding.config.model_name, binding.config.context_limit)
+        .await
+        .map_err(|error| Fault::new(ErrorCode::Unavailable, error.to_string()))?;
     let configured = invocation
         .provider
         .as_ref()
@@ -104,10 +107,10 @@ pub(super) async fn run(
     let emit = Emitter::new(tx, stop.clone());
     if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
         let session = sessions.load(&id).await.map_err(fault)?;
-        let mut effects = compact
-            .compact(&session.conversation, true)
-            .await
-            .map_err(fault)?;
+        let mut effects = tokio::select! {biased;_=stop.cancelled()=>return Ok(None),effects=compact.compact(&session.conversation,true)=>effects.map_err(fault)?};
+        for effect in &mut effects {
+            effect.ensure_message_ids();
+        }
         goose_agent::machine::EffectHandler::apply_effects(
             &sessions,
             &session,
@@ -159,30 +162,35 @@ pub(super) async fn run(
             },
         )),
     )));
-    let mut machine = StateMachine::new(steps, stop.clone());
-    let execution = async {
-        let result = loop {
-            let session = sessions.load(&id).await?;
-            let mut result = machine.step(&session, &emit).await?;
-            machine
-                .apply(&sessions, &session, &mut result.effects, &emit)
-                .await?;
-            if result.status == RunStatus::Continuing
-                || result.applied_step == Some("tool_approval")
-            {
-                continue;
-            }
-            break Ok::<_, anyhow::Error>(result.status);
+    let machine = StateMachine::new(steps, stop.clone());
+    let result = {
+        let execution = async {
+            let result = loop {
+                let session = sessions.load(&id).await?;
+                let mut result = machine.step(&session, &emit).await?;
+                machine
+                    .apply(&sessions, &session, &mut result.effects, &emit)
+                    .await?;
+                if result.status == RunStatus::Continuing
+                    || result.applied_step == Some("tool_approval")
+                {
+                    continue;
+                }
+                break Ok::<_, anyhow::Error>(result.status);
+            };
+            result
         };
-        result
-    };
-    tokio::pin!(execution);
-    let result = loop {
-        tokio::select! {
-            result=&mut execution=>break result,
-            event=events.recv()=>if let Some(AgentEvent::Message(message))=event{ingress.partial(invocation.turn.session,invocation.turn.id,message).await?;},
+        tokio::pin!(execution);
+        loop {
+            tokio::select! {
+                result=&mut execution=>break result,
+                event=events.recv()=>if let Some(AgentEvent::Message(message))=event{if let Err(error)=ingress.partial(invocation.turn.session,invocation.turn.id,message).await {break Err(anyhow::Error::new(error));}},
+            }
         }
     };
+    if result.is_err() {
+        stop.cancel();
+    }
     // GDK owns cancellation recovery, including interrupted requests and streamed text.
     let finalized = machine.finalize(&sessions, &id, &emit).await;
     children.settle_pending().await?;
@@ -194,7 +202,19 @@ pub(super) async fn run(
         .last()
         .filter(|message| message.error_kind().is_some())
     {
-        return Err(Fault::new(ErrorCode::Unavailable, message.as_concat_text()));
+        return Err(Fault::new(
+            match message.error_kind() {
+                Some(
+                    goose_provider_types::conversation::message::MessageErrorKind::Authentication,
+                ) => ErrorCode::PermissionDenied,
+                _ => ErrorCode::Unavailable,
+            },
+            message
+                .content
+                .iter()
+                .find_map(|content| content.as_error().map(|error| error.message.clone()))
+                .unwrap_or_else(|| message.as_concat_text()),
+        ));
     }
     Ok(session
         .conversation

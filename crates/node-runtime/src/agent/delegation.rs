@@ -6,7 +6,7 @@ use sailry_protocol::conversation::Input;
 use serde_json::{Value, json};
 mod control;
 mod observation;
-mod scheduler;
+pub(in crate::agent) mod scheduler;
 pub(super) mod selected;
 pub(in crate::agent) use control::Control;
 

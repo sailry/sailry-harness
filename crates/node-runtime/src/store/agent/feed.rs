@@ -70,7 +70,7 @@ impl Feeds {
             .collect()
     }
 
-    fn reset(&self, session: SessionId) {
+    pub(super) fn reset(&self, session: SessionId) {
         if let Some(feed) = self.0.lock().unwrap().get_mut(&session) {
             feed.sequence += 1;
             feed.drafts.clear();

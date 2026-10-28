@@ -1,4 +1,4 @@
-//! Preserve visible unfinished output through the canonical event writer before ending a run.
+//! Preserve visible unfinished output through the canonical writer before ending a run.
 use super::*;
 
 pub(in crate::store::agent) async fn retain(
@@ -7,43 +7,46 @@ pub(in crate::store::agent) async fn retain(
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     for draft in database.feeds.seal(run.session, run.turn) {
-        let parts: Vec<_> = draft
+        let part_count = draft.parts.len();
+        let content: Vec<_> = draft
             .parts
             .into_iter()
             .enumerate()
-            .filter_map(|(index, part)| match part {
-                Part::Text(text) if draft.commentary.contains_key(&index) => {
-                    Some(adk_core::Part::ServerToolCall {
-                        server_tool_call: serde_json::json!({
-                            "type": "message",
-                            "role": "assistant",
-                            "id": draft.commentary[&index],
-                            "phase": "commentary",
-                            "status": "incomplete",
-                            "content": [{"type": "output_text", "text": text, "annotations": []}],
-                        }),
-                    })
-                }
-                Part::Text(text) => Some(adk_core::Part::Text { text }),
-                Part::Thinking(thinking) => Some(adk_core::Part::Thinking {
-                    thinking,
-                    signature: None,
-                }),
-                _ => None,
+            .filter_map(|(index, part)| {
+                let kind = match part {
+                    Part::Text(text) if draft.commentary.contains_key(&index) => {
+                        BlockKind::ServerCall {
+                            value: serde_json::json!({
+                                "type": "message", "role": "assistant",
+                                "id": draft.commentary[&index], "phase": "commentary",
+                                "status": "incomplete",
+                                "content": [{"type": "output_text", "text": text, "annotations": []}],
+                            }),
+                        }
+                    }
+                    Part::Text(text) => BlockKind::Text { text },
+                    Part::Thinking(text) => BlockKind::Thinking { text, signature: None },
+                    _ => return None,
+                };
+                Some(records::Block { index, kind })
             })
             .collect();
-        if parts.is_empty() {
+        if content.is_empty() {
             continue;
         }
-        let mut event = AdkEvent::new(run.turn.to_string());
+        let mut event = Record::new(
+            run.turn,
+            Kind::Message(records::Message {
+                role: records::Role::Assistant,
+                part_count,
+                content,
+                finish: Some(records::Finish::Interrupted),
+                ..Default::default()
+            }),
+        );
         event.id = draft.id;
-        event.author = draft.author;
-        event.branch = draft.branch;
-        event.llm_response.interrupted = true;
-        event.set_content(adk_core::Content {
-            role: "model".into(),
-            parts,
-        });
+        event.provenance.author = draft.author;
+        event.provenance.branch = draft.branch;
         append(database, run.session, run.turn, event, events)
             .await
             .map_err(|error| {

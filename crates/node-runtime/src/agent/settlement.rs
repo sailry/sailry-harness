@@ -1,7 +1,7 @@
 //! Retain execution ownership until the existing durable terminal write succeeds.
 use super::*;
 
-pub(super) async fn finish(
+pub(in crate::agent) async fn finish(
     ingress: &Ingress,
     turn: TurnId,
     session: SessionId,
@@ -10,12 +10,58 @@ pub(super) async fn finish(
     owner: Option<CancellationToken>,
     review: Option<canonical::Record>,
 ) -> Result<Status, Fault> {
+    settle(
+        ingress,
+        turn,
+        session,
+        status,
+        error,
+        Pending::Running { owner, review },
+    )
+    .await
+}
+
+pub(in crate::agent) async fn queued(
+    ingress: &Ingress,
+    turn: TurnId,
+    session: SessionId,
+    status: Status,
+    error: Option<Fault>,
+) -> Result<Status, Fault> {
+    settle(ingress, turn, session, status, error, Pending::Queued).await
+}
+
+enum Pending {
+    Running {
+        owner: Option<CancellationToken>,
+        review: Option<canonical::Record>,
+    },
+    Queued,
+}
+
+async fn settle(
+    ingress: &Ingress,
+    turn: TurnId,
+    session: SessionId,
+    status: Status,
+    error: Option<Fault>,
+    pending: Pending,
+) -> Result<Status, Fault> {
     let mut reported = false;
     loop {
-        let failure = match ingress
-            .finish_run_with(turn, status, error.clone(), owner.clone(), review.clone())
-            .await
-        {
+        let result = match &pending {
+            Pending::Running { owner, review } => {
+                ingress
+                    .finish_run_with(turn, status, error.clone(), owner.clone(), review.clone())
+                    .await
+            }
+            Pending::Queued => {
+                ingress
+                    .finish_queued_child(turn, status, error.clone())
+                    .await
+            }
+        };
+        let failure = match result {
             Ok(status) => return Ok(status),
             Err(error) => error,
         };

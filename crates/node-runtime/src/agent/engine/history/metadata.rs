@@ -101,6 +101,10 @@ pub(super) fn project(record: &Record) -> gdk::MessageMetadata {
             }
         }
     }
+    if matches!(record.kind, Kind::Compaction(_)) {
+        output.user_visible = false;
+        output.agent_visible = true;
+    }
     if let Some(usage) = record.usage() {
         let count = |value: Option<u64>| value.and_then(|value| i32::try_from(value).ok());
         let timing = record
