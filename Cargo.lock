@@ -108,252 +108,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adk-agent"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "adk-core",
- "adk-telemetry",
- "async-stream",
- "async-trait",
- "chrono",
- "futures",
- "jsonschema 0.47.0",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "adk-anthropic"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "futures",
- "hex",
- "hmac 0.12.1",
- "httpdate",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "time",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "adk-browser"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "adk-core",
- "async-trait",
- "base64 0.22.1",
- "serde",
- "serde_json",
- "thirtyfour",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "adk-core"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "async-trait",
- "chrono",
- "futures",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "adk-eval"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "adk-core",
- "adk-model",
- "adk-runner",
- "adk-session",
- "async-trait",
- "chrono",
- "futures",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "adk-gemini"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "adk-core",
- "async-stream",
- "async-trait",
- "base64 0.22.1",
- "eventsource-stream",
- "futures",
- "futures-util",
- "mime",
- "mime_guess",
- "reqwest 0.12.28",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "snafu",
- "strum 0.28.0",
- "strum_macros 0.28.0",
- "time",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "adk-model"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "adk-anthropic",
- "adk-core",
- "adk-gemini",
- "adk-telemetry",
- "anyhow",
- "async-openai",
- "async-stream",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "futures",
- "http",
- "httpdate",
- "hyper-util",
- "reqwest 0.12.28",
- "reqwest 0.13.4",
- "rustls",
- "rustls-platform-verifier",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.28.0",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "adk-runner"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "adk-core",
- "adk-session",
- "async-stream",
- "async-trait",
- "futures",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "adk-rust-macros"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "adk-sandbox"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "adk-core",
- "async-trait",
- "find-msvc-tools",
- "libc",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "adk-session"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "adk-core",
- "async-trait",
- "chrono",
- "serde",
- "serde_json",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "adk-telemetry"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "thiserror 2.0.20",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "adk-tool"
-version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=675c02b6c0df6d632b953a06a5a12d1f814b7780#675c02b6c0df6d632b953a06a5a12d1f814b7780"
-dependencies = [
- "adk-core",
- "adk-rust-macros",
- "adk-telemetry",
- "async-trait",
- "base64 0.22.1",
- "futures",
- "jsonschema 0.47.0",
- "rmcp",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -738,7 +492,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -749,7 +503,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1100,45 +854,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-openai"
-version = "0.41.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d72db2750faea2ca5edbf6d0c50277a89dc8f75f5e6ddd695ef30f75e335019b"
-dependencies = [
- "async-openai-macros",
- "base64 0.22.1",
- "bytes",
- "derive_builder",
- "eventsource-stream",
- "futures",
- "getrandom 0.3.4",
- "rand 0.9.5",
- "reqwest 0.13.4",
- "secrecy",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "thiserror 2.0.20",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "async-openai-macros"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "492a944774207eed3acf425214eadbd6ce84a2b89331164ff1c11bae92b26302"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "async-process"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1378,29 +1093,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7178fe5f7d460b13895ebb9dcb28a3a6216d2df2574a0806cb51b555d297f38"
 dependencies = [
  "arrayvec",
-]
-
-[[package]]
-name = "aws-lc-rs"
-version = "1.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faac5829c2b74c28f830747e7818ccfb684261b5f48a1118b1e2a13d36dfab13"
-dependencies = [
- "aws-lc-sys",
- "zeroize",
-]
-
-[[package]]
-name = "aws-lc-sys"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1622d8446a2d4b2ce0c7eefc73dd43a99779028d5ee5c2dd8073a658ba8a2bc"
-dependencies = [
- "cc",
- "cmake",
- "dunce",
- "fs_extra",
- "pkg-config",
 ]
 
 [[package]]
@@ -2018,7 +1710,7 @@ dependencies = [
  "cap-primitives",
  "cap-std",
  "io-lifetimes 3.0.1",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2035,7 +1727,7 @@ dependencies = [
  "maybe-owned",
  "rustix 1.1.4",
  "rustix-linux-procfs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
  "winx",
 ]
 
@@ -2062,7 +1754,7 @@ dependencies = [
  "rustix 1.1.4",
  "rustix-linux-procfs",
  "uuid",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2413,15 +2105,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "210e9ea90a5f6c731c23bf642383ad7c006d8b24803c5c33afd5aaeae5a33f66"
 dependencies = [
  "num-traits",
-]
-
-[[package]]
-name = "cmake"
-version = "0.1.58"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -3543,7 +3226,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 3.0.5",
 ]
 
 [[package]]
@@ -3830,7 +3513,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4356,7 +4039,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4991,12 +4674,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fs_extra"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
-
-[[package]]
 name = "fsevent-sys"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5279,8 +4956,8 @@ dependencies = [
  "libc",
  "log",
  "rustversion",
- "windows-link 0.1.3",
- "windows-result 0.3.4",
+ "windows-link 0.2.1",
+ "windows-result 0.4.1",
 ]
 
 [[package]]
@@ -5800,7 +5477,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.20",
- "windows 0.56.0",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -7555,7 +7232,7 @@ dependencies = [
  "tokio",
  "tower-service",
  "tracing",
- "windows-registry 0.4.0",
+ "windows-registry 0.6.1",
 ]
 
 [[package]]
@@ -7636,7 +7313,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.56.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -10623,7 +10300,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10831,7 +10508,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.17",
  "http",
@@ -12859,7 +12536,6 @@ dependencies = [
  "indexmap 2.14.2",
  "nix 0.31.3",
  "tokio",
- "tracing",
  "windows 0.62.2",
 ]
 
@@ -13151,7 +12827,6 @@ version = "0.11.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04759210543be93709136e28212294a659ef5001836ff4eab4d663e4529bba83"
 dependencies = [
- "aws-lc-rs",
  "bytes",
  "getrandom 0.4.3",
  "lru-slab",
@@ -13179,7 +12854,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13831,10 +13506,7 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "encoding_rs",
  "futures-core",
- "futures-util",
- "h2",
  "http",
  "http-body",
  "http-body-util",
@@ -13843,13 +13515,10 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "mime",
- "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
  "rustls",
- "rustls-native-certs",
  "rustls-pki-types",
  "serde",
  "serde_json",
@@ -13857,14 +13526,12 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
- "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams 0.4.2",
  "web-sys",
  "webpki-roots 1.0.9",
 ]
@@ -13892,7 +13559,6 @@ dependencies = [
  "mime_guess",
  "percent-encoding",
  "pin-project-lite",
- "quinn",
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
@@ -14031,7 +13697,6 @@ dependencies = [
  "oauth2",
  "pastey 0.2.3",
  "pin-project-lite",
- "process-wrap",
  "reqwest 0.13.4",
  "rmcp-macros",
  "schemars 1.2.2",
@@ -14513,7 +14178,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -14532,7 +14197,6 @@ version = "0.23.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6725596c3f2c3a0aef021139e145d4eafe314a6623e4680ca83852b2c67ab2ba"
 dependencies = [
- "aws-lc-rs",
  "log",
  "once_cell",
  "ring",
@@ -14625,7 +14289,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -14640,7 +14304,6 @@ version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
- "aws-lc-rs",
  "ring",
  "rustls-pki-types",
  "untrusted",
@@ -14889,7 +14552,6 @@ dependencies = [
 name = "sailry-mobile-bridge"
 version = "0.1.0"
 dependencies = [
- "adk-model",
  "base64 0.22.1",
  "blake3",
  "flutter_rust_bridge",
@@ -14945,16 +14607,6 @@ dependencies = [
 name = "sailry-node-runtime"
 version = "0.1.0"
 dependencies = [
- "adk-agent",
- "adk-browser",
- "adk-core",
- "adk-eval",
- "adk-gemini",
- "adk-model",
- "adk-runner",
- "adk-sandbox",
- "adk-session",
- "adk-tool",
  "age",
  "ammonia",
  "anyhow",
@@ -15044,7 +14696,9 @@ dependencies = [
  "system-configuration 0.8.0",
  "tar",
  "tempfile",
+ "thirtyfour",
  "thiserror 2.0.20",
+ "tiktoken-rs",
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite 0.28.0",
@@ -15338,7 +14992,6 @@ version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
 dependencies = [
- "serde",
  "zeroize",
 ]
 
@@ -15488,7 +15141,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8050abb251097357e24aff63ba2c52a6309ecb7d23a5474023df960a02694d8"
 dependencies = [
  "annotate-snippets",
- "base64 0.21.7",
+ "base64 0.23.1",
  "encoding_rs_io",
  "granit-parser 1.3.0",
  "nohash-hasher",
@@ -16085,34 +15738,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "snafu"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e84b3f4eacbf3a1ce05eac6763b4d629d60cbc94d632e4092c54ade71f1e1a2"
-dependencies = [
- "snafu-derive",
-]
-
-[[package]]
-name = "snafu-derive"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1c97747dbf44bb1ca44a561ece23508e99cb592e862f22222dcf42f51d1e451"
-dependencies = [
- "heck 0.4.1",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "socket2"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -17158,7 +16790,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -17315,6 +16947,21 @@ dependencies = [
  "quick-error 2.0.1",
  "weezl 0.1.12",
  "zune-jpeg 0.5.15",
+]
+
+[[package]]
+name = "tiktoken-rs"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "027853bbf8c7763b77c5c595f1c271c7d536ced7d6f83452911b944621e57fc2"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bstr",
+ "fancy-regex 0.17.0",
+ "lazy_static",
+ "regex",
+ "rustc-hash 2.1.3",
 ]
 
 [[package]]
@@ -17567,7 +17214,6 @@ dependencies = [
  "futures-util",
  "log",
  "rustls",
- "rustls-native-certs",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls",
@@ -17748,10 +17394,8 @@ dependencies = [
  "pin-project-lite",
  "sync_wrapper",
  "tokio",
- "tokio-util",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -18677,7 +18321,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -20139,7 +19783,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -20939,8 +20583,8 @@ dependencies = [
  "log",
  "serde",
  "thiserror 2.0.20",
- "windows 0.59.0",
- "windows-core 0.59.0",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
