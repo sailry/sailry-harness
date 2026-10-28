@@ -137,13 +137,15 @@ async fn idless_mcp_results_keep_execution_facts() {
             );
             for call in &results {
                 let original = call.result(&page).unwrap();
-                let content = original["content"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|part| part["text"].as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                let content = match original["content"].as_array() {
+                    Some(content) => content
+                        .iter()
+                        .filter_map(|part| part["text"].as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                    // Exact default structured results have a lossless JSON representation.
+                    None => original.to_string(),
+                };
                 let response = returned
                     .iter()
                     .find(|response| response["id"].as_str() == call.id.as_deref())
@@ -167,10 +169,15 @@ async fn idless_mcp_results_keep_execution_facts() {
         })
         .await
         .expect("follow-up request deadline");
-        for call in results.iter().filter(|call| {
-            call.result(&page)
-                .is_some_and(|result| result["structuredContent"]["label"].is_string())
-        }) {
+        let large = results
+            .iter()
+            .filter(|call| {
+                call.result(&page)
+                    .is_some_and(|result| result["label"].is_string())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(large.len(), 2);
+        for call in large {
             let expected = call.result(&page).unwrap();
             let reference = sailry_protocol::tool::OutputReference {
                 call: call.id.clone().unwrap(),
@@ -180,6 +187,7 @@ async fn idless_mcp_results_keep_execution_facts() {
             };
             let mut offset = 0;
             let mut original = String::new();
+            let mut pages = 0;
             loop {
                 let Output::ToolOutput(output) = execute(
                     &fixture.client,
@@ -196,6 +204,7 @@ async fn idless_mcp_results_keep_execution_facts() {
                     panic!("canonical MCP output expected")
                 };
                 assert_eq!(output.offset, offset);
+                pages += 1;
                 original.push_str(&output.text);
                 match output.next_offset {
                     Some(next) => {
@@ -205,18 +214,18 @@ async fn idless_mcp_results_keep_execution_facts() {
                     None => break,
                 }
             }
+            assert!(pages > 1);
             assert_eq!(
                 reference.revision,
                 blake3::hash(original.as_bytes()).to_hex().to_string()
             );
             let original: Value = serde_json::from_str(&original).unwrap();
             assert_eq!(Some(&original), call.result(&page));
-            assert_eq!(original["content"].as_array().unwrap().len(), 1);
-            assert_eq!(
-                serde_json::from_str::<Value>(original["content"][0]["text"].as_str().unwrap())
-                    .unwrap(),
-                original["structuredContent"]
-            );
+            let label = original["label"].as_str().unwrap();
+            let content = original["text"].as_str().unwrap();
+            assert!(content.starts_with(&format!("First {label}\n")));
+            assert!(content.ends_with(&format!("\nFinal {label}")));
+            assert!(content.contains("Evidence 中文 🙂 "));
         }
         execute(&fixture.client, Command::StopTurn { turn: active }).await;
         let stopped = finished(&fixture.client, fixture.session.id, active).await;
