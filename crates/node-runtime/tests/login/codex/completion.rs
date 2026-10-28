@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn requires_a_completed_answer() {
+async fn preserves_native_outcomes() {
     let selected = Arc::new(std::sync::Mutex::new("completed"));
     let outcome = selected.clone();
     let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
@@ -16,7 +16,10 @@ async fn requires_a_completed_answer() {
         );
         let mut terminal = server::completed(json!([server::message("Authorized Codex response")]));
         match outcome {
-            "completed" => server::stream(vec![server::delta("Draft"), terminal], true),
+            "completed" => server::stream(
+                vec![server::delta("Authorized Codex response"), terminal],
+                true,
+            ),
             "eof" => server::stream(vec![server::delta("Draft")], false),
             "done" => server::stream(vec![server::delta("Draft")], true),
             "incomplete" | "absent" | "unknown" => {
@@ -28,11 +31,9 @@ async fn requires_a_completed_answer() {
                 server::stream(vec![terminal], true)
             }
             "failed" => {
-                terminal["type"] = json!("response.failed");
-                terminal["response"]["status"] = json!("failed");
-                terminal["response"]["output"] = json!([]);
-                terminal["response"]["error"] = json!({"code":"invalid_prompt","message":ACCESS});
-                server::stream(vec![terminal], true)
+                server::stream(vec![json!({"type":"error","error":{
+                    "code":"invalid_prompt","message":ACCESS
+                }})], true)
             }
             "empty" => server::stream(vec![server::completed(json!([]))], true),
             _ => unreachable!(),
@@ -40,19 +41,7 @@ async fn requires_a_completed_answer() {
     })
     .await;
     let mut fixture = Fixture::empty(false, &server).await;
-    let mut provider = configured(&fixture, None).await;
-    provider.stream_max_retries = Some(1);
-    let Output::Provider(provider) = fixture
-        .client
-        .execute(fixture.client.prepare(Command::PutProvider {
-            expected_revision: provider.revision,
-            provider,
-        }))
-        .await
-        .unwrap()
-    else {
-        panic!("provider expected")
-    };
+    let provider = configured(&fixture, None).await;
     let authorization_requests = server.requests.lock().unwrap().len();
     for remote in [false, true] {
         fixture.client = Arc::new(Client::new(if remote {
@@ -77,10 +66,10 @@ async fn requires_a_completed_answer() {
             let before = server.requests.lock().unwrap().len();
             let session = super::super::execution::session(&fixture, &provider).await;
             let (_, turn) = super::super::execution::submit(&fixture.client, &session).await;
-            let status = if outcome == "completed" {
-                Status::Completed
-            } else {
+            let status = if outcome == "failed" {
                 Status::Failed
+            } else {
+                Status::Completed
             };
             let page = super::super::execution::finished_within(
                 &fixture.client,
@@ -89,9 +78,7 @@ async fn requires_a_completed_answer() {
                 crate::retry_fixture::budget(),
             )
             .await;
-            if outcome == "completed" {
-                assert_eq!(answer(&page, turn.id), "Authorized Codex response");
-            } else {
+            if outcome == "failed" {
                 assert!(
                     page.runs
                         .iter()
@@ -100,9 +87,24 @@ async fn requires_a_completed_answer() {
                         .error
                         .is_some()
                 );
-                if matches!(outcome, "incomplete" | "absent" | "unknown" | "empty") {
-                    assert!(answer(&page, turn.id).is_empty());
-                }
+            }
+            let expected = match outcome {
+                "eof" | "done" => "Draft",
+                "completed" | "incomplete" | "absent" | "unknown" => "Authorized Codex response",
+                "failed" => "",
+                "empty" => goose_agent::inference::EMPTY_RESPONSE_MESSAGE,
+                _ => unreachable!(),
+            };
+            assert_eq!(answer(&page, turn.id), expected, "{outcome}");
+            if status == Status::Completed {
+                assert!(
+                    page.runs
+                        .iter()
+                        .find(|run| run.turn == turn.id)
+                        .unwrap()
+                        .error
+                        .is_none()
+                );
             }
             no_secrets(&page);
             let retries: Vec<_> = page
@@ -110,10 +112,7 @@ async fn requires_a_completed_answer() {
                 .iter()
                 .flat_map(|entry| &entry.parts)
                 .filter_map(|part| match part {
-                    Part::Resource(value) if value["type"] == "model_retry" => {
-                        assert_eq!(value["limit"], 1);
-                        Some(value["attempt"].as_u64().unwrap())
-                    }
+                    Part::Resource(value) if value["type"] == "model_retry" => Some(value),
                     _ => None,
                 })
                 .collect();
@@ -125,16 +124,14 @@ async fn requires_a_completed_answer() {
                 .skip(before)
                 .filter(|request| request.path == "/responses")
                 .count();
-            if matches!(outcome, "eof" | "done") {
-                assert_eq!(retries, [1], "{outcome}");
-                assert_eq!(requests, retries.len() + 1, "{outcome}");
-            } else {
-                assert!(
-                    retries.is_empty(),
-                    "remote={remote} outcome={outcome} retries={retries:?}"
-                );
-                assert_eq!(requests, 1, "{outcome}: inference must not replay");
-            }
+            assert!(retries.is_empty(), "remote={remote} outcome={outcome}");
+            // Goose retries an empty inference three times; a received partial
+            // answer or provider error is never replayed by Sailry.
+            assert_eq!(
+                requests,
+                if outcome == "empty" { 4 } else { 1 },
+                "{outcome}"
+            );
         }
     }
     assert_eq!(

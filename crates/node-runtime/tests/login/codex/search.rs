@@ -1,18 +1,39 @@
 use super::*;
 
 const ANSWER: &str = "Authorized search result";
-const SOURCE: &str = "https://example.com/source";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn selects_native_search_from_authorized_contract() {
+async fn offers_fallback_with_saved_choices() {
     for remote in [false, true] {
         for metadata in [None, Some(true), Some(false)] {
-            let native = metadata != Some(false);
+            let preferred = metadata != Some(false);
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
                 reply(request, metadata)
             })
             .await;
             let fixture = Fixture::packages(remote, &server, &["web-search"]).await;
+            let Output::SearchSettings(mut settings) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::ReadSearchSettings))
+                .await
+                .unwrap()
+            else {
+                panic!("search settings expected")
+            };
+            settings.driver = Some(sailry_protocol::search::Selection::Driver(
+                sailry_protocol::search::Driver::Exa,
+            ));
+            settings.prefer_native = true;
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::SaveSearchSettings(
+                    sailry_protocol::search::Update {
+                        settings,
+                        credentials: Default::default(),
+                    },
+                )))
+                .await
+                .unwrap();
             let provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
             assert!(provider.models.is_empty());
             let (_, attempt) = begin(&fixture.client, &provider).await;
@@ -23,7 +44,7 @@ async fn selects_native_search_from_authorized_contract() {
             drop(stream);
             let provider = saved(&fixture.client, provider.id).await;
             assert_eq!(provider.models[0].id, "fixture");
-            assert_eq!(provider.models[0].web_search, native);
+            assert_eq!(provider.models[0].web_search, preferred);
             assert_eq!(
                 provider.models[0].capabilities.as_ref().unwrap().web_search,
                 metadata
@@ -39,20 +60,12 @@ async fn selects_native_search_from_authorized_contract() {
                 .iter()
                 .filter(|entry| entry.turn == turn.id)
                 .collect();
-            assert_eq!(
-                entries.iter().any(|entry| entry.parts.iter().any(|part| {
-                    matches!(part, Part::ToolCall { name, .. } if name == "web_search")
-                })),
-                native
-            );
-            assert_eq!(
-                entries.iter().any(|entry| entry
-                    .citations
-                    .iter()
-                    .any(|citation| citation.uri == SOURCE)),
-                native
-            );
+            assert!(!entries.iter().any(|entry| entry.parts.iter().any(|part| {
+                matches!(part, Part::ToolCall { name, .. } if name == "web_search")
+            })));
+            assert!(entries.iter().all(|entry| entry.citations.is_empty()));
             assert!(page.questions.is_empty());
+            assert_eq!(saved(&fixture.client, provider.id).await, provider);
             assert_eq!(
                 server
                     .requests
@@ -82,7 +95,6 @@ fn reply(request: &discovery_support::Request, metadata: Option<bool>) -> Reply 
     if request.path != "/responses" {
         return server::standard(request, 3600);
     }
-    let native = metadata != Some(false);
     let body = server::input(
         request,
         &Options::defaults(Authentication::ChatGptOAuth).unwrap(),
@@ -94,7 +106,7 @@ fn reply(request: &discovery_support::Request, metadata: Option<bool>) -> Reply 
             .iter()
             .filter(|tool| tool["type"] == "web_search")
             .count(),
-        usize::from(native)
+        0
     );
     let digest = blake3::hash(b"web-search").to_hex();
     let fallback = format!("plugin_{}_web_search", &digest[..16]);
@@ -103,21 +115,13 @@ fn reply(request: &discovery_support::Request, metadata: Option<bool>) -> Reply 
             .iter()
             .filter(|tool| tool["type"] == "function" && tool["name"] == fallback)
             .count(),
-        usize::from(!native)
+        1
     );
-    let mut output = Vec::new();
-    if native {
-        output.push(json!({"type":"web_search_call", "id":"authorized-search",
-            "status":"completed", "action":{"type":"search", "query":"fixture source"}}));
-    }
-    let mut message = server::message(ANSWER);
-    if native {
-        message["content"][0]["annotations"] = json!([{"type":"url_citation",
-            "start_index":0, "end_index":ANSWER.chars().count(), "title":"Fixture source", "url":SOURCE}]);
-    }
-    output.push(message);
     server::stream(
-        vec![server::delta(ANSWER), server::completed(json!(output))],
+        vec![
+            server::delta(ANSWER),
+            server::completed(json!([server::message(ANSWER)])),
+        ],
         true,
     )
 }

@@ -127,18 +127,20 @@ fn generation_for(
     let call = tools && !continuation;
     let digest = blake3::hash(b"files").to_hex();
     let tool = format!("plugin_{}_read_file", &digest[..16]);
+    let response = RequestId::new().to_string();
     let event = if api == ModelApi::Responses {
+        let created = json!({"type":"response.created","sequence_number":0,"response":{"id":response,"object":"response","created_at":1,"status":"in_progress","model":model,"output":[]}});
         let output = if call {
             json!([{"type":"function_call","id":"item-fixture","call_id":"call-fixture","namespace":"sailry","name":tool,"arguments":"{\"path\":\"fixture.txt\"}","status":"completed"}])
         } else {
             json!([{"type":"message","id":"message-fixture","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Authorized response","annotations":[]}]}])
         };
-        let completed = json!({"type":"response.completed","sequence_number":1,"response":{"id":"response-fixture","object":"response","created_at":1,"status":"completed","model":model,"output":output}});
+        let completed = json!({"type":"response.completed","sequence_number":2,"response":{"id":response,"object":"response","created_at":1,"status":"completed","model":model,"output":output}});
         if call {
-            format!("data: {completed}\n\n")
+            format!("data: {created}\n\ndata: {completed}\n\n")
         } else {
-            let delta = json!({"type":"response.output_text.delta","sequence_number":0,"item_id":"message-fixture","output_index":0,"content_index":0,"delta":"Authorized response","logprobs":[]});
-            format!("data: {delta}\n\ndata: {completed}\n\n")
+            let delta = json!({"type":"response.output_text.delta","sequence_number":1,"item_id":"message-fixture","output_index":0,"content_index":0,"delta":"Authorized response","logprobs":[]});
+            format!("data: {created}\n\ndata: {delta}\n\ndata: {completed}\n\n")
         }
     } else {
         let delta = if call {
@@ -146,8 +148,8 @@ fn generation_for(
         } else {
             json!({"role":"assistant","content":"Authorized response"})
         };
-        let first = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
-        let last = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{},"finish_reason":if call {"tool_calls"} else {"stop"}}]});
+        let first = json!({"id":response,"object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
+        let last = json!({"id":response,"object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{},"finish_reason":if call {"tool_calls"} else {"stop"}}]});
         format!("data: {first}\n\ndata: {last}\n\n")
     };
     Reply::Raw(format!(
