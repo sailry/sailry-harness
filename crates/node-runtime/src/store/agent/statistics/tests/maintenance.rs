@@ -49,7 +49,7 @@ async fn uses_captured_policy_until_queued_work_ends() {
         .budget
         .unwrap();
     assert_eq!(captured.context_limit, 4096);
-    assert_eq!(captured.trigger_tokens, 2048);
+    assert_eq!(captured.trigger_tokens, 3276);
     assert_eq!(captured.output_reserve, 2048);
     assert_eq!(captured.summary_output, 2048);
     command(
@@ -67,7 +67,7 @@ async fn uses_captured_policy_until_queued_work_ends() {
         .budget
         .unwrap();
     assert_eq!(current.context_limit, 200_000);
-    assert_eq!(current.trigger_tokens, 136_000);
+    assert_eq!(current.trigger_tokens, 160_000);
     assert_eq!(current.output_reserve, 64_000);
     assert_eq!(current.summary_output, 64_000);
 }
