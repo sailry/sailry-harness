@@ -36,18 +36,20 @@ pub(crate) async fn read(db: &Connection, turn: TurnId) -> Result<Vec<Denial>, F
     Ok(selected)
 }
 
-pub(crate) fn enrich(content: &mut adk_core::Content, denials: &[Denial]) {
-    for part in &mut content.parts {
-        if let adk_core::Part::FunctionResponse {
-            id: Some(id),
-            function_response,
-            ..
-        } = part
+pub(crate) fn enrich(content: &mut crate::agent::canonical::Message, denials: &[Denial]) {
+    use crate::agent::canonical::{BlockKind, ToolFormat};
+    for part in &mut content.content {
+        if let BlockKind::ToolResponse(response) = &mut part.kind
+            && let Some(id) = &response.id
             && let Some(denial) = denials
                 .iter()
-                .find(|denial| &denial.call == id && denial.tool == function_response.name)
+                .find(|denial| &denial.call == id && denial.tool == response.name)
         {
-            function_response.response = serde_json::json!({"error":format!("Tool execution was denied. Reason: {}",denial.reason)});
+            let value = serde_json::json!({"error":format!("Tool execution was denied. Reason: {}",denial.reason)});
+            response.revision = blake3::hash(value.to_string().as_bytes()).to_hex().to_string();
+            response.result = value.into();
+            response.format = ToolFormat::Json;
+            response.status = crate::agent::canonical::ToolStatus::Error;
         }
     }
 }
@@ -55,9 +57,9 @@ pub(crate) fn enrich(content: &mut adk_core::Content, denials: &[Denial]) {
 pub(in crate::store::agent) async fn append(
     db: &Connection,
     turn: TurnId,
-    event: &mut AdkEvent,
+    event: &mut crate::agent::canonical::Record,
 ) -> Result<(), Fault> {
-    if let Some(content) = &mut event.llm_response.content {
+    if let crate::agent::canonical::Kind::Message(content) = &mut event.kind {
         enrich(content, &read(db, turn).await?);
     }
     Ok(())

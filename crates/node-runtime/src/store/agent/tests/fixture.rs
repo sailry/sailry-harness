@@ -116,7 +116,7 @@ impl Fixture {
         session
     }
 
-    pub async fn append(&mut self, events: impl IntoIterator<Item = AdkEvent>) -> TurnId {
+    pub async fn append(&mut self, events: impl IntoIterator<Item = crate::agent::canonical::Record>) -> TurnId {
         let turn = self.queued().await;
         runs::start(&self.database.connection, turn).await.unwrap();
         assert_eq!(
@@ -128,7 +128,8 @@ impl Fixture {
                 .id,
             turn
         );
-        for event in events {
+        for mut event in events {
+            event.turn = turn;
             super::super::history::append(
                 &mut self.database,
                 self.session,

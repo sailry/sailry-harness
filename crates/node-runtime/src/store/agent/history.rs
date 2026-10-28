@@ -38,9 +38,9 @@ pub(super) async fn append(
     database: &mut Database,
     session: SessionId,
     turn: TurnId,
-    event: AdkEvent,
+    event: Record,
     events: &broadcast::Sender<EventEnvelope>,
-) -> adk_core::Result<()> {
+) -> Result<(), Fault> {
     append_with_context(database, session, turn, event, None, events).await
 }
 
@@ -48,11 +48,11 @@ pub(super) async fn append_with_context(
     database: &mut Database,
     session: SessionId,
     turn: TurnId,
-    event: AdkEvent,
-    context: Option<(TurnId, AdkEvent)>,
+    event: Record,
+    context: Option<(TurnId, Record)>,
     events: &broadcast::Sender<EventEnvelope>,
-) -> adk_core::Result<()> {
-    let permit = database.write().await.map_err(adk_error)?;
+) -> Result<(), Fault> {
+    let permit = database.write().await?;
     for attempt in 0..=crate::store::database::conflict::RETRIES {
         let event = event.clone();
         let context = context.clone();
@@ -60,9 +60,7 @@ pub(super) async fn append_with_context(
             let publication = database.publication.clone();
             let transaction = crate::store::database::conflict::begin(&database.connection).await?;
             let prepared: Result<_, Fault> = async {
-                if event
-                    .provider_metadata
-                    .contains_key(crate::agent::CONTEXT_METADATA)
+                if event.context().is_some_and(|context| context.captured)
                     && runs::get(&transaction, turn).await?.status != Status::Running
                 {
                     return Err(Fault::new(
@@ -172,10 +170,10 @@ pub(super) async fn append_with_context(
         let result = write().await;
         if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
             database.connection.hold_write(permit);
-            return Err(adk_error(error));
+            return Err(error);
         }
         if !crate::store::database::conflict::again(&result, attempt).await {
-            return result.map_err(adk_error);
+            return result;
         }
     }
     unreachable!("the final attempt returns its result")
@@ -186,32 +184,13 @@ pub(super) async fn insert(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
-    mut event: AdkEvent,
+    mut event: Record,
 ) -> Result<Option<Entry>, Fault> {
-    if event.llm_response.partial {
-        return Err(Fault::invalid("partial output is not durable history"));
-    }
     if event.id.is_empty() || event.id.len() > 256 {
         return Err(Fault::invalid("event identifier is invalid"));
     }
-    event
-        .actions
-        .state_delta
-        .retain(|key, _| !key.starts_with(adk_session::KEY_PREFIX_TEMP));
-    // The canonical event keeps response metadata, not a second copy of model requests.
-    event.llm_request = None;
-    event
-        .provider_metadata
-        .remove("gcp.vertex.agent.llm_request");
-    event
-        .provider_metadata
-        .remove("gcp.vertex.agent.llm_response");
-    if event.llm_response.error_code.is_some() || event.llm_response.error_message.is_some() {
-        event.llm_response.error_code = Some("provider_error".into());
-        event.llm_response.error_message = Some("model response reported an error".into());
-    }
+    if event.turn != turn { return Err(Fault::invalid("event belongs to another turn")); }
     super::approvals::results::append(db, turn, &mut event).await?;
-    let mut event = crate::agent::canonical_bridge::from_adk(db, turn, &event).await?;
     let previous: Option<(String, Vec<u8>)> = {
         let mut statement = db.prepare("SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2").await.map_err(storage_error)?;
         match statement

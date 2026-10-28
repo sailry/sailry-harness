@@ -254,9 +254,9 @@ pub(super) enum Operation {
     Append {
         session: SessionId,
         turn: TurnId,
-        event: AdkEvent,
-        context: Option<(TurnId, AdkEvent)>,
-        reply: oneshot::Sender<adk_core::Result<()>>,
+        event: crate::agent::canonical::Record,
+        context: Option<(TurnId, crate::agent::canonical::Record)>,
+        reply: oneshot::Sender<Result<(), Fault>>,
     },
     Claim {
         token: sailry_link::CancellationToken,
