@@ -105,14 +105,15 @@ async fn retains_guidance_capture() {
         else {
             panic!("queue expected")
         };
-        let selected = selected.queue.items[0].turn;
-        assert_ne!(selected, source);
+        let selected = &selected.queue.items[0];
+        assert_eq!(selected.turn, source);
+        assert!(selected.guidance.is_none());
         assert_eq!(
             runs::get(&fixture.database.connection, source)
                 .await
                 .unwrap()
                 .status,
-            Status::Cancelled
+            Status::Queued
         );
         assert_eq!(
             hooks::frozen(&fixture.database.connection, source)
@@ -127,19 +128,18 @@ async fn retains_guidance_capture() {
             initial
         );
         assert_eq!(
-            queue::message(&fixture.database.connection, selected)
+            queue::message(&fixture.database.connection, source)
                 .await
                 .unwrap()
                 .message,
             input
         );
-        let inputs = runs::guidance::take(&mut fixture.database, active, &fixture.events)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(inputs.len(), 1);
-        assert_eq!(inputs[0].turn.id, selected);
-        assert_eq!(inputs[0].message, input);
+        assert!(
+            runs::guidance::take(&mut fixture.database, active, &fixture.events)
+                .await
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(
             hooks::frozen(&fixture.database.connection, active)
                 .await
@@ -152,6 +152,45 @@ async fn retains_guidance_capture() {
         } else {
             assert_eq!(launch.unwrap_err().code, ErrorCode::PermissionDenied);
         }
+        let mut event = message(
+            "user",
+            Role::User,
+            vec![BlockKind::Text {
+                text: recipient.message.text,
+            }],
+        );
+        event.turn = active;
+        history::append(
+            &mut fixture.database,
+            fixture.session,
+            active,
+            event,
+            &fixture.events,
+        )
+        .await
+        .unwrap();
+        runs::finish(
+            &mut fixture.database,
+            active,
+            Status::Completed,
+            None,
+            &fixture.events,
+        )
+        .await
+        .unwrap();
+        let next = runs::claim(&mut fixture.database, &fixture.events)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.turn.id, source);
+        assert_eq!(next.message, input);
+        assert_eq!(next.hooks, changed);
+        assert_eq!(
+            hooks::frozen(&fixture.database.connection, active)
+                .await
+                .unwrap(),
+            initial
+        );
     }
 }
 

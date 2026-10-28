@@ -85,7 +85,24 @@ async fn continue_turn(
 async fn claims_ordinary_input_with_an_opaque_fence() {
     let mut fixture = Fixture::new().await;
     let context = prepare(&mut fixture).await;
-    let after = fixture.completed(&["Verified work"]).await;
+    let after = fixture
+        .append([
+            message(
+                "user",
+                Role::User,
+                vec![BlockKind::Text {
+                    text: "History fixture".into(),
+                }],
+            ),
+            message(
+                "assistant",
+                Role::Assistant,
+                vec![BlockKind::Text {
+                    text: "Verified work".into(),
+                }],
+            ),
+        ])
+        .await;
     let turn = continue_turn(&mut fixture, &context, Some(after))
         .await
         .unwrap();

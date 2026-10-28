@@ -232,6 +232,17 @@ async fn rebuilds_from_durable_events() {
             .id,
         turn.id
     );
+    let mut input = message(
+        "user",
+        Role::User,
+        vec![BlockKind::Text {
+            text: "fixture prompt".into(),
+        }],
+    );
+    input.turn = turn.id;
+    history::append(&mut database, session.id, turn.id, input, &events)
+        .await
+        .unwrap();
     let mut updates = events.subscribe();
     let mut event = message(
         "assistant",
@@ -281,7 +292,7 @@ async fn rebuilds_from_durable_events() {
     let original = history::pages::read(&database.connection, session.id, None, 100)
         .await
         .unwrap();
-    assert_eq!(original.page.entries.len(), 1);
+    assert_eq!(original.page.entries.len(), 2);
     event.message_mut().unwrap().content[0].kind = BlockKind::Text {
         text: "different answer".into(),
     };

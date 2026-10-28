@@ -103,11 +103,32 @@ async fn append(fixture: &mut Fixture, invocation: &Invocation, event: canonical
     .unwrap();
 }
 
+async fn completed(fixture: &mut Fixture) -> TurnId {
+    fixture
+        .append([
+            fixture::message(
+                "user",
+                canonical::Role::User,
+                vec![BlockKind::Text {
+                    text: "History fixture".into(),
+                }],
+            ),
+            fixture::message(
+                "assistant",
+                canonical::Role::Assistant,
+                vec![BlockKind::Text {
+                    text: "Started work".into(),
+                }],
+            ),
+        ])
+        .await
+}
+
 #[tokio::test]
 async fn delivers_all_bounded_batches() {
     for output in ["Result".to_owned(), "\n".repeat(2048)] {
         let mut fixture = Fixture::new().await;
-        let source = fixture.completed(&["Started work"]).await;
+        let source = completed(&mut fixture).await;
         let mut ids = BTreeSet::new();
         for _ in 0..17 {
             ids.insert(pending(&fixture, source, &output).await);
@@ -226,7 +247,7 @@ async fn cancelling_reservation_prevents_rescheduling() {
 async fn recovers_only_unconfirmed_delivery() {
     for confirmed in [false, true] {
         let mut fixture = Fixture::new().await;
-        let source = fixture.completed(&["Started work"]).await;
+        let source = completed(&mut fixture).await;
         let id = pending(&fixture, source, "Durable result").await;
         schedule(&fixture).await.unwrap();
         let invocation = claim(&mut fixture).await;
@@ -262,7 +283,7 @@ async fn recovers_only_unconfirmed_delivery() {
 #[tokio::test]
 async fn rejects_forged_canonical_confirmation() {
     let mut fixture = Fixture::new().await;
-    let source = fixture.completed(&["Started work"]).await;
+    let source = completed(&mut fixture).await;
     let id = pending(&fixture, source, "Durable result").await;
     schedule(&fixture).await.unwrap();
     let invocation = claim(&mut fixture).await;

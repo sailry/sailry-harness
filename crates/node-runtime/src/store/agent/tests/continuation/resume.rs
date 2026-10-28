@@ -126,15 +126,28 @@ async fn stopped_queue_preserves_fence_and_marker() {
     runs::start(&fixture.database.connection, original)
         .await
         .unwrap();
-    assert_eq!(
-        runs::claim(&mut fixture.database, &fixture.events)
-            .await
-            .unwrap()
-            .unwrap()
-            .turn
-            .id,
-        original
+    let invocation = runs::claim(&mut fixture.database, &fixture.events)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(invocation.turn.id, original);
+    let mut input = message(
+        "user",
+        Role::User,
+        vec![BlockKind::Text {
+            text: invocation.message.text,
+        }],
     );
+    input.turn = original;
+    history::append(
+        &mut fixture.database,
+        fixture.session,
+        original,
+        input,
+        &fixture.events,
+    )
+    .await
+    .unwrap();
     runs::stop(&fixture.database.connection, original)
         .await
         .unwrap();
