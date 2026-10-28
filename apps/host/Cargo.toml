@@ -19,3 +19,4 @@ tracing.workspace = true
 sailry-node-runtime = { workspace = true, features = ["test-support"] }
 blake3.workspace = true
 tempfile.workspace = true
+uuid.workspace = true
