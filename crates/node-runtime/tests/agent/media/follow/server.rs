@@ -3,7 +3,10 @@ use sailry_link::CancellationToken;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -43,6 +46,7 @@ pub struct Server {
     pub endpoint: String,
     pub requests: Arc<Mutex<Vec<Request>>>,
     outcome: Arc<Mutex<Outcome>>,
+    discovery: Arc<AtomicBool>,
     stop: CancellationToken,
 }
 
@@ -58,6 +62,8 @@ impl Server {
         let records = requests.clone();
         let outcome = Arc::new(Mutex::new(outcome));
         let selected = outcome.clone();
+        let discovery = Arc::new(AtomicBool::new(false));
+        let discover = discovery.clone();
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         tokio::spawn(async move {
@@ -69,8 +75,9 @@ impl Server {
                     result = listener.accept() => {
                         let (stream, _) = result.unwrap();
                         let records = records.clone();
+                        let discovery = discover.clone();
                         let outcome = *selected.lock().unwrap();
-                        tasks.spawn(async move { let _ = respond(stream, records, outcome).await; });
+                        tasks.spawn(async move { let _ = respond(stream, records, outcome, discovery).await; });
                     }
                 }
             }
@@ -80,8 +87,13 @@ impl Server {
             endpoint,
             requests,
             outcome,
+            discovery,
             stop,
         }
+    }
+
+    pub fn discover(&self) {
+        self.discovery.store(true, Ordering::SeqCst);
     }
 
     pub fn set_outcome(&self, outcome: Outcome) {
@@ -116,6 +128,7 @@ async fn respond(
     mut stream: TcpStream,
     records: Arc<Mutex<Vec<Request>>>,
     outcome: Outcome,
+    discovery: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
     let mut bytes = Vec::new();
     let mut buffer = [0; 8192];
@@ -168,8 +181,16 @@ async fn respond(
         body,
     };
     let primary = request.primary();
-    records.lock().unwrap().push(request);
+    let index = {
+        let mut records = records.lock().unwrap();
+        let index = records.len();
+        records.push(request.clone());
+        index
+    };
     if primary {
+        if discovery.swap(false, Ordering::SeqCst) {
+            return discover(&mut stream, &request, index).await;
+        }
         // StopTurn closes this request; generation uses another connection to this endpoint.
         let _ = stream.read(&mut [0]).await?;
         return Ok(());
@@ -248,5 +269,48 @@ async fn respond(
     let body = serde_json::to_vec(&value).unwrap();
     stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await?;
     stream.write_all(&body).await?;
+    stream.shutdown().await
+}
+
+async fn discover(stream: &mut TcpStream, request: &Request, index: usize) -> std::io::Result<()> {
+    let id = format!("discovery-response-{index}");
+    let call = format!("discovery-call-{index}");
+    let arguments = json!({
+        "query": super::super::super::plugin_tool("media", "generate_image"),
+        "limit": 1
+    })
+    .to_string();
+    let model = &request.body["model"];
+    let events = if request.path == "/v1/responses" {
+        vec![
+            json!({"type":"response.created","sequence_number":0,
+                "response":{"id":id,"object":"response","created_at":0,
+                    "model":model,"status":"in_progress","output":[]}}),
+            json!({"type":"response.completed","sequence_number":1,
+                "response":{"id":id,"object":"response","created_at":0,
+                    "model":model,"status":"completed","output":[{
+                        "id":call,"type":"function_call","call_id":call,
+                        "name":"tool_search","arguments":arguments,"status":"completed"}]}}),
+        ]
+    } else {
+        assert_eq!(request.path, "/v1/chat/completions");
+        vec![
+            json!({"id":id,"object":"chat.completion.chunk","created":0,"model":model,
+            "choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{
+                "index":0,"id":call,"type":"function","function":{
+                    "name":"tool_search","arguments":arguments}}]},"finish_reason":"tool_calls"}]}),
+        ]
+    };
+    stream
+        .write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+        )
+        .await?;
+    for event in events {
+        stream
+            .write_all(format!("data: {event}\n\n").as_bytes())
+            .await?;
+    }
+    stream.write_all(b"data: [DONE]\n\n").await?;
     stream.shutdown().await
 }

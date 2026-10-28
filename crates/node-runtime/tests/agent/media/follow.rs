@@ -351,7 +351,9 @@ async fn resolves_admitted_and_future_models() {
             let changed = fixture.revise(&fixture.session).await;
             assert_eq!(sent.config.model, "follow-a");
             assert_eq!(changed.config.model, "follow-b");
+            fixture.server.discover();
             fixture.begin(&sent).await;
+            fixture.server.wait_primary(2).await.unwrap();
             fixture
                 .generated(&changed, &sent, "assets/generated/sent.png")
                 .await;
@@ -373,13 +375,25 @@ async fn resolves_admitted_and_future_models() {
                     .iter()
                     .filter(|request| !request.primary())
                     .collect();
-                assert_eq!(primary.len(), 2);
+                assert_eq!(primary.len(), 3);
                 assert_eq!(generated.len(), 2);
+                assert_eq!(primary[0].body["model"], "follow-a");
+                assert!(!registered(primary[0]));
+                assert!(
+                    primary[0].body["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|tool| {
+                            tool["name"] == "tool_search"
+                                || tool["function"]["name"] == "tool_search"
+                        })
+                );
                 for (index, model) in ["follow-a", "follow-b"].into_iter().enumerate() {
-                    assert_eq!(primary[index].body["model"], model);
-                    assert!(registered(primary[index]));
+                    assert_eq!(primary[index + 1].body["model"], model);
+                    assert!(registered(primary[index + 1]));
                     assert_eq!(
-                        primary[index].headers["authorization"],
+                        primary[index + 1].headers["authorization"],
                         generated[index].headers["authorization"]
                     );
                     assert_route(generated[index], api, model);
@@ -424,7 +438,7 @@ async fn rejects_unavailable_native_images() {
                 assert!(request.primary());
                 assert_eq!(
                     request.path,
-                    format!("/v1/models/{model}:streamGenerateContent?alt=sse")
+                    format!("/v1/v1beta/models/{model}:streamGenerateContent?alt=sse")
                 );
                 assert_eq!(request.headers["x-goog-api-key"], wire::KEY);
             }

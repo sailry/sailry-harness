@@ -93,10 +93,11 @@ async fn uses_captured_class_declarations() {
 #[tokio::test]
 async fn retains_history_after_brief_removal() {
     for remote in [false, true] {
-        let server = Server::scripted_tools(vec![(
-            plugin_tool("brief", "write_brief"),
-            draft(None, None, "Historical document"),
-        )])
+        let write = plugin_tool("brief", "write_brief");
+        let server = Server::scripted_tools(vec![
+            ("tool_search".into(), json!({"query":write,"limit":1})),
+            (write.clone(), draft(None, None, "Historical document")),
+        ])
         .await;
         let fixture = process::Fixture::packages(remote, &server, &["brief"]).await;
         let Output::Plugin(package) = fixture
@@ -135,9 +136,20 @@ async fn retains_history_after_brief_removal() {
             let requests = server.requests.lock().unwrap();
             let request = &requests[0];
             assert!(node_context(request, "Work mode").contains(&instructions));
-            assert!(!system_prompt(request).contains(&instructions));
+            assert!(
+                request["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|message| {
+                        message["role"] != "user"
+                            || !message_text(&message["content"]).contains(&instructions)
+                    })
+            );
+            assert!(has_tool(request, "tool_search"));
+            assert!(!has_tool(request, &write));
             for name in ["write_brief", "read_brief", "list_briefs"] {
-                assert!(has_tool(request, &plugin_tool("brief", name)));
+                assert!(has_tool(&requests[1], &plugin_tool("brief", name)));
             }
         }
 
@@ -161,7 +173,7 @@ async fn retains_history_after_brief_removal() {
                 let current = node_context(request, "Work mode");
                 assert!(!current.contains(&instructions));
                 assert!(!current.contains("offer an optional HTML brief"));
-                assert_eq!(system_prompt(request), system_prompt(&requests[0]));
+                assert!(!system_prompt(request).contains(&instructions));
                 for name in ["write_brief", "read_brief", "list_briefs"] {
                     assert!(!has_tool(request, &plugin_tool("brief", name)));
                 }
@@ -187,7 +199,7 @@ fn system_prompt(request: &Value) -> String {
         .unwrap()
         .iter()
         .filter(|message| message["role"] == "system")
-        .filter_map(|message| message["content"].as_str())
+        .map(|message| message_text(&message["content"]))
         .collect::<Vec<_>>()
         .join("\n")
 }

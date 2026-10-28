@@ -48,12 +48,27 @@ async fn pages_prior_results_without_command_tools() {
                 .rev()
                 .flat_map(|request| request["messages"].as_array().unwrap())
                 .filter(|message| message["role"] == "tool")
-                .filter_map(|message| {
-                    serde_json::from_str::<serde_json::Value>(message["content"].as_str()?).ok()
+                .find_map(|message| {
+                    let result: serde_json::Value =
+                        serde_json::from_str(message["content"].as_str()?).ok()?;
+                    (result.to_string() == original).then(|| OutputReference {
+                        call: message["tool_call_id"].as_str().unwrap().into(),
+                        revision: blake3::hash(result.to_string().as_bytes())
+                            .to_hex()
+                            .to_string(),
+                    })
                 })
-                .find_map(|result| serde_json::from_value(result["output"].clone()).ok())
-                .expect("projected file result reference")
+                .expect("original file result and call identity")
         };
+        assert!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::ToolCall { id: Some(id), name, .. }
+                if id == &reference.call && name == &file)
+                })
+        );
         assert_eq!(
             reference.revision,
             blake3::hash(original.as_bytes()).to_hex().to_string()

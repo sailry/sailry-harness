@@ -93,13 +93,16 @@ impl Server {
                         })
                         .collect(),
                 );
-                records
-                    .lock()
-                    .unwrap()
-                    .push((path.to_owned(), input.clone()));
+                let index = {
+                    let mut records = records.lock().unwrap();
+                    let index = records.len();
+                    records.push((path.to_owned(), input.clone()));
+                    index
+                };
                 let value = match path {
                     "/v1/chat/completions" => {
-                        json!({"id":"vision", "object":"chat.completion", "created":0,"model":"vision-fixture","choices":[{"index":0,"message":{"role":"assistant","content":"One bright pixel"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":4,"total_tokens":9}})
+                        assert_eq!(input["stream"], true);
+                        json!({"id":format!("vision-{index}"), "object":"chat.completion.chunk", "created":0,"model":input["model"],"choices":[{"index":0,"delta":{"role":"assistant","content":"One bright pixel"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":4,"total_tokens":9}})
                     }
                     "/v1/images/generations" => {
                         let image = if input["prompt"] == "A pixel" {
@@ -120,7 +123,9 @@ impl Server {
                     "/v1/generated.png" => Value::Null,
                     _ => panic!("unexpected media path: {path}"),
                 };
-                let body = if path.ends_with("generated.png") {
+                let body = if path == "/v1/chat/completions" {
+                    format!("data: {value}\n\ndata: [DONE]\n\n").into_bytes()
+                } else if path.ends_with("generated.png") {
                     image()
                 } else if path.ends_with("/content") {
                     b"\0\0\0\x18ftypmp42\0\0\0\0mp42isom".to_vec()
@@ -129,7 +134,9 @@ impl Server {
                 };
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    if path.ends_with("generated.png") {
+                    if path == "/v1/chat/completions" {
+                        "text/event-stream"
+                    } else if path.ends_with("generated.png") {
                         "image/png"
                     } else if path.ends_with("/content") {
                         "video/mp4"
