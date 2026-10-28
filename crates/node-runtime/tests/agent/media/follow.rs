@@ -311,14 +311,7 @@ fn registered(request: &wire::Request) -> bool {
 }
 
 fn assert_route(request: &wire::Request, api: ModelApi, model: &str) {
-    if api == ModelApi::Gemini {
-        assert_eq!(request.path, format!("/v1/models/{model}:generateContent"));
-        assert_eq!(request.headers["x-goog-api-key"], wire::KEY);
-        assert_eq!(
-            request.body["generationConfig"]["responseModalities"],
-            json!(["TEXT", "IMAGE"])
-        );
-    } else if api == ModelApi::Responses {
+    if api == ModelApi::Responses {
         assert_eq!(request.path, "/v1/responses");
         assert_eq!(
             request.headers["authorization"],
@@ -347,11 +340,7 @@ fn assert_route(request: &wire::Request, api: ModelApi, model: &str) {
 #[tokio::test]
 async fn resolves_admitted_and_future_models() {
     for remote in [false, true] {
-        for api in [
-            ModelApi::Responses,
-            ModelApi::Gemini,
-            ModelApi::ChatCompletions,
-        ] {
+        for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
             let fixture = Fixture::new(remote, api).await;
             let Output::MediaSettings(settings) = fixture.execute(Command::ReadMediaSettings).await
             else {
@@ -387,28 +376,62 @@ async fn resolves_admitted_and_future_models() {
                 assert_eq!(primary.len(), 2);
                 assert_eq!(generated.len(), 2);
                 for (index, model) in ["follow-a", "follow-b"].into_iter().enumerate() {
-                    if api == ModelApi::Gemini {
-                        assert_eq!(
-                            primary[index].path,
-                            format!("/v1/models/{model}:streamGenerateContent?alt=sse")
-                        );
-                        assert_eq!(
-                            primary[index].headers["x-goog-api-key"],
-                            generated[index].headers["x-goog-api-key"]
-                        );
-                    } else {
-                        assert_eq!(primary[index].body["model"], model);
-                        assert!(registered(primary[index]));
-                        assert_eq!(
-                            primary[index].headers["authorization"],
-                            generated[index].headers["authorization"]
-                        );
-                    }
+                    assert_eq!(primary[index].body["model"], model);
+                    assert!(registered(primary[index]));
+                    assert_eq!(
+                        primary[index].headers["authorization"],
+                        generated[index].headers["authorization"]
+                    );
                     assert_route(generated[index], api, model);
                 }
             }
             fixture.close().await;
         }
+    }
+}
+
+#[tokio::test]
+async fn rejects_unavailable_native_images() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote, ModelApi::Gemini).await;
+        let sent = fixture.queue(&fixture.session).await;
+        let changed = fixture.revise(&fixture.session).await;
+        fixture.begin(&sent).await;
+        let path = "assets/generated/native-sent.png";
+        assert_eq!(
+            fixture.image(&changed, &sent, path).await.unwrap_err().code,
+            ErrorCode::NotConfigured
+        );
+        assert!(!fixture.root.join(path).exists());
+        fixture.stop(&sent).await;
+        let future = fixture.queue(&changed).await;
+        fixture.begin(&future).await;
+        let path = "assets/generated/native-future.png";
+        assert_eq!(
+            fixture
+                .image(&changed, &future, path)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotConfigured
+        );
+        assert!(!fixture.root.join(path).exists());
+        fixture.stop(&future).await;
+        {
+            let requests = fixture.server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            for (request, model) in requests.iter().zip(["follow-a", "follow-b"]) {
+                assert!(request.primary());
+                assert_eq!(
+                    request.path,
+                    format!("/v1/models/{model}:streamGenerateContent?alt=sse")
+                );
+                assert_eq!(request.headers["x-goog-api-key"], wire::KEY);
+            }
+        }
+        assert_eq!(sent.config.model, "follow-a");
+        assert_eq!(future.config.model, "follow-b");
+        fixture.close().await;
     }
 }
 
@@ -503,7 +526,7 @@ async fn does_not_repeat_same_fallback() {
 #[tokio::test]
 async fn failures_never_use_companion() {
     for remote in [false, true] {
-        for api in [ModelApi::Responses, ModelApi::Gemini] {
+        for api in [ModelApi::Responses] {
             let fixture = Fixture::new(remote, api).await;
             let mut provider = fixture.provider.clone();
             provider.request_max_retries = Some(0);
@@ -584,7 +607,7 @@ async fn uses_companion_only_when_unsupported() {
                 }))
                 .await;
             let without_companion = fixture.create().await;
-            let unsupported = api == ModelApi::Anthropic;
+            let unsupported = matches!(api, ModelApi::Anthropic | ModelApi::Gemini);
             let mut outcomes = vec![wire::Outcome::Completed];
             if !unsupported {
                 outcomes.push(wire::Outcome::Rejected(400, "unsupported_capability"));
