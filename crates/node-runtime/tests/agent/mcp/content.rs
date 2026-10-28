@@ -104,9 +104,18 @@ async fn restores() {
         assert_eq!(call.content(), Some(&expected));
         assert!(call.failure.is_none());
         assert!(!call.diagnostics(&page));
-        assert_eq!(call.result(&page).unwrap()["output"]["sample"], true);
-        assert_eq!(call.result(&page).unwrap()["output"]["isError"], true);
-        assert_eq!(call.result(&page).unwrap()["output"]["error"], "domain row");
+        assert_eq!(
+            call.result(&page).unwrap()["structuredContent"]["sample"],
+            true
+        );
+        assert_eq!(
+            call.result(&page).unwrap()["structuredContent"]["isError"],
+            true
+        );
+        assert_eq!(
+            call.result(&page).unwrap()["structuredContent"]["error"],
+            "domain row"
+        );
         assert_eq!(call.images(&page).len(), 1);
         let image = call.images(&page)[0].clone();
         let requests = model.requests.lock().unwrap().len();

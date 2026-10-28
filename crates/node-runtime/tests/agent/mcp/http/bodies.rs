@@ -270,7 +270,7 @@ async fn isolates_failed_discovery() {
                             .contains("Complete skill beside MCP")
                     );
                 } else {
-                    assert_eq!(output[0]["error"]["code"], "outcome_unknown");
+                    assert_eq!(output[0]["data"]["code"], "outcome_unknown");
                 }
                 fixture.client.execute(request).await.unwrap();
                 assert_eq!(http.count("initialize"), 1);

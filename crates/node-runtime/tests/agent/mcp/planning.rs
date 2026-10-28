@@ -41,7 +41,10 @@ async fn preserves_readonly_execution() {
                 .collect::<std::collections::BTreeSet<_>>(),
             expected
         );
-        assert_eq!(results[1]["output"]["version"], "planning fixture");
+        assert_eq!(
+            results[1]["structuredContent"]["version"],
+            "planning fixture"
+        );
         let data = fixture.node.profile().join("plugins/data/example");
         assert!(!data.join("effects").exists());
         let requests = model.requests.lock().unwrap().clone();

@@ -239,8 +239,8 @@ async fn fences_retired_protected_slots() {
             .map(|(_, detail)| detail.result.unwrap())
             .next_back()
             .unwrap();
-        assert_eq!(result["isError"], true, "{result}");
-        assert_eq!(result["error"]["code"], "not_configured", "{result}");
+        assert_eq!(result["code"], -32603, "{result}");
+        assert_eq!(result["data"]["code"], "not_configured", "{result}");
         let unexpected = peer.requests.lock().unwrap()[before..]
             .iter()
             .map(|(method, _, body)| (method.clone(), body["method"].clone()))

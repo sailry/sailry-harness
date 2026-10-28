@@ -154,7 +154,7 @@ async fn refreshes_next_input() {
                 Status::Completed
             );
             assert_eq!(
-                results(&fixture.client, &page).await.last().unwrap()["output"]["version"],
+                results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["version"],
                 version
             );
         }

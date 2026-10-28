@@ -54,7 +54,7 @@ async fn binds_distinct_environment_fields() {
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
             assert_eq!(
-                results(&fixture.client, &page).await.last().unwrap()["output"]["hashes"],
+                results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["hashes"],
                 json!([
                     blake3::hash(SECOND.as_bytes()).as_bytes(),
                     blake3::hash(FIRST.as_bytes()).as_bytes()

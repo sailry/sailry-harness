@@ -402,9 +402,9 @@ async fn expired_calls_prevent_replay() {
             assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
             let output = results(&fixture.client, &page).await;
             if expired {
-                assert_eq!(output[0]["error"]["code"], "outcome_unknown");
+                assert_eq!(output[0]["data"]["code"], "outcome_unknown");
             } else {
-                assert_eq!(output[0]["output"]["value"], content);
+                assert_eq!(output[0]["structuredContent"]["value"], content);
             }
             assert_eq!(http.count("initialize"), 1);
             assert_eq!(http.count("tools/list"), 2);
@@ -489,7 +489,7 @@ async fn closes_sessions_between_turns() {
             assert_eq!(run.status, Status::Completed);
             assert!(run.error.is_none(), "{:?}", run.error);
             assert_eq!(
-                results(&fixture.client, &page).await.last().unwrap()["output"]["value"],
+                results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["value"],
                 "retained result"
             );
             assert_eq!(http.count("initialize"), round);

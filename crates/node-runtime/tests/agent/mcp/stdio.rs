@@ -97,10 +97,10 @@ async fn standalone_credentials() {
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         let output = results(&fixture.client, &page).await;
         assert_eq!(
-            output[0]["output"]["secret_hash"],
+            output[0]["structuredContent"]["secret_hash"],
             json!(blake3::hash(original.as_bytes()).as_bytes())
         );
-        assert_eq!(output[0]["output"]["settings"], json!({}));
+        assert_eq!(output[0]["structuredContent"]["settings"], json!({}));
         let public = serde_json::to_string(&page).unwrap();
         assert!(!public.contains(original) && !public.contains(replacement));
         let (_, turn) = submit(&fixture, false).await;
@@ -109,7 +109,7 @@ async fn standalone_credentials() {
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(
-            results(&fixture.client, &page).await.last().unwrap()["output"]["secret_hash"],
+            results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["secret_hash"],
             json!(blake3::hash(replacement.as_bytes()).as_bytes())
         );
         fixture.node.shutdown().await.unwrap();
@@ -202,9 +202,12 @@ async fn recovers_frozen_approval() {
             }
         }
         let output = results(&fixture.client, &page).await;
-        assert_eq!(output[0]["output"]["version"], "old version 中文 🙂");
         assert_eq!(
-            output[0]["output"]["root"],
+            output[0]["structuredContent"]["version"],
+            "old version 中文 🙂"
+        );
+        assert_eq!(
+            output[0]["structuredContent"]["root"],
             fixture
                 .node
                 .profile()
@@ -213,15 +216,24 @@ async fn recovers_frozen_approval() {
                 .to_str()
                 .unwrap()
         );
-        assert_eq!(output[0]["output"]["data"], data.to_str().unwrap());
-        assert_eq!(output[0]["output"]["cwd"], data.to_str().unwrap());
+        assert_eq!(
+            output[0]["structuredContent"]["data"],
+            data.to_str().unwrap()
+        );
+        assert_eq!(
+            output[0]["structuredContent"]["cwd"],
+            data.to_str().unwrap()
+        );
         assert!(
-            output[0]["output"]["text"]
+            output[0]["structuredContent"]["text"]
                 .as_str()
                 .unwrap()
                 .ends_with("|${HOME}|中文 🙂")
         );
-        assert_eq!(output[0]["output"]["provider_key_present"], false);
+        assert_eq!(
+            output[0]["structuredContent"]["provider_key_present"],
+            false
+        );
         assert!(!data.join("effects").exists());
         fixture
             .controller
@@ -310,7 +322,7 @@ async fn lost_results_prevent_replay() {
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert_eq!(page.approvals[0].source, ApprovalSource::Full);
         let result = results(&fixture.client, &page).await;
-        assert_eq!(result[0]["error"]["code"], "outcome_unknown");
+        assert_eq!(result[0]["data"]["code"], "outcome_unknown");
         let data = fixture.node.profile().join("plugins/data/example");
         assert_eq!(fs::read_to_string(data.join("effects")).unwrap(), "once");
         reaped(&data);

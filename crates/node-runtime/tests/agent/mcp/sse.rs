@@ -99,7 +99,7 @@ async fn closes_sessions_between_turns() {
             assert_eq!(run.status, Status::Completed);
             assert!(run.error.is_none(), "{:?}", run.error);
             assert_eq!(
-                results(&fixture.client, &page).await.last().unwrap()["output"]["action"],
+                results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["action"],
                 "decline"
             );
             assert_eq!(server.initializations.load(Ordering::SeqCst), round);

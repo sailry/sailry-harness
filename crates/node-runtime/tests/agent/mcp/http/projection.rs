@@ -1,13 +1,13 @@
 use super::*;
 
-fn projected(request: &Value) -> Value {
+fn projected(request: &Value) -> &str {
     let message = request["messages"]
         .as_array()
         .unwrap()
         .iter()
         .find(|message| message["role"] == "tool")
         .expect("MCP result must reach the model");
-    serde_json::from_str(message["content"].as_str().unwrap()).unwrap()
+    message["content"].as_str().unwrap()
 }
 
 #[tokio::test]
@@ -31,12 +31,15 @@ async fn deduplicates_requests_and_preserves_history() {
         assert!(page.approvals.is_empty());
         let canonical = results(&fixture.client, &page).await;
         assert_eq!(canonical.len(), 1);
-        assert_eq!(canonical[0]["output"], output);
+        assert_eq!(canonical[0]["structuredContent"], output);
         assert_eq!(
-            canonical[0]["text"],
-            json!([output.to_string(), "Distinct report note"])
+            canonical[0]["content"],
+            json!([
+                {"type":"text","text":output.to_string()},
+                {"type":"text","text":"Distinct report note"}
+            ])
         );
-        let expected = json!({"output":output,"text":["Distinct report note"]});
+        let expected = format!("{output} Distinct report note");
         assert_eq!(projected(&model.requests.lock().unwrap()[1]), expected);
         assert_eq!(http.count("tools/call"), 1);
 

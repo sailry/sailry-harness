@@ -47,7 +47,7 @@ async fn save(
 async fn verify(client: &Client, page: &Page, label: &str, secret: &str) {
     assert!(!serde_json::to_string(page).unwrap().contains(secret));
     let results = results(client, page).await;
-    let result = &results.last().unwrap()["output"];
+    let result = &results.last().unwrap()["structuredContent"];
     assert_eq!(result["settings"], json!({"label":label}));
     assert_eq!(
         result["secret_hash"],
@@ -96,10 +96,11 @@ async fn releases_frozen_projections() {
             page.runs
         );
         verify(&fixture.client, &page, "Original 中文 🙂", first_secret).await;
-        let original = results(&fixture.client, &page).await[0]["output"]["settings_path"]
-            .as_str()
-            .unwrap()
-            .to_owned();
+        let original =
+            results(&fixture.client, &page).await[0]["structuredContent"]["settings_path"]
+                .as_str()
+                .unwrap()
+                .to_owned();
         // The next turn replaces the pooled connection using the current frozen settings.
         let (_, next) = submit(&fixture, false).await;
         assert_eq!(next.plugins, [second.package]);
@@ -107,7 +108,7 @@ async fn releases_frozen_projections() {
         let page = finished(&fixture.client, fixture.session.id, next.id).await;
         verify(&fixture.client, &page, "Updated", second_secret).await;
         let updated =
-            results(&fixture.client, &page).await.last().unwrap()["output"]["settings_path"]
+            results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["settings_path"]
                 .as_str()
                 .unwrap()
                 .to_owned();

@@ -75,7 +75,7 @@ async fn launches_the_bundled_interpreter() {
             "MCP result: {}; fixture trace: {trace}",
             returned[0]
         );
-        let output = &returned.last().expect("MCP result returned")["output"];
+        let output = &returned.last().expect("MCP result returned")["structuredContent"];
         assert_eq!(
             output["version"],
             json!([3, 12, 13]),

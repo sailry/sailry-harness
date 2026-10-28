@@ -531,8 +531,12 @@ async fn projects_only_selected_images() {
                 .unwrap()
                 .contains("\"kind\":\"computer\"")
         );
-        assert!(output.iter().all(|result| result["output"]["nested"]
-            == json!({"kind":"computer","data":{"untouched":true}})));
+        assert!(
+            output
+                .iter()
+                .all(|result| result["structuredContent"]["nested"]
+                    == json!({"kind":"computer","data":{"untouched":true}}))
+        );
         {
             let requests = model.requests.lock().unwrap();
             assert_eq!(requests.len(), 10);
@@ -678,7 +682,7 @@ async fn holds_sent_calls_until_cleanup() {
                     results(&fixture.client, &page)
                         .await
                         .iter()
-                        .any(|result| result["error"]["code"] == "outcome_unknown")
+                        .any(|result| result["data"]["code"] == "outcome_unknown")
                 );
             }
             let page = finished(&fixture.client, fixture.session.id, second.id).await;

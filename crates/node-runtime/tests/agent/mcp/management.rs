@@ -113,6 +113,8 @@ async fn manages_only_standalone_inventory() {
             panic!("feature package expected")
         };
         model.replace_tools(vec![
+            ("tool_search".into(), json!({"query":"manage_mcp","limit":1})),
+            ("tool_search".into(), json!({"query":"manage_skills","limit":1})),
             ("manage_mcp".into(), json!({"action":"list"})),
             ("manage_mcp".into(), json!({"action":"update","name":"mcp-private","expected_revision":disabled.summary.revision})),
             ("manage_mcp".into(), json!({"action":"install","name":"mcp-new","definition":{"type":"streamable-http","url":"https://example.invalid/new","headers":["API-Key"]}})),
@@ -129,12 +131,23 @@ async fn manages_only_standalone_inventory() {
             page.runs
         );
         let outputs = results(&fixture.client, &page).await;
+        assert_eq!(outputs.len(), 8);
+        for (index, name) in ["manage_mcp", "manage_skills"].iter().enumerate() {
+            assert_eq!(outputs[index]["tools"][0]["name"], *name);
+        }
+        let outputs = &outputs[2..];
         assert_eq!(outputs.len(), 6);
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        assert_eq!(view.calls.len(), 6);
+        assert_eq!(view.calls.len(), 8);
+        assert!(
+            view.calls[..2]
+                .iter()
+                .all(|call| call.name == "tool_search")
+        );
         for (call, details) in view
             .calls
             .iter()
+            .skip(2)
             .zip([false, true, true, true, true, false])
         {
             assert_eq!(
@@ -154,7 +167,7 @@ async fn manages_only_standalone_inventory() {
         assert_eq!(outputs[4]["servers"].as_array().unwrap().len(), 2);
         assert_eq!(outputs[5]["servers"].as_array().unwrap().len(), 2);
         assert!(!serde_json::to_string(&page).unwrap().contains(private));
-        for request in model.requests.lock().unwrap().iter() {
+        for (index, request) in model.requests.lock().unwrap().iter().enumerate() {
             assert!(!request.to_string().contains(private));
             let names: Vec<_> = request["tools"]
                 .as_array()
@@ -162,8 +175,8 @@ async fn manages_only_standalone_inventory() {
                 .iter()
                 .map(|tool| tool["function"]["name"].as_str().unwrap())
                 .collect();
-            assert!(names.contains(&"manage_skills"));
-            assert!(names.contains(&"manage_mcp"));
+            assert_eq!(names.contains(&"manage_mcp"), index >= 1);
+            assert_eq!(names.contains(&"manage_skills"), index >= 2);
             for name in [
                 "list_mcp_servers",
                 "install_mcp_server",
@@ -247,6 +260,9 @@ async fn preserves_planning_inventory() {
             panic!("files package expected")
         };
         model.replace_tools(vec![
+            ("tool_search".into(), json!({"query":"manage_mcp","limit":1})),
+            ("tool_search".into(), json!({"query":"manage_skills","limit":1})),
+            ("tool_search".into(), json!({"query":"manage_plugins","limit":1})),
             ("manage_mcp".into(), json!({"action":"list"})),
             ("manage_mcp".into(), json!({"action":"install","name":"mcp-planning","definition":{"type":"streamable-http","url":"https://example.invalid/mcp","headers":[]}})),
             ("manage_mcp".into(), json!({"action":"update","name":"mcp-planning","expected_revision":1})),
@@ -266,6 +282,14 @@ async fn preserves_planning_inventory() {
         );
         assert!(page.approvals.is_empty());
         let output = results(&fixture.client, &page).await;
+        assert_eq!(output.len(), 11);
+        for (index, name) in ["manage_mcp", "manage_skills", "manage_plugins"]
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(output[index]["tools"][0]["name"], *name);
+        }
+        let output = &output[3..];
         assert_eq!(output.len(), 8);
         assert_eq!(output[0], json!({"servers":[]}));
         assert_eq!(output[4]["plugins"].as_array().unwrap().len(), 1);
@@ -287,15 +311,16 @@ async fn preserves_planning_inventory() {
             }
         }
         assert_eq!(execute(&fixture.client, Command::ListPlugins).await, before);
-        for request in model.requests.lock().unwrap().iter() {
+        for (index, request) in model.requests.lock().unwrap().iter().enumerate() {
             let names: Vec<_> = request["tools"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .map(|tool| tool["function"]["name"].as_str().unwrap())
                 .collect();
-            assert!(names.contains(&"manage_mcp"));
-            assert!(names.contains(&"manage_skills"));
+            assert_eq!(names.contains(&"manage_mcp"), index >= 1);
+            assert_eq!(names.contains(&"manage_skills"), index >= 2);
+            assert_eq!(names.contains(&"manage_plugins"), index >= 3);
             for name in [
                 "install_mcp_server",
                 "update_mcp_server",

@@ -231,11 +231,11 @@ async fn resumes_input() {
             assert_eq!(output.len(), 1, "{output:?}");
             if cancel {
                 assert_eq!(page.questions[0].state, State::Cancelled);
-                assert_eq!(output[0]["output"]["action"], "cancel");
+                assert_eq!(output[0]["structuredContent"]["action"], "cancel");
             } else {
                 assert!(matches!(page.questions[0].state, State::Answered(_)));
                 assert_eq!(
-                    output[0]["output"],
+                    output[0]["structuredContent"],
                     json!({"action":"accept","content":values()})
                 );
             }

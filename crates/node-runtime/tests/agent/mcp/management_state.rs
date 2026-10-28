@@ -175,7 +175,11 @@ async fn checks_only_on_request() {
 async fn freezes_server_choices() {
     for remote in [false, true] {
         let native = alias("native", "read");
-        let model = Server::available_tools(vec![(native.clone(), json!({}))]).await;
+        let model = Server::available_tools(vec![
+            ("tool_search".into(), json!({"query":native,"limit":1})),
+            (native.clone(), json!({})),
+        ])
+        .await;
         let fixture = process::Fixture::packages(remote, &model, &[]).await;
         isolate(&fixture.client).await;
         package(
@@ -205,11 +209,28 @@ async fn freezes_server_choices() {
         .await;
         let page = finished(&fixture.client, fixture.session.id, queued.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(
-            results(&fixture.client, &page).await.len(),
-            1,
-            "admitted work retains its configuration"
-        );
+        let output = results(&fixture.client, &page).await;
+        assert_eq!(output.len(), 2, "admitted work retains its configuration");
+        assert_eq!(output[0]["tools"][0]["name"], native);
+        assert_eq!(output[1]["structuredContent"]["version"], "0.1.0");
+        {
+            let requests = model.requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert!(
+                requests[0]["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|tool| tool["function"]["name"] != native)
+            );
+            assert!(
+                requests[1]["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == native)
+            );
+        }
         let previous = model.requests.lock().unwrap().len();
         let (_, next) = submit(&fixture, false).await;
         assert_eq!(next.plugins, [disabled.summary.reference()]);

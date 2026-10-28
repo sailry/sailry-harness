@@ -144,11 +144,11 @@ async fn preserves_resumed_batches() {
             .map(|(_, detail)| detail.result.unwrap())
             .collect();
         assert_eq!(
-            output[0]["output"],
+            output[0]["structuredContent"],
             json!({"action":"accept","content":values()})
         );
-        assert_eq!(output[1]["output"]["action"], "decline");
-        assert_eq!(output[2]["output"]["action"], "cancel");
+        assert_eq!(output[1]["structuredContent"]["action"], "decline");
+        assert_eq!(output[2]["structuredContent"]["action"], "cancel");
         let requests = model.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 4);
         assert!(
