@@ -81,11 +81,10 @@ fn context(request: &Value, personal: &str) -> String {
     assert_eq!(request["messages"][0]["role"], "system");
     let baseline = message_text(&request["messages"][0]["content"]);
     assert!(baseline.contains("You are Sailry"));
-    let instructions = node_context(request, "Work mode");
-    let preferences = node_context(request, "Personal instructions");
+    let instructions = prompt(request);
     assert!(instructions.contains(INSTRUCTIONS));
-    assert!(node_context(request, "Project instructions").contains(GUIDE));
-    assert_eq!(preferences.matches(personal).count(), 1);
+    assert!(instructions.contains(GUIDE));
+    assert_eq!(instructions.matches(personal).count(), 1);
     assert!(!instructions.contains(CONTROLLER_RULE));
     assert!(!request["messages"].to_string().contains(CONTROLLER_RULE));
     let previous = if personal == PERSONAL_FIRST {
@@ -93,7 +92,7 @@ fn context(request: &Value, personal: &str) -> String {
     } else {
         PERSONAL_FIRST
     };
-    assert!(!preferences.contains(previous));
+    assert!(!instructions.contains(previous));
     assert!(
         request["messages"]
             .as_array()
@@ -102,9 +101,6 @@ fn context(request: &Value, personal: &str) -> String {
             .filter(|message| message["role"] == "user")
             .all(|message| {
                 let content = message_text(&message["content"]);
-                if content.starts_with("Node context\n") {
-                    return true;
-                }
                 !content.contains(PERSONAL_FIRST)
                     && !content.contains(PERSONAL_NEXT)
                     && !content.contains(CONTROLLER_RULE)
@@ -126,7 +122,7 @@ fn context(request: &Value, personal: &str) -> String {
         assert!(!purpose.contains("review (Review)"));
         let role = &tool["function"]["parameters"]["properties"]["role"];
         assert!(role.get("enum").is_none());
-        assert_eq!(role["type"], json!(["string", "null"]));
+        assert_eq!(role["type"], json!("string"));
         assert!(
             request["messages"]
                 .to_string()
@@ -224,10 +220,16 @@ async fn inherits_assistant_and_reuses_frozen_context() {
         execute(&fixture.client, Command::StartQueuedTurn { turn: first.id }).await;
         let parent_page = finished(&fixture.client, fixture.session.id, first.id).await;
         assert_eq!(parent_page.runs[0].status, Status::Completed);
-        let output = results(&fixture.client, &parent_page).await;
+        let output = admissions(&fixture.client, &parent_page).await;
         assert_eq!(output.len(), 1);
-        assert_eq!(output[0]["status"], "completed", "{output:?}");
-        assert_eq!(output[0]["response"], "answer-fixture-a");
+        completed(
+            &fixture.client,
+            &parent_page,
+            &fixture.parent,
+            &output[0],
+            "answer-fixture-a",
+        )
+        .await;
         let child = children(&fixture.client, fixture.session.id, 1)
             .await
             .pop()
@@ -314,11 +316,17 @@ async fn inherits_assistant_and_reuses_frozen_context() {
                 .iter()
                 .all(|run| run.status == Status::Completed)
         );
-        let output = results(&fixture.client, &parent_page).await;
+        let output = admissions(&fixture.client, &parent_page).await;
         assert_eq!(output.len(), 2);
         assert_eq!(output[1]["session"], json!(child.id));
-        assert_eq!(output[1]["status"], "completed", "{output:?}");
-        assert_eq!(output[1]["response"], "answer-fixture-a");
+        completed(
+            &fixture.client,
+            &parent_page,
+            &next_parent,
+            &output[1],
+            "answer-fixture-a",
+        )
+        .await;
         let retained = children(&fixture.client, fixture.session.id, 1)
             .await
             .pop()

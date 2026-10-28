@@ -152,9 +152,9 @@ async fn inherits_parent_model() {
                 .await
                 .unwrap();
             let page = finished(&client, session.id, turn.id).await;
-            let output = results(&client, &page).await;
-            assert_eq!(output[0]["status"], "completed", "{output:?}");
-            assert_eq!(output[0]["response"], "answer-fixture-a");
+            let output = admissions(&client, &page).await;
+            assert_eq!(output.len(), 1);
+            completed(&client, &page, &server, &output[0], "answer-fixture-a").await;
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), 3);
             let parent_instruction = requests[0]["messages"][0].to_string();
@@ -178,7 +178,7 @@ async fn inherits_parent_model() {
             assert!(description.contains("disjoint files"));
             let role = &declaration["function"]["parameters"]["properties"]["role"];
             assert!(role.get("enum").is_none());
-            assert_eq!(role["type"], json!(["string", "null"]));
+            assert_eq!(role["type"], json!("string"));
             if roster {
                 let tool = requests[0]["tools"]
                     .as_array()
@@ -192,7 +192,7 @@ async fn inherits_parent_model() {
                 assert_eq!(tool["function"]["parameters"]["required"], json!(["task"]));
                 assert_eq!(
                     tool["function"]["parameters"]["properties"]["role"]["type"],
-                    json!(["string", "null"])
+                    json!("string")
                 );
                 assert!(
                     requests[0]["messages"]
@@ -231,9 +231,7 @@ async fn inherits_parent_model() {
                 );
             }
 
-            assert!(
-                node_context(child, "Project instructions").contains("Shared default instructions")
-            );
+            assert!(prompt(child).contains("Shared default instructions"));
             assert!(child["messages"].to_string().contains("第一轮：读取并总结"));
             assert!(
                 !child["messages"]
@@ -342,12 +340,12 @@ async fn validates_role_requirements() {
             let output = results(&client, &page).await;
             assert_eq!(output.len(), 2, "{output:?}");
             assert_eq!(output[0]["tools"][0]["name"], spawn);
-            assert!(output[1].get("error").is_some(), "{output:?}");
             let view = super::super::progress::observe(&client, session.id).await;
             assert_eq!(view.calls.len(), 2);
             assert_eq!(view.calls[0].name, "tool_search");
             assert_eq!(view.calls[1].name, spawn);
             if skills {
+                assert!(output[1].get("error").is_some(), "{output:?}");
                 assert_eq!(
                     view.calls[1]
                         .failure
@@ -364,11 +362,19 @@ async fn validates_role_requirements() {
                 assert!(children(&client, session.id, 0).await.is_empty());
             } else {
                 assert!(view.calls[1].failure.is_none());
+                assert_eq!(output[1]["admitted"], true);
+                assert_eq!(output[1]["status"], "queued");
                 assert_eq!(child.requests.lock().unwrap().len(), 1);
                 let children = children(&client, session.id, 1).await;
                 let page = history(&client, children[0].id).await;
                 assert_eq!(page.runs[0].status, Status::Failed);
                 assert_eq!(results(&client, &page).await.len(), 1);
+                received(
+                    &parent,
+                    children[0].id,
+                    "failed: child ended with Failed",
+                    1,
+                );
                 assert!(
                     !page.runs[0]
                         .error

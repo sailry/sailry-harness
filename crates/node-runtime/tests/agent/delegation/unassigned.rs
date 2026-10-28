@@ -27,6 +27,10 @@ async fn delegates_from_private_workspaces() {
             let command = plugin_tool("example", "command");
             let server = Server::available_tools(vec![
                 (
+                    "tool_search".into(),
+                    json!({"query":format!("{spawn} {command}"), "limit":2}),
+                ),
+                (
                     spawn.clone(),
                     json!({"task":"Report the working directory","background":background}),
                 ),

@@ -204,7 +204,13 @@ async fn cancels_waiters_without_replaying() {
             Status::Running
         );
         let page = history(&fixture.client, fixture.parents[0].id).await;
-        assert!(results(&fixture.client, &page).await.is_empty());
+        let output = admissions(&fixture.client, &page).await;
+        assert_eq!(output.len(), 2);
+        for receipt in output {
+            assert_eq!(receipt["status"], "queued");
+            assert_eq!(receipt["pending"], true);
+        }
+        assert_eq!(fixture.parent.requests.lock().unwrap().len(), 1);
         let queued = runs
             .iter()
             .find(|run| run.status == Status::Queued)
@@ -287,7 +293,7 @@ async fn failures_release_slots() {
         );
         assert_eq!(
             fixture.child.requests.lock().unwrap().len(),
-            2,
+            8,
             "{:?}",
             page.children
                 .iter()

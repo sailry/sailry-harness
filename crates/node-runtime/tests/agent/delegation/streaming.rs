@@ -153,7 +153,7 @@ async fn recovers_and_preserves_stopped_output() {
             Status::Completed
         );
         assert_eq!(server.requests.lock().unwrap().len(), 1);
-        assert_eq!(parent.requests.lock().unwrap().len(), 2);
+        assert_eq!(parent.requests.lock().unwrap().len(), 3);
         let mut states = vec![];
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {

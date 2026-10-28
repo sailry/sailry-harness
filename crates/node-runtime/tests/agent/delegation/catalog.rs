@@ -105,24 +105,23 @@ async fn scopes_skill_policy_to_admitted_inventory() {
             Status::Completed
         );
         let request = fixture.parent.requests.lock().unwrap()[0].clone();
-        let policy = node_context(&request, "Work mode");
-        assert!(!policy.contains("<selected_skill>"));
-        let instruction = request["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|message| message["role"] == "user")
-            .map(|message| message["content"].to_string())
-            .find(|text| text.contains("<selected_skill>"))
-            .expect("selected skill accompanies its input");
+        let instruction = prompt(&request);
         assert_eq!(instruction.matches("<selected_skill>").count(), 1);
         assert!(instruction.contains(
             "Use this skill when the user requests two or more competing implementations"
         ));
         assert!(
-            policy.contains(
+            instruction.contains(
                 "unless the full instructions are already supplied; do not load them again"
             )
+        );
+        assert!(
+            request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["role"] == "user")
+                .all(|message| !message_text(&message["content"]).contains("<selected_skill>"))
         );
         assert!(
             !page
@@ -198,7 +197,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                 .iter()
                 .filter_map(|tool| tool["function"]["name"].as_str())
                 .collect();
-            let instruction = node_context(&request, "Work mode");
+            let instruction = prompt(&request);
             assert!(instruction.contains("1. Review this catalog and select the smallest set"));
             assert!(
                 instruction.contains("When load_skill is available in this turn's tool catalog")
@@ -427,7 +426,7 @@ async fn edits_catalog_and_applies_future_capture() {
                 .unwrap();
             let role = &declaration["function"]["parameters"]["properties"]["role"];
             assert!(role.get("enum").is_none());
-            assert_eq!(role["type"], json!(["string", "null"]));
+            assert_eq!(role["type"], json!("string"));
             let first = requests
                 .iter()
                 .find_map(|request| {
@@ -442,7 +441,7 @@ async fn edits_catalog_and_applies_future_capture() {
                 first["function"]["parameters"]
             );
             assert!(
-                node_context(requests.last().unwrap(), "Work mode")
+                prompt(requests.last().unwrap())
                     .contains(&format!("{} ({})", edited.key, edited.name))
             );
         }

@@ -174,7 +174,19 @@ async fn isolates_repeated_call_identity() {
             assert_eq!(returned.len(), 1);
             assert_eq!(returned[0]["session"], json!(child.id));
             assert_eq!(returned[0]["turn"], json!(child_turn));
-            assert_eq!(returned[0]["status"], "completed");
+            let server = if parent_turn == first_parent.id {
+                &fixture.parent
+            } else {
+                &next_parent
+            };
+            completed(
+                &fixture.client,
+                &parent,
+                server,
+                &returned[0],
+                "answer-fixture-child",
+            )
+            .await;
         }
         assert_ne!(
             parent.children[0].origin.entry,

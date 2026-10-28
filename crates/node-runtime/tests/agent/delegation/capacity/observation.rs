@@ -5,7 +5,7 @@ async fn preserves_admitted_work_after_wait_expiry() {
     for remote in [false, true] {
         let release = CancellationToken::new();
         let child = Server::markdown_held("Deferred child answer".into(), release.clone()).await;
-        let fixture = Fixture::start(remote, false, child, 3).await;
+        let fixture = Fixture::start(remote, true, child, 3).await;
         fixture.capacity(1).await;
         fixture.observation(Duration::from_millis(100));
         let parent = fixture.push(0).await;
@@ -112,7 +112,7 @@ async fn stops_deferred_work_without_replay() {
     for remote in [false, true] {
         let release = CancellationToken::new();
         let child = Server::markdown_held("Deferred child answer".into(), release).await;
-        let mut fixture = Fixture::start(remote, false, child, 3).await;
+        let mut fixture = Fixture::start(remote, true, child, 3).await;
         fixture.capacity(1).await;
         fixture.observation(Duration::from_millis(100));
         let parent = fixture.push(0).await;

@@ -93,7 +93,14 @@ async fn resumes_completed_child() {
         let admitted = call.result(&page).unwrap();
         assert_eq!(admitted["session"], json!(child));
         assert_eq!(admitted["recipient"], json!(recipient));
-        assert_eq!(admitted["status"], "completed");
+        completed(
+            &fixture.client,
+            &page,
+            &fixture.parent,
+            admitted,
+            "answer-fixture-child",
+        )
+        .await;
         let resumed: TurnId = serde_json::from_value(admitted["turn"].clone()).unwrap();
         assert_ne!(resumed, recipient);
         let child_page = finished(&fixture.client, child, resumed).await;
@@ -512,7 +519,14 @@ async fn settles_batch_before_handoff() {
         assert_eq!(returned.len(), 1);
         assert_eq!(returned[0]["session"], json!(child.id));
         assert_eq!(returned[0]["turn"], json!(recipient.turn));
-        assert_eq!(returned[0]["status"], "completed");
+        assert_eq!(returned[0]["status"], "queued");
+        assert_eq!(returned[0]["pending"], true);
+        received(
+            &fixture.parent,
+            child.id,
+            "completed: answer-fixture-child",
+            1,
+        );
         let requests = fixture.child.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[1]["model"], "fixture-child");
@@ -733,7 +747,7 @@ async fn waits_for_the_awaited_child_response() {
 }
 
 #[tokio::test]
-async fn runs_guidance_after_iteration_limit() {
+async fn retains_guidance_at_iteration_limit() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let parent = Server::turn_tools(vec![(
@@ -804,26 +818,37 @@ async fn runs_guidance_after_iteration_limit() {
         fixture.child.wait_count(2).await;
         let page = finished(&fixture.client, child.id, guided.id).await;
         assert_eq!(status(&page, recipient.turn), Status::Completed);
-        assert_eq!(status(&page, guided.id), Status::Completed);
+        assert_eq!(status(&page, guided.id), Status::Continued);
         assert_eq!(
             page.runs
                 .iter()
                 .find(|run| run.turn == guided.id)
                 .unwrap()
                 .joined,
-            None
+            Some(recipient.turn)
         );
         assert!(page.queue.items.is_empty());
         assert!(!page.queue.paused);
-        for turn in [recipient.turn, guided.id] {
-            assert!(page.entries.iter().any(|entry| {
-                entry.turn == turn
-                    && entry.author == "assistant"
-                    && entry
-                        .parts
-                        .contains(&Part::Text("Natural child answer".into()))
-            }));
-        }
+        assert_eq!(
+            page.entries
+                .iter()
+                .filter(|entry| {
+                    entry.turn == recipient.turn
+                        && entry
+                            .parts
+                            .contains(&Part::Text("Natural child answer".into()))
+                })
+                .count(),
+            2
+        );
+        assert!(
+            page.entries
+                .iter()
+                .filter(|entry| entry.turn == guided.id)
+                .all(|entry| !entry
+                    .parts
+                    .contains(&Part::Text("Natural child answer".into())))
+        );
         assert!(page.entries.iter().any(|entry| {
             entry.turn == guided.id
                 && entry.author == "user"
@@ -838,8 +863,15 @@ async fn runs_guidance_after_iteration_limit() {
             .unwrap();
         assert_eq!(&guided_child.origin, origin.as_ref());
         let returned = results(&fixture.client, &parent_page).await;
-        assert_eq!(returned[0]["turn"], json!(guided.id));
-        assert_eq!(returned[0]["status"], "completed");
+        assert_eq!(returned[0]["turn"], json!(recipient.turn));
+        assert_eq!(returned[0]["status"], "queued");
+        assert_eq!(returned[0]["pending"], true);
+        received(
+            &fixture.parent,
+            child.id,
+            "completed: Natural child answer",
+            1,
+        );
         let requests = fixture.child.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
         assert!(!requests[0]["messages"].to_string().contains(message));

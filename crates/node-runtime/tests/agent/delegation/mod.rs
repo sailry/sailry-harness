@@ -108,6 +108,79 @@ pub(super) async fn setup(
     (session, provider, role)
 }
 
+fn prompt(request: &Value) -> String {
+    request["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
+        .map(|message| message_text(&message["content"]))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+async fn admissions(client: &Client, page: &Page) -> Vec<Value> {
+    results(client, page)
+        .await
+        .into_iter()
+        .filter(|value| value["admitted"] == true)
+        .collect()
+}
+
+fn received(parent: &Server, session: SessionId, outcome: &str, count: usize) {
+    let requests = parent.requests.lock().unwrap();
+    let request = requests.last().expect("parent continuation expected");
+    let outcome = format!("Subagent {session} {outcome}");
+    let delivered = request["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| message["role"] == "user")
+        .map(|message| message_text(&message["content"]).matches(&outcome).count())
+        .sum::<usize>();
+    assert_eq!(delivered, count, "each child outcome is delivered once");
+}
+
+async fn completed(client: &Client, page: &Page, parent: &Server, receipt: &Value, answer: &str) {
+    assert_eq!(receipt["status"], "queued", "{receipt}");
+    assert_eq!(receipt["admitted"], true);
+    assert_eq!(receipt["pending"], true);
+    let session: SessionId = serde_json::from_value(receipt["session"].clone()).unwrap();
+    let turn: TurnId = serde_json::from_value(receipt["turn"].clone()).unwrap();
+    let child = history(client, session).await;
+    let run = child.runs.iter().find(|run| run.turn == turn).unwrap();
+    assert_eq!(run.status, Status::Completed, "{run:?}");
+    assert_eq!(
+        &page
+            .children
+            .iter()
+            .find(|child| child.run.turn == turn)
+            .unwrap()
+            .run,
+        run
+    );
+    assert_eq!(
+        admissions(client, page)
+            .await
+            .iter()
+            .filter(|value| *value == receipt)
+            .count(),
+        1
+    );
+    received(
+        parent,
+        session,
+        &format!("completed: {answer}"),
+        child
+            .runs
+            .iter()
+            .filter(|candidate| {
+                candidate.status == Status::Completed && candidate.sequence <= run.sequence
+            })
+            .count(),
+    );
+}
+
 async fn children(client: &Client, parent: SessionId, count: usize) -> Vec<Session> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {

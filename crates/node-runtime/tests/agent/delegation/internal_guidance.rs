@@ -629,7 +629,11 @@ async fn synchronous_spawn_waits_for_child() {
         let parent = history(&fixture.client, fixture.session.id).await;
         assert_eq!(status(&parent, active.id), Status::Running);
         assert_eq!(parent.children[0].run.status, Status::Running);
-        assert!(results(&fixture.client, &parent).await.is_empty());
+        let admitted = admissions(&fixture.client, &parent).await;
+        assert_eq!(admitted.len(), 1);
+        assert_eq!(admitted[0]["session"], json!(child.id));
+        assert_eq!(admitted[0]["status"], "queued");
+        assert_eq!(admitted[0]["pending"], true);
         assert_eq!(fixture.parent.requests.lock().unwrap().len(), 1);
         release.cancel();
         let parent = finished(&fixture.client, fixture.session.id, active.id).await;
@@ -637,8 +641,15 @@ async fn synchronous_spawn_waits_for_child() {
         assert_eq!(parent.children[0].run.status, Status::Completed);
         let output = results(&fixture.client, &parent).await;
         assert_eq!(output[0]["session"], json!(child.id));
-        assert_eq!(output[0]["status"], "completed");
-        assert_eq!(output[0]["response"], "Final child evidence");
+        completed(
+            &fixture.client,
+            &parent,
+            &fixture.parent,
+            &output[0],
+            "Final child evidence",
+        )
+        .await;
+        assert_eq!(output[0], admitted[0]);
         assert_eq!(fixture.parent.requests.lock().unwrap().len(), 2);
         fixture.close().await;
     }

@@ -77,10 +77,16 @@ async fn loads_the_skill_without_expanding_authority() {
         let turn = fixture.push("Delegate the research").await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        assert_eq!(
-            results(&fixture.client, &page).await[0]["status"],
-            "completed"
-        );
+        let output = admissions(&fixture.client, &page).await;
+        assert_eq!(output.len(), 1);
+        completed(
+            &fixture.client,
+            &page,
+            &fixture.parent,
+            &output[0],
+            "answer-fixture-a",
+        )
+        .await;
         let child = children(&fixture.client, fixture.session.id, 1)
             .await
             .pop()
@@ -112,8 +118,7 @@ async fn loads_the_skill_without_expanding_authority() {
             })
             .expect("coordinator model request");
         assert!(
-            node_context(parent_request, "Work mode")
-                .contains("Flagship enables delegation; it does not require it")
+            prompt(parent_request).contains("Flagship enables delegation; it does not require it")
         );
         let instructions = request["messages"]
             .as_array()

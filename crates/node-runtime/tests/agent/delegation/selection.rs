@@ -186,9 +186,7 @@ async fn restores_frozen_input() {
             assert!(instruction.contains("You are a delegated child"));
             assert!(!instruction.contains("Finish with an answer to the user's request"));
             assert!(!instruction.contains("renders a file card"));
-            assert!(
-                node_context(request, "Session environment").contains(r#"Model: "fixture-child""#)
-            );
+            assert!(prompt(request).contains(r#"Model: "fixture-child""#));
             for name in ["ask_user", "set_session_title"] {
                 assert!(
                     request["tools"]

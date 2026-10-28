@@ -93,7 +93,7 @@ async fn freezes_config_and_history() {
             "{:?}",
             page.runs[0].error
         );
-        let output = results(&client, &page).await;
+        let output = admissions(&client, &page).await;
         assert_eq!(output.len(), 2, "{output:?}");
         assert_eq!(page.children.len(), 2);
         assert!(
@@ -161,8 +161,7 @@ async fn freezes_config_and_history() {
                     .position(|part| matches!(part, Part::ToolCall { id: Some(id), .. } if id == call_id))
                     .map(|index| (entry, index))
             }).unwrap();
-            assert_eq!(result["status"], "completed", "{result}");
-            assert_eq!(result["response"], "answer-fixture-child");
+            completed(&client, &page, &parent, result, "answer-fixture-child").await;
             let id: SessionId = result["session"].as_str().unwrap().parse().unwrap();
             let Output::Snapshot(snapshot) = client
                 .execute(client.prepare(Command::Snapshot))

@@ -91,10 +91,16 @@ async fn inherits_model_without_write_authority() {
         let turn = fixture.push("Delegate the exploration").await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        assert_eq!(
-            results(&fixture.client, &page).await[0]["status"],
-            "completed"
-        );
+        let output = admissions(&fixture.client, &page).await;
+        assert_eq!(output.len(), 1);
+        completed(
+            &fixture.client,
+            &page,
+            &fixture.parent,
+            &output[0],
+            "answer-fixture-a",
+        )
+        .await;
         let child = children(&fixture.client, fixture.session.id, 1)
             .await
             .pop()
@@ -165,10 +171,16 @@ async fn reuses_frozen_read_only_role() {
             .await;
         let page = finished(&fixture.client, fixture.session.id, first.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        assert_eq!(
-            results(&fixture.client, &page).await[0]["status"],
-            "completed"
-        );
+        let output = admissions(&fixture.client, &page).await;
+        assert_eq!(output.len(), 1);
+        completed(
+            &fixture.client,
+            &page,
+            &fixture.parent,
+            &output[0],
+            "answer-fixture-child",
+        )
+        .await;
         let child = children(&fixture.client, fixture.session.id, 1)
             .await
             .pop()
@@ -206,10 +218,16 @@ async fn reuses_frozen_read_only_role() {
         let second = fixture.push("Continue the exploration").await;
         let page = finished(&fixture.client, fixture.session.id, second.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        assert_eq!(
-            results(&fixture.client, &page).await.last().unwrap()["status"],
-            "completed"
-        );
+        let output = admissions(&fixture.client, &page).await;
+        assert_eq!(output.len(), 2);
+        completed(
+            &fixture.client,
+            &page,
+            &reused,
+            output.last().unwrap(),
+            "answer-fixture-child",
+        )
+        .await;
         let retained = children(&fixture.client, fixture.session.id, 1)
             .await
             .pop()

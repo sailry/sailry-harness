@@ -116,13 +116,37 @@ async fn follows_raw_output_with_read_authority() {
             .await
             .pop()
             .unwrap();
-        let owner = history(&fixture.client, child.id).await.runs[0].turn;
+        let child_page = history(&fixture.client, child.id).await;
+        let owner = child_page.runs[0].turn;
+        assert_eq!(child_page.runs[0].status, Status::Completed);
         assert_eq!(child.config.mode, WorkMode::Plan);
+        let (entry, index, call) = child_page
+            .entries
+            .iter()
+            .find_map(|entry| {
+                entry.parts.iter().enumerate().find_map(|(index, part)| {
+                    if let Part::ToolResult {
+                        id: Some(id), name, ..
+                    } = part
+                        && name == &plugin_tool("files", "read_file")
+                    {
+                        Some((entry, index, id))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap();
+        let retained = tool_detail(&fixture.client, &child_page, entry, index)
+            .await
+            .result
+            .unwrap();
+        let output = json!({"call":call,"revision":blake3::hash(retained.to_string().as_bytes()).to_hex().to_string()});
         let projected = result(&fixture.child, &plugin_tool("files", "read_file"));
-        assert!(projected["output"]["call"].is_string(), "{projected}");
+        assert_eq!(projected, retained);
         fixture.child.replace_tools(vec![(
             plugin_tool(PACKAGE, "read"),
-            json!({"output":projected["output"],"offset":0,"limit":32768}),
+            json!({"output":output,"offset":0,"limit":32768}),
         )]);
         fixture.parent.replace_tools(vec![(
             plugin_tool("delegation", "spawn_agent"),
@@ -133,12 +157,17 @@ async fn follows_raw_output_with_read_authority() {
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         let raw = result(&fixture.child, &plugin_tool(PACKAGE, "read"));
         assert_eq!(raw["turn"], json!(owner));
-        assert_eq!(raw["output"], projected["output"]);
+        assert_eq!(raw["output"], output);
         assert_eq!(raw["offset"], 0);
         assert!(raw["next_offset"].is_null());
         let text = raw["text"].as_str().unwrap();
         assert_eq!(raw["total_bytes"], text.len());
         let original: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(original, retained);
+        assert_eq!(
+            raw["output"]["revision"],
+            blake3::hash(text.as_bytes()).to_hex().to_string()
+        );
         assert!(
             original
                 .to_string()
