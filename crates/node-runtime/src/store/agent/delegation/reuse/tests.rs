@@ -110,13 +110,14 @@ async fn preserves_snapshots() {
             .await
             .unwrap();
     assert_eq!(original.profile.as_ref().unwrap().provider, admitted);
-    let event = crate::store::agent::tests::fixture::message(
+    let mut event = crate::store::agent::tests::fixture::message(
         "assistant",
         crate::agent::canonical::Role::Assistant,
         vec![crate::agent::canonical::BlockKind::Text {
             text: "Original child history 中文 🙂".into(),
         }],
     );
+    event.turn = child.turn.id;
     history::append(
         &mut fixture.database,
         child.turn.session,

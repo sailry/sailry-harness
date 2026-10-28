@@ -23,6 +23,7 @@ pub(super) struct Server {
 
 impl Server {
     pub async fn start(replies: Vec<String>) -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));

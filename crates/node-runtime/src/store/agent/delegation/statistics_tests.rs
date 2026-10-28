@@ -32,7 +32,13 @@ fn event(input: i32, elapsed: u64) -> canonical::Record {
     event
 }
 
-async fn append(fixture: &mut Fixture, session: SessionId, turn: TurnId, event: canonical::Record) {
+async fn append(
+    fixture: &mut Fixture,
+    session: SessionId,
+    turn: TurnId,
+    mut event: canonical::Record,
+) {
+    event.turn = turn;
     history::append(&mut fixture.database, session, turn, event, &fixture.events)
         .await
         .unwrap();

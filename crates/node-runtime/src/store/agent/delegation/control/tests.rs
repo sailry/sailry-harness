@@ -99,13 +99,14 @@ async fn reads_final_answer_from_canonical_history() {
     )
     .await
     .unwrap();
-    let event = crate::store::agent::tests::fixture::message(
+    let mut event = crate::store::agent::tests::fixture::message(
         "assistant",
         crate::agent::canonical::Role::Assistant,
         vec![crate::agent::canonical::BlockKind::Text {
             text: "Final child evidence 中文 🙂".into(),
         }],
     );
+    event.turn = child.turn.id;
     history::append(
         &mut fixture.database,
         child.turn.session,
@@ -209,13 +210,14 @@ async fn reads_prior_execution_after_child_reuse() {
     )
     .await
     .unwrap();
-    let event = crate::store::agent::tests::fixture::message(
+    let mut event = crate::store::agent::tests::fixture::message(
         "assistant",
         crate::agent::canonical::Role::Assistant,
         vec![crate::agent::canonical::BlockKind::Text {
             text: "First execution evidence".into(),
         }],
     );
+    event.turn = first.turn.id;
     history::append(
         &mut fixture.database,
         first.turn.session,

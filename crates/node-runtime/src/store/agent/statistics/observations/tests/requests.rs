@@ -32,6 +32,7 @@ fn attempt(index: u64, outcome: Outcome) -> Attempt {
 
 fn observed(request: &Request) -> canonical::Record {
     let mut event = filler();
+    event.turn = request.turn;
     event
         .metadata
         .execution

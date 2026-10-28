@@ -70,7 +70,8 @@ async fn complete(
         .transaction_with_behavior(turso::transaction::TransactionBehavior::Concurrent)
         .await
         .unwrap();
-    for event in events {
+    for mut event in events {
+        event.turn = turn;
         history::insert(&transaction, fixture.session, turn, event)
             .await
             .unwrap()
