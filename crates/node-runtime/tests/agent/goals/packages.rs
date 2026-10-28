@@ -137,7 +137,7 @@ async fn retains_captured_code_and_history_after_removal() {
 #[tokio::test]
 async fn commands_and_new_turns_follow_enablement() {
     for remote in [false, true] {
-        let server = Server::tools(vec![]).await;
+        let server = Server::scripted_tools(vec![]).await;
         let fixture = Fixture::packages(remote, &server, &[]).await;
         source(&fixture, "outcomes", "");
         install(&fixture, "outcomes", 0).await;
@@ -162,9 +162,16 @@ async fn commands_and_new_turns_follow_enablement() {
                 },
             )
             .await;
+            server.replace_tools(if enabled {
+                vec![("tool_search".into(), json!({"query":"goal","limit":6}))]
+            } else {
+                vec![]
+            });
+            let previous = server.requests.lock().unwrap().len();
             let turn = approvals::submit(&fixture.client, fixture.session.id).await;
             finished(&fixture.client, fixture.session.id, turn).await;
             let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len() - previous, if enabled { 2 } else { 1 });
             let tools = requests.last().unwrap()["tools"].as_array().unwrap();
             for name in [
                 "create_goal",
@@ -190,6 +197,7 @@ async fn commands_and_new_turns_follow_enablement() {
             },
         )
         .await;
+        server.replace_tools(vec![]);
         let Output::QueuedTurn(turn) = fixture.client.execute(command()).await.unwrap() else {
             panic!("unregistered slash input must remain ordinary text")
         };

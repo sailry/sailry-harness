@@ -143,8 +143,9 @@ async fn rejects_stale_targets_and_paused_updates() {
         let outputs = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 3);
         for (index, (_, result)) in outputs.iter().enumerate() {
-            assert_eq!(result["isError"], true);
-            let error: sailry_protocol::Fault = serde_json::from_value(result["error"].clone())
+            let native: rmcp::ErrorData = serde_json::from_value(result.clone()).unwrap();
+            assert_eq!(result["code"], -32603);
+            let error: sailry_protocol::Fault = serde_json::from_value(native.data.unwrap())
                 .expect("canonical tool error expected");
             assert_eq!(error.code, ErrorCode::InvalidRequest);
             assert_eq!(error.message, "plugin callback failed");
