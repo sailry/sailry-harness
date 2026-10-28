@@ -173,7 +173,6 @@ adk-agent = { git = "https://github.com/dux-web/adk-rust.git", rev = "675c02b6c0
 adk-model = { git = "https://github.com/dux-web/adk-rust.git", rev = "675c02b6c0df6d632b953a06a5a12d1f814b7780", default-features = false, features = ["openai", "openai-ws", "anthropic", "gemini", "deepseek", "opencode", "azure-ai"] }
 adk-tool = { git = "https://github.com/dux-web/adk-rust.git", rev = "675c02b6c0df6d632b953a06a5a12d1f814b7780", default-features = false, features = ["mcp"] }
 rmcp = { version = "=3.5.1", default-features = false, features = ["auth", "client", "transport-async-rw", "transport-streamable-http-client-reqwest"] }
-adk-acp = { git = "https://github.com/dux-web/adk-rust.git", rev = "675c02b6c0df6d632b953a06a5a12d1f814b7780", default-features = false }
 async-trait = "=0.1.92"
 chrono = { version = "=0.4.45", features = ["serde"] }
 chrono-tz = "=0.10.4"

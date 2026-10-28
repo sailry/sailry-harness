@@ -442,21 +442,6 @@ For CI on an already configured Host, invoke `scripts/ci-task.sh`. Set
 and `SAILRY_COMMAND` for the installed management executable. The script forwards
 the JSON and exit code without starting a service or approving tools.
 
-ACP editors can launch `sailry acp --data-dir /absolute/profile` over stdio on
-macOS or Linux while that Host is running. The adapter opens registered project
-worktrees and creates, loads, resumes, lists or forks the Node's own sessions.
-Models, credentials, configuration revisions, tools and approvals remain in that
-Node. Editors receive canonical text, tool results and once-only approval
-requests, including delegated calls. Disconnecting stdio ends observation;
-`session/cancel` and `session/close` explicitly stop the current Node turn.
-
-Text and resource links are supported. Configure additional workspaces and MCP
-servers in Sailry; the adapter does not install or authorize them. Questions
-requiring Sailry's richer input UI remain available there. Sailry identifiers and
-status travel in `_meta.sailry`. Clients may supply `request_id` and
-`expected_revision` in that metadata to retain exact admission identity and
-configuration on a retry; uncertain submissions are never replayed automatically.
-
 ## Public source and history
 
 Only the explicitly listed public guides in `docs/` are tracked; other internal

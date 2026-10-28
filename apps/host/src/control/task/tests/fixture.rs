@@ -240,7 +240,7 @@ pub(super) async fn provider(client: &Client, endpoint: &str) -> conversation::P
                 models: vec![conversation::Model {
                     id: "fixture".into(),
                     display_name: None,
-                    context: 4096,
+                    context: 128_000,
                     output: 128,
                     capabilities: None,
                     vision: false,

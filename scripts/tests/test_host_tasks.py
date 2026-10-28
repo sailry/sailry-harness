@@ -81,7 +81,7 @@ class HostTasks(unittest.TestCase):
     def test_preserves_explicit_profiles_without_home(self):
         environment = {key: value for key, value in self.environment.items() if key != "HOME"}
         profile = str(self.root / "explicit profile")
-        for command in ("share", "submit", "wait", "acp"):
+        for command in ("share", "submit", "wait"):
             with self.subTest(command=command):
                 output = self.command("host-command.sh", command, "--data-dir", profile,
                                       environment=environment)

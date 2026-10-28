@@ -1,5 +1,3 @@
-#[cfg(unix)]
-mod acp;
 mod bootstrap;
 #[cfg(unix)]
 mod control;
@@ -54,12 +52,6 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
         return control::task::run(arguments.into_iter()).await;
         #[cfg(not(unix))]
         return Err("Task management requires a Unix Host control socket".into());
-    }
-    if arguments.first().is_some_and(|argument| argument == "acp") {
-        #[cfg(unix)]
-        return acp::run(arguments.into_iter().skip(1)).await.map(|()| 0);
-        #[cfg(not(unix))]
-        return Err("ACP management requires a Unix Host control socket".into());
     }
     let Some(options) = options::parse(arguments.into_iter())? else {
         return Ok(0);

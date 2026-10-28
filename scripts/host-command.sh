@@ -14,7 +14,7 @@ task_command="${1:-help}"
 if test "$#" -gt 0; then shift; fi
 case "$task_command" in
   version) test "$#" = 0; exec "$task_root/sailry-host" --version ;;
-  share|submit|wait|acp)
+  share|submit|wait)
     task_profile_given=false
     task_value=false
     for task_argument in "$@"; do
@@ -60,6 +60,6 @@ case "$task_command" in
       esac
     fi
     ;;
-  help|--help|-h) printf 'Usage: sailry <version|start|stop|restart|status|share|submit|wait|acp|update>\n' ;;
+  help|--help|-h) printf 'Usage: sailry <version|start|stop|restart|status|share|submit|wait|update>\n' ;;
   *) echo 'Unknown command; use sailry help' >&2; exit 1 ;;
 esac

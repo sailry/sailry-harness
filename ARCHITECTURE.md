@@ -594,8 +594,8 @@ restarts blocked selections without evicting other visible values or reporting
 eviction as an operation failure.
 Desktop selects expanded rows and published cards by their own viewport bounds;
 offscreen cards retain only their reference and measured height. Hidden cached
-views release their selections until displayed again. ACP and Mobile consume the
-same tracker states. Plugin snapshots read details directly with
+views release their selections until displayed again. Mobile consumes the same
+tracker states. Plugin snapshots read details directly with
 bounded concurrency and no automatic retry; their returned JSON belongs to the
 caller. Copy and open actions use temporary reads. Superseded background reads are
 silent; explicit reads can refresh their current reference once.
@@ -1082,14 +1082,6 @@ Request IDs retain the Node's durable replay identity. Management output reports
 canonical turn status and pending approvals or questions as JSON. Disconnect,
 timeout and observation cancellation leave admitted execution running, and task
 management never grants approval or creates another Node or history writer.
-The `acp` management subcommand adapts the official ACP SDK's stdio protocol to
-that socket's typed Request/Topic forwarding and an ordinary shared Client.
-It reuses the Node's sessions, immutable turn captures, canonical history and
-approval decisions; ADK's separate ACP server and Runner are not enabled.
-Editor lifecycle and presentation state are local to this adapter. Closing
-stdio or cancelling an RPC drops observation; explicit ACP session cancellation
-or session closure sends the Node's StopTurn command. Workspace registration, MCP installation and
-credential configuration remain explicit Node operations outside this adapter.
 The lower-level macOS launchd helper still only generates a service definition.
 Service lifecycle and local verification are also documented in the
 [pairing guide](services/pairing-relay/README.md#run-and-verify).

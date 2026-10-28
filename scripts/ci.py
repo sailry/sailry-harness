@@ -44,7 +44,7 @@ FIXTURES = {
         "test_theme_audit", "test_ui_tasks",
     },
     "host": {
-        "test_acp_wrapper", "test_host_install", "test_host_service", "test_host_tasks", "test_host_update",
+        "test_host_install", "test_host_service", "test_host_tasks", "test_host_update",
         "test_linux_sysroot", "test_host_compatibility",
     },
     "mobile": {"test_android_package"},
