@@ -66,11 +66,40 @@ pub(super) async fn append_with_context(
 #[derive(Clone)]
 enum Input {
     Record(Record),
+    Summary(
+        goose_provider_types::conversation::message::Message,
+        String,
+        chrono::DateTime<chrono::Utc>,
+        chrono::DateTime<chrono::Utc>,
+        Vec<records::CompactedFile>,
+    ),
     Message(
         goose_provider_types::conversation::message::Message,
         BTreeMap<String, String>,
         records::Presentation,
     ),
+}
+
+pub(super) async fn append_summary(
+    database: &mut Database,
+    session: SessionId,
+    turn: TurnId,
+    message: goose_provider_types::conversation::message::Message,
+    boundary: String,
+    start: chrono::DateTime<chrono::Utc>,
+    end: chrono::DateTime<chrono::Utc>,
+    files: Vec<records::CompactedFile>,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<(), Fault> {
+    write(
+        database,
+        session,
+        turn,
+        Input::Summary(message, boundary, start, end, files),
+        None,
+        events,
+    )
+    .await
 }
 
 pub(super) async fn append_message(
@@ -130,6 +159,12 @@ async fn write(
                 };
                 let event = match event {
                     Input::Record(record) => record,
+                    Input::Summary(message,boundary,start,end,files)=>{
+                        let mut record=crate::agent::engine::history::capture(&transaction,turn,&message,&BTreeMap::new()).await?;
+                        let records::Kind::Message(summary)=record.kind else{unreachable!()};
+                        record.kind=records::Kind::Compaction(records::Compaction{boundary,summary,start,end,files});
+                        record.provenance.author="system".into();record
+                    },
                     Input::Message(message, calls, presentation) => {
                         let mut record = crate::agent::engine::history::capture(&transaction, turn, &message, &calls).await?;
                         record.metadata.presentation = Some(presentation);

@@ -1,7 +1,7 @@
 //! Completed plans use canonical metadata, not fabricated provider tool calls.
 use super::*;
+use crate::agent::canonical::ToolIdentity;
 use crate::agent::canonical::{BlockKind, Finish, Kind, Notice, Record, Role};
-use adk_core::ToolConfirmationRequest;
 use question::{Answer, Response, Spec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,20 +20,15 @@ struct Recorded {
     response: Response,
 }
 
-pub(crate) fn event(turn: TurnId, source: String) -> AdkEvent {
-    let mut event = AdkEvent::new(turn.to_string());
-    event.author = TOOL.into();
-    event.provider_metadata.insert(SOURCE.into(), source);
+pub(crate) fn event(turn: TurnId, source: String) -> Record {
+    let mut event = Record::new(turn, Kind::Notice(Notice::PlanReview { source }));
+    event.provenance.author = TOOL.into();
     event
 }
 
-pub(crate) fn result(turn: TurnId, call: String, response: Response) -> AdkEvent {
-    let mut event = AdkEvent::new(turn.to_string());
-    event.author = TOOL.into();
-    event.provider_metadata.insert(
-        RESULT.into(),
-        serde_json::to_string(&Recorded { call, response }).expect("plan response is serializable"),
-    );
+pub(crate) fn result(turn: TurnId, call: String, response: Response) -> Record {
+    let mut event = Record::new(turn, Kind::Notice(Notice::PlanResult { call, response }));
+    event.provenance.author = TOOL.into();
     event
 }
 
@@ -97,7 +92,7 @@ pub(super) async fn validate(db: &Connection, turn: TurnId, event: &Record) -> R
 pub(super) async fn locate(
     db: &Connection,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
 ) -> Result<(String, usize), Fault> {
     let call = calls::id(request)?;
     let body: Vec<u8> = {
@@ -113,9 +108,9 @@ pub(super) async fn locate(
         mapped.map_err(storage_error)?
     };
     let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
-    if request.tool_name != TOOL
+    if request.name != TOOL
         || spec(&event).is_none_or(|spec| {
-            serde_json::to_value(spec).expect("plan input is serializable") != request.args
+            serde_json::to_value(spec).expect("plan input is serializable") != request.arguments
         })
     {
         return Err(sailry_protocol::Fault::invalid(

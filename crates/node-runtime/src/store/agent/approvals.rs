@@ -3,6 +3,8 @@ use super::calls::{active, id as call_id, matches as matches_call};
 use super::*;
 use crate::agent::canonical::ToolIdentity;
 
+pub(super) const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 mod access;
 mod prefix;
 mod prepared;

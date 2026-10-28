@@ -29,7 +29,7 @@ impl Pending {
         turn: TurnId,
         request: &ToolIdentity,
     ) -> Result<Self, Fault> {
-        let timeout = adk_core::DEFAULT_TOOL_CONFIRMATION_TIMEOUT;
+        let timeout = super::TIMEOUT;
         #[cfg(any(test, feature = "test-support"))]
         let timeout = ingress
             .agents

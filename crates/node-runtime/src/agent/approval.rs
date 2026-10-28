@@ -1,11 +1,6 @@
 use super::*;
 use crate::store::agent::ApprovalBinding;
-use adk_core::{ToolConfirmationDecision, ToolConfirmationHandler, ToolConfirmationRequest};
-use async_trait::async_trait;
 use std::collections::BTreeMap;
-
-mod denials;
-pub(super) use denials::bind;
 
 pub(super) fn bindings(
     invocation: &Invocation,
@@ -23,7 +18,7 @@ pub(super) fn bindings(
             .ok_or_else(|| {
                 Fault::invalid("registered tool owner is outside the captured plugins")
             })?;
-        let name = registration.tool.name().to_owned();
+        let name = registration.tool.name.to_string();
         bindings.insert(
             name.clone(),
             ApprovalBinding {
@@ -46,44 +41,6 @@ pub(super) fn instruction(permission: sailry_protocol::Permission) -> &'static s
         }
         sailry_protocol::Permission::Full => {
             "This turn has full permission for available tools under the OS access of the machine running this session. File writes and worktree changes do not require individual approval. On macOS/Linux, when the command sandbox is enabled, workspace commands use a worktree sandbox with no network. Request unrestricted access when a command needs network or files outside the worktree; these commands run without individual approval under Full permission. When the Node command sandbox setting is disabled, subsequent commands in every session use unrestricted access and the machine's normal environment without individual approval. A setting change preserves the access of approved calls and running processes. Windows retains ordinary command execution under Full permission. Follow the user's intent and do not infer that unrelated destructive actions are authorized."
-        }
-    }
-}
-
-pub(super) struct Handler {
-    pub ingress: Arc<Ingress>,
-    pub turn: TurnId,
-    pub stop: CancellationToken,
-    pub bindings: BTreeMap<String, ApprovalBinding>,
-}
-
-impl std::fmt::Debug for Handler {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ApprovalHandler")
-            .field("turn", &self.turn)
-            .finish_non_exhaustive()
-    }
-}
-
-#[async_trait]
-impl ToolConfirmationHandler for Handler {
-    async fn decide(
-        &self,
-        request: &ToolConfirmationRequest,
-    ) -> adk_core::Result<ToolConfirmationDecision> {
-        tokio::select! {
-            biased;
-            _ = self.stop.cancelled() => Err(adk_core::AdkError::tool("tool invocation was cancelled")),
-            result = self.ingress.confirm(self.turn, request.clone(), self.bindings.get(&request.tool_name).cloned()) => {
-                match result.map_err(|error| adk_core::AdkError::tool(error.to_string()))? {
-                    sailry_protocol::conversation::Decision::Approve
-                    | sailry_protocol::conversation::Decision::ApproveSession
-                    | sailry_protocol::conversation::Decision::ApprovePrefix(_) => Ok(ToolConfirmationDecision::Approve),
-                    sailry_protocol::conversation::Decision::Deny
-                    | sailry_protocol::conversation::Decision::DenyWithReason(_) => Ok(ToolConfirmationDecision::Deny),
-                }
-            }
         }
     }
 }

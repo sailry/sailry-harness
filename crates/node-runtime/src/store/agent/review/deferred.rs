@@ -51,11 +51,11 @@ pub(in crate::store::agent) async fn completed(
 pub(in crate::store::agent) async fn publish(
     db: &Connection,
     run: &Run,
-    event: AdkEvent,
+    event: Record,
 ) -> Result<Changes, Fault> {
     if run.status != Status::Completed
         || run.error.is_some()
-        || !event.provider_metadata.contains_key(SOURCE)
+        || !matches!(&event.kind, Kind::Notice(Notice::PlanReview { .. }))
     {
         return Err(sailry_protocol::Fault::invalid(
             "review requires successful plan completion",

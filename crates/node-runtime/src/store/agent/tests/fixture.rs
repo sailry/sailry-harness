@@ -87,10 +87,13 @@ impl Fixture {
 
     pub async fn completed(&mut self, contents: &[&str]) -> TurnId {
         self.append(contents.iter().map(|content| {
-            let mut event = AdkEvent::new("history-fixture");
-            event.author = "assistant".into();
-            event.set_content(adk_core::Content::new("model").with_text(*content));
-            event
+            message(
+                "assistant",
+                crate::agent::canonical::Role::Assistant,
+                vec![crate::agent::canonical::BlockKind::Text {
+                    text: (*content).into(),
+                }],
+            )
         }))
         .await
     }

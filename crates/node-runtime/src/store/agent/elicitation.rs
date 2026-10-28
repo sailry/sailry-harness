@@ -1,7 +1,7 @@
 //! MCP input lives in canonical ADK metadata, outside provider tool-call batches.
 use super::*;
+use crate::agent::canonical::ToolIdentity;
 use crate::agent::canonical::{Kind, Notice, Record};
-use adk_core::ToolConfirmationRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -11,29 +11,35 @@ pub(crate) const TOOL: &str = "mcp_elicitation";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Input {
-    pub parent: ToolConfirmationRequest,
+    pub parent: ToolIdentity,
     pub request: Value,
     pub spec: question::Spec,
     pub schema: Value,
 }
 
-pub(crate) fn event(turn: TurnId, input: &Input) -> AdkEvent {
-    let mut event = AdkEvent::new(turn.to_string());
-    event.author = TOOL.into();
-    event.provider_metadata.insert(
-        KEY.into(),
-        serde_json::to_string(input).expect("MCP input is serializable"),
+pub(crate) fn event(turn: TurnId, input: &Input) -> Record {
+    let mut event = Record::new(
+        turn,
+        Kind::Notice(Notice::Elicitation {
+            parent: input.parent.clone(),
+            request: input.request.clone(),
+            spec: input.spec.clone(),
+            schema: input.schema.clone(),
+        }),
     );
+    event.provenance.author = TOOL.into();
     event
 }
 
-pub(crate) fn result(turn: TurnId, call: String, response: &question::Response) -> AdkEvent {
-    let mut event = AdkEvent::new(turn.to_string());
-    event.author = TOOL.into();
-    event.provider_metadata.insert(
-        RESULT.into(),
-        serde_json::json!({"id":call,"response":response}).to_string(),
+pub(crate) fn result(turn: TurnId, call: String, response: &question::Response) -> Record {
+    let mut event = Record::new(
+        turn,
+        Kind::Notice(Notice::ElicitationResult {
+            call,
+            response: response.clone(),
+        }),
     );
+    event.provenance.author = TOOL.into();
     event
 }
 
@@ -47,8 +53,8 @@ fn input(event: &Record) -> Result<Option<Input>, Fault> {
     else {
         return Ok(None);
     };
-    let mut identity = ToolConfirmationRequest::new(parent.name.clone(), parent.arguments.clone());
-    identity.function_call_id = parent.id.clone();
+    let mut identity = ToolIdentity::new(parent.name.clone(), parent.arguments.clone());
+    identity.id = parent.id.clone();
     Ok(Some(Input {
         parent: identity,
         request: request.clone(),
@@ -110,12 +116,12 @@ async fn read(db: &Connection, turn: TurnId, call: &str) -> Result<Input, Fault>
 pub(super) async fn locate(
     db: &Connection,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
 ) -> Result<(String, usize), Fault> {
     let call = calls::id(request)?;
     let input = read(db, turn, call).await?;
-    if request.tool_name != TOOL
-        || serde_json::to_value(&input.spec).map_err(storage_error)? != request.args
+    if request.name != TOOL
+        || serde_json::to_value(&input.spec).map_err(storage_error)? != request.arguments
     {
         return Err(sailry_protocol::Fault::invalid(
             "MCP input arguments differ",

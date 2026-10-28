@@ -4,13 +4,11 @@ mod environment;
 mod instructions;
 mod modes;
 mod personal;
-mod role;
 pub(crate) mod session;
 pub(super) use environment::capture as environment;
 pub(super) use modes::workflow;
 pub(super) use personal::capture as personal;
-pub(super) use role::bind;
-pub(in crate::agent) use session::{Session, observe};
+pub(in crate::agent) use session::Session;
 
 pub(super) fn baseline() -> &'static str {
     include_str!("prompt.txt").trim()

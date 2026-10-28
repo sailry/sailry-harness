@@ -138,7 +138,7 @@ async fn telemetry_preserves_visible_events() {
         ("artifact_delta", serde_json::json!({"file":1})),
         (
             "tool_confirmation",
-            serde_json::to_value(adk_core::ToolConfirmationRequest::new(
+            serde_json::to_value(crate::agent::canonical::ToolIdentity::new(
                 "read_file",
                 serde_json::json!({}),
             ))

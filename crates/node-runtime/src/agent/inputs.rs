@@ -1,22 +1,19 @@
-//! Guidance inputs retain their own canonical user entries before one Runner call.
+//! Input records retain their admitted turn ownership through the shared writer.
 use super::*;
-use adk_core::{Content, Event, Part};
-use adk_session::GetRequest;
+use canonical::{Block, BlockKind, Kind, Record};
 use sailry_protocol::conversation::{QueuedMessage, reference::Reference};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct Batch {
     entries: Vec<Entry>,
 }
-
 #[derive(Clone)]
 struct Entry {
     turn: TurnId,
     references: Vec<Reference>,
-    content: Content,
+    record: Record,
     capability: Option<usize>,
 }
-
 impl Batch {
     pub async fn select(
         &mut self,
@@ -32,141 +29,132 @@ impl Batch {
                 tools,
             )
             .await?;
-            if !instruction.is_empty() {
-                entry.capability = Some(entry.content.parts.len());
-                entry.content.parts.push(Part::Text { text: instruction });
+            if !instruction.is_empty()
+                && let Kind::Message(message) = &mut entry.record.kind
+            {
+                entry.capability = Some(message.part_count);
+                message.content.push(Block {
+                    index: message.part_count,
+                    kind: BlockKind::Text { text: instruction },
+                });
+                message.part_count += 1;
             }
         }
         Ok(())
     }
-
     pub async fn capture(ingress: &Ingress, invocation: &Invocation) -> Result<Self, Fault> {
         let mut entries = vec![Entry {
             turn: invocation.input_turn.unwrap_or(invocation.turn.id),
             references: invocation.message.references.clone(),
-            content: attachments::input(ingress, invocation).await?,
+            record: attachments::input(ingress, invocation).await?,
             capability: None,
         }];
         for input in &invocation.followups {
             entries.push(Entry {
                 turn: input.turn.id,
                 references: input.message.references.clone(),
-                content: attachments::message(ingress, invocation.turn.id, &input.message, None)
+                record: attachments::message(ingress, invocation.turn.id, &input.message, None)
                     .await?,
                 capability: None,
             });
         }
+        if let Some(entry) = entries.first_mut() {
+            if invocation.notice_input.is_some() {
+                entry.record.metadata.input = Some(canonical::Input {
+                    notice_part: Some(0),
+                    notice_ids: invocation
+                        .notices
+                        .iter()
+                        .map(|notice| notice.id.clone())
+                        .collect(),
+                    ..Default::default()
+                });
+            }
+        }
         Ok(Self { entries })
     }
-
     pub async fn guidance(
         ingress: &Ingress,
         owner: TurnId,
         inputs: &[QueuedMessage],
     ) -> Result<Self, Fault> {
-        let mut entries = Vec::with_capacity(inputs.len());
+        let mut entries = Vec::new();
         for input in inputs {
             entries.push(Entry {
                 turn: input.turn.id,
                 references: input.message.references.clone(),
-                content: attachments::message(ingress, owner, &input.message, None).await?,
+                record: attachments::message(ingress, owner, &input.message, None).await?,
                 capability: None,
             });
         }
         Ok(Self { entries })
     }
-
-    pub fn current(&self) -> (TurnId, Vec<Reference>, Content, Option<usize>) {
-        let entry = self.entries.last().expect("an invocation has input");
-        (
-            entry.turn,
-            entry.references.clone(),
-            entry.content.clone(),
-            entry.capability,
-        )
-    }
-
-    pub fn pending(&self) -> Vec<Content> {
+    pub fn records(&self, source: &str, steer: bool) -> Vec<Record> {
         self.entries
             .iter()
-            .map(|entry| entry.content.clone())
+            .map(|entry| {
+                let mut record = entry.record.clone();
+                record.turn = entry.turn;
+                record.metadata.runtime = Some(canonical::Runtime {
+                    steer,
+                    ..canonical::Runtime::default()
+                });
+                let input = record.metadata.input.get_or_insert_with(Default::default);
+                input.turn = Some(entry.turn);
+                input.source = Some(match source {
+                    "parent" => canonical::InputSource::Parent,
+                    "notice" => canonical::InputSource::Notice,
+                    "plugin" => canonical::InputSource::Plugin,
+                    _ => canonical::InputSource::User,
+                });
+                input.references = entry.references.clone();
+                input.capability_part = entry.capability;
+                let index = usize::from(!entry.references.is_empty())
+                    + usize::from(input.notice_part.is_some());
+                input.text_part = match &record.kind {
+                    Kind::Message(message) => message
+                        .content
+                        .iter()
+                        .find(|block| {
+                            block.index == index && matches!(block.kind, BlockKind::Text { .. })
+                        })
+                        .map(|_| index),
+                    _ => None,
+                };
+                record
+            })
             .collect()
     }
-
     pub async fn append(
         &self,
         ingress: &Arc<Ingress>,
         target: SessionId,
         owner: TurnId,
-        invocation: &str,
         source: &'static str,
-        omit: Option<TurnId>,
-        mut context: Option<Event>,
+        steer: bool,
     ) -> Result<(), Fault> {
-        if context.is_none() && self.entries.iter().all(|entry| omit == Some(entry.turn)) {
-            return Ok(());
-        }
-        let sessions = ingress.sessions(owner);
-        let session = sessions
-            .get(GetRequest {
-                app_name: APP.into(),
-                user_id: USER.into(),
-                session_id: target.to_string(),
-                num_recent_events: None,
+        let current = ingress
+            .sessions(owner)
+            .get(crate::store::agent::SessionQuery {
+                session: target,
+                recent: None,
                 after: None,
             })
-            .await
-            .map_err(model::error)?;
-        let state = session.state().all();
-        if context.as_ref().is_some_and(|context| {
-            !context.actions.state_delta.is_empty()
-                && context
-                    .actions
-                    .state_delta
-                    .iter()
-                    .all(|(key, value)| state.get(key) == Some(value))
-        }) {
-            // A partially saved batch already committed its context with the
-            // first input. Retrying must not append it again after that input.
-            context = None;
-        }
-        let present: BTreeSet<_> = session
-            .events()
-            .all()
+            .await?;
+        let present: BTreeSet<_> = current
+            .records
             .iter()
-            .filter(|event| event.author == "user")
-            .filter_map(|event| {
-                event
-                    .provider_metadata
-                    .get(crate::store::agent::INPUT_TURN)
-                    .cloned()
-            })
+            .filter_map(|record| record.metadata.input.as_ref()?.turn)
             .collect();
-        for entry in &self.entries {
-            if omit == Some(entry.turn) || present.contains(&entry.turn.to_string()) {
+        for record in self.records(source, steer) {
+            if present.contains(&record.turn) {
                 continue;
             }
-            let mut event = Event::new(invocation);
-            event.author = "user".into();
-            event.set_content(entry.content.clone());
             crate::store::agent::Sessions::new(ingress.clone(), owner)
-                .with_input_turn(entry.turn)
-                .with_input_source(source)
-                .with_references(entry.references.clone())
-                .with_capability_part(entry.capability)
-                .append_with_context(&target.to_string(), event, context.take())
-                .await
-                .map_err(model::error)?;
-        }
-        if let Some(context) = context {
-            crate::store::agent::Sessions::new(ingress.clone(), owner)
-                .append_with_context(&target.to_string(), context, None)
-                .await
-                .map_err(model::error)?;
+                .with_input_turn(record.turn)
+                .append_event(&target.to_string(), record)
+                .await?;
         }
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -56,7 +56,8 @@ pub(super) use runs::visible as visible_run;
 pub(super) use runs::{admit, recover, start, stop, stopping};
 pub(super) use search::search;
 pub(crate) use sessions::{
-    CAPABILITY_PART, INPUT_PART, INPUT_SOURCE, INPUT_TURN, Query, Session, Sessions,
+    CAPABILITY_PART, INPUT_PART, INPUT_SOURCE, INPUT_TURN, Query as SessionQuery,
+    Session as RuntimeSession, Sessions,
 };
 
 pub(crate) const SESSION_TITLE: &str = "sailry.session_title";
@@ -132,7 +133,7 @@ pub(super) enum Operation {
     },
     Delegate {
         turn: TurnId,
-        request: adk_core::ToolConfirmationRequest,
+        request: crate::agent::canonical::ToolIdentity,
         arguments: serde_json::Value,
         message: Option<Input>,
         token: sailry_link::CancellationToken,
@@ -179,7 +180,7 @@ pub(super) enum Operation {
     },
     Ask {
         turn: TurnId,
-        request: adk_core::ToolConfirmationRequest,
+        request: crate::agent::canonical::ToolIdentity,
         reply: oneshot::Sender<Result<question::Response, Fault>>,
     },
     ExpireQuestion {
@@ -196,7 +197,7 @@ pub(super) enum Operation {
         turn: TurnId,
         owner: RequestId,
         deadline: std::time::Instant,
-        request: adk_core::ToolConfirmationRequest,
+        request: crate::agent::canonical::ToolIdentity,
         binding: Option<ApprovalBinding>,
         ssh: Option<sailry_protocol::ssh::Trust>,
         prepared: Option<Command>,
@@ -214,7 +215,7 @@ pub(super) enum Operation {
     },
     Authorize {
         turn: TurnId,
-        request: adk_core::ToolConfirmationRequest,
+        request: crate::agent::canonical::ToolIdentity,
         prepared: Option<Command>,
         reply: oneshot::Sender<Result<RequestId, Fault>>,
     },
@@ -224,24 +225,19 @@ pub(super) enum Operation {
     },
     ConnectionAccess {
         turn: TurnId,
-        request: adk_core::ToolConfirmationRequest,
+        request: crate::agent::canonical::ToolIdentity,
         prepared: Command,
         reply: oneshot::Sender<Result<(), Fault>>,
     },
     CommandAccess {
         turn: TurnId,
-        request: adk_core::ToolConfirmationRequest,
+        request: crate::agent::canonical::ToolIdentity,
         reply: oneshot::Sender<Result<process::Access, Fault>>,
     },
     Subscribe {
         session: SessionId,
         closed: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<Box<dyn sailry_link::Subscription>, Fault>>,
-    },
-    ContextHistory {
-        session: SessionId,
-        turn: TurnId,
-        reply: oneshot::Sender<Result<compaction::History, Fault>>,
     },
     ContextUsage {
         session: SessionId,
@@ -288,7 +284,7 @@ pub(super) enum Operation {
         status: Status,
         error: Option<Fault>,
         owner: Option<sailry_link::CancellationToken>,
-        review: Option<AdkEvent>,
+        review: Option<crate::agent::canonical::Record>,
         reply: oneshot::Sender<Result<Status, Fault>>,
     },
 }
@@ -324,7 +320,7 @@ pub(crate) struct Child {
 pub(crate) struct ContextUsage {
     pub observed: bool,
     pub tokens: u64,
-    pub pending: Vec<AdkEvent>,
+    pub pending: Vec<crate::agent::canonical::Record>,
 }
 
 impl Ingress {
@@ -342,24 +338,6 @@ impl Ingress {
         .await
         .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
-    }
-
-    pub(crate) async fn context_history(
-        &self,
-        session: SessionId,
-        turn: TurnId,
-    ) -> adk_core::Result<compaction::History> {
-        let (reply, response) = oneshot::channel();
-        self.submit(Job::Agent(Box::new(Operation::ContextHistory {
-            session,
-            turn,
-            reply,
-        })))
-        .await
-        .map_err(|_| AdkError::session("Node storage is closed"))?;
-        response
-            .await
-            .map_err(|_| AdkError::session("Node storage is closed"))?
     }
 
     pub(crate) async fn context_usage(
@@ -431,42 +409,25 @@ impl Ingress {
         &self,
         session: SessionId,
         turn: TurnId,
-        event: AdkEvent,
+        message: goose_provider_types::conversation::message::Message,
     ) -> Result<(), Fault> {
         if self.closed.is_cancelled() {
             return Err(super::unavailable());
         }
-        if !event.llm_response.partial || event.id.is_empty() || event.id.len() > 256 {
-            return Err(Fault::invalid("invalid streaming event"));
-        }
-        let references = references::partial(&event)?;
-        let mut commentary = std::collections::BTreeMap::new();
-        let parts = event
-            .content()
+        let id = message
+            .id
+            .ok_or_else(|| Fault::invalid("streaming message identity is missing"))?;
+        let parts = message
+            .content
             .into_iter()
-            .flat_map(|content| &content.parts)
-            .skip(usize::from(!references.is_empty()))
-            .filter_map(|part| match part {
-                adk_core::Part::Text { text } => Some((Part::Text(text.clone()), None)),
-                adk_core::Part::Thinking { thinking, .. } => {
-                    Some((Part::Thinking(thinking.clone()), None))
+            .filter_map(|content| match content {
+                goose_provider_types::conversation::message::MessageContent::Text(text) => {
+                    Some(Part::Text(text.text))
                 }
-                adk_core::Part::ServerToolCall { server_tool_call } => {
-                    history::commentary(server_tool_call).map(|text| {
-                        (
-                            Part::Text(text),
-                            Some(server_tool_call["id"].as_str().unwrap_or(&event.id)),
-                        )
-                    })
+                goose_provider_types::conversation::message::MessageContent::Thinking(thinking) => {
+                    Some(Part::Thinking(thinking.thinking))
                 }
                 _ => None,
-            })
-            .enumerate()
-            .map(|(index, (part, progress))| {
-                if let Some(identity) = progress {
-                    commentary.insert(index, identity.to_owned());
-                }
-                part
             })
             .collect();
         self.agents.stream(turn, session, || {
@@ -474,12 +435,12 @@ impl Ingress {
                 self.node,
                 session,
                 Draft {
-                    id: event.id,
+                    id,
                     turn,
-                    author: event.author,
-                    branch: event.branch,
+                    author: "sailry".into(),
+                    branch: String::new(),
                     parts,
-                    commentary,
+                    commentary: Default::default(),
                 },
             )
         })
@@ -516,7 +477,7 @@ impl Ingress {
         status: Status,
         error: Option<Fault>,
         owner: Option<sailry_link::CancellationToken>,
-        review: Option<AdkEvent>,
+        review: Option<crate::agent::canonical::Record>,
     ) -> Result<Status, Fault> {
         let (reply, response) = oneshot::channel();
         self.submit(Job::Agent(Box::new(Operation::Finish {
@@ -591,7 +552,6 @@ pub(super) fn readonly(operation: &Operation) -> bool {
             | Operation::ConnectionAccess { .. }
             | Operation::CommandAccess { .. }
             | Operation::Subscribe { .. }
-            | Operation::ContextHistory { .. }
             | Operation::ContextUsage { .. }
             | Operation::Get { .. }
     )
@@ -1037,13 +997,6 @@ pub(super) fn execute<'a>(
             }
             .await;
             let _ = reply.send(result);
-        }),
-        Operation::ContextHistory {
-            session,
-            turn,
-            reply,
-        } => Box::pin(async move {
-            let _ = reply.send(compaction::history(&database.connection, session, turn).await);
         }),
         Operation::ContextUsage { session, reply } => Box::pin(async move {
             let result = match check_session(&database.connection, session).await {

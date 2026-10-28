@@ -1,19 +1,16 @@
-//! Product admission and lifecycle around ADK's only model/tool execution loop.
-mod answer;
+//! Product admission and lifecycle around Goose GDK's execution pipeline.
 mod approval;
 pub(crate) mod attachments;
 pub(crate) mod canonical;
-pub(crate) mod engine;
 pub(crate) mod canonical_bridge;
 mod catalog;
-mod compaction;
-pub(crate) use compaction::estimate::tokens as estimate_context;
-pub(crate) use compaction::policy::resolve as compaction_budget;
+pub(crate) mod engine;
+pub(crate) use engine::budget as compaction_budget;
+pub(crate) use engine::tokens::records as estimate_context;
 pub(crate) mod completion;
 mod controls;
 mod delegation;
 mod diagnostics;
-mod guidance;
 mod inputs;
 mod mcp;
 pub(crate) use mcp::check::run as check_mcp;
@@ -26,10 +23,11 @@ pub(crate) use model::plugin::{
 mod plugins;
 mod prompt;
 pub(crate) use prompt::session::METADATA as CONTEXT_METADATA;
-pub(crate) use prompt::session::compose as compose_context;
+
 mod question;
 mod references;
 mod review;
+mod settlement;
 mod skills;
 mod text;
 mod title;
@@ -45,11 +43,7 @@ use crate::{
     },
     tasks::Tasks,
 };
-use adk_core::RunConfig;
-use adk_runner::Runner;
-use adk_session::SessionService;
 use diagnostics::{Diagnostics, Phase};
-use futures::StreamExt;
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, SessionId, TurnId, conversation::Status};
 use std::{
@@ -179,26 +173,27 @@ async fn run(
         let _drain = diagnostics.span(Phase::OperationDrain, operations);
         controls.drain(turn).await;
     }
-    // ADK can stop polling immediately after a terminal chunk or cancel a stream.
-    // Its scope guard has finalized observations before this existing cleanup owner runs.
-    for capture in controls.take_observations(turn) {
-        if let Err(error) = model::observation::Capture::persist(&capture, ingress, session).await {
-            merge_failure(&mut result, model::error(&error));
-        }
-    }
     if let Some(timeline) = controls.timeline(turn) {
-        let mut event = adk_core::Event::new(turn.to_string());
-        event.author = "system".into();
-        event.provider_metadata.insert(
-            "sailry_execution_phases".into(),
-            serde_json::to_string(&timeline.summary()).expect("execution phases serialize"),
+        let mut record = canonical::Record::new(
+            turn,
+            canonical::Kind::Message(canonical::Message::default()),
         );
+        record.provenance.author = "system".into();
+        record.metadata.execution = Some(canonical::Execution {
+            phases: Some(timeline.summary()),
+            ..Default::default()
+        });
+        record.metadata.runtime = Some(canonical::Runtime {
+            user_visible: false,
+            agent_visible: false,
+            ..Default::default()
+        });
         if let Err(error) = ingress
             .sessions(turn)
-            .append_event(&session.to_string(), event)
+            .append_event(&session.to_string(), record)
             .await
         {
-            merge_failure(&mut result, model::error(&error));
+            merge_failure(&mut result, error);
         }
     }
     let (status, error, output) = if controls.stopped.is_cancelled() {
@@ -226,30 +221,20 @@ async fn run(
     };
     let persisted = {
         let _persistence = diagnostics.span(Phase::FinishRun, None);
-        ingress
-            .finish_run_with(
-                turn,
-                status,
-                error.clone().map(plugins::public_failure),
-                owner,
-                completion_review,
-            )
-            .await
+        settlement::finish(
+            ingress,
+            turn,
+            session,
+            status,
+            error.clone().map(plugins::public_failure),
+            owner,
+            completion_review,
+        )
+        .await
     };
-    if let Err(error) = &persisted {
-        let mut entry =
-            crate::logging::Entry::new(crate::logging::Area::Run, crate::logging::Phase::Failed);
-        entry.context = crate::logging::Context {
-            node: Some(ingress.node),
-            session: Some(session),
-            turn: Some(turn),
-            ..Default::default()
-        };
-        entry.reason = Some("finish");
-        entry.code = Some(error.code);
-        entry.emit();
+    if persisted.is_ok() {
+        controls.finish(turn);
     }
-    controls.finish(turn);
     if let Ok(status) = &persisted
         && !controls.stopped.is_cancelled()
     {
@@ -300,7 +285,7 @@ async fn execute(
     stop: CancellationToken,
     hooks: Option<Arc<crate::hooks::Binding>>,
     diagnostics: &Diagnostics,
-    completion_review: &mut Option<adk_core::Event>,
+    completion_review: &mut Option<canonical::Record>,
 ) -> Result<Option<String>, Fault> {
     let session = invocation.turn.session;
     let mut connections = ingress.agents.mcp.take(session);
@@ -365,7 +350,7 @@ async fn execute(
 #[derive(Default)]
 struct Outcome {
     output: Option<String>,
-    review: Option<adk_core::Event>,
+    review: Option<canonical::Record>,
 }
 
 async fn execute_with(
@@ -385,7 +370,7 @@ async fn execute_with(
     } else {
         model::Purpose::Main
     };
-    let model = model::build(ingress, invocation, &stop, purpose).await?;
+    let model = model::provider(ingress, invocation, &stop, purpose).await?;
     let prompt_session = prompt::Session::load(ingress, invocation).await?;
     let resources = Arc::new(crate::plugins::resources::Resources::new(
         ingress.plugins.clone(),
@@ -403,7 +388,6 @@ async fn execute_with(
         invocation.plugin_settings.clone(),
         stop.clone(),
     ));
-    let capture_output = invocation.child.is_some();
     let planning = invocation.turn.config.mode == sailry_protocol::WorkMode::Plan;
     let reviewing = planning && invocation.child.is_none();
     let metadata = invocation.provider.as_ref().and_then(|provider| {
@@ -471,7 +455,6 @@ async fn execute_with(
         connections,
     )
     .await?;
-    let completion = extensions.completion.clone();
     let environment = prompt::environment(ingress, &invocation, &stop).await;
     for captured in &invocation.instructions {
         if tool_capable
@@ -500,7 +483,6 @@ async fn execute_with(
     }
     instruction.push_str("\n\n");
     instruction.push_str(prompt::recipient(invocation.child.is_some()));
-    let capability_tools = references::capabilities::tools(&extensions.tools);
     if let Some(title) = title::instruction(
         invocation.title.as_deref(),
         tool_capable,
@@ -509,461 +491,137 @@ async fn execute_with(
         policy.push_str("\n\n");
         policy.push_str(&title);
     }
-    let summary = if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
-        model.clone()
-    } else {
-        model::build(ingress, invocation, &stop, model::Purpose::Compaction).await?
-    };
-    let (compact, compact_tool, context) = compaction::bind(
-        ingress,
-        summary,
-        &invocation,
-        stop.clone(),
-        instruction.clone(),
-    );
-    if tool_capable {
-        extensions
-            .tools
-            .push(catalog::Registration::managed(compact_tool));
-        if invocation.child.is_none() {
-            extensions.tools.extend([
-                title::bind(invocation.turn.session.to_string(), stop.clone()),
-                catalog::Registration::managed(Arc::new(question::Question {
-                    ingress: ingress.clone(),
-                    turn: invocation.turn.id,
-                    session: invocation.turn.session.to_string(),
-                    stop: stop.clone(),
-                    planning: reviewing,
-                })),
-            ]);
-        }
-    }
-    let declarations = prompt::session::declarations(&extensions.tools);
-    let preflight_tools = prompt::session::project(declarations.clone(), &prompt_session.loaded());
-    if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
-        compaction::manual(
-            ingress,
+    if tool_capable && invocation.child.is_none() {
+        extensions.tools.push(title::bind(
+            invocation.turn.session.to_string(),
+            stop.clone(),
+        ));
+        extensions.tools.push(question::bind(
+            ingress.clone(),
             invocation,
-            model,
-            stop,
-            instruction,
-            preflight_tools,
-        )
-        .await?;
+            stop.clone(),
+            reviewing,
+        ));
+    }
+    let capability_tools = references::capabilities::tools(&extensions.tools);
+    if invocation.turn.kind != sailry_protocol::conversation::RunKind::Compaction {
+        let mut inputs = inputs::Batch::capture(ingress, invocation).await?;
+        inputs
+            .select(invocation, &resources, &capability_tools)
+            .await?;
+        prompt_session
+            .append(ingress, invocation, policy, environment, personal, &stop)
+            .await?;
+        inputs
+            .append(
+                ingress,
+                invocation.turn.session,
+                invocation.turn.id,
+                if invocation.child.is_some() {
+                    "parent"
+                } else if invocation.notice {
+                    "notice"
+                } else if invocation.automatic {
+                    "plugin"
+                } else {
+                    "user"
+                },
+                false,
+            )
+            .await?;
+    }
+    if stop.is_cancelled() {
         return Ok(Outcome::default());
     }
-    let mut inputs = inputs::Batch::capture(ingress, invocation).await?;
-    inputs
-        .select(invocation, &resources, &capability_tools)
-        .await?;
-    let (input_turn, input_references, content, capability_part) = inputs.current();
-    prompt_session
-        .append(ingress, &invocation, policy, environment, personal, &stop)
-        .await?;
-    let preamble = prompt::bind(instruction.clone(), declarations);
+    let children = engine::Children::new(ingress.clone(), tasks.clone(), invocation);
     let mut catalog = catalog::Catalog::new(
         invocation.turn.session.to_string(),
         stop.clone(),
         ingress.agents.timeline(invocation.turn.id),
-    );
-    let bindings = approval::bindings(&invocation, &extensions.tools)?;
-    let limit = invocation
-        .child
-        .as_ref()
-        .and_then(|child| child.role.as_ref())
-        .and_then(|role| role.max_turns);
-    let (guidance, continuation) = guidance::bind(
+    )
+    .with_children(children.clone());
+    let bindings = approval::bindings(invocation, &extensions.tools)?;
+    let required = extensions
+        .tools
+        .iter()
+        .filter(|entry| !entry.managed && !entry.read_only())
+        .map(|entry| entry.tool.name.to_string())
+        .collect();
+    let deferred = extensions
+        .tools
+        .iter()
+        .filter(|entry| entry.deferred)
+        .map(|entry| entry.tool.name.to_string())
+        .collect();
+    for registration in extensions.tools {
+        catalog.register(registration)?;
+    }
+    extensions.callbacks.sort_by_key(|(order, _)| *order);
+    let callbacks = extensions
+        .callbacks
+        .into_iter()
+        .map(|(_, callback)| {
+            callback
+                as Arc<
+                    dyn goose_agent::operation::Operation<
+                            crate::store::agent::RuntimeSession,
+                            engine::Effect,
+                        >,
+                >
+        })
+        .collect();
+    let summary = model::provider(ingress, invocation, &stop, model::Purpose::Compaction).await?;
+    let _runner = diagnostics.span(Phase::Runner, None);
+    let output = engine::run(
         ingress,
         invocation,
-        context.clone(),
+        stop.clone(),
+        model,
+        summary,
+        instruction,
+        catalog,
+        callbacks,
+        extensions.images,
+        required,
+        bindings,
+        deferred,
         resources,
         capability_tools,
-        stop.clone(),
-        limit,
-    );
-    let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
-        // The shared model boundary removes internal IDs after compaction.
-        .preserve_generated_call_ids(true)
-        // ADK requires a numeric ceiling; only explicit role budgets constrain tasks.
-        .max_iterations(limit.unwrap_or(u32::MAX))
-        .model(context.model(model.clone()))
-        .expose_tool_error_messages(true)
-        .on_tool_error(plugins::failure_callback())
-        .instruction_provider(Box::new(move |_| {
-            let instruction = instruction.clone();
-            Box::pin(async move { Ok(instruction) })
-        }))
-        .after_model_callback(continuation)
-        .before_model_callback(approval::bind(ingress, invocation.turn.id, content.clone()))
-        .before_model_callback(preamble)
-        .before_model_callback(guidance);
-    if let Some(hooks) = hooks {
-        agent = agent
-            .before_tool_callback(hooks.before())
-            .after_tool_callback_full(hooks.after());
-    }
-    extensions.callbacks.push((0, compact));
-    // Compaction finalizes the budget. Later callbacks may only shrink the
-    // request; additions must run before it or clear the prepared marker.
-    extensions.callbacks.sort_by_key(|(order, _)| *order);
-    for (_, callback) in extensions.callbacks {
-        agent = agent.before_model_callback(callback);
-    }
-    if let Some(model) = metadata {
-        agent = agent.max_output_tokens(model.output as i32);
-    }
-    if tool_capable {
-        agent = agent
-            .parallelize_agent_delegations(true)
-            .tool_execution_strategy(adk_core::ToolExecutionStrategy::Auto);
-    }
-    for registration in extensions.tools {
-        let confirmation = !registration.managed && !registration.tool.is_read_only();
-        let tool = catalog.register(registration)?;
-        if confirmation {
-            agent = agent.require_tool_confirmation(tool.name());
-        }
-        agent = agent.tool(tool);
-    }
-    let agent = agent.build().map_err(model::error)?;
-    let sessions = Arc::new(
-        crate::store::agent::Sessions::new(ingress.clone(), invocation.turn.id)
-            .with_input_turn(input_turn)
-            .with_input_source(if invocation.child.is_some() {
-                "parent"
-            } else if invocation.notice {
-                "notice"
-            } else if invocation.automatic {
-                "plugin"
-            } else {
-                "user"
+        children,
+    )
+    .await?;
+    let review = if reviewing && !stop.is_cancelled() {
+        let session = ingress
+            .sessions(invocation.turn.id)
+            .get(crate::store::agent::SessionQuery {
+                session: invocation.turn.session,
+                recent: None,
+                after: None,
             })
-            .with_notices(invocation.notices.clone(), invocation.notice_input.clone())
-            .with_references(input_references)
-            .with_capability_part(capability_part)
-            .with_groupings(catalog.groupings())
-            .with_displays(catalog.displays())
-            .with_connection_context(bindings.clone(), invocation.connections.resources())
-            .with_presentations(catalog.presentations()),
-    );
-    let run_config = RunConfig {
-        // The Node's storage actor owns expiry and durable approval in one order.
-        tool_confirmation_timeout: None,
-        tool_confirmation_handler: Some(Arc::new(approval::Handler {
-            ingress: ingress.clone(),
-            turn: invocation.turn.id,
-            stop: stop.clone(),
-            bindings,
-        })),
-        ..Default::default()
-    };
-    let runner = Runner::builder()
-        .app_name(APP)
-        .agent(Arc::new(agent))
-        .session_service(sessions.clone())
-        .run_config(run_config);
-    let runner = runner.build().map_err(model::error)?;
-    let session = invocation.turn.session.to_string();
-    let target = invocation.turn.session;
-    let turn = invocation.turn.id;
-    let user = adk_core::UserId::try_from(USER)
-        .map_err(|error| model::error(adk_core::AdkError::from(error)))?;
-    let session_id = adk_core::SessionId::try_from(session.as_str())
-        .map_err(|error| model::error(adk_core::AdkError::from(error)))?;
-    // Tool discovery can be interrupted before ADK owns an invocation.
-    if stop.is_cancelled() {
-        return Ok(Outcome::default());
-    }
-    context
-        .preflight(&inputs.pending(), preflight_tools)
-        .await
-        .map_err(model::error)?;
-    if stop.is_cancelled() {
-        return Ok(Outcome::default());
-    }
-    inputs
-        .append(
-            ingress,
-            invocation.turn.session,
-            invocation.turn.id,
-            &invocation.turn.id.to_string(),
-            if invocation.child.is_some() {
-                "parent"
-            } else {
-                "user"
-            },
-            Some(input_turn),
-            None,
-        )
-        .await?;
-    let mut runner_span = diagnostics.span(Phase::Runner, None);
-    let mut events = runner
-        .run(user, session_id, content)
-        .await
-        .map_err(model::error)?;
-    let mut cancelled = false;
-    let mut output = None;
-    let mut has_result = false;
-    let mut proposal = None;
-    let mut requested_review = false;
-    loop {
-        let next = tokio::select! {
-            biased;
-            _ = stop.cancelled(), if !cancelled => {
-                // ADK owns cancellation and its invocation context; there is no second loop.
-                runner.interrupt_identity(APP, USER, &session);
-                cancelled = true;
-                continue;
-            }
-            next = events.next() => next,
-        };
-        match next {
-            Some(Ok(event)) => {
-                if diagnostics.enabled() && event.content().is_some() {
-                    runner_span.content();
-                }
-                // Runner has already committed non-partial events through Sessions.
-                if event.llm_response.error_code.is_some()
-                    || event.llm_response.error_message.is_some()
-                {
-                    return Err(Fault::new(
-                        ErrorCode::Unavailable,
-                        event
-                            .llm_response
-                            .error_message
-                            .clone()
-                            .unwrap_or_else(|| "model response reported an error".into()),
-                    ));
-                }
-                if event.llm_response.interrupted && !stop.is_cancelled() {
-                    return Err(Fault::new(
-                        ErrorCode::OutcomeUnknown,
-                        "model response was interrupted",
-                    ));
-                }
-                answer::validate(&event)?;
-                has_result |= answer::present(&event) || (reviewing && answer::reviewed(&event));
-                if reviewing {
-                    requested_review |= review::requested(&event);
-                    if answer::present(&event) {
-                        proposal = Some(event.id.clone());
-                    }
-                }
-                if event.llm_response.partial {
-                    if let Some(started) = durable_tool_start(&event) {
-                        sessions
-                            .append_event(&session, started)
-                            .await
-                            .map_err(model::error)?;
-                    } else {
-                        ingress.partial(target, turn, event).await?;
-                    }
-                } else if capture_output && let Some(content) = event.content() {
-                    let text = content
-                        .parts
-                        .iter()
-                        .filter_map(|part| match part {
-                            adk_core::Part::Text { text } => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("");
-                    if content.role == "model" && !text.is_empty() {
-                        output = Some(text);
-                    }
-                }
-            }
-            Some(Err(error)) => return Err(model::error(error)),
-            None => {
-                drop(runner_span);
-                if !cancelled
-                    && !stop.is_cancelled()
-                    && !has_result
-                    && !completion.load(Ordering::Acquire)
-                {
-                    return Err(Fault::new(
-                        ErrorCode::Unavailable,
-                        "Model returned no answer",
-                    ));
-                }
-                let review = if reviewing
-                    && !requested_review
-                    && !cancelled
-                    && !stop.is_cancelled()
-                    && let Some(source) = proposal
-                {
-                    let _review = diagnostics.span(Phase::PlanReview, None);
-                    Some(review::completion(turn, source))
-                } else {
-                    None
-                };
-                return Ok(Outcome { output, review });
-            }
-        }
-    }
-}
-
-fn durable_tool_start(event: &adk_core::Event) -> Option<adk_core::Event> {
-    let metadata = event.provider_metadata.get("adk_tool_started")?;
-    let metadata = serde_json::from_str::<serde_json::Value>(metadata).ok()?;
-    let fields = metadata.as_object()?;
-    let id = fields.get("id")?;
-    let name = fields.get("name")?.as_str()?;
-    if !event.llm_response.partial
-        || fields.len() != 2
-        || !(id.is_null() || id.is_string())
-        || name.is_empty()
-        || event.provider_metadata.len() != 1
-        || event.content().is_some()
-        || event.llm_response.usage_metadata.is_some()
-        || event.llm_response.finish_reason.is_some()
-        || event.llm_response.citation_metadata.is_some()
-        || event.llm_response.turn_complete
-        || event.llm_response.interrupted
-        || event.llm_response.error_code.is_some()
-        || event.llm_response.error_message.is_some()
-        || event.llm_response.provider_metadata.is_some()
-        || event.llm_response.interaction_id.is_some()
-        || !event.actions.state_delta.is_empty()
-        || !event.actions.artifact_delta.is_empty()
-        || event.actions.skip_summarization
-        || event.actions.transfer_to_agent.is_some()
-        || event.actions.escalate
-        || event.actions.tool_confirmation.is_some()
-        || event.actions.tool_confirmation_decision.is_some()
-        || event.actions.compaction.is_some()
-        || event.actions.route.is_some()
-        || !event.long_running_tool_ids.is_empty()
-        || event.llm_request.is_some()
-    {
-        return None;
-    }
-    let mut started = event.clone();
-    started.llm_response.partial = false;
-    Some(started)
-}
-
-#[cfg(test)]
-mod tool_starts {
-    use super::*;
-
-    fn event(id: serde_json::Value) -> adk_core::Event {
-        let mut event = adk_core::Event::new("invocation");
-        event.author = "assistant".into();
-        event.branch = "branch".into();
-        event.llm_response.partial = true;
-        event.provider_metadata.insert(
-            "adk_tool_started".into(),
-            serde_json::json!({"id": id, "name": "ask_user"}).to_string(),
-        );
-        event
-    }
-
-    #[test]
-    fn normalizes_nullable_id() {
-        for id in [serde_json::Value::Null, serde_json::json!("call")] {
-            let event = event(id);
-            let started = durable_tool_start(&event).unwrap();
-            let mut expected = event.clone();
-            expected.llm_response.partial = false;
-            assert!(event.llm_response.partial);
-            assert_eq!(
-                serde_json::to_value(started).unwrap(),
-                serde_json::to_value(expected).unwrap()
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_malformed_metadata() {
-        for metadata in [
-            "not-json".into(),
-            serde_json::json!({"name": "ask_user"}).to_string(),
-            serde_json::json!({"id": 1, "name": "ask_user"}).to_string(),
-            serde_json::json!({"id": null, "name": ""}).to_string(),
-            serde_json::json!({"id": null, "name": "ask_user", "extra": true}).to_string(),
-        ] {
-            let mut event = event(serde_json::Value::Null);
-            event
-                .provider_metadata
-                .insert("adk_tool_started".into(), metadata);
-            assert!(durable_tool_start(&event).is_none());
-        }
-    }
-
-    #[test]
-    fn rejects_lifecycle_payloads() {
-        let plain = event(serde_json::Value::Null);
-        let mut cases = Vec::new();
-        let mut content = plain.clone();
-        content.set_content(adk_core::Content::new("model").with_text("unexpected"));
-        cases.push(content);
-        let mut completed = plain.clone();
-        completed.llm_response.turn_complete = true;
-        cases.push(completed);
-        let mut state = plain.clone();
-        state
-            .actions
-            .state_delta
-            .insert("unexpected".into(), serde_json::json!(true));
-        cases.push(state);
-        let mut metadata = plain;
-        metadata
-            .provider_metadata
-            .insert("unexpected".into(), "value".into());
-        cases.push(metadata);
-        assert!(
-            cases
+            .await?;
+        let requested = session
+            .conversation
+            .messages()
+            .iter()
+            .any(review::requested);
+        if requested {
+            None
+        } else {
+            session
+                .conversation
+                .messages()
                 .iter()
-                .all(|event| durable_tool_start(event).is_none())
-        );
-    }
-
-    #[test]
-    fn preserves_other_partials() {
-        let mut event = adk_core::Event::new("invocation");
-        event.llm_response.partial = true;
-        event.set_content(adk_core::Content::new("model").with_text("draft"));
-        assert!(durable_tool_start(&event).is_none());
-        assert!(event.llm_response.partial);
-    }
-}
-
-#[cfg(test)]
-mod failures {
-    use super::*;
-
-    #[test]
-    fn preserves_original_cause() {
-        let mut result = Err(Fault::new(ErrorCode::PermissionDenied, "original failure"));
-        merge_failure(
-            &mut result,
-            Fault::new(ErrorCode::Unavailable, "hook failure"),
-        );
-        let error = result.unwrap_err();
-        assert_eq!(error.code, ErrorCode::PermissionDenied);
-        assert_eq!(error.message, "original failure; hook failure");
-    }
-
-    #[test]
-    fn retains_uncertainty_from_either_cause() {
-        for (original, hook) in [
-            (ErrorCode::OutcomeUnknown, ErrorCode::Unavailable),
-            (ErrorCode::Unavailable, ErrorCode::OutcomeUnknown),
-        ] {
-            let mut result = Err(Fault::new(original, "original failure"));
-            merge_failure(&mut result, Fault::new(hook, "hook failure"));
-            let error = result.unwrap_err();
-            assert_eq!(error.code, ErrorCode::OutcomeUnknown);
-            assert_eq!(error.message, "original failure; hook failure");
+                .rev()
+                .find(|message| {
+                    message.role == rmcp::model::Role::Assistant
+                        && message.is_user_visible()
+                        && !message.as_concat_text().is_empty()
+                })
+                .and_then(|message| message.id.clone())
+                .map(|source| review::completion(invocation.turn.id, source))
         }
-    }
-
-    #[test]
-    fn promotes_failure_after_success() {
-        let error = Fault::new(ErrorCode::Unavailable, "hook failure");
-        let mut result = Ok(Some("original answer".into()));
-        merge_failure(&mut result, error.clone());
-        assert_eq!(result, Err(error));
-    }
+    } else {
+        None
+    };
+    Ok(Outcome { output, review })
 }

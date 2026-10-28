@@ -138,7 +138,7 @@ pub(super) async fn context_usage(
         let body = row.get::<Vec<u8>>(0).map_err(storage_error)?;
         let record: crate::agent::canonical::Record =
             serde_json::from_slice(&body).map_err(storage_error)?;
-        pending.push(crate::agent::canonical_bridge::to_adk(db, &record).await?);
+        pending.push(record);
     }
     if let Some(summary) = summary {
         pending.insert(0, summary);

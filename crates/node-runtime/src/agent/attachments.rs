@@ -127,16 +127,13 @@ pub(super) async fn hydrate(
                     remaining -= attachment.spec.size;
                 }
             }
+            let included = materialized.is_some();
             if let Some(content) = materialized {
                 contents.push(content);
             }
             contents.push(MessageContent::text(file(
                 &attachment,
-                if contents.last().is_some() {
-                    None
-                } else {
-                    Some(READ_NOTE)
-                },
+                if included { None } else { Some(READ_NOTE) },
             )));
         }
         message.content = contents;

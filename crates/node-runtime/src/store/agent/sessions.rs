@@ -44,6 +44,7 @@ pub(crate) struct Sessions {
     notice_input: Option<String>,
     presentation: Presentation,
     thinking: Option<ThinkingEffort>,
+    invocation: Option<Arc<Invocation>>,
 }
 
 impl Sessions {
@@ -59,6 +60,7 @@ impl Sessions {
             notice_input: None,
             presentation: Presentation::default(),
             thinking: None,
+            invocation: None,
         }
     }
     pub(crate) fn with_notices(
@@ -119,6 +121,11 @@ impl Sessions {
         self
     }
 
+    pub(crate) fn with_invocation(mut self, invocation: Arc<Invocation>) -> Self {
+        self.invocation = Some(invocation);
+        self
+    }
+
     pub(crate) async fn get(&self, query: Query) -> Result<Session, Fault> {
         let (reply, response) = oneshot::channel();
         self.ingress
@@ -157,26 +164,30 @@ impl Sessions {
                 _ => InputSource::User,
             };
             let index = usize::from(!self.references.is_empty()) + usize::from(notice);
-            event.metadata.input = Some(crate::agent::canonical::Input {
-                turn: Some(self.input_turn),
-                source: Some(source),
-                text_part: event
-                    .message()
-                    .and_then(|message| message.content.iter().find(|block| block.index == index))
-                    .filter(|block| matches!(block.kind, BlockKind::Text { .. }))
-                    .map(|_| index),
-                capability_part: self.capability_part,
-                notice_part: notice.then_some(0),
-                notice_ids: if notice {
-                    self.notices
-                        .iter()
-                        .map(|notice| notice.id.clone())
-                        .collect()
-                } else {
-                    Vec::new()
-                },
-                references: self.references.clone(),
-            });
+            if event.metadata.input.is_none() {
+                event.metadata.input = Some(crate::agent::canonical::Input {
+                    turn: Some(self.input_turn),
+                    source: Some(source),
+                    text_part: event
+                        .message()
+                        .and_then(|message| {
+                            message.content.iter().find(|block| block.index == index)
+                        })
+                        .filter(|block| matches!(block.kind, BlockKind::Text { .. }))
+                        .map(|_| index),
+                    capability_part: self.capability_part,
+                    notice_part: notice.then_some(0),
+                    notice_ids: if notice {
+                        self.notices
+                            .iter()
+                            .map(|notice| notice.id.clone())
+                            .collect()
+                    } else {
+                        Vec::new()
+                    },
+                    references: self.references.clone(),
+                });
+            }
         }
         event
             .metadata
@@ -208,6 +219,7 @@ pub(crate) struct Session {
     pub context: Context,
     pub state: HashMap<String, Value>,
     pub thinking: Option<ThinkingEffort>,
+    pub invocation: Option<Arc<Invocation>>,
 }
 
 impl MachineSession for Session {
@@ -239,6 +251,7 @@ impl SessionLoader<Session> for Sessions {
             })
             .await?;
         session.thinking = self.thinking;
+        session.invocation = self.invocation.clone();
         Ok(session)
     }
 }
@@ -251,56 +264,46 @@ impl EffectHandler<Session, Effect> for Sessions {
         effects: &mut [Effect],
         _: &Emitter,
     ) -> anyhow::Result<()> {
+        let mut pending = Vec::new();
+        for effect in effects.iter() {
+            if let Effect::Approval { request, binding } = effect {
+                let decision = self
+                    .ingress
+                    .confirm(self.turn, request.clone(), binding.clone())
+                    .await?;
+                match decision {
+                    Decision::Approve | Decision::ApproveSession | Decision::ApprovePrefix(_) => {
+                        pending.push(Effect::from(ConversationEffect::PatchToolRequestMeta {
+                            tool_call_id: request
+                                .id
+                                .clone()
+                                .ok_or_else(|| Fault::invalid("tool call identity is missing"))?,
+                            patch: json!({"goose.executable":true}),
+                        }))
+                    }
+                    Decision::Deny | Decision::DenyWithReason(_) => {
+                        let message = GdkMessage::user().with_generated_id().with_tool_response(
+                            request
+                                .id
+                                .clone()
+                                .ok_or_else(|| Fault::invalid("tool call identity is missing"))?,
+                            Ok(rmcp::model::CallToolResult::error(vec![
+                                rmcp::model::ContentBlock::text("Tool execution was denied."),
+                            ])),
+                        );
+                        pending.push(Effect::from(message));
+                    }
+                }
+            } else {
+                pending.push(effect.clone());
+            }
+        }
         let (reply, response) = oneshot::channel();
         self.ingress
             .submit(Job::Agent(Box::new(super::Operation::Effects {
                 session: session.id.parse()?,
                 turn: self.turn,
-                effects: effects
-                    .iter()
-                    .map(|effect| match effect {
-                        Effect::Conversation(ConversationEffect::AppendMessage(message)) => {
-                            Effect::from(message.clone())
-                        }
-                        Effect::Conversation(ConversationEffect::ReplaceConversation(
-                            conversation,
-                        )) => Effect::from(ConversationEffect::ReplaceConversation(
-                            conversation.clone(),
-                        )),
-                        Effect::Conversation(ConversationEffect::SetMessageVisibility {
-                            message_id,
-                            user_visible,
-                            agent_visible,
-                        }) => Effect::from(ConversationEffect::SetMessageVisibility {
-                            message_id: message_id.clone(),
-                            user_visible: *user_visible,
-                            agent_visible: *agent_visible,
-                        }),
-                        Effect::Conversation(ConversationEffect::PatchToolRequestMeta {
-                            tool_call_id,
-                            patch,
-                        }) => Effect::from(ConversationEffect::PatchToolRequestMeta {
-                            tool_call_id: tool_call_id.clone(),
-                            patch: patch.clone(),
-                        }),
-                        Effect::Conversation(ConversationEffect::SetMessageOperationNote {
-                            message_id,
-                            operation,
-                            key,
-                            value,
-                        }) => Effect::from(ConversationEffect::SetMessageOperationNote {
-                            message_id: message_id.clone(),
-                            operation: operation.clone(),
-                            key: key.clone(),
-                            value: value.clone(),
-                        }),
-                        Effect::Usage(usage) => Effect::Usage(usage.clone()),
-                        Effect::Compaction { summary, usage } => Effect::Compaction {
-                            summary: summary.clone(),
-                            usage: usage.clone(),
-                        },
-                    })
-                    .collect(),
+                effects: pending,
                 presentation: self.presentation.clone(),
                 reply,
             })))
@@ -329,17 +332,8 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
     if !owns {
         return Err(Fault::invalid("session does not belong to this invocation"));
     }
-    let summary = if query.recent.is_none() && query.after.is_none() {
-        super::compaction::read(db, query.session).await?
-    } else {
-        None
-    };
-    let boundary = summary.as_ref().map_or(0, |(sequence, _)| *sequence);
-    let mut rows = db.query("SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence>?2 AND json_extract(e.body,'$.kind')!='compaction' ORDER BY h.sequence",params![query.session.to_string(),boundary]).await.map_err(storage_error)?;
+    let mut rows = db.query("SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence",[query.session.to_string()]).await.map_err(storage_error)?;
     let mut records = Vec::new();
-    if let Some((_, record)) = summary {
-        records.push(record);
-    }
     while let Some(row) = rows.next().await.map_err(storage_error)? {
         let body: Vec<u8> = row.get(0).map_err(storage_error)?;
         let record: Record = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -353,6 +347,11 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
     }
     let mut messages = Vec::new();
     for record in &records {
+        if matches!(&record.kind, Kind::Compaction(_)) {
+            for message in &mut messages {
+                message.metadata.agent_visible = false;
+            }
+        }
         if let Some(message) = conversion::project(db, record).await? {
             messages.push(message);
         }
@@ -368,6 +367,7 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
         context: Context::from_state(&state),
         state,
         thinking: None,
+        invocation: None,
     })
 }
 
@@ -457,6 +457,15 @@ pub(super) async fn effects(
     for effect in effects {
         match effect {
             Effect::Usage(value) => usage = Some(value),
+            Effect::Records(records) => {
+                for mut record in records {
+                    record.metadata.presentation = Some(presentation.clone());
+                    history::append(database, session, record.turn, record, events).await?;
+                }
+            }
+            Effect::Approval { .. } => {
+                unreachable!("approval is resolved before submitting storage effects")
+            }
             Effect::Conversation(ConversationEffect::AppendMessage(mut message)) => {
                 if let Some(value) = usage.take() {
                     message.metadata.usage =
@@ -480,9 +489,11 @@ pub(super) async fn effects(
                 )
                 .await?;
             }
-            Effect::Compaction { summary, usage } => {
-                save_summary(database, session, turn, summary, usage, events).await?
-            }
+            Effect::Compaction {
+                summary,
+                usage,
+                files,
+            } => save_summary(database, session, turn, summary, usage, files, events).await?,
             Effect::Conversation(ConversationEffect::ReplaceConversation(_)) => {
                 return Err(Fault::invalid(
                     "conversation replacement requires a compaction checkpoint",
@@ -555,6 +566,7 @@ async fn save_summary(
     turn: TurnId,
     mut summary: GdkMessage,
     usage: ProviderUsage,
+    files: Vec<CompactedFile>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     let current = get(
@@ -576,21 +588,19 @@ async fn save_summary(
         return Err(Fault::invalid("compaction history is empty"));
     };
     summary.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(&usage, true)));
-    let mut record =
-        conversion::capture(&database.connection, turn, &summary, &BTreeMap::new()).await?;
-    let Kind::Message(message) = record.kind else {
-        unreachable!()
-    };
-    record.provenance.author = "system".into();
-    record.kind = Kind::Compaction(Compaction {
-        boundary: boundary.id.clone(),
-        summary: message,
-        start: current
+    history::append_summary(
+        database,
+        session,
+        turn,
+        summary,
+        boundary.id.clone(),
+        current
             .records
             .first()
             .map_or(boundary.created, |record| record.created),
-        end: boundary.created,
-        files: Vec::new(),
-    });
-    history::append(database, session, turn, record, events).await
+        boundary.created,
+        files,
+        events,
+    )
+    .await
 }

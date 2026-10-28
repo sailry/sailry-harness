@@ -98,6 +98,25 @@ async fn preserves_mcp_blocks() {
 }
 
 #[tokio::test]
+async fn preserves_explicit_mcp_success() {
+    let (_database, db) = database().await;
+    let mut result = CallToolResult::structured(serde_json::Value::Null);
+    result.is_error = Some(false);
+    result.meta = Some(serde_json::from_value(json!({"opaque":null})).unwrap());
+    let message = gdk::Message::user()
+        .with_generated_id()
+        .with_tool_response("call", Ok(result));
+    let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
+        .await
+        .unwrap();
+    let BlockKind::ToolResponse(response) = &record.message().unwrap().content[0].kind else {
+        unreachable!()
+    };
+    assert_eq!(response.format, ToolFormat::Mcp);
+    assert_eq!(project(&db, &record).await.unwrap().unwrap(), message);
+}
+
+#[tokio::test]
 async fn rejects_missing_call_identity() {
     let (_database, db) = database().await;
     let message = gdk::Message::assistant()
