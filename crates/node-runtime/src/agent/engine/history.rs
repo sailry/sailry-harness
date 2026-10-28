@@ -254,7 +254,18 @@ pub(crate) async fn project(
             continue;
         };
         let content = match &block.kind {
-            BlockKind::Text { text } => MessageContent::text(text),
+            BlockKind::Text { text } => {
+                if record
+                    .metadata
+                    .input
+                    .as_ref()
+                    .and_then(|input| input.capability_part)
+                    == Some(block.index)
+                {
+                    continue;
+                }
+                MessageContent::text(text)
+            }
             BlockKind::Image { asset } => {
                 let bytes = blobs::get(db, &asset.digest).await?;
                 let mut image = rmcp::model::ImageContent::new(

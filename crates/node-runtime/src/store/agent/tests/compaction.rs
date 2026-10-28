@@ -496,6 +496,27 @@ async fn retains_capability_across_guidance_and_notices() {
         0
     );
     assert_eq!(loaded.conversation.agent_visible_messages().len(), 1);
+    assert_eq!(
+        loaded.capability.as_deref(),
+        Some("Exact capability survives guidance")
+    );
+    let prepared = crate::agent::engine::prompt::prepared(&loaded).await;
+    assert_eq!(
+        prepared
+            .system_prompt
+            .matches("Exact capability survives guidance")
+            .count(),
+        1
+    );
+    assert!(
+        !loaded
+            .conversation
+            .messages()
+            .iter()
+            .flat_map(|message| &message.content)
+            .filter_map(|content| content.as_text())
+            .any(|text| text.text.contains("Exact capability survives guidance"))
+    );
     fixture.database.connection.execute(
         "UPDATE agent_runs SET body=CAST(json_remove(body,'$.notice') AS BLOB) WHERE turn IN (?1,?2)",
         params![owner.to_string(), guidance.id.to_string()],
@@ -504,6 +525,29 @@ async fn retains_capability_across_guidance_and_notices() {
     assert_eq!(
         serde_json::to_value(&earlier.records).unwrap(),
         serde_json::to_value(&loaded.records).unwrap()
+    );
+    assert_eq!(
+        crate::agent::engine::prompt::prepared(&earlier)
+            .await
+            .system_prompt,
+        prepared.system_prompt
+    );
+    let next = fixture
+        .append([message(
+            "user",
+            Role::User,
+            vec![BlockKind::Text {
+                text: "A different task".into(),
+            }],
+        )])
+        .await;
+    let changed = load(&fixture, next).await;
+    assert!(changed.capability.is_none());
+    assert!(
+        !crate::agent::engine::prompt::prepared(&changed)
+            .await
+            .system_prompt
+            .contains("Exact capability survives guidance")
     );
 }
 

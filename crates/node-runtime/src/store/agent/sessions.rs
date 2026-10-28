@@ -239,6 +239,7 @@ pub(crate) struct Session {
     pub records: Vec<Record>,
     pub conversation: Conversation,
     pub context: Context,
+    pub capability: Option<String>,
     pub state: HashMap<String, Value>,
     pub thinking: Option<ThinkingEffort>,
     pub invocation: Option<Arc<Invocation>>,
@@ -411,10 +412,52 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
         records,
         conversation: Conversation::new_unvalidated(messages),
         context: Context::from_state(&state),
+        capability: capability(db, query.session).await?,
         state,
         thinking: None,
         invocation: None,
     })
+}
+
+async fn capability(db: &Connection, session: SessionId) -> Result<Option<String>, Fault> {
+    // Guidance shares its admitted execution owner; notices do not replace that owner.
+    let mut query = db.prepare(
+        "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+         JOIN agent_runs selected_run ON selected_run.turn=e.turn
+         WHERE h.session=?1 AND json_extract(e.body,'$.kind')='message'
+           AND json_type(e.body,'$.metadata.input.capability_part')='integer'
+           AND coalesce(json_extract(selected_run.body,'$.joined'),selected_run.turn)=(
+             SELECT coalesce(json_extract(latest_run.body,'$.joined'),latest_run.turn)
+             FROM conversation_events latest JOIN agent_events input ON input.sequence=latest.sequence
+             JOIN agent_runs latest_run ON latest_run.turn=input.turn
+             WHERE latest.session=?1 AND json_extract(input.body,'$.kind')='message'
+               AND json_extract(input.body,'$.provenance.author')='user'
+               AND coalesce(json_extract(latest_run.body,'$.notice'),0)=0
+               AND EXISTS(SELECT 1 FROM json_each(input.body,'$.content') part
+                          WHERE json_extract(part.value,'$.type')='text')
+             ORDER BY latest.sequence DESC LIMIT 1)
+         ORDER BY h.sequence DESC LIMIT 1"
+    ).await.map_err(storage_error)?;
+    let row = match query.query_row([session.to_string()]).await {
+        Ok(row) => row,
+        Err(turso::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(error) => return Err(storage_error(error)),
+    };
+    let body: Vec<u8> = row.get(0).map_err(storage_error)?;
+    let record: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+    let index = record
+        .metadata
+        .input
+        .as_ref()
+        .and_then(|input| input.capability_part);
+    Ok(record
+        .message()
+        .into_iter()
+        .flat_map(|message| &message.content)
+        .find_map(|block| match &block.kind {
+            BlockKind::Text { text } if Some(block.index) == index => Some(text.clone()),
+            _ => None,
+        }))
 }
 
 fn apply_operation(messages: &mut [GdkMessage], operation: &crate::agent::canonical::Operation) {

@@ -4,7 +4,7 @@ mod compact;
 mod effects;
 pub(crate) mod history;
 mod operations;
-mod prompt;
+pub(crate) mod prompt;
 mod steer;
 pub(crate) mod tokens;
 use crate::{
@@ -74,8 +74,7 @@ pub(super) async fn run(
     let context = binding
         .provider
         .get_context_limit(&binding.config.model_name, binding.config.context_limit)
-        .await
-        .map_err(|error| Fault::new(ErrorCode::Unavailable, error.to_string()))?;
+        .await;
     let configured = invocation
         .provider
         .as_ref()
