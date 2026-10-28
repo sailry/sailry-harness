@@ -4,55 +4,15 @@ use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
 use sailry_protocol::{NodeId, Output, WorktreeId};
 
-struct Context;
-
-#[async_trait]
-impl adk_core::ReadonlyContext for Context {
-    fn invocation_id(&self) -> &str {
-        "invocation"
-    }
-    fn agent_name(&self) -> &str {
-        "fixture"
-    }
-    fn user_id(&self) -> &str {
-        "user"
-    }
-    fn app_name(&self) -> &str {
-        "app"
-    }
-    fn session_id(&self) -> &str {
-        "session"
-    }
-    fn branch(&self) -> &str {
-        ""
-    }
-    fn user_content(&self) -> &adk_core::Content {
-        static CONTENT: std::sync::OnceLock<adk_core::Content> = std::sync::OnceLock::new();
-        CONTENT.get_or_init(|| adk_core::Content::new("user"))
-    }
-}
-
-impl adk_core::CallbackContext for Context {
-    fn artifacts(&self) -> Option<Arc<dyn adk_core::Artifacts>> {
-        None
-    }
-}
-
-#[async_trait]
-impl ToolContext for Context {
-    fn function_call_id(&self) -> &str {
-        "call"
-    }
-    fn actions(&self) -> adk_core::EventActions {
-        Default::default()
-    }
-    fn set_actions(&self, _: adk_core::EventActions) {}
-    fn is_cancelled(&self) -> bool {
-        false
-    }
-    async fn search_memory(&self, _: &str) -> adk_core::Result<Vec<adk_core::MemoryEntry>> {
-        Ok(vec![])
-    }
+fn context() -> CallContext {
+    CallContext::new(
+        "session".into(),
+        "call",
+        &rmcp::model::CallToolRequestParams::new("read-fixture"),
+        CancellationToken::new(),
+        Default::default(),
+    )
+    .unwrap()
 }
 
 struct Fixture {
@@ -168,7 +128,7 @@ impl Fixture {
 
     async fn read(&self, arguments: Value) -> Value {
         self.tool
-            .execute_bound(Arc::new(Context), arguments.clone(), arguments)
+            .execute_bound(Arc::new(context()), arguments.clone(), arguments)
             .await
             .unwrap()
     }
@@ -212,7 +172,7 @@ async fn preserves_scope_and_live_revocation() {
         assert_eq!(
             fixture
                 .tool
-                .dispatch(&Context, wrong)
+                .dispatch(&context(), wrong)
                 .await
                 .unwrap_err()
                 .code,
@@ -226,7 +186,7 @@ async fn preserves_scope_and_live_revocation() {
         assert_eq!(
             fixture
                 .tool
-                .dispatch(&Context, wrong)
+                .dispatch(&context(), wrong)
                 .await
                 .unwrap_err()
                 .code,
@@ -237,7 +197,7 @@ async fn preserves_scope_and_live_revocation() {
         assert_eq!(
             fixture
                 .tool
-                .dispatch(&Context, wrong)
+                .dispatch(&context(), wrong)
                 .await
                 .unwrap_err()
                 .code,
@@ -245,7 +205,7 @@ async fn preserves_scope_and_live_revocation() {
         );
         let mut wrong = request;
         wrong.plugin.as_mut().unwrap().turn = Some(TurnId::new());
-        assert!(fixture.tool.dispatch(&Context, wrong).await.is_err());
+        assert!(fixture.tool.dispatch(&context(), wrong).await.is_err());
 
         fixture
             .client

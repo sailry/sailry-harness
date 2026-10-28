@@ -58,7 +58,7 @@ async fn binds_captured_resources_without_plugin_identity() {
     assert_eq!(
         tools
             .iter()
-            .map(|entry| entry.tool.name())
+            .map(|entry| entry.tool.name.as_ref())
             .collect::<Vec<_>>(),
         NAMES
     );
@@ -71,13 +71,13 @@ async fn binds_captured_resources_without_plugin_identity() {
         == sailry_protocol::tool::Presentation::Summary
         && entry.grouping == sailry_protocol::tool::Grouping::Sequence));
     for entry in &tools {
-        let schema = entry.tool.parameters_schema().unwrap();
+        let schema = serde_json::Value::Object((*entry.tool.input_schema).clone());
         assert_eq!(
             schema["properties"]["skill"]["enum"],
             json!(["example:analysis"])
         );
         let (name, display) = entry.display.as_ref().unwrap();
-        assert_eq!(name, entry.tool.name());
+        assert_eq!(name, entry.tool.name.as_ref());
         assert!(display.valid());
         assert_eq!(display, Skills::display(name == NAMES[1]));
         let input = display.input.as_ref().unwrap();
@@ -91,9 +91,7 @@ async fn binds_captured_resources_without_plugin_identity() {
         assert_eq!(display.locales.len(), 9);
         assert_ne!(display.label("zh-CN"), display.label("en"));
     }
-    assert!(tools.iter().all(|entry| entry.tool.is_read_only()));
-    assert!(!tools[0].tool.is_concurrency_safe());
-    assert!(tools[1].tool.is_concurrency_safe());
+    assert!(tools.iter().all(|entry| entry.read_only()));
     assert!(instruction.contains("example:analysis"));
     assert!(!instruction.contains("Load this content on demand"));
     node.shutdown().await.unwrap();

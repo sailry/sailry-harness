@@ -266,3 +266,6 @@ macro_rules! provider {
     };
 }
 pub(in crate::agent) use provider;
+
+#[cfg(test)]
+mod tests;

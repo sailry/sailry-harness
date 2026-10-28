@@ -527,18 +527,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preserves_anthropic_branches() {
-        use adk_core::SchemaAdapter;
+    fn validates_action_branches() {
         for read_only in [false, true] {
             let schema = Management { read_only }.parameters();
-            let normalized =
-                adk_model::anthropic::AnthropicSchemaAdapter.normalize_schema(schema.clone());
-            assert_eq!(normalized["oneOf"], schema["oneOf"]);
-            assert_eq!(normalized["properties"], schema["properties"]);
             let canonical = jsonschema::draft202012::options().build(&schema).unwrap();
-            let projected = jsonschema::draft202012::options()
-                .build(&normalized)
-                .unwrap();
             for (arguments, valid) in [
                 (json!({"action":"list"}), true),
                 (json!({"action":"discover","path":"skills"}), true),
@@ -558,7 +550,6 @@ mod tests {
                 (json!({"action":"list","name":"fixture"}), false),
             ] {
                 assert_eq!(canonical.is_valid(&arguments), valid, "{arguments}");
-                assert_eq!(projected.is_valid(&arguments), valid, "{arguments}");
             }
             assert!(schema.get("oneOf").is_some());
         }

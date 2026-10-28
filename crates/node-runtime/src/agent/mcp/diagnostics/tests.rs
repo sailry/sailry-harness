@@ -19,7 +19,7 @@ fn separates_server_errors_from_business_results() {
     external(&mut failed);
     finish(
         &mut failed,
-        &Ok(json!({"error":"PRIVATE_SERVER_ERROR"})),
+        &Ok(json!({"isError":true,"content":[{"type":"text","text":"PRIVATE_SERVER_ERROR"}]})),
         false,
     );
     assert!(matches!(failed.entry.phase, Phase::Failed));
@@ -49,7 +49,7 @@ fn preserves_unknown_and_cancelled_outcomes() {
     external(&mut unknown);
     finish(
         &mut unknown,
-        &Ok(json!({"error":{"code":"outcome_unknown","message":"PRIVATE_MESSAGE"}})),
+        &Err(Fault::new(ErrorCode::OutcomeUnknown, "PRIVATE_MESSAGE")),
         false,
     );
     assert!(matches!(unknown.entry.phase, Phase::Interrupted));
@@ -63,7 +63,7 @@ fn preserves_unknown_and_cancelled_outcomes() {
         }
         finish(
             &mut cancelled,
-            &Err(adk_core::AdkError::tool("PRIVATE_CANCEL_MESSAGE")),
+            &Err(Fault::new(ErrorCode::Cancelled, "PRIVATE_CANCEL_MESSAGE")),
             true,
         );
         assert!(matches!(cancelled.entry.phase, Phase::Cancelled));
@@ -124,7 +124,12 @@ async fn keeps_authorization_failure_without_dispatch() {
         &stop,
         "authorization",
         ErrorCode::PermissionDenied,
-        async { Err::<(), _>(adk_core::AdkError::tool("PRIVATE_AUTHORIZATION_ERROR")) },
+        async {
+            Err::<(), _>(Fault::new(
+                ErrorCode::PermissionDenied,
+                "PRIVATE_AUTHORIZATION_ERROR",
+            ))
+        },
     )
     .await;
     finish(&mut call, &error.map(|()| json!({})), false);
