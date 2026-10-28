@@ -141,8 +141,8 @@ Future<void> main() async {
   final raw = (await detail(updates, firstResult))['result'];
   final output = raw['structuredContent'];
   check(
-    jsonEncode(raw['content']) ==
-        jsonEncode([
+    canonicalJson(raw['content']) ==
+        canonicalJson([
           {'type': 'text', 'text': 'Input received'},
         ]),
     'original MCP content remains beside the complete input result',
