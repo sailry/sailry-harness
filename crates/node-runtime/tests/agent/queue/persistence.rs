@@ -221,8 +221,26 @@ async fn fresh_submission_resumes_active_queue() {
         {
             let requests = fixture.server.requests.lock().unwrap();
             assert_eq!(requests.len(), 3);
-            assert_eq!(prompt(&requests[1]), "Fresh input");
+            assert_eq!(prompt(&requests[1]), "Active task\nFresh input");
             assert_eq!(prompt(&requests[2]), "Edited waiting input");
+        }
+        for (turn, text) in [
+            (active.id, "Active task"),
+            (fresh.id, "Fresh input"),
+            (waiting.id, "Edited waiting input"),
+        ] {
+            assert_eq!(
+                page.entries
+                    .iter()
+                    .filter(|entry| entry.turn == turn
+                        && entry.author == "user"
+                        && entry
+                            .parts
+                            .iter()
+                            .any(|part| matches!(part, Part::Text(value) if value == text)))
+                    .count(),
+                1
+            );
         }
         fixture.close().await;
     }

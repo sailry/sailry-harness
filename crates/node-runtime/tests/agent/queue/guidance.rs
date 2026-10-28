@@ -254,7 +254,7 @@ async fn waits_for_the_awaited_response() {
 }
 
 #[tokio::test]
-async fn rejects_unsupported_guidance_attachments() {
+async fn retains_unreadable_guidance_attachments() {
     for remote in [false, true] {
         let release = CancellationToken::new();
         let server = Server::markdown_held("Natural answer".into(), release.clone()).await;
@@ -283,7 +283,8 @@ async fn rejects_unsupported_guidance_attachments() {
         fixture.provider = provider;
         let active = fixture.push("Initial task").await;
         fixture.server.wait_count(1).await;
-        let file = attachment(&fixture, b"Unsupported binary\0\xff").await;
+        let bytes = b"Unsupported binary\0\xff";
+        let file = attachment(&fixture, bytes).await;
         let selected = held(
             &fixture,
             Input {
@@ -300,13 +301,39 @@ async fn rejects_unsupported_guidance_attachments() {
             .unwrap();
         release.cancel();
         let page = finished(&fixture.client, fixture.session.id, active.id).await;
-        assert_eq!(status(&page, active.id), Status::Failed);
-        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        assert_eq!(status(&page, active.id), Status::Completed);
+        assert_eq!(status(&page, selected.id), Status::Continued);
+        let requests = fixture.server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        let projected = requests[1]["messages"].to_string();
+        assert!(projected.contains(&file.id.to_string()));
+        assert!(projected.contains("Attachment reference:"));
+        assert!(projected.contains("Contents not included; use read_office"));
+        assert!(!projected.contains("Unsupported binary"));
         assert!(
             page.entries
                 .iter()
                 .any(|entry| entry.turn == selected.id && entry.author == "user")
         );
+        let Output::AttachmentDownload(download) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::DownloadAttachment {
+                worktree: fixture.session.worktree,
+                attachment: file.id,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("attachment download expected")
+        };
+        assert_eq!(download.attachment, file);
+        let mut original = Vec::new();
+        fixture
+            .client
+            .download_attachment(&download, &mut original, CancellationToken::new(), |_| {})
+            .await
+            .unwrap();
+        assert_eq!(original.as_slice(), bytes.as_slice());
         fixture.close().await;
     }
 }
@@ -363,11 +390,25 @@ async fn keeps_turn_through_repeated_guidance() {
         let page = finished(&fixture.client, fixture.session.id, active.id).await;
         assert_eq!(status(&page, active.id), Status::Completed);
         assert!(page.queue.items.is_empty());
-        for input in [&active, &first, &later] {
+        for input in [&first, &later] {
+            let run = page.runs.iter().find(|run| run.turn == input.id).unwrap();
+            assert_eq!(run.status, Status::Continued);
+            assert_eq!(run.joined, Some(active.id));
+        }
+        for (input, text) in [
+            (&active, "Initial task"),
+            (&first, "Use the first detail"),
+            (&later, "Also use the later detail"),
+        ] {
             assert_eq!(
                 page.entries
                     .iter()
-                    .filter(|entry| entry.turn == input.id && entry.author == "user")
+                    .filter(|entry| entry.turn == input.id
+                        && entry.author == "user"
+                        && entry
+                            .parts
+                            .iter()
+                            .any(|part| matches!(part, Part::Text(value) if value == text)))
                     .count(),
                 1
             );
@@ -380,20 +421,11 @@ async fn keeps_turn_through_repeated_guidance() {
         );
         let requests = fixture.server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 3);
-        assert!(
-            !requests[0]["messages"]
+        assert!(requests.iter().all(|request| {
+            !request["messages"]
                 .to_string()
                 .contains("Fresh preference at the guidance boundary")
-        );
-        for request in &requests[1..] {
-            assert_eq!(
-                request["messages"]
-                    .to_string()
-                    .matches("Fresh preference at the guidance boundary")
-                    .count(),
-                1
-            );
-        }
+        }));
         for pair in requests.windows(2) {
             let prefix = pair[0]["messages"].as_array().unwrap();
             assert_eq!(
@@ -915,43 +947,31 @@ async fn batches_inputs_with_one_output_owner() {
             .iter()
             .filter(|message| message["role"] == "user")
             .collect();
-        let inputs = &inputs[inputs.len() - 2..];
+        let input = inputs.last().unwrap()["content"].to_string();
+        let first = input.find("Read the evidence").unwrap();
+        let second = input.find("Report both instructions 中文 🙂").unwrap();
+        assert!(first < second);
+        for text in ["Read the evidence", "Report both instructions 中文 🙂"] {
+            assert_eq!(input.matches(text).count(), 1);
+        }
+        assert!(input.contains(&attachment.id.to_string()));
+        assert!(input.contains("User-selected references"));
+        assert!(input.contains("files"));
+        assert!(input.contains("nested/evidence.txt"));
+        let capability = "The user explicitly selected plugin files for this task.";
         assert!(
-            inputs[0]["content"]
+            requests[1]["messages"][0]["content"]
                 .to_string()
-                .contains("Read the evidence")
+                .contains(capability)
         );
-        assert!(
-            inputs[1]["content"]
-                .to_string()
-                .contains("Report both instructions 中文 🙂")
-        );
-        assert!(
-            inputs[1]["content"]
-                .to_string()
-                .contains(&attachment.id.to_string())
-        );
-        assert!(
+        assert_eq!(
             requests[1]["messages"]
                 .to_string()
-                .contains("The user explicitly selected plugin files for this task.")
+                .matches(capability)
+                .count(),
+            1
         );
-        assert!(
-            inputs[1]["content"]
-                .to_string()
-                .contains("The user explicitly selected plugin files for this task.")
-        );
-        assert!(
-            requests[1]["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|message| {
-                    let text = message["content"].to_string();
-                    !text.contains("Node context")
-                        || !text.contains("The user explicitly selected plugin files")
-                })
-        );
+        assert!(!input.contains(capability));
         assert!(!entries[1].parts.iter().any(|part| {
             matches!(part, Part::Text(text) if text.contains("The user explicitly selected plugin files"))
         }));
@@ -960,7 +980,16 @@ async fn batches_inputs_with_one_output_owner() {
                 .to_string()
                 .contains("Guidance folder instructions")
         );
-        assert_eq!(requests[0]["messages"][0], requests[1]["messages"][0]);
+        assert!(
+            !requests[0]["messages"]
+                .to_string()
+                .contains("Guidance folder instructions")
+        );
+        assert!(
+            requests[1]["messages"][0]["content"]
+                .to_string()
+                .contains("Guidance folder instructions")
+        );
         assert_eq!(requests[0]["tools"], requests[1]["tools"]);
         assert_eq!(
             fixture.client.execute(first_request).await.unwrap(),
@@ -1020,6 +1049,7 @@ async fn queues_changed_captures_without_replacement() {
         let release = CancellationToken::new();
         let server = Server::markdown_held("Completed".into(), release.clone()).await;
         let mut fixture = Fixture::with_server(remote, server).await;
+        fixture.reasoning().await;
         let active = fixture.push("Initial task").await;
         fixture.server.wait_count(1).await;
         let waiting = held(&fixture, "Keep this queue position".into()).await;
@@ -1129,6 +1159,7 @@ async fn retains_changed_input_after_stop() {
         let release = CancellationToken::new();
         let server = Server::markdown_held("Completed".into(), release.clone()).await;
         let mut fixture = Fixture::with_server(remote, server).await;
+        fixture.reasoning().await;
         let active = fixture.push("Initial task").await;
         fixture.server.wait_count(1).await;
         configure(&mut fixture, "fixture-b", Effort::Low).await;

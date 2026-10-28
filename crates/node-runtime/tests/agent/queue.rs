@@ -80,6 +80,46 @@ impl Fixture {
         turn
     }
 
+    async fn reasoning(&mut self) {
+        let mut provider = self.provider.clone();
+        provider.default_model = "fixture-a".into();
+        provider.models = ["fixture-a", "fixture-b"]
+            .into_iter()
+            .map(|id| Model {
+                id: id.into(),
+                display_name: None,
+                context: 128_000,
+                output: 2048,
+                vision: false,
+                tools: true,
+                reasoning: true,
+                web_search: false,
+                generates: Vec::new(),
+                efforts: vec![Effort::Low, Effort::High],
+                capabilities: Some(discovery::Capabilities {
+                    reasoning: Some(true),
+                    tools: Some(true),
+                    ..Default::default()
+                }),
+                custom_efforts: false,
+                compaction_tokens: None,
+                default_effort: Effort::High,
+            })
+            .collect();
+        let Output::Provider(provider) = self
+            .client
+            .execute(self.client.prepare(Command::PutProvider {
+                expected_revision: self.provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
+        self.provider = provider;
+    }
+
     async fn queue(&self) -> Queue {
         history(&self.client, self.session.id).await.queue
     }
@@ -188,7 +228,8 @@ fn prompt(request: &serde_json::Value) -> &str {
 #[tokio::test]
 async fn edits_survive_restart() {
     for remote in [false, true] {
-        let fixture = Fixture::start(remote, false).await;
+        let mut fixture = Fixture::start(remote, false).await;
+        fixture.reasoning().await;
         fixture.pause(true).await;
         let mut stream = fixture
             .client
