@@ -153,13 +153,38 @@ pub(crate) async fn capture(
                 let revision = blake3::hash(value.to_string().as_bytes())
                     .to_hex()
                     .to_string();
+                let payload = blobs::capture(db, value).await?;
+                let mut attachments = Vec::new();
+                if format == ToolFormat::Mcp
+                    && let Ok(result) = &response.tool_result
+                {
+                    for (index, content) in result.content.iter().enumerate() {
+                        let rmcp::model::ContentBlock::Image(image) = content else {
+                            continue;
+                        };
+                        if let Some(slot) = payload
+                            .assets
+                            .iter()
+                            .find(|slot| slot.pointer == format!("/content/{index}/data"))
+                        {
+                            let mut asset = slot.asset.clone();
+                            asset.annotations = image
+                                .annotations
+                                .as_ref()
+                                .map(serde_json::to_value)
+                                .transpose()
+                                .map_err(storage_error)?;
+                            attachments.push(Attachment::Inline { asset });
+                        }
+                    }
+                }
                 BlockKind::ToolResponse(ToolResponse {
                     id: Some(response.id.clone()),
                     name,
                     status,
-                    result: blobs::capture(db, value).await?,
+                    result: payload,
                     revision,
-                    attachments: Vec::new(),
+                    attachments,
                     annotations: None,
                     provider: response.metadata.clone(),
                     format,

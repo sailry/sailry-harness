@@ -512,6 +512,7 @@ pub(super) async fn effects(
     turn: TurnId,
     mut effects: Vec<Effect>,
     presentation: Presentation,
+    timeline: Option<Arc<crate::agent::observation::Timeline>>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     let current = get(
@@ -592,6 +593,7 @@ pub(super) async fn effects(
                     (last == Some(index)).then(|| usage.clone()).flatten(),
                     calls.clone(),
                     presentation.clone(),
+                    timeline.clone(),
                     events,
                 )
                 .await?;

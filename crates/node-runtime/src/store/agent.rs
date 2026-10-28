@@ -1013,7 +1013,16 @@ pub(super) fn execute<'a>(
             reply,
         } => Box::pin(async move {
             let _ = reply.send(
-                sessions::effects(database, session, turn, effects, presentation, events).await,
+                sessions::effects(
+                    database,
+                    session,
+                    turn,
+                    effects,
+                    presentation,
+                    controls.timeline(turn),
+                    events,
+                )
+                .await,
             );
         }),
         Operation::Append {

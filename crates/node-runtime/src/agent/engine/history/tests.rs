@@ -94,6 +94,12 @@ async fn preserves_mcp_blocks() {
         unreachable!()
     };
     assert_eq!(response.format, ToolFormat::Mcp);
+    assert_eq!(response.attachments.len(), 1);
+    let Attachment::Inline { asset } = &response.attachments[0] else {
+        panic!("inline image expected")
+    };
+    assert_eq!(asset.digest, response.result.assets[0].asset.digest);
+    assert_eq!(blobs::get(&db, &asset.digest).await.unwrap(), [1, 2, 3]);
     assert_eq!(project(&db, &record).await.unwrap().unwrap(), message);
 }
 

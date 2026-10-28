@@ -87,6 +87,7 @@ enum Input {
         Option<goose_provider_types::conversation::token_usage::ProviderUsage>,
         BTreeMap<String, String>,
         records::Presentation,
+        Option<Arc<crate::agent::observation::Timeline>>,
     ),
 }
 
@@ -121,13 +122,14 @@ pub(super) async fn append_message(
     usage: Option<goose_provider_types::conversation::token_usage::ProviderUsage>,
     calls: BTreeMap<String, String>,
     presentation: records::Presentation,
+    timeline: Option<Arc<crate::agent::observation::Timeline>>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     write(
         database,
         session,
         turn,
-        Input::Message(message, usage, calls, presentation),
+        Input::Message(message, usage, calls, presentation, timeline),
         None,
         events,
     )
@@ -179,10 +181,10 @@ async fn write(
                         record.provenance.author="system".into();
                         record
                     },
-                    Input::Message(message, usage, calls, presentation) => {
+                    Input::Message(message, usage, calls, presentation, timeline) => {
                         let mut record = crate::agent::engine::history::capture(&transaction, turn, &message, &calls).await?;
                         if let Some(usage)=usage {capture_usage(&mut record,&usage)?;}
-                        super::presentation::capture_failures(&mut record,None);
+                        super::presentation::capture_failures(&mut record,timeline.as_deref());
                         super::presentation::stamp(&mut record,&presentation);
                         record
                     }
