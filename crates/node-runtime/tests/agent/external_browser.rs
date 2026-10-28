@@ -283,32 +283,6 @@ async fn filters_without_provisioning() {
                     assert_eq!(page.runs.last().unwrap().status, Status::Completed);
                 }
                 assert!(page.approvals.is_empty());
-                let searches = tool_calls(&fixture.client, &page)
-                    .await
-                    .into_iter()
-                    .filter(|(name, _)| name == "tool_search")
-                    .map(|(_, detail)| detail.arguments["query"].clone())
-                    .collect::<Vec<_>>();
-                let matches = tool_details(&fixture.client, &page)
-                    .await
-                    .into_iter()
-                    .filter(|(name, _)| name == "tool_search")
-                    .map(|(_, detail)| {
-                        detail
-                            .result
-                            .and_then(|result| result["tools"].as_array().cloned())
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|tool| tool["name"].clone())
-                            .collect::<Vec<_>>()
-                    })
-                    .collect::<Vec<_>>();
-                let compactions = page
-                    .entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .filter(|part| matches!(part, Part::Compaction(_)))
-                    .count();
                 {
                     let requests = fixture._server.requests.lock().unwrap();
                     let prefix = plugin_tool("external-browser", "browser_");
@@ -326,23 +300,7 @@ async fn filters_without_provisioning() {
                                 .is_some_and(|name| name.starts_with(&prefix))
                         })
                         .count();
-                    let missing = [
-                        "external_browser_hover",
-                        "external_browser_handle_alert",
-                        "external_browser_get_cookie",
-                    ]
-                    .into_iter()
-                    .filter(|name| {
-                        !tools
-                            .iter()
-                            .any(|entry| entry["function"]["name"] == tool(name))
-                    })
-                    .collect::<Vec<_>>();
-                    assert_eq!(
-                        count,
-                        if enabled { 49 } else { 0 },
-                        "remote={remote}, mode={mode:?}, enabled={enabled}, compactions={compactions}, queries={searches:?}, matches={matches:?}, missing={missing:?}"
-                    );
+                    assert_eq!(count, if enabled { 49 } else { 0 });
                     let contains = |name| {
                         tools
                             .iter()
@@ -633,6 +591,10 @@ fn discovery() -> Vec<(String, serde_json::Value)> {
         "hover",
         "handle",
         "get",
+        // Core management tools share the limit for broad capability searches.
+        "delete_cookie",
+        "evaluate",
+        "focus",
     ]
     .into_iter()
     .map(|query| ("tool_search".into(), json!({"query":query,"limit":8})))
