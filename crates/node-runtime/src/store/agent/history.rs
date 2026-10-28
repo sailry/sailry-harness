@@ -1090,12 +1090,15 @@ async fn project_with_sources(
             .filter(|html| !html.is_empty())
             .cloned(),
         parts,
-        usage: event.usage().map(|usage| Usage {
-            input: usage.input.unwrap_or_default(),
-            output: usage.output.unwrap_or_default(),
-            cached_input: usage.cache_read.unwrap_or_default(),
-            reasoning: usage.reasoning.unwrap_or_default(),
-        }),
+        usage: event
+            .message()
+            .and_then(|message| message.usage.as_ref())
+            .map(|usage| Usage {
+                input: usage.input.unwrap_or_default(),
+                output: usage.output.unwrap_or_default(),
+                cached_input: usage.cache_read.unwrap_or_default(),
+                reasoning: usage.reasoning.unwrap_or_default(),
+            }),
     })
 }
 
