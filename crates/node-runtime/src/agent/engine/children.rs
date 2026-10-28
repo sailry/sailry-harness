@@ -107,7 +107,6 @@ impl SubagentRunner<RuntimeSession> for Children {
         id: &str,
         cancel: CancellationToken,
     ) -> OperationStream<'static, SubagentUpdate> {
-        let invocation = self.pending.lock().unwrap().remove(id);
         let this = self.clone();
         let id = id.to_owned();
         let owner = cancel.child_token();
@@ -117,6 +116,7 @@ impl SubagentRunner<RuntimeSession> for Children {
             .tasks
             .clone()
             .spawn_child(&this.ingress.agents.stopped.clone(), async move {
+                let invocation = this.pending.lock().unwrap().remove(&id);
                 let Some(mut invocation) = invocation else {
                     return SubagentOutcome::Failed(
                         "child invocation is unavailable; execution was not replayed".into(),

@@ -9,6 +9,8 @@ pub(super) async fn respond(
     request: &Value,
     finish: Option<Arc<tokio::sync::Notify>>,
 ) -> std::io::Result<()> {
+    let response_id = format!("response-{}", uuid::Uuid::new_v4());
+    let message_id = format!("message-{response_id}");
     let mut output = Vec::new();
     let search = request["tools"]
         .as_array()
@@ -24,7 +26,7 @@ pub(super) async fn respond(
             "action":{"type":"search", "query":"fixture source"}}),
         );
     }
-    output.push(json!({"type":"message", "id":"message-fixture", "role":"assistant", "status":"completed",
+    output.push(json!({"type":"message", "id":message_id, "role":"assistant", "status":"completed",
         "content":([FIRST, SECOND].into_iter().map(|text| json!({"type":"output_text", "text":text,
             "annotations":if search { vec![json!({"type":"url_citation", "start_index":0,
                 "end_index":text.chars().count(), "title":"Fixture source", "url":URI})] } else { vec![] }
@@ -39,7 +41,7 @@ pub(super) async fn respond(
         output.push(json!({"type":"function_call", "id":"read-item", "call_id":"read-fixture",
             "name":plugin_tool("files", "read_file"), "arguments":json!({"path":"native.txt"}).to_string(), "status":"completed"}));
     }
-    let response = json!({"id":"response-fixture", "object":"response", "created_at":1,
+    let response = json!({"id":response_id, "object":"response", "created_at":1,
         "status":"completed", "model":request["model"], "output":output});
     if request["stream"] == true {
         stream
@@ -47,9 +49,15 @@ pub(super) async fn respond(
                 b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
             )
             .await?;
+        let created = json!({"type":"response.created", "sequence_number":0,
+            "response":{"id":response_id, "object":"response", "created_at":1,
+                "status":"in_progress", "model":request["model"], "output":[]}});
+        stream
+            .write_all(format!("data: {created}\n\n").as_bytes())
+            .await?;
         for (index, text) in [FIRST, SECOND].into_iter().enumerate() {
-            let event = json!({"type":"response.output_text.delta", "sequence_number":index,
-                "item_id":"message-fixture", "output_index":0, "content_index":index,
+            let event = json!({"type":"response.output_text.delta", "sequence_number":index + 1,
+                "item_id":message_id, "output_index":0, "content_index":index,
                 "delta":text, "logprobs":[]});
             stream
                 .write_all(format!("data: {event}\n\n").as_bytes())
@@ -58,7 +66,7 @@ pub(super) async fn respond(
         if let Some(finish) = finish {
             finish.notified().await;
         }
-        let event = json!({"type":"response.completed", "sequence_number":2, "response":response});
+        let event = json!({"type":"response.completed", "sequence_number":3, "response":response});
         stream
             .write_all(format!("data: {event}\n\ndata: [DONE]\n\n").as_bytes())
             .await?;

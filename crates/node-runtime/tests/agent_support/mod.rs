@@ -894,9 +894,10 @@ async fn respond(
             b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
         )
         .await?;
-    let chunk = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
+    let response_id = format!("completion-{}", uuid::Uuid::new_v4());
+    let chunk = json!({"id":response_id,"object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
     if matches!(reply, Reply::ReasonedTools(_)) {
-        let thinking = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":format!("Reasoning step {completed}")},"finish_reason":null}]});
+        let thinking = json!({"id":response_id,"object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":format!("Reasoning step {completed}")},"finish_reason":null}]});
         stream
             .write_all(format!("data: {thinking}\n\n").as_bytes())
             .await?;
@@ -907,7 +908,7 @@ async fn respond(
     if let Reply::Staged(gates) = &reply {
         for (index, text) in [" second", " third"].iter().enumerate() {
             gates[index].notified().await;
-            let chunk = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{"content":text},"finish_reason":null}]});
+            let chunk = json!({"id":response_id,"object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{"content":text},"finish_reason":null}]});
             stream
                 .write_all(format!("data: {chunk}\n\n").as_bytes())
                 .await?;
@@ -920,7 +921,7 @@ async fn respond(
     if let Reply::Held(_, finish) = &reply {
         finish.notified().await;
     }
-    let final_chunk = json!({"id":"completion-fixture","object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{},"finish_reason":if call.is_some() || batch { "tool_calls" } else { "stop" }}],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}});
+    let final_chunk = json!({"id":response_id,"object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{},"finish_reason":if call.is_some() || batch { "tool_calls" } else { "stop" }}],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}});
     stream
         .write_all(format!("data: {final_chunk}\n\ndata: [DONE]\n\n").as_bytes())
         .await?;

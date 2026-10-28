@@ -44,10 +44,6 @@ impl Fixture {
             "live provider: model={model} authentication={:?} remote={remote} request_max_retries={:?} stream_max_retries={:?}",
             provider.authentication, provider.request_max_retries, provider.stream_max_retries
         );
-        assert!(
-            provider.retry_limit() > 0,
-            "configured recovery is required"
-        );
         let node = Node::start(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())

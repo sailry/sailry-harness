@@ -216,11 +216,12 @@ async fn reply_finish(
     if read {
         delta["reasoning_content"] = json!("Inspect the next evidence source");
     }
-    let chunk = json!({"id":"context-fixture","object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
+    let response_id = format!("context-{}", uuid::Uuid::new_v4());
+    let chunk = json!({"id":response_id,"object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
     let usage = input_tokens.map(
         |input| json!({"prompt_tokens":input,"completion_tokens":10,"total_tokens":input + 10}),
     );
-    let end = json!({"id":"context-fixture","object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":{},"finish_reason":finish}],"usage":usage});
+    let end = json!({"id":response_id,"object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":{},"finish_reason":finish}],"usage":usage});
     stream
         .write_all(format!("data: {chunk}\n\ndata: {end}\n\ndata: [DONE]\n\n").as_bytes())
         .await?;
