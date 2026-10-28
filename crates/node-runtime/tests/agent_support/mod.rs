@@ -763,8 +763,8 @@ async fn respond(
         .unwrap()
         .iter()
         .rev()
-        // Turn fixtures submit text prompts. Tool image companions use
-        // user-role arrays and must not restart the scripted tool sequence.
+        // Generated subagent outcomes and image companions continue the same
+        // tool sequence; only ordinary user input starts another fixture turn.
         .take_while(|message| {
             !matches!(
                 reply,
@@ -776,8 +776,16 @@ async fn respond(
                     | Reply::TurnParallel(_)
             ) || message["role"] != "user"
                 || !message["content"].is_string()
+                || message["content"].as_str().is_some_and(|text| {
+                    text.starts_with("Subagent ")
+                        && (text.contains(" completed:") || text.contains(" failed:"))
+                })
         })
-        .filter(|message| message["role"] == "tool")
+        .filter(|message| {
+            message["role"] == "tool"
+                && (!matches!(reply, Reply::Parallel(_) | Reply::TurnParallel(_))
+                    || message["tool_call_id"] != "discovery-fixture")
+        })
         .count();
     let browser_call = if let Reply::Browser(url, capture) = &reply {
         browser::next(&body, url, *capture)
@@ -842,14 +850,29 @@ async fn respond(
         Reply::Delegation(_) => delegated_call.as_ref(),
         _ => browser_call.as_ref(),
     };
+    let spawn_available = body["tools"].as_array().is_some_and(|tools| {
+        tools
+            .iter()
+            .any(|tool| tool["function"]["name"] == plugin_tool("delegation", "spawn_agent"))
+    });
+    let discover = matches!(&reply, Reply::Parallel(_) | Reply::TurnParallel(_))
+        && completed == 0
+        && !spawn_available
+        && body["tools"].as_array().is_some_and(|tools| {
+            tools
+                .iter()
+                .any(|tool| tool["function"]["name"] == "tool_search")
+        });
     let batch = matches!(&reply, Reply::Batch(_) if completed == 0)
-        || (matches!(&reply, Reply::Parallel(_) | Reply::TurnParallel(_) if completed == 0)
-            && body["tools"].as_array().is_some_and(|tools| {
-                tools.iter().any(|tool| {
-                    tool["function"]["name"] == plugin_tool("delegation", "spawn_agent")
-                })
-            }));
+        || (matches!(&reply, Reply::Parallel(_) | Reply::TurnParallel(_))
+            && completed == 0
+            && spawn_available);
     let delta = match (&reply, batch, call) {
+        _ if discover => json!({"role":"assistant", "tool_calls":[{"index":0,
+            "id":"discovery-fixture", "type":"function", "function":{
+                "name":"tool_search", "arguments":json!({
+                    "query":plugin_tool("delegation", "spawn_agent"), "limit":1
+                }).to_string()}}]}),
         (Reply::Staged(_), _, _) => json!({"role":"assistant", "content":"First"}),
         (Reply::Markdown(text, ..), _, _) => json!({"role":"assistant", "content":text.as_str()}),
         (Reply::Parallel(calls) | Reply::TurnParallel(calls) | Reply::Batch(calls), true, _) => {

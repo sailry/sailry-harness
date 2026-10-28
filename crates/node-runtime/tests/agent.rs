@@ -150,9 +150,9 @@ fn node_context(request: &serde_json::Value, section: &str) -> String {
         .unwrap()
         .iter()
         .rev()
-        .filter(|message| message["role"] == "user")
+        .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
         .map(|message| message_text(&message["content"]))
-        .find(|text| text.starts_with("Node context\n") && text.contains(&format!("\n\n{section}")))
+        .find(|text| text.contains(&format!("\n\n{section}")))
         .expect("captured Node context expected")
 }
 

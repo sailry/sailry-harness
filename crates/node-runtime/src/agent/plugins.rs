@@ -174,7 +174,7 @@ pub(super) async fn bind(
             bound.mounted(tool.tool.name.as_ref())
                 && tool.plugin.as_deref() == Some(package.summary.name.as_str())
         });
-        if mounted && let Some(instructions) = bound.instructions.get(&package.summary.name) {
+        if let Some(instructions) = bound.instructions.get(&package.summary.name) {
             bound.instruction.push_str(instructions);
         }
         if mounted

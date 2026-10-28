@@ -302,13 +302,19 @@ impl EffectHandler<Session, Effect> for Sessions {
                         }))
                     }
                     Decision::Deny | Decision::DenyWithReason(_) => {
+                        let reason = match decision {
+                            Decision::DenyWithReason(reason) => {
+                                format!("Tool execution was denied. Reason: {reason}")
+                            }
+                            _ => "Tool execution was denied.".to_owned(),
+                        };
                         let message = GdkMessage::user().with_generated_id().with_tool_response(
                             request
                                 .id
                                 .clone()
                                 .ok_or_else(|| Fault::invalid("tool call identity is missing"))?,
                             Ok(rmcp::model::CallToolResult::error(vec![
-                                rmcp::model::ContentBlock::text("Tool execution was denied."),
+                                rmcp::model::ContentBlock::text(reason),
                             ])),
                         );
                         pending.push(Effect::from(message));

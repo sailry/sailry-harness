@@ -110,18 +110,19 @@ async fn deduplicates_forked_calls() {
 #[tokio::test]
 async fn preserves_latency_meaning() {
     let mut fixture = Fixture::new().await;
-    for (index, first) in [
-        serde_json::Value::Null,
-        serde_json::json!(12500),
-        serde_json::json!(30000),
-        serde_json::json!(-1),
+    for (index, (elapsed, first)) in [
+        (20000, serde_json::Value::Null),
+        (20000, serde_json::json!(12500)),
+        (20000, serde_json::json!(30000)),
+        (20000, serde_json::json!(-1)),
+        (0, serde_json::json!(0)),
     ]
     .into_iter()
     .enumerate()
     {
         let mut entry = event(START + index as i64, 10);
         let timing = match serde_json::from_value::<canonical::Timing>(serde_json::json!({
-            "elapsed_us": 20000, "first_token_us": first
+            "elapsed_us": elapsed, "first_token_us": first
         })) {
             Ok(timing) => timing,
             Err(_) => canonical::Timing {
@@ -142,7 +143,8 @@ async fn preserves_latency_meaning() {
             .iter()
             .map(|call| call.first_token_us)
             .collect::<Vec<_>>(),
-        [None, None, Some(12500), None]
+        [Some(0), None, None, Some(12500), None]
     );
-    assert!(calls.iter().all(|call| call.elapsed_us == Some(20000)));
+    assert_eq!(calls[0].elapsed_us, Some(0));
+    assert!(calls[1..].iter().all(|call| call.elapsed_us == Some(20000)));
 }

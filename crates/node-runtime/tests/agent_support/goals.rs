@@ -1,4 +1,4 @@
-//! Deterministic responses exercise the real package tools and ADK continuation.
+//! Deterministic responses exercise the real package tools and continuation.
 use super::*;
 
 pub(super) async fn respond_loop(
@@ -103,9 +103,9 @@ pub(super) async fn respond_reasoning(
     let policy = messages
         .iter()
         .rev()
-        .filter(|message| message["role"] == "user")
+        .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
         .filter_map(|message| message["content"].as_str())
-        .find(|text| text.starts_with("Node context\n") && text.contains("\n\nWork mode\n"))
+        .find(|text| text.contains("\n\nWork mode\n"))
         .expect("current goal policy expected");
     let active = policy.contains("Active goal: ");
     let start = messages
@@ -154,8 +154,9 @@ async fn send(
             b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
         )
         .await?;
-    let chunk = json!({"id":"goal","object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
-    let end = json!({"id":"goal","object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":{},"finish_reason":if tool{"tool_calls"}else{"stop"}}],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}});
+    let response = format!("goal-{}", uuid::Uuid::new_v4());
+    let chunk = json!({"id":response,"object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
+    let end = json!({"id":response,"object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":{},"finish_reason":if tool{"tool_calls"}else{"stop"}}],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}});
     stream
         .write_all(format!("data: {chunk}\n\ndata: {end}\n\ndata: [DONE]\n\n").as_bytes())
         .await?;

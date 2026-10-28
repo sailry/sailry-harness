@@ -95,7 +95,7 @@ pub(in crate::store) async fn read(
         let elapsed = row
             .get::<Option<i64>>(13)
             .map_err(storage_error)?
-            .filter(|value| *value > 0)
+            .filter(|value| *value >= 0)
             .map(|value| value as u64);
         let project: Option<ProjectId> = row
             .get::<Option<String>>(7)

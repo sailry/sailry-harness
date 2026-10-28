@@ -56,7 +56,7 @@ pub(in crate::store::agent::statistics) async fn read(
         let elapsed = row
             .get::<Option<i64>>(13)
             .map_err(storage_error)?
-            .filter(|value| *value > 0)
+            .filter(|value| *value >= 0)
             .map(|value| value as u64);
         add(
             if row.get::<bool>(15).map_err(storage_error)? {

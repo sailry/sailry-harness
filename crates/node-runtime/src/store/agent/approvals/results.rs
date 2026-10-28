@@ -40,6 +40,7 @@ pub(crate) fn enrich(content: &mut crate::agent::canonical::Message, denials: &[
     use crate::agent::canonical::{BlockKind, ToolFormat};
     for part in &mut content.content {
         if let BlockKind::ToolResponse(response) = &mut part.kind
+            && response.format == ToolFormat::Json
             && let Some(id) = &response.id
             && let Some(denial) = denials
                 .iter()
