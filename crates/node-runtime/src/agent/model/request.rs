@@ -213,7 +213,15 @@ impl Capture {
         error: Option<&ProviderError>,
     ) -> Result<(), ProviderError> {
         if let Some(state) = self.state.take() {
-            state.persist(outcome, error).await
+            let error = error.cloned();
+            // A cancelled caller must not cancel the already-owned history append.
+            tokio::spawn(async move { state.persist(outcome, error.as_ref()).await })
+                .await
+                .map_err(|_| {
+                    ProviderError::ExecutionError(
+                        "model request observation could not be recorded".into(),
+                    )
+                })?
         } else {
             Ok(())
         }
