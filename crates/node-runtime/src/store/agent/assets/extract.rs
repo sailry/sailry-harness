@@ -41,7 +41,8 @@ pub(super) async fn publications(
             continue;
         };
         let result = super::super::blobs::hydrate(db, &response.result).await?;
-        let Some(content) = sailry_protocol::tool::Presentation::Content.content(&result) else {
+        let value = super::super::history::tools::value(response.format, &result);
+        let Some(content) = sailry_protocol::tool::Presentation::Content.content(value) else {
             continue;
         };
         for block in content.blocks {

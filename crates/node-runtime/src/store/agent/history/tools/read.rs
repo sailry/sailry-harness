@@ -299,11 +299,12 @@ pub(in crate::store::agent) async fn with_sources(
     if let Some(raw) = call(db, turn, event, block).await? {
         return Ok(Some(raw));
     }
-    let (id, name, result, images) = match &block.kind {
+    let (id, name, result, format, images) = match &block.kind {
         BlockKind::ToolResponse(response) => (
             response.id.clone(),
             response.name.clone(),
             super::super::super::blobs::hydrate(db, &response.result).await?,
+            response.format,
             super::super::super::images::project(db, turn, event, index, response).await?,
         ),
         BlockKind::ServerResponse { value } => {
@@ -315,6 +316,7 @@ pub(in crate::store::agent) async fn with_sources(
                 raw.id,
                 raw.name,
                 raw.result.unwrap_or(Value::Null),
+                raw.format,
                 Vec::new(),
             )
         }
@@ -342,6 +344,7 @@ pub(in crate::store::agent) async fn with_sources(
     }
     .unwrap_or_else(|| Raw::new(id.clone(), name.clone(), Value::Null));
     raw.result = Some(result);
+    raw.format = format;
     raw.images = images;
     raw.failure = super::super::super::presentation::failures(event)?
         .into_iter()

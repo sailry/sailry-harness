@@ -297,7 +297,11 @@ mod text {
     #[test]
     fn retains_literal_diagnostics() {
         let original = result();
-        for mut value in [original.clone(), json!({"output":original})] {
+        for mut value in [
+            original.clone(),
+            json!({"output":original.clone()}),
+            json!({"structuredContent":original,"content":[{"type":"text","text":"retained"}]}),
+        ] {
             value["isError"] = json!(true);
             let content = Presentation::Content.content(&value).unwrap();
             let Block::Text(text) = &content.blocks[0] else {
@@ -314,6 +318,20 @@ mod text {
             value["error"] = json!("failed before producing a result");
             assert!(Presentation::Content.content(&value).is_some());
         }
+    }
+
+    #[test]
+    fn ignores_undeclared_structured_fields() {
+        let text = Text {
+            path: "/stream".into(),
+            notices: vec![],
+        };
+        let value = json!({"structuredContent":{"stream":"business value"}});
+        assert!(text.read(&value).is_none());
+        assert!(Presentation::Content.content(&value).is_none());
+        let value = json!({"structuredContent":{"stream":"business value"},"output":result()});
+        assert_eq!(text.read(&value), Some("完整内容 🙂\n```rust\n"));
+        assert!(Presentation::Content.content(&value).is_some());
     }
 
     #[test]

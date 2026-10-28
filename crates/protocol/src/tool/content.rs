@@ -167,7 +167,7 @@ impl Content {
 }
 
 impl Presentation {
-    /// Native tools return `sailry_content`; ADK wraps MCP structuredContent in `output`.
+    /// Declared content may be native or inside a retained tool-result envelope.
     /// Invalid content falls back to the unchanged authoritative result.
     pub fn content(self, result: &Value) -> Option<Content> {
         if self != Self::Content {
@@ -198,6 +198,11 @@ impl Presentation {
 fn payload(result: &Value) -> Option<&Value> {
     if result.get("sailry_content").is_some() {
         Some(result)
+    } else if let Some(content) = result
+        .get("structuredContent")
+        .filter(|content| content.get("sailry_content").is_some())
+    {
+        Some(content)
     } else {
         result.get("output")
     }

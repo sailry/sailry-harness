@@ -1,5 +1,6 @@
 //! Conversation rows carry bounded facts; canonical tool values are read explicitly.
 use super::*;
+use crate::agent::canonical::ToolFormat;
 use sailry_protocol::tool::{
     Display, Failure, Grouping, Presentation, ResultDisplay,
     detail::{Delegation, Detail, Resolved, Summary},
@@ -20,6 +21,7 @@ pub(in crate::store::agent) struct Raw {
     pub name: String,
     pub arguments: Value,
     pub result: Option<Value>,
+    pub format: ToolFormat,
     pub display: Option<Display>,
     pub presentation: Presentation,
     pub grouping: Grouping,
@@ -35,6 +37,7 @@ impl Raw {
             name,
             arguments,
             result: None,
+            format: ToolFormat::Json,
             display: None,
             presentation: Default::default(),
             grouping: Default::default(),
@@ -44,7 +47,7 @@ impl Raw {
     }
 
     pub(super) fn summary(&self) -> Summary {
-        let result = self.result.as_ref().unwrap_or(&Value::Null);
+        let result = self.value().unwrap_or(&Value::Null);
         let mut resolved = self.resolved(false);
         let metadata = ResultDisplay::from_value(result);
         let diagnostics = self.failure.is_some()
@@ -185,13 +188,27 @@ impl Raw {
         let mut resolved = display::resolve(
             self.display.as_ref(),
             &self.arguments,
-            self.result.as_ref().unwrap_or(&Value::Null),
+            self.value().unwrap_or(&Value::Null),
             full,
         )?;
         if self.presentation != Presentation::Content || content(self).is_none() {
             resolved.command = None;
         }
         Some(resolved)
+    }
+
+    fn value(&self) -> Option<&Value> {
+        self.result
+            .as_ref()
+            .map(|result| value(self.format, result))
+    }
+}
+
+pub(in crate::store::agent) fn value(format: ToolFormat, result: &Value) -> &Value {
+    if format == ToolFormat::Mcp {
+        result.get("structuredContent").unwrap_or(result)
+    } else {
+        result
     }
 }
 
@@ -218,7 +235,7 @@ fn progress(raw: &Raw) -> Option<sailry_protocol::conversation::progress::Progre
     }
     let arguments: Progress = serde_json::from_value(raw.arguments.clone()).ok()?;
     arguments.validate().ok()?;
-    let result = raw.result.as_ref()?.as_object()?;
+    let result = raw.value()?.as_object()?;
     if result.len() != 1 {
         return None;
     }
@@ -227,7 +244,7 @@ fn progress(raw: &Raw) -> Option<sailry_protocol::conversation::progress::Progre
 }
 
 fn content(raw: &Raw) -> Option<sailry_protocol::tool::Content> {
-    let content = raw.presentation.content(raw.result.as_ref()?)?;
+    let content = raw.presentation.content(raw.value()?)?;
     if raw.failure.is_some()
         && !content.blocks.iter().all(|block| {
             matches!(
@@ -260,7 +277,7 @@ fn output_visible(raw: &Raw, resolved: Option<&Resolved>) -> bool {
     else {
         return false;
     };
-    let result = raw.result.as_ref().unwrap_or(&Value::Null);
+    let result = raw.value().unwrap_or(&Value::Null);
     resolved
         .and_then(|resolved| resolved.output.as_ref())
         .is_some_and(|output| {
@@ -290,7 +307,7 @@ fn error(raw: &Raw, metadata: Option<&ResultDisplay>) -> Option<String> {
         );
     }
     raw.failure.as_ref()?;
-    let result = raw.result.as_ref()?;
+    let result = raw.value()?;
     result
         .pointer("/error/message")
         .or_else(|| result.get("error"))

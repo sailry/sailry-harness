@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    agent::canonical::{BlockKind, Record, Role},
+    agent::canonical::{BlockKind, Record, Role, ToolFormat},
     store::agent::{
         blobs,
         tests::{
@@ -374,9 +374,37 @@ async fn indexes_valid_plugin_files() {
             {"kind": "file", "path": "output/report.pdf", "mime": "application/pdf"}
         ]}
     });
-    for result in [content.clone(), serde_json::json!({"output": content})] {
+    for (result, format) in [
+        (content.clone(), ToolFormat::Json),
+        (
+            serde_json::json!({"output": content.clone()}),
+            ToolFormat::Json,
+        ),
+        (
+            serde_json::json!({"structuredContent":content,"content":[]}),
+            ToolFormat::Mcp,
+        ),
+    ] {
         let mut items = extract::items(&entry, Some("/project"));
-        publish(&fixture, &mut items, vec![result]).await;
+        let mut output = response(None, "document_export", result.clone());
+        output.format = format;
+        let record = message(
+            "assistant",
+            Role::Assistant,
+            vec![BlockKind::ToolResponse(output)],
+        );
+        extract::publications(&fixture.database.connection, &mut items, &record)
+            .await
+            .unwrap();
+        let BlockKind::ToolResponse(output) = &record.message().unwrap().content[0].kind else {
+            panic!("tool response expected");
+        };
+        assert_eq!(
+            blobs::hydrate(&fixture.database.connection, &output.result)
+                .await
+                .unwrap(),
+            result
+        );
         assert_eq!(
             items,
             [Target::File {

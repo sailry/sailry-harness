@@ -166,6 +166,71 @@ fn progress_requires_matching_valid_arguments() {
 }
 
 #[test]
+fn presents_mcp_content_without_changing_raw_values() {
+    let original = json!({
+        "content":[{"type":"text","text":"Original MCP text"}],
+        "structuredContent":{
+            "text":"Literal stream 中文 🙂",
+            "sailry_content":{"version":1,"blocks":[{"kind":"text","path":"/text"}]},
+            "sailry_result":{"version":1,"diagnostics":[{"text":"Partial","error":false}]}
+        },
+        "_meta":{"revision":"original"}
+    });
+    let mut raw = source(original.clone());
+    raw.format = ToolFormat::Mcp;
+    raw.display = Some(
+        serde_json::from_value(json!({
+            "label":"Read",
+            "output":{"body":{"text":{"source":"result","path":"/text"}}}
+        }))
+        .unwrap(),
+    );
+    let summary = raw.summary();
+    assert!(summary.has_details && summary.diagnostics);
+    assert_eq!(summary.bytes, Some(original.to_string().len()));
+    let detail = raw.detail();
+    assert_eq!(detail.result, Some(original));
+    assert_eq!(
+        detail.resolved.unwrap().output.unwrap().body.unwrap().text,
+        "Literal stream 中文 🙂"
+    );
+    let content = detail.content.unwrap();
+    let Block::Text(text) = &content.blocks[0] else {
+        panic!("text expected");
+    };
+    assert_eq!(
+        text.read(detail.result.as_ref().unwrap()),
+        Some("Literal stream 中文 🙂")
+    );
+    assert_eq!(summary.revision, raw.summary().revision);
+    raw.format = ToolFormat::Json;
+    assert!(!raw.summary().diagnostics);
+    assert!(
+        raw.detail()
+            .resolved
+            .unwrap()
+            .output
+            .unwrap()
+            .body
+            .is_none()
+    );
+}
+
+#[test]
+fn selects_mcp_progress_by_format() {
+    let arguments =
+        json!({"title":"Task","steps":[{"description":"Inspect","state":"in_progress"}]});
+    let original = json!({"content":[],"structuredContent":{"progress":arguments}});
+    let mut raw = source(original.clone());
+    raw.arguments = arguments;
+    raw.presentation = Presentation::Progress;
+    assert!(raw.summary().progress.is_none());
+    raw.format = ToolFormat::Mcp;
+    assert_eq!(raw.summary().progress.unwrap().steps.len(), 1);
+    assert_eq!(raw.detail().result, Some(original));
+}
+
+#[test]
 fn business_errors_do_not_become_failures() {
     for result in [
         json!({"error":"business value"}),
