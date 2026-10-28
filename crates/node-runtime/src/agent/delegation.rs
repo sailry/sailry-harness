@@ -9,6 +9,9 @@ pub(in crate::agent) mod scheduler;
 pub(super) mod selected;
 pub(in crate::agent) use control::Control;
 
+#[cfg(test)]
+mod tests;
+
 fn selected_call(turn: TurnId) -> String {
     format!("sailry-selected-{turn}")
 }
@@ -79,6 +82,8 @@ pub(super) struct Delegate {
     description: String,
     parameters: Value,
     selected: Option<Input>,
+    #[cfg(test)]
+    handoff: Option<Arc<tests::Handoff>>,
 }
 
 impl Delegate {
@@ -115,6 +120,8 @@ impl Delegate {
             name,
             parameters,
             description,
+            #[cfg(test)]
+            handoff: None,
             selected: invocation.message.selected_role().map(|_| {
                 let mut message = invocation.message.clone();
                 message.references.retain(|reference| {
@@ -221,6 +228,8 @@ impl Delegate {
         if let Some(children) = children {
             let ingress = self.ingress.clone();
             let turn = self.turn;
+            #[cfg(test)]
+            let handoff = self.handoff.clone();
             // Admission can commit after the calling tool future is cancelled.
             // Keep its handoff and parent lease owned by the Node task supervisor.
             let admitted = self
@@ -238,6 +247,10 @@ impl Delegate {
                         .await?;
                     let session = invocation.turn.session;
                     let turn = invocation.turn.id;
+                    #[cfg(test)]
+                    if let Some(handoff) = handoff {
+                        handoff.wait(session, turn).await;
+                    }
                     children.register(invocation).map_err(|_| {
                         Fault::new(
                             ErrorCode::OutcomeUnknown,
