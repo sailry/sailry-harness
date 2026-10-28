@@ -360,7 +360,10 @@ request prefix at preparation time, including tool declarations and exact owner
 context at its original positions, then append a user request for the handoff.
 Supported provider request adapters disable tool invocation without removing those
 declarations. Historical attachments retain their ordinary session visibility;
-reading them during maintenance does not authorize tool execution.
+reading them during maintenance does not authorize tool execution. Summary
+fallbacks account for hydrated attachment bytes; ordinary non-image media retains
+provider token accounting. Older inline attachments can become metadata and
+readable references without changing their canonical records.
 Summary requests keep the captured model,
 reasoning effort and configured maximum output where the provider supports it.
 A failed summary never permits replay. Model-requested compaction below half the
@@ -387,9 +390,12 @@ summary or projection invalidates stale context-size facts, then recomputes the
 effective estimate; helper usage still contributes to totals. Mask selections use
 canonical call and revision identities in existing session state, so reloading or
 summarizing later retains the same projected prefix and exact original references.
-Providers without call IDs resolve request-only references against canonical
-results. Temporary identities and projection metadata are removed at the provider
-boundary.
+Sailry preserves ADK's generated call IDs through its model boundary, so providers
+without call IDs do not require a full history read for each request. Temporary
+identities and projection metadata are removed before transmission. Ordinary
+requests are prepared once; prepared summaries can reuse the same effective input
+capacity after reserving their configured output. Later callbacks may only shrink
+an already prepared request.
 Repeated attempts require more than 10% token growth, and one forced context-length
 recovery belongs to the original admitted task. A final unsafe or
 terminal compaction failure halts the task and pauses its queue; unconsumed input
@@ -452,6 +458,15 @@ persisted events and their original bytes remain unchanged. Models request encry
 reasoning only when catalog metadata advertises reasoning or a positive effort is
 selected, independently of summaries. Older reasoning without encrypted content
 is omitted only from outgoing requests.
+Responses models that declare configuration updates retain their initial
+reasoning setting in canonical Agent state. A changed sent-turn effort becomes a
+typed, provider-owned `configuration_update` at that user input's original
+position; repeated choices add no update. HTTP and WebSocket lower the same
+history before continuation comparison, preserving earlier input and tool
+declarations. Canonical summaries retain the effective setting and reset discarded
+owner updates so restart and replay restore it once. Defaults enable this for
+standard single-agent GPT-6 family Responses models; other models require an
+explicit capability declaration and otherwise retain per-request configuration.
 Only verified extensions of canonical history use connection-local continuation.
 Pre-event WebSocket failures select the same adapted request over SSE once;
 absence of an acknowledgement does not prove non-delivery, so this fallback may
@@ -569,17 +584,25 @@ facts share the existing turn observation and canonical history owner, preservin
 error inspection without classifying arbitrary business fields as failures.
 Model results and durable tool output remain unchanged.
 
-Client owns one bounded detail cache and per-view trackers for loading, retries,
-revision invalidation and selected values. Selected allocations share the cache
-budget; new selections can release an earlier value held by the same tracker.
-Desktop, ACP, plugin observers
-and Mobile consume those states instead of retaining separate detail caches.
-Oversized details preserve summary-based approval. Superseded background reads
-are silent; explicit reads can refresh their current reference once.
+Client owns one 64 MiB detail cache and per-view trackers for loading, retries,
+revision invalidation and selected values. A new selection can release an older
+unprotected value held by that tracker when doing so can make room. Pending
+approval payloads remain protected; memory contention never enables approval
+without the parameters. Intrinsically oversized details preserve summary-based
+approval, and rejection remains available without details. Released capacity
+restarts blocked selections without evicting other visible values or reporting
+eviction as an operation failure.
+Desktop selects expanded rows and published cards by their own viewport bounds;
+offscreen cards retain only their reference and measured height. Hidden cached
+views release their selections until displayed again. ACP and Mobile consume the
+same tracker states. Plugin snapshots read details directly with
+bounded concurrency and no automatic retry; their returned JSON belongs to the
+caller. Copy and open actions use temporary reads. Superseded background reads are
+silent; explicit reads can refresh their current reference once.
 Node uses one 128 MiB serialized-detail cache, including at most 64 MiB of idle
 LRU entries. Multi-page reads share a lease renewed by access; one reader reaching
-the end does not release another reader's data. Single-page values remain in the
-bounded idle LRU.
+the end does not release another reader's data. Complete single-page reads bypass
+that cache, so active large reads cannot block small details.
 
 Model declarations are captured in the existing session catalog and reused while
 their exact definition inputs match. Common tools follow declared operations and
