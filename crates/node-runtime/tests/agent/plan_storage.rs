@@ -162,9 +162,12 @@ async fn rejects_hidden_writes() {
                 &["plain", "declared", "read", "flow"]
             };
             let server = Server::scripted_tools(
-                names
-                    .iter()
-                    .map(|name| (plugin_tool(PACKAGE, name), json!({})))
+                std::iter::once(("tool_search".into(), json!({"query":PACKAGE,"limit":4})))
+                    .chain(
+                        names
+                            .iter()
+                            .map(|name| (plugin_tool(PACKAGE, name), json!({}))),
+                    )
                     .collect(),
             )
             .await;
@@ -215,7 +218,17 @@ async fn rejects_hidden_writes() {
                 .filter(|(name, _)| name != "plan_review")
                 .map(|(_, detail)| detail.result.unwrap())
                 .collect();
-            assert_eq!(results.len(), names.len(), "{page:?}");
+            assert_eq!(results.len(), names.len() + 1, "{page:?}");
+            for name in ["plain", "declared", "read", "flow"] {
+                assert!(
+                    results[0]["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|tool| tool["name"] == plugin_tool(PACKAGE, name))
+                );
+            }
+            let results = &results[1..];
             for result in results.iter().skip(usize::from(mode == WorkMode::Code)) {
                 assert_eq!(result["read"]["value"], "original", "{result}");
                 assert_eq!(result["errors"], json!(vec!["permission_denied"; 7]));
@@ -232,17 +245,23 @@ async fn rejects_hidden_writes() {
                 assert_eq!(value(&fixture, &ui, "code").await.value, "changed");
             }
             let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), names.len() + 1);
-            for request in requests {
+            assert_eq!(requests.len(), names.len() + 2);
+            for (index, request) in requests.iter().enumerate() {
                 let tools: Vec<_> = request["tools"]
                     .as_array()
                     .unwrap()
                     .iter()
                     .filter_map(|item| item["function"]["name"].as_str())
                     .collect();
-                assert!(tools.contains(&plugin_tool(PACKAGE, "plain").as_str()));
+                assert_eq!(
+                    tools.contains(&plugin_tool(PACKAGE, "plain").as_str()),
+                    index > 0
+                );
                 for name in ["declared", "read", "flow"] {
-                    assert!(tools.contains(&plugin_tool(PACKAGE, name).as_str()));
+                    assert_eq!(
+                        tools.contains(&plugin_tool(PACKAGE, name).as_str()),
+                        index > 0
+                    );
                 }
             }
             if mode == WorkMode::Plan {

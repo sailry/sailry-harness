@@ -49,6 +49,7 @@ async fn preserves_reads_in_plan() {
     for remote in [false, true] {
         let id = MemoryId::new();
         let calls = vec![
+            ("tool_search".into(), json!({"query":"memory","limit":8})),
             (
                 plugin_tool("memory", "search_memory"),
                 json!({"query":id.to_string()}),
@@ -109,7 +110,23 @@ async fn preserves_reads_in_plan() {
             .filter(|(name, _)| name != "plan_review")
             .map(|(_, detail)| detail.result.unwrap())
             .collect();
-        assert_eq!(results.len(), 2, "{page:?}");
+        assert_eq!(results.len(), 3, "{page:?}");
+        for name in [
+            "search_memory",
+            "review_memories",
+            "save_memory",
+            "forget_memory",
+            "consolidate_memories",
+        ] {
+            assert!(
+                results[0]["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|tool| tool["name"] == plugin_tool("memory", name))
+            );
+        }
+        let results = &results[1..];
         let text = results[0]["entries"][0]["parts"][0]["text"]
             .as_str()
             .unwrap();
@@ -118,13 +135,21 @@ async fn preserves_reads_in_plan() {
         assert_eq!(retrieved["body_truncated"], false);
         assert!(results[1]["candidates"].is_array(), "{}", results[1]);
         assert_eq!(support::read(&fixture.client, id).await.unwrap(), original);
-        for request in server.requests.lock().unwrap().iter() {
-            let tools = request["tools"].to_string();
-            for name in ["search_memory", "review_memories"] {
-                assert!(tools.contains(name));
-            }
-            for name in ["save_memory", "forget_memory", "consolidate_memories"] {
-                assert!(tools.contains(name));
+        for (index, request) in server.requests.lock().unwrap().iter().enumerate() {
+            let tools = request["tools"].as_array().unwrap();
+            for name in [
+                "search_memory",
+                "review_memories",
+                "save_memory",
+                "forget_memory",
+                "consolidate_memories",
+            ] {
+                assert_eq!(
+                    tools
+                        .iter()
+                        .any(|tool| tool["function"]["name"] == plugin_tool("memory", name)),
+                    index > 0
+                );
             }
         }
         server.replace_tools(vec![(
@@ -323,8 +348,9 @@ async fn curates_scoped_memory() {
 async fn applies_tool_settings() {
     for remote in [false, true] {
         for enabled in [false, true] {
-            let calls = if enabled {
-                vec![
+            let mut calls = vec![("tool_search".into(), json!({"query":"memory","limit":8}))];
+            if enabled {
+                calls.extend([
                     (
                         plugin_tool("memory", "search_memory"),
                         json!({"query":"中文"}),
@@ -333,10 +359,8 @@ async fn applies_tool_settings() {
                         plugin_tool("memory", "search_memory"),
                         json!({"query":"中文"}),
                     ),
-                ]
-            } else {
-                vec![]
-            };
+                ]);
+            }
             let server = Server::tools(calls).await;
             let fixture = fixture(remote, &server).await;
             install(&fixture).await;
@@ -391,20 +415,42 @@ async fn applies_tool_settings() {
             );
             {
                 let requests = server.requests.lock().unwrap();
-                let tools = requests[0]["tools"].to_string();
-                assert_eq!(tools.contains("search_memory"), enabled);
-                assert!(!tools.contains("save_memory"));
-                assert!(!tools.contains("forget_memory"));
-                assert!(!tools.contains("consolidate_memories"));
+                for (index, request) in requests.iter().enumerate() {
+                    let tools = request["tools"].as_array().unwrap();
+                    for name in ["search_memory", "review_memories"] {
+                        assert_eq!(tools.iter().any(|tool| tool["function"]["name"] == plugin_tool("memory", name)), enabled && index > 0);
+                    }
+                    for name in ["save_memory", "forget_memory", "consolidate_memories"] {
+                        assert!(tools.iter().all(|tool| tool["function"]["name"] != plugin_tool("memory", name)));
+                    }
+                }
                 let prompt = requests[0]["messages"].to_string();
                 assert_eq!(prompt.contains(&id.to_string()), enabled);
             }
             if enabled {
                 let results: Vec<_> = results(&fixture.client, &page).await;
-                assert_eq!(results.len(), 2);
+                assert_eq!(results.len(), 3);
+                assert!(
+                    results[0]["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|tool| tool["name"] == plugin_tool("memory", "search_memory"))
+                );
+                let results = &results[1..];
                 assert!(results[0].to_string().contains("body_truncated"));
                 assert_eq!(results[1]["entries"].as_array().unwrap().len(), 0);
                 assert!(results[0].to_string().len() + results[1].to_string().len() < 2048);
+            } else {
+                let results = results(&fixture.client, &page).await;
+                assert_eq!(results.len(), 1);
+                assert!(
+                    results[0]["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|tool| !tool["name"].as_str().unwrap().contains("memory"))
+                );
             }
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();

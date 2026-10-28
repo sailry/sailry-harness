@@ -166,6 +166,10 @@ async fn permissions_and_empty_inventory() {
             let git = source::Git::new();
             let fixture = Fixture::new(remote, &git, permission, WorkMode::Code, |original, _| {
                 vec![
+                    (
+                        "tool_search".into(),
+                        json!({"query":"manage_skills","limit":1}),
+                    ),
                     ("list".into(), json!({})),
                     (
                         "discover".into(),
@@ -212,15 +216,20 @@ async fn permissions_and_empty_inventory() {
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
             assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
             let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-            assert_eq!(view.calls.len(), 4);
+            assert_eq!(view.calls.len(), 5);
+            assert_eq!(view.calls[0].name, "tool_search");
+            let calls = &view.calls[1..];
             for index in [0, 1, 3] {
-                assert!(!view.calls[index].details(&page));
-                assert!(view.calls[index].resolved().unwrap().label.is_some());
+                assert!(!calls[index].details(&page));
+                assert!(calls[index].resolved().unwrap().label.is_some());
             }
             if allow {
-                assert!(view.calls[2].details(&page));
+                assert!(calls[2].details(&page));
             }
             let output = results(&fixture.client, &page).await;
+            assert_eq!(output.len(), 5);
+            assert_eq!(output[0]["tools"][0]["name"], "manage_skills");
+            let output = &output[1..];
             assert_eq!(output[0]["skills"], json!([]));
             assert_eq!(output[1]["source"]["commit"], fixture.next.source.commit);
             assert_eq!(
@@ -237,9 +246,9 @@ async fn permissions_and_empty_inventory() {
                 };
                 assert_eq!(page.approvals[0].source, expected);
             }
-            for request in fixture.server.requests.lock().unwrap().iter() {
+            for (index, request) in fixture.server.requests.lock().unwrap().iter().enumerate() {
                 let names = names(request);
-                assert!(names.contains(&"manage_skills"));
+                assert_eq!(names.contains(&"manage_skills"), index > 0);
                 for name in [
                     "list_skills",
                     "discover_skills",
@@ -374,6 +383,10 @@ async fn preserves_planning_inventory() {
             WorkMode::Plan,
             |original, next| {
                 vec![
+                    (
+                        "tool_search".into(),
+                        json!({"query":"manage_skills","limit":1}),
+                    ),
                     ("list".into(), json!({})),
                     (
                         "discover".into(),
@@ -396,7 +409,9 @@ async fn preserves_planning_inventory() {
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(page.approvals.is_empty());
         let output = results(&fixture.client, &page).await;
-        assert_eq!(output.len(), 6);
+        assert_eq!(output.len(), 7);
+        assert_eq!(output[0]["tools"][0]["name"], "manage_skills");
+        let output = &output[1..];
         assert_eq!(output[0], json!({"skills":[]}));
         assert_eq!(output[1]["skills"].as_array().unwrap().len(), 1);
         for denied in &output[2..5] {
@@ -408,8 +423,12 @@ async fn preserves_planning_inventory() {
         }
         assert_eq!(output[5], output[0]);
         assert_eq!(execute(&fixture.client, Command::ListPlugins).await, before);
-        for request in fixture.server.requests.lock().unwrap().iter() {
+        for (index, request) in fixture.server.requests.lock().unwrap().iter().enumerate() {
             let names = names(request);
+            if index == 0 {
+                assert!(!names.contains(&"manage_skills"));
+                continue;
+            }
             assert!(names.contains(&"manage_skills"));
             let tool = request["tools"]
                 .as_array()

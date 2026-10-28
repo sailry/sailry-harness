@@ -50,10 +50,13 @@ async fn adds_progress_to_existing_conversations() {
                 .unwrap(),
             previous
         );
-        server.replace_tools(vec![(
-            plugin_tool("progress", "update_plan"),
-            plan("completed"),
-        )]);
+        server.replace_tools(vec![
+            (
+                "tool_search".into(),
+                json!({"query":plugin_tool("progress", "update_plan"),"limit":1}),
+            ),
+            (plugin_tool("progress", "update_plan"), plan("completed")),
+        ]);
         let Output::QueuedTurn(next) = client
             .execute(client.prepare(Command::SubmitTurn {
                 session: fixture.session.id,
@@ -76,14 +79,15 @@ async fn adds_progress_to_existing_conversations() {
             Status::Completed
         );
         let view = observe(&client, fixture.session.id).await;
-        assert_eq!(view.calls.len(), 1);
+        assert_eq!(view.calls.len(), 2);
+        assert_eq!(view.calls[0].name, "tool_search");
         assert_eq!(
-            serde_json::to_value(view.calls[0].progress.as_ref().unwrap()).unwrap(),
+            serde_json::to_value(view.calls[1].progress.as_ref().unwrap()).unwrap(),
             plan("completed")
         );
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 3);
-        for (index, available) in [(0, false), (1, true)] {
+        assert_eq!(requests.len(), 4);
+        for (index, available) in [(0, false), (1, false), (2, true), (3, true)] {
             assert_eq!(
                 requests[index]["tools"]
                     .as_array()
@@ -109,10 +113,13 @@ async fn adds_progress_to_existing_conversations() {
 async fn retains_disabled_and_removed_defaults() {
     for remote in [false, true] {
         for removed in [false, true] {
-            let server = Server::tools(vec![(
-                plugin_tool("progress", "update_plan"),
-                plan("completed"),
-            )])
+            let server = Server::tools(vec![
+                (
+                    "tool_search".into(),
+                    json!({"query":plugin_tool("progress", "update_plan"),"limit":1}),
+                ),
+                (plugin_tool("progress", "update_plan"), plan("completed")),
+            ])
             .await;
             let fixture = Fixture::new(remote, &server).await;
             assert_eq!(fixture.session.config.mode, WorkMode::Code);
@@ -144,18 +151,23 @@ async fn retains_disabled_and_removed_defaults() {
             assert_eq!(page.runs[0].status, Status::Completed);
             assert!(page.approvals.is_empty());
             let view = observe(&fixture.client, fixture.session.id).await;
-            assert_eq!(view.calls.len(), 1);
+            assert_eq!(view.calls.len(), 2);
+            assert_eq!(view.calls[0].name, "tool_search");
             assert_eq!(
-                serde_json::to_value(view.calls[0].progress.as_ref().unwrap()).unwrap(),
+                serde_json::to_value(view.calls[1].progress.as_ref().unwrap()).unwrap(),
                 plan("completed")
             );
-            assert!(
-                server.requests.lock().unwrap()[0]["tools"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|tool| tool["function"]["name"] == plugin_tool("progress", "update_plan"))
-            );
+            for (index, request) in server.requests.lock().unwrap().iter().enumerate() {
+                assert_eq!(
+                    request["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|tool| tool["function"]["name"]
+                            == plugin_tool("progress", "update_plan")),
+                    index > 0
+                );
+            }
             let change = if removed {
                 Command::RemovePlugin {
                     name: "progress".into(),
@@ -229,7 +241,7 @@ async fn retains_disabled_and_removed_defaults() {
                 Status::Completed
             );
             let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 3);
+            assert_eq!(requests.len(), 4);
             assert!(
                 !requests.last().unwrap()["tools"]
                     .as_array()
