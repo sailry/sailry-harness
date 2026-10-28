@@ -319,3 +319,29 @@ async fn retains_public_tools_and_redacted_order() {
     assert_eq!(content[2]["data"], "second");
     assert_eq!(content[3]["text"], "Answer");
 }
+
+#[tokio::test]
+async fn captures_incoming_tool_metadata() {
+    let (_database, db) = database().await;
+    let mut event = Event::new("gdk");
+    event.set_content(Content {
+        role: "model".into(),
+        parts: vec![Part::FunctionCall {
+            id: Some("call".into()),
+            name: "read".into(),
+            args: json!({"path":"file"}),
+            thought_signature: Some("signature".into()),
+        }],
+    });
+    event.llm_response.provider_metadata = Some(json!({"gdk_tool_metadata":{"call":{
+        "provider":{"thoughtSignature":"signature","other":"value"},"tool_meta":{"title":"File"}
+    }}}));
+    let record = from_adk(&db, TurnId::new(), &event).await.unwrap();
+    let reloaded: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+    let BlockKind::ToolRequest(call) = &reloaded.message().unwrap().content[0].kind else {
+        panic!("tool request expected");
+    };
+    assert_eq!(call.signature.as_deref(), Some("signature"));
+    assert_eq!(call.provider.as_ref().unwrap()["other"], "value");
+    assert_eq!(call.tool_meta.as_ref().unwrap()["title"], "File");
+}

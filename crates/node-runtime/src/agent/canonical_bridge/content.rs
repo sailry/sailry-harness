@@ -246,3 +246,33 @@ pub(super) async fn restore(
         parts,
     })
 }
+
+// The temporary Llm adapter can receive metadata that ADK FunctionCall cannot
+// express. Capture it immediately in the existing canonical tool fields.
+pub(super) fn tool_metadata(blocks: &mut [Block], event: &Event) -> Result<(), Fault> {
+    let Some(fields) = event
+        .llm_response
+        .provider_metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("gdk_tool_metadata"))
+        .and_then(Value::as_object)
+    else {
+        return Ok(());
+    };
+    for block in blocks {
+        let BlockKind::ToolRequest(call) = &mut block.kind else {
+            continue;
+        };
+        let Some(value) = call.id.as_ref().and_then(|id| fields.get(id)) else {
+            continue;
+        };
+        if let Some(provider) = value.get("provider").filter(|value| !value.is_null()) {
+            call.provider = Some(serde_json::from_value(provider.clone()).map_err(storage_error)?);
+        }
+        call.tool_meta = value
+            .get("tool_meta")
+            .filter(|value| !value.is_null())
+            .cloned();
+    }
+    Ok(())
+}
