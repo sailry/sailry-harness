@@ -37,21 +37,11 @@ async fn preserves_images_after_guidance() {
             .unwrap();
         release.cancel();
         server.wait_count(2).await;
-        let handoff = page(&client, session.id).await;
-        assert_eq!(
-            handoff
-                .runs
-                .iter()
-                .find(|run| run.turn == active.id)
-                .unwrap()
-                .status,
-            Status::Continued
-        );
         let history = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let history = page(&client, session.id).await;
                 if history.runs.iter().any(|run| {
-                    run.turn == selected.id
+                    run.turn == active.id
                         && !matches!(
                             run.status,
                             Status::Queued | Status::Running | Status::Stopping
@@ -68,12 +58,28 @@ async fn preserves_images_after_guidance() {
             history
                 .runs
                 .iter()
-                .find(|run| run.turn == selected.id)
+                .find(|run| run.turn == active.id)
                 .unwrap()
                 .status,
             Status::Completed,
             "{:?}",
             history.runs
+        );
+        let joined = history
+            .runs
+            .iter()
+            .find(|run| run.turn == selected.id)
+            .unwrap();
+        assert_eq!(joined.status, Status::Continued);
+        assert_eq!(joined.joined, Some(active.id));
+        assert_eq!(
+            history
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == selected.id
+                    && entry.parts == vec![Part::Text("Continue with the same image".into())])
+                .count(),
+            1
         );
         let second = upload(&client, fixture.worktree, "second.png", "image/png", &bytes).await;
         let next = queue(
