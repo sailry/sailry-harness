@@ -1024,6 +1024,13 @@ changing a draft; neither reading nor selection starts an Agent turn.
 
 ## Deployment and operations
 
+Host metrics use one Node-owned sampler. Desktop observes them through Client.
+The Desktop sidebar requests CPU and memory only; the Host page requests detailed
+process, disk, network and GPU data. Both paths use the same authenticated command
+locally and remotely. Core and detailed sampling keep independent one-second
+refresh intervals in the same cache, so sidebar polling does not enumerate
+processes or reset detailed I/O measurement intervals.
+
 Desktop bundles presentation and a local Node. Host deploys the same Node as a
 headless process, using a private profile and explicit network/pairing options.
 Only one process may own that profile. Pairing is opt-in for Host; established

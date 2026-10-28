@@ -1058,7 +1058,9 @@ pub enum Command {
     },
     Snapshot,
     InspectHost,
-    ReadHostMetrics,
+    ReadHostMetrics {
+        detailed: bool,
+    },
     UseMedia {
         turn: TurnId,
         session: SessionId,
@@ -1683,7 +1685,7 @@ impl Command {
                 | Self::BrowseDatabase { .. }
                 | Self::TestDatabase { .. }
                 | Self::InspectHost
-                | Self::ReadHostMetrics
+                | Self::ReadHostMetrics { .. }
                 | Self::ReadComputerPermissions
                 | Self::RequestComputerPermission { .. }
                 | Self::ListDirectory { .. }

@@ -931,7 +931,7 @@ pub(super) fn execute<'a>(
         | Command::RefreshModelCatalog
         | Command::InspectHost
         | Command::ListShells
-        | Command::ReadHostMetrics
+        | Command::ReadHostMetrics { .. }
         | Command::ReadComputerPermissions
         | Command::RequestComputerPermission { .. }
         | Command::StopHostProcess { .. }

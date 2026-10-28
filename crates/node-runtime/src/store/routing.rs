@@ -141,7 +141,7 @@ pub(super) fn route(command: &Command) -> Route {
         | Command::ReadGitCommit { .. }
         | Command::ReadGitDiff { .. } => Route::InspectWorktree,
         Command::InspectHost
-        | Command::ReadHostMetrics
+        | Command::ReadHostMetrics { .. }
         | Command::ReadComputerPermissions
         | Command::RequestComputerPermission { .. }
         | Command::ListShells => Route::Host,
@@ -174,7 +174,7 @@ pub(crate) fn observes(command: &Command) -> bool {
     ) || matches!(
         command,
         Command::InspectHost
-            | Command::ReadHostMetrics
+            | Command::ReadHostMetrics { .. }
             | Command::ReadComputerPermissions
             | Command::ListShells
     )
@@ -477,7 +477,7 @@ mod tests {
     fn preserves_execution_owners() {
         for command in [
             Command::InspectHost,
-            Command::ReadHostMetrics,
+            Command::ReadHostMetrics { detailed: true },
             Command::RefreshModelCatalog,
             Command::ReadNetworkSettings,
             Command::ReadInstallations {

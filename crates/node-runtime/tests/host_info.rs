@@ -16,9 +16,9 @@ async fn inspect(client: &Client) -> HostInfo {
     info
 }
 
-async fn metrics(client: &Client) -> sailry_protocol::host::metrics::Sample {
+async fn metrics(client: &Client, detailed: bool) -> sailry_protocol::host::metrics::Sample {
     let admission = client
-        .dispatch(client.prepare(Command::ReadHostMetrics))
+        .dispatch(client.prepare(Command::ReadHostMetrics { detailed }))
         .await
         .unwrap();
     assert!(!admission.receipt.durable);
@@ -72,17 +72,34 @@ async fn shares_transient_inspection() {
     assert!(memory.total_bytes > 0);
     assert!(memory.available_bytes <= memory.total_bytes);
     assert!(memory.free_bytes <= memory.total_bytes);
-    let initial = metrics(&local).await;
+    let initial = metrics(&local, true).await;
     assert!(initial.cpu_basis_points.is_none());
     assert!(initial.core_basis_points.is_empty());
     assert_eq!(initial.load.is_some(), cfg!(not(windows)));
     assert!(initial.network.is_none());
-    let routed = metrics(&remote).await;
+    let routed = metrics(&remote, true).await;
     assert_eq!(routed.node, node.id());
     assert!(routed.sampled_at_ms >= initial.sampled_at_ms);
     assert!(initial.process_count >= initial.processes.len());
     assert!(!initial.processes.is_empty());
     assert!(!initial.disks.is_empty());
+
+    for client in [&local, &remote] {
+        let basic = metrics(client, false).await;
+        assert_eq!(basic.node, node.id());
+        assert!(basic.memory.is_some());
+        assert!(basic.core_basis_points.is_empty());
+        assert!(basic.load.is_none());
+        assert!(basic.swap.is_none());
+        assert!(basic.network.is_none());
+        assert!(basic.gpus.is_empty());
+        assert!(basic.disks.is_empty());
+        assert!(basic.processes.is_empty());
+        assert_eq!(basic.process_count, 0);
+        let detailed = metrics(client, true).await;
+        assert!(!detailed.processes.is_empty());
+        assert!(!detailed.disks.is_empty());
+    }
 
     let request = Request::new(node.id(), Command::InspectHost);
     let admission = transport.dispatch(request).await.unwrap();
@@ -110,7 +127,7 @@ async fn shares_transient_inspection() {
     let fresh = inspect(&remote).await;
     assert!(fresh.sampled_at_ms > first.sampled_at_ms);
     assert!(fresh.node_uptime_secs >= 1);
-    let mut sampled = metrics(&remote).await;
+    let mut sampled = metrics(&remote, true).await;
     // Startup discovery can leave a stale gap. Require a fresh utilization sample
     // after regular polling resumes, just as the host watcher does.
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -120,7 +137,7 @@ async fn shares_transient_inspection() {
             "host utilization did not become available"
         );
         tokio::time::sleep(Duration::from_millis(1100)).await;
-        sampled = metrics(&remote).await;
+        sampled = metrics(&remote, true).await;
     }
     assert!(sampled.sampled_at_ms > initial.sampled_at_ms);
     assert!(sampled.cpu_basis_points.is_some_and(|value| value <= 10000));
@@ -143,7 +160,7 @@ async fn shares_transient_inspection() {
             .is_none_or(|swap| swap.used_bytes <= swap.total_bytes)
     );
     assert!(sampled.network.is_some());
-    let local_sample = metrics(&local).await;
+    let local_sample = metrics(&local, true).await;
     assert!(local_sample.network.is_some());
     if local_sample.sampled_at_ms == sampled.sampled_at_ms {
         assert_eq!(local_sample.network, sampled.network);
@@ -232,12 +249,14 @@ async fn rejects_unauthorized_controllers() {
             .await
             .is_err()
     );
-    assert!(
-        remote
-            .execute(remote.prepare(Command::ReadHostMetrics))
-            .await
-            .is_err()
-    );
+    for detailed in [false, true] {
+        assert!(
+            remote
+                .execute(remote.prepare(Command::ReadHostMetrics { detailed }))
+                .await
+                .is_err()
+        );
+    }
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
 }

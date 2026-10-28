@@ -67,10 +67,14 @@ impl Host {
     pub(crate) async fn sample(
         self: &Arc<Self>,
         node: NodeId,
+        detailed: bool,
     ) -> Result<sailry_protocol::host::metrics::Sample, Fault> {
         let host = self.clone();
         tokio::task::spawn_blocking(move || {
-            host.sampler.lock().map_err(|_| unavailable())?.sample(node)
+            host.sampler
+                .lock()
+                .map_err(|_| unavailable())?
+                .sample(node, detailed)
         })
         .await
         .map_err(|_| unavailable())?

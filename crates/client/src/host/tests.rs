@@ -1,5 +1,7 @@
 use super::*;
-use sailry_protocol::NodeId;
+use sailry_link::{Admission, Pending, Subscription, Transport};
+use sailry_protocol::{NodeId, Receipt, Request, Topic};
+use std::sync::Mutex;
 
 fn sample(time: u64, started: u64) -> Sample {
     Sample {
@@ -72,4 +74,63 @@ fn preserves_missing_samples() {
     assert_eq!(view.history[0].network, expected);
     assert_eq!(view.history[1].network, None);
     assert_eq!(view.sample.as_ref().unwrap().network, None);
+}
+
+struct Feed {
+    calls: Mutex<Vec<bool>>,
+}
+
+impl Transport for Feed {
+    fn target(&self) -> NodeId {
+        NodeId([1; 32])
+    }
+
+    fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
+        Box::pin(async move {
+            let Command::ReadHostMetrics { detailed } = request.command else {
+                panic!("host observation must request host metrics");
+            };
+            self.calls.lock().unwrap().push(detailed);
+            let (ready, completion) = tokio::sync::oneshot::channel();
+            ready
+                .send(Ok(Output::HostMetrics(sample(1000, 1))))
+                .unwrap();
+            Ok(Admission {
+                receipt: Receipt {
+                    id: request.id,
+                    durable: false,
+                },
+                completion,
+            })
+        })
+    }
+
+    fn subscribe(&self, _: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
+        panic!("host observation must not subscribe to events");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn watches_requested_detail() {
+    for detailed in [false, true] {
+        let feed = Arc::new(Feed {
+            calls: Mutex::new(Vec::new()),
+        });
+        let client = Client::new(feed.clone());
+        let (updates, mut receiver) = watch::channel(View::default());
+        let stop = CancellationToken::new();
+        let cancellation = stop.clone();
+        let observer = tokio::spawn(async move {
+            client.watch_host(detailed, updates, cancellation).await;
+        });
+        receiver.changed().await.unwrap();
+        assert!(receiver.borrow().sample.is_some());
+        if detailed {
+            stop.cancel();
+        } else {
+            drop(receiver);
+        }
+        observer.await.unwrap();
+        assert_eq!(*feed.calls.lock().unwrap(), [detailed]);
+    }
 }

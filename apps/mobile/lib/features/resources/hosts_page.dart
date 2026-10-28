@@ -53,7 +53,9 @@ class _HostsPageState extends State<HostsPage> {
     _reading = true;
     final generation = _generation;
     try {
-      final response = await host.command('read_host_metrics');
+      final response = await host.command('read_host_metrics', {
+        'detailed': true,
+      });
       if (mounted && _host == host && generation == _generation) {
         setState(() {
           _metrics = object(response['data']);

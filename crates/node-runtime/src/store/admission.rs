@@ -341,7 +341,12 @@ impl Ingress {
                             .map_err(|_| unavailable())?,
                         )
                     }
-                    _ => sailry_protocol::Output::HostMetrics(self.host.sample(self.node).await?),
+                    sailry_protocol::Command::ReadHostMetrics { detailed } => {
+                        sailry_protocol::Output::HostMetrics(
+                            self.host.sample(self.node, detailed).await?,
+                        )
+                    }
+                    _ => unreachable!("host route requires a host command"),
                 };
                 if !self.accepting.load(Ordering::Acquire) {
                     return Err(unavailable());

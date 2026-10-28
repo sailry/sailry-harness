@@ -8,11 +8,16 @@ use sysinfo::{DiskRefreshKind, Disks, Networks, ProcessRefreshKind, ProcessesToU
 
 mod network;
 
+#[cfg(test)]
+mod tests;
+
 #[cfg(target_os = "macos")]
 mod gpu;
 
 pub(super) struct Sampler {
     system: System,
+    // Linux process CPU deltas must not share the sidebar's CPU baseline.
+    processes: System,
     disks: Disks,
     networks: Networks,
     last: Option<(Instant, Sample)>,
@@ -23,6 +28,7 @@ impl Sampler {
     pub(super) fn new() -> Self {
         Self {
             system: System::new(),
+            processes: System::new(),
             disks: Disks::new(),
             networks: Networks::new(),
             last: None,
@@ -30,25 +36,81 @@ impl Sampler {
         }
     }
 
-    pub(super) fn sample(&mut self, node: NodeId) -> Result<Sample, Fault> {
-        if let Some((time, sample)) = &self.last
-            && time.elapsed() < Duration::from_secs(1)
-        {
-            return Ok(sample.clone());
-        }
+    pub(super) fn sample(&mut self, node: NodeId, detailed: bool) -> Result<Sample, Fault> {
         let now = Instant::now();
+        let previous = self.last.take();
+        let core = previous.as_ref().map(|(time, _)| *time);
+        let mut sample = previous
+            .map(|(_, sample)| sample)
+            .unwrap_or_else(|| empty(node));
+        let refresh_core =
+            core.is_none_or(|time| now.duration_since(time) >= Duration::from_secs(1));
+        let refresh_details = detailed
+            && self
+                .sampled
+                .is_none_or(|time| now.duration_since(time) >= Duration::from_secs(1));
+        if refresh_core {
+            let ready = core.is_some_and(|time| now.duration_since(time) < Duration::from_secs(5));
+            self.system.refresh_cpu_usage();
+            self.system.refresh_memory();
+            sample.cpu_basis_points =
+                ready.then(|| basis_points(self.system.global_cpu_usage()).min(10000));
+            sample.core_basis_points = if ready {
+                self.system
+                    .cpus()
+                    .iter()
+                    .take(1024)
+                    .map(|cpu| basis_points(cpu.cpu_usage()).min(10000))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let total = self.system.total_memory();
+            sample.memory = (total > 0).then(|| MemoryUsage {
+                total_bytes: total,
+                available_bytes: self.system.available_memory().min(total),
+                free_bytes: self.system.free_memory().min(total),
+            });
+            let swap = self.system.total_swap();
+            sample.swap = (swap > 0).then(|| SwapUsage {
+                total_bytes: swap,
+                used_bytes: self.system.used_swap().min(swap),
+            });
+        }
+        if refresh_details {
+            self.details(&mut sample, now);
+        }
+        if refresh_core || refresh_details {
+            sample.sampled_at_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_| super::unavailable())?
+                .as_millis() as u64;
+        }
+        let output = if detailed {
+            sample.clone()
+        } else {
+            Sample {
+                sampled_at_ms: sample.sampled_at_ms,
+                cpu_basis_points: sample.cpu_basis_points,
+                memory: sample.memory.clone(),
+                ..empty(node)
+            }
+        };
+        self.last = Some((if refresh_core { now } else { core.unwrap() }, sample));
+        Ok(output)
+    }
+
+    fn details(&mut self, sample: &mut Sample, now: Instant) {
         let interval = self.sampled.map(|last| now.duration_since(last));
         let ready = interval.is_some_and(|elapsed| elapsed < Duration::from_secs(5));
-        let network = network::sample(&mut self.networks, interval);
+        sample.network = network::sample(&mut self.networks, interval);
         let previous: BTreeSet<_> = self
-            .system
+            .processes
             .processes()
             .values()
             .map(|process| (process.pid().as_u32(), process.start_time()))
             .collect();
-        self.system.refresh_cpu_usage();
-        self.system.refresh_memory();
-        self.system.refresh_processes_specifics(
+        self.processes.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
             ProcessRefreshKind::nothing().with_cpu().with_memory(),
@@ -58,7 +120,7 @@ impl Sampler {
             DiskRefreshKind::nothing().with_storage().with_io_usage(),
         );
         let mut processes: Vec<_> = self
-            .system
+            .processes
             .processes()
             .values()
             .map(|process| {
@@ -74,7 +136,7 @@ impl Sampler {
                 }
             })
             .collect();
-        let process_count = processes.len();
+        sample.process_count = processes.len();
         processes.sort_by(|left, right| {
             right
                 .cpu_basis_points
@@ -83,18 +145,16 @@ impl Sampler {
                 .then_with(|| left.pid.cmp(&right.pid))
         });
         processes.truncate(PROCESS_LIMIT);
-        let disks = self
+        sample.disks = self
             .disks
             .iter()
             .take(128)
             .map(|disk| {
                 let usage = disk.usage();
-                let seen = self.last.as_ref().is_some_and(|(_, sample)| {
-                    sample
-                        .disks
-                        .iter()
-                        .any(|previous| std::path::Path::new(&previous.mount) == disk.mount_point())
-                });
+                let seen = sample
+                    .disks
+                    .iter()
+                    .any(|previous| std::path::Path::new(&previous.mount) == disk.mount_point());
                 Disk {
                     mount: disk.mount_point().to_string_lossy().into_owned(),
                     name: disk.name().to_string_lossy().into_owned(),
@@ -117,45 +177,27 @@ impl Sampler {
                 }
             })
             .collect();
-        let total = self.system.total_memory();
-        let swap = self.system.total_swap();
-        let sample = Sample {
-            node,
-            sampled_at_ms: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|_| super::unavailable())?
-                .as_millis() as u64,
-            cpu_basis_points: ready
-                .then(|| basis_points(self.system.global_cpu_usage()).min(10000)),
-            core_basis_points: if ready {
-                self.system
-                    .cpus()
-                    .iter()
-                    .take(1024)
-                    .map(|cpu| basis_points(cpu.cpu_usage()).min(10000))
-                    .collect()
-            } else {
-                Vec::new()
-            },
-            load: load(),
-            memory: (total > 0).then(|| MemoryUsage {
-                total_bytes: total,
-                available_bytes: self.system.available_memory().min(total),
-                free_bytes: self.system.free_memory().min(total),
-            }),
-            swap: (swap > 0).then(|| SwapUsage {
-                total_bytes: swap,
-                used_bytes: self.system.used_swap().min(swap),
-            }),
-            gpus: gpus(),
-            disks,
-            network,
-            processes,
-            process_count,
-        };
+        sample.load = load();
+        sample.gpus = gpus();
+        sample.processes = processes;
         self.sampled = Some(now);
-        self.last = Some((Instant::now(), sample.clone()));
-        Ok(sample)
+    }
+}
+
+fn empty(node: NodeId) -> Sample {
+    Sample {
+        node,
+        sampled_at_ms: 0,
+        cpu_basis_points: None,
+        core_basis_points: Vec::new(),
+        load: None,
+        memory: None,
+        swap: None,
+        gpus: Vec::new(),
+        disks: Vec::new(),
+        network: None,
+        processes: Vec::new(),
+        process_count: 0,
     }
 }
 

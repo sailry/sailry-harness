@@ -89,14 +89,19 @@ impl View {
 }
 
 impl Client {
-    pub async fn watch_host(&self, sender: watch::Sender<View>, stop: CancellationToken) {
+    pub async fn watch_host(
+        &self,
+        detailed: bool,
+        sender: watch::Sender<View>,
+        stop: CancellationToken,
+    ) {
         let mut view = View::default();
         loop {
             let result = tokio::select! {
                 biased;
                 _ = stop.cancelled() => return,
                 _ = sender.closed() => return,
-                result = tokio::time::timeout(Duration::from_secs(5), self.execute(self.prepare(Command::ReadHostMetrics))) => result,
+                result = tokio::time::timeout(Duration::from_secs(5), self.execute(self.prepare(Command::ReadHostMetrics { detailed }))) => result,
             };
             let result = match result {
                 Ok(Ok(Output::HostMetrics(sample))) if sample.node == self.target() => {

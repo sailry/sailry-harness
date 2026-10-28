@@ -10,6 +10,7 @@ use sailry_client::host::View as HostView;
 
 pub(crate) struct Monitor {
     pub(super) node: NodeId,
+    detailed: bool,
     pub(super) view: HostView,
     pub(super) disk: Option<String>,
     pub(super) gpu: Option<String>,
@@ -40,17 +41,18 @@ impl Shell {
             self.host_monitor = None;
             return;
         };
-        if self
-            .host_monitor
-            .as_ref()
-            .is_some_and(|monitor| monitor.read(cx).node == live.selected)
-        {
+        let detailed = self.page == crate::preview::Page::Host;
+        if self.host_monitor.as_ref().is_some_and(|monitor| {
+            let monitor = monitor.read(cx);
+            monitor.node == live.selected && monitor.detailed == detailed
+        }) {
             return;
         }
         let monitor = cx.new(|cx| {
             Monitor::new(
                 live.transport.clone(),
                 live.services.runtime.clone(),
+                detailed,
                 window,
                 cx,
             )
@@ -84,6 +86,7 @@ impl Monitor {
     pub(super) fn new(
         transport: Arc<dyn Transport>,
         runtime: Arc<tokio::runtime::Runtime>,
+        detailed: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -94,7 +97,7 @@ impl Monitor {
         let cancellation = stop.clone();
         let (sender, mut receiver) = tokio::sync::watch::channel(HostView::default());
         runtime.spawn(async move {
-            watching.watch_host(sender, cancellation).await;
+            watching.watch_host(detailed, sender, cancellation).await;
         });
         let owner = cx.entity().downgrade();
         let table = cx.new(|cx| {
@@ -124,6 +127,7 @@ impl Monitor {
         });
         Self {
             node,
+            detailed,
             focus: cx.focus_handle(),
             client,
             runtime,
