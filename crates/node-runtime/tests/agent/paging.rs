@@ -42,8 +42,8 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64, summaries:
     );
     assert_eq!(statistics.last_compaction, None);
     let generation = statistics.generation.as_ref().unwrap();
-    assert_eq!(generation.responses, responses);
-    assert_eq!(generation.output_tokens, responses * 4);
+    assert_eq!(generation.responses, requests);
+    assert_eq!(generation.output_tokens, responses * 4 + summaries * 10);
     let budget = statistics.budget.as_ref().unwrap();
     assert_eq!(budget.model, "fixture-a");
     assert_eq!(budget.context_limit, 128_000);
