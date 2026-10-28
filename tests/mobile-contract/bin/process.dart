@@ -298,6 +298,11 @@ Future<void> main() async {
   );
   final interruptedCall = call(stopped, 0);
   final interruption = (await detail(updates, interruptedCall))['result'];
+  final encodedInterruption = jsonEncode(interruption);
+  check(
+    interruption['content'] is List,
+    'Interrupted command raw result: ${encodedInterruption.length <= 4096 ? encodedInterruption : encodedInterruption.substring(0, 4096)}',
+  );
   check(
     interruptedCall['state'] == 'returned' && interrupted(interruption),
     'stop retains the interrupted outcome without claiming success',
