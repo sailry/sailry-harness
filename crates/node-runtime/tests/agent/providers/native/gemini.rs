@@ -153,8 +153,9 @@ async fn idless_mcp_results_keep_execution_facts() {
                 assert_eq!(
                     response["response"]["content"]["text"],
                     if content.is_empty() {
-                        // GDK's Google formatter sends MCP text blocks, not structuredContent.
-                        "Tool call is done."
+                        // Conversation repair adds the SDK placeholder before Google formatting;
+                        // structured-only MCP content remains preserved in canonical history.
+                        "(empty result)"
                     } else {
                         &content
                     }
