@@ -47,6 +47,43 @@ impl GdkProvider for Model {
         "sailry_authorized"
     }
 
+    async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
+        if let Some(limit) = override_limit {
+            return limit;
+        }
+        let resolved = async {
+            let (effective, authorized) =
+                current(&self.ingress, &self.provider, &self.config, &self.stop).await?;
+            let options = crate::providers::login::effective(&self.provider)?;
+            let headers = authorized.grant.headers(&options)?;
+            let fingerprint = registry::fingerprint(
+                &effective,
+                &self.config,
+                Some(authorized.credential.revision),
+            )?;
+            self.ingress
+                .model_clients
+                .get(self.session, fingerprint, || {
+                    factory::native(
+                        &self.ingress.model_clients,
+                        &effective,
+                        &self.config.model,
+                        self.session,
+                        "",
+                        headers,
+                    )
+                })
+        }
+        .await;
+        match resolved {
+            Ok(provider) => provider.get_context_limit(model, None).await,
+            Err(_) => {
+                goose_provider_types::context_limit::ContextLimitResolver::new(self.get_name())
+                    .resolve_local(model, None)
+            }
+        }
+    }
+
     async fn stream(
         &self,
         config: &ModelConfig,
