@@ -13,10 +13,12 @@ async fn selects_fallback_tool() {
         )
         .await;
         for (metadata, summary, prefer_native, enabled, native, fallback) in [
+            (Some(true), false, true, true, false, true),
             (Some(false), true, true, true, false, true),
             (None, false, true, true, false, true),
             (Some(true), true, false, true, false, true),
             (Some(false), false, true, false, false, false),
+            (Some(true), false, true, false, false, false),
         ] {
             fixture.provider.models[0].web_search = summary;
             fixture.provider.models[0]
