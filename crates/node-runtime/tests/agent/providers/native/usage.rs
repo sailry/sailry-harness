@@ -19,7 +19,7 @@ async fn normalizes_cache_and_thoughts() {
                 vec![Usage {
                     input: 16,
                     output: 4,
-                    cached_input: if api == ModelApi::DeepSeek { 0 } else { 6 },
+                    cached_input: 6,
                     reasoning: 0,
                 }]
             );
@@ -42,14 +42,7 @@ async fn normalizes_cache_and_thoughts() {
             let usage = &record["usage"];
             assert_eq!(usage["input"], 16);
             assert_eq!(usage["output"], 4);
-            assert_eq!(
-                usage["cache_read"],
-                if api == ModelApi::DeepSeek {
-                    serde_json::Value::Null
-                } else {
-                    serde_json::json!(6)
-                }
-            );
+            assert_eq!(usage["cache_read"], 6);
             if api == ModelApi::Anthropic {
                 assert_eq!(usage["cache_write"], 2);
             }

@@ -330,7 +330,7 @@ async fn restores_authenticated_history() {
                         ModelApi::Gemini => {
                             assert_eq!(
                                 request.path,
-                                "/v1/models/fixture-a:streamGenerateContent?alt=sse"
+                                "/v1beta/models/fixture-a:streamGenerateContent?alt=sse"
                             );
                             assert_eq!(request.headers.get("x-goog-api-key").unwrap(), server::KEY);
                             assert_eq!(request.body["generationConfig"]["maxOutputTokens"], 512);

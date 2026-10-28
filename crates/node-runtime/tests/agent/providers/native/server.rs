@@ -60,7 +60,7 @@ impl Server {
     pub async fn start(api: ModelApi, reply: Reply) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let suffix = if api == ModelApi::Anthropic {
+        let suffix = if matches!(api, ModelApi::Anthropic | ModelApi::Gemini) {
             ""
         } else {
             "/v1"
@@ -133,6 +133,12 @@ async fn respond(
         .filter_map(|line| line.split_once(':'))
         .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
         .collect();
+    if header.starts_with("GET ") {
+        stream
+            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await?;
+        return stream.shutdown().await;
+    }
     assert!(
         header.starts_with("POST "),
         "provider fixture requires HTTP POST"
@@ -199,10 +205,7 @@ async fn respond(
         match &script.ending {
             Ending::Close => {}
             Ending::Closed(closed) => {
-                let mut byte = [0; 1];
-                assert_eq!(stream.read(&mut byte).await?, 0);
-                closed.notify_one();
-                return Ok(());
+                return wait_closed(&mut stream, closed).await;
             }
         }
         return stream.shutdown().await;
@@ -234,10 +237,7 @@ async fn respond(
         )
         .await?;
     if let Reply::Wait(closed) = reply {
-        let mut byte = [0; 1];
-        assert_eq!(stream.read(&mut byte).await?, 0);
-        closed.notify_one();
-        return Ok(());
+        return wait_closed(&mut stream, &closed).await;
     }
     match api {
         ModelApi::Responses => {
@@ -331,6 +331,22 @@ async fn respond(
         _ => unreachable!(),
     }
     stream.shutdown().await
+}
+
+async fn wait_closed(stream: &mut TcpStream, closed: &tokio::sync::Notify) -> std::io::Result<()> {
+    let mut byte = [0; 1];
+    match stream.read(&mut byte).await {
+        Ok(0) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+            ) => {}
+        Err(error) => return Err(error),
+        Ok(_) => panic!("provider received data after cancellation"),
+    }
+    closed.notify_one();
+    Ok(())
 }
 
 fn response_events(tool: bool, streaming: bool, index: usize) -> Vec<serde_json::Value> {

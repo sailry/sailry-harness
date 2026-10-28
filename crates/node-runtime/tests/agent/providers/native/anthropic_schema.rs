@@ -2,7 +2,7 @@ use super::*;
 use serde_json::json;
 
 fn discovery() -> Reply {
-    let scripts = [true, false].map(|search| {
+    let scripts = [true, false].into_iter().enumerate().map(|(index, search)| {
         let block = if search {
             json!({"type":"tool_use","id":"management-search","name":"tool_search","input":{}})
         } else {
@@ -14,7 +14,7 @@ fn discovery() -> Reply {
             json!({"type":"text_delta","text":server::ANSWER})
         };
         let events = [
-            json!({"type":"message_start","message":{"id":"management-answer","type":"message","role":"assistant","model":"fixture-a","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":8,"output_tokens":0}}}),
+            json!({"type":"message_start","message":{"id":format!("management-answer-{index}"),"type":"message","role":"assistant","model":"fixture-a","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":8,"output_tokens":0}}}),
             json!({"type":"content_block_start","index":0,"content_block":block}),
             json!({"type":"content_block_delta","index":0,"delta":delta}),
             json!({"type":"content_block_stop","index":0}),
@@ -27,7 +27,7 @@ fn discovery() -> Reply {
         }
         server::Script { bytes: body.into_bytes(), ending: server::Ending::Close }
     });
-    Reply::Scripted(Arc::new(scripts.into()))
+    Reply::Scripted(Arc::new(scripts.collect()))
 }
 
 #[tokio::test]

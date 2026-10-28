@@ -86,22 +86,26 @@ async fn idless_mcp_results_keep_execution_facts() {
         assert!(failed.details(&page));
         assert_eq!(
             failed.result(&page),
-            Some(&json!({"error":"Original MCP failure\n参数错误 🙂"}))
+            Some(
+                &json!({"isError":true,"content":[{"type":"text","text":"Original MCP failure\n参数错误 🙂"}]})
+            )
         );
         let business = results
             .iter()
             .find(|call| {
                 call.result(&page)
-                    .is_some_and(|result| result["output"]["isError"] == true)
+                    .is_some_and(|result| result["structuredContent"]["isError"] == true)
             })
             .unwrap();
         assert!(!business.diagnostics(&page));
         assert!(!business.details(&page));
         assert_eq!(
             business.result(&page),
-            Some(&json!({"output":{"isError":true,"error":"domain row"}}))
+            Some(
+                &json!({"isError":false,"content":[],"structuredContent":{"isError":true,"error":"domain row"}})
+            )
         );
-        let returned = {
+        {
             let requests = model.requests.lock().unwrap();
             assert_eq!(requests.len(), 2);
             assert!(
@@ -131,18 +135,30 @@ async fn idless_mcp_results_keep_execution_facts() {
                     .iter()
                     .all(|response| response["response"].get("sailry_output").is_none())
             );
-            for call in results.iter().filter(|call| {
-                call.result(&page)
-                    .is_some_and(|result| result["output"]["label"].is_null())
-            }) {
-                assert!(
-                    returned
-                        .iter()
-                        .any(|response| Some(&response["response"]) == call.result(&page))
+            for call in &results {
+                let original = call.result(&page).unwrap();
+                let content = original["content"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|part| part["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let response = returned
+                    .iter()
+                    .find(|response| response["id"].as_str() == call.id.as_deref())
+                    .unwrap();
+                assert_eq!(
+                    response["response"]["content"]["text"],
+                    if content.is_empty() {
+                        // GDK's Google formatter sends MCP text blocks, not structuredContent.
+                        "Tool call is done."
+                    } else {
+                        &content
+                    }
                 );
             }
-            returned
-        };
+        }
         let active = fixture.submit("Read the retained original results").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             while model.requests.lock().unwrap().len() != 3 {
@@ -153,25 +169,15 @@ async fn idless_mcp_results_keep_execution_facts() {
         .expect("follow-up request deadline");
         for call in results.iter().filter(|call| {
             call.result(&page)
-                .is_some_and(|result| result["output"]["label"].is_string())
+                .is_some_and(|result| result["structuredContent"]["label"].is_string())
         }) {
-            let response = returned
-                .iter()
-                .find(|response| {
-                    response["response"]["output"]["call"].as_str() == call.id.as_deref()
-                })
-                .unwrap();
-            let preview = &response["response"];
-            assert!(preview.to_string().len() < 40 * 1024);
-            assert!(!preview.to_string().contains("sailry_output"));
-            assert!(
-                preview["text"]
-                    .as_str()
-                    .unwrap()
-                    .contains("read_tool_output")
-            );
-            let reference: sailry_protocol::tool::OutputReference =
-                serde_json::from_value(preview["output"].clone()).unwrap();
+            let expected = call.result(&page).unwrap();
+            let reference = sailry_protocol::tool::OutputReference {
+                call: call.id.clone().unwrap(),
+                revision: blake3::hash(expected.to_string().as_bytes())
+                    .to_hex()
+                    .to_string(),
+            };
             let mut offset = 0;
             let mut original = String::new();
             loop {
@@ -205,10 +211,11 @@ async fn idless_mcp_results_keep_execution_facts() {
             );
             let original: Value = serde_json::from_str(&original).unwrap();
             assert_eq!(Some(&original), call.result(&page));
-            assert_eq!(original["text"].as_array().unwrap().len(), 1);
+            assert_eq!(original["content"].as_array().unwrap().len(), 1);
             assert_eq!(
-                serde_json::from_str::<Value>(original["text"][0].as_str().unwrap()).unwrap(),
-                original["output"]
+                serde_json::from_str::<Value>(original["content"][0]["text"].as_str().unwrap())
+                    .unwrap(),
+                original["structuredContent"]
             );
         }
         execute(&fixture.client, Command::StopTurn { turn: active }).await;

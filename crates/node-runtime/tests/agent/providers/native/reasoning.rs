@@ -479,13 +479,27 @@ async fn preserves_streamed_whitespace() {
             "usage":{"prompt_tokens":20,"completion_tokens":20,"total_tokens":40}
         })
     ));
-    let raw = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
     for api in [ModelApi::DeepSeek, ModelApi::ChatCompletions] {
         for remote in [false, true] {
-            let server = Server::start(api, Reply::Raw(Arc::new(raw.clone().into_bytes()))).await;
+            let body = body.clone();
+            let server = Server::start(
+                api,
+                Reply::Dynamic(Arc::new(move |index| {
+                    let body = body.replace(
+                        "\"id\":\"fixture\"",
+                        &format!("\"id\":\"fixture-{index}\""),
+                    );
+                    server::Script {
+                        bytes: format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .into_bytes(),
+                        ending: server::Ending::Close,
+                    }
+                })),
+            )
+            .await;
             let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             for prompt in ["First", "Continue"] {
                 let turn = fixture.submit(prompt).await;
