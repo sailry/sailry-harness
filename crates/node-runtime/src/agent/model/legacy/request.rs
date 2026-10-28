@@ -206,7 +206,6 @@ fn append(blocks: &mut Vec<MessageContentBlock>, part: Part) -> adk_core::Result
             None,
         )),
         Part::ServerToolCall { .. } | Part::ServerToolResponse { .. } => {}
-        _ => {}
     }
     Ok(())
 }

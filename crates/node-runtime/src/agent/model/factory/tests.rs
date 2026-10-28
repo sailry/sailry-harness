@@ -3,7 +3,7 @@ use goose_provider_types::{
     base::collect_stream,
     conversation::message::{Message, MessageContentBlock},
 };
-use rmcp::model::{CallToolResult, Content, Tool};
+use rmcp::model::{CallToolResult, ContentBlock as Content, Tool};
 use serde_json::{Value, json};
 
 mod server;

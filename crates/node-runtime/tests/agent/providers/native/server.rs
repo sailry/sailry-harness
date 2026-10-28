@@ -5,7 +5,7 @@ use serde_json::json;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime},
+    time::Duration,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -29,7 +29,6 @@ pub enum Reply {
     Dynamic(Arc<dyn Fn(usize) -> Script + Send + Sync>),
     Redirect(String),
     Wait(Arc<tokio::sync::Notify>),
-    Stream(Arc<tokio::sync::Notify>),
 }
 
 #[derive(Clone)]
@@ -41,14 +40,11 @@ pub struct Script {
 #[derive(Clone)]
 pub enum Ending {
     Close,
-    Release(Arc<tokio::sync::Notify>),
     Closed(Arc<tokio::sync::Notify>),
 }
 
 #[derive(Clone, Debug)]
 pub struct Request {
-    pub received: Instant,
-    pub received_at: SystemTime,
     pub path: String,
     pub headers: BTreeMap<String, String>,
     pub body: serde_json::Value,
@@ -185,8 +181,6 @@ async fn respond(
         let mut records = records.lock().unwrap();
         let index = records.len();
         records.push(Request {
-            received: Instant::now(),
-            received_at: SystemTime::now(),
             path,
             headers,
             body,
@@ -204,7 +198,6 @@ async fn respond(
         }
         match &script.ending {
             Ending::Close => {}
-            Ending::Release(release) => release.notified().await,
             Ending::Closed(closed) => {
                 let mut byte = [0; 1];
                 assert_eq!(stream.read(&mut byte).await?, 0);
@@ -248,19 +241,8 @@ async fn respond(
     }
     match api {
         ModelApi::Responses => {
-            assert!(matches!(
-                reply,
-                Reply::Text | Reply::Tool | Reply::Stream(_)
-            ));
-            for (index, event) in response_events(tool, matches!(reply, Reply::Stream(_)))
-                .into_iter()
-                .enumerate()
-            {
-                if index > 0
-                    && let Reply::Stream(release) = &reply
-                {
-                    release.notified().await;
-                }
+            assert!(matches!(reply, Reply::Text | Reply::Tool));
+            for event in response_events(tool, false) {
                 event_bytes(&mut stream, format!("data: {event}\n\n")).await?;
             }
         }

@@ -4,7 +4,7 @@ use goose_provider_types::{
     errors::ProviderError,
     model::ModelConfig,
 };
-use rmcp::model::{CallToolRequestParams, CallToolResult, Content, Tool};
+use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock as Content, Tool};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     Effort, Secret,

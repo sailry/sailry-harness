@@ -110,14 +110,14 @@ impl GdkProvider for Model {
                     "You are Claude Code, Anthropic's official CLI for Claude.\n\n{system}"
                 );
                 for tool in &mut tools {
-                    tool.name = canonical(&tool.name).into();
+                    tool.name = canonical(&tool.name).to_string().into();
                 }
                 for message in &mut messages {
                     for block in &mut message.content {
                         if let MessageContentBlock::ToolRequest(request) = block
                             && let Ok(call) = &mut request.tool_call
                         {
-                            call.name = canonical(&call.name).into();
+                            call.name = canonical(&call.name).to_string().into();
                         }
                     }
                 }

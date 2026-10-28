@@ -152,6 +152,7 @@ impl Accumulator {
                 Finish::ToolCalls => "tool_calls",
                 Finish::Length => "length",
                 Finish::ContentFilter => "content_filter",
+                Finish::Other => "other",
             }
             .into(),
         ]);

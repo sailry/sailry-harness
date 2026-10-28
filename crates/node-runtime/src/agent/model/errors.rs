@@ -111,7 +111,10 @@ mod tests {
     fn redacts_overlapping_credentials() {
         let error = redact(
             ProviderError::Authentication("access-refresh and access".into()),
-            &[Secret::new("access"), Secret::new("access-refresh")],
+            &[
+                Secret::new("access".into()),
+                Secret::new("access-refresh".into()),
+            ],
         );
         assert_eq!(
             error,
@@ -145,7 +148,10 @@ mod streaming_tests {
 
     #[tokio::test]
     async fn removes_credentials_from_deferred_errors() {
-        let provider = wrap(Arc::new(Rejected), vec![Secret::new("private-access")]);
+        let provider = wrap(
+            Arc::new(Rejected),
+            vec![Secret::new("private-access".into())],
+        );
         let mut stream = provider
             .stream(&ModelConfig::new("model"), "", &[], &[])
             .await
