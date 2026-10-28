@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show check, detail, detailAt, execute, until;
 import 'questions.dart' show hasPending, pending;
 import 'approvals.dart' show part;
 
@@ -115,14 +115,19 @@ Future<void> main() async {
       );
       final question = pending(waiting);
       final call = part(waiting, question);
+      final arguments = (await detailAt(
+        updates,
+        waiting,
+        question,
+      ))['arguments'];
       check(
         question['session'] == session &&
             question['turn'] == turn['id'] &&
             call['name'] == 'ask_user' &&
-            (call['arguments'] as Map).length == 2 &&
-            call['arguments']['prompt'] == 'Review the frozen plan 中文 🙂' &&
-            (call['arguments']['input'] as Map).length == 1 &&
-            call['arguments']['input']['kind'] == 'plan' &&
+            (arguments as Map).length == 2 &&
+            arguments['prompt'] == 'Review the frozen plan 中文 🙂' &&
+            (arguments['input'] as Map).length == 1 &&
+            arguments['input']['kind'] == 'plan' &&
             waiting['snapshot']['page']['runs'].single['revision'] ==
                 revision &&
             waiting['snapshot']['page']['runs'].single['status'] == 'running' &&
@@ -210,11 +215,11 @@ Future<void> main() async {
         'planning cannot authorize a mutation',
       );
       final review = (completed['calls'] as List).singleWhere(
-        (call) => part(completed, call['source'])['name'] == 'ask_user',
+        (call) => call['name'] == 'ask_user',
       );
+      final result = (await detail(updates, review))['result'];
       check(
-        part(completed, review['response'])['result']['coding_turn'] ==
-            coding!['id'],
+        result['coding_turn'] == coding!['id'],
         'the plan result retains its exact coding turn',
       );
     } else {

@@ -485,6 +485,21 @@ void checkStatistics(Map<String, dynamic> snapshot) {
   );
 }
 
+Future<Map<String, dynamic>> detailAt(
+  ConversationUpdates updates,
+  Map<String, dynamic> view,
+  Map<String, dynamic> reference,
+) {
+  bool matches(dynamic value) =>
+      value is Map &&
+      value['entry'] == reference['entry'] &&
+      value['index'] == reference['index'];
+  final call = (view['calls'] as List).cast<Map<String, dynamic>>().singleWhere(
+    (call) => matches(call['source']) || matches(call['response']),
+  );
+  return detail(updates, call);
+}
+
 Future<Map<String, dynamic>> detail(
   ConversationUpdates updates,
   Map<String, dynamic> call, {

@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'approvals.dart' show part;
-import 'conversation.dart' show canonicalJson, check, execute, until;
+import 'approvals.dart' show interrupted;
+import 'conversation.dart' show canonicalJson, check, detail, execute, until;
 
 bool hasPending(Map<String, dynamic> snapshot) =>
     (snapshot['page']['questions'] as List).any(
@@ -98,8 +98,11 @@ Future<void> main() async {
       // Question admission and canonical call publication are separate notifications.
       if ((view['calls'] as List).any(
         (call) =>
-            call['state'] == 'running' &&
-            call['question']?['state']['kind'] == 'pending',
+            call['state'] == 'waiting' &&
+            call['response'] == null &&
+            call['question']?['state']['kind'] == 'pending' &&
+            call['source']['entry'] == call['question']['entry'] &&
+            call['source']['index'] == call['question']['index'],
       )) {
         return view;
       }
@@ -124,7 +127,8 @@ Future<void> main() async {
   final first = pending(waiting);
   final call = (waiting['calls'] as List).single;
   check(
-    call['state'] == 'running' &&
+    call['state'] == 'waiting' &&
+        call['response'] == null &&
         call['question']['state']['kind'] == 'pending',
     'admitted question tool waits for input: ${jsonEncode(call)}',
   );
@@ -134,7 +138,7 @@ Future<void> main() async {
         call['source']['index'] == first['index'],
     'shared pending question references its exact canonical call',
   );
-  final spec = part(waiting, call['source'])['arguments'];
+  final spec = (await detail(updates, call))['arguments'];
   check(
     spec['prompt'] == '补充要求 中文 🙂' &&
         spec['input']['multiline'] == true &&
@@ -205,9 +209,9 @@ Future<void> main() async {
         (snapshot['page']['runs'] as List).single['status'] == 'completed',
   );
   final calls = finished['calls'] as List;
-  final results = calls
-      .map((call) => part(finished, call['response'])['result'])
-      .toList();
+  final results = [
+    for (final call in calls) (await detail(updates, call))['result'],
+  ];
   check(
     calls.length == 4 &&
         calls.every((call) => call['state'] == 'returned') &&
@@ -258,21 +262,17 @@ Future<void> main() async {
           call['response'] == null) {
         continue;
       }
-      final result = part(view, call['response'])['result'];
-      if (result['status'] == 'outcome_unknown' &&
-          result['detail'] is String &&
-          (result['detail'] as String).isNotEmpty) {
-        return view;
-      }
+      return view;
     }
   }).timeout(const Duration(seconds: 10));
   final closed = (cancelled['calls'] as List).single;
-  final interrupted = part(cancelled, closed['response'])['result'];
+  final result = (await detail(updates, closed))['result'];
   check(
     closed['state'] == 'returned' &&
         closed['question']['state']['kind'] == 'cancelled' &&
-        interrupted['status'] == 'outcome_unknown' &&
-        (interrupted['detail'] as String).isNotEmpty,
+        closed['question']['id'] == stopped['id'] &&
+        !hasPending(cancelled['snapshot']) &&
+        interrupted(result),
     'stop retains the interrupted outcome and closes the question',
   );
   await reject(stopped['id'], text('too late'), 'conflict');

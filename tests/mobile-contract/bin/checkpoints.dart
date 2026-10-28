@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show canonicalJson, check, execute, observe, until;
+import 'conversation.dart'
+    show canonicalJson, check, detail, execute, observe, until;
 import 'paging.dart' show complete;
 
 Future<void> main() async {
@@ -51,6 +52,10 @@ Future<void> main() async {
     (completed['calls'] as List).length == 4,
     'every native write is projected',
   );
+  final proposals = [
+    for (final call in completed['calls'])
+      (await detail(updates, call))['arguments'],
+  ];
 
   Future<Map<String, dynamic>> page(
     String target,
@@ -152,16 +157,15 @@ Future<void> main() async {
           canonicalJson(value['file']) == canonicalJson(file),
       'content retains exact checkpoint metadata',
     );
-    final calls = (original['entries'] as List)
-        .expand((entry) => entry['parts'] as List)
-        .where((part) => part['kind'] == 'tool_call')
-        .map((part) => part['data']);
     check(
-      calls.any(
-        (call) =>
-            call['arguments']['path'] == file['path'] &&
-            call['arguments']['text'] == value['after'],
-      ),
+      proposals
+              .where(
+                (arguments) =>
+                    arguments['path'] == file['path'] &&
+                    arguments['text'] == value['after'],
+              )
+              .length ==
+          1,
       'after content is the canonical write proposal',
     );
     check(

@@ -4,7 +4,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show canonicalJson, check, execute, until;
+import 'conversation.dart'
+    show canonicalJson, check, detail, detailAt, execute, until;
 import 'approvals.dart' show hasPending, pending, part;
 
 Future<List<dynamic>> children(
@@ -134,10 +135,12 @@ Future<void> main() async {
               2,
         ),
   );
-  final admissions = (parentView['calls'] as List)
-      .where((call) => call['name'] == env['SAILRY_SPAWN_TOOL'])
-      .map((call) => part(parentView, call['response'])['result'])
-      .toList();
+  final admissions = [
+    for (final call in (parentView['calls'] as List).where(
+      (call) => call['name'] == env['SAILRY_SPAWN_TOOL'],
+    ))
+      (await detail(parentUpdates, call))['result'],
+  ];
   check(
     admissions.length == 2 &&
         admissions.every(
@@ -186,24 +189,31 @@ Future<void> main() async {
       'Client call includes its selected child reference',
     );
     final call = part(parentView, origin);
+    final arguments = (await detail(parentUpdates, associated))['arguments'];
     check(
-      call['name'] == env['SAILRY_SPAWN_TOOL'] &&
-          call['arguments']['role'] == 'review',
+      call['name'] == env['SAILRY_SPAWN_TOOL'] && arguments['role'] == 'review',
       'ancestry references a canonical parent call',
     );
     final view = index == 0 ? firstView : secondView;
+    final childUpdates = index == 0 ? firstUpdates : secondUpdates;
     final approval = pending(view);
     final write = part(view, approval);
+    final proposal = await detailAt(childUpdates, view, approval);
     check(
-      write['id'] == 'call-fixture-1',
+      write['id'] == 'call-fixture-1' &&
+          write['name'] == env['SAILRY_WRITE_TOOL'],
       'reused model call IDs remain isolated by child turn',
     );
     check(
-      write['arguments']['text'] == List.filled(200, '完整子任务结果 🙂\n').join(),
+      proposal['arguments']['text'] == List.filled(200, '完整子任务结果 🙂\n').join(),
       'full child tool arguments survive FFI',
     );
-    final read = (view['calls'] as List).first;
-    final result = part(view, read['response'])['result'];
+    final read = (view['calls'] as List).singleWhere(
+      (call) =>
+          call['id'] == 'call-fixture-0' &&
+          call['name'] == env['SAILRY_READ_TOOL'],
+    );
+    final result = (await detail(childUpdates, read))['result'];
     check(
       result['kind'] == 'file_lines' &&
           result['data']['offset'] == 0 &&
@@ -318,10 +328,12 @@ Future<void> main() async {
     ),
     'parent subscription receives completed child summaries',
   );
-  final returned = (parentDone['calls'] as List)
-      .where((call) => call['name'] == env['SAILRY_SPAWN_TOOL'])
-      .map((call) => part(parentDone, call['response'])['result'])
-      .toList();
+  final returned = [
+    for (final call in (parentDone['calls'] as List).where(
+      (call) => call['name'] == env['SAILRY_SPAWN_TOOL'],
+    ))
+      (await detail(parentUpdates, call))['result'],
+  ];
   check(
     canonicalJson(returned) == canonicalJson(admissions),
     'completed children do not rewrite their spawn receipts',

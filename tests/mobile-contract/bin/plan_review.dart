@@ -3,8 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'approvals.dart' show part;
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show check, detailAt, execute, until;
 import 'questions.dart' show hasPending, pending;
 
 Future<void> main() async {
@@ -59,9 +58,9 @@ Future<void> main() async {
   }))['data'];
   final waiting = await until(updates, hasPending);
   final question = pending(waiting);
-  final call = (waiting['calls'] as List).single;
+  final proposed = await detailAt(updates, waiting, question);
   check(
-    part(waiting, call['source'])['arguments']['input']['kind'] == 'plan',
+    proposed['arguments']['input']['kind'] == 'plan',
     'plan uses the canonical question specification',
   );
   check(
@@ -121,10 +120,9 @@ Future<void> main() async {
         configured['revision'],
     'original planning revision remains immutable',
   );
-  final acceptedCall = (finished['calls'] as List).first;
+  final acceptedCall = await detailAt(updates, finished, question);
   check(
-    part(finished, acceptedCall['response'])['result']['coding_turn'] ==
-        accepted['turn']['id'],
+    acceptedCall['result']['coding_turn'] == accepted['turn']['id'],
     'accepted plan is persisted as a canonical tool result',
   );
   final read = (await execute(connection, 'read_file', {
