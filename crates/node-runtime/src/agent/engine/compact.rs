@@ -212,7 +212,7 @@ impl Operation<Session, Effect> for Compaction {
                         && !message.is_agent_visible()
                 })
                 .count();
-            if count >= 2 {
+            if count > 2 {
                 return not_applicable();
             }
         } else {

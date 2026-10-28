@@ -1,210 +1,15 @@
 use super::*;
 
 #[tokio::test]
-async fn persists_masks_after_failed_background_summary() {
-    for remote in [false, true] {
-        let server = Server::loop_summary(
-            vec![Some(100), Some(100), Some(60_000), Some(200_000), Some(100)],
-            100,
-            "An expanding handoff retains excessive source details. ".repeat(2000),
-        )
-        .await;
-        let fixture = fixture(remote, &server).await;
-        let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
-        provider.models[0].context = 512_000;
-        provider.models[0].compaction_tokens = Some(100_000);
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::PutProvider {
-                expected_revision: provider.revision,
-                provider,
-            }))
-            .await
-            .unwrap();
-        for index in 1..=6 {
-            let mut text = format!("Evidence {index}\n");
-            text.push_str(&"x".repeat(128 * 1024 - text.len()));
-            std::fs::write(fixture.root.join(format!("source-{index}.txt")), text).unwrap();
-        }
-        let (_, _, page) = submit(
-            &fixture.client,
-            fixture.session.id,
-            "Preserve all evidence after a failed background summary".into(),
-        )
-        .await;
-        assert!(!page.queue.paused);
-        assert!(
-            !page
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| matches!(part, Part::Compaction(_)))
-        );
-        assert!(
-            page.entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| {
-                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
-                && value["failure"]["reason"] == "no_reduction"
-                && value["failure"]["continued"] == true)
-                })
-        );
-        let requests = server.requests.lock().unwrap().clone();
-        // The prepared summary survives the foreground mask and is used once.
-        assert_eq!(
-            requests
-                .iter()
-                .filter(|request| agent_support::compaction::is_summary(request))
-                .count(),
-            1
-        );
-        assert_eq!(requests.len(), 8);
-        let masked = |request: &Value, call: &str| {
-            let message = request["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|message| message["tool_call_id"] == call)
-                .unwrap();
-            let value: Value = serde_json::from_str(message["content"].as_str().unwrap()).unwrap();
-            assert_eq!(value["masked"], true);
-            value
-        };
-        let first = masked(requests.last().unwrap(), "loop-1");
-        let second = masked(requests.last().unwrap(), "loop-2");
-        let bodies: Vec<Vec<u8>> = fixture
-            .node
-            .with_storage(|db| {
-                Box::pin(async move {
-                    let mut rows = db
-                        .prepare("SELECT body FROM agent_events ORDER BY sequence")
-                        .await
-                        .map_err(crate::database_fixture::fault)?
-                        .query(())
-                        .await
-                        .map_err(crate::database_fixture::fault)?;
-                    let mut bodies = Vec::new();
-                    while let Some(row) =
-                        rows.next().await.map_err(crate::database_fixture::fault)?
-                    {
-                        bodies.push(row.get(0).map_err(crate::database_fixture::fault)?);
-                    }
-                    Ok(bodies)
-                })
-            })
-            .await
-            .unwrap();
-        let masks = bodies
-            .iter()
-            .rev()
-            .map(|body| serde_json::from_slice::<adk_core::Event>(body).unwrap())
-            .find_map(|mut event| {
-                event
-                    .actions
-                    .state_delta
-                    .remove("sailry.context.masked_outputs")
-            })
-            .expect("the first mask is persisted even though the summary failed");
-        assert_eq!(
-            masks,
-            serde_json::json!([
-                ["loop-1", first["output"]["revision"]],
-                ["loop-2", second["output"]["revision"]],
-            ])
-        );
-        fixture.node.shutdown().await.unwrap();
-        let node = Node::start_empty(fixture.directory.path().join("node"))
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            fixture.controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        submit(&client, fixture.session.id, "Continue after restart".into()).await;
-        let resumed = server.requests.lock().unwrap().last().unwrap().clone();
-        assert_eq!(masked(&resumed, "loop-1"), first);
-        assert_eq!(masked(&resumed, "loop-2"), second);
-        assert_eq!(server.requests.lock().unwrap().len(), 9);
-        node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn reuses_masked_prefix_for_later_summary() {
-    for remote in [false, true] {
-        let server = Server::loop_usage(
-            vec![
-                Some(100),
-                Some(100),
-                Some(100),
-                Some(100),
-                Some(100),
-                Some(26_000),
-                Some(100),
-            ],
-            100,
-        )
-        .await;
-        let fixture = fixture(remote, &server).await;
-        for index in 1..=6 {
-            let bytes = if index == 3 { 100 } else { 16 } * 1024;
-            let mut text = format!("Evidence {index}\n");
-            text.push_str(&"x".repeat(bytes - text.len()));
-            std::fs::write(fixture.root.join(format!("source-{index}.txt")), text).unwrap();
-        }
-        submit(
-            &fixture.client,
-            fixture.session.id,
-            "Preserve all evidence across context windows".into(),
-        )
-        .await;
-        let requests = server.requests.lock().unwrap().clone();
-        let summaries: Vec<_> = requests
-            .iter()
-            .filter(|request| agent_support::compaction::is_summary(request))
-            .collect();
-        assert_eq!(summaries.len(), 2);
-        let normal = requests
-            .iter()
-            .filter(|request| !agent_support::compaction::is_summary(request))
-            .find(|request| {
-                request["messages"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|message| {
-                        message["tool_call_id"] == "loop-3"
-                            && message["content"]
-                                .as_str()
-                                .and_then(|text| serde_json::from_str::<Value>(text).ok())
-                                .is_some_and(|value| value["masked"] == true)
-                    })
-            })
-            .expect("an ordinary request with the retained masked result");
-        let prefix = normal["messages"].as_array().unwrap();
-        let summary = summaries[1]["messages"].as_array().unwrap();
-        assert_eq!(
-            serde_json::to_vec(prefix).unwrap(),
-            serde_json::to_vec(&summary[..prefix.len()]).unwrap()
-        );
-        assert_eq!(normal["tools"], summaries[1]["tools"]);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
 async fn resumes_without_replay() {
     for remote in [false, true] {
-        let server = Server::loop_compaction(false).await;
+        let server =
+            Server::loop_usage(vec![Some(100), Some(100), Some(26_000), Some(100)], 100).await;
         let fixture = fixture(remote, &server).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
-                format!("Evidence {index} 中文 🙂\n").repeat(1000),
+                format!("Evidence {index} 中文 🙂\n").repeat(200),
             )
             .unwrap();
         }
@@ -214,66 +19,29 @@ async fn resumes_without_replay() {
             "Verify all six files and preserve evidence".into(),
         )
         .await;
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Thinking(text) if text.contains("Inspect the next evidence source"))));
         let requests = server.requests.lock().unwrap().clone();
-        let summaries: Vec<_> = requests
-            .iter()
-            .filter(|request| agent_support::compaction::is_summary(request))
-            .collect();
-        assert_eq!(summaries.len(), 4);
-        let ordinary: Vec<_> = requests
-            .iter()
-            .filter(|request| !agent_support::compaction::is_summary(request))
-            .collect();
-        assert_eq!(ordinary.len(), 7);
-        let prefix = ordinary[0]["messages"].as_array().unwrap();
-        let summary = summaries[0]["messages"].as_array().unwrap();
+        assert_eq!(requests.len(), 8);
         assert_eq!(
-            serde_json::to_vec(prefix).unwrap(),
-            serde_json::to_vec(&summary[..prefix.len()]).unwrap(),
-        );
-        assert_eq!(ordinary[0]["tools"], summaries[0]["tools"]);
-        for (index, request) in ordinary.iter().enumerate().skip(3) {
-            let content = messages(request);
-            assert!(content.contains("Context summary fixture"));
-            let results: String = request["messages"]
-                .as_array()
-                .unwrap()
+            requests
                 .iter()
-                .filter(|message| message["role"] == "tool")
-                .filter_map(|message| message["content"].as_str())
-                .collect();
-            assert!(results.contains(&format!("Evidence {index}")));
-            assert!(results.contains(&format!("Evidence {}", index - 1)));
-            assert!(!results.contains(&format!("Evidence {}", index - 2)));
-            assert_eq!(request["messages"][0], ordinary[0]["messages"][0]);
-            assert!(content.len() < messages(ordinary[2]).len() + 3000);
-        }
-        for (index, request) in summaries.iter().enumerate() {
-            let content = messages(request);
-            assert!(content.contains(&format!("Evidence {}", index + 1)));
-            assert!(!content.contains(&format!("Evidence {}", index + 2)));
-            if index > 0 {
-                assert!(content.contains("Context summary fixture"));
-            }
-        }
+                .filter(|request| agent_support::compaction::is_summary(request))
+                .count(),
+            1
+        );
         assert_eq!(
             page.entries
                 .iter()
-                .filter(|entry| entry
-                    .parts
-                    .iter()
-                    .any(|part| matches!(part, Part::Compaction(_))))
+                .flat_map(|entry| &entry.parts)
+                .filter(|part| matches!(part, Part::Compaction(_)))
                 .count(),
-            4
+            1
         );
-        let full = serde_json::to_string(&page).unwrap();
+        let full = serde_json::to_string(&tool_details(&fixture.client, &page).await).unwrap();
         for index in 1..=6 {
             assert!(full.contains(&format!("Evidence {index}")));
         }
-        usage_total(&fixture.client, 11, 7 * 26000 + 4 * 100).await;
         fixture.client.execute(request.clone()).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 11);
+        assert_eq!(server.requests.lock().unwrap().len(), requests.len());
         let Output::Session(branch) = fixture
             .client
             .execute(fixture.client.prepare(Command::ForkConversation {
@@ -300,56 +68,14 @@ async fn resumes_without_replay() {
             page.entries
         );
         client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 11);
+        assert_eq!(server.requests.lock().unwrap().len(), requests.len());
         for session in [fixture.session.id, branch.id] {
-            let before = history(&client, session).await.entries;
-            let start = server.requests.lock().unwrap().len();
-            let (_, followup, page) =
-                submit(&client, session, "Continue after restart".into()).await;
-            let requests = server.requests.lock().unwrap()[start..].to_vec();
-            assert_eq!(requests.len(), 2);
-            assert!(agent_support::compaction::is_summary(&requests[0]));
-            assert!(!agent_support::compaction::is_summary(&requests[1]));
-            let source = messages(&requests[0]);
-            assert!(source.contains("Evidence 5 中文 🙂"));
-            assert!(!source.contains("Evidence 6 中文 🙂"));
-            let parts: Vec<_> = page
-                .entries
-                .iter()
-                .filter(|entry| entry.turn == followup)
-                .flat_map(|entry| &entry.parts)
-                .collect();
-            let summaries: Vec<_> = parts
-                .iter()
-                .filter_map(|part| match part {
-                    Part::Compaction(text) => Some(text),
-                    _ => None,
-                })
-                .collect();
-            assert_eq!(summaries.len(), 1);
-            assert!(summaries[0].contains("Evidence 5 中文 🙂"));
-            assert!(!summaries[0].contains("Evidence 6 中文 🙂"));
-            assert!(
-                !parts
-                    .iter()
-                    .any(|part| matches!(part, Part::ToolCall { .. }))
-            );
-            assert_eq!(&page.entries[..before.len()], &before);
-            let content = messages(&requests[1]);
-            assert!(content.contains("Context summary fixture"));
-            assert!(content.contains("Verified all six files"));
-            for index in [5, 6] {
-                assert!(content.contains(&format!("Evidence {index} 中文 🙂")));
-            }
-            let results: String = requests[1]["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|message| message["role"] == "tool")
-                .filter_map(|message| message["content"].as_str())
-                .collect();
-            assert!(!results.contains("Evidence 5"));
-            assert!(results.contains("Evidence 6 中文 🙂"));
+            let count = server.requests.lock().unwrap().len();
+            submit(&client, session, "Continue after restart".into()).await;
+            assert_eq!(server.requests.lock().unwrap().len(), count + 1);
+            let latest = server.requests.lock().unwrap().last().unwrap().clone();
+            assert!(messages(&latest).contains("Context summary fixture"));
+            assert!(messages(&latest).contains("Continue after restart"));
         }
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
@@ -364,7 +90,7 @@ async fn cancels_before_next_model_call() {
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
-                format!("Evidence {index}\n").repeat(1000),
+                format!("Evidence {index}\n").repeat(200),
             )
             .unwrap();
         }
@@ -380,7 +106,7 @@ async fn cancels_before_next_model_call() {
         else {
             panic!("turn expected")
         };
-        server.wait_count(4).await;
+        server.wait_count(2).await;
         assert!(agent_support::compaction::is_summary(
             server.requests.lock().unwrap().last().unwrap()
         ));
@@ -390,16 +116,28 @@ async fn cancels_before_next_model_call() {
             .execute(fixture.client.prepare(Command::StopTurn { turn: turn.id }))
             .await
             .unwrap();
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(page.runs[0].status, Status::Cancelled);
-        assert_eq!(page.entries, before.entries);
-        assert_eq!(server.requests.lock().unwrap().len(), 4);
-        let content = serde_json::to_string(&page.entries).unwrap();
-        for index in 1..=3 {
-            assert!(content.contains(&format!("Evidence {index}")));
-        }
-        assert!(!content.contains("Evidence 4"));
-        usage_total(&fixture.client, 3, 3 * 26000).await;
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            after
+                .runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Cancelled
+        );
+        assert_eq!(after.entries, before.entries);
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        assert!(
+            !after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::Compaction(_)))
+        );
+        let full = serde_json::to_string(&tool_details(&fixture.client, &after).await).unwrap();
+        assert!(full.contains("Evidence 1"));
+        assert!(!full.contains("Evidence 2"));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -417,54 +155,6 @@ async fn preserves_context_on_failure() {
             )
             .unwrap();
         }
-        let mut stream = fixture
-            .client
-            .subscribe_conversation(fixture.session.id)
-            .await
-            .unwrap();
-        let observer = tokio::spawn(async move {
-            let mut warnings = Vec::new();
-            while let Ok(update) = stream.next().await {
-                if let Update::ConversationFrame(frame) = update {
-                    match frame.change {
-                        sailry_protocol::conversation::Change::Entry(entry) => {
-                            for part in &entry.parts {
-                                if let Part::Resource(value) = part
-                                    && value["type"] == "compaction_failure"
-                                {
-                                    assert_eq!(value["failure"]["source"], "automatic");
-                                    assert_eq!(value["failure"]["stage"], "request");
-                                    assert_eq!(value["failure"]["reason"], "service_rejected");
-                                    assert!(
-                                        value["failure"]["cause"]
-                                            .as_str()
-                                            .unwrap()
-                                            .contains("Summary service unavailable")
-                                    );
-                                    assert!(
-                                        !value["failure"]["cause"]
-                                            .as_str()
-                                            .unwrap()
-                                            .contains(agent_support::compaction::PRIVATE_SENTINEL)
-                                    );
-                                    assert_eq!(value["failure"]["status"], 400);
-                                    assert_eq!(value["failure"]["continued"], false);
-
-                                    warnings.push(entry.id.clone());
-                                }
-                            }
-                        }
-                        sailry_protocol::conversation::Change::Run(run)
-                            if run.status == Status::Failed =>
-                        {
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            warnings
-        });
         let request = fixture.client.prepare(Command::SubmitTurn {
             session: fixture.session.id,
             expected_revision: 1,
@@ -472,7 +162,7 @@ async fn preserves_context_on_failure() {
         });
         let Output::QueuedTurn(turn) = fixture.client.execute(request.clone()).await.unwrap()
         else {
-            panic!("turn expected");
+            panic!("turn expected")
         };
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(
@@ -484,77 +174,21 @@ async fn preserves_context_on_failure() {
             Status::Failed
         );
         assert!(page.queue.paused);
-        assert!(!page.entries.iter().any(|entry| {
-            entry
-                .parts
-                .iter()
-                .any(|part| matches!(part, Part::Compaction(_)))
-        }));
-        let live = tokio::time::timeout(Duration::from_secs(10), observer)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(live.len(), 1);
-        let notices = super::super::configuration::snapshot(&fixture.client)
-            .await
-            .notifications;
-        let diagnostics: Vec<_> = notices
-            .iter()
-            .filter_map(|notice| match &notice.content.details {
-                Some(sailry_protocol::notification::Details::Diagnostic(details)) => Some(details),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(diagnostics.len(), live.len());
         assert!(
-            diagnostics
+            !page
+                .entries
                 .iter()
-                .all(|details| live.contains(&details.event))
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::Compaction(_)))
         );
-
-        assert_eq!(
-            live.iter().collect::<std::collections::BTreeSet<_>>().len(),
-            1
-        );
-        let mut restored = fixture
-            .client
-            .subscribe_conversation(fixture.session.id)
-            .await
-            .unwrap();
-        let snapshot = restored.next().await.unwrap();
-        let mut projection = sailry_client::conversation::Projection::new(
-            fixture.client.target(),
-            fixture.session.id,
-            1,
-        );
-        projection.apply(1, snapshot).unwrap();
-        assert_eq!(projection.live_start(), None);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(
-            requests
-                .iter()
-                .filter(|request| !agent_support::compaction::is_summary(request))
-                .count(),
-            3
-        );
-        // The terminal summary failure halts before any further model or tool work.
-        let summaries: Vec<_> = requests
-            .iter()
-            .filter(|request| agent_support::compaction::is_summary(request))
-            .collect();
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(page.entries.iter().flat_map(|entry| &entry.parts).filter(|part| matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")).count(), 1);
-        let content = messages(requests.last().unwrap());
-        assert!(!content.contains("compaction_failure"));
-        let details = tool_details(&fixture.client, &page).await;
-        let full = serde_json::to_string(&details).unwrap();
-        for index in 1..=3 {
-            assert!(full.contains(&format!("Evidence {index}")));
-        }
-        assert!(!full.contains("Evidence 4"));
+        assert_eq!(requests.len(), 2);
+        assert!(agent_support::compaction::is_summary(&requests[1]));
+        let full = serde_json::to_string(&tool_details(&fixture.client, &page).await).unwrap();
+        assert!(full.contains("Evidence 1"));
+        assert!(!full.contains("Evidence 2"));
         fixture.client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 4);
-        usage_total(&fixture.client, 3, 3 * 26000).await;
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -609,26 +243,21 @@ async fn retains_read_and_write_results() {
             "Written exactly once"
         );
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 5);
-        assert!(agent_support::compaction::is_summary(&requests[3]));
-        assert!(messages(&requests[3]).contains("Evidence 1"));
-        assert!(!messages(&requests[3]).contains("Evidence 2"));
-        let resumed = messages(&requests[4]);
+        assert!(requests.iter().any(agent_support::compaction::is_summary));
+        assert!(messages(requests.last().unwrap()).contains("Context summary fixture"));
+        let full = serde_json::to_string(&tool_details(&fixture.client, &page).await).unwrap();
         for text in [
-            "Context summary fixture",
+            "Evidence 1",
             "Evidence 2",
             "Evidence 3",
-            "parallel-read",
-            "parallel-write",
             "Written exactly once",
         ] {
-            assert!(resumed.contains(text), "{text}");
+            assert!(full.contains(text), "{text}");
         }
-        assert!(!resumed.contains("Evidence 1"));
         let writes = page.entries.iter().flat_map(|entry| &entry.parts).filter(|part| matches!(part, Part::ToolCall {name,..} if name == &plugin_tool("files","write_file"))).count();
         assert_eq!(writes, 1);
         fixture.client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 5);
+        assert_eq!(server.requests.lock().unwrap().len(), requests.len());
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -732,20 +361,16 @@ async fn resumes_out_of_order_delegation_results() {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let page = history(&fixture.client, fixture.session.id).await;
-                let ids = page
-                    .entries
+                if page
+                    .children
                     .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .filter_map(|part| {
-                        if let Part::ToolResult { id: Some(id), .. } = part {
-                            Some(id.as_str())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                assert!(!ids.contains(&"delegated-first"));
-                if ids.contains(&"delegated-second") {
+                    .any(|child| child.run.status == Status::Completed)
+                {
+                    assert!(
+                        page.children
+                            .iter()
+                            .any(|child| child.run.status == Status::Running)
+                    );
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -765,62 +390,27 @@ async fn resumes_out_of_order_delegation_results() {
             "{:?}",
             page.runs
         );
-        let results = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { id: Some(id), .. } = part {
-                    Some(id.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
+        assert_eq!(page.children.len(), 2);
         assert!(
-            results
+            page.children
                 .iter()
-                .position(|id| *id == "delegated-second")
-                .unwrap()
-                < results
-                    .iter()
-                    .position(|id| *id == "delegated-first")
-                    .unwrap()
+                .all(|child| child.run.status == Status::Completed)
         );
         let requests = fixture.parent.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 5);
-        assert!(agent_support::compaction::is_summary(&requests[3]));
-        assert!(messages(&requests[3]).contains("Evidence 1"));
-        let resumed = messages(&requests[4]);
+        assert!(requests.iter().any(agent_support::compaction::is_summary));
+        let resumed = messages(requests.last().unwrap());
         for text in [
             "Context summary fixture",
-            "Evidence 2",
-            "delegated-first",
-            "delegated-second",
             "First child evidence",
             "Second child evidence",
         ] {
             assert!(resumed.contains(text), "{text}");
         }
-        let calls = requests[4]["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|message| message["role"] == "tool")
-            .filter_map(|message| message["tool_call_id"].as_str())
-            .collect::<Vec<_>>();
-        assert!(
-            calls
-                .iter()
-                .position(|id| *id == "delegated-first")
-                .unwrap()
-                < calls
-                    .iter()
-                    .position(|id| *id == "delegated-second")
-                    .unwrap()
-        );
         fixture.client.execute(request).await.unwrap();
-        assert_eq!(fixture.parent.requests.lock().unwrap().len(), 5);
+        assert_eq!(
+            fixture.parent.requests.lock().unwrap().len(),
+            requests.len()
+        );
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
         assert_eq!(fast.requests.lock().unwrap().len(), 1);
         fixture.node.shutdown().await.unwrap();

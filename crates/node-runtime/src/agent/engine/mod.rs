@@ -210,12 +210,7 @@ pub(super) async fn run(
             _ => ModelFailure::Request,
         };
         let mut failure = Fault::new(
-            match message.error_kind() {
-                Some(
-                    goose_provider_types::conversation::message::MessageErrorKind::Authentication,
-                ) => ErrorCode::PermissionDenied,
-                _ => ErrorCode::Unavailable,
-            },
+            ErrorCode::Unavailable,
             message
                 .content
                 .iter()

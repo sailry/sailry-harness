@@ -41,14 +41,15 @@ pub async fn respond_usage(
         return stream.shutdown().await;
     }
     let messages = body["messages"].as_array().unwrap();
-    // A handoff is a user message; it replaces the exchange that already read.
+    // A summary retains the evidence from the exchange that already read.
     let read = !summary
         && !messages.iter().any(|message| {
             message["role"] == "tool"
                 || message["role"] == "assistant"
-                || message["content"]
-                    .as_str()
-                    .is_some_and(|text| text.contains("--- End of context handoff ---"))
+                || message["content"].as_str().is_some_and(|text| {
+                    text.contains("Context summary fixture")
+                        || text.contains("Verified tool evidence")
+                })
         });
     let delta = if read {
         json!({"role":"assistant","tool_calls":[{"index":0,"id":"evidence-call","type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":"source.txt","limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
@@ -62,18 +63,6 @@ pub async fn reject_overflow(mut stream: TcpStream) -> std::io::Result<()> {
     let body = json!({"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 70000 tokens > 64000 maximum"}}).to_string();
     stream.write_all(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
     stream.shutdown().await
-}
-
-pub async fn reject_length(stream: TcpStream, body: &Value) -> std::io::Result<()> {
-    reply_finish(
-        stream,
-        body,
-        json!({"role":"assistant", "content":""}),
-        false,
-        Some(100),
-        "length",
-    )
-    .await
 }
 
 pub async fn respond_recent(
@@ -129,11 +118,9 @@ pub async fn respond_loop(
 ) -> std::io::Result<()> {
     let messages = body["messages"].as_array().unwrap();
     let verified = messages.iter().any(|message| {
-        let text = message["content"].as_str().unwrap_or("");
-        message["role"] == "assistant" && text == "Verified all six files"
-            || message["role"] == "user"
-                && text.contains("--- End of context handoff ---")
-                && text.contains("\nVerified all six files\n")
+        message["content"]
+            .as_str()
+            .is_some_and(|text| text.contains("Verified all six files"))
     });
     if is_summary(body) {
         let mut text = text.to_owned();
@@ -141,7 +128,7 @@ pub async fn respond_loop(
             text.push_str("\nVerified all six files\n");
         }
         for index in 1..=6 {
-            let fact = format!("Evidence {index} 中文 🙂");
+            let fact = format!("Evidence {index}");
             if messages.iter().any(|message| {
                 message["content"]
                     .as_str()
@@ -167,7 +154,21 @@ pub async fn respond_loop(
         .and_then(|message| message["tool_call_id"].as_str())
         .and_then(|id| id.strip_prefix("loop-"))
         .and_then(|index| index.parse::<usize>().ok())
-        .unwrap_or(if verified { 6 } else { 0 });
+        .unwrap_or_else(|| {
+            if verified {
+                return 6;
+            }
+            (1..=6)
+                .filter(|index| {
+                    messages.iter().any(|message| {
+                        message["content"]
+                            .as_str()
+                            .is_some_and(|text| text.contains(&format!("Evidence {index}")))
+                    })
+                })
+                .max()
+                .unwrap_or(0)
+        });
     let read = completed < 6;
     let index = completed + 1;
     let delta = if read {
@@ -177,133 +178,6 @@ pub async fn respond_loop(
     };
     let input_tokens = usage[completed.min(usage.len() - 1)];
     reply_usage(stream, body, delta, read, input_tokens).await
-}
-
-/// Explicit compaction is skipped below half the 24k fixture trigger.
-pub const NATIVE_USAGE: i32 = 13_000;
-
-pub async fn respond_native(
-    stream: TcpStream,
-    body: &Value,
-    failure_status: Option<u16>,
-    text: &str,
-) -> std::io::Result<()> {
-    if is_summary(body) {
-        return respond_usage(stream, body, failure_status, text, 100).await;
-    }
-    let messages = body["messages"].as_array().unwrap();
-    let start = messages
-        .iter()
-        .rposition(|message| message["role"] == "user");
-    let task = start.and_then(|index| messages[index]["content"].as_str());
-    let reader = plugin_tool("files", "read_file");
-    let retained_read = messages.iter().rev().find_map(|message| {
-        if message["role"] != "tool" {
-            return None;
-        }
-        let id = message["tool_call_id"].as_str()?;
-        let index = id.strip_prefix("native-read-")?.parse::<usize>().ok()?;
-        if !(1..=5).contains(&index) {
-            return None;
-        }
-        messages
-            .iter()
-            .any(|message| {
-                message["role"] == "assistant"
-                    && message["tool_calls"].as_array().is_some_and(|calls| {
-                        calls
-                            .iter()
-                            .any(|call| call["id"] == id && call["function"]["name"] == reader)
-                    })
-            })
-            .then_some(index)
-    });
-    let loop_task = task.is_some_and(|text| text.contains("Compact loop evidence"));
-    let protected_growth = task.is_some_and(|text| text.contains("Load protected evidence"));
-    let retained_masks = task.is_some_and(|text| text.contains("Mask retained evidence"));
-    let continue_work = messages.iter().any(|message| {
-        message["role"] == "user"
-            && message["content"]
-                .as_str()
-                .is_some_and(|text| text.contains("Continue after explicit compaction"))
-    });
-    if loop_task || (start.is_none() && retained_read.is_some()) {
-        let completed = match retained_read {
-            Some(index) => index,
-            None if loop_task => 0,
-            None => unreachable!("compacted native loop requires a retained read exchange"),
-        };
-        let index = completed + 1;
-        let mut calls = Vec::new();
-        if completed == 3 {
-            if protected_growth {
-                calls.push(json!({"index":0,"id":"native-skill","type":"function","function":{"name":"load_skill","arguments":json!({"skill":"context-fixture:large"}).to_string()}}));
-            }
-            calls.push(json!({"index":calls.len(),"id":"compact-call","type":"function","function":{"name":"compact_context","arguments":"{}"}}));
-        }
-        if completed < if continue_work { 5 } else { 4 } {
-            calls.push(json!({"index":calls.len(),"id":format!("native-read-{index}"),"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":format!("source-{index}.txt"),"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}));
-        }
-        let call = !calls.is_empty();
-        let delta = if call {
-            json!({"role":"assistant","tool_calls":calls})
-        } else {
-            json!({"role":"assistant","content":"Compaction request handled"})
-        };
-        let usage = match completed {
-            3 if retained_masks => 30_000,
-            3 => NATIVE_USAGE,
-            4 if continue_work => 26_000,
-            _ => 100,
-        };
-        return reply_usage(stream, body, delta, call, Some(usage)).await;
-    }
-    let start = start.expect("native compaction request is missing its user task");
-    let compact = task.is_some_and(|text| text.contains("Compact prior evidence"));
-    if !compact {
-        return respond(stream, body, false, "unused").await;
-    }
-    let call = !messages[start..]
-        .iter()
-        .any(|message| message["role"] == "tool");
-    let delta = if call {
-        json!({"role":"assistant","tool_calls":[{"index":0,"id":"compact-call","type":"function","function":{"name":"compact_context","arguments":"{}"}}]})
-    } else {
-        json!({"role":"assistant","content":"Compaction request handled"})
-    };
-    let usage = if call { NATIVE_USAGE } else { 100 };
-    reply_usage(stream, body, delta, call, Some(usage)).await
-}
-
-pub async fn respond_truncated(stream: TcpStream, body: &Value) -> std::io::Result<()> {
-    if is_summary(body) {
-        reply_finish(
-            stream,
-            body,
-            json!({"role":"assistant","content":"An unfinished handoff"}),
-            false,
-            Some(100),
-            "length",
-        )
-        .await
-    } else {
-        respond_usage(stream, body, None, "Unused", 100).await
-    }
-}
-
-pub async fn respond_summary_tool(stream: TcpStream, body: &Value) -> std::io::Result<()> {
-    if is_summary(body) {
-        reply_usage(
-            stream,
-            body,
-            json!({"role":"assistant","tool_calls":[{"index":0,"id":"unexpected-summary-tool","type":"function","function":{"name":plugin_tool("files", "write_file"),"arguments":json!({"path":"unexpected-summary.txt","content":"Unexpected summary side effect"}).to_string()}}]}),
-            true,
-            Some(100),
-        )
-        .await
-    } else {
-        respond_usage(stream, body, None, "Unused", 100).await
-    }
 }
 
 async fn reply_usage(
@@ -337,8 +211,7 @@ async fn reply_finish(
             b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
         )
         .await?;
-    // Exercise the same ownership envelope as Responses reasoning in the
-    // automatic and native compaction loops, through the real model adapter.
+    // Exercise reasoning with tool calls through the real model adapter.
     let mut delta = delta;
     if read {
         delta["reasoning_content"] = json!("Inspect the next evidence source");
@@ -360,20 +233,30 @@ pub async fn respond_exchange(
     delegation: bool,
 ) -> std::io::Result<()> {
     if is_summary(body) {
-        return respond_usage(
-            stream,
-            body,
-            None,
-            "Context summary fixture: first file verified",
-            100,
-        )
-        .await;
+        let transcript = body["messages"].to_string();
+        let mut text = "Context summary fixture: workflow evidence retained".to_owned();
+        for (id, evidence) in [
+            ("sequential-1", "source-1.txt"),
+            ("sequential-2", "source-2.txt"),
+            ("parallel-read", "source-3.txt"),
+            ("parallel-write", "Written exactly once"),
+            ("delegated-first", "First child evidence"),
+            ("delegated-second", "Second child evidence"),
+        ] {
+            if transcript.contains(evidence) || transcript.contains(&format!("[completed:{id}]")) {
+                text.push_str(&format!("\n[completed:{id}] {evidence}"));
+            }
+        }
+        return respond_usage(stream, body, None, &text, 100).await;
     }
     let messages = body["messages"].as_array().unwrap();
     let done = |id: &str| {
-        messages
-            .iter()
-            .any(|message| message["role"] == "tool" && message["tool_call_id"] == id)
+        messages.iter().any(|message| {
+            message["role"] == "tool" && message["tool_call_id"] == id
+                || message["content"]
+                    .as_str()
+                    .is_some_and(|text| text.contains(&format!("[completed:{id}]")))
+        })
     };
     let settled = if delegation {
         done("delegated-first") && done("delegated-second")

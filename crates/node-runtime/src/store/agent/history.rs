@@ -13,13 +13,13 @@ pub(in crate::store) mod output;
 pub(super) mod pages;
 pub(in crate::store) mod tools;
 // Visibility effects keep messages immutable and are scoped to this conversation's membership.
-pub(super) const VISIBLE_EVENT: &str = "coalesce((SELECT json_extract(v.body,'$.user_visible')
+pub(super) const VISIBLE_EVENT: &str = "CASE WHEN json_extract(e.body,'$.kind')='compaction' THEN 1 ELSE coalesce((SELECT json_extract(v.body,'$.user_visible')
        FROM conversation_events visibility JOIN agent_events v ON v.sequence=visibility.sequence
        WHERE visibility.session=h.session AND json_extract(v.body,'$.kind')='operation'
          AND json_extract(v.body,'$.operation')='visibility'
          AND json_extract(v.body,'$.message')=json_extract(e.body,'$.id')
        ORDER BY visibility.sequence DESC LIMIT 1),
-       json_extract(e.body,'$.metadata.runtime.user_visible'),1)";
+       json_extract(e.body,'$.metadata.runtime.user_visible'),1) END";
 #[cfg(test)]
 mod tests;
 mod web_search;
@@ -177,7 +177,6 @@ async fn write(
                         let records::Kind::Message(summary)=record.kind else{unreachable!()};
                         record.kind=records::Kind::Compaction(records::Compaction{boundary,summary,start,end,files});
                         record.provenance.author="system".into();
-                        record.metadata.runtime.get_or_insert_with(Default::default).user_visible=true;
                         record
                     },
                     Input::Message(message, usage, calls, presentation) => {

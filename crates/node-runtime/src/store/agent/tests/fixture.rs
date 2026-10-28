@@ -119,43 +119,46 @@ impl Fixture {
         session
     }
 
-    pub async fn append(
+    pub fn append(
         &mut self,
         events: impl IntoIterator<Item = crate::agent::canonical::Record>,
-    ) -> TurnId {
-        let turn = self.queued().await;
-        runs::start(&self.database.connection, turn).await.unwrap();
-        assert_eq!(
-            runs::claim(&mut self.database, &self.events)
+    ) -> sailry_link::Pending<'_, TurnId> {
+        let events: Vec<_> = events.into_iter().collect();
+        Box::pin(async move {
+            let turn = self.queued().await;
+            runs::start(&self.database.connection, turn).await.unwrap();
+            assert_eq!(
+                runs::claim(&mut self.database, &self.events)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .turn
+                    .id,
+                turn
+            );
+            for mut event in events {
+                event.turn = turn;
+                super::super::history::append(
+                    &mut self.database,
+                    self.session,
+                    turn,
+                    event,
+                    &self.events,
+                )
                 .await
-                .unwrap()
-                .unwrap()
-                .turn
-                .id,
-            turn
-        );
-        for mut event in events {
-            event.turn = turn;
-            super::super::history::append(
+                .unwrap();
+            }
+            runs::finish(
                 &mut self.database,
-                self.session,
                 turn,
-                event,
+                Status::Completed,
+                None,
                 &self.events,
             )
             .await
             .unwrap();
-        }
-        runs::finish(
-            &mut self.database,
-            turn,
-            Status::Completed,
-            None,
-            &self.events,
-        )
-        .await
-        .unwrap();
-        turn
+            turn
+        })
     }
 
     pub async fn read(&self, before: Option<TurnId>, limit: u16) -> History {

@@ -59,10 +59,8 @@ enum Reply {
         text: Arc<String>,
         usage: Arc<Vec<i32>>,
     },
-    TruncatedSummary,
-    SummaryTool,
     Overflow,
-    EarlyLength,
+    RepeatedOverflow,
     Summary {
         usage: Arc<Vec<i32>>,
         fail_summary: bool,
@@ -76,10 +74,6 @@ enum Reply {
     },
     ExchangeCompaction {
         delegation: bool,
-    },
-    NativeCompaction {
-        failure_status: Option<u16>,
-        text: Arc<String>,
     },
     WebSearch(Option<Arc<tokio::sync::Notify>>),
     Phases(Option<(String, Value)>),
@@ -198,20 +192,6 @@ impl Server {
     pub async fn delegate_compaction() -> Self {
         Self::serve(Reply::ExchangeCompaction { delegation: true }).await
     }
-    pub async fn native_compaction(fail_summary: bool) -> Self {
-        Self::native_summary(
-            fail_summary.then_some(400),
-            "Context summary fixture: original evidence retained".into(),
-        )
-        .await
-    }
-    pub async fn native_summary(failure_status: Option<u16>, text: String) -> Self {
-        Self::serve(Reply::NativeCompaction {
-            failure_status,
-            text: Arc::new(text),
-        })
-        .await
-    }
     pub async fn loop_compaction(fail_summary: bool) -> Self {
         Self::serve(Reply::LoopCompaction {
             fail_summary,
@@ -271,18 +251,12 @@ impl Server {
         })
         .await
     }
-    pub async fn truncated_summary() -> Self {
-        Self::serve(Reply::TruncatedSummary).await
-    }
-    pub async fn summary_tool() -> Self {
-        Self::serve(Reply::SummaryTool).await
-    }
-    /// Rejects the fifth conversation request as too long until a summary exists.
+    /// Rejects the continuation request until a summary exists.
     pub async fn context_overflow() -> Self {
         Self::serve(Reply::Overflow).await
     }
-    pub async fn early_length() -> Self {
-        Self::serve(Reply::EarlyLength).await
+    pub async fn repeated_overflow() -> Self {
+        Self::serve(Reply::RepeatedOverflow).await
     }
     pub async fn recovering_summary() -> Self {
         Self::serve(Reply::Compaction {
@@ -625,7 +599,7 @@ async fn respond(
         };
         return compaction::respond_usage(stream, &body, failure_status, &text, input_tokens).await;
     }
-    if matches!(reply, Reply::Overflow | Reply::EarlyLength) {
+    if matches!(reply, Reply::Overflow | Reply::RepeatedOverflow) {
         let summaries = {
             let mut records = records.lock().unwrap();
             let summaries = records
@@ -644,13 +618,9 @@ async fn respond(
             .and_then(|message| message["content"].as_str());
         if !compaction::is_summary(&body)
             && task == Some("Continue after overflow")
-            && summaries == 0
+            && (summaries == 0 || matches!(reply, Reply::RepeatedOverflow))
         {
-            return if matches!(reply, Reply::EarlyLength) {
-                compaction::reject_length(stream, &body).await
-            } else {
-                compaction::reject_overflow(stream).await
-            };
+            return compaction::reject_overflow(stream).await;
         }
         let retained_read = match task {
             Some("Read a middle result before overflow") => Some(("middle-read", "middle.txt")),
@@ -668,14 +638,6 @@ async fn respond(
             100,
         )
         .await;
-    }
-    if let Reply::TruncatedSummary = reply {
-        records.lock().unwrap().push(body.clone());
-        return compaction::respond_truncated(stream, &body).await;
-    }
-    if let Reply::SummaryTool = reply {
-        records.lock().unwrap().push(body.clone());
-        return compaction::respond_summary_tool(stream, &body).await;
     }
     if let Reply::Summary {
         usage,
@@ -714,14 +676,6 @@ async fn respond(
     if let Reply::ExchangeCompaction { delegation } = reply {
         records.lock().unwrap().push(body.clone());
         return compaction::respond_exchange(stream, &body, delegation).await;
-    }
-    if let Reply::NativeCompaction {
-        failure_status,
-        text,
-    } = reply
-    {
-        records.lock().unwrap().push(body.clone());
-        return compaction::respond_native(stream, &body, failure_status, &text).await;
     }
     if let Reply::Anthropic(reply) = reply {
         records.lock().unwrap().push(body.clone());

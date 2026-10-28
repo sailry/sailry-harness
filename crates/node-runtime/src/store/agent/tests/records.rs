@@ -401,7 +401,7 @@ async fn rejects_invalid_history_without_writes() {
         Ok(_) => panic!("invalid history was accepted"),
         Err(error) => error.to_string(),
     };
-    assert!(error.contains("cannot be upgraded (decode:"), "{error}");
+    assert!(error.contains("cannot be upgraded (conversion:"), "{error}");
     assert!(!root.join("backups").exists());
     let handle = crate::store::database::engine(&path).await.unwrap();
     let connection = crate::store::database::connect(&handle).await.unwrap();
