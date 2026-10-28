@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'approvals.dart' show denied, hasPending, interrupted, pending;
-import 'conversation.dart' show check, detail, execute, until;
+import 'approvals.dart' show denied, hasPending, pending;
+import 'conversation.dart' show canonicalJson, check, detail, execute, until;
 import 'attachments/support.dart'
     show uploadAttachment, prepareDownload, downloadAttachment;
 
@@ -298,13 +298,16 @@ Future<void> main() async {
   );
   final interruptedCall = call(stopped, 0);
   final interruption = (await detail(updates, interruptedCall))['result'];
-  final encodedInterruption = jsonEncode(interruption);
   check(
-    interruption['content'] is List,
-    'Interrupted command raw result: ${encodedInterruption.length <= 4096 ? encodedInterruption : encodedInterruption.substring(0, 4096)}',
-  );
-  check(
-    interruptedCall['state'] == 'returned' && interrupted(interruption),
+    interruptedCall['state'] == 'returned' &&
+        canonicalJson(interruption) ==
+            canonicalJson({
+              'isError': true,
+              'error': {
+                'code': 'cancelled',
+                'message': 'plugin tool was cancelled',
+              },
+            }),
     'stop retains the interrupted outcome without claiming success',
   );
   check(
