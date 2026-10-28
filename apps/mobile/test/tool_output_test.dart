@@ -92,6 +92,27 @@ void main() {
     );
     expect(toolDetail({'detail': null}), isNull);
   });
+  test('missing and contended details permit only rejection', () {
+    for (final code in ['busy', 'not_found']) {
+      final call = <String, dynamic>{
+        'detail_state': {
+          'kind': 'failed',
+          'fault': {'code': code},
+          'retrying': false,
+        },
+      };
+      expect(detailAllowsDecision(call, 'approve'), isFalse);
+      expect(detailAllowsDecision(call, 'deny'), isTrue);
+      expect(detailFailed(call), isTrue);
+    }
+    for (final kind in ['loading', null]) {
+      final call = <String, dynamic>{
+        'detail_state': {'kind': kind},
+      };
+      expect(detailAllowsDecision(call, 'approve'), isFalse);
+      expect(detailAllowsDecision(call, 'deny'), isTrue);
+    }
+  });
   test('ready deltas reuse only their exact loaded revision', () {
     Map<String, dynamic> view(
       String revision, {

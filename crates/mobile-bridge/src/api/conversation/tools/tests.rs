@@ -417,7 +417,15 @@ async fn refreshes_approval_facts_without_resending_details() {
         total: None,
     })));
     let tracker = Tracker::new(client, tokio::runtime::Handle::current());
-    tracker.set([reference.clone()]);
+    assert!(current.calls[0].approval_pending(&current.snapshot.as_ref().unwrap().page));
+    select(
+        &current,
+        &[Selection {
+            entry: "request".into(),
+            index: 0,
+        }],
+        &tracker,
+    );
     assert!(matches!(
         tracker.wait(&reference).await,
         sailry_client::conversation::details::State::Ready(_)

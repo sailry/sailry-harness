@@ -12,7 +12,7 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.approval_target(id).is_none() {
+        if self.approval_target(id, &Decision::Deny).is_none() {
             return;
         }
         let draft = self.approvals.drafts.entry(id).or_insert_with(|| {
@@ -36,7 +36,7 @@ impl View {
     }
 
     pub(super) fn cancel_reason(&mut self, id: ApprovalId, cx: &mut Context<Self>) {
-        if self.approval_target(id).is_none() {
+        if self.approval_target(id, &Decision::Deny).is_none() {
             return;
         }
         if let Some(draft) = self.approvals.drafts.get_mut(&id) {

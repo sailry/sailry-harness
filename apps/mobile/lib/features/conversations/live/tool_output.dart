@@ -56,6 +56,9 @@ bool detailFailed(Map<String, dynamic> call) {
 bool detailAllowsApproval(Map<String, dynamic> call) =>
     ['ready', 'too_large'].contains(object(call['detail_state'])['kind']);
 
+bool detailAllowsDecision(Map<String, dynamic> call, String decision) =>
+    decision == 'deny' || (decision == 'approve' && detailAllowsApproval(call));
+
 /// Omitted ready values retain the previously delivered allocation for that revision.
 Map<String, dynamic> mergeToolDetails(
   Map<String, dynamic> previous,

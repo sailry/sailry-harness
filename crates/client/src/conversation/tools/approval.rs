@@ -1,7 +1,21 @@
 //! Controllers choose layout and localization for the same approval facts.
 use super::Call;
-use sailry_protocol::{conversation::Page, process::Access, tool::LocalText};
+use sailry_protocol::{
+    conversation::{ApprovalState, Decision, Page},
+    process::Access,
+    tool::LocalText,
+};
 use serde::Serialize;
+
+/// Grants require full details or an intrinsic size limit; denials need neither.
+pub fn decision_ready(
+    decision: &Decision,
+    detail: Option<&crate::conversation::details::State>,
+) -> bool {
+    use crate::conversation::details::State;
+    matches!(decision, Decision::Deny | Decision::DenyWithReason(_))
+        || matches!(detail, Some(State::Ready(_) | State::TooLarge(_)))
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct ApprovalView {
@@ -14,6 +28,17 @@ pub struct ApprovalView {
 }
 
 impl Call {
+    pub fn approval_pending(&self, page: &Page) -> bool {
+        self.approval.as_ref().is_some_and(|approval| {
+            approval.state == ApprovalState::Pending
+                && approval.session == page.session
+                && approval.turn == self.turn
+                && approval.entry == self.source.entry
+                && approval.index == self.source.index
+                && page.approvals.contains(approval)
+        })
+    }
+
     pub fn approval_view(&self, page: &Page) -> ApprovalView {
         let unrestricted = self
             .approval

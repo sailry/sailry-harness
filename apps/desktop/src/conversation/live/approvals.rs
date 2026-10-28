@@ -6,7 +6,10 @@ use gpui_kit::component::{
     scroll::ScrollableElement,
 };
 use gpui_kit::prelude::FluentBuilder as _;
-use sailry_client::conversation::{children, tools::Call};
+use sailry_client::conversation::{
+    children,
+    tools::{Call, decision_ready},
+};
 use sailry_protocol::{
     ApprovalId,
     conversation::{Approval, ApprovalState, Decision, Page},
@@ -55,11 +58,7 @@ impl View {
                 let state = reference
                     .as_ref()
                     .map(|reference| self.details.state(reference));
-                let loaded = call.detail.is_some()
-                    || matches!(
-                        state,
-                        Some(sailry_client::conversation::details::State::TooLarge(_))
-                    );
+                let loaded = decision_ready(&Decision::Approve, state.as_ref());
                 let failed = reference.as_ref().is_some_and(|reference| {
                     matches!(
                         self.details.state(reference),
@@ -71,7 +70,6 @@ impl View {
                 let details = details(call, page);
                 let access = details.access.clone();
                 let disabled = busy
-                    || !loaded
                     || !self.connected()
                     || !connected
                     || !page
@@ -223,7 +221,14 @@ impl View {
                             gpui_kit::component::spinner::Spinner::new().into_any_element()
                         })
                     })
-                    .child(self.decision_controls(approval, position == 0, disabled, access, cx))
+                    .child(self.decision_controls(
+                        approval,
+                        position == 0,
+                        disabled,
+                        loaded,
+                        access,
+                        cx,
+                    ))
                     .debug_selector(move || format!("live-approval-request-{id}"))
                     .into_any_element()
             })

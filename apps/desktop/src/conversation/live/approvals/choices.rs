@@ -7,6 +7,7 @@ impl View {
         approval: &Approval,
         primary: bool,
         disabled: bool,
+        loaded: bool,
         access: Option<SharedString>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -73,7 +74,7 @@ impl View {
             .min_w_12()
             .label(tr("approval_allow_once"))
             .when_some(access, |button, access| button.tooltip(access))
-            .disabled(disabled)
+            .disabled(disabled || !loaded)
             .debug_selector(move || format!("live-approval-approve-{id}"))
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.resolve_approval(id, Decision::Approve, window, cx)
@@ -87,7 +88,7 @@ impl View {
                     DropdownButton::new(format!("approval-approve-split-{id}"))
                         .button(approve)
                         .small()
-                        .disabled(disabled)
+                        .disabled(disabled || !loaded)
                         .dropdown_menu(move |menu, _, _| {
                             let session_owner = owner.clone();
                             menu.item(PopupMenuItem::new(tr("approval_allow_session")).on_click(

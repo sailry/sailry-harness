@@ -65,7 +65,7 @@ impl ConversationUpdates {
                 let current = receiver.borrow_and_update().clone();
                 {
                     let selection = self.selected.lock().expect("tool selection lock");
-                    self.details.set(tools::references(&current, &selection));
+                    tools::select(&current, &selection, &self.details);
                 }
                 tools::view(&current, Some(&self.details), &mut self.sent.lock().expect("sent details lock"))
             } => result,
@@ -80,8 +80,7 @@ impl ConversationUpdates {
         let selection: tools::Selected = serde_json::from_str(&selection).map_err(error)?;
         let current = self.current.borrow().clone();
         let mut selected = self.selected.lock().expect("tool selection lock");
-        let references = tools::references(&current, &selection.items);
-        self.details.set(references);
+        tools::select(&current, &selection.items, &self.details);
         for reference in tools::references(&current, &selection.retry) {
             self.details.retry(&reference);
         }

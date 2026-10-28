@@ -9,6 +9,42 @@ mod questions;
 mod rows;
 
 #[test]
+fn missing_details_permit_only_denial() {
+    use crate::conversation::details::{Limit, State as DetailState};
+    use sailry_protocol::{ErrorCode, Fault, conversation::Decision};
+    for state in [
+        None,
+        Some(DetailState::Loading),
+        Some(DetailState::Superseded),
+        Some(DetailState::Failed {
+            fault: Fault::new(ErrorCode::NotFound, "detail is unavailable"),
+            retry_at: None,
+        }),
+        Some(DetailState::Failed {
+            fault: Fault::new(ErrorCode::Busy, "display memory is in use"),
+            retry_at: None,
+        }),
+    ] {
+        for decision in [Decision::Deny, Decision::DenyWithReason("Rejected".into())] {
+            assert!(decision_ready(&decision, state.as_ref()));
+        }
+        for decision in [
+            Decision::Approve,
+            Decision::ApproveSession,
+            Decision::ApprovePrefix("command".into()),
+        ] {
+            assert!(!decision_ready(&decision, state.as_ref()));
+        }
+    }
+    for limit in [Limit::Transfer, Limit::Memory] {
+        assert!(decision_ready(
+            &Decision::Approve,
+            Some(&DetailState::TooLarge(limit))
+        ));
+    }
+}
+
+#[test]
 fn shares_localized_approval_facts() {
     let mut page = page();
     let command = sailry_protocol::tool::LocalText {

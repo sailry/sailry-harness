@@ -11,7 +11,7 @@ mod changes;
 pub mod display;
 mod presentation;
 mod row;
-pub use approval::ApprovalView;
+pub use approval::{ApprovalView, decision_ready};
 pub use changes::Stamp;
 pub use row::{Row, RowState};
 

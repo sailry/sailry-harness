@@ -8,6 +8,17 @@ use sailry_protocol::{
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+fn assert_contended(state: State) {
+    assert!(matches!(
+        &state,
+        State::Failed { fault, retry_at: None } if fault.code == ErrorCode::Busy
+    ));
+    assert!(!crate::conversation::tools::decision_ready(
+        &sailry_protocol::conversation::Decision::Approve,
+        Some(&state),
+    ));
+}
+
 struct Backend {
     reference: Reference,
     text: String,
@@ -714,15 +725,12 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
     drop(detail);
     tracker.include(second.clone());
     assert!(matches!(tracker.wait(&second).await, State::Ready(_)));
-    assert!(matches!(
-        tracker.state(&first),
-        State::TooLarge(Limit::Memory)
-    ));
+    assert_contended(tracker.state(&first));
     assert!(released.upgrade().is_none());
     let failures = tracker.failures();
     assert_eq!(failures.len(), 1);
     assert_eq!(failures[0].0, first);
-    assert_eq!(failures[0].1.message, Limit::Memory.message());
+    assert_eq!(failures[0].1.code, ErrorCode::Busy);
     assert!(tracker.failures().is_empty());
     {
         let values = client.details.values.lock().unwrap();
@@ -740,17 +748,11 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
     }
     let calls = backend.calls.load(Ordering::SeqCst);
     tracker.set([first.clone(), second.clone()]);
-    assert!(matches!(
-        tracker.state(&first),
-        State::TooLarge(Limit::Memory)
-    ));
+    assert_contended(tracker.state(&first));
     assert_eq!(backend.calls.load(Ordering::SeqCst), calls);
     tracker.retry(&first);
     assert!(matches!(tracker.wait(&first).await, State::Ready(_)));
-    assert!(matches!(
-        tracker.state(&second),
-        State::TooLarge(Limit::Memory)
-    ));
+    assert_contended(tracker.state(&second));
     let failures = tracker.failures();
     assert_eq!(failures.len(), 1);
     assert_eq!(failures[0].0, second);
@@ -759,10 +761,7 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
     peer.set([first.clone()]);
     assert!(matches!(peer.wait(&first).await, State::Ready(_)));
     peer.include(second.clone());
-    assert!(matches!(
-        peer.wait(&second).await,
-        State::TooLarge(Limit::Memory)
-    ));
+    assert_contended(peer.wait(&second).await);
     assert!(matches!(peer.state(&first), State::Ready(_)));
     assert!(matches!(tracker.state(&first), State::Ready(_)));
     let failures = peer.failures();
@@ -779,12 +778,87 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
     tracker.set([]);
     peer.retry(&second);
     assert!(matches!(peer.wait(&second).await, State::Ready(_)));
-    assert!(matches!(peer.state(&first), State::TooLarge(Limit::Memory)));
+    assert_contended(peer.state(&first));
     let failures = peer.failures();
     assert_eq!(failures.len(), 1);
     assert_eq!(failures[0].0, first);
     assert!(peer.failures().is_empty());
     peer.set([]);
+    assert!(
+        client
+            .details
+            .values
+            .lock()
+            .unwrap()
+            .entries
+            .iter()
+            .all(|entry| entry.pins == 0)
+    );
+}
+
+#[tokio::test]
+async fn protects_pending_arguments_from_later_results() {
+    let detail = |size: usize| {
+        serde_json::to_string(&Detail {
+            arguments: serde_json::Value::String("x".repeat(size * 1024 * 1024)),
+            result: None,
+            resolved: None,
+            content: None,
+            images: vec![],
+        })
+        .unwrap()
+    };
+    let mut backend = Arc::try_unwrap(Backend::new()).ok().unwrap();
+    backend.text = detail(40);
+    backend
+        .texts
+        .insert(backend.reference.entry.clone(), detail(30));
+    let pending = backend.reference.clone();
+    let mut expanded = pending.clone();
+    expanded.entry = "expanded".into();
+    let backend = Arc::new(backend);
+    let client = Arc::new(Client::new(backend));
+    let tracker = Tracker::new(client.clone(), tokio::runtime::Handle::current());
+    tracker.protect([pending.clone()]);
+    let State::Ready(original) = tracker.wait(&pending).await else {
+        panic!("pending arguments must be ready");
+    };
+    tracker.remove(&pending);
+    tracker.include(pending.clone());
+    let State::Ready(visible) = tracker.wait(&pending).await else {
+        panic!("collapsing a group must preserve pending arguments");
+    };
+    assert!(Arc::ptr_eq(&original.detail, &visible.detail));
+    drop(visible);
+    tracker.include(expanded.clone());
+    assert_contended(tracker.wait(&expanded).await);
+    let State::Ready(retained) = tracker.state(&pending) else {
+        panic!("later expansion must not evict pending arguments");
+    };
+    assert!(Arc::ptr_eq(&original.detail, &retained.detail));
+    assert_eq!(retained.arguments.as_str().unwrap().len(), 30 * 1024 * 1024);
+    let failures = tracker.failures();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].0, expanded);
+    assert!(tracker.failures().is_empty());
+    drop((original, retained));
+    tracker.protect([]);
+    tracker.remove(&pending);
+    assert!(matches!(tracker.state(&pending), State::Superseded));
+    assert!(
+        client
+            .details
+            .values
+            .lock()
+            .unwrap()
+            .entries
+            .iter()
+            .all(|entry| entry.pins == 0)
+    );
+    tracker.retry(&expanded);
+    assert!(matches!(tracker.wait(&expanded).await, State::Ready(_)));
+    assert!(matches!(tracker.state(&pending), State::Superseded));
+    tracker.set([]);
     assert!(
         client
             .details
@@ -835,10 +909,7 @@ async fn preserves_ready_values_when_peers_block_admission() {
     let candidate_size = allocation(&serde_json::from_str(&backend.text).unwrap(), &candidate);
     assert!(pinned.bytes + candidate_size > MAX_BYTES);
     tracker.include(candidate.clone());
-    assert!(matches!(
-        tracker.wait(&candidate).await,
-        State::TooLarge(Limit::Memory)
-    ));
+    assert_contended(tracker.wait(&candidate).await);
     let State::Ready(preserved) = tracker.state(&first) else {
         panic!("blocked admission must preserve the visible detail");
     };

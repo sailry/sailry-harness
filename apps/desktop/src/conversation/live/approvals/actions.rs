@@ -63,7 +63,7 @@ impl Actions {
 }
 
 impl View {
-    pub(super) fn approval_target(&self, id: ApprovalId) -> Option<&Approval> {
+    pub(super) fn approval_target(&self, id: ApprovalId, decision: &Decision) -> Option<&Approval> {
         if self.readonly()
             || self.approvals.resolved(id)
             || self.approvals.pending
@@ -98,20 +98,20 @@ impl View {
         {
             return None;
         }
-        let call = history.calls.iter().find(|call| {
-            call.approval
-                .as_ref()
-                .is_some_and(|value| value == approval)
-                && call.turn == approval.turn
-                && call.source.entry == approval.entry
-                && call.source.index == approval.index
-        })?;
-        let reference = call.detail_reference(&snapshot.page)?;
-        if !matches!(
-            self.details.state(&reference),
-            sailry_client::conversation::details::State::Ready(_)
-                | sailry_client::conversation::details::State::TooLarge(_)
-        ) {
+        let state = history
+            .calls
+            .iter()
+            .find(|call| {
+                call.approval
+                    .as_ref()
+                    .is_some_and(|value| value == approval)
+                    && call.turn == approval.turn
+                    && call.source.entry == approval.entry
+                    && call.source.index == approval.index
+            })
+            .and_then(|call| call.detail_reference(&snapshot.page))
+            .map(|reference| self.details.state(&reference));
+        if !decision_ready(decision, state.as_ref()) {
             return None;
         }
         Some(approval)
@@ -124,7 +124,7 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(approval) = self.approval_target(id) else {
+        let Some(approval) = self.approval_target(id, &decision) else {
             let key = if !self.connected()
                 && [&self.node.error, &self.history.error]
                     .into_iter()

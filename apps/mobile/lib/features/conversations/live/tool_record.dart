@@ -79,8 +79,7 @@ class _ToolRecordState extends State<ToolRecord> {
   }
 
   Future<void> _approve(String decision) async {
-    if (_busy ||
-        (decision == 'approve' && !detailAllowsApproval(widget.call))) {
+    if (_busy || !detailAllowsDecision(widget.call, decision)) {
       return;
     }
     setState(() {
@@ -239,12 +238,16 @@ class _ToolRecordState extends State<ToolRecord> {
                       child: Text(context.tr('retry')),
                     ),
                   TextButton(
-                    onPressed: enabled ? () => _approve('deny') : null,
+                    onPressed:
+                        enabled && detailAllowsDecision(widget.call, 'deny')
+                        ? () => _approve('deny')
+                        : null,
                     child: Text(context.tr('deny')),
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed: enabled && detailAllowsApproval(widget.call)
+                    onPressed:
+                        enabled && detailAllowsDecision(widget.call, 'approve')
                         ? () => _approve('approve')
                         : null,
                     child: Text(context.tr('allowShort')),

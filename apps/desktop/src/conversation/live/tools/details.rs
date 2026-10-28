@@ -9,6 +9,18 @@ pub(super) enum Action {
 
 impl View {
     pub(in crate::conversation::live) fn reconcile_details(&self) {
+        self.details.protect(
+            std::iter::once(&self.history)
+                .chain(self.approvals.histories())
+                .flat_map(|history| {
+                    history.calls.iter().filter_map(|call| {
+                        let page = &history.snapshot.as_ref()?.page;
+                        call.approval_pending(page)
+                            .then(|| call.detail_reference(page))
+                            .flatten()
+                    })
+                }),
+        );
         let current: std::collections::BTreeSet<_> = std::iter::once(&self.history)
             .chain(self.approvals.histories())
             .flat_map(|history| {

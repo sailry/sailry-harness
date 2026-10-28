@@ -37,6 +37,19 @@ pub(super) fn references(
         .collect()
 }
 
+pub(super) fn select(view: &View, selection: &[Selection], tracker: &Tracker) {
+    let references = references(view, selection);
+    tracker.protect(view.calls.iter().filter_map(|call| {
+        let page = &view.snapshot.as_ref()?.page;
+        if !call.approval_pending(page) {
+            return None;
+        }
+        let reference = call.detail_reference(page)?;
+        references.contains(&reference).then_some(reference)
+    }));
+    tracker.set(references);
+}
+
 pub(super) fn view(
     view: &View,
     tracker: Option<&Tracker>,

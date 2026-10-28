@@ -36,6 +36,7 @@ struct Slot {
     id: u64,
     revision: Option<u64>,
     reported: bool,
+    protected: bool,
 }
 
 impl Tracker {
@@ -95,11 +96,30 @@ impl Tracker {
             Self::start(&self.0, &mut slots, reference);
         }
     }
+    /// Pending approval payloads cannot be replaced by another selection.
+    pub fn protect(&self, references: impl IntoIterator<Item = Reference>) {
+        let references = references.into_iter().collect::<BTreeSet<_>>();
+        let mut slots = self.0.slots.lock().expect("tool tracker lock");
+        for (reference, slot) in &mut slots.values {
+            slot.protected = references.contains(reference);
+        }
+        for reference in references {
+            if !slots.values.contains_key(&reference) {
+                Self::start(&self.0, &mut slots, reference.clone());
+            }
+            slots.values.get_mut(&reference).unwrap().protected = true;
+        }
+    }
     pub fn remove(&self, reference: &Reference) {
-        self.0.remove(
-            &mut self.0.slots.lock().expect("tool tracker lock"),
-            reference,
-        );
+        let mut slots = self.0.slots.lock().expect("tool tracker lock");
+        if slots
+            .values
+            .get(reference)
+            .is_some_and(|slot| slot.protected)
+        {
+            return;
+        }
+        self.0.remove(&mut slots, reference);
     }
     pub fn retry(&self, reference: &Reference) {
         let mut slots = self.0.slots.lock().expect("tool tracker lock");
@@ -169,6 +189,10 @@ impl Tracker {
         }
     }
     fn start(tracked: &Arc<Tracked>, slots: &mut Slots, reference: Reference) {
+        let protected = slots
+            .values
+            .get(&reference)
+            .is_some_and(|slot| slot.protected);
         if let Some(previous) = slots.values.remove(&reference) {
             previous.task.abort();
             if let State::Ready(detail) = previous.state {
@@ -233,6 +257,7 @@ impl Tracker {
                 id,
                 revision,
                 reported: false,
+                protected,
             },
         );
         tracked.notify(slots, reference);
@@ -291,7 +316,7 @@ impl Tracked {
                 .values
                 .iter()
                 .filter_map(|(reference, slot)| match &slot.state {
-                    State::Ready(detail) => Some((slot.id, reference, detail)),
+                    State::Ready(detail) if !slot.protected => Some((slot.id, reference, detail)),
                     _ => None,
                 })
                 .collect::<Vec<_>>();
@@ -306,17 +331,24 @@ impl Tracked {
                 Some(evicted) => {
                     for reference in evicted {
                         let slot = slots.values.get_mut(&reference).unwrap();
-                        slot.state = State::TooLarge(Limit::Memory);
+                        slot.state = contended();
                         slot.reported = false;
                         self.notify(&mut slots, reference);
                     }
                 }
-                None => state = State::TooLarge(Limit::Memory),
+                None => state = contended(),
             }
         }
         slots.values.get_mut(reference).unwrap().state = state;
         self.notify(&mut slots, reference.clone());
         true
+    }
+}
+
+fn contended() -> State {
+    State::Failed {
+        fault: Fault::new(ErrorCode::Busy, "tool detail display memory is in use"),
+        retry_at: None,
     }
 }
 impl Drop for Tracked {
