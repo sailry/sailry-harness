@@ -471,7 +471,7 @@ fn maps_captured_effort_and_output() {
         frozen.request_param::<String>("prompt_cache_key"),
         Some(owner.to_string())
     );
-    provider.binding = Some(sailry_protocol::conversation::presets::Binding {
+    provider.binding = Some(Box::new(sailry_protocol::conversation::presets::Binding {
         policies: vec![sailry_protocol::conversation::presets::RequestPolicy {
             models: vec![session.model.clone()],
             reasoning_replay: None,
@@ -481,7 +481,7 @@ fn maps_captured_effort_and_output() {
                 .clone(),
         }],
         ..Default::default()
-    });
+    }));
     assert_eq!(
         config(&provider, &session, owner).request_param::<String>("prompt_cache_key"),
         Some("captured-policy".into())
