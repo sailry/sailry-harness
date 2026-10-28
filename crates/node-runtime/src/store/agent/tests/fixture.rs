@@ -1,6 +1,10 @@
 use super::super::*;
 use super::command;
 
+mod records;
+
+pub(in crate::store::agent) use records::{message, record, request, response};
+
 pub(in crate::store::agent) struct Fixture {
     pub database: Database,
     pub events: broadcast::Sender<EventEnvelope>,
