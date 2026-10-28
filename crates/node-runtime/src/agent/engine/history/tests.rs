@@ -98,22 +98,43 @@ async fn preserves_mcp_blocks() {
 }
 
 #[tokio::test]
-async fn preserves_explicit_mcp_success() {
+async fn preserves_result_flags() {
     let (_database, db) = database().await;
-    let mut result = CallToolResult::structured(serde_json::Value::Null);
-    result.is_error = Some(false);
-    result.meta = Some(serde_json::from_value(json!({"opaque":null})).unwrap());
-    let message = gdk::Message::user()
-        .with_generated_id()
-        .with_tool_response("call", Ok(result));
-    let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
-        .await
-        .unwrap();
-    let BlockKind::ToolResponse(response) = &record.message().unwrap().content[0].kind else {
-        unreachable!()
-    };
-    assert_eq!(response.format, ToolFormat::Mcp);
-    assert_eq!(project(&db, &record).await.unwrap().unwrap(), message);
+    for (is_error, result_type, format) in [
+        (Some(false), true, ToolFormat::Json),
+        (None, true, ToolFormat::Mcp),
+        (Some(false), false, ToolFormat::Mcp),
+        (Some(true), true, ToolFormat::Mcp),
+    ] {
+        let mut result = CallToolResult::structured(serde_json::Value::Null);
+        result.is_error = is_error;
+        if !result_type {
+            result.result_type = None;
+        }
+        result.meta = Some(serde_json::from_value(json!({"opaque":null})).unwrap());
+        let message = gdk::Message::user()
+            .with_generated_id()
+            .with_tool_response("call", Ok(result));
+        let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
+            .await
+            .unwrap();
+        let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+        let BlockKind::ToolResponse(response) = &stored.message().unwrap().content[0].kind else {
+            unreachable!()
+        };
+        assert_eq!(response.format, format);
+        if format == ToolFormat::Json {
+            assert_eq!(
+                blobs::hydrate(&db, &response.result).await.unwrap(),
+                Value::Null
+            );
+            assert_eq!(
+                response.meta,
+                Some(serde_json::from_value(json!({"opaque":null})).unwrap())
+            );
+        }
+        assert_eq!(project(&db, &stored).await.unwrap().unwrap(), message);
+    }
 }
 
 #[tokio::test]

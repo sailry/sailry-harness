@@ -121,10 +121,12 @@ pub(crate) async fn capture(
                             ToolStatus::Success
                         };
                         if let Some(value) = &result.structured_content
-                            && result.is_error.is_none()
-                            && result.content == CallToolResult::structured(value.clone()).content
-                            && result.result_type
-                                == CallToolResult::structured(value.clone()).result_type
+                            && {
+                                let plain = CallToolResult::structured(value.clone());
+                                result.is_error == plain.is_error
+                                    && result.content == plain.content
+                                    && result.result_type == plain.result_type
+                            }
                         {
                             (
                                 value.clone(),
