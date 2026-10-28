@@ -73,7 +73,7 @@ async fn create(
     ).await
     .map_err(storage_error)?;
     crate::store::media::freeze(db, session.id, Some(source)).await?;
-    // Membership is structural metadata. Native ADK events, usage and approvals are not copied.
+    // Membership is structural metadata. History records, usage and approvals are not copied.
     db.execute(
         "INSERT INTO conversation_turns(session,turn)
          SELECT ?1,h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn

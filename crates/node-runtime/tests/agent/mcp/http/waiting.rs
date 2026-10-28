@@ -52,7 +52,7 @@ async fn rejects_decisions_after_timeout() {
         assert!(approval.can_remember);
         continued(&model).await;
 
-        // ADK has denied this call, but the following model response is still held.
+        // The SDK has denied this call, but the following model response is still held.
         let page = crate::approvals::rules::observe(&fixture.client, fixture.session.id, |page| {
             page.approvals
                 .iter()
