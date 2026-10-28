@@ -434,18 +434,17 @@ export async function echo(input) {
         }
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].0.as_deref(), Some("call-fixture-0"));
-        assert!(adk_core::invalid_tool_arguments_reason(&calls[0].1).is_some());
-        assert_eq!(calls[0].1[adk_core::INVALID_TOOL_ARGUMENTS_KEY]["raw"], "{");
+        assert_eq!(calls[0].1, serde_json::Value::Null);
         assert_eq!(calls[1].0.as_deref(), Some("call-fixture-1"));
         assert_eq!(calls[1].1, json!({"query":"corrected"}));
-        assert!(calls.iter().all(|(_, arguments)| arguments.is_object()));
+        assert!(calls[1].1.is_object());
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].0.as_deref(), Some("call-fixture-0"));
         assert!(
-            results[0].1["error"]
+            results[0].1["message"]
                 .as_str()
                 .unwrap()
-                .starts_with(&format!("tool '{name}' was not run:"))
+                .contains("tool arguments must be a JSON object")
         );
         assert_eq!(results[1].0.as_deref(), Some("call-fixture-1"));
         assert!(
@@ -489,7 +488,7 @@ export async function echo(input) {
                 tools[0]["content"]
                     .as_str()
                     .unwrap()
-                    .contains("was not run")
+                    .contains("tool arguments must be a JSON object")
             );
             assert!(requests[2].to_string().contains("corrected"));
         }

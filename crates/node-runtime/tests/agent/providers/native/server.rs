@@ -242,7 +242,7 @@ async fn respond(
     match api {
         ModelApi::Responses => {
             assert!(matches!(reply, Reply::Text | Reply::Tool));
-            for event in response_events(tool, false) {
+            for event in response_events(tool, false, index) {
                 event_bytes(&mut stream, format!("data: {event}\n\n")).await?;
             }
         }
@@ -261,10 +261,10 @@ async fn respond(
                 json!({"prompt_tokens":8,"completion_tokens":4,"total_tokens":12})
             };
             let separate_usage = matches!(api, ModelApi::AzureAi | ModelApi::AzureOpenAi);
-            let event = json!({"id":"fixture", "object":"chat.completion.chunk", "created":0, "model":"fixture-a", "choices":[{"index":0,"delta":delta,"finish_reason":if tool {"tool_calls"} else {"stop"}}], "usage":if separate_usage { json!(null) } else { usage.clone() }});
+            let event = json!({"id":format!("fixture-{index}"), "object":"chat.completion.chunk", "created":0, "model":"fixture-a", "choices":[{"index":0,"delta":delta,"finish_reason":if tool {"tool_calls"} else {"stop"}}], "usage":if separate_usage { json!(null) } else { usage.clone() }});
             event_bytes(&mut stream, format!("data: {event}\n\n")).await?;
             if separate_usage {
-                let event = json!({"id":"fixture", "object":"chat.completion.chunk", "created":0, "model":"fixture-a", "choices":[], "usage":usage});
+                let event = json!({"id":format!("fixture-{index}"), "object":"chat.completion.chunk", "created":0, "model":"fixture-a", "choices":[], "usage":usage});
                 event_bytes(&mut stream, format!("data: {event}\n\n")).await?;
             }
             event_bytes(&mut stream, "data: [DONE]\n\n".into()).await?;
@@ -288,7 +288,7 @@ async fn respond(
             for (name, event) in [
                 (
                     "message_start",
-                    json!({"type":"message_start", "message":{"id":"native-answer", "type":"message", "role":"assistant", "model":"fixture-a", "content":[], "stop_reason":null, "stop_sequence":null, "usage":usage}}),
+                    json!({"type":"message_start", "message":{"id":format!("native-answer-{index}"), "type":"message", "role":"assistant", "model":"fixture-a", "content":[], "stop_reason":null, "stop_sequence":null, "usage":usage}}),
                 ),
                 (
                     "content_block_start",
@@ -333,25 +333,28 @@ async fn respond(
     stream.shutdown().await
 }
 
-pub(super) fn response_events(tool: bool, streaming: bool) -> Vec<serde_json::Value> {
+fn response_events(tool: bool, streaming: bool, index: usize) -> Vec<serde_json::Value> {
     let output = if tool {
         json!([
             {"type":"reasoning", "id":"reasoning", "summary":[{"type":"summary_text","text":"Read the file"}],"encrypted_content":"fixture-encrypted-reasoning"},
             {"type":"function_call", "id":"read-item", "call_id":"native-call", "name":plugin_tool("files","read_file"), "arguments":"{\"path\":\"native.txt\"}", "status":"completed"}
         ])
     } else {
-        json!([{"type":"message", "id":"native-answer", "role":"assistant","status":"completed", "content":[{"type":"output_text","text":ANSWER, "annotations":[]}]}])
+        json!([{"type":"message", "id":format!("native-answer-{index}"), "role":"assistant","status":"completed", "content":[{"type":"output_text","text":ANSWER, "annotations":[]}]}])
     };
-    let mut events = Vec::new();
+    let id = format!("native-response-{index}");
+    let mut events = vec![
+        json!({"type":"response.created", "sequence_number":0, "response":{"id":id, "object":"response", "created_at":0,"model":"fixture-a", "status":"in_progress", "output":[]}}),
+    ];
     if streaming {
-        events.push(text_delta(ANSWER));
+        events.push(text_delta(ANSWER, index));
     }
-    events.push(json!({"type":"response.completed", "sequence_number":1,"response":{"id":"native-response", "object":"response", "created_at":0,"model":"fixture-a", "status":"completed", "output":output}}));
+    events.push(json!({"type":"response.completed", "sequence_number":2,"response":{"id":id, "object":"response", "created_at":0,"model":"fixture-a", "status":"completed", "output":output}}));
     events
 }
 
-fn text_delta(text: &str) -> serde_json::Value {
-    json!({"type":"response.output_text.delta", "sequence_number":0, "item_id":"native-answer", "output_index":0, "content_index":0, "delta":text, "logprobs":[]})
+fn text_delta(text: &str, index: usize) -> serde_json::Value {
+    json!({"type":"response.output_text.delta", "sequence_number":1, "item_id":format!("native-answer-{index}"), "output_index":0, "content_index":0, "delta":text, "logprobs":[]})
 }
 
 async fn event_bytes(stream: &mut TcpStream, event: String) -> std::io::Result<()> {

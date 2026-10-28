@@ -1,121 +1,115 @@
 use super::*;
-use adk_core::{Content, FunctionResponseData, InlineDataPart, Llm, LlmRequest, Part as AdkPart};
-use adk_model::openai::{OpenAIResponsesClient, OpenAIResponsesConfig};
-use adk_model::{OpenAICompatible, OpenAICompatibleConfig, ReasoningReplayField};
-use futures::StreamExt;
+use goose_provider_types::{
+    base::{Provider, collect_stream},
+    conversation::message::Message,
+    model::ModelConfig,
+};
+use goose_providers::{
+    api_client::{ApiClient, AuthMethod},
+    openai::OpenAiProviderBuilder,
+    openai_compatible::OpenAiCompatibleProvider,
+};
+use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 use serde_json::json;
 
 #[tokio::test]
 async fn preserves_parallel_image_results() {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
         let server = Server::start(api, Reply::Text).await;
-        let model: Arc<dyn Llm> = if api == ModelApi::ChatCompletions {
-            Arc::new(
-                OpenAICompatible::new(
-                    OpenAICompatibleConfig::new(server::KEY, "fixture-a")
-                        .with_base_url(&server.endpoint),
-                )
-                .unwrap()
-                .with_reasoning_replay_field(ReasoningReplayField::ReasoningContent),
-            )
+        let client = ApiClient::new_with_tls(
+            server.endpoint.trim_end_matches("/v1").to_owned(),
+            AuthMethod::BearerToken(server::KEY.into()),
+            None,
+        )
+        .unwrap();
+        let provider: Arc<dyn Provider> = if api == ModelApi::ChatCompletions {
+            Arc::new(OpenAiCompatibleProvider::new(
+                "deepseek".into(),
+                client,
+                "v1/".into(),
+            ))
         } else {
             Arc::new(
-                OpenAIResponsesClient::new(
-                    OpenAIResponsesConfig::new(server::KEY, "fixture-a")
-                        .with_base_url(&server.endpoint),
-                )
-                .unwrap(),
+                OpenAiProviderBuilder::new(client)
+                    .base_path("v1/responses")
+                    .build(),
             )
         };
-        let mut calls = Content::new("assistant");
-        for id in ["capture", "read"] {
-            calls.parts.push(AdkPart::FunctionCall {
-                id: Some(id.into()),
-                name: id.into(),
-                args: json!({}),
-                thought_signature: None,
-            });
-        }
-        let response = |name: &str, images: Vec<InlineDataPart>| Content {
-            role: "tool".into(),
-            parts: vec![AdkPart::FunctionResponse {
-                id: Some(name.into()),
-                function_response: FunctionResponseData::with_inline_data(
-                    name,
-                    json!({"ok":true}),
-                    images,
-                ),
-                annotations: None,
-            }],
-        };
-        let image = InlineDataPart {
-            mime_type: "image/png".into(),
-            data: vec![1, 2, 3],
-            uri: None,
-            annotations: None,
+        let calls = Message::assistant()
+            .with_tool_request("capture", Ok(CallToolRequestParams::new("capture")))
+            .with_tool_request("read", Ok(CallToolRequestParams::new("read")));
+        let response = |id: &str, image: bool| {
+            let mut result = CallToolResult::structured(json!({"ok":true}));
+            if image {
+                result
+                    .content
+                    .push(ContentBlock::image("AQID", "image/png"));
+            }
+            Message::user().with_tool_response(id, Ok(result))
         };
         let contents = vec![
-            Content::new("user").with_text("Inspect the tool images"),
+            Message::user().with_text("Inspect the tool images"),
             calls,
-            response("capture", vec![image]),
-            response("read", vec![]),
-            Content::new("assistant")
-                .with_thinking("Both tools completed")
+            response("capture", true),
+            response("read", false),
+            Message::assistant()
+                .with_thinking("Both tools completed", "")
                 .with_text("Observed"),
-            Content::new("user").with_text("Continue"),
+            Message::user().with_text("Continue"),
         ];
         let canonical = serde_json::to_value(&contents).unwrap();
-        let mut stream = model
-            .generate_content(LlmRequest::new("fixture-a", contents.clone()), true)
+        let config = ModelConfig::new("fixture-a").with_vision_support(true);
+        collect_stream(provider.stream(&config, "", &contents, &[]).await.unwrap())
             .await
             .unwrap();
-        while let Some(response) = stream.next().await {
-            response.unwrap();
-        }
         assert_eq!(serde_json::to_value(&contents).unwrap(), canonical);
         let requests = server.requests.lock().unwrap();
         let body = &requests[0].body;
         if api == ModelApi::ChatCompletions {
             let messages = body["messages"].as_array().unwrap();
-            assert_eq!(messages[2]["tool_call_id"], "capture");
-            assert_eq!(messages[3]["tool_call_id"], "read");
-            assert_eq!(messages[4]["role"], "user");
-            assert_eq!(
-                messages[4]["content"][1]["image_url"]["url"],
-                "data:image/png;base64,AQID"
-            );
-            assert!(
-                messages[4]["content"][0]["text"]
-                    .as_str()
-                    .unwrap()
-                    .contains("capture")
-            );
-            assert_eq!(messages[5]["reasoning_content"], "Both tools completed");
-            assert!(messages[4].get("reasoning_content").is_none());
-            assert_eq!(messages[6]["content"], "Continue");
-        } else {
-            let input = body["input"].as_array().unwrap();
-            let tools: Vec<_> = input
+            let outputs: Vec<_> = messages
                 .iter()
-                .enumerate()
-                .filter(|(_, item)| item["type"] == "function_call_output")
+                .filter(|message| message["role"] == "tool")
                 .collect();
-            assert_eq!(tools.len(), 2);
-            assert_eq!(tools[0].1["call_id"], "capture");
-            assert_eq!(tools[1].1["call_id"], "read");
-            let (index, image) = input
+            assert_eq!(outputs.len(), 2);
+            assert_eq!(outputs[0]["tool_call_id"], "capture");
+            assert_eq!(outputs[1]["tool_call_id"], "read");
+            assert!(
+                outputs
+                    .iter()
+                    .all(|output| output["content"].as_str().unwrap().contains("true"))
+            );
+            assert!(messages.iter().any(|message| {
+                message["role"] == "user"
+                    && message["content"]
+                        .to_string()
+                        .contains("data:image/png;base64,AQID")
+            }));
+            let observed = messages
                 .iter()
-                .enumerate()
-                .find_map(|(index, item)| {
-                    item["content"]
-                        .as_array()?
-                        .iter()
-                        .find(|part| part["type"] == "input_image")
-                        .map(|image| (index, image))
-                })
+                .find(|message| message["content"] == "Observed")
                 .unwrap();
-            assert!(index > tools[1].0);
-            assert_eq!(image["image_url"], "data:image/png;base64,AQID");
+            assert_eq!(observed["reasoning_content"], "Both tools completed");
+            assert_eq!(messages.last().unwrap()["content"], "Continue");
+        } else {
+            let outputs: Vec<_> = body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["type"] == "function_call_output")
+                .collect();
+            assert_eq!(outputs.len(), 2);
+            assert_eq!(outputs[0]["call_id"], "capture");
+            assert_eq!(outputs[1]["call_id"], "read");
+            assert!(
+                outputs[0]["output"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|part| part["type"] == "input_image"
+                        && part["image_url"] == "data:image/png;base64,AQID")
+            );
+            assert!(!outputs[1]["output"].to_string().contains("input_image"));
         }
     }
 }

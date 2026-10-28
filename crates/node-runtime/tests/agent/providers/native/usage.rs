@@ -28,15 +28,22 @@ async fn normalizes_cache_and_thoughts() {
             fixture.node.shutdown().await.unwrap();
             let (database, db) =
                 crate::database_fixture::open(&profile.join("storage/node.turso"), true).await;
-            let native: String = db.prepare(
-                "SELECT json_extract(body,'$.usage.provider') FROM agent_events WHERE json_type(body,'$.usage.provider')='object'",
-            ).await.unwrap().query_row(()).await.unwrap().get(0).unwrap();
-            let native: serde_json::Value = serde_json::from_str(&native).unwrap();
-            assert_eq!(native["model"], "fixture-a");
-            assert_eq!(native["usage"]["input_tokens"], 16);
-            assert_eq!(native["usage"]["output_tokens"], 4);
+            let body: Vec<u8> = db
+                .prepare("SELECT body FROM agent_events WHERE json_type(body,'$.usage')='object'")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get(0)
+                .unwrap();
+            let record: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(record["model"], "fixture-a");
+            let usage = &record["usage"];
+            assert_eq!(usage["input"], 16);
+            assert_eq!(usage["output"], 4);
             assert_eq!(
-                native["usage"]["cache_read_input_tokens"],
+                usage["cache_read"],
                 if api == ModelApi::DeepSeek {
                     serde_json::Value::Null
                 } else {
@@ -44,8 +51,10 @@ async fn normalizes_cache_and_thoughts() {
                 }
             );
             if api == ModelApi::Anthropic {
-                assert_eq!(native["usage"]["cache_write_input_tokens"], 2);
+                assert_eq!(usage["cache_write"], 2);
             }
+            assert_eq!(usage["reasoning"], serde_json::Value::Null);
+            assert!(record["metadata"]["execution"]["timing"]["elapsed_us"].is_u64());
             drop(db);
             drop(database);
             let node = Node::start_empty(profile).await.unwrap();

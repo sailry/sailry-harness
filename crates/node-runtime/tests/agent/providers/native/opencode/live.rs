@@ -4,14 +4,18 @@ use super::*;
 #[tokio::test]
 #[ignore = "requires explicit permission and incurs one real model request"]
 async fn probes_one_request_without_tools() {
-    use adk_core::{Content, GenerateContentConfig, Llm, LlmRequest};
-    use adk_model::{
-        openai::OpenAIReasoningEffort,
-        opencode::{OpenCodeClient, OpenCodeConfig, OpenCodeService},
-        retry::RetryConfig,
+    use goose_provider_types::{
+        base::{Provider, collect_stream},
+        conversation::message::Message,
+        model::ModelConfig,
     };
-    use futures::StreamExt;
-
+    struct Key(String);
+    impl goose_providers::declarative::KeyResolver for Key {
+        type Error = std::convert::Infallible;
+        fn resolve_key(&self, _: &str) -> Result<String, Self::Error> {
+            Ok(self.0.clone())
+        }
+    }
     const MODEL: &str = "deepseek-v4.1-flash";
     let (provider, secret) = provider_fixture::load(MODEL);
     assert_eq!(provider.api, ModelApi::OpenCodeGo);
@@ -19,36 +23,30 @@ async fn probes_one_request_without_tools() {
         provider.endpoint.trim_end_matches('/'),
         "https://opencode.ai/zen/go/v1"
     );
-    let config = OpenCodeConfig::new(OpenCodeService::Go, secret.expose(), MODEL)
-        .with_base_url(&provider.endpoint)
-        .with_session_id(uuid::Uuid::new_v4().to_string())
-        .with_user_agent(concat!("Sailry/", env!("CARGO_PKG_VERSION")))
-        .with_reasoning_effort(OpenAIReasoningEffort::Max)
-        .with_retry_config(RetryConfig::disabled());
-    let model = OpenCodeClient::new(config).expect("valid isolated configuration required");
-    let mut request = LlmRequest::new(MODEL, vec![Content::new("user").with_text("Reply with OK")]);
-    request.config = Some(GenerateContentConfig {
-        max_output_tokens: Some(128),
-        ..Default::default()
-    });
-    assert!(request.tools.is_empty());
+    let mut definition = goose_providers::declarative::fixed_provider_configs()
+        .unwrap()
+        .into_iter()
+        .find(|config| config.name == "opencode_go")
+        .unwrap();
+    definition.base_url = provider.endpoint;
+    let model = goose_providers::openai::from_declarative_config(
+        definition,
+        None,
+        Key(secret.expose().to_owned()),
+    )
+    .unwrap()
+    .build();
+    let config = ModelConfig::new(MODEL).with_max_tokens(Some(128));
+    let contents = [Message::user().with_text("Reply with OK")];
     let result = tokio::time::timeout(Duration::from_secs(120), async {
-        let mut stream = model.generate_content(request, true).await?;
-        let mut responses = 0;
-        while let Some(response) = stream.next().await {
-            response?;
-            responses += 1;
-        }
-        Ok::<_, adk_core::AdkError>(responses)
+        let stream = model.stream(&config, "", &contents, &[]).await?;
+        collect_stream(stream).await
     })
     .await;
     match result {
-        Ok(Ok(responses)) => println!("Single request completed: {responses} stream responses"),
-        Ok(Err(error)) => panic!(
-            "Single request failed: code={}, HTTP={:?}, category={}",
-            error.code, error.details.upstream_status_code, error.category
-        ),
-        Err(_) => panic!("Single request timed out without retry"),
+        Ok(Ok((message, _))) => assert!(!message.as_concat_text().is_empty()),
+        Ok(Err(_)) => panic!("GDK model request failed"),
+        Err(_) => panic!("GDK model request timed out"),
     }
 }
 
