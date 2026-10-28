@@ -47,7 +47,7 @@ async fn responses_use_sse_and_stable_calls() {
     let session = SessionId::new();
     let provider = provider(
         ModelApi::Responses,
-        format!("{}/gateway/v1?route=captured", server.endpoint),
+        format!("{}/gateway/v1", server.endpoint),
     );
     let native = native(
         &registry,
@@ -110,7 +110,7 @@ async fn responses_use_sse_and_stable_calls() {
     .unwrap();
     let requests = server.finish().await;
     for request in &requests {
-        assert_eq!(request.path, "/gateway/v1/responses?route=captured");
+        assert_eq!(request.path, "/gateway/v1/responses");
         assert_eq!(request.headers["authorization"], "Bearer captured-key");
         assert_eq!(request.headers["content-type"], "application/json");
         assert_eq!(request.body["stream"], true);

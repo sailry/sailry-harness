@@ -15,8 +15,8 @@ pub(super) fn headers(request: &str) {
             .find(|(name, _)| name.eq_ignore_ascii_case(key))
             .map(|(_, value)| value.trim())
     };
-    assert_eq!(field("accept"), Some("text/event-stream"));
-    assert_eq!(field("cache-control"), Some("no-cache"));
+    assert_eq!(field("content-type"), Some("application/json"));
+    assert!(field("upgrade").is_none());
 }
 
 pub(super) async fn respond(

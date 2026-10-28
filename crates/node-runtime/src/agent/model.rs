@@ -74,6 +74,11 @@ pub(super) async fn binding(
     let model_config = factory::config(provider, config);
     let inner: Arc<dyn GdkProvider> = if provider.api == ModelApi::Plugin {
         Arc::new(plugin::Model::new(ingress, provider, config, session, stop).await?)
+    } else if provider.authentication == Authentication::ChatGpt {
+        return Err(Fault::new(
+            ErrorCode::NotConfigured,
+            "GDK does not support this ChatGPT authorization endpoint",
+        ));
     } else if provider.authentication == Authentication::ApiKey {
         let credential = match &config.credential {
             Some(reference) => Some(
