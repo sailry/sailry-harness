@@ -36,40 +36,41 @@ pub(super) fn extend(module: HostModule, stop: CancellationToken, cx: &mut App) 
         if shortcuts.len() > 32 {
             return Err(HostError::new("plugin shortcut limit exceeded"));
         }
-        let parsed = shortcuts
-            .into_iter()
-            .map(|shortcut| {
-                if shortcut.action.trim().is_empty()
-                    || shortcut.action.len() > 128
-                    || !crate::shortcuts::valid(&shortcut.keystroke)
-                    || shortcut.keystroke.is_empty()
-                {
-                    return Err(HostError::new("invalid plugin shortcut"));
-                }
-                let predicate = match shortcut.context {
-                    Some(relative) if !relative.trim().is_empty() && relative.len() <= 256 => {
-                        format!("{context} > ({relative})")
-                    }
-                    Some(_) => return Err(HostError::new("invalid plugin shortcut context")),
-                    None => context.clone(),
-                };
-                let predicate = KeyBindingContextPredicate::parse(&predicate)
-                    .map_err(|_| HostError::new("invalid plugin shortcut context"))?;
-                KeyBinding::load(
-                    &shortcut.keystroke,
-                    Box::new(ShellAction::new(shortcut.action)),
-                    Some(predicate.into()),
-                    false,
-                    None,
-                    &DummyKeyboardMapper,
-                )
-                .map_err(|_| HostError::new("invalid plugin shortcut"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         gpui_shell::with_current_app(|cx| {
-            bindings.update(cx, |bindings, cx| bindings.replace(parsed, cx))
+            let parsed = shortcuts
+                .into_iter()
+                .map(|shortcut| {
+                    if shortcut.action.trim().is_empty()
+                        || shortcut.action.len() > 128
+                        || !crate::shortcuts::valid(&shortcut.keystroke, cx.platform_info().os)
+                        || shortcut.keystroke.is_empty()
+                    {
+                        return Err(HostError::new("invalid plugin shortcut"));
+                    }
+                    let predicate = match shortcut.context {
+                        Some(relative) if !relative.trim().is_empty() && relative.len() <= 256 => {
+                            format!("{context} > ({relative})")
+                        }
+                        Some(_) => return Err(HostError::new("invalid plugin shortcut context")),
+                        None => context.clone(),
+                    };
+                    let predicate = KeyBindingContextPredicate::parse(&predicate)
+                        .map_err(|_| HostError::new("invalid plugin shortcut context"))?;
+                    KeyBinding::load(
+                        &shortcut.keystroke,
+                        Box::new(ShellAction::new(shortcut.action)),
+                        Some(predicate.into()),
+                        false,
+                        None,
+                        cx,
+                    )
+                    .map_err(|_| HostError::new("invalid plugin shortcut"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            bindings.update(cx, |bindings, cx| bindings.replace(parsed, cx));
+            Ok::<_, HostError>(())
         })
-        .ok_or_else(|| HostError::new("shortcuts require an active view"))?;
+        .ok_or_else(|| HostError::new("shortcuts require an active view"))??;
         Ok(HostValue::from(context.clone()))
     })
 }

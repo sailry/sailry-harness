@@ -19,11 +19,71 @@ actions!(
 pub(super) fn init(cx: &mut App) {
     // Shared editor/tree conventions, not configurable plugin commands.
     cx.bind_keys([
-        KeyBinding::new("secondary-s", SaveFile, Some("FileEditor")),
-        KeyBinding::new("secondary-c", CopySelection, Some("FileTree > Tree")),
-        KeyBinding::new("secondary-x", CutSelection, Some("FileTree > Tree")),
-        KeyBinding::new("secondary-v", PasteSelection, Some("FileTree > Tree")),
-        KeyBinding::new("secondary-a", SelectFiles, Some("FileTree > Tree")),
+        KeyBinding::load(
+            "secondary-s",
+            Box::new(SaveFile),
+            Some(
+                KeyBindingContextPredicate::parse("FileEditor")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-c",
+            Box::new(CopySelection),
+            Some(
+                KeyBindingContextPredicate::parse("FileTree > Tree")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-x",
+            Box::new(CutSelection),
+            Some(
+                KeyBindingContextPredicate::parse("FileTree > Tree")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-v",
+            Box::new(PasteSelection),
+            Some(
+                KeyBindingContextPredicate::parse("FileTree > Tree")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-a",
+            Box::new(SelectFiles),
+            Some(
+                KeyBindingContextPredicate::parse("FileTree > Tree")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
         KeyBinding::new("shift-up", ExtendFilesUp, Some("FileTree > Tree")),
         KeyBinding::new("shift-down", ExtendFilesDown, Some("FileTree > Tree")),
         KeyBinding::new("f2", RenameSelection, Some("FileTree > Tree")),

@@ -222,7 +222,11 @@ impl Shell {
                                                     .flat_map(|key| {
                                                         key.split_whitespace()
                                                             .filter_map(|part| {
-                                                                Keystroke::parse(part).ok()
+                                                                Keystroke::parse_with_os(
+                                                                    part,
+                                                                    cx.platform_info().os,
+                                                                )
+                                                                .ok()
                                                             })
                                                             .map(Kbd::new)
                                                             .collect::<Vec<_>>()

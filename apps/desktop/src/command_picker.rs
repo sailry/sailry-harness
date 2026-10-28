@@ -72,7 +72,7 @@ pub(crate) fn intercept<D: ListDelegate>(
             } else {
                 state
                     .delegate_mut()
-                    .confirm(event.keystroke.modifiers.secondary(), window, cx);
+                    .confirm(event.keystroke.modifiers.secondary(cx), window, cx);
             }
         });
         cx.stop_propagation();

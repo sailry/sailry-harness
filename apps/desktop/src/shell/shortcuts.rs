@@ -17,22 +17,99 @@ pub(crate) fn init(cx: &mut App) {
     crate::resources::init(cx);
     crate::terminal::init(cx);
     cx.bind_keys([
-        KeyBinding::new("secondary-q", Quit, None),
-        KeyBinding::new("secondary-,", OpenPage(Page::Settings), Some("Sailry")),
-        KeyBinding::new("secondary-w", CloseFocused, Some("WorkspacePane")),
-        KeyBinding::new("secondary-w", CloseFocused, Some("ResourcePanel")),
-        KeyBinding::new("secondary-w", CloseFocused, Some("SailryTerminal")),
-        KeyBinding::new("secondary-f", FindConversation, Some("SailryConversation")),
-        KeyBinding::new(
+        KeyBinding::load("secondary-q", Box::new(Quit), None, false, None, cx)
+            .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-,",
+            Box::new(OpenPage(Page::Settings)),
+            Some(
+                KeyBindingContextPredicate::parse("Sailry")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-w",
+            Box::new(CloseFocused),
+            Some(
+                KeyBindingContextPredicate::parse("WorkspacePane")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-w",
+            Box::new(CloseFocused),
+            Some(
+                KeyBindingContextPredicate::parse("ResourcePanel")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-w",
+            Box::new(CloseFocused),
+            Some(
+                KeyBindingContextPredicate::parse("SailryTerminal")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
             "secondary-f",
-            FindConversation,
-            Some("LiveConversation > Input"),
-        ),
-        KeyBinding::new(
+            Box::new(FindConversation),
+            Some(
+                KeyBindingContextPredicate::parse("SailryConversation")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
             "secondary-f",
-            FindConversation,
-            Some("ConversationSearch > Input"),
-        ),
+            Box::new(FindConversation),
+            Some(
+                KeyBindingContextPredicate::parse("LiveConversation > Input")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-f",
+            Box::new(FindConversation),
+            Some(
+                KeyBindingContextPredicate::parse("ConversationSearch > Input")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
     ]);
 }
 

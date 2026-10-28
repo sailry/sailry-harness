@@ -1,7 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 
-fn down(key: &str, text: Option<&str>) -> KeyDownEvent {
+fn down(key: &'static str, text: Option<&str>) -> KeyDownEvent {
     KeyDownEvent {
         keystroke: Keystroke {
             key_char: text.map(str::to_owned),

@@ -170,7 +170,7 @@ pub(crate) fn open(
                     }
                     list.update(cx, |list, cx| {
                         list.delegate_mut().confirm(
-                            event.keystroke.modifiers.secondary(),
+                            event.keystroke.modifiers.secondary(cx),
                             window,
                             cx,
                         )

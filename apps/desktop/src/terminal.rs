@@ -49,16 +49,84 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new(copy, Copy, Some("SailryTerminal")),
         KeyBinding::new(paste, Paste, Some("SailryTerminal")),
         KeyBinding::new(select, SelectAll, Some("SailryTerminal")),
-        KeyBinding::new("secondary-f", Find, Some("SailryTerminal")),
-        KeyBinding::new("secondary-f", Find, Some("TerminalSearch > Input")),
-        KeyBinding::new("secondary-g", Next, Some("SailryTerminal")),
-        KeyBinding::new("secondary-g", Next, Some("TerminalSearch > Input")),
-        KeyBinding::new("secondary-shift-g", Previous, Some("SailryTerminal")),
-        KeyBinding::new(
+        KeyBinding::load(
+            "secondary-f",
+            Box::new(Find),
+            Some(
+                KeyBindingContextPredicate::parse("SailryTerminal")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-f",
+            Box::new(Find),
+            Some(
+                KeyBindingContextPredicate::parse("TerminalSearch > Input")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-g",
+            Box::new(Next),
+            Some(
+                KeyBindingContextPredicate::parse("SailryTerminal")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-g",
+            Box::new(Next),
+            Some(
+                KeyBindingContextPredicate::parse("TerminalSearch > Input")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
             "secondary-shift-g",
-            Previous,
-            Some("TerminalSearch > Input"),
-        ),
+            Box::new(Previous),
+            Some(
+                KeyBindingContextPredicate::parse("SailryTerminal")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
+        KeyBinding::load(
+            "secondary-shift-g",
+            Box::new(Previous),
+            Some(
+                KeyBindingContextPredicate::parse("TerminalSearch > Input")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut"),
         KeyBinding::new("escape", Close, Some("TerminalSearch > Input")),
     ]);
 }

@@ -10,11 +10,19 @@ pub(super) fn init(cx: &mut App) {
         .next()
         .is_none()
     {
-        cx.bind_keys([KeyBinding::new(
+        cx.bind_keys([KeyBinding::load(
             "secondary-shift-i",
-            inspector::Inspect,
-            Some("SailryBrowser"),
-        )]);
+            Box::new(inspector::Inspect),
+            Some(
+                KeyBindingContextPredicate::parse("SailryBrowser")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut")]);
     }
 }
 

@@ -23,6 +23,7 @@ impl Registry {
         key: &str,
         contexts: &[Option<&str>],
         action: A,
+        cx: &App,
     ) {
         assert!(
             !self.0.iter().any(|entry| entry.id == id),
@@ -35,7 +36,21 @@ impl Registry {
             default_key: key.into(),
             bindings: contexts
                 .iter()
-                .map(|context| KeyBinding::new(key, action.clone(), *context))
+                .map(|context| {
+                    KeyBinding::load(
+                        key,
+                        Box::new(action.clone()),
+                        context.map(|context| {
+                            KeyBindingContextPredicate::parse(context)
+                                .expect("static shortcut context")
+                                .into()
+                        }),
+                        false,
+                        None,
+                        cx,
+                    )
+                    .expect("static shortcut")
+                })
                 .collect(),
         });
     }
@@ -52,6 +67,7 @@ pub(crate) fn init(cx: &mut App) {
         "secondary-k",
         &[None],
         shell::Search,
+        cx,
     );
     registry.add(
         "sidebar.toggle",
@@ -59,6 +75,7 @@ pub(crate) fn init(cx: &mut App) {
         "secondary-b",
         &[None],
         shell::ToggleSidebar,
+        cx,
     );
     registry.add(
         "panel.toggle",
@@ -66,6 +83,7 @@ pub(crate) fn init(cx: &mut App) {
         "secondary-shift-b",
         &[Some("Sailry")],
         shell::ToggleDetails,
+        cx,
     );
     registry.add(
         "host.refresh",
@@ -73,6 +91,7 @@ pub(crate) fn init(cx: &mut App) {
         "secondary-r",
         &[Some("Sailry")],
         RefreshHost,
+        cx,
     );
     registry.add(
         "system.activate",
@@ -80,6 +99,7 @@ pub(crate) fn init(cx: &mut App) {
         "secondary-alt-space",
         &[],
         shell::Search,
+        cx,
     );
     registry.add(
         "system.selection",
@@ -87,11 +107,12 @@ pub(crate) fn init(cx: &mut App) {
         "secondary-alt-s",
         &[],
         shell::Search,
+        cx,
     );
     let overrides = crate::preferences::data(cx).shortcuts.unwrap_or_default();
     for entry in &mut registry.0 {
         if let Some(key) = overrides.get(entry.id)
-            && valid(key)
+            && valid(key, cx.platform_info().os)
             && !fixed_conflict(key, cx)
         {
             entry.key = key.clone();
@@ -124,7 +145,7 @@ fn apply(cx: &mut App) {
                     binding.predicate(),
                     false,
                     None,
-                    &DummyKeyboardMapper,
+                    cx,
                 )
                 .expect("validated shortcut")
                 .with_meta(OWNED),
@@ -141,12 +162,12 @@ fn apply(cx: &mut App) {
     cx.refresh_windows();
 }
 
-pub(crate) fn valid(key: &str) -> bool {
+pub(crate) fn valid(key: &str, os: OperatingSystem) -> bool {
     key.is_empty()
         || (key.split_whitespace().count() <= 2
             && key
                 .split_whitespace()
-                .all(|part| Keystroke::parse(part).is_ok())
+                .all(|part| Keystroke::parse_with_os(part, os).is_ok())
             && !key.trim().is_empty())
 }
 
@@ -164,7 +185,7 @@ pub(crate) fn save(id: &str, key: Option<&str>, cx: &mut App) -> Result<(), &'st
         return Err("shortcut_unavailable");
     };
     let candidate = key.unwrap_or(&entry.default_key).trim().to_lowercase();
-    if !valid(&candidate) {
+    if !valid(&candidate, cx.platform_info().os) {
         return Err("shortcut_invalid");
     }
     if fixed_conflict(&candidate, cx) {
@@ -172,7 +193,7 @@ pub(crate) fn save(id: &str, key: Option<&str>, cx: &mut App) -> Result<(), &'st
     }
     let parsed = candidate
         .split_whitespace()
-        .map(Keystroke::parse)
+        .map(|key| Keystroke::parse_with_os(key, cx.platform_info().os))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "shortcut_invalid")?;
     if !parsed.is_empty()
@@ -184,7 +205,7 @@ pub(crate) fn save(id: &str, key: Option<&str>, cx: &mut App) -> Result<(), &'st
                 let other_keys = other
                     .key
                     .split_whitespace()
-                    .filter_map(|key| Keystroke::parse(key).ok())
+                    .filter_map(|key| Keystroke::parse_with_os(key, cx.platform_info().os).ok())
                     .collect::<Vec<_>>();
                 (parsed.starts_with(&other_keys) || other_keys.starts_with(&parsed))
                     && !other_keys.is_empty()
@@ -237,7 +258,7 @@ pub(crate) fn key(id: &str, cx: &App) -> Option<String> {
 fn fixed_conflict(candidate: &str, cx: &App) -> bool {
     let keys = candidate
         .split_whitespace()
-        .filter_map(|key| Keystroke::parse(key).ok())
+        .filter_map(|key| Keystroke::parse_with_os(key, cx.platform_info().os).ok())
         .collect::<Vec<_>>();
     if keys.is_empty() {
         return false;
@@ -256,9 +277,9 @@ fn fixed_conflict(candidate: &str, cx: &App) -> bool {
         })
 }
 
-pub(crate) fn label(key: &str) -> String {
+pub(crate) fn label(key: &str, os: OperatingSystem) -> String {
     key.split_whitespace()
-        .filter_map(|part| Keystroke::parse(part).ok())
+        .filter_map(|part| Keystroke::parse_with_os(part, os).ok())
         .map(|key| gpui_kit::component::kbd::Kbd::format(&key))
         .collect::<Vec<_>>()
         .join(" ")

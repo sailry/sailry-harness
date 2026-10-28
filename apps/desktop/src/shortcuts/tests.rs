@@ -54,12 +54,18 @@ fn persists_owned_bindings(cx: &mut TestAppContext) {
 
 #[test]
 fn validates_sequences() {
-    assert!(valid("secondary-k"));
-    assert!(valid("ctrl-g down"));
-    assert!(valid(""));
-    assert!(!valid(" "));
-    assert!(!valid("ctrl-g down up"));
-    assert!(!valid("unknownmod-foo"));
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Linux,
+        OperatingSystem::Windows,
+    ] {
+        assert!(valid("secondary-k", os));
+        assert!(valid("ctrl-g down", os));
+        assert!(valid("", os));
+        assert!(!valid(" ", os));
+        assert!(!valid("ctrl-g down up", os));
+        assert!(!valid("unknownmod-foo", os));
+    }
 }
 
 #[gpui::test]
@@ -113,7 +119,7 @@ fn stale_navigation_overrides_are_inert(cx: &mut TestAppContext) {
                 .unwrap()
                 .keystrokes()[0]
                 .as_keystroke(),
-            &Keystroke::parse("secondary-s").unwrap()
+            &Keystroke::parse_with_os("secondary-s", cx.platform_info().os).unwrap()
         );
         assert_eq!(
             bindings
@@ -122,7 +128,7 @@ fn stale_navigation_overrides_are_inert(cx: &mut TestAppContext) {
                 .unwrap()
                 .keystrokes()[0]
                 .as_keystroke(),
-            &Keystroke::parse("secondary-q").unwrap()
+            &Keystroke::parse_with_os("secondary-q", cx.platform_info().os).unwrap()
         );
         assert!(
             bindings

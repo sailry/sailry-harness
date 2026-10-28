@@ -55,7 +55,7 @@ impl Panel {
         if event.is_held {
             return;
         }
-        self.draft = event.keystroke.unparse();
+        self.draft = event.keystroke.unparse(cx.platform_info().os);
         self.error = None;
         self.save(window, cx);
     }
@@ -86,11 +86,11 @@ impl Panel {
                 tr("shortcut_disabled").to_string()
             }
         } else {
-            shortcuts::label(key)
+            shortcuts::label(key, cx.platform_info().os)
         };
         let strokes = key
             .split_whitespace()
-            .filter_map(|key| Keystroke::parse(key).ok())
+            .filter_map(|key| Keystroke::parse_with_os(key, cx.platform_info().os).ok())
             .collect::<Vec<_>>();
         v_flex()
             .gap_1()

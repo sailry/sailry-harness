@@ -25,7 +25,7 @@ impl Shell {
                     Some(predicate.clone()),
                     false,
                     None,
-                    &DummyKeyboardMapper,
+                    cx,
                 )
                 .ok()
             })

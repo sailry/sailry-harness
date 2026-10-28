@@ -42,37 +42,33 @@ Mason: https://github.com/mason-org/mason-registry at 2026-10-08-head-mirror, 73
 Original snapshots, checksums, provenance and license copies: crates/node-runtime/src/code/upstream/
 
 GPUI Kit integrations and editor overlays
-Sailry uses GPUI Kit 0.7.3 from https://github.com/dux-web/gpui-component at
-ee02d7de35215faa68cf31534841c861d02a99cc (Apache-2.0), based on the official
-stable sources at https://github.com/longbridge/gpui-kit, commit
-67265a36e260ffe03c5aaebdcd8d654dbf892eab. The fork backports the macOS GPUI Fast
-WebView composition adapter from official commit
-29c04574dc838a8e59e84c9c9f3c4d15983222ce,
-https://github.com/longbridge/gpui-kit/pull/3389, submitted as the stable backport
-at https://github.com/longbridge/gpui-kit/pull/3519. The fork also honors explicit
-Tab flex-shrink and minimum-size styles on indicator wrappers, from source commit
-91dfcff2ddb10c0ca3be45bb4ca8739cc4fc607f, submitted separately at
-https://github.com/longbridge/gpui-kit/pull/3522. It also releases tooltip
-overlay ownership when a trigger unmounts without hiding a newer trigger's
-tooltip, submitted at https://github.com/longbridge/gpui-kit/pull/3528. It
-preserves the stable Kit APIs and editor overlay routing; it does not include
-the later inherited-mask clipping change or add Windows composition or Linux
-hosting. The Kit packages select GPUI Fast 0.1.8 through Kit's gpui-fast
-feature. All nine Fast packages use the compatibility distribution at
-https://github.com/dux-web/gpui-fast, commit
-a2de5859345c314077b8b81cfe6b34d6d013dcb1. It is generated with the official
-release exporter from source commit 90f1ec3153638082560f74a49440cf86bf7a893d,
-based on upstream v0.1.8 at d599978f0ecf794b16cb6ec0b5875f818b822507.
-The source corrections restore retained child links after reparenting, submitted
-at https://github.com/longbridge/gpui-fast/pull/68, and limit the default macOS
-overlay's input to interactive GPUI hit regions while preserving native
-descendants and custom GPUI surface input, submitted at
-https://github.com/longbridge/gpui-fast/pull/69. The distribution retains
-Apache-2.0 licenses and upstream attribution, with Sailry modification notices
-in the five changed files and distribution NOTICE files.
-GPUI WebView owns native composition on macOS with GPUI Fast. Upstream packages retain their license files;
-Sailry's current dependency notices and license copies remain in
-third_party_licenses/.
+Sailry uses GPUI Kit 0.8.1 from https://github.com/dux-web/gpui-component at
+4424427e60fcc9a95cd2a7daeacd77cc51b92e85 (Apache-2.0), based on official
+https://github.com/longbridge/gpui-kit commit
+18be16887bc2cb462f7b0a33c18bf6183344e7de. The maintained changes preserve
+fullscreen dialogs, notifications above modal surfaces, caller-controlled tab
+shrinking and minimum widths, and exact diff source while hiding optional
+missing-newline labels. They retain the framework's current centering, safe
+insets, focus, dismissal and native composition behavior.
+
+All nine GPUI Fast packages use the immutable 0.1.12 release sources in
+https://github.com/dux-web/gpui-fast at
+82d917787a233f508ae06ef12a48518085c47297. Their archives match the official
+Kit lockfile's registry checksums. The only production source change preserves
+macOS NSView descendant hit testing before filtering the GPUI overlay itself,
+from the previously reviewed compatibility source at
+aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b. The distribution retains upstream
+Apache-2.0 licenses, original package manifests and provenance in its NOTICE.
+GPUI WebView owns native composition on macOS with GPUI Fast. Upstream packages
+retain their license files; Sailry's license copies remain in third_party_licenses/.
+
+Russh RSA compatibility
+The maintained russh 0.62.4 source at https://github.com/dux-web/russh.git,
+commit c82704bff3b3c8d39676efc447b5e7db02ff29d3, retains the upstream
+Apache-2.0 license from https://github.com/warp-tech/russh. It updates the RSA
+and PKCS#1 constraints to 0.10.0-rc.19 and 0.8.0-rc.5 and uses the upstream
+borrowed RsaPrivateKeyRef encoding type, with an ordinary key round-trip and
+signature regression. Its original RSA and SSH features remain enabled.
 
 Goose GDK agent and provider libraries
 Sailry uses goose-agent, goose-provider-types, goose-providers and
