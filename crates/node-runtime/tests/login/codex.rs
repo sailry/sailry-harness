@@ -19,8 +19,6 @@ mod search;
 pub(super) mod server;
 #[path = "codex/streaming.rs"]
 mod streaming;
-#[path = "codex/transport.rs"]
-mod transport;
 #[path = "codex/updates.rs"]
 mod updates;
 
