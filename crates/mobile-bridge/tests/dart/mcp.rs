@@ -138,16 +138,16 @@ fn controls_host_tools() {
     assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 6);
-    let results: Vec<serde_json::Value> = requests[3]["messages"]
+    let results: Vec<_> = requests[3]["messages"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|message| message["role"] == "tool")
-        .map(|message| serde_json::from_str(message["content"].as_str().unwrap()).unwrap())
+        .map(|message| message["content"].as_str().unwrap())
         .collect();
-    assert_eq!(results[0]["output"]["version"], "Installed version 中文 🙂");
-    assert_eq!(results[1]["output"]["value"], content);
-    assert!(results[2].get("error").is_some());
+    assert_eq!(results[0], "Complete MCP result 中文 🙂");
+    assert_eq!(results[1], "Complete MCP result 中文 🙂");
+    assert_eq!(results[2], "Tool execution was denied.");
     let calls: Vec<serde_json::Value> = fs::read_to_string(data.join("requests.jsonl"))
         .unwrap()
         .lines()

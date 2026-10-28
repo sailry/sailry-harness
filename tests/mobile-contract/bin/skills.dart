@@ -195,8 +195,9 @@ Future<void> main() async {
     'approved script returns real execution output',
   );
   check(
-    approvals.part(finished, completed[4]['response'])['result']['error'] !=
-        null,
+    approvals.denied(
+      approvals.part(finished, completed[4]['response'])['result'],
+    ),
     'denial does not claim execution',
   );
   final written = await execute(connection, 'read_file', {

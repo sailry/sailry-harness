@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'approvals.dart' show hasPending, pending, part;
+import 'approvals.dart' show denied, hasPending, pending, part;
 import 'conversation.dart' show check, execute, until;
 import 'attachments/support.dart'
     show uploadAttachment, prepareDownload, downloadAttachment;
@@ -218,8 +218,7 @@ Future<void> main() async {
   );
   check(
     finished['calls'][2]['approval']['state'] == 'denied' &&
-        part(finished, finished['calls'][2]['response'])['result']['error'] !=
-            null,
+        denied(part(finished, finished['calls'][2]['response'])['result']),
     'denied command is not reported as an executed command',
   );
   final restored = await reopen();

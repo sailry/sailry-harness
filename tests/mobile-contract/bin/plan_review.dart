@@ -125,7 +125,7 @@ Future<void> main() async {
   check(
     part(finished, acceptedCall['response'])['result']['coding_turn'] ==
         accepted['turn']['id'],
-    'accepted plan is persisted as an ADK tool result',
+    'accepted plan is persisted as a canonical tool result',
   );
   final read = (await execute(connection, 'read_file', {
     'worktree': original['worktree'],

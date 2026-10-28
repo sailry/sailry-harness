@@ -22,6 +22,14 @@ Map<String, dynamic> part(
   (entry) => entry['id'] == reference['entry'],
 )['parts'][reference['index']]['data'];
 
+bool denied(Map<String, dynamic> result) =>
+    result['isError'] == true &&
+    (result['content'] as List).any(
+      (content) =>
+          content['type'] == 'text' &&
+          content['text'] == 'Tool execution was denied.',
+    );
+
 Future<void> main() async {
   final env = Platform.environment;
   await RustLib.init(
@@ -172,8 +180,8 @@ Future<void> main() async {
     'approved write returns actual service result',
   );
   check(
-    outputs[1]['result']['error'] != null,
-    'denial returns to ADK without claiming a write',
+    denied(outputs[1]['result']),
+    'denial returns to the model without claiming a write',
   );
   final saved = await execute(connection, 'read_file', {
     'worktree': worktree,

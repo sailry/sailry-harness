@@ -239,7 +239,7 @@ Future<void> main() async {
   publicOnly(completed);
   check(
     jsonEncode(completed).contains('FFI authorized response'),
-    'ADK uses the Node login after controller restart',
+    'GDK uses the Node login after controller restart',
   );
   await history.close();
   history.dispose();

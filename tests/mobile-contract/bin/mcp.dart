@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' as approvals;
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show canonicalJson, check, execute, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -69,7 +69,16 @@ Future<void> main() async {
   final output = approvals.part(
     waiting,
     calls[0]['response'],
-  )['result']['output'];
+  )['result']['structuredContent'];
+  check(
+    jsonEncode(
+          approvals.part(waiting, calls[0]['response'])['result']['content'],
+        ) ==
+        jsonEncode([
+          {'type': 'text', 'text': 'Complete MCP result 中文 🙂'},
+        ]),
+    'original MCP text content remains beside the structured result',
+  );
   check(
     output['version'] == 'Installed version 中文 🙂' &&
         output['root'].contains(references[0]['digest']) &&
@@ -159,13 +168,14 @@ Future<void> main() async {
     approvals.part(
           finished,
           completed[1]['response'],
-        )['result']['output']['value'] ==
+        )['result']['structuredContent']['value'] ==
         fullText,
     'complete structured MCP result survives the host and FFI paths',
   );
   check(
-    approvals.part(finished, completed[2]['response'])['result']['error'] !=
-        null,
+    approvals.denied(
+      approvals.part(finished, completed[2]['response'])['result'],
+    ),
     'denied MCP call does not claim execution',
   );
   final restored = await reopen();
@@ -174,6 +184,20 @@ Future<void> main() async {
         jsonEncode(finished['snapshot']['page']),
     'reopen recovers canonical history without executing tools',
   );
+  for (var index = 0; index < completed.length; index++) {
+    check(
+      canonicalJson(
+            approvals.part(
+              restored,
+              restored['calls'][index]['response'],
+            )['result'],
+          ) ==
+          canonicalJson(
+            approvals.part(finished, completed[index]['response'])['result'],
+          ),
+      'reopen preserves complete MCP raw content and error envelopes',
+    );
+  }
   check(
     await connection.execute(request: submit) == admitted,
     'original submission receipt is retained',

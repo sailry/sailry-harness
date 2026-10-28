@@ -134,6 +134,22 @@ Future<void> main() async {
               2,
         ),
   );
+  final admissions = (parentView['calls'] as List)
+      .where((call) => call['name'] == env['SAILRY_SPAWN_TOOL'])
+      .map((call) => part(parentView, call['response'])['result'])
+      .toList();
+  check(
+    admissions.length == 2 &&
+        admissions.every(
+          (result) =>
+              descendants.any((child) => child['id'] == result['session']) &&
+              result['status'] == 'queued' &&
+              result['admitted'] == true &&
+              result['pending'] == true &&
+              result['response'] == null,
+        ),
+    'spawn records immutable child admission receipts',
+  );
   for (var index = 0; index < descendants.length; index++) {
     final child = descendants[index];
     final origin = child['delegation'];
@@ -303,16 +319,41 @@ Future<void> main() async {
     'parent subscription receives completed child summaries',
   );
   final returned = (parentDone['calls'] as List)
+      .where((call) => call['name'] == env['SAILRY_SPAWN_TOOL'])
       .map((call) => part(parentDone, call['response'])['result'])
       .toList();
   check(
-    returned.every(
-      (result) =>
-          childIds.contains(result['session']) &&
-          result['status'] == 'completed' &&
-          result['response'] == 'answer-ffi-child',
-    ),
-    'parent receives actual child completions',
+    canonicalJson(returned) == canonicalJson(admissions),
+    'completed children do not rewrite their spawn receipts',
+  );
+  for (final child in [firstDone, secondDone]) {
+    final run = (child['snapshot']['page']['runs'] as List).single;
+    final summary = (parentDone['snapshot']['page']['children'] as List)
+        .singleWhere((summary) => summary['run']['session'] == run['session']);
+    check(
+      canonicalJson(summary['run']) == canonicalJson(run) &&
+          (child['snapshot']['page']['entries'] as List)
+                  .expand((entry) => entry['parts'] as List)
+                  .where(
+                    (part) =>
+                        part['kind'] == 'text' &&
+                        part['data'] == 'answer-ffi-child',
+                  )
+                  .length ==
+              1,
+      'parent summary matches the actual child run and complete response',
+    );
+  }
+  check(
+    (parentDone['snapshot']['page']['entries'] as List)
+            .expand((entry) => entry['parts'] as List)
+            .where(
+              (part) =>
+                  part['kind'] == 'text' && part['data'] == 'answer-ffi-parent',
+            )
+            .length ==
+        1,
+    'parent finishes once after both child outcomes',
   );
   final written = await execute(connection, 'read_file', {
     'worktree': descendants[0]['worktree'],

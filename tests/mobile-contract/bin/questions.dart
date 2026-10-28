@@ -95,7 +95,7 @@ Future<void> main() async {
             hasPending(snapshot) &&
             (snapshot['page']['questions'] as List).length == count,
       );
-      // Question admission and the ADK start event are separate notifications.
+      // Question admission and canonical call publication are separate notifications.
       if ((view['calls'] as List).any(
         (call) =>
             call['state'] == 'running' &&
@@ -172,9 +172,12 @@ Future<void> main() async {
     'limit': 100,
   }))['data']['page'];
   check(
-    page['questions'][1]['id'] == second['id'] &&
+    page['questions'][0]['id'] == first['id'] &&
+        page['questions'][0]['state']['kind'] == 'answered' &&
+        page['questions'][0]['state']['data']['data'] == fullText &&
+        page['questions'][1]['id'] == second['id'] &&
         page['questions'][1]['state']['kind'] == 'pending',
-    'old answer cannot resolve the next question',
+    'durable first answer leaves the next question pending',
   );
   await reject(first['id'], text('different'), 'conflict');
   await reject(second['id'], choices([]), 'invalid_request');
@@ -214,7 +217,7 @@ Future<void> main() async {
         jsonEncode(results[2]['answers']) ==
             jsonEncode(['代码', '测试', '其他 🙂']) &&
         results[3]['status'] == 'cancelled',
-    'all answers and cancellation return through canonical ADK results',
+    'all answers and cancellation return through canonical tool results',
   );
   final restored = await reopen();
   check(

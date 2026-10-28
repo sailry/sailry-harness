@@ -174,7 +174,7 @@ Future<void> main() async {
     messages.length == 2 &&
         messages[0]['parts'][0]['data'] == 'third' &&
         messages[1]['parts'][0]['data'] == completeInput,
-    'ADK executes edited messages in shared queue order',
+    'GDK executes edited messages in shared queue order',
   );
   check(
     messages[1]['parts'][1]['kind'] == 'attachment' &&

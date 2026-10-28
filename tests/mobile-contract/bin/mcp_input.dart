@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' show part;
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show canonicalJson, check, execute, until;
 import 'questions.dart' show hasPending, pending;
 import 'mcp_oauth.dart' show authorizeMcp;
 
@@ -118,6 +118,12 @@ Future<void> main() async {
         hasPending(snapshot) &&
         (snapshot['page']['questions'] as List).length == 2,
   );
+  check(
+    second['snapshot']['page']['questions'][0]['id'] == question['id'] &&
+        second['snapshot']['page']['questions'][0]['state']['kind'] ==
+            'answered',
+    'first input answer is durable while the later question waits',
+  );
   final decline = await resolve(pending(second)['id'], {'kind': 'decline'});
   await connection.execute(request: decline);
   final completed = await until(
@@ -133,14 +139,30 @@ Future<void> main() async {
   final firstResult = (completed['calls'] as List).firstWhere(
     (call) => call['name'] != 'mcp_elicitation',
   );
-  final output = part(completed, firstResult['response'])['result']['output'];
+  final raw = part(completed, firstResult['response'])['result'];
+  final output = raw['structuredContent'];
+  check(
+    jsonEncode(raw['content']) ==
+        jsonEncode([
+          {'type': 'text', 'text': 'Input received'},
+        ]),
+    'original MCP content remains beside the complete input result',
+  );
   check(
     url
         ? output['action'] == 'accept' && !output.containsKey('content')
         : output['content']['publish'] == false,
     'URL consent has no form content; false remains an explicit form answer',
   );
-  await reopen();
+  final restored = await reopen();
+  final restoredCall = (restored['calls'] as List).firstWhere(
+    (call) => call['name'] != 'mcp_elicitation',
+  );
+  check(
+    canonicalJson(part(restored, restoredCall['response'])['result']) ==
+        canonicalJson(raw),
+    'reopen preserves the original MCP content and structured result',
+  );
   check(
     await connection.execute(request: answer) == receipt,
     'accepted reply is idempotent after reopening',

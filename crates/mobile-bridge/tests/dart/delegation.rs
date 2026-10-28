@@ -199,7 +199,32 @@ fn recovers_and_stops_children() {
         assert_eq!(restored.turns, snapshot.turns);
         node.shutdown().await.unwrap();
     });
-    assert_eq!(parent.requests.lock().unwrap().len(), 3);
+    let requests = parent.requests.lock().unwrap();
+    assert_eq!(requests.len(), 5);
+    for child in snapshot.sessions.iter().filter(|session| {
+        session
+            .delegation
+            .as_ref()
+            .is_some_and(|origin| origin.session == sessions[0])
+    }) {
+        let outcome = format!("Subagent {} completed: answer-ffi-child", child.id);
+        let delivered: Vec<_> = requests
+            .iter()
+            .filter_map(|request| {
+                let count = request["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|message| message["role"] == "user")
+                    .filter_map(|message| message["content"].as_str())
+                    .map(|text| text.matches(&outcome).count())
+                    .sum::<usize>();
+                (count > 0).then_some(count)
+            })
+            .collect();
+        assert_eq!(delivered, [1], "each child outcome reaches the parent once");
+    }
+    drop(requests);
     let requests = child.requests.lock().unwrap();
     assert_eq!(requests.len(), 10);
     for request in requests.iter() {
