@@ -22,7 +22,7 @@ Desktop / GPUI Kit ── Client ──┬── in-process ── local Node
 Mobile / Flutter ── Rust bridge ── Client ── Link / iroh ── Node
 
 Host service ── Node bootstrap + Link endpoint
-Node ── ADK + scoped tools ── providers / files / Git / PTY / SSH / databases
+Node ── GDK + scoped tools ── providers / files / Git / PTY / SSH / databases
 ```
 
 Mobile connects to the selected Node directly; Desktop is not a required gateway.
@@ -36,8 +36,8 @@ a controller does not stop already admitted work.
 | `crates/protocol` | IDs, commands, events, snapshots, faults and capabilities | Runtime, UI and concrete transport |
 | `crates/link` | Identity, pairing, authenticated transport, receipt and reconnect | Agent history and business execution |
 | `crates/client` | Typed commands, ordered projections, deduplication and snapshot recovery | UI widgets, Node execution and a business database |
-| `crates/node-runtime` | Admission, persistence, configuration, ADK execution and resource services | GPUI, Flutter and controller presentation |
-| `crates/mobile-bridge` | Client handles, subscriptions and Rust/Dart adaptation | Node, ADK, PTY, Git execution and tool drivers |
+| `crates/node-runtime` | Admission, persistence, configuration, GDK execution and resource services | GPUI, Flutter and controller presentation |
+| `crates/mobile-bridge` | Client handles, subscriptions and Rust/Dart adaptation | Node, GDK, PTY, Git execution and tool drivers |
 | `crates/speech` | Shared speech capability and native audio integration | Conversation ownership |
 | `crates/embedding` | CPU model loading, token offsets and normalized local vectors | Source grants, indexing and controllers |
 | `crates/ocr` | Shared CPU image recognition and PaddleOCR decoding | Model downloads, source grants and controllers |
@@ -57,15 +57,15 @@ content       → protocol + GPUI Kit
 host          → client + node-runtime
 mobile-bridge → client
 client        → protocol + link
-node-runtime  → protocol + link + ADK
+node-runtime  → protocol + link + GDK
 link          → protocol + transport dependencies
 ```
 
 Test-only integration fixtures may construct real Nodes without changing the
 production controller boundary. The root Cargo workspace owns pinned Rust
-dependencies and lockfiles. ADK changes are committed in the pinned fork; all ADK
-crates use the same revision. Retained third-party source keeps its upstream
-licenses and provenance. Feature modules stay inside their owning crate unless
+dependencies and lockfiles. The four GDK crates use the same upstream main
+source, with the resolved Git revision committed in Cargo.lock. Retained
+third-party source keeps its upstream licenses and provenance. Feature modules stay inside their owning crate unless
 a concrete platform or dependency boundary requires another crate.
 
 ## Data and ownership
@@ -246,7 +246,7 @@ same nondurable local and remote protocol. The `decisions.run` action permits
 read-only tools and Node callbacks to call `sailry/decisions`. Requests are bounded
 before inference; oversized tokenized prompts fail against the model context.
 No decision model is selected, recommended or downloaded automatically. Plugins
-own workflows that use these answers; ADK remains the Agent execution engine.
+own workflows that use these answers; GDK remains the Agent execution engine.
 
 Decision engines use the packaged llama.cpp b11756 C API, checked GGUF metadata
 and its `systemone` template. Laya and OpenJev follow that revision's decision
@@ -325,9 +325,11 @@ bytes. Output pages and previews identify raw byte offsets and truncated retenti
 while model summaries remain bounded. Persisted result previews remain readable
 after the temporary output is evicted.
 
-ADK-Rust is the agent execution engine. Node integrates Runner and SessionService
-with one authoritative durable event history. Client and UI projections are
-rebuildable derivatives, not additional history writers or runners. Usage reports
+Goose GDK is the agent execution engine. Node assembles its state machine from
+GDK operations and the applicable Goose application operations. SessionLoader reads
+Sailry canonical records; the Node Sessions EffectHandler is the sole durable
+history writer. GDK messages exist at the execution boundary, not as a second
+store. Client and UI projections remain rebuildable derivatives. Usage reports
 cover Sailry's own canonical events; Client aggregates reports across Nodes while
 keeping source identity and completeness explicit. Provider settings may separately
 display quota observations returned by Sailry's own authenticated model requests;
@@ -351,84 +353,42 @@ digest. Record references retain MIME type, size and original position. Structur
 tool JSON stores references for declared binary fields and hydrates the exact JSON
 for public output pages, immutable revisions and artifact receipts. Records and
 their blobs commit in the existing history transaction; exported asset indexes and
-UI rows remain rebuildable projections.
+UI rows remain rebuildable projections. Startup alone converts former ADK event
+bytes into this format using a finite Sailry decoder, an isolated validation and
+private backup, and the existing transactional upgrade. Runtime readers accept
+only canonical records.
 Streaming drafts and canonical entries preserve commentary message identities;
 interruption retains their native phase rather than converting progress into a
 final answer.
 Context observations pair provider-reported input and output tokens with the
 admitted model's frozen context limit; a later model change does not relabel an
-old observation. Pending-content estimates can trigger early compaction but are
-not provider token measurements. Automatic compaction uses the lower of 80% of
-the context window, the remaining input capacity after output reserve, and an
-absolute threshold of 262,144 tokens. Each provider's model configuration may
-override that threshold; admitted turns retain their captured value.
-Before new input enters ADK history, preflight checks its captured context window.
-At the trigger, ordinary old tool results are masked in one batch before deciding
-whether a summary is needed. The newest 50,000 output tokens and owner-managed
-plans and skills remain protected; a batch must save at least 30,000 tokens.
-At 85% of the compaction trigger, one cancellable background request can prepare
-a completed historical prefix. At the trigger, the existing model boundary applies
-only a candidate whose immutable prefix and instructions still match,
-retaining content appended after that prefix. Summary requests preserve the normal
-request prefix at preparation time, including tool declarations and exact owner
-context at its original positions, then append a user request for the handoff.
-Supported provider request adapters disable tool invocation without removing those
-declarations. Historical attachments retain their ordinary session visibility;
-reading them during maintenance does not authorize tool execution. Summary
-fallbacks account for hydrated attachment bytes; ordinary non-image media retains
-provider token accounting. Older inline attachments can become metadata and
-readable references without changing their canonical records.
-Summary requests keep the captured model,
-reasoning effort and configured maximum output where the provider supports it.
-A failed summary never permits replay. Model-requested compaction below half the
-trigger returns current usage without changing context.
-Eligible prefixes use canonical turn ownership and complete call-ID-paired tool
-batches, including prefixes within completed turns. Parallel results are matched
-only within their batch; original history and provider-added parts are retained.
-Automatic, explicit and model-requested compaction use complete prefixes and a
-validated user-role handoff that uses fewer estimated tokens than the eligible
-model-visible prefix; owner context is excluded from both sides of that
-comparison. Compaction records store only the generated handoff and file ledger.
-Runtime context, plans and loaded skills are restored from their existing owners
-and canonical references through the same composition path for live requests and
-reload. One shared secondary request can retry a transient service error or
-recover from an input capacity failure. Output exhaustion does not
-retry with smaller input. Cancellation, authorization, content-filter and persistence
-failures retain their ordinary failure semantics. Explicit and model-requested
-compaction report unusable handoffs as failures. Preventive automatic maintenance
-retains existing context after empty, unexpected, non-reducing, truncated or
-over-budget summaries and continues whenever its effective request still fits the
-captured input capacity. Exhausted transient summary retries use the same capacity
-check. Request-only projections can shorten
-older ordinary tool results while retaining canonical raw output and references
-readable through the current session's `read_tool_output` service. Applying a
-summary or projection invalidates stale context-size facts, then recomputes the
-effective estimate; helper usage still contributes to totals. Mask selections use
-canonical call and revision identities in existing session state, so reloading or
-summarizing later retains the same projected prefix and exact original references.
-Sailry preserves ADK's generated call IDs through its model boundary, so providers
-without call IDs do not require a full history read for each request. Temporary
-identities and projection metadata are removed before transmission. Ordinary
-requests are prepared once; prepared summaries can reuse the same effective input
-capacity after reserving their configured output. Later callbacks may only shrink
-an already prepared request.
-Repeated attempts require more than 10% token growth, and one forced context-length
-recovery belongs to the original admitted task. A final unsafe or
-terminal compaction failure halts the task and pauses its queue; unconsumed input
-remains available for explicit retry, and a new message checks preflight again.
-Request checkpoints change only after persistence succeeds. A mismatched checkpoint
-is discarded and rebuilt from the saved canonical window. These are local request
-projections, not another history writer.
-Automatic and model-requested summaries share persistence, retained-output
-projection and context-estimate updates. Model-requested transient and no-reduction
-failures return a failed tool result without ending the task. Successful
-model-requested compaction records the actual
-remaining context estimate for the same growth gate used by automatic attempts.
-Selected plugin and skill instructions accompany their own user input rather than
-changing persistent policy. Canonical input metadata identifies those exact owner
-fragments; a summary restores the latest selected capability content within the
-current input execution, including when guidance or notifications follow that
-selection. A later task does not inherit it.
+old observation. Unknown counts remain unknown. Automatic compaction follows
+Goose's threshold: the lower of 80% of the context window and 225,000 tokens.
+An explicitly configured model threshold overrides that default and is frozen
+with the admitted turn.
+
+Automatic and explicit compaction call `goose_context_management::compact` with
+its default template and structured-summary renderer. The result is user-role
+summary text; the parsed file ledger is retained on the canonical compaction
+record. Summary requests have no tools. There is no background preparation,
+model-callable compaction tool, input preflight, old-output masking, prefix
+checkpoint, mandatory-heading check or minimum-reduction gate.
+Original records and raw tool output remain intact. The request loader uses the
+latest summary and subsequent continuation, with older originals hidden from the
+agent. Goose's continuation and retained current input remain available after
+compaction; public history, fork and rewind still use canonical membership.
+
+Current policy, environment, personal context, guides, selected capabilities,
+plans and loaded skill resources enter each inference through `prompt_parts`
+and `moim_parts` from their existing owners. They are not copied into or validated
+against summary text. Selected capabilities retain their input ownership rather
+than becoming policy for a later task.
+
+Context-length errors can trigger at most two reactive compactions under Goose's
+operation ordering. A compaction error reaches `ExitOnError` and ends the turn as
+a failure. The Node's existing queue and explicit retry actions retain unconsumed
+input. Ordinary model and tool behavior otherwise follows GDK; Sailry adds no
+summary-quality gate or shared retry budget.
 
 Account authorization workflows belong to model authentication packages.
 The default `openai-auth` package retains ChatGPT OAuth's device-code flow and
@@ -439,7 +399,9 @@ the common login interaction; packages supply their endpoints, scopes, polling,
 request composition and verified claim mappings. The execution Node runs those
 pure steps through its existing private HTTP, PKCE callback, OIDC verification,
 registration, cancellation and persistence services. It alone owns rotating-grant
-fences and credential revision checks.
+fences and credential revision checks. Stored SIWC accounts retain those services;
+the pinned GDK cannot generate through their namespaced authentication path and
+reports that configuration as unavailable.
 Explicit sign-in can replace a channel's account. A changed or unproven identity
 receives a new credential reference; current ordinary sessions using the replaced
 reference receive a new configuration revision, while admitted turns retain their
@@ -459,60 +421,22 @@ Media operations try the admitted model and credential first. Only a definite
 unsupported capability may use an explicitly configured, session-captured fallback;
 authentication, quota, timeout and uncertain outcomes never trigger fallback.
 
-Node reuses native model clients by session and captured configuration. Each
-generation refreshes the cache idle lifetime and freezes its authorization,
-credential revision, response observer and redaction material through stream completion. Main API-key Responses and ChatGPT
-OAuth generations prefer a session-owned WebSocket; helper and compaction clients
-are constructed with pooled HTTP. Both transports share request adaptation and response projection.
-Stateless Responses requests replay provider reasoning only with its original
-opaque `encrypted_content` and the same provider, model and private authorization
-ownership. A non-secret origin digest binds the effective endpoint and credential;
-verified account identity survives refresh, while unverified identities are bounded
-by their credential reference and revision. Unknown old records and foreign opaque
-parts are omitted only from outgoing request copies; ordinary text and tool history,
-persisted events and their original bytes remain unchanged. Models request encrypted
-reasoning only when catalog metadata advertises reasoning or a positive effort is
-selected, independently of summaries. Older reasoning without encrypted content
-is omitted only from outgoing requests.
-New turns capture the current model and reasoning effort and send them as ordinary
-request parameters. Summaries use the same captured selection. Changing that
-selection may invalidate provider caching or WebSocket continuation; unchanged
-parameters and history retain the same prefix. Historical configuration-update
-parts remain readable in canonical records but are omitted from outgoing requests
-so they cannot override the current selection. HTTP and WebSocket share this
-projection; ADK owns connection-local continuation and full-request fallback.
-Only verified extensions of canonical history use connection-local continuation.
-Pre-event WebSocket failures select the same adapted request over SSE once;
-absence of an acknowledgement does not prove non-delivery, so this fallback may
-generate and bill twice if the provider already accepted the first request;
-capability observations stay in Node memory and definitive refusals are remembered
-only after SSE succeeds. Destinations matched by proxy policy use HTTP; `NO_PROXY`
-bypasses remain eligible for WebSocket.
+Model execution uses GDK providers over HTTP and SSE. Each request uses the
+admitted configuration, endpoint, authorization and credential revision through
+stream completion. New turns capture the selected model and reasoning effort;
+summary requests use that captured selection. Historical configuration records
+do not override it.
 
-Turn preparation overlaps a handshake-only preconnection; it sends no generation
-or warmup frame. Entry ownership cancels pending handshakes; the SDK closes unused
-preconnections within 25 seconds. Idle sockets close after four minutes and expire
-after 55 minutes at a request boundary. A change to the final adapted headers
-reconnects with the new capture. Constructor-bound API keys still participate in
-client cache identity. Session archive/removal and Node shutdown release registry resources.
-HTTP uses a 30-second connection deadline; WebSocket handshakes use 15 seconds.
-Before the first provider event, WebSocket requests have a 15-second deadline
-that control frames do not extend. Any provider event ends SSE fallback eligibility,
-including an acceptance event before text arrives. HTTP raw-byte and subsequent
-WebSocket frame reads have a 300-second idle deadline, including keepalives. Node
-does not regenerate an accepted WebSocket request after a delivery failure.
-Retryable HTTP failures, response failures and connection errors share one budget
-of at most five retries after the initial model request. Each retry waits at least
-60 seconds, or the provider's longer Retry-After deadline. Explicit provider
-ceilings may reduce that shared budget; native SDKs and plugin transports do not
-add inner retry loops. Main and helper models use the same recovery policy, with
-their existing cancellation and request deadlines. Authentication, configuration,
-quota and explicit task-budget failures stop rather than replaying the request.
-Recovery buffers the replacement privately until completion; committed responses
-and executed tools are never replayed. Exhaustion preserves canonical history for
-the existing retry and continuation actions. Ordinary conversations do not impose
-a product model/tool-iteration limit; explicitly configured role budgets remain
-enforced by the ADK iteration configuration.
+GDK owns provider retry defaults for native and declared plugin models. Sailry
+does not add a shared retry budget, forced `tool_choice`, WebSocket transport,
+connection-local continuation or SSE fallback. Opaque Responses encrypted
+reasoning and its origin-digest replay are not retained. Ordinary signed thinking,
+call IDs, text, tool results and historical search or commentary remain available
+through canonical conversion and public projections.
+
+Terminal provider errors preserve committed history for the existing retry and
+continuation actions. Ordinary conversations have no product iteration limit;
+explicit child-role turn budgets use the corresponding Goose operation.
 
 ## Runtime behavior
 
@@ -619,10 +543,8 @@ the end does not release another reader's data. Complete single-page reads bypas
 that cache, so active large reads cannot block small details.
 
 Model declarations are built from each turn's captured tool instances, without a
-second persistent schema cache. Normal requests and manual summaries prepare the
-same current catalog; automatic summaries reuse the triggering request's
-declarations. Provider adapters serialize tools in stable name order. Common tools
-follow declared operations and selected mode or role scope; additional tools are
+second persistent schema cache. Ordinary inference uses the current loaded catalog;
+summary requests contain no tools. Common tools follow declared operations and selected mode or role scope; additional tools are
 discovered through `tool_search` from that catalog. Discovery adds declarations and their package
 context for later requests without executing tools or increasing permissions.
 The session state row owns loaded-tool membership. Explicitly discovered and
@@ -639,7 +561,7 @@ Main-session guidance joins a running turn only when their captures match. New
 input after a configuration or tool change keeps its own capture and runs as the
 next queued turn; it never inherits an older selection to force inline insertion.
 Selecting an already queued message preserves its original identity and capture.
-Delegated work uses the same ADK engine and history path with an explicit
+Delegated work uses the same GDK engine and canonical history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.
 
@@ -652,9 +574,9 @@ tool permission, and freezes its package and options with the sent turn. Child
 tasks inherit those effective restrictions. Controllers compose the common selector
 from declarations and change its single selection through revision-checked configuration.
 
-Node owns each tool approval's five-minute deadline, with ADK explicitly delegating
-that bound to its handler. Expiry requests a decision from the same storage actor that
-commits approvals and session rules; it never independently denies a call during commit.
+Node owns each tool approval's five-minute deadline; the approval Operation uses
+that durable decision boundary. Expiry requests a decision from the storage actor
+that commits approvals and session rules; it never independently denies a call during commit.
 A closed or expired wait before the actor's commit claim returns a conflict and leaves no
 rule or approved receipt. A commit claimed first settles before expiry is answered.
 Timeout denial can continue the same turn; later turn cancellation can still stop an
@@ -663,7 +585,7 @@ approved tool before execution.
 Partial text and reasoning use the Node's bounded, ordered in-memory conversation
 feed without entering the storage worker queue. Publication checks active turn
 ownership and cancellation. Canonical messages and tool results still commit
-through the authoritative ADK history path before publishing durable changes;
+through the authoritative canonical history path before publishing durable changes;
 reconnect combines that history with any current drafts from the same feed.
 When a run stops or fails, remaining visible text and reasoning are sealed and
 written as interrupted canonical output before its terminal status is published.
@@ -807,7 +729,7 @@ Busy sessions collect a bounded batch on their next eligible input. Pending
 consent, paused queues and removed or archived owners prevent automatic input;
 restart preserves evidence without restarting work or automatically continuing.
 Reservations become delivered only when their marked input is appended to the
-canonical ADK history. Completion input is identified as Node-supplied,
+canonical history. Completion input is identified as Node-supplied,
 untrusted result data rather than user speech or new authorization. Explicit
 model result collection consumes the exact source execution; controller polling
 does not. Command summaries and bounded output tails survive restart, while
@@ -815,10 +737,10 @@ complete output remains available only while its process cache entry is retained
 
 Guidance is durably admitted before execution. The current model response finishes
 normally, and guidance waits for its complete tool batch before the next model
-request. The same ADK invocation appends the selected user inputs in FIFO order;
-it retains its instructions, tool bindings, task and Stop owner. Sent request
-prefixes remain unchanged. Each guidance input keeps its own sent-turn identity
-and becomes consumed only when its canonical user entry commits, while model and
+request. The steer Operation appends selected user inputs in FIFO order through
+the same EffectHandler; it retains the task and Stop owner and uses the current
+captured prompt and tool owners for the next inference. Each guidance input keeps
+its own sent-turn identity and becomes consumed only when its canonical user entry commits, while model and
 tool output retain the original task owner and one public completion. If a queued
 input has a different capture, explicit guidance admits a replacement using the
 recipient's capture without modifying the original sent-turn record. A controller
@@ -1078,11 +1000,12 @@ Document attachment reads use the executing conversation's visible history,
 including completed, failed and cancelled turns with no pending execution.
 Queued, running or stopping inputs in other turns are excluded, even if their
 admission happened earlier. Fork and rewind membership remains authoritative.
-Model execution uses ADK's native OpenAI, Anthropic, Gemini, DeepSeek and Azure
-adapters or shared compatible endpoints. Sailry does not enable the Bedrock or
-Vertex SDKs or provide their IAM/ADC credential flows. Supported compatible
-endpoints can use the ordinary API-key configuration. HTTP clients use the
-shared ring TLS provider.
+Model execution uses the corresponding GDK implementation for supported provider
+types, including OpenAI Responses and Chat, Anthropic, Google, Azure Foundry and
+OpenAI-compatible endpoints. Existing endpoint and credential configuration
+retains its Node owner. Provider capabilities follow the pinned GDK implementation;
+provider-hosted web search is not enabled, while declared ordinary search tools
+remain available. HTTP clients use the shared ring TLS provider.
 
 The `sailry` management command controls the installed service. Sharing uses a
 profile-private Unix socket to request an invitation from the running Host; the
