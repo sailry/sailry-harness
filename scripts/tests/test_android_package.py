@@ -81,8 +81,16 @@ class DependencyBoundary(unittest.TestCase):
             cargo.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$TASK_CALLS\"\nprintf '%s\\n' \"$TASK_DEPENDENCIES\"\n")
             cargo.chmod(0o755)
             calls = root / "calls"
-            for dependency, success in (("sailry-client v0.1.0", True),
-                                        ("sailry-node-runtime v0.1.0", False)):
+            for dependency, success in (
+                ("sailry-client v0.1.0", True),
+                ("sailry-node-runtime v0.1.0", False),
+                ("adk-core v3.0.0", False),
+                ("goose-agent v0.1.0", False),
+                ("goose-provider-types v0.1.0", False),
+                ("goose-providers v0.1.0", False),
+                ("goose-context-management v0.1.0", False),
+                ("goose_agent v0.1.0", False),
+            ):
                 with self.subTest(dependency=dependency):
                     calls.write_text("")
                     result = subprocess.run(
@@ -96,6 +104,7 @@ class DependencyBoundary(unittest.TestCase):
                     invoked = calls.read_text().splitlines()
                     self.assertEqual(len(invoked), 1)
                     self.assertTrue(invoked[0].startswith("tree --locked "))
+                    self.assertIn("--edges normal", invoked[0])
 
 
 if __name__ == "__main__":
