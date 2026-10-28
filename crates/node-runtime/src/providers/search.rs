@@ -2,17 +2,9 @@
 //! Compatible endpoints use the selected API contract and known model defaults.
 //! Codex supplies its hosted search contract independently of model identifiers.
 use sailry_protocol::{
-    Authentication, Effort,
+    Authentication,
     conversation::{ModelApi, Provider},
 };
-
-// Google Search + function calling is supported by Gemini 3, not Gemini 2.
-// https://ai.google.dev/gemini-api/docs/google-search#supported_tool_combinations
-// https://developers.openai.com/api/docs/guides/tools-web-search#limitations
-pub(crate) fn combines(api: ModelApi, id: &str, effort: Effort, functions: bool) -> bool {
-    !(api == ModelApi::Responses && initial_gpt5(id) && effort == Effort::Minimal)
-        && !(api == ModelApi::Gemini && id.starts_with("gemini-2.") && functions)
-}
 
 pub(crate) fn enable(provider: &mut Provider) {
     let codex = provider.authentication == Authentication::ChatGptOAuth
@@ -78,20 +70,6 @@ pub(crate) fn supported(api: ModelApi, id: &str) -> bool {
 
 fn boundary(suffix: &str) -> bool {
     suffix.is_empty() || suffix.starts_with('-')
-}
-
-fn initial_gpt5(id: &str) -> bool {
-    id == "gpt-5"
-        || id.strip_prefix("gpt-5-").is_some_and(|snapshot| {
-            snapshot.len() == 10
-                && snapshot.bytes().enumerate().all(|(index, byte)| {
-                    if matches!(index, 4 | 7) {
-                        byte == b'-'
-                    } else {
-                        byte.is_ascii_digit()
-                    }
-                })
-        })
 }
 
 pub(super) fn generation(id: &str) -> Option<(u16, u16)> {
@@ -168,58 +146,5 @@ mod tests {
         for model in ["gpt-4.1-nano", "gpt-6-image", "gpt-6-audio", "gpt-6invalid"] {
             assert!(!supported(ModelApi::Responses, model), "{model}");
         }
-    }
-
-    #[test]
-    fn respects_tool_combinations() {
-        assert!(!combines(
-            ModelApi::Responses,
-            "gpt-5",
-            Effort::Minimal,
-            false
-        ));
-        assert!(combines(ModelApi::Responses, "gpt-5", Effort::Low, true));
-        assert!(!combines(
-            ModelApi::Responses,
-            "gpt-5-2025-08-07",
-            Effort::Minimal,
-            true
-        ));
-        for id in ["gpt-5-mini", "gpt-5-nano", "gpt-5.1", "gpt-5-vendor-alias"] {
-            assert!(
-                combines(ModelApi::Responses, id, Effort::Minimal, true),
-                "{id}"
-            );
-        }
-        assert!(combines(
-            ModelApi::Gemini,
-            "gemini-2.0-flash",
-            Effort::Default,
-            false
-        ));
-        assert!(!combines(
-            ModelApi::Gemini,
-            "gemini-2.0-flash",
-            Effort::Default,
-            true
-        ));
-        assert!(!combines(
-            ModelApi::Gemini,
-            "gemini-2.5-flash",
-            Effort::Default,
-            true
-        ));
-        assert!(combines(
-            ModelApi::Gemini,
-            "gemini-2.5-flash",
-            Effort::Default,
-            false
-        ));
-        assert!(combines(
-            ModelApi::Gemini,
-            "gemini-3.5-flash",
-            Effort::Default,
-            true
-        ));
     }
 }

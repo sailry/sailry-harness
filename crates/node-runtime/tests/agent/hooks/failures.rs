@@ -1,15 +1,15 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
-async fn enable_end(fixture: &Fixture) {
+async fn enable_end(fixture: &Fixture, status: &str) {
     save(
         &fixture.client,
         fixture.session.worktree,
         Settings {
             enabled: true,
-            turn_end: script(
-                "test \"$SAILRY_HOOK_STATUS\" = failed && printf end >> ends.txt; exit 9",
-            ),
+            turn_end: script(&format!(
+                "test \"$SAILRY_HOOK_STATUS\" = {status} && printf end >> ends.txt; exit 9",
+            )),
             ..Default::default()
         },
     )
@@ -63,7 +63,7 @@ async fn retains_empty_completion_and_hook_failure() {
         )
         .await;
         std::fs::write(fixture.root.join("phase.txt"), "canonical file result").unwrap();
-        enable_end(&fixture).await;
+        enable_end(&fixture, "completed").await;
 
         let (request, turn) = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -71,7 +71,18 @@ async fn retains_empty_completion_and_hook_failure() {
             &page,
             turn.id,
             ErrorCode::Unavailable,
-            "the model ended its turn without an answer: no text, data or tool call, only thinking or whitespace (finish reason: Stop); retry the run, or check the model's output limit and safety settings",
+            "turn_end hook failed: Exited(9)",
+        );
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .error
+                .as_ref()
+                .unwrap()
+                .message,
+            "turn_end hook failed: Exited(9)"
         );
         let results = results(&fixture.client, &page).await;
         assert_eq!(results.len(), 1);
@@ -87,8 +98,17 @@ async fn retains_empty_completion_and_hook_failure() {
             std::fs::read_to_string(fixture.root.join("ends.txt")).unwrap(),
             "end"
         );
+        let directory = fixture.directory.path().to_path_buf();
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
+        let (database, db) =
+            crate::database_fixture::open(&directory.join("node/storage/node.turso"), true).await;
+        let hooks = receipts(&db, fixture.session.id).await;
+        crate::database_fixture::close(database, db).await;
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0].0, Phase::TurnEnd.name());
+        assert_eq!(hooks[0].1, 0);
+        assert_eq!(hooks[0].2, Ok(Outcome::Exited(9)));
     }
 }
 
@@ -125,7 +145,7 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
         else {
             panic!("plugin expected")
         };
-        enable_end(&fixture).await;
+        enable_end(&fixture, "failed").await;
 
         let (request, turn) = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;

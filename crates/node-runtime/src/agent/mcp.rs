@@ -312,9 +312,6 @@ impl Bound {
     fn name(&self) -> &str {
         &self.name
     }
-    fn description(&self) -> &str {
-        &self.description
-    }
     fn declaration(&self) -> Descriptor {
         let mut tool = self.descriptor.clone();
         tool.name = self.name.clone().into();

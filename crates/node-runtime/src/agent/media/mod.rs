@@ -41,7 +41,6 @@ struct Media {
     kind: Kind,
     model: crate::store::media::Model,
     stop: CancellationToken,
-    identity: crate::logging::Context,
 }
 
 pub(crate) fn validate(action: &Action) -> Result<(), Fault> {
@@ -108,18 +107,6 @@ pub(crate) async fn run(
         });
         let mut failure = None;
         for model in plan.primary.into_iter().chain(fallback) {
-            let identity = crate::logging::Context {
-                node: Some(ingress.node),
-                caller: Some(caller),
-                request: Some(request.id),
-                session: Some(*session),
-                turn: Some(*turn),
-                worktree: Some(*worktree),
-                provider: Some(model.provider.id),
-                provider_name: Some(model.provider.name.clone()),
-                model: Some(model.model.clone()),
-                ..Default::default()
-            };
             let media = Media {
                 ingress: ingress.clone(),
                 turn: *turn,
@@ -129,7 +116,6 @@ pub(crate) async fn run(
                 kind,
                 model,
                 stop: stop.clone(),
-                identity,
             };
             let result = match action {
                 Action::Inspect { prompt, source } => {

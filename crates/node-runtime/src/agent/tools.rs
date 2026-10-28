@@ -92,9 +92,6 @@ impl<D: Definition + 'static> Operation<D> {
     fn description(&self) -> &str {
         self.definition.description()
     }
-    fn parameters_schema(&self) -> Option<Value> {
-        Some(self.definition.parameters())
-    }
     fn is_read_only(&self) -> bool {
         self.definition.read_only()
     }

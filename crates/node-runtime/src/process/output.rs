@@ -10,7 +10,6 @@ use tokio::{
 
 mod retained;
 pub(crate) use retained::{Budget, COMMAND_LIMIT, Retained, clear};
-pub(crate) mod model;
 
 const LIMIT: usize = 64 * 1024;
 
@@ -85,42 +84,6 @@ pub(crate) fn command_id(value: &serde_json::Value) -> Option<&str> {
             .flatten()
             .and_then(serde_json::Value::as_str)
         })
-}
-
-pub(crate) enum ReadHint<'a> {
-    Output,
-    Command {
-        id: Option<&'a str>,
-        stream: Option<&'a str>,
-        offset: Option<u64>,
-    },
-}
-
-pub(crate) fn hint(kind: ReadHint<'_>) -> String {
-    let output = "read_tool_output with output, offset and limit for the persisted result JSON";
-    match kind {
-        ReadHint::Output => output.into(),
-        ReadHint::Command { id, stream, offset } => {
-            let mut command = id.map_or_else(
-                || "read_command for this command ID".into(),
-                |id| format!("read_command id={id}"),
-            );
-            if let Some(stream) = stream {
-                command.push_str(&format!(" stream={stream}"));
-            }
-            if let Some(offset) = offset {
-                command.push_str(&format!(" offset={offset}"));
-            }
-            command.push_str(" with limit");
-            if stream.is_none() {
-                command.push_str(" and stream");
-            }
-            if offset.is_none() {
-                command.push_str(" and offset");
-            }
-            format!("{command}; use {output} if retained output is unavailable")
-        }
-    }
 }
 
 #[derive(Default)]
