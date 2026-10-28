@@ -172,6 +172,10 @@ pub(crate) struct Runtime {
     pub turn_context: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inference: Option<Inference>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<OperationNotes>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub logs: Vec<String>,
 }
 
 impl Default for Runtime {
@@ -183,8 +187,21 @@ impl Default for Runtime {
             steer: false,
             turn_context: false,
             inference: None,
+            notes: None,
+            logs: Vec::new(),
         }
     }
+}
+
+/// Durable decisions used when Goose reloads the conversation between operations.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub(crate) struct OperationNotes {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty_response: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered_subagent: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cancelled_subagents: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

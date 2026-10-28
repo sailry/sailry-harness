@@ -55,6 +55,7 @@ pub(super) async fn capture(db: &Connection, content: &Content) -> Result<Vec<Bl
                     serde_json::Map::from_iter([("thoughtSignature".into(), json!(signature))])
                 }),
                 tool_meta: None,
+                error: None,
             }),
             Part::FunctionResponse {
                 function_response,
@@ -97,6 +98,8 @@ pub(super) async fn capture(db: &Connection, content: &Content) -> Result<Vec<Bl
                     attachments,
                     annotations: annotations.clone(),
                     provider: None,
+                    format: ToolFormat::Json,
+                    meta: None,
                 })
             }
             Part::ServerToolCall { server_tool_call }

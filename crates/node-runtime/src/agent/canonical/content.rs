@@ -62,6 +62,16 @@ pub(crate) struct ToolRequest {
     pub provider: Option<Map<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_meta: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ToolError>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct ToolError {
+    pub code: i64,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -80,6 +90,26 @@ pub(crate) struct ToolResponse {
     pub annotations: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<Map<String, Value>>,
+    #[serde(default, skip_serializing_if = "ToolFormat::is_json")]
+    pub format: ToolFormat,
+    /// MCP result metadata is separate from provider request metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Map<String, Value>>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ToolFormat {
+    #[default]
+    Json,
+    Mcp,
+    McpError,
+}
+
+impl ToolFormat {
+    fn is_json(&self) -> bool {
+        *self == Self::Json
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

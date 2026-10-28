@@ -216,6 +216,17 @@ pub(crate) enum Operation {
 }
 
 impl Record {
+    pub(crate) fn new(turn: TurnId, kind: Kind) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            created: Utc::now(),
+            turn,
+            provenance: Provenance::default(),
+            metadata: Metadata::default(),
+            kind,
+        }
+    }
+
     pub(crate) fn context(&self) -> Option<&Context> {
         match &self.kind {
             Kind::Configuration(configuration) => Some(&configuration.context),
