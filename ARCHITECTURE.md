@@ -1005,7 +1005,9 @@ types, including OpenAI Responses and Chat, Anthropic, Google, Azure Foundry and
 OpenAI-compatible endpoints. Existing endpoint and credential configuration
 retains its Node owner. Provider capabilities follow the pinned GDK implementation;
 provider-hosted web search is not enabled, while declared ordinary search tools
-remain available. HTTP clients use the shared ring TLS provider.
+remain available. The pinned Google adapter does not decode generated inline image
+parts. Canonical image assets and configured media tools retain their supported
+Node service routes. HTTP clients use the shared ring TLS provider.
 
 The `sailry` management command controls the installed service. Sharing uses a
 profile-private Unix socket to request an invitation from the running Host; the
