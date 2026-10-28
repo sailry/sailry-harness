@@ -133,7 +133,7 @@ fn unavailable(message: &str) -> Fault {
 
 #[cfg(test)]
 mod tests {
-    use super::enforcement::{Builder, Enforcer, macos::Seatbelt};
+    use super::super::enforcement::{Builder, Enforcer, macos::Seatbelt};
     use super::*;
 
     fn command() -> WrappedCommand {
