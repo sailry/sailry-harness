@@ -281,13 +281,23 @@ async fn pending_tool_growth() {
             for index in 1..=6 {
                 let text = if large && index == 3 {
                     format!(
-                        "Evidence {index} {}\n",
-                        "original token evidence near the context boundary ".repeat(8)
+                        "Evidence {index} original token evidence near the context boundary {}\n",
+                        "a1 b2 c3 d4 e5 f6 g7 h8 ".repeat(2)
                     )
                     .repeat(1000)
                 } else {
                     format!("Evidence {index} {}\n", "x".repeat(16 * 1024))
                 };
+                if large && index == 3 {
+                    assert!(text.len() < sailry_protocol::MAX_FILE_BYTES);
+                    assert!(
+                        tiktoken_rs::o200k_base()
+                            .unwrap()
+                            .encode_with_special_tokens(&text)
+                            .len()
+                            > 24_000
+                    );
+                }
                 std::fs::write(fixture.root.join(format!("source-{index}.txt")), text).unwrap();
             }
             let (_, _, page) = submit(
@@ -308,7 +318,7 @@ async fn pending_tool_growth() {
                 assert!(messages(&requests[summary + 1]).contains("Context summary fixture"));
                 assert!(
                     !messages(&requests[summary + 1])
-                        .contains(&"original token evidence near the context boundary ".repeat(8))
+                        .contains("original token evidence near the context boundary a1")
                 );
             }
             original_evidence(&fixture, &page).await;

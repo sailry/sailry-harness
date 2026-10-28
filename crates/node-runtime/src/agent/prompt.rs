@@ -1,7 +1,7 @@
 use sailry_protocol::{Permission, WorkMode};
 
 mod environment;
-mod instructions;
+pub(in crate::agent) mod instructions;
 mod modes;
 mod personal;
 pub(crate) mod session;

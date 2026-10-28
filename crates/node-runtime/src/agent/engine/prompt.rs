@@ -96,28 +96,7 @@ pub(super) struct Preparer {
 impl InferenceRequestPreparer<Session> for Preparer {
     async fn prepare_session(&self, session: &Session) -> anyhow::Result<Option<Session>> {
         let mut session = session.clone();
-        let model = self.invocation.provider.as_ref().and_then(|provider| {
-            provider
-                .models
-                .iter()
-                .find(|model| model.id == self.invocation.turn.config.model)
-        });
-        let api = self
-            .invocation
-            .provider
-            .as_ref()
-            .map(|provider| provider.api)
-            .unwrap_or(sailry_protocol::conversation::ModelApi::Responses);
-        attachments::hydrate(
-            &self.ingress,
-            self.invocation.turn.id,
-            &mut session.conversation,
-            model.is_some_and(|model| model.vision),
-            api,
-            &self.stop,
-        )
-        .await?;
-        crate::agent::media::screenshots::omit(session.conversation.messages_mut(), &self.images);
+        self.hydrate(&mut session.conversation).await?;
         Ok(Some(session))
     }
     async fn prepare(
@@ -141,6 +120,37 @@ impl InferenceRequestPreparer<Session> for Preparer {
             }
         }
         Ok(prepare(input, &loaded, &self.deferred))
+    }
+}
+
+impl Preparer {
+    pub(super) async fn hydrate(
+        &self,
+        conversation: &mut Conversation,
+    ) -> Result<(), sailry_protocol::Fault> {
+        let model = self.invocation.provider.as_ref().and_then(|provider| {
+            provider
+                .models
+                .iter()
+                .find(|model| model.id == self.invocation.turn.config.model)
+        });
+        let api = self
+            .invocation
+            .provider
+            .as_ref()
+            .map(|provider| provider.api)
+            .unwrap_or(sailry_protocol::conversation::ModelApi::Responses);
+        attachments::hydrate(
+            &self.ingress,
+            self.invocation.turn.id,
+            conversation,
+            model.is_some_and(|model| model.vision),
+            api,
+            &self.stop,
+        )
+        .await?;
+        crate::agent::media::screenshots::omit(conversation.messages_mut(), &self.images);
+        Ok(())
     }
 }
 

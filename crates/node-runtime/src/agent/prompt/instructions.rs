@@ -42,7 +42,7 @@ pub(in crate::agent) fn key(path: &str) -> String {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Scope {
+pub(in crate::agent) enum Scope {
     File(String),
     Directory(String),
 }

@@ -35,10 +35,14 @@ pub(super) fn chat(system: &str, messages: &[Message]) -> usize {
     tokens + 3
 }
 pub(crate) fn records(records: &[crate::agent::canonical::Record]) -> u64 {
-    use crate::agent::canonical::BlockKind;
+    use crate::agent::canonical::{BlockKind, Kind};
     records
         .iter()
-        .filter_map(|record| record.message())
+        .filter_map(|record| match &record.kind {
+            Kind::Message(message) => Some(message),
+            Kind::Compaction(compaction) => Some(&compaction.summary),
+            _ => None,
+        })
         .map(|message| {
             let mut tokens = 4usize;
             for block in &message.content {

@@ -90,11 +90,19 @@ pub(super) async fn run(
     let threshold = configured
         .map(|value| value as f64 / context as f64)
         .unwrap_or_else(|| 0.8f64.min(225_000.0 / context as f64));
+    let preparer = Arc::new(prompt::Preparer {
+        ingress: ingress.clone(),
+        invocation: invocation.clone(),
+        stop: stop.clone(),
+        deferred,
+        images,
+    });
     let compact = Arc::new(compact::Compaction {
         provider: summary.provider,
         config: summary.config,
         context,
         threshold,
+        preparer: preparer.clone(),
     });
     let sessions = Sessions::new(ingress.clone(), invocation.turn.id)
         .with_invocation(invocation.clone())
@@ -153,15 +161,7 @@ pub(super) async fn run(
         steps.push(Step::Operation(callback));
     }
     steps.push(Step::Inference(Arc::new(
-        InferenceRunner::new(binding.provider, binding.config).with_request_preparer(Arc::new(
-            prompt::Preparer {
-                ingress: ingress.clone(),
-                invocation: invocation.clone(),
-                stop: stop.clone(),
-                deferred,
-                images,
-            },
-        )),
+        InferenceRunner::new(binding.provider, binding.config).with_request_preparer(preparer),
     )));
     let machine = StateMachine::new(steps, stop.clone());
     let result = {

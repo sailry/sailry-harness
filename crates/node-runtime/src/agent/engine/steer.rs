@@ -2,7 +2,11 @@
 //! Node owns admission and recovery of every drained input.
 use super::{Effect, Session};
 use crate::{
-    agent::{canonical::Record, inputs},
+    agent::{
+        canonical::{Configuration, Context, Guide, Kind, Record},
+        inputs,
+        prompt::instructions::{self, Scope},
+    },
     store::{Ingress, agent::Invocation},
 };
 use async_trait::async_trait;
@@ -40,9 +44,9 @@ impl Operation<Session, Effect> for Steer {
     }
     async fn run(
         &self,
-        _: &Session,
+        session: &Session,
         conversation: &Conversation,
-        _: &Emitter,
+        emit: &Emitter,
     ) -> anyhow::Result<OperationResult<Effect>> {
         let messages = messages_since_kickoff(conversation)?;
         if !ends_turn(messages) && last_effective_role(messages)? != EffectiveRole::Tool {
@@ -53,10 +57,56 @@ impl Operation<Session, Effect> for Steer {
         };
         let mut batch =
             inputs::Batch::guidance(&self.ingress, self.invocation.turn.id, &inputs).await?;
+        *self.drained.lock().unwrap() = batch.records("user", true);
         batch
             .select(&self.invocation, &self.resources, &self.tools)
             .await?;
         *self.drained.lock().unwrap() = batch.records("user", true);
+        if self.invocation.project.is_some() && self.invocation.connections.bound.is_none() {
+            use sailry_protocol::conversation::reference::Target;
+            let scopes: Vec<_> = inputs
+                .iter()
+                .flat_map(|input| &input.message.references)
+                .filter_map(|reference| match &reference.target {
+                    Target::File(path) => Some(Scope::File(path.clone())),
+                    Target::Directory(path) => Some(Scope::Directory(path.clone())),
+                    _ => None,
+                })
+                .collect();
+            let mut context = Context {
+                captured: true,
+                ..Default::default()
+            };
+            for guide in instructions::capture(
+                &self.ingress,
+                self.invocation.worktree,
+                &scopes,
+                emit.cancel_token(),
+            )
+            .await?
+            {
+                let key = guide.key();
+                // Existing guides stay frozen for this turn; guidance can add a new scope.
+                if !session.context.guides.contains_key(&key) {
+                    context.guides.insert(
+                        key,
+                        Guide {
+                            path: guide.path.clone(),
+                            revision: guide.revision.clone(),
+                            content: guide.render(),
+                        },
+                    );
+                }
+            }
+            if !context.guides.is_empty() {
+                let mut record = Record::new(
+                    self.invocation.turn.id,
+                    Kind::Configuration(Configuration { context }),
+                );
+                record.provenance.author = "system".into();
+                self.drained.lock().unwrap().push(record);
+            }
+        }
         applied([Effect::Records(std::mem::take(
             &mut *self.drained.lock().unwrap(),
         ))])

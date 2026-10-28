@@ -1,4 +1,4 @@
-//! Execution-owned attachments are materialized only at inference preparation.
+//! Execution-owned attachments are materialized at the model request boundary.
 use super::*;
 use crate::agent::canonical::{Block, BlockKind, FileRef, Kind, Message, Record, Role};
 use base64::Engine as _;

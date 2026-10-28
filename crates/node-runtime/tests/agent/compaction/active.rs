@@ -182,13 +182,20 @@ async fn preserves_context_on_failure() {
                 .any(|part| matches!(part, Part::Compaction(_)))
         );
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
-        assert!(agent_support::compaction::is_summary(&requests[1]));
+        let attempts = goose_provider_types::retry::RetryConfig::default().max_retries + 1;
+        assert_eq!(requests.len(), 1 + attempts);
+        assert!(!agent_support::compaction::is_summary(&requests[0]));
+        for request in &requests[1..] {
+            assert!(agent_support::compaction::is_summary(request));
+            assert!(request["tools"].as_array().is_none_or(Vec::is_empty));
+            assert!(messages(request).contains("Verify six files"));
+            assert!(messages(request).contains("Evidence 1"));
+        }
         let full = serde_json::to_string(&tool_details(&fixture.client, &page).await).unwrap();
         assert!(full.contains("Evidence 1"));
         assert!(!full.contains("Evidence 2"));
         fixture.client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 1 + attempts);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

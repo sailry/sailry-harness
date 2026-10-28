@@ -236,7 +236,7 @@ async fn compacts_after_provider_overflow() {
             }
             if repeated {
                 assert_eq!(requests.len(), 11);
-                assert!(page.queue.paused);
+                assert!(!page.queue.paused);
             } else {
                 assert_eq!(requests.len(), 9);
                 let retried = messages(requests.last().unwrap());

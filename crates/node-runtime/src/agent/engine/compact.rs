@@ -24,6 +24,7 @@ pub(super) struct Compaction {
     pub config: ModelConfig,
     pub context: usize,
     pub threshold: f64,
+    pub preparer: Arc<super::prompt::Preparer>,
 }
 struct Model {
     inner: ProviderModel,
@@ -98,8 +99,15 @@ impl Compaction {
                 .cloned(),
         )
         .agent_visible_messages();
-        goose_context_management::compact(&model, Some(&Estimator), &projected, &mut output)
-            .await?;
+        let mut projected = Conversation::new_unvalidated(projected);
+        self.preparer.hydrate(&mut projected).await?;
+        goose_context_management::compact(
+            &model,
+            Some(&Estimator),
+            projected.messages(),
+            &mut output,
+        )
+        .await?;
         let summary = output
             .summary
             .ok_or_else(|| anyhow::anyhow!("compaction returned no message"))?
