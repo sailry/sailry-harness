@@ -161,7 +161,7 @@ fn loads_during_streaming() {
     ));
     let client = Client::new(node.local());
     let (first, slow_config) = runtime.block_on(async {
-        // Verify exact paging/call counts without automatic context summaries.
+        // Keep full context compaction separate from old tool-pair summaries.
         let Output::Providers(mut providers) = client
             .execute(client.prepare(Command::ListProviders))
             .await
@@ -212,9 +212,19 @@ fn loads_during_streaming() {
         assert_eq!(
             requests
                 .iter()
-                .filter(|request| !support::compaction::is_summary(request))
+                .filter(|request| {
+                    !support::compaction::is_summary(request)
+                        && !support::compaction::is_tool_pair(request)
+                })
                 .count(),
             148
+        );
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| support::compaction::is_tool_pair(request))
+                .count(),
+            30
         );
         requests.len()
     };
