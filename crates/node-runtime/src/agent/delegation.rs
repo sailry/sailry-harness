@@ -165,9 +165,6 @@ impl Delegate {
     fn description(&self) -> &str {
         &self.description
     }
-    fn is_agent_delegation(&self) -> bool {
-        true
-    }
     fn parameters_schema(&self) -> Option<Value> {
         Some(self.parameters.clone())
     }

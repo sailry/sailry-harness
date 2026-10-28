@@ -154,7 +154,6 @@ impl Capture {
         entry.operation = Some(match model.purpose {
             Purpose::Compaction => "compaction",
             Purpose::Main => "generate",
-            Purpose::Helper => "helper",
         });
         entry.stage = Some("provider");
         entry.stream = Some(true);

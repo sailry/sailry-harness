@@ -20,7 +20,6 @@ pub(super) struct Binding {
 #[derive(Clone, Copy)]
 pub(super) enum Purpose {
     Main,
-    Helper,
     Compaction,
 }
 
