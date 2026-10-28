@@ -71,10 +71,7 @@ async fn preserves_management_branches_on_wire() {
                     assert_eq!(schema["type"], "object");
                     assert_eq!(schema["required"], json!(["action"]));
                     assert!(schema["properties"]["action"]["enum"].is_array());
-                    for keyword in ["oneOf", "allOf", "anyOf"] {
-                        assert!(schema.get(keyword).is_none(), "{name}: {keyword}");
-                    }
-                    assert!(schema["not"]["not"]["oneOf"].is_array());
+                    assert!(schema["oneOf"].is_array());
                     let cases = match name {
                         "manage_mcp" => vec![
                             (json!({"action":"list"}), true),

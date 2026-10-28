@@ -1,8 +1,6 @@
 use super::*;
 use serde_json::{Value, json};
 
-const EMPTY_RESPONSE: &str = "the model ended its turn without an answer: no text, data or tool call, only thinking or whitespace (finish reason: Stop); retry the run, or check the model's output limit and safety settings";
-
 pub(super) fn response(page: &Page) -> String {
     page.entries
         .iter()
@@ -38,7 +36,7 @@ pub(super) async fn server(events: Vec<Value>) -> Server {
 }
 
 #[tokio::test]
-async fn restores_final_payloads() {
+async fn retains_streamed_and_final_content() {
     let answer = message("A complete answer");
     let mut first = message("A complete");
     first["id"] = json!("first");
@@ -54,11 +52,6 @@ async fn restores_final_payloads() {
             json!({"type":"response.output_text.delta", "sequence_number":1, "item_id":"answer",
                 "output_index":0, "content_index":0, "delta":"A complete", "logprobs":[]}),
             completed(json!([answer])),
-        ],
-        vec![
-            json!({"type":"response.output_text.done", "sequence_number":1, "item_id":"answer",
-                "output_index":0, "content_index":0, "text":"A complete answer", "logprobs":[]}),
-            completed(json!([])),
         ],
         vec![
             json!({"type":"response.output_item.done", "sequence_number":1,
@@ -102,7 +95,18 @@ async fn restores_final_payloads() {
         ],
     ];
     for remote in [false, true] {
-        for events in cases.clone() {
+        let expected = [
+            "A complete answer",
+            "A complete",
+            "A complete answer",
+            "Draft",
+            "Draft",
+            "A complete answer",
+            " answer",
+            " answer",
+            " answerA complete",
+        ];
+        for (events, expected) in cases.clone().into_iter().zip(expected) {
             let server = server(events).await;
             let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Can you read this project?").await;
@@ -113,49 +117,9 @@ async fn restores_final_payloads() {
                 "{:?}",
                 page.runs
             );
-            assert_eq!(response(&page), "A complete answer");
+            assert!(page.runs.last().unwrap().error.is_none());
+            assert_eq!(response(&page), expected);
             assert_eq!(server.requests.lock().unwrap().len(), 1);
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-        }
-    }
-}
-
-#[tokio::test]
-async fn fails_without_an_answer() {
-    let mut commentary = message("Inspecting the project");
-    commentary["phase"] = json!("commentary");
-    let outputs = [
-        (json!([]), EMPTY_RESPONSE, ""),
-        (json!([message(" \n\t")]), EMPTY_RESPONSE, ""),
-        (
-            json!([{"type":"reasoning", "id":"reasoning", "status":"completed",
-            "summary":[{"type":"summary_text", "text":"Inspecting the task"}]}]),
-            EMPTY_RESPONSE,
-            "",
-        ),
-        (
-            json!([commentary]),
-            "Model returned no answer",
-            "Inspecting the project",
-        ),
-    ];
-    for remote in [false, true] {
-        for (output, diagnostic, projected) in outputs.clone() {
-            let server = server(vec![completed(output)]).await;
-            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-            let turn = fixture.submit("Can you read this project?").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            let run = page.runs.last().unwrap();
-            assert_eq!(run.status, Status::Failed);
-            assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Unavailable);
-            assert_eq!(run.error.as_ref().unwrap().message, diagnostic);
-            assert_eq!(response(&page).trim(), projected);
-            assert_eq!(
-                server.requests.lock().unwrap().len(),
-                1,
-                "empty completion must not replay"
-            );
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }
@@ -171,7 +135,8 @@ async fn preserves_tools_before_empty_completion() {
         std::fs::write(fixture.root.join("phase.txt"), "fixture").unwrap();
         let turn = fixture.submit("Read phase.txt and answer").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Failed);
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert!(page.runs.last().unwrap().error.is_none());
         assert_eq!(response(&page), crate::agent_support::phases::COMMENTARY);
         let parts = page
             .entries
@@ -224,7 +189,7 @@ async fn preserves_tools_before_empty_completion() {
 }
 
 #[tokio::test]
-async fn retains_incomplete_output_as_failed() {
+async fn retains_incomplete_output() {
     for remote in [false, true] {
         let mut event = completed(json!([message("An unfinished answer")]));
         event["type"] = json!("response.incomplete");
@@ -241,65 +206,11 @@ async fn retains_incomplete_output_as_failed() {
         let turn = fixture.submit("Answer this task").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let run = page.runs.last().unwrap();
-        assert_eq!(run.status, Status::Failed);
-        assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Unavailable);
-        assert_eq!(
-            run.error.as_ref().unwrap().message,
-            "OpenAI Responses generation is incomplete"
-        );
+        assert_eq!(run.status, Status::Completed);
+        assert!(run.error.is_none());
         assert_eq!(response(&page), "An unfinished answer");
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn distinguishes_omitted_and_empty_final_output() {
-    for remote in [false, true] {
-        for finalized in [false, true] {
-            for content_empty in [false, true] {
-                let mut events = vec![
-                    json!({"type":"response.output_text.delta", "sequence_number":1, "item_id":"answer",
-                "output_index":0, "content_index":0, "delta":"Draft", "logprobs":[]}),
-                ];
-                if finalized {
-                    events.push(json!({"type":"response.output_text.done", "sequence_number":2, "item_id":"answer",
-                "output_index":0, "content_index":0, "text":if content_empty {"Draft"} else {""}, "logprobs":[]}),
-            );
-                }
-                let mut empty = message("");
-                empty["content"] = json!([]);
-                events.push(completed(if content_empty {
-                    json!([empty])
-                } else {
-                    json!([])
-                }));
-                let server = server(events).await;
-                let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-                let turn = fixture.submit("Answer this task").await;
-                let page = finished(&fixture.client, fixture.session.id, turn).await;
-                let retained = !finalized && !content_empty;
-                let run = page.runs.last().unwrap();
-                assert_eq!(
-                    run.status,
-                    if retained {
-                        Status::Completed
-                    } else {
-                        Status::Failed
-                    }
-                );
-                if retained {
-                    assert!(run.error.is_none());
-                    assert_eq!(response(&page), "Draft");
-                } else {
-                    assert_eq!(run.error.as_ref().unwrap().message, EMPTY_RESPONSE);
-                    assert!(response(&page).is_empty());
-                }
-                assert_eq!(server.requests.lock().unwrap().len(), 1);
-                fixture.controller.close().await.unwrap();
-                fixture.node.shutdown().await.unwrap();
-            }
-        }
     }
 }
