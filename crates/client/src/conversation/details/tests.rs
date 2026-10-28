@@ -42,6 +42,18 @@ fn assert_contended(state: State) {
     ));
 }
 
+async fn wait_contended(tracker: &Tracker, reference: &Reference) {
+    let mut changed = tracker.subscribe();
+    loop {
+        let state = tracker.state(reference);
+        if !matches!(state, State::Loading) {
+            assert_contended(state);
+            return;
+        }
+        changed.changed().await.unwrap();
+    }
+}
+
 struct Backend {
     reference: Reference,
     text: String,
@@ -826,7 +838,7 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
     peer.set([first.clone()]);
     assert!(matches!(peer.wait(&first).await, State::Ready(_)));
     peer.include(second.clone());
-    assert_contended(peer.wait(&second).await);
+    wait_contended(&peer, &second).await;
     assert!(matches!(peer.state(&first), State::Ready(_)));
     assert!(matches!(tracker.state(&first), State::Ready(_)));
     let failures = peer.failures();
@@ -899,7 +911,7 @@ async fn protects_pending_arguments_from_later_results() {
     drop(transient);
     assert_eq!(client.details.values.lock().unwrap().entries[0].pins, 1);
     tracker.include(expanded.clone());
-    assert_contended(tracker.wait(&expanded).await);
+    wait_contended(&tracker, &expanded).await;
     let State::Ready(retained) = tracker.state(&pending) else {
         panic!("later expansion must not evict pending arguments");
     };
@@ -1021,7 +1033,9 @@ async fn preserves_ready_values_when_peers_block_admission() {
     let candidate_size = allocation(&serde_json::from_str(&backend.text).unwrap(), &candidate);
     assert!(pinned.bytes + candidate_size > MAX_BYTES);
     tracker.include(candidate.clone());
-    assert_contended(tracker.wait(&candidate).await);
+    wait_contended(&tracker, &candidate).await;
+    let mut waiting = Box::pin(tracker.wait(&candidate));
+    assert!(futures::poll!(waiting.as_mut()).is_pending());
     let State::Ready(preserved) = tracker.state(&first) else {
         panic!("blocked admission must preserve the visible detail");
     };
@@ -1046,18 +1060,13 @@ async fn preserves_ready_values_when_peers_block_admission() {
         );
     }
     drop((original, pinned, preserved));
-    let mut changed = tracker.subscribe();
     peer.set([]);
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if matches!(tracker.state(&candidate), State::Ready(_)) {
-                break;
-            }
-            changed.changed().await.unwrap();
-        }
-    })
-    .await
-    .expect("released peer budget restores the selected detail");
+    assert!(matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+            .await
+            .expect("released peer budget restores the selected detail"),
+        State::Ready(_)
+    ));
     assert!(matches!(tracker.state(&first), State::Ready(_)));
     assert!(tracker.failures().is_empty());
     tracker.set([]);

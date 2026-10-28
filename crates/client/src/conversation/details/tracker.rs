@@ -193,15 +193,25 @@ impl Tracker {
     pub async fn wait(&self, reference: &Reference) -> State {
         let mut changed = self.subscribe();
         loop {
-            let state = self.state(reference);
-            if !matches!(
-                state,
-                State::Loading
-                    | State::Failed {
-                        retry_at: Some(_),
-                        ..
-                    }
-            ) {
+            let (state, waiting) = {
+                let mut slots = self.0.slots.lock().expect("tool tracker lock");
+                let state = self.0.state(&mut slots, reference);
+                let waiting = slots
+                    .values
+                    .get(reference)
+                    .is_some_and(|slot| slot.required.is_some());
+                (state, waiting)
+            };
+            if !waiting
+                && !matches!(
+                    state,
+                    State::Loading
+                        | State::Failed {
+                            retry_at: Some(_),
+                            ..
+                        }
+                )
+            {
                 return state;
             }
             if changed.changed().await.is_err() {

@@ -193,11 +193,14 @@ fn observation(
     client: Arc<Client>,
     runtime: tokio::runtime::Handle,
 ) -> Observation {
+    let details =
+        sailry_client::conversation::details::Tracker::new(client.clone(), runtime.clone());
     Observation {
         history,
         runtime,
         client,
         prefix: "plugin_fixture_".into(),
+        details,
     }
 }
 
@@ -279,7 +282,49 @@ async fn concurrent_snapshots_keep_their_selected_calls() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_failed_call_does_not_hide_peers() {
+async fn recovers_without_new_history() {
+    let backend = Backend::new();
+    backend.1.lock().unwrap().insert("entry-0".into());
+    let observation = observation(
+        history(sailry_protocol::SessionId::new(), TurnId::new()),
+        Arc::new(Client::new(backend.clone())),
+        tokio::runtime::Handle::current(),
+    );
+    let (_sender, receiver) = watch::channel(BTreeMap::from([("fixture".to_owned(), observation)]));
+    let stop = CancellationToken::new();
+    let first = next(receiver.clone(), "", stop.clone()).await.unwrap();
+    let partial = &first["conversations"]["fixture"];
+    assert_eq!(partial["calls"].as_array().unwrap().len(), 2);
+    assert_eq!(partial["errors"].as_array().unwrap().len(), 1);
+    let mut seen = first["cursor"].as_str().unwrap().to_owned();
+    let recovered = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let update = next(receiver.clone(), &seen, stop.clone()).await.unwrap();
+            seen = update["cursor"].as_str().unwrap().to_owned();
+            if update["conversations"]["fixture"]["calls"]
+                .as_array()
+                .unwrap()
+                .len()
+                == 3
+            {
+                break update;
+            }
+        }
+    })
+    .await
+    .expect("tracker recovery must publish without a history change");
+    assert!(
+        recovered["conversations"]["fixture"]["errors"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(!receiver.has_changed().unwrap());
+    assert_eq!(backend.0.load(Ordering::Relaxed), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn failure_allows_later_calls() {
     let backend = Backend::new();
     backend.1.lock().unwrap().insert("always:entry-0".into());
     let observation = observation(
@@ -287,7 +332,11 @@ async fn a_failed_call_does_not_hide_peers() {
         Arc::new(Client::new(backend.clone())),
         tokio::runtime::Handle::current(),
     );
-    let partial = snapshot(&observation).await.unwrap();
+    let reference = selected(&observation)[0].2.clone();
+    let (sender, receiver) = watch::channel(BTreeMap::from([("fixture".to_owned(), observation)]));
+    let stop = CancellationToken::new();
+    let first = next(receiver.clone(), "", stop.clone()).await.unwrap();
+    let partial = &first["conversations"]["fixture"];
     assert_eq!(partial["calls"].as_array().unwrap().len(), 2);
     assert!(
         partial["calls"]
@@ -296,12 +345,70 @@ async fn a_failed_call_does_not_hide_peers() {
             .iter()
             .all(|call| call["timestamp_ms"] != 0)
     );
-    let reads = backend.0.load(Ordering::Relaxed);
-    assert_eq!(reads, 3);
     assert_eq!(partial["errors"].as_array().unwrap().len(), 1);
-    backend.1.lock().unwrap().clear();
-    let recovered = snapshot(&observation).await.unwrap();
-    assert_eq!(recovered["calls"].as_array().unwrap().len(), 3);
+    let tracker = sender.borrow()["fixture"].details.clone();
+    assert!(matches!(
+        tracker.wait(&reference).await,
+        sailry_client::conversation::details::State::Failed { retry_at: None, .. }
+    ));
+    let settled = next(
+        receiver.clone(),
+        first["cursor"].as_str().unwrap(),
+        stop.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        settled["conversations"]["fixture"]["errors"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let reads = backend.0.load(Ordering::Relaxed);
+    assert_eq!(reads, 7, "a permanent failure has only bounded retries");
+    sender.send_modify(|observed| {
+        let observation = observed.get_mut("fixture").unwrap();
+        let snapshot = Arc::make_mut(observation.history.snapshot.as_mut().unwrap());
+        snapshot.sequence += 1;
+        let page = Arc::make_mut(&mut snapshot.page);
+        page.revision += 1;
+        let mut entry = page.entries[2].clone();
+        entry.id = "entry-3".into();
+        entry.sequence = 4;
+        entry.timestamp_ms = 3;
+        for part in &mut entry.parts {
+            match part {
+                sailry_protocol::conversation::Part::ToolCall { id, .. }
+                | sailry_protocol::conversation::Part::ToolResult { id, .. } => {
+                    *id = Some("call-3".into());
+                }
+                _ => unreachable!(),
+            }
+        }
+        page.entries.push(entry);
+        let calls = Arc::make_mut(&mut observation.history.calls);
+        let mut call = calls[2].clone();
+        call.id = Some("call-3".into());
+        call.source.entry = "entry-3".into();
+        call.response.as_mut().unwrap().entry = "entry-3".into();
+        calls.push(call);
+    });
+    let update = next(receiver, settled["cursor"].as_str().unwrap(), stop)
+        .await
+        .unwrap();
+    let calls = update["conversations"]["fixture"]["calls"]
+        .as_array()
+        .unwrap();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls.last().unwrap()["timestamp_ms"], 3);
+    assert_eq!(
+        update["conversations"]["fixture"]["errors"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     assert_eq!(backend.0.load(Ordering::Relaxed), reads + 1);
 }
 
