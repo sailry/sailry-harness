@@ -429,8 +429,8 @@ do not override it.
 
 GDK owns provider retry defaults for native and declared plugin models. Sailry
 does not add a shared retry budget, forced `tool_choice`, WebSocket transport,
-connection-local continuation or SSE fallback. Opaque Responses encrypted
-reasoning and its origin-digest replay are not retained. Ordinary signed thinking,
+connection-local continuation or SSE fallback. Outgoing requests omit opaque
+Responses encrypted reasoning and origin-digest replay. Ordinary signed thinking,
 call IDs, text, tool results and historical search or commentary remain available
 through canonical conversion and public projections.
 
