@@ -161,17 +161,17 @@ async fn rejects_hidden_writes() {
             } else {
                 &["plain", "declared", "read", "flow"]
             };
+            let query = ["plain", "declared", "read", "flow"]
+                .map(|name| plugin_tool(PACKAGE, name))
+                .join(" ");
             let server = Server::scripted_tools(
-                std::iter::once((
-                    "tool_search".into(),
-                    json!({"query":"private value flow","limit":4}),
-                ))
-                .chain(
-                    names
-                        .iter()
-                        .map(|name| (plugin_tool(PACKAGE, name), json!({}))),
-                )
-                .collect(),
+                std::iter::once(("tool_search".into(), json!({"query":query,"limit":4})))
+                    .chain(
+                        names
+                            .iter()
+                            .map(|name| (plugin_tool(PACKAGE, name), json!({}))),
+                    )
+                    .collect(),
             )
             .await;
             let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
