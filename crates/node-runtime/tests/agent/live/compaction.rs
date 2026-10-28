@@ -37,8 +37,12 @@ impl Fixture {
             assert_eq!(provider.authentication, expected);
         }
         println!(
-            "live provider: model={model} authentication={:?} remote={remote}",
-            provider.authentication
+            "live provider: model={model} authentication={:?} remote={remote} request_max_retries={:?} stream_max_retries={:?}",
+            provider.authentication, provider.request_max_retries, provider.stream_max_retries
+        );
+        assert!(
+            provider.retry_limit() > 0,
+            "configured recovery is required"
         );
         let node = Node::start(&profile).await.unwrap();
         let controller =
@@ -114,6 +118,21 @@ impl Fixture {
                         Status::Queued | Status::Running | Status::Stopping
                     )
                 {
+                    let statistics =
+                        crate::observations::statistics(&self.client, self.session.id).await;
+                    for request in statistics
+                        .observations
+                        .recent
+                        .iter()
+                        .filter(|request| request.turn == turn)
+                    {
+                        for attempt in &request.attempts {
+                            println!(
+                                "live transport: attempt={} transport={} status={:?} outcome={:?}",
+                                attempt.index, attempt.transport, attempt.status, attempt.outcome
+                            );
+                        }
+                    }
                     assert_eq!(run.status, Status::Completed, "live turn failed: {run:?}");
                     return page;
                 }

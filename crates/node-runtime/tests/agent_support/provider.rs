@@ -12,8 +12,6 @@ pub(crate) async fn seed(
     if let Some(credential) = &mut provider.credential {
         credential.node = node;
     }
-    provider.request_max_retries = Some(0);
-    provider.stream_max_retries = Some(0);
     stored["provider"] = serde_json::to_value(&provider).unwrap();
     stored["quota"] = serde_json::Value::Null;
     let (database, mut connection) =
