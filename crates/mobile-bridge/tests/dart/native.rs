@@ -133,9 +133,9 @@ fn resumes_without_source() {
                         .unwrap()
                         .iter()
                         .flat_map(|message| message["parts"].as_array().unwrap())
-                        .find(|part| part["inlineData"]["mimeType"] == mime)
+                        .find(|part| part["inline_data"]["mime_type"] == mime)
                         .expect("native media expected");
-                    assert_eq!(part["inlineData"]["data"], encoded);
+                    assert_eq!(part["inline_data"]["data"], encoded);
                 } else {
                     assert!(!request.body.to_string().contains(&encoded));
                     assert!(
@@ -164,7 +164,7 @@ fn resumes_without_source() {
                 .flatten()
                 .find(|part| {
                     part["type"] == "document"
-                        || part["inlineData"]["mimeType"] == "application/pdf"
+                        || part["inline_data"]["mime_type"] == "application/pdf"
                 })
                 .expect("native PDF input expected");
             if api == ModelApi::Anthropic {
@@ -174,7 +174,7 @@ fn resumes_without_source() {
                 assert_eq!(request.body["thinking"]["budget_tokens"], 1024);
                 assert!(request.body.get("output_config").is_none());
             } else {
-                assert_eq!(pdf["inlineData"]["data"], encoded);
+                assert_eq!(pdf["inline_data"]["data"], encoded);
                 assert_eq!(
                     request.body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
                     1024
