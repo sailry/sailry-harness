@@ -91,8 +91,17 @@ async fn routes_through_controller() {
                         .any(|tool| *name == plugin_tool("browser", tool))
                 });
             }
+            let mut discovered: Vec<_> = calls.iter().map(|(name, _)| name.clone()).collect();
+            if mode == WorkMode::Plan {
+                discovered.extend(mutating.map(|name| plugin_tool("browser", name)));
+            }
+            let mut script: Vec<_> = discovered
+                .iter()
+                .map(|name| ("tool_search".into(), json!({"query":name,"limit":1})))
+                .collect();
+            script.extend(calls.clone());
             let count = calls.len();
-            let server = Server::scripted_tools(calls.clone()).await;
+            let server = Server::scripted_tools(script.clone()).await;
             let session =
                 super::approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
             let mut config = session.config.clone();
@@ -144,7 +153,7 @@ async fn routes_through_controller() {
             } else {
                 finished(&client, session.id, turn.id).await
             };
-            super::evaluation::trajectory(&client, &page, &calls).await;
+            super::evaluation::trajectory(&client, &page, &script).await;
             assert_eq!(
                 page.runs.last().unwrap().status,
                 Status::Completed,
@@ -161,7 +170,26 @@ async fn routes_through_controller() {
                 })
                 .unwrap();
             let requests = server.requests.lock().unwrap().clone();
-            let tools = requests[0]["tools"].as_array().unwrap();
+            let initial = requests[0]["tools"].as_array().unwrap();
+            assert!(
+                initial
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == "tool_search")
+            );
+            for (index, name) in discovered.iter().enumerate() {
+                assert!(initial.iter().all(|tool| tool["function"]["name"] != *name));
+                assert!(
+                    requests[index + 1]["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|tool| tool["function"]["name"] == *name)
+                );
+            }
+            let tools = requests[discovered.len()]["tools"].as_array().unwrap();
+            assert!(tools.iter().all(
+                |tool| tool["function"]["name"] != plugin_tool("browser", "browser_screenshot")
+            ));
             for (name, _) in calls {
                 assert!(tools.iter().any(|tool| tool["function"]["name"] == name));
             }
@@ -180,7 +208,7 @@ async fn routes_through_controller() {
             let results: Vec<_> = tool_details(&client, &page)
                 .await
                 .into_iter()
-                .filter(|(name, _)| name != "plan_review")
+                .filter(|(name, _)| name != "plan_review" && name != "tool_search")
                 .map(|(_, detail)| detail.result.unwrap())
                 .collect();
             assert_eq!(results.len(), count);

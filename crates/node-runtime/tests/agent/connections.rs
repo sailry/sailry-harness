@@ -63,6 +63,7 @@ async fn scopes_database_approvals() {
         let profile = save(&client, &path, None).await;
         let other = save(&client, &path, Some(Sharing::Global)).await;
         let server = Server::tools(vec![
+            ("tool_search".into(), json!({"query":"database","limit":8})),
             (
                 agent_support::plugin_tool("databases", "database_catalog"),
                 json!({"connection":profile.id,"database":"main"}),
@@ -203,12 +204,17 @@ async fn scopes_database_approvals() {
                 "{denied}"
             );
         }
-        let query = tools
+        let query_name = agent_support::plugin_tool("databases", "database_query");
+        assert!(
+            tools
+                .iter()
+                .all(|tool| tool["function"]["name"] != query_name)
+        );
+        let query = requests[1]["tools"]
+            .as_array()
+            .unwrap()
             .iter()
-            .find(|tool| {
-                tool["function"]["name"]
-                    == agent_support::plugin_tool("databases", "database_query")
-            })
+            .find(|tool| tool["function"]["name"] == query_name)
             .unwrap();
         let connection = &query["function"]["parameters"]["properties"]["connection"];
         assert!(connection["pattern"].is_string());
@@ -298,7 +304,7 @@ async fn scopes_database_approvals() {
         {
             let requests = server.requests.lock().unwrap();
             let base = include_str!("../../src/agent/prompt.txt").trim();
-            assert_eq!(requests.len(), 6);
+            assert_eq!(requests.len(), 7);
             for request in requests.iter() {
                 let messages = request["messages"].as_array().unwrap();
                 let policy = messages

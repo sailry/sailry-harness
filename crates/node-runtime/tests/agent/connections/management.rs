@@ -493,6 +493,7 @@ async fn bundled_tools_keep_saved_id() {
         db.execute_batch("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES (83)")
             .unwrap();
         let server = Server::result_tools(vec![
+            ("tool_search".into(), json!({"query":"database","limit":8})),
             (
                 agent_support::plugin_tool("databases", "database_connections"),
                 json!({}),
@@ -520,7 +521,11 @@ async fn bundled_tools_keep_saved_id() {
             "{:?}",
             page.runs[0].error
         );
-        let output = results(&fixture.client, &page).await;
+        let mut output = results(&fixture.client, &page).await;
+        let discovery = output.remove(0);
+        assert!(discovery["tools"].as_array().unwrap().iter().any(|tool| {
+            tool["name"] == agent_support::plugin_tool("databases", "database_query")
+        }));
         assert_eq!(output.len(), 4, "{output:?}");
         assert_eq!(output[0], json!({"kind":"database_profiles", "data":[]}));
         let profiles = databases(&fixture.client).await;
@@ -543,9 +548,16 @@ async fn bundled_tools_keep_saved_id() {
         assert_eq!(output[3]["data"][0]["id"], profiles[0].id.to_string());
         {
             let requests = server.requests.lock().unwrap();
-            let tools = requests[0]["tools"].as_array().unwrap();
-            assert!(tools.iter().any(|tool| tool["function"]["name"]
-                == agent_support::plugin_tool("databases", "database_query")));
+            let query = agent_support::plugin_tool("databases", "database_query");
+            assert!(
+                requests[0]["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|tool| tool["function"]["name"] != query)
+            );
+            let tools = requests[1]["tools"].as_array().unwrap();
+            assert!(tools.iter().any(|tool| tool["function"]["name"] == query));
         }
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
