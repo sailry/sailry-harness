@@ -76,6 +76,7 @@ enum Input {
     Record(Record),
     Summary(
         goose_provider_types::conversation::message::Message,
+        goose_provider_types::conversation::token_usage::ProviderUsage,
         String,
         chrono::DateTime<chrono::Utc>,
         chrono::DateTime<chrono::Utc>,
@@ -83,6 +84,7 @@ enum Input {
     ),
     Message(
         goose_provider_types::conversation::message::Message,
+        Option<goose_provider_types::conversation::token_usage::ProviderUsage>,
         BTreeMap<String, String>,
         records::Presentation,
     ),
@@ -93,6 +95,7 @@ pub(super) async fn append_summary(
     session: SessionId,
     turn: TurnId,
     message: goose_provider_types::conversation::message::Message,
+    usage: goose_provider_types::conversation::token_usage::ProviderUsage,
     boundary: String,
     start: chrono::DateTime<chrono::Utc>,
     end: chrono::DateTime<chrono::Utc>,
@@ -103,7 +106,7 @@ pub(super) async fn append_summary(
         database,
         session,
         turn,
-        Input::Summary(message, boundary, start, end, files),
+        Input::Summary(message, usage, boundary, start, end, files),
         None,
         events,
     )
@@ -115,6 +118,7 @@ pub(super) async fn append_message(
     session: SessionId,
     turn: TurnId,
     message: goose_provider_types::conversation::message::Message,
+    usage: Option<goose_provider_types::conversation::token_usage::ProviderUsage>,
     calls: BTreeMap<String, String>,
     presentation: records::Presentation,
     events: &broadcast::Sender<EventEnvelope>,
@@ -123,7 +127,7 @@ pub(super) async fn append_message(
         database,
         session,
         turn,
-        Input::Message(message, calls, presentation),
+        Input::Message(message, usage, calls, presentation),
         None,
         events,
     )
@@ -167,16 +171,18 @@ async fn write(
                 };
                 let event = match event {
                     Input::Record(record) => record,
-                    Input::Summary(message,boundary,start,end,files)=>{
+                    Input::Summary(message,usage,boundary,start,end,files)=>{
                         let mut record=crate::agent::engine::history::capture(&transaction,turn,&message,&BTreeMap::new()).await?;
+                        capture_usage(&mut record,&usage)?;
                         let records::Kind::Message(summary)=record.kind else{unreachable!()};
                         record.kind=records::Kind::Compaction(records::Compaction{boundary,summary,start,end,files});
                         record.provenance.author="system".into();
                         record.metadata.runtime.get_or_insert_with(Default::default).user_visible=true;
                         record
                     },
-                    Input::Message(message, calls, presentation) => {
+                    Input::Message(message, usage, calls, presentation) => {
                         let mut record = crate::agent::engine::history::capture(&transaction, turn, &message, &calls).await?;
+                        if let Some(usage)=usage {capture_usage(&mut record,&usage)?;}
                         super::presentation::capture_failures(&mut record,None);
                         super::presentation::stamp(&mut record,&presentation);
                         record
@@ -326,6 +332,19 @@ async fn write(
         }
     }
     unreachable!("the final attempt returns its result")
+}
+
+fn capture_usage(
+    record: &mut Record,
+    usage: &goose_provider_types::conversation::token_usage::ProviderUsage,
+) -> Result<(), Fault> {
+    let Some(message) = record.message_mut() else {
+        return Ok(());
+    };
+    message.model = Some(usage.model.clone());
+    message.usage.get_or_insert_with(Default::default).provider =
+        Some(serde_json::to_value(usage).map_err(storage_error)?);
+    Ok(())
 }
 
 async fn visibility(

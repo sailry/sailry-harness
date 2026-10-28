@@ -472,7 +472,7 @@ pub(super) async fn effects(
     database: &mut Database,
     session: SessionId,
     turn: TurnId,
-    effects: Vec<Effect>,
+    mut effects: Vec<Effect>,
     presentation: Presentation,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
@@ -499,10 +499,36 @@ pub(super) async fn effects(
             calls.insert(request.id.clone(), call.name.to_string());
         }
     }
-    let mut usage = None;
-    for effect in effects {
+    // Goose associates request usage with the last non-error assistant message.
+    for index in 0..effects.len() {
+        let Effect::Usage(usage) = &effects[index] else {
+            continue;
+        };
+        let usage = usage.clone();
+        if let Some(message) = effects.iter_mut().rev().find_map(|effect| match effect {
+            Effect::Conversation(ConversationEffect::AppendMessage(message))
+                if message.role == rmcp::model::Role::Assistant
+                    && message.error_kind().is_none() =>
+            {
+                Some(message)
+            }
+            _ => None,
+        }) {
+            message.metadata.usage =
+                Some(Box::new(MessageUsage::from_provider_usage(&usage, false)));
+        }
+    }
+    let usage = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Usage(usage) => Some(usage.clone()),
+            _ => None,
+        })
+        .last();
+    let last=effects.iter().rposition(|effect|matches!(effect,Effect::Conversation(ConversationEffect::AppendMessage(message)) if message.role==rmcp::model::Role::Assistant && message.error_kind().is_none()));
+    for (index, effect) in effects.into_iter().enumerate() {
         match effect {
-            Effect::Usage(value) => usage = Some(value),
+            Effect::Usage(_) => {}
             Effect::Records(records) => {
                 for mut record in records {
                     record.metadata.presentation = Some(presentation.clone());
@@ -512,11 +538,7 @@ pub(super) async fn effects(
             Effect::Approval { .. } => {
                 unreachable!("approval is resolved before submitting storage effects")
             }
-            Effect::Conversation(ConversationEffect::AppendMessage(mut message)) => {
-                if let Some(value) = usage.take() {
-                    message.metadata.usage =
-                        Some(Box::new(MessageUsage::from_provider_usage(&value, false)));
-                }
+            Effect::Conversation(ConversationEffect::AppendMessage(message)) => {
                 for content in &message.content {
                     if let MessageContent::ToolRequest(request) = content
                         && let Ok(call) = &request.tool_call
@@ -529,6 +551,7 @@ pub(super) async fn effects(
                     session,
                     turn,
                     message,
+                    (last == Some(index)).then(|| usage.clone()).flatten(),
                     calls.clone(),
                     presentation.clone(),
                     events,
@@ -639,6 +662,7 @@ async fn save_summary(
         session,
         turn,
         summary,
+        usage,
         boundary.id.clone(),
         current
             .records

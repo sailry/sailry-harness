@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 
 mod defaults;
 mod links;
+mod visibility;
 
 tokio::task_local! {
     static WRITES: mpsc::UnboundedSender<oneshot::Sender<()>>;

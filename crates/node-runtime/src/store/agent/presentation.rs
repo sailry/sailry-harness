@@ -53,13 +53,11 @@ pub(super) fn capture_failures(
             })
         })
         .collect();
-    if !failures.is_empty() {
-        event
-            .metadata
-            .presentation
-            .get_or_insert_with(Default::default)
-            .failures = failures.clone();
-    }
+    event
+        .metadata
+        .presentation
+        .get_or_insert_with(Default::default)
+        .failures = failures.clone();
     failures
 }
 
@@ -133,10 +131,10 @@ pub(super) fn stamp(event: &mut Record, catalog: &crate::agent::canonical::Prese
         .filter_map(|block| match &block.kind {
             BlockKind::ToolRequest(request) => Some(request.name.as_str()),
             BlockKind::ServerCall { value } => {
-                if value["type"] == "web_search_call" {
+                if value.value["type"] == "web_search_call" {
                     Some("web_search")
                 } else {
-                    value["name"].as_str()
+                    value.value["name"].as_str()
                 }
             }
             _ => None,
