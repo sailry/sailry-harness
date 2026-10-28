@@ -48,7 +48,7 @@ impl Children {
         pending.insert(id, invocation);
         Ok(())
     }
-    pub(super) async fn settle_pending(&self) -> Result<(), Fault> {
+    pub(in crate::agent) async fn settle_pending(&self) -> Result<(), Fault> {
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
         for (_, invocation) in pending {
             crate::agent::settlement::queued(

@@ -194,7 +194,6 @@ pub(super) async fn run(
     }
     // GDK owns cancellation recovery, including interrupted requests and streamed text.
     let finalized = machine.finalize(&sessions, &id, &emit).await;
-    children.settle_pending().await?;
     result.map_err(fault)?;
     finalized.map_err(fault)?;
     let session = sessions.load(&id).await.map_err(fault)?;

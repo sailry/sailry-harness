@@ -109,6 +109,7 @@ async fn run(
     let callbacks = plugins::callbacks::capture(&invocation);
     let runner = controls.runner(turn).unwrap_or_else(|| token.child_token());
     let hooks = crate::hooks::Binding::capture(ingress, &invocation, runner.clone());
+    let children = engine::Children::new(ingress.clone(), tasks.clone(), &invocation);
     let mut completion_review = None;
     let mut result = execute(
         ingress,
@@ -118,6 +119,7 @@ async fn run(
         hooks.clone(),
         &diagnostics,
         &mut completion_review,
+        &children,
     )
     .await;
     if let Some(error) = controls.failure(turn)
@@ -158,11 +160,14 @@ async fn run(
         let _settlement = diagnostics.span(Phase::ChildSettlement, None);
         settle_children(ingress, session).await;
     }
-    // Hook and tool process owners survive dropped ADK callback futures.
+    // Hook and tool process owners survive dropped operation futures.
     {
         let operations = diagnostics.enabled().then(|| controls.operations(turn));
         let _drain = diagnostics.span(Phase::OperationDrain, operations);
         controls.drain(turn).await;
+    }
+    if let Err(error) = children.settle_pending().await {
+        merge_failure(&mut result, error);
     }
     if let Some(timeline) = controls.timeline(turn) {
         let mut record = canonical::Record::new(
@@ -277,6 +282,7 @@ async fn execute(
     hooks: Option<Arc<crate::hooks::Binding>>,
     diagnostics: &Diagnostics,
     completion_review: &mut Option<canonical::Record>,
+    children: &engine::Children,
 ) -> Result<Option<String>, Fault> {
     let session = invocation.turn.session;
     let mut connections = ingress.agents.mcp.take(session);
@@ -288,6 +294,7 @@ async fn execute(
         &mut connections,
         hooks,
         diagnostics,
+        children,
     )
     .await
     .map(|outcome| {
@@ -352,6 +359,7 @@ async fn execute_with(
     connections: &mut mcp::Connections,
     hooks: Option<Arc<crate::hooks::Binding>>,
     diagnostics: &Diagnostics,
+    children: &engine::Children,
 ) -> Result<Outcome, Fault> {
     if stop.is_cancelled() {
         return Ok(Outcome::default());
@@ -506,7 +514,6 @@ async fn execute_with(
     if stop.is_cancelled() {
         return Ok(Outcome::default());
     }
-    let children = engine::Children::new(ingress.clone(), tasks.clone(), invocation);
     let mut catalog = catalog::Catalog::new(
         invocation.turn.session.to_string(),
         stop.clone(),
@@ -561,7 +568,7 @@ async fn execute_with(
         deferred,
         resources,
         capability_tools,
-        children,
+        children.clone(),
     )
     .await?;
     let review = if reviewing && !stop.is_cancelled() {
