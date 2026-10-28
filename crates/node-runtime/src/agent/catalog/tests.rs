@@ -3,7 +3,11 @@ use serde_json::json;
 
 #[test]
 fn moves_context_without_changing_output() {
-    let raw = json!({"data":{"lines":[{"text":"unchanged"}]},"sailry_context":{"loaded_tools":["read_file"]}});
+    let context = crate::agent::canonical::Context {
+        loaded_tools: Some(["read_file".into()].into()),
+        ..Default::default()
+    };
+    let raw = json!({"data":{"lines":[{"text":"unchanged"}]},"sailry_context":context});
     let result = json(raw).unwrap();
     assert_eq!(
         result.structured_content,
@@ -15,7 +19,7 @@ fn moves_context_without_changing_output() {
     );
     let raw = json!({"sailry_context":"ordinary marker","output":7});
     assert_eq!(json(raw.clone()).unwrap().structured_content, Some(raw));
-    assert!(json(json!({"sailry_context":{"loaded_tools":7}})).is_err());
+    assert!(json(json!({"sailry_context":{"captured":false,"loaded_tools":7}})).is_err());
 }
 
 #[test]
