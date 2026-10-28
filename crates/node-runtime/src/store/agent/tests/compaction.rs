@@ -1,49 +1,72 @@
 use super::super::compaction as context;
 use super::{fixture::Fixture, *};
+use crate::agent::canonical::{self as records, BlockKind, Kind, Record, Role};
+use fixture::{message, record, request, response};
+use serde_json::json;
 
-fn event(text: &str) -> AdkEvent {
-    let mut event = AdkEvent::new("context-fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text(text));
-    event
+fn event(text: &str) -> Record {
+    message(
+        "assistant",
+        Role::Assistant,
+        vec![BlockKind::Text { text: text.into() }],
+    )
 }
 
-fn summary(end: &AdkEvent) -> AdkEvent {
-    let mut summary = AdkEvent::new("summary-fixture");
-    summary.author = "system".into();
-    summary
-        .provider_metadata
-        .insert(context::END_EVENT.into(), end.id.clone());
-    summary.actions.compaction = Some(adk_core::EventCompaction {
-        start_timestamp: end.timestamp,
-        end_timestamp: end.timestamp,
-        compacted_content: adk_core::Content::new("user").with_text("Summary 中文 🙂"),
+fn summary(end: &Record) -> Record {
+    let content = message(
+        "user",
+        Role::User,
+        vec![BlockKind::Text {
+            text: "Summary 中文 🙂".into(),
+        }],
+    );
+    let mut compacted = record(
+        "system",
+        Kind::Compaction(records::Compaction {
+            boundary: end.id.clone(),
+            summary: content.message().unwrap().clone(),
+            start: end.created,
+            end: end.created,
+            files: Vec::new(),
+        }),
+    );
+    compacted.metadata.runtime = Some(records::Runtime {
+        user_visible: false,
+        ..Default::default()
     });
-    summary
+    compacted
 }
 
-async fn validate(fixture: &Fixture, turn: TurnId, event: &AdkEvent) -> Result<(), Fault> {
-    let record =
-        crate::agent::canonical_bridge::from_adk(&fixture.database.connection, turn, event).await?;
-    context::validate(&fixture.database.connection, fixture.session, turn, &record).await
+fn capability(text: &str) -> Record {
+    let mut selected = message(
+        "user",
+        Role::User,
+        vec![
+            BlockKind::Text {
+                text: "User task".into(),
+            },
+            BlockKind::Text { text: text.into() },
+        ],
+    );
+    selected.metadata.input = Some(records::Input {
+        capability_part: Some(1),
+        ..Default::default()
+    });
+    selected
 }
 
-async fn load(fixture: &Fixture, turn: TurnId) -> Vec<AdkEvent> {
+async fn load(fixture: &Fixture, turn: TurnId) -> sessions::Session {
     sessions::get(
         &fixture.database.connection,
         turn,
-        GetRequest {
-            app_name: APP.into(),
-            user_id: USER.into(),
-            session_id: fixture.session.to_string(),
-            num_recent_events: None,
+        sessions::Query {
+            session: fixture.session,
+            recent: None,
             after: None,
         },
     )
     .await
     .unwrap()
-    .events()
-    .all()
 }
 
 #[tokio::test]
@@ -175,101 +198,96 @@ async fn retains_summary_only_update_time() {
     fixture.append([original.clone()]).await;
     let compacted = summary(&original);
     let turn = fixture.append([compacted.clone()]).await;
-    let session = sessions::get(
-        &fixture.database.connection,
-        turn,
-        GetRequest {
-            app_name: APP.into(),
-            user_id: USER.into(),
-            session_id: fixture.session.to_string(),
-            num_recent_events: None,
-            after: None,
-        },
-    )
-    .await
-    .unwrap();
-    assert_eq!(session.events().len(), 1);
-    assert_eq!(session.last_update_time(), compacted.timestamp);
+    let session = load(&fixture, turn).await;
+    assert_eq!(session.records.last().unwrap().created, compacted.created);
+    let visible = session.conversation.agent_visible_messages();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].created, compacted.created.timestamp());
 }
 
 #[tokio::test]
-async fn materializes_only_canonical_owner_sources() {
-    use adk_core::{Content, FunctionResponseData, Part as AdkPart};
-    use serde_json::json;
-
+async fn retains_canonical_owner_sources() {
     let mut fixture = Fixture::new().await;
-    let mut captured = AdkEvent::new("captured-owners");
-    captured.author = "system".into();
-    captured.actions.state_delta.extend([
-        (
-            "sailry.context.policy".into(),
-            json!("Exact captured policy"),
-        ),
-        (
-            "sailry.context.environment".into(),
-            json!("Exact captured environment"),
-        ),
-        (
-            "sailry.context.masked_outputs".into(),
-            json!([["retained-call", "captured-revision"]]),
-        ),
-        (
-            "sailry.context.guide:AGENTS.md".into(),
-            json!({
-                "path":"AGENTS.md","revision":"captured","content":"Exact captured guide"
-            }),
-        ),
-        (
-            "sailry.context.declarations".into(),
-            json!({
-                "instruction":"Exact stable instruction","tools":{}
-            }),
-        ),
-    ]);
-    let mut owners = AdkEvent::new("captured-owners");
-    owners.author = "tool".into();
-    owners.set_content(Content {
-        role: "user".into(),
-        parts: [
-            ("earlier-plan", "update_plan", json!({"progress":{
-                "title":"Earlier plan", "steps":[{"description":"Superseded step","state":"pending"}]
-            }})),
-            ("current-plan", "update_plan", json!({"progress":{
-                "title":"Captured plan", "steps":[{"description":"Exact pending step","state":"pending"}]
-            }})),
-            ("loaded-skill", "load_skill", json!({
-                "skill":"fixture:review","path":"SKILL.md","content":"Exact loaded skill"
-            })),
-            ("loaded-resource", "read_skill_resource", json!({
-                "skill":"fixture:review","path":"reference.md","content":"Exact loaded resource"
-            })),
-        ].into_iter().map(|(id,name,value)| AdkPart::FunctionResponse {
-            id:Some(id.into()),
-            function_response:FunctionResponseData::new(name,value),
-            annotations:None,
-        }).collect(),
-    });
-    let mut selected = AdkEvent::new("selected-skill");
-    selected.author = "user".into();
-    selected
-        .provider_metadata
-        .insert(CAPABILITY_PART.into(), "1".into());
-    selected.set_content(
-        Content::new("user")
-            .with_text("Original user task")
-            .with_text("Exact selected skill workflow"),
+    let captured = record(
+        "system",
+        Kind::Configuration(records::Configuration {
+            context: records::Context {
+                captured: true,
+                policy: Some("Exact captured policy".into()),
+                environment: Some("Exact captured environment".into()),
+                masked_outputs: Some([("retained-call".into(), "captured-revision".into())].into()),
+                guides: [(
+                    "sailry.context.guide:AGENTS.md".into(),
+                    records::Guide {
+                        path: "AGENTS.md".into(),
+                        revision: "captured".into(),
+                        content: "Exact captured guide".into(),
+                    },
+                )]
+                .into(),
+                ..Default::default()
+            },
+        }),
     );
+    let owners = message("tool", Role::User, [
+        ("earlier-plan", "update_plan", json!({"progress":{
+            "title":"Earlier plan", "steps":[{"description":"Superseded step","state":"pending"}]
+        }})),
+        ("current-plan", "update_plan", json!({"progress":{
+            "title":"Captured plan", "steps":[{"description":"Exact pending step","state":"pending"}]
+        }})),
+        ("loaded-skill", "load_skill", json!({
+            "skill":"fixture:review","path":"SKILL.md","content":"Exact loaded skill"
+        })),
+        ("loaded-resource", "read_skill_resource", json!({
+            "skill":"fixture:review","path":"reference.md","content":"Exact loaded resource"
+        })),
+    ].into_iter().map(|(id, name, value)| {
+        BlockKind::ToolResponse(response(Some(id), name, value))
+    }).collect());
+    let selected = capability("Exact selected skill workflow");
     let anchor = event("Completed source evidence");
     fixture
-        .append([captured, owners, selected, anchor.clone()])
+        .append([captured, owners.clone(), selected.clone(), anchor.clone()])
         .await;
     let compacted = summary(&anchor);
-    let stored = serde_json::to_vec(&compacted).unwrap();
     let turn = fixture.append([compacted.clone()]).await;
     let first = load(&fixture, turn).await;
-    let content = first[0].content().unwrap();
-    assert_eq!(content.role, "user");
-    let text = serde_json::to_string(content).unwrap();
+    assert_eq!(
+        first.context.policy.as_deref(),
+        Some("Exact captured policy")
+    );
+    assert_eq!(
+        first.context.environment.as_deref(),
+        Some("Exact captured environment")
+    );
+    assert_eq!(
+        first.context.guides["sailry.context.guide:AGENTS.md"].content,
+        "Exact captured guide"
+    );
+    assert_eq!(
+        first.context.masked_outputs,
+        Some([("retained-call".into(), "captured-revision".into())].into())
+    );
+    for original in [&owners, &selected] {
+        let saved = first
+            .records
+            .iter()
+            .find(|record| record.id == original.id)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&saved.kind).unwrap(),
+            serde_json::to_value(&original.kind).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&saved.metadata.input).unwrap(),
+            serde_json::to_value(&original.metadata.input).unwrap()
+        );
+    }
+    let active = first.conversation.agent_visible_messages();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].as_concat_text(), "Summary 中文 🙂");
+    let serialized = serde_json::to_string(&compacted).unwrap();
     for marker in [
         "Exact captured policy",
         "Exact captured environment",
@@ -279,54 +297,30 @@ async fn materializes_only_canonical_owner_sources() {
         "Exact loaded resource",
         "Exact selected skill workflow",
     ] {
-        assert_eq!(text.matches(marker).count(), 1, "{marker}");
-        assert!(!String::from_utf8_lossy(&stored).contains(marker));
+        assert!(!serialized.contains(marker), "{marker}");
     }
-    assert!(!text.contains("Superseded step"));
-    assert_eq!(
-        compacted
-            .actions
-            .compaction
-            .as_ref()
-            .unwrap()
-            .compacted_content
-            .parts
-            .len(),
-        1
-    );
-    assert!(compacted.actions.state_delta.is_empty());
-    assert!(
-        !first[0]
-            .actions
-            .state_delta
-            .contains_key("sailry.context.declarations")
-    );
-    assert!(!text.contains("Exact stable instruction"));
-    assert_eq!(
-        first[0].actions.state_delta["sailry.context.masked_outputs"],
-        json!([["retained-call", "captured-revision"]])
-    );
     history::rebuild(&mut fixture.database.connection)
         .await
         .unwrap();
     let reloaded = load(&fixture, turn).await;
     assert_eq!(
-        serde_json::to_vec(&first[0].content()).unwrap(),
-        serde_json::to_vec(&reloaded[0].content()).unwrap()
+        serde_json::to_value(&first.context).unwrap(),
+        serde_json::to_value(&reloaded.context).unwrap()
     );
-    let body: Vec<u8> = fixture
-        .database
-        .connection
-        .prepare("SELECT body FROM agent_events WHERE id=?1 AND turn=?2")
-        .await
-        .unwrap()
-        .query_row(params![compacted.id.as_str(), turn.to_string()])
-        .await
-        .unwrap()
-        .get(0)
+    assert_eq!(
+        serde_json::to_value(&first.records).unwrap(),
+        serde_json::to_value(&reloaded.records).unwrap()
+    );
+    assert_eq!(
+        reloaded.conversation.agent_visible_messages()[0].as_concat_text(),
+        "Summary 中文 🙂"
+    );
+    let saved = reloaded
+        .records
+        .iter()
+        .find(|record| record.id == compacted.id)
         .unwrap();
-    let saved: crate::agent::canonical::Record = serde_json::from_slice(&body).unwrap();
-    let crate::agent::canonical::Kind::Compaction(summary) = &saved.kind else {
+    let Kind::Compaction(summary) = &saved.kind else {
         panic!("canonical compaction expected")
     };
     assert_eq!(summary.summary.content.len(), 1);
@@ -335,50 +329,53 @@ async fn materializes_only_canonical_owner_sources() {
 }
 
 #[tokio::test]
-async fn retains_only_latest_input_capability() {
+async fn retains_input_capabilities() {
     for newer in [false, true] {
         let mut fixture = Fixture::new().await;
-        let selected = |text: &str| {
-            let mut event = AdkEvent::new("selected-capability");
-            event.author = "user".into();
-            event
-                .provider_metadata
-                .insert(CAPABILITY_PART.into(), "1".into());
-            event.set_content(
-                adk_core::Content::new("user")
-                    .with_text("User task")
-                    .with_text(text),
-            );
-            event
-        };
+        let earlier = capability("Earlier selection");
+        let latest = capability("Latest selection");
         let anchor = event("Completed evidence");
         fixture
-            .append([
-                selected("Earlier selection"),
-                selected("Latest selection"),
-                anchor.clone(),
-            ])
+            .append([earlier.clone(), latest.clone(), anchor.clone()])
             .await;
         if newer {
-            let mut input = AdkEvent::new("unselected-input");
-            input.author = "user".into();
-            input.set_content(
-                adk_core::Content::new("user").with_text("Next task without a selection"),
-            );
-            fixture.append([input]).await;
+            fixture
+                .append([message(
+                    "user",
+                    Role::User,
+                    vec![BlockKind::Text {
+                        text: "Next task without a selection".into(),
+                    }],
+                )])
+                .await;
         }
         let turn = fixture.append([summary(&anchor)]).await;
         let loaded = load(&fixture, turn).await;
-        let text = serde_json::to_string(loaded[0].content().unwrap()).unwrap();
-        assert!(!text.contains("Earlier selection"));
-        assert_eq!(text.contains("Latest selection"), !newer);
+        for original in [&earlier, &latest] {
+            let saved = loaded
+                .records
+                .iter()
+                .find(|record| record.id == original.id)
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(saved.message()).unwrap(),
+                serde_json::to_value(original.message()).unwrap()
+            );
+            assert_eq!(
+                saved.metadata.input.as_ref().unwrap().capability_part,
+                Some(1)
+            );
+        }
+        assert_eq!(loaded.conversation.agent_visible_messages().len(), 1);
+        assert_eq!(
+            loaded.conversation.agent_visible_messages()[0].as_concat_text(),
+            "Summary 中文 🙂"
+        );
     }
 }
 
 #[tokio::test]
 async fn retains_capability_across_guidance_and_notices() {
-    use adk_core::Content;
-
     let mut fixture = Fixture::new().await;
     let owner = fixture.queued().await;
     runs::start(&fixture.database.connection, owner)
@@ -388,21 +385,13 @@ async fn retains_capability_across_guidance_and_notices() {
         .await
         .unwrap()
         .unwrap();
-    let mut selected = AdkEvent::new("selected-capability");
-    selected.author = "user".into();
-    selected
-        .provider_metadata
-        .insert(CAPABILITY_PART.into(), "1".into());
-    selected.set_content(
-        Content::new("user")
-            .with_text("User task")
-            .with_text("Exact capability survives guidance"),
-    );
+    let mut selected = capability("Exact capability survives guidance");
+    selected.turn = owner;
     history::append(
         &mut fixture.database,
         fixture.session,
         owner,
-        selected,
+        selected.clone(),
         &fixture.events,
     )
     .await
@@ -425,19 +414,25 @@ async fn retains_capability_across_guidance_and_notices() {
         .unwrap()
         .unwrap();
     assert_eq!(claimed[0].turn.id, guidance.id);
-    let mut guided = AdkEvent::new("guidance-input");
-    guided.author = "user".into();
-    guided.set_content(Content::new("user").with_text("Continue this task"));
+    let mut guided = message(
+        "user",
+        Role::User,
+        vec![BlockKind::Text {
+            text: "Continue this task".into(),
+        }],
+    );
+    guided.turn = guidance.id;
     history::append(
         &mut fixture.database,
         fixture.session,
         guidance.id,
-        guided,
+        guided.clone(),
         &fixture.events,
     )
     .await
     .unwrap();
-    let anchor = event("Completed guided evidence");
+    let mut anchor = event("Completed guided evidence");
+    anchor.turn = owner;
     history::append(
         &mut fixture.database,
         fixture.session,
@@ -456,10 +451,14 @@ async fn retains_capability_across_guidance_and_notices() {
     )
     .await
     .unwrap();
-    let mut notice = AdkEvent::new("notice-input");
-    notice.author = "user".into();
-    notice.set_content(Content::new("user").with_text("Background task completed"));
-    let notification = fixture.append([notice]).await;
+    let notice = message(
+        "user",
+        Role::User,
+        vec![BlockKind::Text {
+            text: "Background task completed".into(),
+        }],
+    );
+    let notification = fixture.append([notice.clone()]).await;
     let mut run = runs::get(&fixture.database.connection, notification)
         .await
         .unwrap();
@@ -467,111 +466,141 @@ async fn retains_capability_across_guidance_and_notices() {
     runs::put(&fixture.database.connection, &run).await.unwrap();
     let turn = fixture.append([summary(&anchor)]).await;
     let loaded = load(&fixture, turn).await;
-    let text = serde_json::to_string(loaded[0].content().unwrap()).unwrap();
-    assert_eq!(
-        text.matches("Exact capability survives guidance").count(),
-        1
-    );
-    assert!(!text.contains("Continue this task"));
-    assert_eq!(
-        loaded[1].content().unwrap().parts[0].text(),
-        Some("Background task completed")
-    );
-    // Earlier task runs default to ordinary input when notice is absent.
-    fixture
-        .database
-        .connection
-        .execute(
-            "UPDATE agent_runs SET body=CAST(json_remove(body,'$.notice') AS BLOB) WHERE turn IN (?1,?2)",
-            params![owner.to_string(), guidance.id.to_string()],
-        )
-        .await
+    let saved = loaded
+        .records
+        .iter()
+        .find(|record| record.id == selected.id)
         .unwrap();
+    assert_eq!(
+        serde_json::to_value(saved.message()).unwrap(),
+        serde_json::to_value(selected.message()).unwrap()
+    );
+    assert_eq!(
+        saved.metadata.input.as_ref().unwrap().capability_part,
+        Some(1)
+    );
+    assert_eq!(
+        loaded
+            .records
+            .iter()
+            .find(|record| record.id == guided.id)
+            .unwrap()
+            .turn,
+        guidance.id
+    );
+    assert_eq!(
+        loaded
+            .records
+            .iter()
+            .find(|record| record.id == notice.id)
+            .unwrap()
+            .message()
+            .unwrap()
+            .content[0]
+            .index,
+        0
+    );
+    assert_eq!(loaded.conversation.agent_visible_messages().len(), 1);
+    fixture.database.connection.execute(
+        "UPDATE agent_runs SET body=CAST(json_remove(body,'$.notice') AS BLOB) WHERE turn IN (?1,?2)",
+        params![owner.to_string(), guidance.id.to_string()],
+    ).await.unwrap();
     let earlier = load(&fixture, turn).await;
     assert_eq!(
-        serde_json::to_value(earlier[0].content()).unwrap(),
-        serde_json::to_value(loaded[0].content()).unwrap()
+        serde_json::to_value(&earlier.records).unwrap(),
+        serde_json::to_value(&loaded.records).unwrap()
     );
 }
 
 #[tokio::test]
-async fn excludes_capability_after_the_boundary() {
-    use adk_core::{Content, FunctionResponseData, Part as AdkPart};
-
+async fn retains_capabilities_around_the_boundary() {
     let mut fixture = Fixture::new().await;
-    let selected = |text: &str| {
-        let mut selected = AdkEvent::new("selected-capability");
-        selected.author = "user".into();
-        selected
-            .provider_metadata
-            .insert(CAPABILITY_PART.into(), "1".into());
-        selected.set_content(Content::new("user").with_text("User task").with_text(text));
-        selected
-    };
-    let mut call = event("");
-    call.set_content(Content {
-        role: "model".into(),
-        parts: vec![AdkPart::FunctionCall {
-            id: Some("boundary-read".into()),
-            name: "read_file".into(),
-            args: serde_json::json!({"path":"fixture.txt"}),
-            thought_signature: None,
-        }],
-    });
-    let mut anchor = event("");
-    anchor.set_content(Content {
-        role: "user".into(),
-        parts: vec![AdkPart::FunctionResponse {
-            id: Some("boundary-read".into()),
-            function_response: FunctionResponseData::new(
-                "read_file",
-                serde_json::json!({"content":"Earlier completed evidence"}),
-            ),
-            annotations: None,
-        }],
-    });
+    let before = capability("Capability before the boundary");
+    let after = capability("Capability after the boundary");
+    let call = message(
+        "assistant",
+        Role::Assistant,
+        vec![BlockKind::ToolRequest(request(
+            Some("boundary-read"),
+            "read_file",
+            json!({"path":"fixture.txt"}),
+        ))],
+    );
+    let anchor = message(
+        "tool",
+        Role::User,
+        vec![BlockKind::ToolResponse(response(
+            Some("boundary-read"),
+            "read_file",
+            json!({"content":"Earlier completed evidence"}),
+        ))],
+    );
     fixture
-        .append([
-            selected("Capability before the boundary"),
-            call,
-            anchor.clone(),
-            selected("Capability after the boundary"),
-        ])
+        .append([before.clone(), call, anchor.clone(), after.clone()])
         .await;
     let turn = fixture.append([summary(&anchor)]).await;
     let loaded = load(&fixture, turn).await;
-    let before = serde_json::to_string(loaded[0].content().unwrap()).unwrap();
-    assert_eq!(before.matches("Capability before the boundary").count(), 1);
-    assert!(!before.contains("Capability after the boundary"));
-    let after = serde_json::to_string(loaded[1].content().unwrap()).unwrap();
-    assert_eq!(after.matches("Capability after the boundary").count(), 1);
+    for original in [&before, &after] {
+        let saved = loaded
+            .records
+            .iter()
+            .find(|record| record.id == original.id)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&saved.kind).unwrap(),
+            serde_json::to_value(&original.kind).unwrap()
+        );
+        assert_eq!(
+            saved.metadata.input.as_ref().unwrap().capability_part,
+            Some(1)
+        );
+    }
+    let (boundary, saved) = context::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap()
+        .unwrap();
+    let Kind::Compaction(summary) = saved.kind else {
+        panic!("compaction expected")
+    };
+    assert_eq!(summary.boundary, anchor.id);
+    let anchored: String = fixture.database.connection.prepare("SELECT e.id FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence=?2")
+        .await.unwrap().query_row(params![fixture.session.to_string(), boundary]).await.unwrap().get(0).unwrap();
+    assert_eq!(anchored, anchor.id);
+    assert_eq!(loaded.conversation.agent_visible_messages().len(), 1);
 }
 
 #[tokio::test]
 async fn merges_disjoint_discovered_tools() {
     let mut fixture = Fixture::new().await;
     let discovered = |name: &str| {
-        let mut event = AdkEvent::new("discovered-tools");
-        event.author = "system".into();
-        event
-            .actions
-            .state_delta
-            .insert(LOADED_TOOLS.into(), serde_json::json!([name]));
-        event
+        record(
+            "system",
+            Kind::Configuration(records::Configuration {
+                context: records::Context {
+                    loaded_tools: Some([name.into()].into()),
+                    ..Default::default()
+                },
+            }),
+        )
     };
     let anchor = event("Completed discovery");
     fixture
         .append([discovered("first"), discovered("second"), anchor.clone()])
         .await;
     let turn = fixture.append([summary(&anchor)]).await;
-    let loaded = load(&fixture, turn).await;
-    assert!(!loaded[0].actions.state_delta.contains_key(LOADED_TOOLS));
     for _ in 0..2 {
+        let loaded = load(&fixture, turn).await;
+        assert_eq!(
+            loaded.context.loaded_tools,
+            Some(["first".into(), "second".into()].into())
+        );
+        let saved = loaded.records.last().unwrap();
+        assert!(saved.context().is_none());
         assert_eq!(
             history::state(&fixture.database.connection, fixture.session)
                 .await
                 .unwrap()[LOADED_TOOLS],
-            serde_json::json!(["first", "second"])
+            json!(["first", "second"])
         );
         history::rebuild_session(&fixture.database.connection, fixture.session)
             .await
@@ -585,17 +614,29 @@ async fn ignores_clock_rewinds() {
     let original = event("Original evidence");
     fixture.append([original.clone()]).await;
     let mut recent = event("Recent must survive");
-    recent.timestamp = original.timestamp - chrono::Duration::seconds(60);
+    recent.created = original.created - chrono::Duration::seconds(60);
     fixture.append([recent.clone()]).await;
     let compacted = summary(&original);
-    let turn = fixture.append([event("Current"), compacted.clone()]).await;
+    let current = event("Current");
+    let turn = fixture.append([current.clone(), compacted.clone()]).await;
     let full = fixture.read(None, 100).await.page;
-    let context = load(&fixture, turn).await;
-    assert_eq!(context.len(), 3);
-    assert_eq!(context[0].id, compacted.id);
-    assert!(context[0].actions.compaction.is_none());
-    assert_eq!(context[1].id, recent.id);
-    assert!(!context.iter().any(|event| event.id == original.id));
+    let loaded = load(&fixture, turn).await;
+    assert_eq!(
+        loaded
+            .records
+            .iter()
+            .map(|record| &record.id)
+            .collect::<Vec<_>>(),
+        [&original.id, &recent.id, &current.id, &compacted.id]
+    );
+    let active = loaded.conversation.agent_visible_messages();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].id.as_deref(), Some(compacted.id.as_str()));
+    assert!(
+        loaded.conversation.messages()[..3]
+            .iter()
+            .all(|message| !message.is_agent_visible())
+    );
     assert_eq!(full.entries.len(), 4);
     assert_eq!(
         full.entries.last().unwrap().parts,
@@ -606,66 +647,53 @@ async fn ignores_clock_rewinds() {
         .unwrap();
     assert_eq!(fixture.read(None, 100).await.page, full);
     assert_eq!(
-        load(&fixture, turn)
-            .await
-            .iter()
-            .map(|event| &event.id)
-            .collect::<Vec<_>>(),
-        context.iter().map(|event| &event.id).collect::<Vec<_>>()
+        serde_json::to_value(&load(&fixture, turn).await.records).unwrap(),
+        serde_json::to_value(&loaded.records).unwrap()
     );
 }
 
 #[tokio::test]
 async fn rejects_invalid_boundaries() {
     let mut fixture = Fixture::new().await;
-    let first = event("First");
-    let last = event("Last");
-    fixture.append([first.clone(), last.clone()]).await;
-    let turn = fixture.queued().await;
-    for boundary in [first, event("Not a member")] {
-        assert!(
-            history::append(
-                &mut fixture.database,
-                fixture.session,
-                turn,
-                summary(&boundary),
-                &fixture.events
-            )
-            .await
-            .is_err()
-        );
-    }
-    let current = event("Current");
-    history::append(
+    let original = event("Canonical member");
+    fixture.append([original]).await;
+    let source = fixture.session;
+    let session = crate::store::commands::session(&fixture.database.connection, source)
+        .await
+        .unwrap();
+    let Output::Session(other) = command(
         &mut fixture.database,
-        fixture.session,
-        turn,
-        current.clone(),
         &fixture.events,
+        Command::CreateSession {
+            project: session.project,
+            worktree: Some(session.worktree),
+            config: Some(session.config),
+        },
     )
     .await
-    .unwrap();
-    assert!(
-        history::append(
+    else {
+        panic!("session expected")
+    };
+    fixture.session = other.id;
+    let foreign = event("Foreign member");
+    fixture.append([foreign.clone()]).await;
+    fixture.session = source;
+    let turn = fixture.queued().await;
+    for boundary in [event("Not a member"), foreign] {
+        let mut compacted = summary(&boundary);
+        compacted.turn = turn;
+        let fault = history::append(
             &mut fixture.database,
             fixture.session,
             turn,
-            summary(&current),
-            &fixture.events
+            compacted,
+            &fixture.events,
         )
         .await
-        .is_err()
-    );
-    assert_eq!(fixture.read(None, 100).await.page.entries.len(), 3);
-    history::append(
-        &mut fixture.database,
-        fixture.session,
-        turn,
-        summary(&last),
-        &fixture.events,
-    )
-    .await
-    .unwrap();
+        .unwrap_err();
+        assert_eq!(fault.code, ErrorCode::InvalidRequest);
+    }
+    assert_eq!(fixture.read(None, 100).await.page.entries.len(), 1);
 }
 
 #[tokio::test]
@@ -691,7 +719,13 @@ async fn restores_branched_context() {
     let source = fixture.session;
     fixture.session = branch.id;
     let branch_turn = fixture.queued().await;
-    assert_eq!(load(&fixture, branch_turn).await[0].id, compacted.id);
+    let branch = load(&fixture, branch_turn).await;
+    assert_eq!(
+        branch.conversation.agent_visible_messages()[0]
+            .id
+            .as_deref(),
+        Some(compacted.id.as_str())
+    );
     fixture.session = source;
     let retained = fixture.fork(source, head).await;
     let Output::Rewound(rewound) = command(
@@ -708,13 +742,27 @@ async fn restores_branched_context() {
     else {
         panic!("rewind expected")
     };
-    let context = load(&fixture, first).await;
+    let loaded = load(&fixture, first).await;
     assert!(rewound.backup.is_none());
-    assert_eq!(context.len(), 1);
-    assert_eq!(context[0].id, original.id);
+    assert_eq!(loaded.records.len(), 1);
+    assert_eq!(loaded.records[0].id, original.id);
+    assert_eq!(
+        loaded.conversation.agent_visible_messages()[0]
+            .id
+            .as_deref(),
+        Some(original.id.as_str())
+    );
     fixture.session = retained.id;
     let backup_turn = fixture.queued().await;
-    assert_eq!(load(&fixture, backup_turn).await[0].id, compacted.id);
+    assert_eq!(
+        load(&fixture, backup_turn)
+            .await
+            .conversation
+            .agent_visible_messages()[0]
+            .id
+            .as_deref(),
+        Some(compacted.id.as_str())
+    );
     assert_eq!(fixture.read(None, 100).await.page.entries.len(), 3);
 }
 
@@ -722,12 +770,13 @@ async fn restores_branched_context() {
 async fn loads_complete_history() {
     let mut fixture = Fixture::new().await;
     let turn = fixture.completed(&["Preserved"; 300]).await;
-    assert_eq!(load(&fixture, turn).await.len(), 300);
+    let loaded = load(&fixture, turn).await;
+    assert_eq!(loaded.records.len(), 300);
+    assert_eq!(loaded.conversation.agent_visible_messages().len(), 300);
 }
 
 #[tokio::test]
-async fn accepts_complete_batches() {
-    use adk_core::{Content, FunctionResponseData, Part as AdkPart};
+async fn retains_tool_batches() {
     let mut fixture = Fixture::new().await;
     let turn = fixture.queued().await;
     runs::start(&fixture.database.connection, turn)
@@ -737,86 +786,40 @@ async fn accepts_complete_batches() {
         .await
         .unwrap()
         .unwrap();
-    let mut call = event("");
-    call.set_content(Content {
-        role: "model".into(),
-        parts: ["first", "second"]
-            .map(|id| AdkPart::FunctionCall {
-                id: Some(id.into()),
-                name: "read_file".into(),
-                args: serde_json::json!({"path":id}),
-                thought_signature: None,
-            })
-            .into(),
-    });
+    let mut call = message(
+        "assistant",
+        Role::Assistant,
+        ["first", "second"]
+            .map(|id| BlockKind::ToolRequest(request(Some(id), "read_file", json!({"path":id}))))
+            .to_vec(),
+    );
+    call.turn = turn;
     let results = ["first", "second"].map(|id| {
-        let mut result = event("");
-        result.set_content(Content {
-            role: "user".into(),
-            parts: vec![AdkPart::FunctionResponse {
-                id: Some(id.into()),
-                function_response: FunctionResponseData::new(
-                    "read_file",
-                    serde_json::json!({"content":id}),
-                ),
-                annotations: None,
-            }],
-        });
+        let mut result = message(
+            "tool",
+            Role::User,
+            vec![BlockKind::ToolResponse(response(
+                Some(id),
+                "read_file",
+                json!({"content":id}),
+            ))],
+        );
+        result.turn = turn;
         result
     });
-    for boundary in [&call, &results[0]] {
+    for record in [call, results[0].clone(), results[1].clone()] {
         history::append(
             &mut fixture.database,
             fixture.session,
             turn,
-            boundary.clone(),
+            record,
             &fixture.events,
         )
         .await
         .unwrap();
-        assert!(
-            history::append(
-                &mut fixture.database,
-                fixture.session,
-                turn,
-                summary(boundary),
-                &fixture.events
-            )
-            .await
-            .is_err()
-        );
     }
-    history::append(
-        &mut fixture.database,
-        fixture.session,
-        turn,
-        results[1].clone(),
-        &fixture.events,
-    )
-    .await
-    .unwrap();
-    let mut telemetry = AdkEvent::new("timing-fixture");
-    telemetry.author = "system".into();
-    telemetry.provider_metadata.insert(
-        "sailry_execution_phases".into(),
-        serde_json::to_string(&sailry_protocol::conversation::observation::Phases::default())
-            .unwrap(),
-    );
-    history::append(
-        &mut fixture.database,
-        fixture.session,
-        turn,
-        telemetry.clone(),
-        &fixture.events,
-    )
-    .await
-    .unwrap();
-    assert!(
-        validate(&fixture, turn, &summary(&telemetry),)
-            .await
-            .is_err()
-    );
-    let compacted = summary(&results[1]);
+    let mut compacted = summary(&results[1]);
+    compacted.turn = turn;
     history::append(
         &mut fixture.database,
         fixture.session,
@@ -826,7 +829,8 @@ async fn accepts_complete_batches() {
     )
     .await
     .unwrap();
-    let recent = event("Recent evidence");
+    let mut recent = event("Recent evidence");
+    recent.turn = turn;
     history::append(
         &mut fixture.database,
         fixture.session,
@@ -836,10 +840,24 @@ async fn accepts_complete_batches() {
     )
     .await
     .unwrap();
-    let current = load(&fixture, turn).await;
+    let loaded = load(&fixture, turn).await;
+    let active = loaded.conversation.agent_visible_messages();
     assert_eq!(
-        current.iter().map(|event| &event.id).collect::<Vec<_>>(),
-        [&compacted.id, &recent.id]
+        active
+            .iter()
+            .map(|message| message.id.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        [compacted.id.as_str(), recent.id.as_str()]
+    );
+    assert_eq!(
+        loaded
+            .records
+            .iter()
+            .filter_map(Record::message)
+            .flat_map(|message| &message.content)
+            .filter(|block| matches!(block.kind, BlockKind::ToolResponse(_)))
+            .count(),
+        2
     );
     runs::finish(
         &mut fixture.database,
@@ -850,11 +868,6 @@ async fn accepts_complete_batches() {
     )
     .await
     .unwrap();
-    assert!(
-        validate(&fixture, turn, &summary(&telemetry),)
-            .await
-            .is_err()
-    );
     history::append(
         &mut fixture.database,
         fixture.session,
@@ -870,210 +883,4 @@ async fn accepts_complete_batches() {
         .await
         .unwrap();
     assert_eq!(fixture.read(None, 100).await.page, full);
-}
-
-#[tokio::test]
-async fn rejects_orphans_and_mismatches() {
-    use adk_core::{Content, FunctionResponseData, Part as AdkPart};
-    let mut call = event("");
-    call.set_content(Content {
-        role: "model".into(),
-        parts: vec![AdkPart::FunctionCall {
-            id: Some("call".into()),
-            name: "read_file".into(),
-            args: serde_json::json!({}),
-            thought_signature: None,
-        }],
-    });
-    for (id, name) in [
-        ("wrong", "read_file"),
-        ("call", "wrong"),
-        ("call", "read_file"),
-    ] {
-        let mut result = event("");
-        result.set_content(Content {
-            role: "user".into(),
-            parts: vec![AdkPart::FunctionResponse {
-                id: Some(id.into()),
-                function_response: FunctionResponseData::new(name, serde_json::json!({})),
-                annotations: None,
-            }],
-        });
-        assert!(!context::complete_exchange(&[result.clone()]));
-        assert_eq!(
-            context::complete_exchange(&[call.clone(), result]),
-            id == "call" && name == "read_file"
-        );
-    }
-}
-
-#[tokio::test]
-async fn uses_real_turn_boundaries() {
-    let mut fixture = Fixture::new().await;
-    let original = event("First canonical content");
-    let mut retry = AdkEvent::new("different-synthetic-invocation");
-    retry.author = "system".into();
-    retry.provider_metadata.insert(
-        "sailry_retry".into(),
-        serde_json::json!({"attempt":1,"limit":5}).to_string(),
-    );
-    let final_event = event("Final canonical content");
-    let mut telemetry = AdkEvent::new("timing-fixture");
-    telemetry.author = "system".into();
-    telemetry.provider_metadata.insert(
-        "sailry_execution_phases".into(),
-        serde_json::to_string(&sailry_protocol::conversation::observation::Phases::default())
-            .unwrap(),
-    );
-    let mut projection = AdkEvent::new("projection-fixture");
-    projection.author = "system".into();
-    projection.provider_metadata.insert(
-        "sailry_context_projection".into(),
-        serde_json::json!({"tokens":128}).to_string(),
-    );
-    projection.actions.state_delta.insert(
-        "sailry.context.masked_outputs".into(),
-        serde_json::json!([["call", "revision"]]),
-    );
-    fixture
-        .append([
-            original.clone(),
-            retry,
-            final_event.clone(),
-            telemetry,
-            projection,
-        ])
-        .await;
-    let current = fixture.queued().await;
-    let history = context::history(&fixture.database.connection, fixture.session, current)
-        .await
-        .unwrap();
-    assert_eq!(history.completed, vec![3]);
-    assert_eq!(history.events.len(), 3);
-    assert_eq!(history.current, 3);
-    assert_eq!(history.recent, None);
-    assert_eq!(history.events[0].id, original.id);
-    assert_eq!(history.events[2].id, final_event.id);
-    assert!(
-        validate(&fixture, current, &summary(&original))
-            .await
-            .is_err()
-    );
-    assert!(
-        validate(&fixture, current, &summary(&final_event))
-            .await
-            .is_ok()
-    );
-}
-
-#[tokio::test]
-async fn retains_recent_plain_turns() {
-    let mut fixture = Fixture::new().await;
-    fixture.append([event("First turn")]).await;
-    let second = event("Second turn");
-    fixture
-        .append([second.clone(), event("Second response")])
-        .await;
-    fixture.append([event("Third turn")]).await;
-    let current = fixture.queued().await;
-    let history = context::history(&fixture.database.connection, fixture.session, current)
-        .await
-        .unwrap();
-    assert_eq!(history.recent, Some(1));
-    assert_eq!(history.events[history.recent.unwrap()].id, second.id);
-    assert_eq!(history.completed, vec![1, 3, 4]);
-}
-
-#[tokio::test]
-async fn ignores_contentless_attempts_for_recency() {
-    let mut fixture = Fixture::new().await;
-    fixture.append([event("Original completed evidence")]).await;
-    let mut notice = AdkEvent::new("failed-preparation");
-    notice.author = "system".into();
-    notice.provider_metadata.insert(
-        "sailry_compaction_failure".into(),
-        serde_json::json!({"source":"automatic", "stage":"request", "reason":"service_rejected", "continued":false}).to_string(),
-    );
-    fixture.append([notice]).await;
-    let current = fixture.queued().await;
-    let history = context::history(&fixture.database.connection, fixture.session, current)
-        .await
-        .unwrap();
-    assert_eq!(history.completed, [1]);
-    assert_eq!(history.recent, None);
-}
-
-#[tokio::test]
-async fn strips_retired_summary_configuration() {
-    use adk_core::{ConfigurationUpdate, Part, ProviderData, ProviderOrigin, ReasoningEffort};
-    let mut fixture = Fixture::new().await;
-    let anchor = event("Completed evidence");
-    fixture.append([anchor.clone()]).await;
-    let mut compacted = summary(&anchor);
-    let update = Part::ProviderData {
-        provider_data: ProviderData {
-            origin: Some(ProviderOrigin {
-                provider: "responses".into(),
-                model: "gpt-6-luna".into(),
-                scope: "account".into(),
-            }),
-            parts: Box::new([Part::ConfigurationUpdate {
-                configuration_update: ConfigurationUpdate {
-                    effort: ReasoningEffort::High,
-                },
-            }]),
-        },
-    };
-    compacted
-        .actions
-        .compaction
-        .as_mut()
-        .unwrap()
-        .compacted_content
-        .parts
-        .insert(0, update.clone());
-    let text = compacted
-        .actions
-        .compaction
-        .as_ref()
-        .unwrap()
-        .compacted_content
-        .parts[1..]
-        .to_vec();
-    let turn = fixture.append([compacted.clone()]).await;
-    let loaded = load(&fixture, turn).await;
-    let parts = &loaded[0].content().unwrap().parts;
-    assert_eq!(parts, &text);
-    history::rebuild(&mut fixture.database.connection)
-        .await
-        .unwrap();
-    assert_eq!(load(&fixture, turn).await[0].content().unwrap().parts, text);
-    for parts in [
-        vec![update.clone()],
-        vec![
-            Part::Text {
-                text: "Summary".into(),
-            },
-            update.clone(),
-        ],
-        vec![
-            Part::ConfigurationUpdate {
-                configuration_update: ConfigurationUpdate {
-                    effort: ReasoningEffort::High,
-                },
-            },
-            Part::Text {
-                text: "Summary".into(),
-            },
-        ],
-    ] {
-        compacted
-            .actions
-            .compaction
-            .as_mut()
-            .unwrap()
-            .compacted_content
-            .parts = parts;
-        assert!(validate(&fixture, turn, &compacted).await.is_err());
-    }
 }
