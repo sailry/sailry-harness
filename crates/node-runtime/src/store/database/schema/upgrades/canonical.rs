@@ -2,6 +2,8 @@
 use crate::{Error, agent::canonical::Record};
 use turso::{Connection, params};
 
+mod legacy;
+
 pub(super) async fn needed(db: &Connection) -> Result<bool, Error> {
     if !db
         .prepare("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='agent_events')")
@@ -47,9 +49,7 @@ pub(super) async fn apply(db: &Connection) -> Result<(), Error> {
             let turn = turn
                 .parse()
                 .map_err(|_| invalid(sequence, "turn", "invalid identifier"))?;
-            let event: adk_core::Event = serde_json::from_slice(&body)
-                .map_err(|error| json_error(sequence, "decode", error))?;
-            let record = crate::agent::canonical_bridge::from_adk(db, turn, &event)
+            let record = legacy::capture(db, turn, &body)
                 .await
                 .map_err(|error| invalid(sequence, "conversion", &format!("{:?}", error.code)))?;
             crate::agent::canonical::validate(&record)
