@@ -248,7 +248,7 @@ async fn releases_matching_pending_calls() {
             worktree: Some(fixture.session.worktree),
             session: Some(fixture.session.id),
         };
-        // Keep ADK's first unsafe call paused while the real Node owns concurrent
+        // Keep the first unsafe call paused while the real Node owns concurrent
         // waiters for the other canonical calls in this captured model batch.
         let waiters = calls
             .iter()
@@ -265,13 +265,9 @@ async fn releases_matching_pending_calls() {
                     })
                     .with_plugin(context.clone());
                 fixture.node.authorize_tool_fixture(
-                    adk_core::ToolConfirmationRequest {
-                        acting: None,
-                        origin: None,
-                        tool_name: name.clone(),
-                        function_call_id: Some(format!("call-fixture-{index}")),
-                        args: args.clone(),
-                    },
+                    Some(format!("call-fixture-{index}")),
+                    name.clone(),
+                    args.clone(),
                     sailry_protocol::tool::Operation::WriteFile,
                     request,
                 )

@@ -648,7 +648,9 @@ impl Node {
     #[cfg(any(test, feature = "test-support"))]
     pub async fn authorize_tool_fixture(
         &self,
-        confirmation: adk_core::ToolConfirmationRequest,
+        id: Option<String>,
+        name: String,
+        arguments: serde_json::Value,
         operation: sailry_protocol::tool::Operation,
         mut request: sailry_protocol::Request,
     ) -> Result<sailry_protocol::Request, sailry_protocol::Fault> {
@@ -659,9 +661,14 @@ impl Node {
         let turn = context
             .turn
             .ok_or_else(|| sailry_protocol::Fault::invalid("tool fixture requires a turn"))?;
+        let confirmation = crate::agent::canonical::ToolIdentity {
+            id,
+            name,
+            arguments,
+        };
         let binding = store::agent::ApprovalBinding {
             owner: context.package.clone(),
-            tool: confirmation.tool_name.clone(),
+            tool: confirmation.name.clone(),
             operation: Some(operation),
         };
         let decision = self
