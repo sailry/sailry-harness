@@ -1,11 +1,13 @@
 # ADK tools
 
-The tool dependency comes from [dux-web/adk-rust](https://github.com/dux-web/adk-rust),
-a fork of [ADK-Rust](https://github.com/zavora-ai/adk-rust). The root Cargo.toml and
-Cargo.lock pin the exact revision shared by all ADK packages.
+Sailry previously used the tool packages from
+[dux-web/adk-rust](https://github.com/dux-web/adk-rust), a fork of
+[ADK-Rust](https://github.com/zavora-ai/adk-rust). This file records that historical
+provenance; ADK tool packages are no longer runtime dependencies. Retained
+support code is documented in [adk-support.md](adk-support.md).
 
-The fork includes upstream PR #681's direct-call task lifecycle, custom input
-handlers, concurrent input batches and resource subscription recovery. The rmcp
+The reviewed fork included upstream PR #681's direct-call task lifecycle, custom
+input handlers, concurrent input batches and resource subscription recovery. The rmcp
 transport patches remain separately maintained in the pinned rmcp fork described
 in [rmcp.md](rmcp.md).
 
