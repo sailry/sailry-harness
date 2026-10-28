@@ -108,11 +108,7 @@ impl View {
         true
     }
 
-    pub(super) fn report_wheel(
-        &mut self,
-        event: &ScrollWheelEvent,
-        cx: &mut Context<Self>,
-    ) -> bool {
+    pub(super) fn report_wheel(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) -> bool {
         let alternate = self.state.snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.screen.alternate && snapshot.screen.features.alternate_scroll
         });

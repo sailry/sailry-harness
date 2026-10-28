@@ -79,7 +79,7 @@ impl Render for Preview {
                         });
                     })
                     .cursor_grab()
-                    .on_scroll_wheel(cx.listener(Self::wheel))
+                    .on_scroll(cx.listener(Self::wheel))
                     .on_pinch(cx.listener(Self::pinch))
                     .on_mouse_move(cx.listener(Self::drag))
                     .on_mouse_up(

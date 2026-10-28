@@ -776,7 +776,7 @@ impl Render for View {
             .debug_selector(|| "live-conversation".into())
             .relative()
             .overflow_hidden()
-            .on_scroll_wheel(cx.listener(|view, _, _, cx| view.dismiss_selection(cx)))
+            .on_scroll(cx.listener(|view, _, _, cx| view.dismiss_selection(cx)))
             .on_key_down(cx.listener(|view, event: &KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" && view.selection.is_some() {
                     view.dismiss_selection(cx);

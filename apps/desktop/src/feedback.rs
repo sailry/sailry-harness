@@ -175,7 +175,7 @@ pub(crate) fn diagnostic(message: SharedString) -> Notification {
                 .max_h_24()
                 .overflow_y_scroll()
                 .text_sm()
-                .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                .on_scroll(|_, _, cx| cx.stop_propagation())
                 .child(message.clone())
                 .into_any_element()
         })

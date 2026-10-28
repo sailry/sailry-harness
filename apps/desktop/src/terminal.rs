@@ -564,7 +564,7 @@ impl Render for View {
                     .on_mouse_up_out(MouseButton::Middle, cx.listener(Self::mouse_up))
                     .on_hover(cx.listener(|_, _, _, cx| cx.notify()))
                     .on_mouse_move(cx.listener(Self::mouse_move))
-                    .on_scroll_wheel(cx.listener(Self::wheel))
+                    .on_scroll(cx.listener(Self::wheel))
                     .child(
                         canvas(
                             move |bounds, window, cx| {

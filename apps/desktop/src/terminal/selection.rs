@@ -194,12 +194,7 @@ impl View {
             cx.notify();
         }
     }
-    pub(super) fn wheel(
-        &mut self,
-        event: &ScrollWheelEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn wheel(&mut self, event: &ScrollEvent, _: &mut Window, cx: &mut Context<Self>) {
         if self.report_wheel(event, cx) {
             return;
         }

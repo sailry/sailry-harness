@@ -189,7 +189,7 @@ impl Preview {
         }
     }
 
-    fn wheel(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn wheel(&mut self, event: &ScrollEvent, _: &mut Window, cx: &mut Context<Self>) {
         let delta = f32::from(event.delta.pixel_delta(px(24.)).y);
         self.zoom_by((delta * 0.008).exp(), cx);
         cx.stop_propagation();
