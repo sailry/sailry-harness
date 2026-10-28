@@ -67,6 +67,11 @@ path = "examples/plugin-test-host.rs"
 required-features = ["test-support"]
 
 [dependencies]
+anyhow.workspace = true
+goose-agent.workspace = true
+goose-provider-types.workspace = true
+goose-providers.workspace = true
+goose-context-management.workspace = true
 tracing.workspace = true
 tracing-log.workspace = true
 tracing-subscriber.workspace = true
