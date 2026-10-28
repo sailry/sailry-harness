@@ -206,11 +206,8 @@ impl Context {
             .skip(keep)
             .filter(|cut| *cut > history.current && complete[*cut - history.current - 1])
             .collect::<Vec<_>>();
-        let recent = calls.iter().rev().nth(keep).copied();
         cuts.extend(history.completed.iter().rev().copied().filter(|cut| {
-            *cut <= history.current
-                && recent.is_none_or(|recent| *cut <= recent)
-                && history.recent.is_none_or(|recent| *cut <= recent)
+            *cut <= history.current && history.recent.is_none_or(|recent| *cut <= recent)
         }));
         cuts
     }

@@ -236,9 +236,16 @@ async fn resumes_without_replay() {
         for (index, request) in ordinary.iter().enumerate().skip(3) {
             let content = messages(request);
             assert!(content.contains("Context summary fixture"));
-            assert!(content.contains(&format!("Evidence {index}")));
-            assert!(content.contains(&format!("Evidence {}", index - 1)));
-            assert!(!content.contains(&format!("Evidence {}", index - 2)));
+            let results: String = request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["role"] == "tool")
+                .filter_map(|message| message["content"].as_str())
+                .collect();
+            assert!(results.contains(&format!("Evidence {index}")));
+            assert!(results.contains(&format!("Evidence {}", index - 1)));
+            assert!(!results.contains(&format!("Evidence {}", index - 2)));
             assert_eq!(request["messages"][0], ordinary[0]["messages"][0]);
             assert!(content.len() < messages(ordinary[2]).len() + 3000);
         }
@@ -295,13 +302,54 @@ async fn resumes_without_replay() {
         client.execute(request).await.unwrap();
         assert_eq!(server.requests.lock().unwrap().len(), 11);
         for session in [fixture.session.id, branch.id] {
-            submit(&client, session, "Continue after restart".into()).await;
-            let latest = server.requests.lock().unwrap().last().unwrap().clone();
-            let content = messages(&latest);
+            let before = history(&client, session).await.entries;
+            let start = server.requests.lock().unwrap().len();
+            let (_, followup, page) =
+                submit(&client, session, "Continue after restart".into()).await;
+            let requests = server.requests.lock().unwrap()[start..].to_vec();
+            assert_eq!(requests.len(), 2);
+            assert!(agent_support::compaction::is_summary(&requests[0]));
+            assert!(!agent_support::compaction::is_summary(&requests[1]));
+            let source = messages(&requests[0]);
+            assert!(source.contains("Evidence 5 中文 🙂"));
+            assert!(!source.contains("Evidence 6 中文 🙂"));
+            let parts: Vec<_> = page
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == followup)
+                .flat_map(|entry| &entry.parts)
+                .collect();
+            let summaries: Vec<_> = parts
+                .iter()
+                .filter_map(|part| match part {
+                    Part::Compaction(text) => Some(text),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(summaries.len(), 1);
+            assert!(summaries[0].contains("Evidence 5 中文 🙂"));
+            assert!(!summaries[0].contains("Evidence 6 中文 🙂"));
+            assert!(
+                !parts
+                    .iter()
+                    .any(|part| matches!(part, Part::ToolCall { .. }))
+            );
+            assert_eq!(&page.entries[..before.len()], &before);
+            let content = messages(&requests[1]);
             assert!(content.contains("Context summary fixture"));
-            assert!(content.contains("Evidence 5"));
-            assert!(content.contains("Evidence 6"));
-            assert!(!content.contains("Evidence 1"));
+            assert!(content.contains("Verified all six files"));
+            for index in [5, 6] {
+                assert!(content.contains(&format!("Evidence {index} 中文 🙂")));
+            }
+            let results: String = requests[1]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["role"] == "tool")
+                .filter_map(|message| message["content"].as_str())
+                .collect();
+            assert!(!results.contains("Evidence 5"));
+            assert!(results.contains("Evidence 6 中文 🙂"));
         }
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

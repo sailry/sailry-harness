@@ -10,7 +10,7 @@ const DIAGNOSTIC: &str = "OpenAI Responses API error: 429 Too Many Requests rate
 
 pub(super) struct Model {
     responses: Vec<LlmResponse>,
-    requests: Mutex<Vec<LlmRequest>>,
+    pub(super) requests: Mutex<Vec<LlmRequest>>,
     error: bool,
     pending: bool,
 }

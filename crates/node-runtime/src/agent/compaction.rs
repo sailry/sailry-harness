@@ -480,12 +480,8 @@ impl Summarizer {
             };
             prefix_tokens[index + 1] = prefix_tokens[index].saturating_add(tokens);
         }
-        let mut remaining_tokens = vec![0u64; events.len() + 1];
-        for index in (0..events.len()).rev() {
-            remaining_tokens[index] = remaining_tokens[index + 1]
-                .saturating_add(estimate::tokens(&events[index..index + 1]));
-        }
-        let keeps_recent = |cut: &usize| remaining_tokens[*cut] >= recent;
+        let total = prefix_tokens[events.len()];
+        let keeps_recent = |cut: &usize| total.saturating_sub(prefix_tokens[*cut]) >= recent;
         // Boundaries are supplied by the canonical interaction tracker. Prefer
         // the recent token window; otherwise use the largest fitting complete
         // prefix rather than splitting an interaction to manufacture that window.

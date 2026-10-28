@@ -133,26 +133,47 @@ pub async fn respond_loop(
     summary_input: i32,
     text: &str,
 ) -> std::io::Result<()> {
+    let messages = body["messages"].as_array().unwrap();
+    let verified = messages.iter().any(|message| {
+        let text = message["content"].as_str().unwrap_or("");
+        message["role"] == "assistant" && text == "Verified all six files"
+            || message["role"] == "user"
+                && text.contains("--- End of context handoff ---")
+                && text.contains("\nVerified all six files\n")
+    });
     if is_summary(body) {
+        let mut text = text.to_owned();
+        if verified {
+            text.push_str("\nVerified all six files\n");
+        }
+        for index in 1..=6 {
+            let fact = format!("Evidence {index} 中文 🙂");
+            if messages.iter().any(|message| {
+                message["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains(&fact))
+            }) {
+                text.push('\n');
+                text.push_str(&fact);
+            }
+        }
         return respond_usage(
             stream,
             body,
             fail_summary.then_some(400),
-            text,
+            &text,
             summary_input,
         )
         .await;
     }
-    let completed = body["messages"]
-        .as_array()
-        .unwrap()
+    let completed = messages
         .iter()
         .rev()
         .find(|message| message["role"] == "tool")
         .and_then(|message| message["tool_call_id"].as_str())
         .and_then(|id| id.strip_prefix("loop-"))
         .and_then(|index| index.parse::<usize>().ok())
-        .unwrap_or(0);
+        .unwrap_or(if verified { 6 } else { 0 });
     let read = completed < 6;
     let index = completed + 1;
     let delta = if read {

@@ -10,7 +10,7 @@ impl Tool for Context {
     }
 
     fn description(&self) -> &str {
-        "Summarize completed context while retaining original history, the current tool batch, and two recent tool exchanges. Use only when context needs reducing. Returns compacted, skipped or failed; below half the compaction trigger, it skips without changing context. This does not complete the task or authorize further work."
+        "Summarize completed context while retaining original history, the current tool batch, and recent history. Use only when context needs reducing. Returns compacted, skipped or failed; below half the compaction trigger, it skips without changing context. This does not complete the task or authorize further work."
     }
 
     fn parameters_schema(&self) -> Option<Value> {

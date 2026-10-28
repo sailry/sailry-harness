@@ -4,6 +4,10 @@ use image::ImageEncoder;
 use sailry_link::CancellationToken;
 use sailry_protocol::conversation::Input;
 
+#[cfg(unix)]
+#[path = "compaction/continuity.rs"]
+mod continuity;
+
 pub(super) struct Fixture {
     directory: tempfile::TempDir,
     node: Node,
