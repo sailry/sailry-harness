@@ -8,6 +8,29 @@ use sailry_protocol::{
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+// Test fixtures extract complete values while product callers use Read directly.
+impl Client {
+    fn cached_tool_detail(&self, reference: &Reference) -> Option<Arc<Detail>> {
+        self.details
+            .values
+            .lock()
+            .unwrap()
+            .get(reference)
+            .map(|value| value.detail)
+    }
+    /// Complete explicit reads share the same canonical cache as presentation trackers.
+    async fn tool_detail(&self, reference: Reference) -> Result<Arc<Detail>, Fault> {
+        match self.detail(reference).await? {
+            Read::Ready(value) => Ok(value.detail),
+            Read::TooLarge(limit) => Err(Fault::new(ErrorCode::InvalidRequest, limit.message())),
+            Read::Superseded => Err(Fault::new(
+                ErrorCode::Cancelled,
+                "tool detail read was superseded",
+            )),
+        }
+    }
+}
+
 fn assert_contended(state: State) {
     assert!(matches!(
         &state,
@@ -263,7 +286,14 @@ fn invalidates_changed_parts_during_a_read() {
             bytes: backend.text.len()
         })
     ));
-    assert!(cache.get(&backend.reference).is_none());
+    assert!(
+        cache
+            .values
+            .lock()
+            .unwrap()
+            .get(&backend.reference)
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -377,7 +407,14 @@ fn accounts_for_parsed_container_allocations() {
             bytes: MAX_BYTES + 1
         })
     ));
-    assert!(cache.get(&backend.reference).is_none());
+    assert!(
+        cache
+            .values
+            .lock()
+            .unwrap()
+            .get(&backend.reference)
+            .is_none()
+    );
 }
 
 #[test]
@@ -654,6 +691,36 @@ async fn charges_invalidated_values_until_their_owner_releases() {
 }
 
 #[tokio::test]
+async fn refreshes_selected_reads_after_history_changes() {
+    let backend = Backend::new();
+    let pages = backend.text.len().div_ceil(DETAIL_PAGE_BYTES);
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    *backend.blocked.lock().unwrap() = Some((started.clone(), release));
+    let client = Arc::new(Client::new(backend.clone()));
+    client.details.reconcile(&backend.page(1));
+    let tracker = Tracker::new(client.clone(), tokio::runtime::Handle::current());
+    tracker.include(backend.reference.clone());
+    started.notified().await;
+    client.details.reconcile(&backend.page(2));
+    *backend.blocked.lock().unwrap() = None;
+    tracker.retain(|_| true);
+    assert!(matches!(
+        tracker.wait(&backend.reference).await,
+        State::Ready(_)
+    ));
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 1 + pages);
+    client.details.reconcile(&backend.page(3));
+    tracker.include(backend.reference.clone());
+    assert!(matches!(
+        tracker.wait(&backend.reference).await,
+        State::Ready(_)
+    ));
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 1 + 2 * pages);
+    assert!(tracker.failures().is_empty());
+}
+
+#[tokio::test]
 async fn drops_superseded_results_without_feedback() {
     let backend = Backend::new();
     let started = Arc::new(tokio::sync::Notify::new());
@@ -727,11 +794,7 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
     assert!(matches!(tracker.wait(&second).await, State::Ready(_)));
     assert_contended(tracker.state(&first));
     assert!(released.upgrade().is_none());
-    let failures = tracker.failures();
-    assert_eq!(failures.len(), 1);
-    assert_eq!(failures[0].0, first);
-    assert_eq!(failures[0].1.code, ErrorCode::Busy);
-    assert!(tracker.failures().is_empty());
+    assert!(tracker.failures().is_empty(), "eviction is silent");
     {
         let values = client.details.values.lock().unwrap();
         assert_eq!(values.entries.len(), 1);
@@ -749,14 +812,16 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
     let calls = backend.calls.load(Ordering::SeqCst);
     tracker.set([first.clone(), second.clone()]);
     assert_contended(tracker.state(&first));
+    for _ in 0..4 {
+        tracker.include(first.clone());
+        tracker.include(second.clone());
+        tokio::task::yield_now().await;
+    }
     assert_eq!(backend.calls.load(Ordering::SeqCst), calls);
     tracker.retry(&first);
     assert!(matches!(tracker.wait(&first).await, State::Ready(_)));
     assert_contended(tracker.state(&second));
-    let failures = tracker.failures();
-    assert_eq!(failures.len(), 1);
-    assert_eq!(failures[0].0, second);
-    assert!(tracker.failures().is_empty());
+    assert!(tracker.failures().is_empty(), "eviction is silent");
     let peer = Tracker::new(client.clone(), tokio::runtime::Handle::current());
     peer.set([first.clone()]);
     assert!(matches!(peer.wait(&first).await, State::Ready(_)));
@@ -779,10 +844,7 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
     peer.retry(&second);
     assert!(matches!(peer.wait(&second).await, State::Ready(_)));
     assert_contended(peer.state(&first));
-    let failures = peer.failures();
-    assert_eq!(failures.len(), 1);
-    assert_eq!(failures[0].0, first);
-    assert!(peer.failures().is_empty());
+    assert!(peer.failures().is_empty(), "eviction is silent");
     peer.set([]);
     assert!(
         client
@@ -830,6 +892,12 @@ async fn protects_pending_arguments_from_later_results() {
     };
     assert!(Arc::ptr_eq(&original.detail, &visible.detail));
     drop(visible);
+    let Read::Ready(transient) = client.detail(pending.clone()).await.unwrap() else {
+        panic!("explicit reads reuse the pending value");
+    };
+    assert!(Arc::ptr_eq(&original.detail, &transient.detail));
+    drop(transient);
+    assert_eq!(client.details.values.lock().unwrap().entries[0].pins, 1);
     tracker.include(expanded.clone());
     assert_contended(tracker.wait(&expanded).await);
     let State::Ready(retained) = tracker.state(&pending) else {
@@ -872,6 +940,50 @@ async fn protects_pending_arguments_from_later_results() {
 }
 
 #[tokio::test]
+async fn explicit_reads_do_not_keep_display_pins() {
+    let backend = Backend::new();
+    let client = Arc::new(Client::new(backend.clone()));
+    let tracker = Tracker::new(client.clone(), tokio::runtime::Handle::current());
+    tracker.protect([backend.reference.clone()]);
+    assert!(matches!(
+        tracker.wait(&backend.reference).await,
+        State::Ready(_)
+    ));
+    let mut reference = backend.reference.clone();
+    reference.entry = "copy".into();
+    let Read::Ready(value) = client.detail(reference.clone()).await.unwrap() else {
+        panic!("complete copy value expected");
+    };
+    drop(value);
+    let values = client.details.values.lock().unwrap();
+    assert_eq!(
+        values
+            .entries
+            .iter()
+            .find(|entry| entry.reference == reference)
+            .unwrap()
+            .pins,
+        0
+    );
+    assert_eq!(
+        values
+            .entries
+            .iter()
+            .find(|entry| entry.reference == backend.reference)
+            .unwrap()
+            .pins,
+        1
+    );
+    drop(values);
+    let mut selected = Vec::new();
+    tracker.retain(|reference| {
+        selected.push(reference.clone());
+        true
+    });
+    assert_eq!(selected, vec![backend.reference.clone()]);
+}
+
+#[tokio::test(start_paused = true)]
 async fn preserves_ready_values_when_peers_block_admission() {
     let detail = |size: usize| {
         serde_json::to_string(&Detail {
@@ -934,9 +1046,18 @@ async fn preserves_ready_values_when_peers_block_admission() {
         );
     }
     drop((original, pinned, preserved));
+    let mut changed = tracker.subscribe();
     peer.set([]);
-    tracker.retry(&candidate);
-    assert!(matches!(tracker.wait(&candidate).await, State::Ready(_)));
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if matches!(tracker.state(&candidate), State::Ready(_)) {
+                break;
+            }
+            changed.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("released peer budget restores the selected detail");
     assert!(matches!(tracker.state(&first), State::Ready(_)));
     assert!(tracker.failures().is_empty());
     tracker.set([]);
@@ -992,7 +1113,7 @@ async fn releases_unobserved_change_metadata() {
         tracker.include(reference.clone());
         tracker.remove(&reference);
     }
-    assert!(tracker.references().is_empty());
+    tracker.retain(|_| panic!("removed references must not remain selected"));
     assert!(tracker.changes().is_empty());
     assert!(client.details.values.lock().unwrap().tracked.is_empty());
 }

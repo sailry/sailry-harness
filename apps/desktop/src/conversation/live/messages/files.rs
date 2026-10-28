@@ -8,7 +8,7 @@ impl View {
         };
         let mut paths = std::collections::HashSet::new();
         let mut documents = std::collections::HashSet::new();
-        let mut cards = Vec::new();
+        let mut groups = Vec::new();
         for call in self
             .history
             .calls
@@ -16,17 +16,23 @@ impl View {
             .rev()
             .filter(|call| call.turn == turn)
         {
-            if call
+            if !call
                 .summary(&snapshot.page)
                 .is_some_and(|summary| summary.published)
             {
-                self.request_details(call.detail_reference(&snapshot.page), false, cx);
+                continue;
             }
-            let call = self.detailed(call, &snapshot.page);
-            let Some(content) = call.content() else {
+            let Some(reference) = call.detail_reference(&snapshot.page) else {
                 continue;
             };
-            for (index, block) in content.blocks.iter().enumerate() {
+            let call = self.detailed(call, &snapshot.page);
+            let mut cards = Vec::new();
+            for (index, block) in call
+                .content()
+                .into_iter()
+                .flat_map(|content| &content.blocks)
+                .enumerate()
+            {
                 if let Block::Card(card) = block {
                     cards.push(self.interactive_card(card.clone(), cx));
                     continue;
@@ -55,8 +61,64 @@ impl View {
                     .into_any_element(),
                 );
             }
+            cards.reverse();
+            let ready = call.detail.is_some();
+            if ready && cards.is_empty() {
+                self.publication_heights
+                    .borrow_mut()
+                    .insert(reference, px(0.));
+                continue;
+            }
+            let content = if ready {
+                v_flex()
+                    .w_full()
+                    .gap(cx.theme().spacing_tokens().lg)
+                    .children(cards)
+                    .into_any_element()
+            } else {
+                let height = self
+                    .publication_heights
+                    .borrow()
+                    .get(&reference)
+                    .copied()
+                    .unwrap_or(DETAIL_LOADING_HEIGHT);
+                if height == px(0.) {
+                    continue;
+                }
+                let retry = reference.clone();
+                let failed = matches!(
+                    self.details.state(&reference),
+                    sailry_client::conversation::details::State::Failed { retry_at: None, .. }
+                        | sailry_client::conversation::details::State::TooLarge(_)
+                );
+                div()
+                    .w_full()
+                    .h(height)
+                    .child(if failed {
+                        crate::feedback::retry(format!("published-retry-{}", call.source.key()))
+                            .on_click(cx.listener(move |view, _, _, _| view.details.retry(&retry)))
+                            .into_any_element()
+                    } else {
+                        gpui_kit::component::spinner::Spinner::new().into_any_element()
+                    })
+                    .into_any_element()
+            };
+            let observe = self.detail_bounds([reference.clone()], true);
+            let heights = self.publication_heights.clone();
+            groups.push(
+                div()
+                    .w_full()
+                    .child(content)
+                    .on_prepaint(move |bounds, window, cx| {
+                        if ready {
+                            heights.borrow_mut().insert(reference, bounds.size.height);
+                        }
+                        observe(bounds, window, cx);
+                    })
+                    .into_any_element(),
+            );
         }
-        cards.reverse();
-        cards
+        groups.reverse();
+        groups
     }
 }

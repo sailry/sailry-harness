@@ -33,12 +33,14 @@ impl std::ops::Deref for Loaded {
 pub(crate) struct Cache {
     values: Mutex<Values>,
     reads: Arc<tokio::sync::Semaphore>,
+    capacity: tokio::sync::watch::Sender<()>,
 }
 impl Default for Cache {
     fn default() -> Self {
         Self {
             values: Mutex::default(),
             reads: Arc::new(tokio::sync::Semaphore::new(4)),
+            capacity: tokio::sync::watch::channel(()).0,
         }
     }
 }
@@ -112,12 +114,6 @@ impl Cache {
             .get(&session)
             .copied()
     }
-    fn get(&self, reference: &Reference) -> Option<Loaded> {
-        self.values
-            .lock()
-            .expect("tool detail cache lock")
-            .get(reference)
-    }
     fn valid(&self, reference: &Reference, detail: &Loaded) -> bool {
         self.values
             .lock()
@@ -129,6 +125,21 @@ impl Cache {
                     && entry.reference == *reference
                     && Arc::ptr_eq(&entry.value.detail, &detail.detail)
             })
+    }
+    fn available(&self, reference: &Reference, bytes: usize) -> bool {
+        let values = self.values.lock().expect("tool detail cache lock");
+        values
+            .entries
+            .iter()
+            .any(|entry| entry.valid && entry.reference == *reference && entry.pins != 0)
+            || values
+                .entries
+                .iter()
+                .filter(|entry| entry.pins != 0)
+                .map(|entry| entry.value.bytes)
+                .sum::<usize>()
+                + bytes
+                <= MAX_BYTES
     }
     fn pin<'a>(
         &self,
@@ -188,19 +199,27 @@ impl Cache {
             values.insert(reference.clone(), detail.clone(), 1),
             "tool detail admission must fit its reserved budget"
         );
+        if required < pinned {
+            self.capacity.send_modify(|_| {});
+        }
         Some(evicted)
     }
     fn unpin(&self, reference: &Reference, detail: &Loaded) {
         let mut values = self.values.lock().expect("tool detail cache lock");
+        let mut released = false;
         if let Some(entry) = values.entries.iter_mut().find(|entry| {
             entry.reference == *reference && Arc::ptr_eq(&entry.value.detail, &detail.detail)
         }) {
             entry.pins -= 1;
+            released = entry.pins == 0;
         }
         values
             .entries
             .retain(|entry| entry.valid || entry.pins != 0);
         values.prune(None);
+        if released {
+            self.capacity.send_modify(|_| {});
+        }
     }
     pub(crate) fn reconcile(&self, page: &Page) {
         let mut values = self.values.lock().expect("tool detail cache lock");
@@ -311,7 +330,7 @@ impl Values {
     }
 }
 /// Conservative retained allocation size, including parsed containers, not JSON bytes.
-pub fn retained_bytes(value: &serde_json::Value) -> usize {
+fn retained_bytes(value: &serde_json::Value) -> usize {
     use serde_json::Value;
     let heap = match value {
         Value::String(text) => text.capacity(),
@@ -373,20 +392,6 @@ fn same_part(left: &Reference, right: &Reference) -> bool {
 }
 
 impl Client {
-    pub fn cached_tool_detail(&self, reference: &Reference) -> Option<Arc<Detail>> {
-        self.details.get(reference).map(|value| value.detail)
-    }
-    /// Complete explicit reads share the same canonical cache as presentation trackers.
-    pub async fn tool_detail(&self, reference: Reference) -> Result<Arc<Detail>, Fault> {
-        match self.detail(reference).await? {
-            Read::Ready(value) => Ok(value.detail),
-            Read::TooLarge(limit) => Err(Fault::new(ErrorCode::InvalidRequest, limit.message())),
-            Read::Superseded => Err(Fault::new(
-                ErrorCode::Cancelled,
-                "tool detail read was superseded",
-            )),
-        }
-    }
     pub async fn detail(&self, reference: Reference) -> Result<Read, Fault> {
         let future = {
             let mut values = self.details.values.lock().expect("tool detail cache lock");

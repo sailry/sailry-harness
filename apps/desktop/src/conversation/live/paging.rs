@@ -47,13 +47,14 @@ impl View {
             self.paging_requested = false;
         }
         if let Some(snapshot) = &next.snapshot
-            && self
-                .history
-                .snapshot
-                .as_ref()
-                .is_some_and(|previous| previous.page.revision != snapshot.page.revision)
+            && self.history.snapshot.as_ref().is_some_and(|previous| {
+                previous.page.session != snapshot.page.session
+                    || previous.page.revision != snapshot.page.revision
+            })
         {
             self.reveal = None;
+            self.publication_heights.borrow_mut().clear();
+            self.detail_rows.borrow_mut().clear();
             self.expanded
                 .retain(|(turn, _), _| snapshot.page.runs.iter().any(|run| run.turn == *turn));
         }
@@ -68,7 +69,7 @@ impl View {
             .is_some_and(|worktree| repository::changed(&self.history, &next, worktree));
         self.approvals.observe(&next);
         self.history = next;
-        self.reconcile_details();
+        self.select_details(self.navigation.bounds.get());
         if changed || self.outgoing.is_some() {
             self.sync_rows(cx);
         }

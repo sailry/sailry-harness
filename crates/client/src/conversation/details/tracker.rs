@@ -29,6 +29,7 @@ struct Slots {
     values: BTreeMap<Reference, Slot>,
     next: u64,
     dirty: BTreeSet<Reference>,
+    capacity_task: Option<AbortHandle>,
 }
 struct Slot {
     state: State,
@@ -37,16 +38,50 @@ struct Slot {
     revision: Option<u64>,
     reported: bool,
     protected: bool,
+    accessed: u64,
+    required: Option<usize>,
 }
 
 impl Tracker {
     pub fn new(client: Arc<Client>, runtime: Handle) -> Self {
-        Self(Arc::new(Tracked {
+        let mut capacity = client.details.capacity.subscribe();
+        let tracked = Arc::new(Tracked {
             client,
             runtime,
             slots: Mutex::default(),
             changed: watch::channel(0).0,
-        }))
+        });
+        let weak = Arc::downgrade(&tracked);
+        let task = tracked.runtime.spawn(async move {
+            while capacity.changed().await.is_ok() {
+                let Some(tracked) = weak.upgrade() else {
+                    return;
+                };
+                let mut slots = tracked.slots.lock().expect("tool tracker lock");
+                let ready = slots
+                    .values
+                    .iter()
+                    .filter_map(|(reference, slot)| {
+                        let required = slot.required?;
+                        tracked
+                            .client
+                            .details
+                            .available(reference, required)
+                            .then(|| reference.clone())
+                    })
+                    .collect::<Vec<_>>();
+                for reference in ready {
+                    // Recovery may use free capacity, never replace another visible value.
+                    Self::start(&tracked, &mut slots, reference, false);
+                }
+            }
+        });
+        tracked
+            .slots
+            .lock()
+            .expect("tool tracker lock")
+            .capacity_task = Some(task.abort_handle());
+        Self(tracked)
     }
     pub fn subscribe(&self) -> watch::Receiver<u64> {
         self.0.changed.subscribe()
@@ -54,16 +89,6 @@ impl Tracker {
     pub fn changes(&self) -> Vec<Reference> {
         std::mem::take(&mut self.0.slots.lock().expect("tool tracker lock").dirty)
             .into_iter()
-            .collect()
-    }
-    pub fn references(&self) -> Vec<Reference> {
-        self.0
-            .slots
-            .lock()
-            .expect("tool tracker lock")
-            .values
-            .keys()
-            .cloned()
             .collect()
     }
     pub fn set(&self, references: impl IntoIterator<Item = Reference>) {
@@ -79,22 +104,26 @@ impl Tracker {
             self.0.remove(&mut slots, &reference);
         }
         for reference in references {
-            let current = self.0.client.details.revision(reference.session);
-            if slots
-                .values
-                .get(&reference)
-                .is_some_and(|slot| current.is_none_or(|revision| Some(revision) == slot.revision))
-            {
-                continue;
-            }
-            Self::start(&self.0, &mut slots, reference);
+            Self::select(&self.0, &mut slots, reference);
+        }
+    }
+    pub fn retain(&self, mut keep: impl FnMut(&Reference) -> bool) {
+        let mut slots = self.0.slots.lock().expect("tool tracker lock");
+        let (references, removed): (Vec<_>, Vec<_>) = slots
+            .values
+            .keys()
+            .cloned()
+            .partition(|reference| keep(reference));
+        for reference in removed {
+            self.0.remove(&mut slots, &reference);
+        }
+        for reference in references {
+            Self::select(&self.0, &mut slots, reference);
         }
     }
     pub fn include(&self, reference: Reference) {
         let mut slots = self.0.slots.lock().expect("tool tracker lock");
-        if !slots.values.contains_key(&reference) {
-            Self::start(&self.0, &mut slots, reference);
-        }
+        Self::select(&self.0, &mut slots, reference);
     }
     /// Pending approval payloads cannot be replaced by another selection.
     pub fn protect(&self, references: impl IntoIterator<Item = Reference>) {
@@ -105,7 +134,7 @@ impl Tracker {
         }
         for reference in references {
             if !slots.values.contains_key(&reference) {
-                Self::start(&self.0, &mut slots, reference.clone());
+                Self::start(&self.0, &mut slots, reference.clone(), true);
             }
             slots.values.get_mut(&reference).unwrap().protected = true;
         }
@@ -124,18 +153,10 @@ impl Tracker {
     pub fn retry(&self, reference: &Reference) {
         let mut slots = self.0.slots.lock().expect("tool tracker lock");
         let state = self.0.state(&mut slots, reference);
-        if matches!(state, State::Loading) {
+        if matches!(state, State::Loading | State::Ready(_)) {
             return;
         }
-        if matches!(state, State::Ready(_)) {
-            slots.next += 1;
-            let id = slots.next;
-            if let Some(slot) = slots.values.get_mut(reference) {
-                slot.id = id;
-            }
-            return;
-        }
-        Self::start(&self.0, &mut slots, reference.clone());
+        Self::start(&self.0, &mut slots, reference.clone(), true);
     }
     pub fn state(&self, reference: &Reference) -> State {
         self.0.state(
@@ -188,7 +209,30 @@ impl Tracker {
             }
         }
     }
-    fn start(tracked: &Arc<Tracked>, slots: &mut Slots, reference: Reference) {
+    fn touch(slots: &mut Slots, reference: &Reference) {
+        slots.next += 1;
+        if let Some(slot) = slots.values.get_mut(reference) {
+            slot.accessed = slots.next;
+        }
+    }
+    fn select(tracked: &Arc<Tracked>, slots: &mut Slots, reference: Reference) {
+        let current = tracked.client.details.revision(reference.session);
+        if let Some(slot) = slots.values.get(&reference)
+            && current.is_none_or(|revision| Some(revision) == slot.revision)
+        {
+            if slot
+                .required
+                .is_some_and(|bytes| tracked.client.details.available(&reference, bytes))
+            {
+                Self::start(tracked, slots, reference, false);
+            } else {
+                Self::touch(slots, &reference);
+            }
+        } else {
+            Self::start(tracked, slots, reference, true);
+        }
+    }
+    fn start(tracked: &Arc<Tracked>, slots: &mut Slots, reference: Reference, replace: bool) {
         let protected = slots
             .values
             .get(&reference)
@@ -220,7 +264,7 @@ impl Tracker {
                     let Some(tracked) = weak.upgrade() else {
                         return;
                     };
-                    if !tracked.publish(&query, id, State::Loading) {
+                    if !tracked.publish(&query, id, State::Loading, replace) {
                         return;
                     }
                 }
@@ -244,7 +288,7 @@ impl Tracker {
                         ..
                     }
                 );
-                if !tracked.publish(&query, id, state) || !retry {
+                if !tracked.publish(&query, id, state, replace) || !retry {
                     return;
                 }
             }
@@ -258,6 +302,8 @@ impl Tracker {
                 revision,
                 reported: false,
                 protected,
+                accessed: id,
+                required: None,
             },
         );
         tracked.notify(slots, reference);
@@ -295,7 +341,13 @@ impl Tracked {
         }
         slots.values[reference].state.clone()
     }
-    fn publish(&self, reference: &Reference, id: u64, mut state: State) -> bool {
+    fn publish(
+        &self,
+        reference: &Reference,
+        id: u64,
+        mut state: State,
+        replace_ready: bool,
+    ) -> bool {
         let mut slots = self.slots.lock().expect("tool tracker lock");
         let Some(slot) = slots.values.get(reference) else {
             return false;
@@ -311,12 +363,15 @@ impl Tracked {
         {
             state = State::Superseded;
         }
+        let mut required = None;
         if let State::Ready(detail) = &state {
             let mut replace = slots
                 .values
                 .iter()
                 .filter_map(|(reference, slot)| match &slot.state {
-                    State::Ready(detail) if !slot.protected => Some((slot.id, reference, detail)),
+                    State::Ready(detail) if replace_ready && !slot.protected => {
+                        Some((slot.accessed, reference, detail))
+                    }
                     _ => None,
                 })
                 .collect::<Vec<_>>();
@@ -331,15 +386,25 @@ impl Tracked {
                 Some(evicted) => {
                     for reference in evicted {
                         let slot = slots.values.get_mut(&reference).unwrap();
+                        slot.required = match &slot.state {
+                            State::Ready(detail) => Some(detail.bytes),
+                            _ => unreachable!("only ready values are replaced"),
+                        };
                         slot.state = contended();
-                        slot.reported = false;
+                        slot.reported = true;
                         self.notify(&mut slots, reference);
                     }
                 }
-                None => state = contended(),
+                None => {
+                    required = Some(detail.bytes);
+                    state = contended();
+                    slots.values.get_mut(reference).unwrap().reported = !replace_ready;
+                }
             }
         }
-        slots.values.get_mut(reference).unwrap().state = state;
+        let slot = slots.values.get_mut(reference).unwrap();
+        slot.required = required;
+        slot.state = state;
         self.notify(&mut slots, reference.clone());
         true
     }
@@ -353,7 +418,11 @@ fn contended() -> State {
 }
 impl Drop for Tracked {
     fn drop(&mut self) {
-        for (reference, slot) in &self.slots.get_mut().expect("tool tracker lock").values {
+        let slots = self.slots.get_mut().expect("tool tracker lock");
+        if let Some(task) = &slots.capacity_task {
+            task.abort();
+        }
+        for (reference, slot) in &slots.values {
             slot.task.abort();
             if let State::Ready(detail) = &slot.state {
                 self.client.details.unpin(reference, detail);

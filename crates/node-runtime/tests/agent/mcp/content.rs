@@ -93,11 +93,12 @@ async fn restores() {
         assert_eq!(view.calls[0].name, "tool_search");
         let call = view.calls.iter().find(|call| call.name == alias).unwrap();
         let call = call.with_detail(
-            fixture
-                .client
-                .tool_detail(call.detail_reference(&page).unwrap())
-                .await
-                .unwrap(),
+            crate::agent_support::details::read(
+                &fixture.client,
+                call.detail_reference(&page).unwrap(),
+            )
+            .await
+            .unwrap(),
         );
         assert_eq!(call.presentation, Presentation::Content);
         assert_eq!(call.content(), Some(&expected));
@@ -127,8 +128,7 @@ async fn restores() {
             .find(|call| call.name == alias)
             .unwrap();
         let call = call.with_detail(
-            client
-                .tool_detail(call.detail_reference(&page).unwrap())
+            crate::agent_support::details::read(&client, call.detail_reference(&page).unwrap())
                 .await
                 .unwrap(),
         );

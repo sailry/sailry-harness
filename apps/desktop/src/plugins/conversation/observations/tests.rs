@@ -18,15 +18,21 @@ struct Backend(
     AtomicUsize,
     std::sync::Mutex<std::collections::BTreeSet<String>>,
     Option<String>,
+    Option<Arc<tokio::sync::Barrier>>,
 );
 
 impl Backend {
     fn new() -> Arc<Self> {
-        Arc::new(Self(AtomicUsize::new(0), Default::default(), None))
+        Arc::new(Self(AtomicUsize::new(0), Default::default(), None, None))
     }
 
     fn large(text: String) -> Arc<Self> {
-        Arc::new(Self(AtomicUsize::new(0), Default::default(), Some(text)))
+        Arc::new(Self(
+            AtomicUsize::new(0),
+            Default::default(),
+            Some(text),
+            None,
+        ))
     }
 }
 
@@ -40,6 +46,9 @@ impl Transport for Backend {
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
             assert!(tokio::runtime::Handle::try_current().is_ok());
+            if let Some(barrier) = &self.3 {
+                barrier.wait().await;
+            }
             let Command::ReadToolDetail {
                 session,
                 turn,
@@ -55,13 +64,18 @@ impl Transport for Backend {
                 panic!("detail read expected")
             };
             self.0.fetch_add(1, Ordering::Relaxed);
-            let failed = {
+            let (failed, permanent) = {
                 let mut failures = self.1.lock().unwrap();
-                failures.contains(&format!("always:{entry}")) || failures.remove(&entry)
+                let permanent = failures.contains(&format!("always:{entry}"));
+                (permanent || failures.remove(&entry), permanent)
             };
             if failed {
                 return Err(Fault::new(
-                    ErrorCode::Unavailable,
+                    if permanent {
+                        ErrorCode::NotFound
+                    } else {
+                        ErrorCode::Unavailable
+                    },
                     "injected tool detail failure",
                 ));
             }
@@ -283,12 +297,41 @@ async fn a_failed_call_does_not_hide_peers() {
             .all(|call| call["timestamp_ms"] != 0)
     );
     let reads = backend.0.load(Ordering::Relaxed);
-    assert_eq!(reads, 6);
+    assert_eq!(reads, 3);
     assert_eq!(partial["errors"].as_array().unwrap().len(), 1);
     backend.1.lock().unwrap().clear();
     let recovered = snapshot(&observation).await.unwrap();
     assert_eq!(recovered["calls"].as_array().unwrap().len(), 3);
     assert_eq!(backend.0.load(Ordering::Relaxed), reads + 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn reads_calls_concurrently_without_reordering() {
+    let backend = Arc::new(Backend(
+        AtomicUsize::new(0),
+        Default::default(),
+        None,
+        Some(Arc::new(tokio::sync::Barrier::new(3))),
+    ));
+    let observation = observation(
+        history(sailry_protocol::SessionId::new(), TurnId::new()),
+        Arc::new(Client::new(backend.clone())),
+        tokio::runtime::Handle::current(),
+    );
+    let value = tokio::time::timeout(std::time::Duration::from_secs(1), snapshot(&observation))
+        .await
+        .expect("three reads must reach the barrier together")
+        .unwrap();
+    assert_eq!(backend.0.load(Ordering::Relaxed), 3);
+    assert_eq!(
+        value["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|call| call["timestamp_ms"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
 }
 
 #[core::prelude::v1::test]
@@ -318,16 +361,6 @@ async fn eviction_keeps_other_sessions_live() {
         images: vec![],
     };
     let text = serde_json::to_string(&detail).unwrap();
-    let parsed: Detail = serde_json::from_str(&text).unwrap();
-    assert!(
-        sailry_client::conversation::details::retained_bytes(parsed.result.as_ref().unwrap())
-            < sailry_client::conversation::details::MAX_BYTES
-    );
-    assert!(
-        2 * sailry_client::conversation::details::retained_bytes(parsed.result.as_ref().unwrap())
-            > sailry_client::conversation::details::MAX_BYTES
-    );
-    drop(parsed);
     drop(detail);
     let backend = Backend::large(text);
     let client = Arc::new(Client::new(backend.clone()));
@@ -345,8 +378,14 @@ async fn eviction_keeps_other_sessions_live() {
     assert_eq!(initial["calls"].as_array().unwrap().len(), 1);
     assert_eq!(initial["calls"][0]["timestamp_ms"], 0);
     drop(initial);
-    let detail = client.tool_detail(oldest).await.unwrap();
-    let released = Arc::downgrade(&detail);
+    let sailry_client::conversation::details::Read::Ready(detail) =
+        client.detail(oldest).await.unwrap()
+    else {
+        panic!("complete detail expected");
+    };
+    assert!(detail.bytes < sailry_client::conversation::details::MAX_BYTES);
+    assert!(2 * detail.bytes > sailry_client::conversation::details::MAX_BYTES);
+    let released = Arc::downgrade(&detail.detail);
     drop(detail);
     observed.history = current;
     let first = snapshot(&observed).await.unwrap();

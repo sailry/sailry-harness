@@ -83,11 +83,12 @@ async fn retains_project_connections_across_turns() {
         assert_eq!(queries.len(), 2);
         for call in queries {
             let call = call.with_detail(
-                fixture
-                    .client
-                    .tool_detail(call.detail_reference(&page).unwrap())
-                    .await
-                    .unwrap(),
+                crate::agent_support::details::read(
+                    &fixture.client,
+                    call.detail_reference(&page).unwrap(),
+                )
+                .await
+                .unwrap(),
             );
             assert_eq!(
                 call.resolved

@@ -75,11 +75,12 @@ async fn idless_mcp_results_keep_execution_facts() {
         for call in view.calls.iter().filter(|call| call.response.is_some()) {
             results.push(
                 call.with_detail(
-                    fixture
-                        .client
-                        .tool_detail(call.detail_reference(&page).unwrap())
-                        .await
-                        .unwrap(),
+                    crate::agent_support::details::read(
+                        &fixture.client,
+                        call.detail_reference(&page).unwrap(),
+                    )
+                    .await
+                    .unwrap(),
                 ),
             );
         }

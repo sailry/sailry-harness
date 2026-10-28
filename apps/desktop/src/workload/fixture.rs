@@ -27,7 +27,7 @@ pub(super) async fn prepare(
             "Tool output fixture 中文 🙂\n".repeat(1000),
         )
         .unwrap();
-        let client = Client::new(node.local());
+        let client = std::sync::Arc::new(Client::new(node.local()));
         for name in ["context7", "github"] {
             execute(
                 &client,
@@ -126,7 +126,14 @@ pub(super) async fn execute(client: &Client, command: Command) -> Output {
     client.execute(client.prepare(command)).await.unwrap()
 }
 
-pub(super) async fn turns(client: &Client, session: &Session, prefix: &str, count: usize) {
+pub(super) async fn turns(
+    client: &std::sync::Arc<Client>,
+    session: &Session,
+    prefix: &str,
+    count: usize,
+) {
+    use sailry_client::conversation::details::{State, Tracker};
+    let details = Tracker::new(client.clone(), tokio::runtime::Handle::current());
     let mut subscription = client.subscribe_conversation(session.id).await.unwrap();
     let mut projection = Projection::new(client.target(), session.id, 1);
     projection
@@ -175,17 +182,18 @@ pub(super) async fn turns(client: &Client, session: &Session, prefix: &str, coun
                             } = part
                                 && name == &crate::agent_fixture::plugin_tool("files", "read_file")
                             {
-                                let detail = client
-                                    .tool_detail(sailry_protocol::tool::detail::Reference {
-                                        session: page.session,
-                                        turn: entry.turn,
-                                        entry: entry.id.clone(),
-                                        index,
-                                        call: id.clone(),
-                                        revision: summary.revision.clone(),
-                                    })
-                                    .await
-                                    .unwrap();
+                                let reference = sailry_protocol::tool::detail::Reference {
+                                    session: page.session,
+                                    turn: entry.turn,
+                                    entry: entry.id.clone(),
+                                    index,
+                                    call: id.clone(),
+                                    revision: summary.revision.clone(),
+                                };
+                                details.set([reference.clone()]);
+                                let State::Ready(detail) = details.wait(&reference).await else {
+                                    panic!("workload tool details expected");
+                                };
                                 found |= detail
                                     .result
                                     .as_ref()

@@ -888,7 +888,9 @@ async fn batches_inputs_with_one_output_owner() {
         assert_eq!(call.turn, active.id);
         let reference = call.detail_reference(&page).unwrap();
         assert_eq!(reference.turn, active.id);
-        let detail = fixture.client.tool_detail(reference).await.unwrap();
+        let detail = crate::agent_support::details::read(&fixture.client, reference)
+            .await
+            .unwrap();
         assert!(
             detail
                 .result

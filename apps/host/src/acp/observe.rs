@@ -137,6 +137,7 @@ fn render<'a>(
 ) -> Pin<Box<dyn Future<Output = acp::Result<()>> + Send + 'a>> {
     Box::pin(async move {
         let parent = opened.session.lock().await.id;
+        let mut presentation = opened.presentation.lock().await;
         let view = receiver.borrow().clone();
         let Some(snapshot) = &view.snapshot else {
             return Ok(());
@@ -146,10 +147,9 @@ fn render<'a>(
             .iter()
             .map(|call| call_id(source, call))
             .collect();
-        opened.presentation.lock().await.retain(source, &current);
+        presentation.retain(source, &current);
         let session = acp::SessionId::new(parent.to_string());
         let page = &snapshot.page;
-        let mut presentation = opened.presentation.lock().await;
         if source != parent {
             if let Some(question) = page.questions.iter().find(|question| {
                 question.state == sailry_protocol::conversation::question::State::Pending
@@ -206,6 +206,10 @@ fn render<'a>(
                 continue;
             };
             if presentation.stamps.get(&id) != Some(&stamp) {
+                let changed = presentation
+                    .stamps
+                    .get(&id)
+                    .is_none_or(|previous| previous.reference != stamp.reference);
                 let mut context = context(source, call);
                 context["node"] = json!(adapter.client.target());
                 let tool = acp::ToolCall::new(id.clone(), title(call, page))
@@ -220,9 +224,14 @@ fn render<'a>(
                         acp::SessionUpdate::ToolCall(tool)
                     };
                     notify(connection, &session, update, context)?;
-                    details.push((call.clone(), stamp.clone()));
+                    if changed {
+                        details.push((call.clone(), stamp.clone()));
+                    }
                 }
-                if let Some(previous) = presentation.stamps.insert(id, stamp) {
+                let reference = stamp.reference.clone();
+                if let Some(previous) = presentation.stamps.insert(id, stamp)
+                    && previous.reference != reference
+                {
                     opened.details.remove(&previous.reference);
                 }
             }
@@ -245,18 +254,12 @@ fn render<'a>(
             .filter(|child| presentation.children.insert(child.run.session))
             .map(|child| child.run.clone())
             .collect::<Vec<_>>();
-        let selected = opened
-            .details
-            .references()
-            .into_iter()
-            .filter(|reference| {
-                presentation
-                    .stamps
-                    .values()
-                    .any(|stamp| stamp.reference == *reference)
-            })
-            .collect::<Vec<_>>();
-        opened.details.set(selected);
+        opened.details.retain(|reference| {
+            presentation
+                .stamps
+                .values()
+                .any(|stamp| stamp.reference == *reference)
+        });
         for (_, stamp) in &details {
             opened.details.include(stamp.reference.clone());
         }

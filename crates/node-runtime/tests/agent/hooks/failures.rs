@@ -195,11 +195,12 @@ async fn retains_hidden_tool_failures() {
             .find(|call| call.name == "set_session_title")
             .unwrap();
         let call = call.with_detail(
-            fixture
-                .client
-                .tool_detail(call.detail_reference(&page).unwrap())
-                .await
-                .unwrap(),
+            crate::agent_support::details::read(
+                &fixture.client,
+                call.detail_reference(&page).unwrap(),
+            )
+            .await
+            .unwrap(),
         );
         assert_eq!(
             call.presentation,

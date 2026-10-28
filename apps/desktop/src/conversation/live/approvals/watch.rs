@@ -64,7 +64,7 @@ impl View {
                             if let Some(child) = view.approvals.children.get_mut(&id) {
                                 child.history = history;
                                 view.approvals.observe(&view.history);
-                                view.reconcile_details();
+                                view.select_details(view.navigation.bounds.get());
                                 cx.notify();
                             }
                         })
@@ -87,6 +87,6 @@ impl View {
             );
         }
         self.approvals.observe(&self.history);
-        self.reconcile_details();
+        self.select_details(self.navigation.bounds.get());
     }
 }

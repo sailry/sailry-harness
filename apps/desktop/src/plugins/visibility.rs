@@ -10,7 +10,7 @@ fn set(resource: &SideResource, visible: bool, cx: &App) {
         for tab in &panel.tabs {
             tab.view
                 .read(cx)
-                .set_plugin_visibility(visible && tab.id == panel.selected, cx);
+                .set_visibility(visible && tab.id == panel.selected, cx);
         }
     }
 }
@@ -43,7 +43,7 @@ impl Shell {
                 .map_or(crate::panes::Target::Draft, |session| {
                     crate::panes::Target::Session(view.binding().client.target(), session)
                 });
-            view.set_plugin_visibility(
+            view.set_visibility(
                 self.page == Page::Conversation && dock.displayed(target, cx),
                 cx,
             );

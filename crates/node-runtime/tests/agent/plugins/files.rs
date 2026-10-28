@@ -229,11 +229,12 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
         );
         assert!(view.calls[2].details(&page));
         let call = &view.calls[2];
-        let detail = fixture
-            .client
-            .tool_detail(call.detail_reference(&page).unwrap())
-            .await
-            .unwrap();
+        let detail = crate::agent_support::details::read(
+            &fixture.client,
+            call.detail_reference(&page).unwrap(),
+        )
+        .await
+        .unwrap();
         assert_eq!(call.with_detail(detail).result(&page), Some(&outputs[2]));
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("note.txt")).unwrap(),

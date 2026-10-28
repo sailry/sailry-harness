@@ -43,6 +43,49 @@ fn call(state: State, code: Option<ErrorCode>) -> Call {
 }
 
 #[test]
+fn selects_publications_by_their_own_bounds() {
+    use sailry_protocol::tool::detail::Reference;
+    use std::collections::BTreeSet;
+    let reference = |entry: &str| Reference {
+        session: SessionId::new(),
+        turn: TurnId::new(),
+        entry: entry.into(),
+        index: 0,
+        call: Some(entry.into()),
+        revision: "current".into(),
+    };
+    let published = reference("published");
+    let pending = reference("pending");
+    let current = BTreeSet::from([published.clone(), pending.clone()]);
+    let row = Bounds::new(point(px(0.), px(100.)), size(px(500.), px(160.)));
+    let viewport = |top| Bounds::new(point(px(0.), px(top)), size(px(500.), px(300.)));
+    let rows = [(published.clone(), row, true)];
+    let select =
+        |bounds| details::selection(&rows, bounds, &current, BTreeSet::from([pending.clone()]));
+    let (selected, protected) = select(viewport(0.));
+    assert_eq!(selected, current);
+    assert_eq!(protected, current);
+    // The long turn remains visible while its publication is above the viewport.
+    let (selected, protected) = select(viewport(700.));
+    assert_eq!(selected, BTreeSet::from([pending.clone()]));
+    assert_eq!(protected, selected);
+    let (restored, protected) = select(viewport(0.));
+    assert_eq!(restored, current);
+    assert_eq!(protected, current);
+    let loading = Bounds::new(row.origin, size(row.size.width, DETAIL_LOADING_HEIGHT));
+    assert!(DETAIL_LOADING_HEIGHT > px(0.));
+    assert!(details::visible(loading, viewport(0.)));
+    assert!(!details::visible(loading, viewport(700.)));
+    assert!(!details::visible(
+        Bounds::new(row.origin, size(row.size.width, px(0.))),
+        viewport(0.)
+    ));
+    let stale = BTreeSet::from([pending.clone()]);
+    let (selected, _) = details::selection(&rows, viewport(0.), &stale, stale.clone());
+    assert_eq!(selected, stale);
+}
+
+#[test]
 fn preserves_group_outcome_priority() {
     let page = page();
     let unknown = call(State::Returned, Some(ErrorCode::OutcomeUnknown));

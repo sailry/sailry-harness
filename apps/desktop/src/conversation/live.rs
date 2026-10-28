@@ -15,6 +15,8 @@ use sailry_protocol::{
 };
 use std::{cell::Cell, collections::BTreeMap, rc::Rc, sync::Arc};
 
+const DETAIL_LOADING_HEIGHT: Pixels = px(20.);
+
 mod actions;
 mod activity;
 mod approvals;
@@ -147,6 +149,18 @@ pub(crate) struct View {
     navigation: navigation::Navigation,
     expanded: BTreeMap<(TurnId, String), bool>,
     details: sailry_client::conversation::details::Tracker,
+    details_visible: Cell<bool>,
+    detail_rows: Rc<
+        std::cell::RefCell<
+            Vec<(
+                sailry_protocol::tool::detail::Reference,
+                Bounds<Pixels>,
+                bool,
+            )>,
+        >,
+    >,
+    publication_heights:
+        Rc<std::cell::RefCell<BTreeMap<sailry_protocol::tool::detail::Reference, Pixels>>>,
     changes: BTreeMap<TurnId, Entity<messages::changes::Card>>,
     editing: Option<messages::Editing>,
     texts: std::cell::RefCell<BTreeMap<String, Entity<crate::content::markdown::State>>>,
@@ -469,6 +483,9 @@ impl View {
             navigation: navigation::Navigation::new(cx),
             expanded: BTreeMap::new(),
             details,
+            details_visible: Cell::new(true),
+            detail_rows: Default::default(),
+            publication_heights: Default::default(),
             changes: BTreeMap::new(),
             editing: None,
             texts: Default::default(),
@@ -688,6 +705,7 @@ impl Render for View {
             )
         });
         self.navigation.rows.borrow_mut().clear();
+        self.detail_rows.borrow_mut().clear();
         let welcome = self.session.is_none() && self.rows.is_empty();
         let owner = cx.entity().downgrade();
         let body = if self.loading_history() || (self.rows.is_empty() && self.readonly()) {
@@ -794,6 +812,7 @@ impl Render for View {
                         let owner = owner.clone();
                         cx.defer(move |cx| {
                             let _ = owner.update(cx, |view, cx| {
+                                view.select_details(bounds);
                                 if view.navigation.resize(bounds.size.width) {
                                     cx.notify();
                                 }

@@ -17,8 +17,13 @@ enum Provider {
 }
 
 impl View {
-    pub(crate) fn set_plugin_visibility(&self, visible: bool, cx: &App) {
+    pub(crate) fn set_visibility(&self, visible: bool, cx: &App) {
         self.contributions.read(cx).set_visible(visible, cx);
+        if self.details_visible.replace(visible) != visible {
+            self.detail_rows.borrow_mut().clear();
+            self.details.protect([]);
+            self.details.set([]);
+        }
     }
 
     pub(crate) fn preview_available(&self, mime: &str, cx: &App) -> bool {

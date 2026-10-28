@@ -28,13 +28,6 @@ impl Call {
             && self
                 .summary(page)
                 .is_some_and(|summary| summary.has_details)
-            && self.content().is_none_or(|content| {
-                self.diagnostics(page)
-                    || !self.images(page).is_empty()
-                    || self
-                        .result(page)
-                        .is_some_and(|result| content.has_details(result))
-            })
     }
 
     pub fn raw_result(&self, page: &Page) -> bool {

@@ -134,7 +134,6 @@ async fn pages_canonical_details_on_both_transports() {
             call: call.clone(),
             revision: summary.revision.clone(),
         };
-        assert!(client.cached_tool_detail(&reference).is_none());
         let mut restored = String::new();
         loop {
             let offset = restored.len();
@@ -249,11 +248,15 @@ async fn pages_canonical_details_on_both_transports() {
             client.execute(denied).await.unwrap_err().code,
             ErrorCode::PermissionDenied
         );
-        let cached = client.tool_detail(reference.clone()).await.unwrap();
+        let cached = crate::agent_support::details::read(&client, reference.clone())
+            .await
+            .unwrap();
         assert_eq!(cached.as_ref(), &detail);
         assert!(Arc::ptr_eq(
             &cached,
-            &client.cached_tool_detail(&reference).unwrap()
+            &crate::agent_support::details::read(&client, reference.clone())
+                .await
+                .unwrap()
         ));
 
         let profile = node.profile().to_owned();
@@ -265,8 +268,7 @@ async fn pages_canonical_details_on_both_transports() {
             node.local()
         });
         assert_eq!(
-            client
-                .tool_detail(reference.clone())
+            crate::agent_support::details::read(&client, reference.clone())
                 .await
                 .unwrap()
                 .as_ref(),
@@ -288,7 +290,10 @@ async fn pages_canonical_details_on_both_transports() {
             ..reference.clone()
         };
         assert_eq!(
-            client.tool_detail(inherited).await.unwrap().as_ref(),
+            crate::agent_support::details::read(&client, inherited)
+                .await
+                .unwrap()
+                .as_ref(),
             &detail
         );
         client

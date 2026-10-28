@@ -8,34 +8,48 @@ pub(super) enum Action {
 }
 
 impl View {
-    pub(in crate::conversation::live) fn reconcile_details(&self) {
-        self.details.protect(
-            std::iter::once(&self.history)
-                .chain(self.approvals.histories())
-                .flat_map(|history| {
-                    history.calls.iter().filter_map(|call| {
-                        let page = &history.snapshot.as_ref()?.page;
-                        call.approval_pending(page)
-                            .then(|| call.detail_reference(page))
-                            .flatten()
-                    })
-                }),
-        );
-        let current: std::collections::BTreeSet<_> = std::iter::once(&self.history)
-            .chain(self.approvals.histories())
-            .flat_map(|history| {
-                history
-                    .calls
-                    .iter()
-                    .filter_map(|call| call.detail_reference(&history.snapshot.as_ref()?.page))
-            })
-            .collect();
-        self.details.set(
-            self.details
-                .references()
-                .into_iter()
-                .filter(|reference| current.contains(reference)),
-        );
+    pub(in crate::conversation::live) fn select_details(&self, bounds: Bounds<Pixels>) {
+        if !self.details_visible.get() {
+            return;
+        }
+        let mut current = std::collections::BTreeSet::new();
+        let mut protected = std::collections::BTreeSet::new();
+        for history in std::iter::once(&self.history).chain(self.approvals.histories()) {
+            let Some(snapshot) = &history.snapshot else {
+                continue;
+            };
+            for call in history.calls.iter() {
+                if let Some(reference) = call.detail_reference(&snapshot.page) {
+                    current.insert(reference.clone());
+                    if call.approval_pending(&snapshot.page) {
+                        protected.insert(reference);
+                    }
+                }
+            }
+        }
+        self.publication_heights
+            .borrow_mut()
+            .retain(|reference, _| current.contains(reference));
+        let (selected, protected) =
+            selection(&self.detail_rows.borrow(), bounds, &current, protected);
+        self.details.protect(protected);
+        self.details.set(selected);
+    }
+
+    pub(in crate::conversation::live) fn detail_bounds(
+        &self,
+        references: impl IntoIterator<Item = Reference>,
+        published: bool,
+    ) -> impl FnOnce(Bounds<Pixels>, &mut Window, &mut App) + 'static {
+        let references = references.into_iter().collect::<Vec<_>>();
+        let rows = self.detail_rows.clone();
+        move |bounds, _, _| {
+            rows.borrow_mut().extend(
+                references
+                    .into_iter()
+                    .map(|reference| (reference, bounds, published)),
+            );
+        }
     }
 
     pub(super) fn load_detail(&self, reference: Reference, action: Action, cx: &mut Context<Self>) {
@@ -43,26 +57,25 @@ impl View {
     }
 
     fn load_once(&self, reference: Reference, action: Action, retry: bool, cx: &mut Context<Self>) {
-        use sailry_client::conversation::details::State;
-        self.request_details([reference.clone()], true, cx);
-        let details = self.details.clone();
+        use sailry_client::conversation::details::Read;
+        let client = self.binding.client.clone();
         let stop = self.stop.clone();
         let query = reference.clone();
         let job = self.binding.runtime.spawn(async move {
             tokio::select! {
                 _ = stop.cancelled() => None,
-                detail = details.wait(&query) => Some(detail),
+                detail = client.detail(query) => Some(detail),
             }
         });
         cx.spawn(async move |view, cx| {
             let state = match job.await {
-                Ok(Some(state)) => Ok(state),
+                Ok(Some(result)) => result.map_err(|fault| fault.message),
                 Ok(None) => return,
                 Err(_) => Err(tr("chat_history_failed").to_string()),
             };
             let _ = view.update(cx, |view, cx| {
                 let message = match state {
-                    Ok(State::Superseded) if retry => {
+                    Ok(Read::Superseded) if retry => {
                         let current = std::iter::once(&view.history)
                             .chain(view.approvals.histories())
                             .find_map(|history| {
@@ -89,10 +102,9 @@ impl View {
                         }
                         tr("chat_history_changed").to_string()
                     }
-                    Ok(State::Superseded) => tr("chat_history_changed").to_string(),
-                    // The shared tracker notification owns these failure toasts.
-                    Ok(State::TooLarge(_) | State::Failed { .. }) => return,
-                    Ok(State::Ready(detail)) => {
+                    Ok(Read::Superseded) => tr("chat_history_changed").to_string(),
+                    Ok(Read::TooLarge(limit)) => limit.message().to_string(),
+                    Ok(Read::Ready(detail)) => {
                         match action {
                             Action::Copy => {
                                 cx.write_to_clipboard(ClipboardItem::new_string(copy_text(&detail)))
@@ -105,7 +117,6 @@ impl View {
                         }
                         return;
                     }
-                    Ok(State::Loading) => unreachable!("wait returns a settled detail"),
                     Err(message) => message,
                 };
                 let _ = cx.update_window(view.history_window, |_, window, cx| {
@@ -132,20 +143,6 @@ impl View {
         }
     }
 
-    pub(in crate::conversation::live) fn request_details(
-        &self,
-        references: impl IntoIterator<Item = Reference>,
-        explicit: bool,
-        _cx: &mut Context<Self>,
-    ) {
-        for reference in references {
-            self.details.include(reference.clone());
-            if explicit {
-                self.details.retry(&reference);
-            }
-        }
-    }
-
     pub(super) fn expand_tools(
         &mut self,
         turn: TurnId,
@@ -155,7 +152,10 @@ impl View {
         cx: &mut Context<Self>,
     ) {
         if open {
-            self.request_details(references, true, cx);
+            for reference in references {
+                self.details.include(reference.clone());
+                self.details.retry(&reference);
+            }
         } else {
             for reference in references {
                 self.details.remove(&reference);
@@ -163,6 +163,35 @@ impl View {
         }
         self.expand(turn, key, open, cx);
     }
+}
+
+pub(super) fn visible(row: Bounds<Pixels>, viewport: Bounds<Pixels>) -> bool {
+    viewport.size.height > px(0.)
+        && row.size.height > px(0.)
+        && row.bottom() > viewport.top()
+        && row.top() < viewport.bottom()
+}
+
+pub(super) fn selection(
+    rows: &[(Reference, Bounds<Pixels>, bool)],
+    bounds: Bounds<Pixels>,
+    current: &std::collections::BTreeSet<Reference>,
+    mut protected: std::collections::BTreeSet<Reference>,
+) -> (
+    std::collections::BTreeSet<Reference>,
+    std::collections::BTreeSet<Reference>,
+) {
+    let mut selected = std::collections::BTreeSet::new();
+    for (reference, row, published) in rows {
+        if visible(*row, bounds) && current.contains(reference) {
+            selected.insert(reference.clone());
+            if *published {
+                protected.insert(reference.clone());
+            }
+        }
+    }
+    selected.extend(protected.iter().cloned());
+    (selected, protected)
 }
 
 fn full_path(detail: &sailry_protocol::tool::detail::Detail) -> Option<&str> {

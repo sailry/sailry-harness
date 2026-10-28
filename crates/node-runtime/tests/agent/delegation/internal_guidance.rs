@@ -400,11 +400,12 @@ async fn continues_after_background_answer() {
             })
             .unwrap();
         let guide = guide.with_detail(
-            fixture
-                .client
-                .tool_detail(guide.detail_reference(page).unwrap())
-                .await
-                .unwrap(),
+            crate::agent_support::details::read(
+                &fixture.client,
+                guide.detail_reference(page).unwrap(),
+            )
+            .await
+            .unwrap(),
         );
         assert_eq!(guide.arguments(page).unwrap()["session"], json!(child.id));
         assert_eq!(

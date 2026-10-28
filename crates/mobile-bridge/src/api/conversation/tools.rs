@@ -125,6 +125,12 @@ pub(super) fn view(
                 call.detail_reference(page)
                     .map(|reference| reference.revision)
             );
+            value["detail_key"] = match call.detail_reference(page) {
+                Some(reference) => {
+                    Value::String(serde_json::to_string(&reference).map_err(super::error)?)
+                }
+                None => Value::Null,
+            };
             value["published"] = json!(call.summary(page).is_some_and(|summary| summary.published));
             value["hidden"] = json!(call.hidden(page));
             value["details"] = json!(call.details(page));

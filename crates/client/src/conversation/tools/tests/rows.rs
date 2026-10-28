@@ -264,8 +264,8 @@ fn uses_captured_child_titles_and_role_names() {
 
 #[test]
 fn published_only_content_has_no_empty_disclosure() {
-    let page = returned(Summary {
-        has_details: true,
+    let mut page = returned(Summary {
+        has_details: false,
         published: true,
         ..Default::default()
     });
@@ -280,6 +280,7 @@ fn published_only_content_has_no_empty_disclosure() {
         resolved: None,
         images: vec![],
     };
+    assert!(!call.details(&page));
     assert!(!call.with_detail(Arc::new(detail.clone())).details(&page));
     detail
         .content
@@ -292,5 +293,33 @@ fn published_only_content_has_no_empty_disclosure() {
                 notices: vec![],
             },
         ));
+    let Part::ToolResult { summary, .. } = &mut page.entries[1].parts[0] else {
+        unreachable!()
+    };
+    summary.has_details = true;
+    assert!(call.details(&page));
+    assert!(call.with_detail(Arc::new(detail)).details(&page));
+}
+
+#[test]
+fn keeps_summary_disclosure_after_hydration() {
+    let page = returned(Summary {
+        has_details: true,
+        raw_result: true,
+        published: true,
+        ..Default::default()
+    });
+    let call = collect(&page).remove(0);
+    let result = json!({"sailry_content":{"version":1,"blocks":[{
+        "kind":"file","path":"index.html","mime":"text/html"
+    }]},"text":"Original HTML"});
+    let detail = sailry_protocol::tool::detail::Detail {
+        arguments: json!({"path":"index.html"}),
+        content: Presentation::Content.content(&result),
+        result: Some(result),
+        resolved: None,
+        images: vec![],
+    };
+    assert!(call.details(&page));
     assert!(call.with_detail(Arc::new(detail)).details(&page));
 }

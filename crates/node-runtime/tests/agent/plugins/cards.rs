@@ -69,8 +69,7 @@ async fn summary(
         .filter(|call| call.summary(page).is_some_and(|summary| summary.published))
     {
         let call = call.with_detail(
-            client
-                .tool_detail(call.detail_reference(page).unwrap())
+            crate::agent_support::details::read(&client, call.detail_reference(page).unwrap())
                 .await
                 .unwrap(),
         );
@@ -154,11 +153,12 @@ async fn keeps_login_private_and_does_not_replay() {
         );
         let call = view.calls.iter().find(|call| call.name == alias).unwrap();
         let call = call.with_detail(
-            fixture
-                .client
-                .tool_detail(call.detail_reference(&page).unwrap())
-                .await
-                .unwrap(),
+            crate::agent_support::details::read(
+                &fixture.client,
+                call.detail_reference(&page).unwrap(),
+            )
+            .await
+            .unwrap(),
         );
         let result = call.result(&page).unwrap();
         assert!(result["isError"].as_bool().unwrap());

@@ -521,18 +521,19 @@ async fn executes_unrestricted_calls_in_full_mode() {
                 panic!("approved command call expected")
             };
             assert_eq!(name, &models::plugin_tool("commands", "run_command"));
-            let captured = fixture
-                .client
-                .tool_detail(sailry_protocol::tool::detail::Reference {
+            let captured = models::details::read(
+                &fixture.client,
+                sailry_protocol::tool::detail::Reference {
                     session: page.session,
                     turn: entry.turn,
                     entry: entry.id.clone(),
                     index: approval.index,
                     call: id.clone(),
                     revision: summary.revision.clone(),
-                })
-                .await
-                .unwrap();
+                },
+            )
+            .await
+            .unwrap();
             assert_eq!(captured.arguments, arguments);
             assert!(calls.insert(id.as_ref().unwrap()));
             let mut results = Vec::new();
@@ -547,18 +548,19 @@ async fn executes_unrestricted_calls_in_full_mode() {
                         && result_id == id
                     {
                         assert_eq!(result_name, name);
-                        let detail = fixture
-                            .client
-                            .tool_detail(sailry_protocol::tool::detail::Reference {
+                        let detail = models::details::read(
+                            &fixture.client,
+                            sailry_protocol::tool::detail::Reference {
                                 session: page.session,
                                 turn: entry.turn,
                                 entry: entry.id.clone(),
                                 index,
                                 call: result_id.clone(),
                                 revision: summary.revision.clone(),
-                            })
-                            .await
-                            .unwrap();
+                            },
+                        )
+                        .await
+                        .unwrap();
                         results.push(detail.result.as_ref().unwrap().clone());
                     }
                 }

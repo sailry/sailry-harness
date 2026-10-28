@@ -98,8 +98,7 @@ async fn new_input_closes_review_without_execution_consent() {
                 })
                 .unwrap();
             let call = call.with_detail(
-                other
-                    .tool_detail(call.detail_reference(&page).unwrap())
+                crate::agent_support::details::read(&other, call.detail_reference(&page).unwrap())
                     .await
                     .unwrap(),
             );

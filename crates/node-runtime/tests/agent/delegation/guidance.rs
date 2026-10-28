@@ -26,11 +26,12 @@ async fn marks_rejected_child_control() {
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
         let call = view.calls.iter().find(|call| call.name == name).unwrap();
         let call = call.with_detail(
-            fixture
-                .client
-                .tool_detail(call.detail_reference(&page).unwrap())
-                .await
-                .unwrap(),
+            crate::agent_support::details::read(
+                &fixture.client,
+                call.detail_reference(&page).unwrap(),
+            )
+            .await
+            .unwrap(),
         );
         assert_eq!(
             call.failure.as_ref().and_then(|failure| failure.code),
@@ -81,11 +82,12 @@ async fn resumes_completed_child() {
             .find(|call| call.turn == turn.id && call.name == name)
             .unwrap();
         let call = call.with_detail(
-            fixture
-                .client
-                .tool_detail(call.detail_reference(&page).unwrap())
-                .await
-                .unwrap(),
+            crate::agent_support::details::read(
+                &fixture.client,
+                call.detail_reference(&page).unwrap(),
+            )
+            .await
+            .unwrap(),
         );
         assert!(call.failure.is_none());
         let admitted = call.result(&page).unwrap();

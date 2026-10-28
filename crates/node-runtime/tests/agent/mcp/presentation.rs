@@ -30,11 +30,12 @@ async fn preserves_failures_without_changing_returns() {
         assert_eq!(view.calls.len(), 6);
         let mut calls = Vec::new();
         for call in view.calls.iter() {
-            let detail = fixture
-                .client
-                .tool_detail(call.detail_reference(&page).unwrap())
-                .await
-                .unwrap();
+            let detail = crate::agent_support::details::read(
+                &fixture.client,
+                call.detail_reference(&page).unwrap(),
+            )
+            .await
+            .unwrap();
             calls.push(call.with_detail(detail));
         }
         assert_eq!(calls[0].id.as_deref(), Some("call-fixture-0"));

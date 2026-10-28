@@ -274,10 +274,10 @@ async fn scopes_database_approvals() {
             query.presentation,
             sailry_protocol::tool::Presentation::Content
         );
-        let detail = client
-            .tool_detail(query.detail_reference(&page).unwrap())
-            .await
-            .unwrap();
+        let detail =
+            crate::agent_support::details::read(&client, query.detail_reference(&page).unwrap())
+                .await
+                .unwrap();
         let table = detail
             .resolved
             .as_ref()

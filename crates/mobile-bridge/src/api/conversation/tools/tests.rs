@@ -323,17 +323,28 @@ async fn sends_selected_details_once_per_revision() {
         "Original output".repeat(10_000)
     );
     assert_eq!(packet["result"], "Original output".repeat(10_000));
+    let key = value["calls"][0]["detail_key"].clone();
+    let reference: sailry_protocol::tool::detail::Reference =
+        serde_json::from_str(key.as_str().unwrap()).unwrap();
+    let current = sender.borrow();
+    assert_eq!(
+        Some(reference),
+        current.calls[0].detail_reference(&current.snapshot.as_ref().unwrap().page)
+    );
+    drop(current);
     let mut current = sender.borrow().clone();
     Arc::make_mut(current.snapshot.as_mut().unwrap()).sequence += 1;
     sender.send_replace(current);
     let repeated: Value = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
     assert_eq!(repeated["calls"][0]["detail_state"]["kind"], "ready");
     assert!(repeated["calls"][0].get("detail").is_none());
+    assert_eq!(repeated["calls"][0]["detail_key"], key);
     updates
         .track_tools(json!({"items":[]}).to_string())
         .unwrap();
     let released: Value = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
     assert!(released["calls"][0]["detail"].is_null());
+    assert_eq!(released["calls"][0]["detail_key"], key);
     updates
         .track_tools(json!({"items":[{"entry":"request","index":0}]}).to_string())
         .unwrap();

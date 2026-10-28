@@ -8,38 +8,17 @@ pub(super) fn start(
     source: SessionId,
     call: Call,
     stamp: Stamp,
-    mut receiver: watch::Receiver<View>,
+    receiver: watch::Receiver<View>,
     connection: &ConnectionTo<sdk::Client>,
 ) -> acp::Result<()> {
     let connected = connection.clone();
     connection.spawn(async move {
         let id = call_id(source, &call);
-        let latest = receiver.clone();
-        let current = async {
-            loop {
-                let matches = {
-                    let view = receiver.borrow_and_update();
-                    view.snapshot.as_ref().is_some_and(|snapshot| {
-                        view.calls.iter().any(|call| call_id(source, call) == id
-                            && call.stamp(&snapshot.page).as_ref() == Some(&stamp))
-                    })
-                };
-                if !matches || receiver.changed().await.is_err() {
-                    return;
-                }
-            }
-        };
         let result=tokio::select! {
             _ = opened.stop.cancelled() => Ok(()),
-            _ = current => Ok(()),
-            result = supplement(&adapter, &opened, source, &stamp, &id, &latest, &connected) => result,
+            result = supplement(&adapter, &opened, source, &stamp, &id, &receiver, &connected) => result,
         };
-        let presentation = opened.presentation.lock().await;
-        if presentation.stamps.get(&id).is_none_or(|current| {
-            current == &stamp || current.reference != stamp.reference
-        }) {
-            opened.details.remove(&stamp.reference);
-        }
+        opened.details.remove(&stamp.reference);
         result
     })
 }
@@ -57,6 +36,8 @@ async fn supplement(
         tracing::debug!(session=%source,call=%id,"tool detail supplement is unavailable");
         return Ok(());
     };
+    let session = acp::SessionId::new(opened.session.lock().await.id.to_string());
+    let presentation = opened.presentation.lock().await;
     let latest = receiver.borrow().clone();
     let Some(snapshot) = &latest.snapshot else {
         return Ok(());
@@ -68,9 +49,11 @@ async fn supplement(
     }) else {
         return Ok(());
     };
-    let session = acp::SessionId::new(opened.session.lock().await.id.to_string());
-    let presentation = opened.presentation.lock().await;
-    if presentation.stamps.get(id) != Some(stamp) {
+    if presentation
+        .stamps
+        .get(id)
+        .is_none_or(|current| current.reference != stamp.reference)
+    {
         return Ok(());
     }
     let call = call.with_detail(detail.detail.clone());

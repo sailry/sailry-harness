@@ -129,6 +129,7 @@ void main() {
           'turn': 'turn',
           'source': {'entry': 'entry', 'index': 0},
           'revision': revision,
+          'detail_key': '$session/$revision',
           'detail_state': {'kind': kind},
           if (include) 'detail': {'result': 'Complete output'},
         },
@@ -152,20 +153,12 @@ void main() {
           as List)[0]['detail'],
       isNull,
     );
-    for (final change in [
-      {'turn': 'other'},
-      {'id': 'other'},
-      {
-        'response': {'entry': 'result', 'index': 0},
-      },
-    ]) {
-      final changed = view('one');
-      (changed['calls'] as List)[0].addAll(change);
-      expect(
-        (mergeToolDetails(first, changed)['calls'] as List)[0]['detail'],
-        isNull,
-      );
-    }
+    final otherReference = view('one');
+    (otherReference['calls'] as List)[0]['detail_key'] = 'other reference';
+    expect(
+      (mergeToolDetails(first, otherReference)['calls'] as List)[0]['detail'],
+      isNull,
+    );
     final released = view('one');
     (released['calls'] as List)[0]['detail'] = null;
     expect(
@@ -188,6 +181,7 @@ void main() {
           'turn': 'turn',
           'source': {'entry': 'entry', 'index': 0},
           'revision': 'same',
+          'detail_key': 'same',
           'detail_state': {'kind': 'ready'},
           'approval_view': {'unrestricted': unrestricted},
           if (include) 'detail': detail,

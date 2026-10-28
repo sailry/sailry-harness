@@ -141,6 +141,7 @@ impl View {
                 cx,
             );
         }
+        let projected = grouped.is_some();
         let content = if open {
             match grouped {
                 Some(group) => group.content,
@@ -154,6 +155,9 @@ impl View {
             .iter()
             .filter_map(|call| call.detail_reference(page))
             .collect();
+        let visible = (open && projected)
+            .then(|| references.clone())
+            .unwrap_or_default();
         Collapsible::new()
             .open(open)
             .w_full()
@@ -173,6 +177,7 @@ impl View {
             )
             .content(
                 disclosure::body(content, cx)
+                    .on_prepaint(self.detail_bounds(visible, false))
                     .py_2()
                     .debug_selector(move || content_id.clone()),
             )
@@ -206,6 +211,7 @@ impl View {
                         .get(&(turn, key.clone()))
                         .copied()
                         .unwrap_or(false);
+                let visible = open.then(|| references.clone()).unwrap_or_default();
                 Collapsible::new()
                     .open(open)
                     .w_full()
@@ -227,9 +233,11 @@ impl View {
                     )
                     .content(
                         disclosure::body(
-                            v_flex().when(open, |body| {
-                                body.child(self.tool(call, page, continuing, cx))
-                            }),
+                            v_flex()
+                                .when(open, |body| {
+                                    body.child(self.tool(call, page, continuing, cx))
+                                })
+                                .on_prepaint(self.detail_bounds(visible, false)),
                             cx,
                         )
                         .pt_1()
@@ -258,8 +266,6 @@ impl View {
             );
         }
         if call.detail.is_none() && call.details(page) {
-            let references = call.detail_reference(page).into_iter().collect::<Vec<_>>();
-            self.request_details(references, false, cx);
             return h_flex()
                 .p_2()
                 .child(self.copy_result(&key, call, page, cx))

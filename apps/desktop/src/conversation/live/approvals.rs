@@ -52,7 +52,6 @@ impl View {
             .enumerate()
             .map(|(position, (call, page, connected))| {
                 let reference = call.detail_reference(page);
-                self.request_details(reference.clone(), false, cx);
                 let hydrated = self.detailed(call, page);
                 let call = &hydrated;
                 let state = reference
@@ -213,7 +212,10 @@ impl View {
                             crate::feedback::retry(format!("approval-details-retry-{id}"))
                                 .disabled(!self.connected() || !connected)
                                 .on_click(cx.listener(move |view, _, _, cx| {
-                                    view.request_details(reference.clone(), true, cx);
+                                    if let Some(reference) = reference.clone() {
+                                        view.details.include(reference.clone());
+                                        view.details.retry(&reference);
+                                    }
                                     cx.notify();
                                 }))
                                 .into_any_element()

@@ -68,33 +68,19 @@ Map<String, dynamic> mergeToolDetails(
       object(object(next['snapshot'])['page'])['session']) {
     return next;
   }
-  final existing = <(String, int), Map<String, dynamic>>{};
-  for (final call in objects(previous['calls'])) {
-    final source = object(call['source']);
-    if (source['entry'] case final String entry) {
-      if (source['index'] case final int index) existing[(entry, index)] = call;
-    }
-  }
+  final existing = <String, Map<String, dynamic>>{
+    for (final call in objects(previous['calls']))
+      if (call['detail_key'] case final String key) key: call,
+  };
   for (final value in next['calls'] as List? ?? const []) {
-    if (value is! Map<String, dynamic>) continue;
-    final call = value;
-    if (call.containsKey('detail') ||
-        object(call['detail_state'])['kind'] != 'ready') {
+    if (value is! Map<String, dynamic> ||
+        value.containsKey('detail') ||
+        object(value['detail_state'])['kind'] != 'ready') {
       continue;
     }
-    final source = object(call['source']);
-    if (source['entry'] is! String || source['index'] is! int) continue;
-    final old = existing[(source['entry'] as String, source['index'] as int)];
-    if (old == null) continue;
-    final part = object(call['response'] ?? call['source']);
-    final oldPart = object(old['response'] ?? old['source']);
-    if (object(old['detail_state'])['kind'] == 'ready' &&
-        old['turn'] == call['turn'] &&
-        old['revision'] == call['revision'] &&
-        old['id'] == call['id'] &&
-        oldPart['entry'] == part['entry'] &&
-        oldPart['index'] == part['index']) {
-      call['detail'] = old['detail'];
+    final old = existing[value['detail_key']];
+    if (old != null && object(old['detail_state'])['kind'] == 'ready') {
+      value['detail'] = old['detail'];
     }
   }
   return next;

@@ -1,6 +1,7 @@
 //! Mounted assistants expose the existing Client projection, never a second history.
 use super::*;
 use crate::plugins::host::sdk::{public_output, values::encode};
+use futures::StreamExt;
 use gpui_shell::{HostError, HostValue};
 use sailry_link::CancellationToken;
 use serde_json::{Value, json};
@@ -183,44 +184,59 @@ fn cursor(observed: &BTreeMap<String, Observation>) -> Result<String, HostError>
 }
 
 async fn read(observation: Observation, stop: CancellationToken) -> Result<Value, HostError> {
+    let runtime = observation.runtime.clone();
+    let mut jobs = tokio::task::JoinSet::new();
+    jobs.spawn_on(async move { snapshot(&observation).await }, &runtime);
     tokio::select! {
         _ = stop.cancelled() => Err(HostError::new("plugin view is closed")),
-        value = snapshot(&observation) => value,
+        value = jobs.join_next() => value.expect("snapshot task").map_err(|error| HostError::new(error.to_string()))?,
     }
 }
 
 async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
-    use sailry_client::conversation::details::State;
+    use sailry_client::conversation::details::Read;
     let history = &observation.history;
     let Some(snapshot) = &history.snapshot else {
         return Ok(json!({"connected":history.connected,"calls":[]}));
     };
-    let details = sailry_client::conversation::details::Tracker::new(
-        observation.client.clone(),
-        observation.runtime.clone(),
-    );
     let page = &snapshot.page;
     let mut calls = Vec::new();
     let mut errors = Vec::new();
-    // Returned JSON belongs to the plugin caller. The Client only retains the
-    // current canonical detail, even when the complete snapshot exceeds its budget.
-    for (call, name, reference, timestamp_ms, sequence) in selected(observation) {
-        details.set([reference.clone()]);
-        let state = details.wait(&reference).await;
-        details.remove(&reference);
-        let key = format!("{}:{}", call.turn, call.source.key());
-        let detail = match state {
-            State::Ready(detail) => detail,
-            State::Failed { fault, .. } => {
+    // The shared Client bounds concurrent reads. Returned JSON belongs to the caller;
+    // a snapshot does not pin every historical result or retry unavailable calls.
+    let selected = selected(observation)
+        .into_iter()
+        .map(|(call, name, reference, timestamp, sequence)| {
+            (
+                format!("{}:{}", call.turn, call.source.key()),
+                name.to_owned(),
+                reference,
+                call.state,
+                timestamp,
+                sequence,
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut details = futures::stream::iter(selected)
+        .map(
+            |(key, name, reference, state, timestamp, sequence)| async move {
+                let result = observation.client.detail(reference).await;
+                ((key, name, state, timestamp, sequence), result)
+            },
+        )
+        .buffered(4);
+    while let Some(((key, name, state, timestamp_ms, sequence), result)) = details.next().await {
+        let detail = match result {
+            Ok(Read::Ready(detail)) => detail,
+            Err(fault) => {
                 errors.push(json!({"key":key,"message":fault.message}));
                 continue;
             }
-            State::TooLarge(limit) => {
+            Ok(Read::TooLarge(limit)) => {
                 errors.push(json!({"key":key,"message":limit.message()}));
                 continue;
             }
-            State::Superseded => continue,
-            State::Loading => unreachable!("wait returns a settled detail"),
+            Ok(Read::Superseded) => continue,
         };
         let result = detail.result.as_ref().map(|value| {
             serde_json::from_value(value.clone())
@@ -229,7 +245,7 @@ async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
                 .unwrap_or_else(|| value.clone())
         });
         calls.push(json!({"key":key,"name":name,"arguments":detail.arguments,
-            "state":call.state,"timestamp_ms":timestamp_ms,"result":result,"sequence":sequence.map(|sequence|sequence.to_string())}));
+            "state":state,"timestamp_ms":timestamp_ms,"result":result,"sequence":sequence.map(|sequence|sequence.to_string())}));
     }
     Ok(
         json!({"connected":history.connected,"session":page.session,"revision":page.revision.to_string(),
