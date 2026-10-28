@@ -428,7 +428,7 @@ async fn isolates_child_writes() {
         let session = enable(&client, session, provider).await;
         let page = run(&client, &session).await;
         let values = results(&client, &page).await;
-        assert_eq!(values[0]["status"], "completed", "{values:?}");
+        super::delegation::completed(&client, &page, &parent, &values[0], "answer-fixture-a").await;
         assert_eq!(values[3]["error"]["code"], "conflict");
         let child_id: SessionId = serde_json::from_value(values[0]["session"].clone()).unwrap();
         let child_page = history(&client, child_id).await;
@@ -502,6 +502,7 @@ async fn isolates_child_writes() {
             node.local()
         });
         let restored = history(&client, session.id).await;
+        assert_eq!(restored, page);
         assert_eq!(restored.children[0].run.worktree, tree.id);
         assert_eq!(
             child.requests.lock().unwrap().len(),
@@ -615,11 +616,23 @@ async fn runs_parallel_checkouts() {
         provider.endpoint = parent.endpoint.clone();
         let session = enable(&client, session, provider).await;
         let page = run(&client, &session).await;
-        let values = results(&client, &page).await;
+        let values: Vec<_> = results(&client, &page)
+            .await
+            .into_iter()
+            .filter(|value| value["admitted"] == true)
+            .collect();
         assert_eq!(values.len(), 2);
-        assert!(
-            values.iter().all(|value| value["status"] == "completed"),
-            "{values:?}"
+        for receipt in &values {
+            super::delegation::completed(&client, &page, &parent, receipt, "answer-fixture-a")
+                .await;
+        }
+        assert_eq!(
+            tool_details(&client, &page)
+                .await
+                .iter()
+                .filter(|(name, _)| name == "tool_search")
+                .count(),
+            1
         );
         assert_eq!(child.requests.lock().unwrap().len(), 2);
         assert_eq!(page.children.len(), 2);

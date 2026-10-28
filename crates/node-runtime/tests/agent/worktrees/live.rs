@@ -1,4 +1,4 @@
-//! Explicit, billable acceptance through the normal Node and ADK execution path.
+//! Explicit, billable acceptance through the normal Node and GDK execution path.
 use super::*;
 
 #[tokio::test]
