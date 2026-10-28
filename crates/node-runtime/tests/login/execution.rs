@@ -174,7 +174,7 @@ async fn configured(
     provider.models = vec![sailry_protocol::conversation::Model {
         id: "fixture".into(),
         display_name: None,
-        context: 8192,
+        context: 128_000,
         output: 512,
         vision: true,
         tools: true,
