@@ -854,6 +854,14 @@ async fn retains_guidance_at_iteration_limit() {
                 && entry.author == "user"
                 && entry.parts.contains(&Part::Text(message.into()))
         }));
+        assert_eq!(
+            page.entries
+                .iter()
+                .rfind(|entry| entry.author == "assistant")
+                .unwrap()
+                .parts,
+            vec![Part::Text(TURN_LIMIT_MESSAGE.into())]
+        );
         let parent_page = finished(&fixture.client, fixture.session.id, parent.id).await;
         assert_eq!(status(&parent_page, parent.id), Status::Completed);
         let guided_child = parent_page
@@ -869,9 +877,16 @@ async fn retains_guidance_at_iteration_limit() {
         received(
             &fixture.parent,
             child.id,
-            "completed: Natural child answer",
+            &format!("completed: {TURN_LIMIT_MESSAGE}"),
             1,
         );
+        received(
+            &fixture.parent,
+            child.id,
+            "completed: Natural child answer",
+            0,
+        );
+        assert_eq!(fixture.parent.requests.lock().unwrap().len(), 2);
         let requests = fixture.child.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
         assert!(!requests[0]["messages"].to_string().contains(message));
