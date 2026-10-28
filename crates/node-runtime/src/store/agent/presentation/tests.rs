@@ -1,25 +1,10 @@
 use super::*;
+use crate::agent::canonical::{self, BlockKind, Record, Role, ToolStatus};
+use crate::store::agent::tests::fixture::{message, request, response};
+use serde_json::json;
 
-async fn record(event: &Event) -> Record {
-    let directory = tempfile::tempdir().unwrap();
-    let database = crate::store::database::engine(&directory.path().join("presentation.turso"))
-        .await
-        .unwrap();
-    let connection = database.connect().unwrap();
-    connection
-        .execute(
-            "CREATE TABLE agent_blobs(digest TEXT PRIMARY KEY,bytes BLOB NOT NULL)",
-            (),
-        )
-        .await
-        .unwrap();
-    crate::agent::canonical_bridge::from_adk(&connection, sailry_protocol::TurnId::new(), event)
-        .await
-        .unwrap()
-}
-
-#[tokio::test]
-async fn captures_framework_status_without_reading_payloads() {
+#[test]
+fn captures_status_without_reading_payloads() {
     let timeline = crate::agent::observation::Timeline::new();
     timeline.fail_tool(
         "",
@@ -27,29 +12,29 @@ async fn captures_framework_status_without_reading_payloads() {
         "same",
         Some(sailry_protocol::ErrorCode::Unavailable),
     );
-    let mut event = Event::new("framework-outcomes");
-    let mut content = adk_core::Content::new("function");
-    for (id, status) in [
-        ("business", None),
-        ("failed", Some("failed")),
-        ("cancelled", Some("cancelled")),
-        ("unknown", Some("outcome_unknown")),
-        ("pending", Some("pending")),
-    ] {
-        content.parts.push(Part::FunctionResponse {
-            id: Some(id.into()),
-            function_response: adk_core::FunctionResponseData::new(
-                "same",
-                serde_json::json!({"isError":true,"error":"unchanged business data",
-                    "annotations":{"adk.tool_result.status":"failed"}}),
-            ),
-            annotations: status.map(|status| serde_json::json!({"adk.tool_result.status":status})),
-        });
-    }
-    event.set_content(content);
-    let original = serde_json::to_value(event.content()).unwrap();
-    capture_failures(&mut event, Some(&timeline)).unwrap();
-    let captured = failures(&record(&event).await).unwrap();
+    let blocks = [
+        ("business", ToolStatus::Success),
+        ("failed", ToolStatus::Error),
+        ("cancelled", ToolStatus::Cancelled),
+        ("unknown", ToolStatus::Unknown),
+        ("pending", ToolStatus::Pending),
+    ]
+    .into_iter()
+    .map(|(id, status)| {
+        let mut result = response(
+            Some(id),
+            "same",
+            json!({"isError":true,"error":"unchanged business data",
+            "annotations":{"adk.tool_result.status":"failed"}}),
+        );
+        result.status = status;
+        BlockKind::ToolResponse(result)
+    })
+    .collect();
+    let mut event = message("assistant", Role::User, blocks);
+    let original = serde_json::to_value(&event.message().unwrap().content).unwrap();
+    capture_failures(&mut event, Some(&timeline));
+    let captured = failures(&event).unwrap();
     assert_eq!(captured.len(), 3);
     assert_eq!(captured[0].id, "failed");
     assert_eq!(captured[0].failure.code, None);
@@ -63,11 +48,14 @@ async fn captures_framework_status_without_reading_payloads() {
         captured[2].failure.code,
         Some(sailry_protocol::ErrorCode::OutcomeUnknown)
     );
-    assert_eq!(serde_json::to_value(event.content()).unwrap(), original);
+    assert_eq!(
+        serde_json::to_value(&event.message().unwrap().content).unwrap(),
+        original
+    );
 }
 
-#[tokio::test]
-async fn matches_only_observed_failed_calls() {
+#[test]
+fn matches_only_observed_failed_calls() {
     let timeline = crate::agent::observation::Timeline::new();
     timeline.fail_tool(
         "branch",
@@ -75,23 +63,24 @@ async fn matches_only_observed_failed_calls() {
         "same",
         Some(sailry_protocol::ErrorCode::Cancelled),
     );
-    let mut event = Event::new("outcomes");
-    event.branch = "branch".into();
-    let mut content = adk_core::Content::new("function");
-    for id in ["business", "failed"] {
-        content.parts.push(Part::FunctionResponse {
-            id: Some(id.into()),
-            function_response: adk_core::FunctionResponseData::new(
-                "same",
-                serde_json::json!({"error":"unchanged data"}),
-            ),
-            annotations: None,
-        });
-    }
-    event.set_content(content);
-    let original = serde_json::to_value(event.content()).unwrap();
-    capture_failures(&mut event, Some(&timeline)).unwrap();
-    let observed = failures(&record(&event).await).unwrap();
+    let mut event = message(
+        "assistant",
+        Role::User,
+        ["business", "failed"]
+            .into_iter()
+            .map(|id| {
+                BlockKind::ToolResponse(response(
+                    Some(id),
+                    "same",
+                    json!({"error":"unchanged data"}),
+                ))
+            })
+            .collect(),
+    );
+    event.provenance.branch = "branch".into();
+    let original = serde_json::to_value(&event.message().unwrap().content).unwrap();
+    capture_failures(&mut event, Some(&timeline));
+    let observed = failures(&event).unwrap();
     assert_eq!(observed.len(), 1);
     assert_eq!(observed[0].index, 1);
     assert_eq!(observed[0].id, "failed");
@@ -99,60 +88,65 @@ async fn matches_only_observed_failed_calls() {
         observed[0].failure.code,
         Some(sailry_protocol::ErrorCode::Cancelled)
     );
-    assert_eq!(serde_json::to_value(event.content()).unwrap(), original);
-    let saved = serde_json::to_vec(&record(&event).await).unwrap();
+    assert_eq!(
+        serde_json::to_value(&event.message().unwrap().content).unwrap(),
+        original
+    );
+    let saved = serde_json::to_vec(&event).unwrap();
     timeline.forget_failure("branch", "failed", "same");
-    capture_failures(&mut event, Some(&timeline)).unwrap();
-    assert!(failures(&record(&event).await).unwrap().is_empty());
-    let mut restored = record(&event).await;
+    capture_failures(&mut event, Some(&timeline));
+    assert!(failures(&event).unwrap().is_empty());
+    let mut restored = event;
     preserve_failures(&mut restored, Some(&saved)).unwrap();
     assert_eq!(failures(&restored).unwrap().len(), 1);
 }
 
-#[tokio::test]
-async fn preserves_only_matching_response_facts() {
+#[test]
+fn preserves_only_matching_response_facts() {
     let timeline = crate::agent::observation::Timeline::new();
     timeline.fail_tool("branch", "failed", "same", None);
-    let mut event = Event::new("outcomes");
-    event.branch = "branch".into();
-    let mut content = adk_core::Content::new("function");
-    content.parts.push(Part::FunctionResponse {
-        id: Some("failed".into()),
-        function_response: adk_core::FunctionResponseData::new(
+    let mut event = message(
+        "assistant",
+        Role::User,
+        vec![BlockKind::ToolResponse(response(
+            Some("failed"),
             "same",
-            serde_json::json!({"error":"unchanged data"}),
-        ),
-        annotations: None,
-    });
-    event.set_content(content);
-    capture_failures(&mut event, Some(&timeline)).unwrap();
-    let saved = serde_json::to_vec(&record(&event).await).unwrap();
+            json!({"error":"unchanged data"}),
+        ))],
+    );
+    event.provenance.branch = "branch".into();
+    capture_failures(&mut event, Some(&timeline));
+    let saved = serde_json::to_vec(&event).unwrap();
     for mismatch in ["branch", "id", "name", "result"] {
         let mut current = event.clone();
-        current.provider_metadata.remove(FAILURES);
+        current
+            .metadata
+            .presentation
+            .as_mut()
+            .unwrap()
+            .failures
+            .clear();
         if mismatch == "branch" {
-            current.branch = "other".into();
+            current.provenance.branch = "other".into();
         } else {
-            let mut content = current.content().unwrap().clone();
-            let Part::FunctionResponse {
-                id,
-                function_response,
-                ..
-            } = &mut content.parts[0]
+            let BlockKind::ToolResponse(result) =
+                &mut current.message_mut().unwrap().content[0].kind
             else {
                 unreachable!()
             };
             match mismatch {
-                "id" => *id = Some("other".into()),
-                "name" => function_response.name = "other".into(),
+                "id" => result.id = Some("other".into()),
+                "name" => result.name = "other".into(),
                 "result" => {
-                    function_response.response = serde_json::json!({"error":"changed data"})
+                    *result = response(
+                        result.id.as_deref(),
+                        &result.name,
+                        json!({"error":"changed data"}),
+                    )
                 }
                 _ => unreachable!(),
             }
-            current.set_content(content);
         }
-        let mut current = record(&current).await;
         preserve_failures(&mut current, Some(&saved)).unwrap();
         assert!(failures(&current).unwrap().is_empty(), "{mismatch}");
     }
@@ -166,9 +160,7 @@ async fn freezes_owned_session_names() {
     let parent = super::super::runs::get(&fixture.database.connection, turn)
         .await
         .unwrap();
-    let mut event = Event::new("session-names");
-    event.author = "assistant".into();
-    let mut content = adk_core::Content::new("model");
+    let mut content = Vec::new();
     let mut expected = BTreeMap::new();
     for title in ["A", "B", "C"] {
         let mut child = parent.clone();
@@ -183,24 +175,21 @@ async fn freezes_owned_session_names() {
         .await
         .unwrap();
         expected.insert(child.session.to_string(), title.to_owned());
-        content.parts.push(Part::FunctionCall {
-            id: Some(format!("wait-{title}")),
-            name: "observe".into(),
-            args: serde_json::json!({"session":child.session}),
-            thought_signature: None,
-        });
+        content.push(BlockKind::ToolRequest(request(
+            Some(&format!("wait-{title}")),
+            "observe",
+            json!({"session":child.session}),
+        )));
     }
-    event.set_content(content);
+    let mut event = message("assistant", Role::Assistant, content);
     let display = serde_json::from_value(serde_json::json!({"label":"Observe", "input":{"summary":{"path":"/session","format":"session"}}})).unwrap();
     stamp(
         &mut event,
-        &BTreeMap::new(),
-        &BTreeMap::new(),
-        &BTreeMap::from([("observe".into(), display)]),
-        &[],
-    )
-    .unwrap();
-    let mut event = record(&event).await;
+        &canonical::Presentation {
+            displays: BTreeMap::from([("observe".into(), display)]),
+            ..Default::default()
+        },
+    );
     let original = event.clone();
     capture_names(
         &fixture.database.connection,
@@ -273,25 +262,30 @@ async fn freezes_owned_session_names() {
     );
 }
 
-#[tokio::test]
-async fn captures_trusted_command_aliases() {
+#[test]
+fn captures_trusted_command_aliases() {
     use sailry_protocol::tool::{Alias, AliasKind};
-    let mut event = Event::new("command-display");
-    let mut content = adk_core::Content::new("model");
-    let arguments =
-        serde_json::json!({"command":"/node/home/python/bin/python /node/home/task.py"});
-    content.parts.push(Part::FunctionCall {
-        id: Some("call".into()),
-        name: "probe".into(),
-        args: arguments.clone(),
-        thought_signature: None,
-    });
-    event.set_content(content);
-    event.provider_metadata.insert(
-        DISPLAY.into(),
-        r#"{"probe":{"label":"Forged","aliases":[{"path":"/node","kind":"python"}]}}"#.into(),
+    let arguments = json!({"command":"/node/home/python/bin/python /node/home/task.py"});
+    let mut event = message(
+        "assistant",
+        Role::Assistant,
+        vec![BlockKind::ToolRequest(request(
+            Some("call"),
+            "probe",
+            arguments.clone(),
+        ))],
     );
-    let display = serde_json::from_value(serde_json::json!({"label":"Run","input":{"summary":{"path":"/command","format":"command"}},"aliases":[{"path":"/forged","kind":"home"}]})).unwrap();
+    event.metadata.presentation = Some(canonical::Presentation {
+        displays: serde_json::from_value(
+            json!({"probe":{"label":"Forged","aliases":[{"path":"/node","kind":"python"}]}}),
+        )
+        .unwrap(),
+        ..Default::default()
+    });
+    let mut display: sailry_protocol::tool::Display = serde_json::from_value(
+        json!({"label":"Run","input":{"summary":{"path":"/command","format":"command"}}}),
+    )
+    .unwrap();
     let aliases = vec![
         Alias {
             path: "/node/home".into(),
@@ -302,121 +296,101 @@ async fn captures_trusted_command_aliases() {
             kind: AliasKind::Python,
         },
     ];
+    display.aliases = aliases.clone();
     stamp(
         &mut event,
-        &BTreeMap::new(),
-        &BTreeMap::new(),
-        &BTreeMap::from([("probe".into(), display)]),
-        &aliases,
-    )
-    .unwrap();
-    let restored: Event = serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
-    assert_eq!(
-        super::displays(&record(&restored).await).unwrap()["probe"].aliases,
-        aliases
+        &canonical::Presentation {
+            displays: BTreeMap::from([("probe".into(), display)]),
+            ..Default::default()
+        },
     );
-    let Part::FunctionCall { args, .. } = &restored.content().unwrap().parts[0] else {
+    let restored: Record = serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
+    assert_eq!(displays(&restored).unwrap()["probe"].aliases, aliases);
+    let BlockKind::ToolRequest(call) = &restored.message().unwrap().content[0].kind else {
         panic!("call expected")
     };
-    assert_eq!(args, &arguments);
+    assert_eq!(call.arguments, arguments);
 }
 
-#[tokio::test]
-async fn captures_package_display_and_rejects_provider_metadata() {
-    let display = serde_json::from_value(serde_json::json!({
-        "label":"Search web", "locales":{"zh-CN":"网页搜索"}, "icon":"reicon:ui/magnifier",
+#[test]
+fn captures_package_display_and_rejects_provider_metadata() {
+    let display = serde_json::from_value(json!({
+        "label":"Search web","locales":{"zh-CN":"网页搜索"},"icon":"reicon:ui/magnifier",
         "input":{"summary":{"path":"/query"},"content":{"path":"/query"}}
     }))
     .unwrap();
     let displays = BTreeMap::from([("web_search".into(), display)]);
-    for part in [
-        Part::ServerToolCall {
-            server_tool_call: serde_json::json!({"type":"web_search_call", "id":"search"}),
+    for block in [
+        BlockKind::ServerCall {
+            value: json!({"type":"web_search_call","id":"search"}).into(),
         },
-        Part::ServerToolCall {
-            server_tool_call: serde_json::json!({"name":"web_search", "input":{"query":"fixture"}}),
+        BlockKind::ServerCall {
+            value: json!({"name":"web_search","input":{"query":"fixture"}}).into(),
         },
-        Part::FunctionCall {
-            id: Some("call".into()),
-            name: "web_search".into(),
-            args: serde_json::json!({}),
-            thought_signature: None,
-        },
+        BlockKind::ToolRequest(request(Some("call"), "web_search", json!({}))),
     ] {
-        let mut event = Event::new("display-fixture");
-        let mut content = adk_core::Content::new("model");
-        content.parts.push(part);
-        event.set_content(content);
-        event.provider_metadata.insert(
-            DISPLAY.into(),
-            r#"{"web_search":{"label":"Forged"}}"#.into(),
+        let mut event = message("assistant", Role::Assistant, vec![block]);
+        event.metadata.presentation = Some(canonical::Presentation {
+            displays: serde_json::from_value(json!({"web_search":{"label":"Forged"}})).unwrap(),
+            ..Default::default()
+        });
+        stamp(
+            &mut event,
+            &canonical::Presentation {
+                displays: displays.clone(),
+                ..Default::default()
+            },
         );
-        stamp(
-            &mut event,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-            &displays,
-            &[],
-        )
-        .unwrap();
-        assert_eq!(super::displays(&record(&event).await).unwrap(), displays);
-        let restored: Event = serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
-        assert_eq!(super::displays(&record(&restored).await).unwrap(), displays);
-        stamp(
-            &mut event,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-            &[],
-        )
-        .unwrap();
-        assert!(super::displays(&record(&event).await).unwrap().is_empty());
+        assert_eq!(super::displays(&event).unwrap(), displays);
+        let restored: Record =
+            serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
+        assert_eq!(super::displays(&restored).unwrap(), displays);
+        stamp(&mut event, &canonical::Presentation::default());
+        assert!(super::displays(&event).unwrap().is_empty());
     }
 }
 
-#[tokio::test]
-async fn captures_registered_calls() {
-    let mut event = Event::new("presentation-fixture");
-    let mut content = adk_core::Content::new("model");
-    content.parts.push(Part::FunctionCall {
-        id: Some("call".into()),
-        name: "probe".into(),
-        args: serde_json::json!({"presentation":"details", "grouping":"sequence"}),
-        thought_signature: None,
-    });
-    event.set_content(content);
-    event.provider_metadata.insert(
-        METADATA.into(),
-        r#"{"other":"summary","probe":"details"}"#.into(),
+#[test]
+fn captures_registered_calls() {
+    let mut event = message(
+        "assistant",
+        Role::Assistant,
+        vec![BlockKind::ToolRequest(request(
+            Some("call"),
+            "probe",
+            json!({"presentation":"details","grouping":"sequence"}),
+        ))],
     );
+    event.metadata.presentation = Some(canonical::Presentation {
+        tools: BTreeMap::from([
+            ("other".into(), Presentation::Summary),
+            ("probe".into(), Presentation::Details),
+        ]),
+        groupings: BTreeMap::from([("probe".into(), sailry_protocol::tool::Grouping::Sequence)]),
+        ..Default::default()
+    });
     let catalog = BTreeMap::from([
         ("probe".into(), Presentation::Summary),
         ("unused".into(), Presentation::Details),
     ]);
     let grouping = BTreeMap::from([("probe".into(), sailry_protocol::tool::Grouping::Standalone)]);
-    event
-        .provider_metadata
-        .insert(GROUPING.into(), r#"{"probe":"sequence"}"#.into());
-    stamp(&mut event, &catalog, &grouping, &BTreeMap::new(), &[]).unwrap();
-    assert_eq!(groupings(&record(&event).await).unwrap(), grouping);
-    assert_eq!(
-        read(&record(&event).await).unwrap(),
-        BTreeMap::from([("probe".into(), Presentation::Summary)])
-    );
-    let restored: Event = serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
-    assert_eq!(
-        read(&record(&restored).await).unwrap(),
-        read(&record(&event).await).unwrap()
-    );
-    assert_eq!(groupings(&record(&restored).await).unwrap(), grouping);
     stamp(
         &mut event,
-        &BTreeMap::new(),
-        &BTreeMap::new(),
-        &BTreeMap::new(),
-        &[],
-    )
-    .unwrap();
-    assert!(read(&record(&event).await).unwrap().is_empty());
-    assert!(groupings(&record(&event).await).unwrap().is_empty());
+        &canonical::Presentation {
+            tools: catalog,
+            groupings: grouping.clone(),
+            ..Default::default()
+        },
+    );
+    assert_eq!(groupings(&event).unwrap(), grouping);
+    assert_eq!(
+        read(&event).unwrap(),
+        BTreeMap::from([("probe".into(), Presentation::Summary)])
+    );
+    let restored: Record = serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
+    assert_eq!(read(&restored).unwrap(), read(&event).unwrap());
+    assert_eq!(groupings(&restored).unwrap(), grouping);
+    stamp(&mut event, &canonical::Presentation::default());
+    assert!(read(&event).unwrap().is_empty());
+    assert!(groupings(&event).unwrap().is_empty());
 }
