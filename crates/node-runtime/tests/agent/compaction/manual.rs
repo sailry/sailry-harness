@@ -641,6 +641,8 @@ async fn preserves_failed_context() {
             "Keep original requirement ".repeat(80),
         )
         .await;
+        let original_requests = server.requests.lock().unwrap().len();
+        assert_eq!(original_requests, 2);
         let (request, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert!(
@@ -685,8 +687,21 @@ async fn preserves_failed_context() {
                 .message
                 .contains("Summary service unavailable")
         );
+        let summary_attempts = goose_provider_types::retry::RetryConfig::default().max_retries + 1;
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), original_requests + summary_attempts);
+            for request in &requests[original_requests..] {
+                let transcript = prompt(request);
+                assert!(transcript.contains("Keep original requirement"));
+                assert!(transcript.contains("Keep evidence"));
+            }
+        }
         client_retry(&fixture.client, request, turn).await;
-        assert_eq!(server.requests.lock().unwrap().len(), 3);
+        assert_eq!(
+            server.requests.lock().unwrap().len(),
+            original_requests + summary_attempts
+        );
         submit(&fixture.client, fixture.session.id, "Continue".into()).await;
         let current = server.requests.lock().unwrap().last().unwrap().clone();
         assert!(messages(&current).contains("Keep original requirement"));
