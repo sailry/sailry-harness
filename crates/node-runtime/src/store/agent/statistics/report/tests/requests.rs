@@ -120,9 +120,20 @@ async fn preserves_latency_meaning() {
     .enumerate()
     {
         let mut entry = event(START + index as i64, 10);
-        entry.llm_response.provider_metadata = Some(serde_json::json!({
-            "sailry_timing": { "elapsed_us": 20000, "first_token_us": first }
-        }));
+        let timing = match serde_json::from_value::<canonical::Timing>(serde_json::json!({
+            "elapsed_us": 20000, "first_token_us": first
+        })) {
+            Ok(timing) => timing,
+            Err(_) => canonical::Timing {
+                elapsed_us: Some(20000),
+                ..Default::default()
+            },
+        };
+        entry
+            .metadata
+            .execution
+            .get_or_insert_with(Default::default)
+            .timing = Some(timing);
         fixture.append([entry]).await;
     }
     let calls = report(&fixture, &query()).await.requests.items;

@@ -1,29 +1,61 @@
 use super::*;
+use crate::agent::canonical;
+use crate::store::agent::tests::fixture::{message, record};
 use crate::store::agent::tests::{command, fixture::Fixture};
 
 mod context;
 mod maintenance;
 
-fn event(input: i32, output: i32) -> AdkEvent {
-    let mut event = AdkEvent::new("statistics-fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("Usage 中文 🙂"));
-    event.llm_response.usage_metadata = Some(adk_core::UsageMetadata {
-        prompt_token_count: input,
-        candidates_token_count: output,
-        cache_read_input_token_count: Some(2),
-        thinking_token_count: Some(1),
+fn event(input: i32, output: i32) -> canonical::Record {
+    let mut event = message(
+        "assistant",
+        canonical::Role::Assistant,
+        vec![canonical::BlockKind::Text {
+            text: "Usage 中文 🙂".into(),
+        }],
+    );
+    event.message_mut().unwrap().usage = Some(canonical::Usage {
+        input: u64::try_from(input).ok(),
+        output: u64::try_from(output).ok(),
+        cache_read: Some(2),
+        reasoning: Some(1),
         ..Default::default()
     });
     event
 }
 
-fn timed(input: i32, output: i32, first_token_us: u64) -> AdkEvent {
+fn timed(input: i32, output: i32, first_token_us: u64) -> canonical::Record {
     let mut response = event(input, output);
-    response.llm_response.provider_metadata = Some(serde_json::json!({
-        "sailry_timing": {"first_token_us": first_token_us}
-    }));
     response
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .timing = Some(canonical::Timing {
+        first_token_us: Some(first_token_us),
+        ..Default::default()
+    });
+    response
+}
+
+fn summary(anchor: &canonical::Record, text: &str) -> canonical::Record {
+    record(
+        "system",
+        canonical::Kind::Compaction(canonical::Compaction {
+            boundary: anchor.id.clone(),
+            start: anchor.created,
+            end: anchor.created,
+            files: Vec::new(),
+            summary: canonical::Message {
+                role: canonical::Role::User,
+                part_count: 1,
+                content: vec![canonical::Block {
+                    index: 0,
+                    kind: canonical::BlockKind::Text { text: text.into() },
+                }],
+                ..Default::default()
+            },
+        }),
+    )
 }
 
 #[tokio::test]
@@ -39,8 +71,10 @@ async fn follows_latest_recorded_first_text() {
     assert_eq!(read_time(&fixture).await, Some(125_000));
     let mut media = timed(500, 40, 1_000);
     media
-        .provider_metadata
-        .insert("sailry_media".into(), "image".into());
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .media = Some(sailry_protocol::media::Kind::Image);
     fixture.append([media]).await;
     assert_eq!(read_time(&fixture).await, Some(125_000));
     fixture.append([event(200, 30)]).await;
@@ -58,9 +92,13 @@ async fn follows_latest_recorded_first_text() {
         serde_json::json!(1.5),
         serde_json::json!("125000"),
     ] {
-        let mut response = event(50, 10);
-        response.llm_response.provider_metadata =
-            Some(serde_json::json!({"sailry_timing":{"first_token_us":invalid}}));
+        let response = event(50, 10);
+        assert!(
+            serde_json::from_value::<canonical::Timing>(
+                serde_json::json!({"first_token_us":invalid})
+            )
+            .is_err()
+        );
         fixture.append([response]).await;
         assert_eq!(read_time(&fixture).await, None);
     }
@@ -282,8 +320,10 @@ async fn invalidates_stale_context() {
     );
     let mut media = event(500, 40);
     media
-        .provider_metadata
-        .insert("sailry_media".into(), "image".into());
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .media = Some(sailry_protocol::media::Kind::Image);
     fixture.append([media]).await;
     assert_eq!(read_context(&fixture).await, Some(120));
     fixture.completed(&["Unmetered response"]).await;
@@ -297,18 +337,12 @@ async fn invalidates_stale_context() {
     );
     fixture.append([timed(200, 30, 250_000)]).await;
     assert_eq!(read_context(&fixture).await, Some(230));
-    let mut summary = AdkEvent::new("summary-fixture");
-    summary.author = "system".into();
-    summary
-        .provider_metadata
-        .insert(super::super::compaction::END_EVENT.into(), original.id);
-    summary.actions.compaction = Some(adk_core::EventCompaction {
-        start_timestamp: original.timestamp,
-        end_timestamp: original.timestamp,
-        compacted_content: adk_core::Content::new("user").with_text("Summary"),
-    });
-    summary.llm_response.usage_metadata = event(400, 50).llm_response.usage_metadata;
-    summary.llm_response.provider_metadata = timed(400, 50, 1_000).llm_response.provider_metadata;
+    let mut summary = summary(&original, "Summary");
+    let canonical::Kind::Compaction(compaction) = &mut summary.kind else {
+        unreachable!()
+    };
+    compaction.summary.usage = event(400, 50).message_mut().unwrap().usage.take();
+    summary.metadata.execution = timed(400, 50, 1_000).metadata.execution;
     fixture.append([summary]).await;
     assert_eq!(read_context(&fixture).await, None);
     assert_eq!(
@@ -327,9 +361,15 @@ async fn invalidates_stale_context() {
 async fn restores_unique_usage() {
     let mut fixture = Fixture::new().await;
     let mut response = event(10, 4);
-    response.llm_response.usage_metadata.as_mut().unwrap().cost = Some(0.0123);
-    response.llm_response.provider_metadata =
-        Some(serde_json::json!({"sailry_timing":{"elapsed_us":2_000_000}}));
+    response.message_mut().unwrap().usage.as_mut().unwrap().cost = Some(0.0123);
+    response
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .timing = Some(canonical::Timing {
+        elapsed_us: Some(2_000_000),
+        ..Default::default()
+    });
     let first = fixture.append([response.clone(), response]).await;
     fixture
         .database
@@ -410,7 +450,9 @@ async fn reads_indexed_totals() {
     let mut fixture = Fixture::new().await;
     for _ in 0..8 {
         let mut entry = event(10, 4);
-        entry.set_content(adk_core::Content::new("model").with_text("x".repeat(1024 * 1024)));
+        entry.message_mut().unwrap().content[0].kind = canonical::BlockKind::Text {
+            text: "x".repeat(1024 * 1024),
+        };
         fixture.append([entry]).await;
     }
     let db = &fixture.database.connection;

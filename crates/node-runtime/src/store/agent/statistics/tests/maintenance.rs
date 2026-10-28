@@ -77,18 +77,9 @@ async fn locates_maintenance_beyond_loaded_history() {
     let mut fixture = Fixture::new().await;
     let anchor = event(100, 10);
     fixture.append([anchor.clone()]).await;
-    let mut summary = AdkEvent::new("summary-fixture");
-    summary.author = "system".into();
-    summary
-        .provider_metadata
-        .insert(super::super::super::compaction::END_EVENT.into(), anchor.id);
-    summary.actions.compaction = Some(adk_core::EventCompaction {
-        start_timestamp: anchor.timestamp,
-        end_timestamp: anchor.timestamp,
-        compacted_content: adk_core::Content::new("user").with_text("Verified handoff"),
-    });
+    let summary = summary(&anchor, "Verified handoff");
     let summary_id = summary.id.clone();
-    let summary_time = summary.timestamp.timestamp_millis();
+    let summary_time = summary.created.timestamp_millis();
     let turn = fixture.append([summary]).await;
     for _ in 0..20 {
         fixture.append([event(40, 5)]).await;
@@ -121,12 +112,14 @@ async fn locates_maintenance_beyond_loaded_history() {
         status: None,
         cause: None,
     };
-    let mut event = AdkEvent::new("failure-fixture");
-    event.author = "system".into();
-    event.provider_metadata.insert(
-        "sailry_compaction_failure".into(),
-        serde_json::to_string(&failure).unwrap(),
+    let mut event = crate::store::agent::tests::fixture::record(
+        "system",
+        canonical::Kind::Message(canonical::Message::default()),
     );
+    event.metadata.compaction = Some(canonical::Maintenance {
+        failure: Some(failure.clone()),
+        ..Default::default()
+    });
     let id = event.id.clone();
     fixture.append([event]).await;
     let latest = read(&fixture.database.connection, fixture.session)

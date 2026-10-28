@@ -110,9 +110,13 @@ async fn preserves_snapshots() {
             .await
             .unwrap();
     assert_eq!(original.profile.as_ref().unwrap().provider, admitted);
-    let mut event = AdkEvent::new("child-history-fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("Original child history 中文 🙂"));
+    let event = crate::store::agent::tests::fixture::message(
+        "assistant",
+        crate::agent::canonical::Role::Assistant,
+        vec![crate::agent::canonical::BlockKind::Text {
+            text: "Original child history 中文 🙂".into(),
+        }],
+    );
     history::append(
         &mut fixture.database,
         child.turn.session,

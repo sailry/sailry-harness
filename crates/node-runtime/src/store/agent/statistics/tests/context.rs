@@ -6,11 +6,13 @@ async fn keeps_helper_usage_separate_from_context() {
     fixture.append([event(100, 20)]).await;
     let helper = |input, output| {
         let mut event = event(input, output);
-        event.author = "system".into();
-        event.llm_response.content = None;
+        event.provenance.author = "system".into();
+        event.message_mut().unwrap().content.clear();
         event
-            .provider_metadata
-            .insert("sailry_model_purpose".into(), "compaction".into());
+            .metadata
+            .execution
+            .get_or_insert_with(Default::default)
+            .purpose = Some(canonical::Purpose::Compaction);
         event
     };
     fixture.append([helper(800, 40)]).await;
@@ -19,12 +21,15 @@ async fn keeps_helper_usage_separate_from_context() {
         .unwrap();
     assert_eq!(statistics.context_tokens, Some(120));
     assert_eq!(statistics.usage.as_ref().unwrap().input, 900);
-    let mut projection = AdkEvent::new("projection");
-    projection.author = "system".into();
-    projection.provider_metadata.insert(
-        "sailry_context_projection".into(),
-        serde_json::json!({"tokens":60}).to_string(),
+    let mut projection = record(
+        "system",
+        canonical::Kind::Message(canonical::Message::default()),
     );
+    projection
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .context_tokens = Some(60);
     fixture.append([projection]).await;
     fixture.append([helper(2000, 10)]).await;
     let statistics = read(&fixture.database.connection, fixture.session)
@@ -41,33 +46,34 @@ async fn keeps_helper_usage_separate_from_context() {
     assert_eq!(statistics.context_tokens, Some(36));
     assert_eq!(statistics.context_estimate, None);
 }
-use adk_core::{Content, FunctionResponseData, Part as AdkPart};
-
-fn user(text: &str) -> AdkEvent {
-    let mut event = AdkEvent::new("context-fixture");
-    event.author = "user".into();
-    event.set_content(Content::new("user").with_text(text));
-    event
+fn user(text: &str) -> canonical::Record {
+    message(
+        "user",
+        canonical::Role::User,
+        vec![canonical::BlockKind::Text { text: text.into() }],
+    )
 }
 
-fn tool(text: &str) -> AdkEvent {
-    let mut event = AdkEvent::new("context-fixture");
-    event.author = "assistant".into();
-    event.set_content(Content {
-        role: "function".into(),
-        parts: vec![AdkPart::FunctionResponse {
-            id: Some("read".into()),
-            function_response: FunctionResponseData::new(
+fn tool(text: &str) -> canonical::Record {
+    message(
+        "assistant",
+        canonical::Role::User,
+        vec![canonical::BlockKind::ToolResponse(
+            crate::store::agent::tests::fixture::response(
+                Some("read"),
                 "read_file",
-                serde_json::json!({"content": text}),
+                serde_json::json!({"content":text}),
             ),
-            annotations: None,
-        }],
-    });
-    event
+        )],
+    )
 }
 
-async fn assert_context(fixture: &Fixture, session: SessionId, tokens: u64, pending: &[&AdkEvent]) {
+async fn assert_context(
+    fixture: &Fixture,
+    session: SessionId,
+    tokens: u64,
+    pending: &[&canonical::Record],
+) {
     let usage = context_usage(&fixture.database.connection, session)
         .await
         .unwrap()
@@ -82,10 +88,13 @@ async fn assert_context(fixture: &Fixture, session: SessionId, tokens: u64, pend
         pending.iter().map(|event| &event.id).collect::<Vec<_>>()
     );
     for (actual, expected) in usage.pending.iter().zip(pending) {
-        let actual = actual.content().unwrap();
-        let expected = expected.content().unwrap();
+        let actual = actual.message().unwrap();
+        let expected = expected.message().unwrap();
         assert_eq!(actual.role, expected.role);
-        assert_eq!(actual.parts, expected.parts);
+        assert_eq!(
+            serde_json::to_value(&actual.content).unwrap(),
+            serde_json::to_value(&expected.content).unwrap()
+        );
     }
     assert_eq!(
         read(&fixture.database.connection, session)
@@ -106,12 +115,14 @@ async fn counts_new_content() {
     assert_context(&fixture, fixture.session, 120, &[]).await;
 
     let mut result = tool("New tool result 中文 🙂");
-    result.timestamp = anchor.timestamp - chrono::Duration::seconds(60);
+    result.created = anchor.created - chrono::Duration::seconds(60);
     let followup = user("Use the new evidence");
     let mut media = event(500, 40);
     media
-        .provider_metadata
-        .insert("sailry_media".into(), "image".into());
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .media = Some(sailry_protocol::media::Kind::Image);
     fixture
         .append([result.clone(), media, followup.clone()])
         .await;
@@ -132,9 +143,9 @@ async fn counts_new_content() {
 async fn excludes_cached_subsets_from_context() {
     let mut fixture = Fixture::new().await;
     let mut response = event(200_000, 12_000);
-    let usage = response.llm_response.usage_metadata.as_mut().unwrap();
-    usage.cache_read_input_token_count = Some(190_000);
-    usage.thinking_token_count = Some(10_000);
+    let usage = response.message_mut().unwrap().usage.as_mut().unwrap();
+    usage.cache_read = Some(190_000);
+    usage.reasoning = Some(10_000);
     fixture.append([event(300_000, 20_000), response]).await;
     assert_context(&fixture, fixture.session, 212_000, &[]).await;
     let statistics = read(&fixture.database.connection, fixture.session)
@@ -314,16 +325,7 @@ async fn estimates_only_after_summary_reset() {
     fixture
         .append([user("Preserved requirement"), anchor.clone()])
         .await;
-    let mut summary = AdkEvent::new("summary-fixture");
-    summary.author = "system".into();
-    summary
-        .provider_metadata
-        .insert(super::super::super::compaction::END_EVENT.into(), anchor.id);
-    summary.actions.compaction = Some(adk_core::EventCompaction {
-        start_timestamp: anchor.timestamp,
-        end_timestamp: anchor.timestamp,
-        compacted_content: Content::new("user").with_text("Verified handoff"),
-    });
+    let summary = summary(&anchor, "Verified handoff");
     fixture.append([summary]).await;
     let growth = tool(&"Unobserved pending evidence ".repeat(3000));
     fixture.append([growth.clone()]).await;
@@ -344,12 +346,9 @@ async fn estimates_only_after_summary_reset() {
     assert!(totals.context_estimate.unwrap() > 0);
     assert_eq!(totals.usage.as_ref().unwrap().input, 14_000);
     assert_eq!(totals.usage.as_ref().unwrap().output, 10);
-    assert!(
-        usage.pending[0].content().unwrap().parts[0]
-            .text()
-            .unwrap()
-            .contains("Verified handoff")
-    );
+    assert!(matches!(&usage.pending[0].kind,
+            canonical::Kind::Compaction(value) if matches!(&value.summary.content[0].kind,
+                canonical::BlockKind::Text { text } if text.contains("Verified handoff"))));
     assert_eq!(usage.pending.last().unwrap().id, growth.id);
     assert_eq!(
         read(&fixture.database.connection, fixture.session)
@@ -359,7 +358,7 @@ async fn estimates_only_after_summary_reset() {
         None
     );
     let mut unknown = event(10, 2);
-    unknown.llm_response.usage_metadata = None;
+    unknown.message_mut().unwrap().usage = None;
     fixture.append([unknown]).await;
     let pending = context_usage(&fixture.database.connection, fixture.session)
         .await

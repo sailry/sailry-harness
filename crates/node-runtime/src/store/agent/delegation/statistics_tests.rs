@@ -1,25 +1,38 @@
 use super::fixture::{Fixture, execute, finish, invoke, setup, start};
 use super::*;
+use crate::agent::canonical;
+use crate::store::agent::tests::fixture::message;
 use crate::store::agent::{statistics, tests::command};
 use sailry_protocol::usage::{Dimension, Metrics, Query};
 use serde_json::json;
 
-fn event(input: i32, elapsed: u64) -> AdkEvent {
-    let mut event = AdkEvent::new("delegated-usage");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("Measured response"));
-    event.llm_response.usage_metadata = Some(adk_core::UsageMetadata {
-        prompt_token_count: input,
-        candidates_token_count: 4,
-        cache_read_input_token_count: Some(2),
-        thinking_token_count: Some(1),
+fn event(input: i32, elapsed: u64) -> canonical::Record {
+    let mut event = message(
+        "assistant",
+        canonical::Role::Assistant,
+        vec![canonical::BlockKind::Text {
+            text: "Measured response".into(),
+        }],
+    );
+    event.message_mut().unwrap().usage = Some(canonical::Usage {
+        input: u64::try_from(input).ok(),
+        output: Some(4),
+        cache_read: Some(2),
+        reasoning: Some(1),
         ..Default::default()
     });
-    event.llm_response.provider_metadata = Some(json!({"sailry_timing":{"elapsed_us":elapsed}}));
+    event
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .timing = Some(canonical::Timing {
+        elapsed_us: Some(elapsed),
+        ..Default::default()
+    });
     event
 }
 
-async fn append(fixture: &mut Fixture, session: SessionId, turn: TurnId, event: AdkEvent) {
+async fn append(fixture: &mut Fixture, session: SessionId, turn: TurnId, event: canonical::Record) {
     history::append(&mut fixture.database, session, turn, event, &fixture.events)
         .await
         .unwrap();
@@ -65,9 +78,13 @@ async fn follows_visible_delegations_without_duplication() {
         .unwrap()
         .unwrap();
     assert_eq!(inputs[0].turn.id, guidance.id);
-    let mut input = AdkEvent::new(child.turn.id.to_string());
-    input.author = "user".into();
-    input.set_content(adk_core::Content::new("user").with_text(&inputs[0].message.text));
+    let input = message(
+        "user",
+        canonical::Role::User,
+        vec![canonical::BlockKind::Text {
+            text: inputs[0].message.text.clone(),
+        }],
+    );
     append(&mut fixture, child.turn.session, guidance.id, input).await;
     append(
         &mut fixture,

@@ -1,4 +1,6 @@
 use super::*;
+use crate::agent::canonical;
+use crate::store::agent::tests::fixture::message;
 use crate::store::agent::tests::{command, fixture::Fixture};
 
 mod labels;
@@ -22,16 +24,20 @@ pub(super) fn query() -> Query {
     }
 }
 
-pub(super) fn event(timestamp_ms: i64, input: i32) -> AdkEvent {
-    let mut event = AdkEvent::new("report-fixture");
-    event.author = "assistant".into();
-    event.timestamp = DateTime::from_timestamp_millis(timestamp_ms).unwrap();
-    event.set_content(adk_core::Content::new("model").with_text("Report 中文 🙂"));
-    event.llm_response.usage_metadata = Some(adk_core::UsageMetadata {
-        prompt_token_count: input,
-        candidates_token_count: 4,
-        cache_read_input_token_count: Some(2),
-        thinking_token_count: Some(1),
+pub(super) fn event(timestamp_ms: i64, input: i32) -> canonical::Record {
+    let mut event = message(
+        "assistant",
+        canonical::Role::Assistant,
+        vec![canonical::BlockKind::Text {
+            text: "Report 中文 🙂".into(),
+        }],
+    );
+    event.created = DateTime::from_timestamp_millis(timestamp_ms).unwrap();
+    event.message_mut().unwrap().usage = Some(canonical::Usage {
+        input: u64::try_from(input).ok(),
+        output: Some(4),
+        cache_read: Some(2),
+        reasoning: Some(1),
         ..Default::default()
     });
     event
@@ -127,7 +133,7 @@ async fn estimates_custom_endpoints() {
         .await
         .unwrap();
     let mut reported = event(START, 10);
-    reported.llm_response.usage_metadata.as_mut().unwrap().cost = Some(0.5);
+    reported.message_mut().unwrap().usage.as_mut().unwrap().cost = Some(0.5);
     fixture.append([reported]).await;
     fixture.append([event(START + DAY, 10)]).await;
     let priced = report(&fixture, &query()).await;
@@ -265,10 +271,12 @@ async fn companion_costs() {
         .unwrap();
     for kind in ["vision", "image"] {
         let mut entry = event(START, 10);
-        entry.llm_response.usage_metadata.as_mut().unwrap().cost = Some(0.5);
+        entry.message_mut().unwrap().usage.as_mut().unwrap().cost = Some(0.5);
         entry
-            .provider_metadata
-            .insert("sailry_media".into(), kind.into());
+            .metadata
+            .execution
+            .get_or_insert_with(Default::default)
+            .media = Some(serde_json::from_value(serde_json::json!(kind)).unwrap());
         fixture.append([entry]).await;
     }
     let mut selection = query();
@@ -298,8 +306,10 @@ async fn attributes_follow_usage_to_sent_revisions() {
     let source = session(&mut fixture).await;
     let mut first = event(START, 10);
     first
-        .provider_metadata
-        .insert("sailry_media".into(), "image".into());
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .media = Some(sailry_protocol::media::Kind::Image);
     fixture.append([first]).await;
     let mut config = source.config.clone();
     config.provider = ProviderId::new();
@@ -316,8 +326,10 @@ async fn attributes_follow_usage_to_sent_revisions() {
     .await;
     let mut second = event(START + DAY, 20);
     second
-        .provider_metadata
-        .insert("sailry_media".into(), "vision".into());
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .media = Some(sailry_protocol::media::Kind::Vision);
     fixture.append([second]).await;
     for (config, input) in [(&source.config, 10), (&config, 20)] {
         let mut selected = query();
@@ -501,7 +513,7 @@ async fn preserves_bucket_boundaries() {
     assert_eq!(report(&fixture, &query()).await.totals, Metrics::default());
     fixture.completed(&["No reported usage"]).await;
     let mut precise = event(START + 999, i32::MAX);
-    precise.timestamp += chrono::Duration::microseconds(999);
+    precise.created += chrono::Duration::microseconds(999);
     fixture
         .append([
             event(START - 1, 1),
@@ -625,7 +637,9 @@ async fn reads_indexed_metadata() {
     let mut fixture = Fixture::new().await;
     for _ in 0..8 {
         let mut event = event(START, 10);
-        event.set_content(adk_core::Content::new("model").with_text("x".repeat(1024 * 1024)));
+        event.message_mut().unwrap().content[0].kind = canonical::BlockKind::Text {
+            text: "x".repeat(1024 * 1024),
+        };
         fixture.append([event]).await;
     }
     let db = &fixture.database.connection;

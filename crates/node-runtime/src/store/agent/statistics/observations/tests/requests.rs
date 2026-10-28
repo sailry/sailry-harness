@@ -30,12 +30,13 @@ fn attempt(index: u64, outcome: Outcome) -> Attempt {
     }
 }
 
-fn observed(request: &Request) -> AdkEvent {
+fn observed(request: &Request) -> canonical::Record {
     let mut event = filler();
-    event.provider_metadata.insert(
-        "sailry_model_observation".into(),
-        serde_json::to_string(request).unwrap(),
-    );
+    event
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .observation = Some(request.clone());
     event
 }
 

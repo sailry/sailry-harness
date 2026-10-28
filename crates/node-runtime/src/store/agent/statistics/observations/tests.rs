@@ -1,39 +1,57 @@
 use super::*;
+use crate::agent::canonical;
+use crate::store::agent::tests::fixture::{message, record};
 use crate::store::agent::{history, runs, tests::fixture::Fixture};
 use sailry_protocol::conversation::observation::Phases;
 
 mod requests;
 
-fn phase(value: Phases) -> AdkEvent {
+fn phase(value: Phases) -> canonical::Record {
     let mut event = filler();
-    event.provider_metadata.insert(
-        "sailry_execution_phases".into(),
-        serde_json::to_string(&value).unwrap(),
+    event
+        .metadata
+        .execution
+        .get_or_insert_with(Default::default)
+        .phases = Some(value);
+    event
+}
+
+fn filler() -> canonical::Record {
+    let mut event = record(
+        "system",
+        canonical::Kind::Message(canonical::Message::default()),
     );
-    event
-}
-
-fn filler() -> AdkEvent {
-    let mut event = AdkEvent::new("observations-fixture");
-    event.author = "system".into();
-    event
-}
-
-fn response() -> AdkEvent {
-    let mut event = AdkEvent::new("observations-fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("Response"));
-    event.llm_response.usage_metadata = Some(adk_core::UsageMetadata {
-        prompt_token_count: 10,
-        candidates_token_count: 4,
-        cache_read_input_token_count: Some(2),
-        thinking_token_count: Some(1),
+    event.metadata.runtime = Some(canonical::Runtime {
+        user_visible: false,
+        agent_visible: false,
         ..Default::default()
     });
     event
 }
 
-async fn complete(fixture: &mut Fixture, turn: TurnId, events: impl IntoIterator<Item = AdkEvent>) {
+fn response() -> canonical::Record {
+    let mut event = message(
+        "assistant",
+        canonical::Role::Assistant,
+        vec![canonical::BlockKind::Text {
+            text: "Response".into(),
+        }],
+    );
+    event.message_mut().unwrap().usage = Some(canonical::Usage {
+        input: Some(10),
+        output: Some(4),
+        cache_read: Some(2),
+        reasoning: Some(1),
+        ..Default::default()
+    });
+    event
+}
+
+async fn complete(
+    fixture: &mut Fixture,
+    turn: TurnId,
+    events: impl IntoIterator<Item = canonical::Record>,
+) {
     runs::start(&fixture.database.connection, turn)
         .await
         .unwrap();
@@ -120,7 +138,7 @@ async fn keeps_latest_phases_across_long_history() {
         other_us: Some(50),
     };
     let first_response = response();
-    let first_time = first_response.timestamp.timestamp_millis();
+    let first_time = first_response.created.timestamp_millis();
     let first = fixture.queued().await;
     complete(
         &mut fixture,
@@ -135,7 +153,7 @@ async fn keeps_latest_phases_across_long_history() {
     )
     .await;
     let last_response = response();
-    let last_time = last_response.timestamp.timestamp_millis();
+    let last_time = last_response.created.timestamp_millis();
     let last = fixture.queued().await;
     complete(
         &mut fixture,
