@@ -414,17 +414,19 @@ async fn injects_frozen_roles() {
         execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
         let page = finished(&client, session.id, turn.id).await;
         let output = results(&client, &page).await;
-        assert_eq!(output[0]["status"], "completed", "{output:?}");
+        let admissions: Vec<_> = output
+            .iter()
+            .filter(|result| result["admitted"] == true)
+            .collect();
+        assert_eq!(admissions.len(), 1, "{output:?}");
+        let receipt = admissions[0];
+        super::super::delegation::completed(&client, &page, &server, receipt, "answer-fixture-a")
+            .await;
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 4);
         let child = requests
             .iter()
-            .find(|request| {
-                request["tools"].as_array().unwrap().iter().all(|tool| {
-                    tool["function"]["name"]
-                        != crate::agent_support::plugin_tool("delegation", "spawn_agent")
-                })
-            })
+            .find(|request| request["prompt_cache_key"] == receipt["session"])
             .unwrap();
         let instructions = child["messages"]
             .as_array()

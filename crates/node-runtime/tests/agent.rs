@@ -160,7 +160,7 @@ fn planning_denial(page: &Page, turn: TurnId) {
     let run = page.runs.iter().find(|run| run.turn == turn).unwrap();
     assert_eq!(run.status, Status::Failed, "{run:?}");
     let error = run.error.as_ref().unwrap();
-    assert!(error.message.contains("PermissionDenied"), "{error:?}");
+    assert_eq!(error.code, sailry_protocol::ErrorCode::PermissionDenied);
     assert!(error.message.contains("planning"), "{error:?}");
     assert!(page.approvals.iter().all(|approval| approval.turn != turn));
     assert!(page.questions.iter().all(|question| question.turn != turn));
@@ -400,6 +400,7 @@ async fn shares_frozen_runs_after_restart() {
         let first = Server::start(false).await;
         let second = Server::start(false).await;
         let (session, mut provider) = configured_session(&client, &first.endpoint, &root).await;
+        provider.default_model = "fixture-a".into();
         provider.models = ["fixture-a", "fixture-b"]
             .into_iter()
             .map(|id| Model {

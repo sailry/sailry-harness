@@ -428,7 +428,8 @@ async fn isolates_child_writes() {
         let session = enable(&client, session, provider).await;
         let page = run(&client, &session).await;
         let values = results(&client, &page).await;
-        super::delegation::completed(&client, &page, &parent, &values[0], "answer-fixture-a").await;
+        super::delegation::completed(&client, &page, &parent, &values[0], "answer-fixture-child")
+            .await;
         assert_eq!(values[3]["error"]["code"], "conflict");
         let child_id: SessionId = serde_json::from_value(values[0]["session"].clone()).unwrap();
         let child_page = history(&client, child_id).await;
@@ -623,7 +624,7 @@ async fn runs_parallel_checkouts() {
             .collect();
         assert_eq!(values.len(), 2);
         for receipt in &values {
-            super::delegation::completed(&client, &page, &parent, receipt, "answer-fixture-a")
+            super::delegation::completed(&client, &page, &parent, receipt, "answer-fixture-child")
                 .await;
         }
         assert_eq!(

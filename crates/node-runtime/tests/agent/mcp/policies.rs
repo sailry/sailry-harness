@@ -543,7 +543,18 @@ async fn projects_only_selected_images() {
             assert_eq!(images(&requests[7]), 7);
             assert_eq!(images(&requests[8]), 8);
             assert_eq!(images(&requests[9]), 4);
-            assert!(requests[9].to_string().contains("omitted_screenshots"));
+            let snapshots = requests[9]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["role"] == "tool" && message["content"] == "Snapshot")
+                .count();
+            assert_eq!(snapshots, 9);
+            assert!(output.iter().all(|result| {
+                result["structuredContent"]
+                    .get("omitted_screenshots")
+                    .is_none()
+            }));
         }
         assert_eq!(
             serde_json::to_vec(&history(&fixture.client, fixture.session.id).await).unwrap(),
@@ -559,7 +570,31 @@ async fn preserves_discovered_annotations() {
     for remote in [false, true] {
         for platform in ["mac", "windows"] {
             let alias = alias("desktop", "get_app_state");
-            let model = Server::tools(vec![(alias.clone(), json!({}))]).await;
+            let mut names = vec![
+                "list_apps",
+                "get_app_state",
+                "click",
+                "perform_secondary_action",
+                "scroll",
+                "drag",
+                "type_text",
+                "press_key",
+                "set_value",
+            ];
+            if platform == "mac" {
+                names.push("query");
+            }
+            let mut calls: Vec<_> = names
+                .iter()
+                .map(|name| {
+                    (
+                        "tool_search".into(),
+                        json!({"query":self::alias("desktop", name),"limit":1}),
+                    )
+                })
+                .collect();
+            calls.push((alias.clone(), json!({})));
+            let model = Server::tools(calls).await;
             let fixture = process::Fixture::packages(remote, &model, &[]).await;
             let mut server = config(platform);
             server["exclusive"] = true.into();
@@ -584,7 +619,13 @@ async fn preserves_discovered_annotations() {
             assert_eq!(page.approvals.is_empty(), platform == "windows");
             {
                 let requests = model.requests.lock().unwrap();
-                let tools = requests[0]["tools"].as_array().unwrap();
+                assert!(requests[0]["tools"].as_array().unwrap().iter().all(|tool| {
+                    !tool["function"]["name"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("mcp_example_desktop_")
+                }));
+                let tools = requests[names.len()]["tools"].as_array().unwrap();
                 let discovered = tools
                     .iter()
                     .filter(|tool| {

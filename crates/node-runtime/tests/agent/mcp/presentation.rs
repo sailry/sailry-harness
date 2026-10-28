@@ -103,7 +103,7 @@ async fn preserves_failures_without_changing_returns() {
                         serde_json::from_value::<rmcp::model::ErrorData>(raw.clone()).unwrap()
                     ),
                     2 => "Original MCP failure\n参数错误 🙂".into(),
-                    3 | 4 => String::new(),
+                    3 | 4 => "(empty result)".into(),
                     _ => unreachable!(),
                 };
                 assert_eq!(message["content"], expected);

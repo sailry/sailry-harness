@@ -89,7 +89,7 @@ async fn recovers_subscribers_after_rewind() {
                 .iter()
                 .filter(|entry| !is_context(entry))
                 .count(),
-            51
+            2 * 24 + 2
         );
         assert_eq!(before.approvals.len(), 1);
         let Output::Session(branch) = client

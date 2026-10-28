@@ -405,6 +405,8 @@ async fn rejects_mutations_before_approval() {
                 panic!("turn expected")
             };
             finished(&fixture.client, fixture.session.id, initial.id).await;
+            let initial_requests = server.requests.lock().unwrap().len();
+            let initial_revision = fixture.session.revision;
             server.replace_tools(vec![(name.clone(), args)]);
             configure(&mut fixture, WorkMode::Plan).await;
             let mut config = fixture.session.config.clone();
@@ -466,11 +468,46 @@ async fn rejects_mutations_before_approval() {
                         .cloned()
                         .collect::<Vec<_>>()
                 };
-                for request in requests.iter() {
-                    assert!(tool_names(request).contains(&name.as_str()));
-                    assert_eq!(request["tools"], requests[0]["tools"]);
-                    assert_eq!(system(request), system(&requests[0]));
+                for group in [&requests[..initial_requests], &requests[initial_requests..]] {
+                    assert!(!group.is_empty());
+                    for request in group {
+                        assert!(tool_names(request).contains(&name.as_str()));
+                        assert_eq!(request["tools"], group[0]["tools"]);
+                        assert_eq!(system(request), system(&group[0]));
+                    }
                 }
+                assert_eq!(
+                    requests[0]["prompt_cache_key"],
+                    fixture.session.id.to_string()
+                );
+                assert_ne!(system(&requests[0]), system(&requests[initial_requests]));
+                assert!(initial_revision < fixture.session.revision);
+                assert!(
+                    !system(&requests[0])
+                        .to_string()
+                        .contains("This is a planning turn")
+                );
+                assert!(
+                    system(&requests[initial_requests])
+                        .to_string()
+                        .contains("This is a planning turn")
+                );
+                assert_eq!(
+                    page.runs
+                        .iter()
+                        .find(|run| run.turn == initial.id)
+                        .unwrap()
+                        .revision,
+                    initial_revision
+                );
+                assert_eq!(
+                    page.runs
+                        .iter()
+                        .find(|run| run.turn == turn.id)
+                        .unwrap()
+                        .revision,
+                    fixture.session.revision
+                );
                 assert!(
                     requests.last().unwrap()["messages"]
                         .to_string()

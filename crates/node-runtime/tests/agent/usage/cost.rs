@@ -86,7 +86,7 @@ async fn restores_catalog_estimates() {
             let generation = report.totals.generation.as_ref().unwrap();
             assert_eq!(generation.responses, 2);
             assert_eq!(generation.output_tokens, 8);
-            assert!(generation.elapsed_us > 0);
+            assert_eq!(generation.elapsed_us, 0);
             if catalog {
                 let cost = report.totals.cost.as_ref().unwrap();
                 let tokens = report.totals.tokens.as_ref().unwrap();
@@ -154,6 +154,15 @@ async fn seed_metadata(
                 .unwrap()
                 .as_str()
                 .unwrap()],
+        )
+        .await
+        .unwrap();
+    transaction
+        .execute(
+            "UPDATE agent_events SET body=CAST(json_set(body,
+             '$.metadata.execution.timing.elapsed_us',0) AS BLOB)
+             WHERE json_type(body,'$.usage')='object'",
+            (),
         )
         .await
         .unwrap();

@@ -766,6 +766,11 @@ async fn respond(
         // Generated subagent outcomes and image companions continue the same
         // tool sequence; only ordinary user input starts another fixture turn.
         .take_while(|message| {
+            let text = message["content"].as_str().or_else(|| {
+                message["content"]
+                    .as_array()
+                    .and_then(|parts| parts.iter().find_map(|part| part["text"].as_str()))
+            });
             !matches!(
                 reply,
                 Reply::TurnTools(_)
@@ -775,8 +780,8 @@ async fn respond(
                     | Reply::PromptTools { .. }
                     | Reply::TurnParallel(_)
             ) || message["role"] != "user"
-                || !message["content"].is_string()
-                || message["content"].as_str().is_some_and(|text| {
+                || text.is_none()
+                || text.is_some_and(|text| {
                     text.starts_with("Subagent ")
                         && (text.contains(" completed:") || text.contains(" failed:"))
                 })
