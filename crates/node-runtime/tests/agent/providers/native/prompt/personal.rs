@@ -48,6 +48,7 @@ async fn freezes_current_turn_and_refreshes_next() {
             std::fs::read_to_string(fixture.root.join("result.txt")).unwrap(),
             "Approved fixture change"
         );
+        let original = page.entries;
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 2);
@@ -64,11 +65,12 @@ async fn freezes_current_turn_and_refreshes_next() {
             Status::Completed,
             "{page:?}"
         );
+        assert_eq!(&page.entries[..original.len()], original);
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 3);
             assert_policy(ModelApi::ChatCompletions, &requests[2], true, false);
-            assert_eq!(
+            assert_ne!(
                 instruction(ModelApi::ChatCompletions, &requests[2]),
                 instruction(ModelApi::ChatCompletions, &requests[0])
             );

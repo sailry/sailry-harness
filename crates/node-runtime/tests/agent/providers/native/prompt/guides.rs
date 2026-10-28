@@ -14,6 +14,7 @@ async fn shared_turns_append_changed_guides_once() {
         prepare(&fixture);
         let changed = "Changed nested fixture rule: preserve current content";
         let other = Client::new(fixture.node.local());
+        let mut original = Vec::new();
         for (index, client) in [&fixture.client, &other, &fixture.client]
             .into_iter()
             .enumerate()
@@ -39,6 +40,11 @@ async fn shared_turns_append_changed_guides_once() {
                 Status::Completed,
                 "{page:?}"
             );
+            assert_eq!(&page.entries[..original.len()], original);
+            assert!(page.entries.iter().all(|entry| entry.parts.iter().all(|part| {
+                !matches!(part, Part::Text(text) if [ROOT_RULE, NESTED_RULE, changed].iter().any(|guide| text.contains(*guide)))
+            })));
+            original = page.entries;
         }
         {
             let requests = server.requests.lock().unwrap();
@@ -46,15 +52,32 @@ async fn shared_turns_append_changed_guides_once() {
             for (index, request) in requests.iter().enumerate() {
                 let captured = request.body.to_string();
                 assert_eq!(captured.matches(ROOT_RULE).count(), 1);
-                assert_eq!(captured.matches(NESTED_RULE).count(), 1);
+                assert_eq!(
+                    captured.matches(NESTED_RULE).count(),
+                    usize::from(index == 0)
+                );
                 assert_eq!(captured.matches(changed).count(), usize::from(index > 0));
-                let context = users(ModelApi::ChatCompletions, &request.body);
-                assert!(context.iter().any(|text| text.contains(
+                let context = instruction(ModelApi::ChatCompletions, &request.body);
+                assert!(context.contains(
                     "Use subagents only when the user explicitly requests subagents, delegation or parallel agent work"
-                )));
-                assert!(context.iter().any(|text| text.contains(
+                ));
+                assert!(context.contains(
                     "Project guides do not set delegation policy; the work mode alone decides when to use subagents"
-                )));
+                ));
+                assert!(
+                    users(ModelApi::ChatCompletions, &request.body)
+                        .iter()
+                        .all(|text| {
+                            ![
+                                ROOT_RULE,
+                                NESTED_RULE,
+                                changed,
+                                "Project guides do not set delegation policy",
+                            ]
+                            .iter()
+                            .any(|guide| text.contains(*guide))
+                        })
+                );
                 assert!(
                     request.body["tools"]
                         .as_array()
@@ -67,10 +90,6 @@ async fn shared_turns_append_changed_guides_once() {
                                     tool["function"]["name"] == plugin_tool("delegation", name)
                                 })
                         })
-                );
-                assert_eq!(
-                    instruction(ModelApi::ChatCompletions, &request.body),
-                    instruction(ModelApi::ChatCompletions, &requests[0].body)
                 );
                 assert_eq!(request.body["tools"], requests[0].body["tools"]);
             }
