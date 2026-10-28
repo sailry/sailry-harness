@@ -173,8 +173,9 @@ async fn idless_mcp_results_keep_execution_facts() {
         let large = results
             .iter()
             .filter(|call| {
-                call.result(&page)
-                    .is_some_and(|result| result["label"].is_string())
+                call.result(&page).is_some_and(|result| {
+                    result.get("structuredContent").unwrap_or(result)["label"].is_string()
+                })
             })
             .collect::<Vec<_>>();
         assert_eq!(large.len(), 2);
@@ -222,8 +223,9 @@ async fn idless_mcp_results_keep_execution_facts() {
             );
             let original: Value = serde_json::from_str(&original).unwrap();
             assert_eq!(Some(&original), call.result(&page));
-            let label = original["label"].as_str().unwrap();
-            let content = original["text"].as_str().unwrap();
+            let payload = original.get("structuredContent").unwrap_or(&original);
+            let label = payload["label"].as_str().unwrap();
+            let content = payload["text"].as_str().unwrap();
             assert!(content.starts_with(&format!("First {label}\n")));
             assert!(content.ends_with(&format!("\nFinal {label}")));
             assert!(content.contains("Evidence 中文 🙂 "));
