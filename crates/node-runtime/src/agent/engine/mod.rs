@@ -25,7 +25,9 @@ use goose_agent::{
     tool::ToolOperation,
 };
 use sailry_link::CancellationToken;
-use sailry_protocol::{ErrorCode, Fault, conversation::compaction::Budget};
+use sailry_protocol::{
+    ErrorCode, Fault, FaultDetails, ModelFailure, conversation::compaction::Budget,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
@@ -201,7 +203,13 @@ pub(super) async fn run(
         .last()
         .filter(|message| message.error_kind().is_some())
     {
-        return Err(Fault::new(
+        use goose_provider_types::conversation::message::MessageErrorKind;
+        let reason = match message.error_kind() {
+            Some(MessageErrorKind::Authentication) => ModelFailure::Unauthorized,
+            Some(MessageErrorKind::CreditsExhausted) => ModelFailure::RateLimited,
+            _ => ModelFailure::Request,
+        };
+        let mut failure = Fault::new(
             match message.error_kind() {
                 Some(
                     goose_provider_types::conversation::message::MessageErrorKind::Authentication,
@@ -213,7 +221,9 @@ pub(super) async fn run(
                 .iter()
                 .find_map(|content| content.as_error().map(|error| error.message.clone()))
                 .unwrap_or_else(|| message.as_concat_text()),
-        ));
+        );
+        failure.details = Some(FaultDetails::ModelRequest { reason });
+        return Err(failure);
     }
     Ok(session
         .conversation

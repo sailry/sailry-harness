@@ -17,9 +17,9 @@ use turso::Connection;
 pub(crate) fn provider_usage(
     source: &goose_provider_types::conversation::token_usage::ProviderUsage,
 ) -> Result<Usage, Fault> {
-    let mut usage = metadata::usage(&gdk::MessageUsage::from_provider_usage(source, false));
-    usage.provider = Some(serde_json::to_value(source).map_err(storage_error)?);
-    Ok(usage)
+    Ok(metadata::usage(&gdk::MessageUsage::from_provider_usage(
+        source, false,
+    )))
 }
 
 pub(crate) async fn capture(
