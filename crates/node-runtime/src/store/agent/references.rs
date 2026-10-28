@@ -136,7 +136,22 @@ pub(super) async fn validate(
     Ok(())
 }
 
-pub(super) fn project(event: &AdkEvent) -> Result<Vec<reference::Reference>, Fault> {
+pub(super) fn project(
+    event: &crate::agent::canonical::Record,
+) -> Result<Vec<reference::Reference>, Fault> {
+    if event.provenance.author != "user" {
+        return Ok(Vec::new());
+    }
+    Ok(event
+        .metadata
+        .input
+        .as_ref()
+        .map(|input| input.references.clone())
+        .unwrap_or_default())
+}
+
+/// Streaming drafts still arrive from the execution engine before a durable record exists.
+pub(super) fn partial(event: &AdkEvent) -> Result<Vec<reference::Reference>, Fault> {
     if event.author != "user" {
         return Ok(Vec::new());
     }

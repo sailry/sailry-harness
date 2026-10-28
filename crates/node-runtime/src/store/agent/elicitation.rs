@@ -1,5 +1,6 @@
 //! MCP input lives in canonical ADK metadata, outside provider tool-call batches.
 use super::*;
+use crate::agent::canonical::{Kind, Notice, Record};
 use adk_core::ToolConfirmationRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -36,26 +37,33 @@ pub(crate) fn result(turn: TurnId, call: String, response: &question::Response) 
     event
 }
 
-fn input(event: &AdkEvent) -> Result<Option<Input>, Fault> {
-    event
-        .provider_metadata
-        .get(KEY)
-        .map(|value| {
-            serde_json::from_str(value)
-                .map_err(|_| sailry_protocol::Fault::invalid("invalid MCP input metadata"))
-        })
-        .transpose()
+fn input(event: &Record) -> Result<Option<Input>, Fault> {
+    let Kind::Notice(Notice::Elicitation {
+        parent,
+        request,
+        spec,
+        schema,
+    }) = &event.kind
+    else {
+        return Ok(None);
+    };
+    let mut identity = ToolConfirmationRequest::new(parent.name.clone(), parent.arguments.clone());
+    identity.function_call_id = parent.id.clone();
+    Ok(Some(Input {
+        parent: identity,
+        request: request.clone(),
+        spec: spec.clone(),
+        schema: schema.clone(),
+    }))
 }
 
-pub(super) async fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Result<(), Fault> {
+pub(super) async fn validate(db: &Connection, turn: TurnId, event: &Record) -> Result<(), Fault> {
     if let Some(input) = input(event)? {
         calls::active(db, turn).await?;
-        if event.content().is_some()
-            || !matches!(
-                input.spec.input,
-                question::Input::Form { .. } | question::Input::Url { .. }
-            )
-        {
+        if !matches!(
+            input.spec.input,
+            question::Input::Form { .. } | question::Input::Url { .. }
+        ) {
             return Err(sailry_protocol::Fault::invalid(
                 "MCP input must not change model content",
             ));
@@ -66,7 +74,7 @@ pub(super) async fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) ->
     Ok(())
 }
 
-pub(super) fn project(event: &AdkEvent) -> Result<Vec<history::tools::Raw>, Fault> {
+pub(super) fn project(event: &Record) -> Result<Vec<history::tools::Raw>, Fault> {
     if let Some(input) = input(event)? {
         return Ok(vec![history::tools::Raw::new(
             Some(event.id.clone()),
@@ -74,14 +82,9 @@ pub(super) fn project(event: &AdkEvent) -> Result<Vec<history::tools::Raw>, Faul
             serde_json::to_value(input.spec).map_err(storage_error)?,
         )]);
     }
-    if let Some(result) = event.provider_metadata.get(RESULT) {
-        let result: Value = serde_json::from_str(result).map_err(storage_error)?;
-        let mut raw = history::tools::Raw::new(
-            result["id"].as_str().map(str::to_owned),
-            TOOL.into(),
-            Value::Null,
-        );
-        raw.result = Some(result["response"].clone());
+    if let Kind::Notice(Notice::ElicitationResult { call, response }) = &event.kind {
+        let mut raw = history::tools::Raw::new(Some(call.clone()), TOOL.into(), Value::Null);
+        raw.result = Some(serde_json::to_value(response).map_err(storage_error)?);
         return Ok(vec![raw]);
     }
     Ok(Vec::new())
@@ -122,7 +125,7 @@ pub(super) async fn locate(
     Ok((call.into(), 0))
 }
 
-pub(super) fn spec(event: &AdkEvent) -> Result<Option<question::Spec>, Fault> {
+pub(super) fn spec(event: &Record) -> Result<Option<question::Spec>, Fault> {
     Ok(input(event)?.map(|input| input.spec))
 }
 

@@ -338,6 +338,20 @@ Declared account operations use the ordinary durable request ledger; only public
 inputs are retained, and the Node injects authorization during execution.
 Neither source contributes to session usage statistics. External tool histories
 and third-party billing analysis remain outside that boundary.
+
+Durable conversation records use Sailry-owned `Record`, `Message` and indexed
+`Block` types. Message, compaction, configuration, notice and visibility facts
+have explicit record kinds. Input provenance, presentation, execution observations,
+captured context and runtime visibility use typed metadata; extension state retains
+its session, application and user scopes. Original authors, branches, timestamps,
+call identities and part slots remain available to public history projections.
+Unknown token counts remain unknown rather than becoming zero.
+Binary conversation data is stored once in the same Node database under its content
+digest. Record references retain MIME type, size and original position. Structured
+tool JSON stores references for declared binary fields and hydrates the exact JSON
+for public output pages, immutable revisions and artifact receipts. Records and
+their blobs commit in the existing history transaction; exported asset indexes and
+UI rows remain rebuildable projections.
 Streaming drafts and canonical entries preserve commentary message identities;
 interruption retains their native phase rather than converting progress into a
 final answer.
@@ -1102,7 +1116,10 @@ configuration and records used by recovery, including the latest saved session
 order. Immutable historical captures, receipts and history are validated when their
 authoritative readers load them; unrelated archive damage therefore fails that
 read instead of blocking startup. Upgrades and backup acceptance still validate
-the complete stored data before applying changes. Third-party dependency versions, ordinary
+the complete stored data before applying changes. Conversation conversion decodes
+the former engine format only inside the startup updater. Runtime readers accept
+the current Sailry record format, and the private backup retains original bytes.
+Third-party dependency versions, ordinary
 data revisions and event sequences are independent. Release compatibility remains
 a separate decision.
 

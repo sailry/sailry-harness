@@ -1,5 +1,7 @@
 use super::*;
 
+mod canonical;
+
 #[tokio::test]
 async fn failed_rehearsal_preserves_live_packages() {
     let directory = tempfile::tempdir().unwrap();

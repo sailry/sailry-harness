@@ -132,12 +132,12 @@ mod credentials {
             .await
             .and_then(|row| row.get(0))
             .unwrap();
-        let canonical: AdkEvent = serde_json::from_slice(&body).unwrap();
+        let canonical: crate::agent::canonical::Record = serde_json::from_slice(&body).unwrap();
         assert!(
-            matches!(&canonical.content().unwrap().parts[0], adk_core::Part::FunctionCall { args: original, .. } if original == &args)
+            matches!(&canonical.message().unwrap().content[0].kind, crate::agent::canonical::BlockKind::ToolRequest(request) if request.arguments == args)
         );
         assert!(
-            history::project(&fixture.database.connection, 0, TurnId::new(), &event)
+            history::project(&fixture.database.connection, 0, TurnId::new(), &canonical)
                 .await
                 .is_err()
         );

@@ -12,22 +12,20 @@ pub(super) async fn published(
         .await
         .map_err(storage_error)?;
     while let Some(row) = rows.next().await.map_err(storage_error)? {
-        let event: adk_core::Event =
+        let event: crate::agent::canonical::Record =
             serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
                 .map_err(storage_error)?;
-        for part in event
-            .content()
+        for block in event
+            .message()
             .into_iter()
-            .flat_map(|content| &content.parts)
+            .flat_map(|message| &message.content)
         {
-            let adk_core::Part::FunctionResponse {
-                function_response, ..
-            } = part
-            else {
+            let crate::agent::canonical::BlockKind::ToolResponse(result) = &block.kind else {
                 continue;
             };
+            let response = super::super::agent::blobs::hydrate(db, &result.result).await?;
             if tool::Presentation::Content
-                .content(&function_response.response)
+                .content(&response)
                 .is_some_and(|content| {
                     content.blocks.iter().any(
                         |block| matches!(block, tool::Block::Artifact { artifact: value } if value == artifact),

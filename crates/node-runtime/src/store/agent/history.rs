@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::canonical::{self as records, BlockKind, Kind, Record};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -12,33 +13,8 @@ pub(in crate::store) mod output;
 pub(super) mod pages;
 pub(in crate::store) mod tools;
 // Canonical telemetry remains available to statistics without consuming chat or prompt pages.
-pub(super) const VISIBLE_EVENT: &str = "CASE WHEN
-    json_extract(e.body,'$.author')='system'
-    AND json_extract(e.body,'$.content') IS NULL
-THEN NOT coalesce((
-    (json_extract(e.body,'$.usage_metadata') IS NULL
-         OR (json_extract(e.body,'$.event_metadata.sailry_model_purpose')='compaction'
-             AND json_type(e.body,'$.event_metadata.sailry_model_observation') IS 'text'))
-    AND json_extract(e.body,'$.error_code') IS NULL
-    AND json_extract(e.body,'$.error_message') IS NULL
-    AND json_extract(e.body,'$.turn_complete')=0
-    AND json_extract(e.body,'$.interrupted')=0
-    AND json_extract(e.body,'$.long_running_tool_ids')='[]'
-    AND (json_type(e.body,'$.event_metadata.sailry_model_observation') IS 'text'
-         OR json_type(e.body,'$.event_metadata.sailry_execution_phases') IS 'text'
-         OR json_type(e.body,'$.event_metadata.sailry_context_projection') IS 'text')
-    AND NOT EXISTS (SELECT 1 FROM json_each(e.body,'$.event_metadata') metadata
-        WHERE metadata.key NOT IN ('sailry_model_observation','sailry_execution_phases','sailry_model_purpose','sailry_context_projection'))
-    AND NOT EXISTS (SELECT 1 FROM json_each(e.body,'$.actions.state_delta') field
-        WHERE field.key!='sailry.context.masked_outputs')
-    AND json_extract(e.body,'$.actions.artifact_delta')='{}'
-    AND NOT EXISTS (SELECT 1 FROM json_each(e.body,'$.actions') action WHERE NOT (
-        action.type='null'
-        OR action.key='state_delta'
-        OR (action.key IN ('artifact_delta','workflow_positions') AND action.value='{}')
-        OR (action.key IN ('skip_summarization','escalate','input_screened') AND action.value=0)
-    ))
-),0) ELSE 1 END";
+pub(super) const VISIBLE_EVENT: &str =
+    "coalesce(json_extract(e.body,'$.metadata.runtime.user_visible'),1)";
 #[cfg(test)]
 mod tests;
 mod web_search;
@@ -235,6 +211,7 @@ pub(super) async fn insert(
         event.llm_response.error_message = Some("model response reported an error".into());
     }
     super::approvals::results::append(db, turn, &mut event).await?;
+    let mut event = crate::agent::canonical_bridge::from_adk(db, turn, &event).await?;
     let previous: Option<(String, Vec<u8>)> = {
         let mut statement = db.prepare("SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2").await.map_err(storage_error)?;
         match statement
@@ -250,7 +227,7 @@ pub(super) async fn insert(
             Err(error) => return Err(storage_error(error)),
         }
     };
-    if previous.is_none() && event.author == "user" {
+    if previous.is_none() && event.provenance.author == "user" {
         let input = super::runs::get(db, turn).await?;
         if let Some(owner) = input.joined
             && super::runs::get(db, owner).await?.status != Status::Running
@@ -274,21 +251,21 @@ pub(super) async fn insert(
         previous.as_ref().map(|(_, body)| body.as_slice()),
     )
     .await?;
-    if let Some(value) = event.provider_metadata.get("sailry_model_observation") {
-        let mut request: sailry_protocol::conversation::observation::Request =
-            serde_json::from_str(value).map_err(storage_error)?;
+    if let Some(request) = event
+        .metadata
+        .execution
+        .as_mut()
+        .and_then(|execution| execution.observation.as_mut())
+    {
         let first: Option<String> = {
-            let mut statement = db.prepare("SELECT json_extract(e.body,'$.event_metadata.sailry_model_observation') FROM conversation_events h
+            let mut statement = db.prepare("SELECT json_extract(e.body,'$.metadata.execution.observation') FROM conversation_events h
              JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1
-             AND json_extract(json_extract(e.body,'$.event_metadata.sailry_model_observation'),'$.id')=?2 ORDER BY h.sequence LIMIT 1").await.map_err(storage_error)?;
+             AND json_extract(e.body,'$.metadata.execution.observation.id')=?2 ORDER BY h.sequence LIMIT 1").await.map_err(storage_error)?;
             match statement
                 .query_row(params![session.to_string(), request.id.as_str()])
                 .await
             {
-                Ok(row) => {
-                    let mapped: turso::Result<_> = row.get(0);
-                    Some(mapped.map_err(storage_error)?)
-                }
+                Ok(row) => Some(row.get(0).map_err(storage_error)?),
                 Err(turso::Error::QueryReturnedNoRows) => None,
                 Err(error) => return Err(storage_error(error)),
             }
@@ -298,27 +275,23 @@ pub(super) async fn insert(
                 .map_err(storage_error)?
                 .boundary
         } else {
-            {
-                let mut statement = db
-                    .prepare("SELECT max(sequence) FROM conversation_events WHERE session=?1")
-                    .await
-                    .map_err(storage_error)?;
-                let row = statement
-                    .query_row([session.to_string()])
-                    .await
-                    .map_err(storage_error)?;
-                let mapped: turso::Result<_> = row.get::<Option<i64>>(0);
-                mapped.map_err(storage_error)?
-            }
-            .map(u64::try_from)
-            .transpose()
-            .map_err(storage_error)?
+            let mut statement = db
+                .prepare("SELECT max(sequence) FROM conversation_events WHERE session=?1")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row([session.to_string()])
+                .await
+                .map_err(storage_error)?;
+            row.get::<Option<i64>>(0)
+                .map_err(storage_error)?
+                .map(u64::try_from)
+                .transpose()
+                .map_err(storage_error)?
         };
-        event.provider_metadata.insert(
-            "sailry_model_observation".into(),
-            serde_json::to_string(&request).map_err(storage_error)?,
-        );
     }
+    records::validate(&event)?;
+    super::blobs::validate(db, &event).await?;
     let body = encode(&event)?;
     if body.len() > MAX_FRAME_BYTES {
         return Err(Fault::invalid("event exceeds the history frame limit"));
@@ -379,7 +352,7 @@ pub(super) async fn insert(
     .map_err(storage_error)?;
     super::background::confirm(db, session, turn, &event).await?;
     apply_state(db, session, &event).await?;
-    if event.author == "user" {
+    if event.provenance.author == "user" {
         // Pending input becomes delivered only with its authoritative user entry.
         db.execute(
             "DELETE FROM agent_pending WHERE turn=?1",
@@ -391,8 +364,36 @@ pub(super) async fn insert(
     Ok(Some(project(db, sequence, turn, &event).await?))
 }
 
-async fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> Result<(), Fault> {
-    for (key, value) in &event.actions.state_delta {
+fn changes(event: &Record) -> HashMap<String, Value> {
+    let mut delta = event
+        .context()
+        .map(crate::agent::canonical_bridge::state)
+        .unwrap_or_default();
+    if let Some(state) = &event.metadata.state {
+        delta.extend(
+            state
+                .session
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+        for (prefix, values) in [
+            (adk_session::KEY_PREFIX_APP, &state.application),
+            (adk_session::KEY_PREFIX_USER, &state.user),
+        ] {
+            delta.extend(
+                values
+                    .iter()
+                    .map(|(key, value)| (format!("{prefix}{key}"), value.clone())),
+            );
+        }
+    }
+    delta
+}
+
+async fn apply_state(db: &Connection, session: SessionId, event: &Record) -> Result<(), Fault> {
+    let context = event.context();
+    let delta = changes(event);
+    for (key, value) in &delta {
         if key.starts_with(adk_session::KEY_PREFIX_TEMP) || key == LOADED_TOOLS {
             continue;
         }
@@ -405,16 +406,19 @@ async fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> R
         };
         db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body", params![owner, key.as_str(), encode(value)?]).await.map_err(storage_error)?;
     }
-    let mut names = event
-        .actions
-        .state_delta
-        .get(LOADED_TOOLS)
-        .map(|value| {
-            serde_json::from_value::<BTreeSet<String>>(value.clone()).map_err(storage_error)
-        })
-        .transpose()?
+    let mut names = context
+        .and_then(|context| context.loaded_tools.clone())
         .unwrap_or_default();
-    names.extend(crate::agent::called_tools(event.content()));
+    names.extend(
+        event
+            .message()
+            .into_iter()
+            .flat_map(|message| &message.content)
+            .filter_map(|block| match &block.kind {
+                BlockKind::ToolRequest(request) => Some(request.name.clone()),
+                _ => None,
+            }),
+    );
     remember(db, session, names).await
 }
 
@@ -471,8 +475,8 @@ pub(in crate::store) async fn missing_tools(
         .prepare(
             "SELECT DISTINCT h.session,json_extract(part.value,'$.name')
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-         JOIN json_each(e.body,'$.content.parts') part
-         WHERE json_type(part.value,'$.name')='text' AND json_type(part.value,'$.args') IS NOT NULL",
+         JOIN json_each(e.body,'$.content') part
+         WHERE json_extract(part.value,'$.type')='tool_request'",
         )
         .await
         .map_err(storage_error)?;
@@ -504,8 +508,8 @@ pub(in crate::store::agent) async fn called(
         .prepare(
             "SELECT DISTINCT json_extract(part.value,'$.name')
         FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-        JOIN json_each(e.body,'$.content.parts') part WHERE h.session=?1 AND h.sequence<=?2
-        AND json_type(part.value,'$.name')='text' AND json_type(part.value,'$.args') IS NOT NULL",
+        JOIN json_each(e.body,'$.content') part WHERE h.session=?1 AND h.sequence<=?2
+        AND json_extract(part.value,'$.type')='tool_request'",
         )
         .await
         .map_err(storage_error)?;
@@ -574,7 +578,7 @@ pub(in crate::store) async fn rebuild_session(
     .map_err(storage_error)?;
     let mut query = db
         .prepare(
-            "SELECT json_extract(e.body,'$.actions.state_delta') FROM conversation_events h
+            "SELECT e.body FROM conversation_events h
          JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence",
         )
         .await
@@ -585,11 +589,11 @@ pub(in crate::store) async fn rebuild_session(
             .await
             .map_err(storage_error)?;
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let row: turso::Result<_> = row.get::<String>(0);
+            let row: turso::Result<_> = row.get::<Vec<u8>>(0);
 
-            let delta: HashMap<String, Value> =
-                serde_json::from_str(&row.map_err(storage_error)?).map_err(storage_error)?;
-            for (key, value) in delta {
+            let event: Record =
+                serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
+            for (key, value) in changes(&event) {
                 // Shared app/user state belongs to the Node, not a historical session branch.
                 if (named && key == SESSION_TITLE)
                     || key.starts_with(adk_session::KEY_PREFIX_TEMP)
@@ -663,8 +667,13 @@ pub(super) async fn rebuild(db: &mut Connection) -> Result<(), Fault> {
         };
         for row in rows {
             let (session, body) = row.map_err(storage_error)?;
-            let mut event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
-            event.actions.state_delta.remove(SESSION_TITLE);
+            let mut event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+            if let Some(context) = event.metadata.context.as_mut() {
+                context.title = None;
+            }
+            if let Kind::Configuration(configuration) = &mut event.kind {
+                configuration.context.title = None;
+            }
             apply_state(
                 &transaction,
                 session.parse().map_err(storage_error)?,
@@ -696,7 +705,7 @@ pub(crate) async fn project(
     db: &Connection,
     sequence: u64,
     turn: TurnId,
-    event: &AdkEvent,
+    event: &Record,
 ) -> Result<Entry, Fault> {
     project_with_sources(db, sequence, turn, event, None).await
 }
@@ -705,208 +714,209 @@ async fn project_with_sources(
     db: &Connection,
     sequence: u64,
     turn: TurnId,
-    event: &AdkEvent,
+    event: &Record,
     sources: Option<&tools::Sources>,
 ) -> Result<Entry, Fault> {
     let references = super::references::project(event)?;
     let displays = super::presentation::displays(event)?;
     let failures = super::presentation::failures(event)?;
+    let input = event.metadata.input.as_ref();
     let skipped = usize::from(!references.is_empty())
-        + usize::from(
-            event
-                .provider_metadata
-                .contains_key(super::background::INPUT_IDS),
-        );
-    let hidden = event.author == "system"
-        && event
-            .provider_metadata
-            .contains_key(crate::agent::CONTEXT_METADATA);
-    let capability_part = event
-        .provider_metadata
-        .get(super::CAPABILITY_PART)
-        .and_then(|value| value.parse::<usize>().ok());
-    let commentary = if hidden {
-        Default::default()
-    } else {
-        event
-            .content()
-            .into_iter()
-            .flat_map(|content| &content.parts)
-            .enumerate()
-            .skip(skipped)
-            .filter(|(index, _)| Some(*index) != capability_part)
-            .filter_map(|(index, part)| {
-                let adk_core::Part::ServerToolCall { server_tool_call } = part else {
-                    return None;
+        + usize::from(input.is_some_and(|input| input.notice_part.is_some()));
+    let hidden = event.provenance.author == "system"
+        && event.context().is_some_and(|context| context.captured);
+    let capability_part = input.and_then(|input| input.capability_part);
+    let mut commentary = BTreeMap::new();
+    let mut parts = Vec::new();
+    if !hidden {
+        if let Some(message) = event.message() {
+            for index in skipped..message.part_count {
+                if Some(index) == capability_part {
+                    continue;
+                }
+                let Some(block) = message.content.iter().find(|block| block.index == index) else {
+                    // Engine-only content leaves its public slot without exposing its payload.
+                    parts.push(Part::Resource(
+                        serde_json::json!({"type":"provider_context"}),
+                    ));
+                    continue;
                 };
-                super::history::commentary(server_tool_call)?;
-                Some((
-                    index - skipped,
-                    server_tool_call["id"]
-                        .as_str()
-                        .unwrap_or(&event.id)
-                        .to_owned(),
-                ))
-            })
-            .collect()
-    };
+                let part = match &block.kind {
+                    BlockKind::Text { text } => Part::Text(text.clone()),
+                    BlockKind::Image { asset } => {
+                        Part::Image(super::images::inline(db, turn, event, index, asset).await?)
+                    }
+                    BlockKind::Document { asset } => {
+                        let mut value = serde_json::json!({"mime_type":asset.mime,"data":super::blobs::get(db, &asset.digest).await?});
+                        if let Some(uri) = &asset.uri {
+                            value["uri"] = uri.clone().into();
+                        }
+                        if let Some(annotations) = &asset.annotations {
+                            value["annotations"] = annotations.clone();
+                        }
+                        Part::Resource(value)
+                    }
+                    BlockKind::File { file }
+                        if crate::agent::attachments::is_reference(&file.uri) =>
+                    {
+                        let id = crate::agent::attachments::id(&file.uri)?;
+                        let attachment =
+                            super::super::attachments::turns::get(db, turn, id).await?;
+                        if file.mime.as_deref() != Some(attachment.spec.media_type.as_str()) {
+                            return Err(Fault::invalid("attachment media type mismatch"));
+                        }
+                        Part::Attachment(attachment)
+                    }
+                    BlockKind::File { file } => {
+                        let mut value =
+                            serde_json::json!({"file_uri":file.uri,"mime_type":file.mime});
+                        if let Some(annotations) = &file.annotations {
+                            value["annotations"] = annotations.clone();
+                        }
+                        Part::Resource(value)
+                    }
+                    BlockKind::Thinking { text, .. } => Part::Thinking(text.clone()),
+                    BlockKind::RedactedThinking { .. } => {
+                        Part::Resource(serde_json::json!({"type":"provider_context"}))
+                    }
+                    BlockKind::ServerCall { value } => {
+                        let value = super::blobs::hydrate(db, value).await?;
+                        if let Some(text) = self::commentary(&value) {
+                            commentary.insert(
+                                index - skipped,
+                                value["id"].as_str().unwrap_or(&event.id).to_owned(),
+                            );
+                            Part::Text(text)
+                        } else {
+                            web_search::call(&value, displays.get("web_search"))
+                                .map(tools::Raw::part)
+                                .unwrap_or_else(|| {
+                                    Part::Resource(serde_json::json!({"server_tool_call":value}))
+                                })
+                        }
+                    }
+                    BlockKind::ToolRequest(_) => {
+                        tools::with_sources(db, turn, sequence, event, index, sources)
+                            .await?
+                            .ok_or_else(|| Fault::invalid("tool call projection is missing"))?
+                            .part()
+                    }
+                    BlockKind::ToolResponse(_) => {
+                        tools::with_sources(db, turn, sequence, event, index, sources)
+                            .await?
+                            .ok_or_else(|| Fault::invalid("tool result projection is missing"))?
+                            .part()
+                    }
+                    BlockKind::ServerResponse { value } => {
+                        let value = super::blobs::hydrate(db, value).await?;
+                        if value["type"] == "anthropic_message" {
+                            Part::Resource(serde_json::json!({"type":"provider_context"}))
+                        } else {
+                            tools::with_sources(db, turn, sequence, event, index, sources)
+                                .await?
+                                .map(tools::Raw::part)
+                                .unwrap_or_else(|| {
+                                    Part::Resource(
+                                        serde_json::json!({"server_tool_response":value}),
+                                    )
+                                })
+                        }
+                    }
+                    BlockKind::Resource { value } => Part::Resource(
+                        serde_json::json!({"resource":super::blobs::hydrate(db, value).await?}),
+                    ),
+                };
+                parts.push(part);
+            }
+            for block in &message.content {
+                if let BlockKind::ServerCall { value } = &block.kind {
+                    let value = super::blobs::hydrate(db, value).await?;
+                    if let Some(raw) = web_search::result(&value, displays.get("web_search")) {
+                        parts.push(raw.part());
+                    }
+                }
+            }
+        }
+        if let Kind::Compaction(summary) = &event.kind {
+            parts.push(Part::Compaction(
+                summary
+                    .summary
+                    .content
+                    .iter()
+                    .filter_map(|block| match &block.kind {
+                        BlockKind::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ));
+        }
+        parts.extend(
+            super::elicitation::project(event)?
+                .into_iter()
+                .map(tools::Raw::part),
+        );
+        parts.extend(
+            super::review::project(event)?
+                .into_iter()
+                .map(tools::Raw::part),
+        );
+        parts.extend(failures.into_iter().map(|failure| Part::Resource(serde_json::json!({"type":"tool_failed","index":failure.index,"id":failure.id,"name":failure.name,"failure":failure.failure}))));
+        if let Some(started) = event
+            .metadata
+            .execution
+            .as_ref()
+            .and_then(|execution| execution.tool_started.as_ref())
+        {
+            parts.push(Part::Resource(
+                serde_json::json!({"type":"tool_started","id":started.id,"name":started.name}),
+            ));
+        }
+        if let Some(failure) = event
+            .metadata
+            .compaction
+            .as_ref()
+            .and_then(|compaction| compaction.failure.as_ref())
+        {
+            if event.provenance.author != "system" {
+                return Err(Fault::invalid("invalid compaction failure author"));
+            }
+            parts.push(Part::Resource(failure.resource()));
+        }
+        if let Some(retry) = event
+            .metadata
+            .execution
+            .as_ref()
+            .and_then(|execution| execution.retry.as_ref())
+        {
+            if event.provenance.author != "system" || !retry.valid() {
+                return Err(Fault::invalid("invalid model retry metadata"));
+            }
+            parts.push(Part::Resource(retry.resource()));
+        }
+        parts.extend(references.into_iter().map(Part::Reference));
+    }
     Ok(Entry {
         sequence,
         turn,
         id: event.id.clone(),
-        author: event.author.clone(),
-        branch: event.branch.clone(),
-        timestamp_ms: event.timestamp.timestamp_millis(),
+        author: event.provenance.author.clone(),
+        branch: event.provenance.branch.clone(),
+        timestamp_ms: event.created.timestamp_millis(),
         commentary,
-        citations: citations::project(&event.llm_response),
+        citations: event.message().map(citations::project).unwrap_or_default(),
         search_suggestions: event
-            .llm_response
-            .provider_metadata
-            .as_ref()
-            .and_then(|metadata| metadata["searchEntryPoint"]["renderedContent"].as_str())
+            .message()
+            .and_then(|message| message.sources.search_suggestions.as_ref())
             .filter(|html| !html.is_empty())
-            .map(str::to_owned),
-        parts: if hidden {
-            Vec::new()
-        } else {
-            { let mut projected = Vec::new(); for value in event
-            .content()
-            .into_iter()
-            .flat_map(|content| &content.parts)
-            .enumerate()
-            .skip(skipped)
-            .filter(|(index, _)| Some(*index) != capability_part) { projected.push((async |(index, part): (usize, &adk_core::Part)| {
-                Ok(match part {
-                    adk_core::Part::FileData {
-                        file_uri,
-                        mime_type,
-                        ..
-                    } if crate::agent::attachments::is_reference(file_uri) => {
-                        let id = crate::agent::attachments::id(file_uri)?;
-                        let attachment = super::super::attachments::turns::get(db, turn, id).await?;
-                        if attachment.spec.media_type != *mime_type {
-                            return Err(sailry_protocol::Fault::invalid("attachment media type mismatch"));
-                        }
-                        Part::Attachment(attachment)
-                    }
-                    adk_core::Part::Text { text } => Part::Text(text.clone()),
-                    adk_core::Part::InlineData { mime_type, data, .. }
-                        if mime_type.starts_with("image/") =>
-                    {
-                        Part::Image(super::images::inline(db, turn, event, index, mime_type, data).await?)
-                    }
-                    adk_core::Part::Thinking { thinking, .. } => Part::Thinking(thinking.clone()),
-                    // Approval and question indices address canonical content parts.
-                    // One provider part remains one projected part.
-                    adk_core::Part::ServerToolCall { server_tool_call }
-                        if server_tool_call["type"] == "message"
-                            && server_tool_call["phase"] == "commentary" => {
-                        Part::Text(self::commentary(server_tool_call).unwrap_or_default())
-                    }
-                    adk_core::Part::ServerToolCall { server_tool_call } => {
-                        web_search::call(server_tool_call, displays.get("web_search")).map(tools::Raw::part).unwrap_or_else(|| {
-                            Part::Resource(
-                                serde_json::to_value(part).expect("ADK content is serializable"),
-                            )
-                        })
-                    }
-                    adk_core::Part::FunctionCall { .. } => {
-                        tools::with_sources(db, turn, sequence, event, index, sources).await?
-                            .ok_or_else(|| Fault::invalid("tool call projection is missing"))?.part()
-                    },
-                    adk_core::Part::ServerToolResponse {
-                        server_tool_response,
-                    } if server_tool_response["type"] == "anthropic_message" => {
-                        Part::Resource(serde_json::json!({"type":"provider_context"}))
-                    },
-                    adk_core::Part::ServerToolResponse { .. } => tools::with_sources(db, turn, sequence, event, index, sources).await?.map(tools::Raw::part).unwrap_or_else(|| {
-                        Part::Resource(
-                            serde_json::to_value(part).expect("ADK content is serializable"),
-                        )
-                    }),
-                    adk_core::Part::FunctionResponse { .. } => {
-                        tools::with_sources(db, turn, sequence, event, index, sources).await?
-                            .ok_or_else(|| Fault::invalid("tool result projection is missing"))?.part()
-                    },
-                    part => Part::Resource(
-                        serde_json::to_value(part).expect("ADK content is serializable"),
-                    ),
-                })
-            })(value).await?); } projected.into_iter().map(Ok::<_,Fault>) }
-            .chain(
-                event
-                    .content()
-                    .into_iter()
-                    .flat_map(|content| &content.parts)
-                    .filter_map(|part| match part {
-                        adk_core::Part::ServerToolCall { server_tool_call } => {
-                            web_search::result(server_tool_call, displays.get("web_search")).map(|raw| Ok(raw.part()))
-                        }
-                        _ => None,
-                    }),
-            )
-            .chain(event.actions.compaction.iter().map(|summary| {
-                Ok(Part::Compaction(
-                    summary
-                        .compacted_content
-                        .parts
-                        .iter()
-                        .filter_map(|part| part.text())
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                ))
-            }))
-            .chain(super::elicitation::project(event)?.into_iter().map(|raw| Ok(raw.part())))
-            .chain(super::review::project(event)?.into_iter().map(|raw| Ok(raw.part())))
-            .chain(failures.into_iter().map(|failure| {
-                Ok(Part::Resource(serde_json::json!({
-                    "type":"tool_failed", "index":failure.index, "id":failure.id,
-                    "name":failure.name, "failure":failure.failure
-                })))
-            }))
-            .chain(event.provider_metadata.get("adk_tool_started").map(|value| {
-                let value: Value = serde_json::from_str(value).map_err(storage_error)?;
-                let name = value["name"].as_str().ok_or_else(|| sailry_protocol::Fault::invalid("invalid tool start name"))?;
-                Ok(Part::Resource(serde_json::json!({"type": "tool_started", "id": value["id"], "name": name})))
-            }))
-            .chain(event.provider_metadata.get("sailry_compaction_failure").map(|value| {
-                if event.author != "system" {
-                    return Err(sailry_protocol::Fault::invalid("invalid compaction failure author"));
-                }
-                let failure: sailry_protocol::conversation::compaction::Failure = serde_json::from_str(value).map_err(storage_error)?;
-                Ok(Part::Resource(failure.resource()))
-            }))
-            .chain(event.provider_metadata.get("sailry_operation_warning").map(|code| {
-                if event.author != "system" || code != "context_summary_failed" {
-                    return Err(sailry_protocol::Fault::invalid("invalid operation warning metadata"));
-                }
-                use sailry_protocol::conversation::compaction::{Failure, Reason, Source, Stage};
-                Ok(Part::Resource(Failure { source: Source::Automatic, stage: Stage::Unknown, reason: Reason::Unknown, continued: true, status: None, cause: None }.resource()))
-            }))
-            .chain(event.provider_metadata.get("sailry_retry").map(|value| {
-                let retry: sailry_protocol::conversation::recovery::Retry = serde_json::from_str(value).map_err(storage_error)?;
-                if event.author != "system" || !retry.valid() {
-                    return Err(sailry_protocol::Fault::invalid("invalid model retry metadata"));
-                }
-                Ok(Part::Resource(retry.resource()))
-            }))
-            .chain(
-                references
-                    .into_iter()
-                    .map(|reference| Ok(Part::Reference(reference))),
-            )
-            .collect::<Result<_, Fault>>()?
-        },
-        usage: event
-            .llm_response
-            .usage_metadata
-            .as_ref()
-            .map(|usage| Usage {
-                input: usage.prompt_token_count.max(0) as u64,
-                output: usage.candidates_token_count.max(0) as u64,
-                cached_input: usage.cache_read_input_token_count.unwrap_or(0).max(0) as u64,
-                reasoning: usage.thinking_token_count.unwrap_or(0).max(0) as u64,
-            }),
+            .cloned(),
+        parts,
+        usage: event.usage().map(|usage| Usage {
+            input: usage.input.unwrap_or_default(),
+            output: usage.output.unwrap_or_default(),
+            cached_input: usage.cache_read.unwrap_or_default(),
+            reasoning: usage.reasoning.unwrap_or_default(),
+        }),
     })
 }
 

@@ -1,4 +1,4 @@
-//! Durable authorization metadata, alongside the single canonical ADK history.
+//! Durable authorization metadata, alongside the single canonical history.
 use super::calls::{active, id as call_id, matches as matches_call};
 use super::*;
 use adk_core::ToolConfirmationRequest;
@@ -525,11 +525,11 @@ pub(super) async fn authorize(
             let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
-        let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+        let event: crate::agent::canonical::Record = serde_json::from_slice(&body).map_err(storage_error)?;
         if !event
-            .content()
-            .and_then(|content| content.parts.get(approval.index))
-            .is_some_and(|part| matches_call(part, request))
+            .message()
+            .and_then(|message| message.content.iter().find(|block| block.index == approval.index))
+            .is_some_and(|block| matches_call(&block.kind, request))
         {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
@@ -694,18 +694,25 @@ pub(in crate::store) async fn request(
         let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
-    let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
-    let Some(adk_core::Part::FunctionCall { id, name, args, .. }) = event
-        .content()
-        .and_then(|content| content.parts.get(approval.index))
+    let event: crate::agent::canonical::Record =
+        serde_json::from_slice(&body).map_err(storage_error)?;
+    let Some(crate::agent::canonical::Block {
+        kind: crate::agent::canonical::BlockKind::ToolRequest(call),
+        ..
+    }) = event.message().and_then(|message| {
+        message
+            .content
+            .iter()
+            .find(|block| block.index == approval.index)
+    })
     else {
         return Err(Fault::invalid("approval has no canonical tool call"));
     };
     Ok(ToolConfirmationRequest {
         acting: None,
         origin: None,
-        tool_name: name.clone(),
-        function_call_id: id.clone(),
-        args: args.clone(),
+        tool_name: call.name.clone(),
+        function_call_id: call.id.clone(),
+        args: call.arguments.clone(),
     })
 }

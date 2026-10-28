@@ -640,7 +640,7 @@ pub(super) async fn finish_with(
         Status::Failed | Status::Cancelled | Status::Interrupted
     ) {
         let retained = transaction.execute("UPDATE agent_runs SET ready=0 WHERE turn=?1 AND EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=?1)", [turn.to_string()]).await.map_err(storage_error)? > 0;
-        let mut query = transaction.prepare("SELECT EXISTS(SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.event_metadata.sailry_compaction_failure') IS NOT NULL AND json_extract(json_extract(body,'$.event_metadata.sailry_compaction_failure'),'$.continued')=0)").await.map_err(storage_error)?;
+        let mut query = transaction.prepare("SELECT EXISTS(SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.metadata.compaction.failure') IS NOT NULL AND json_extract(body,'$.metadata.compaction.failure.continued')=0)").await.map_err(storage_error)?;
         let halted: bool = query
             .query_row([turn.to_string()])
             .await

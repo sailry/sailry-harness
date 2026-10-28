@@ -5,27 +5,27 @@ use serde_json::json;
 fn prices_token_categories_and_tiers() {
     let cost = json!({"input":2,"output":8,"cache_read":0.5,"cache_write":3,"reasoning":10,
         "tiers":[{"tier":{"type":"context","size":100},"input":4,"output":16,"cache_read":1,"cache_write":6,"reasoning":20}]});
-    let mut usage = UsageMetadata {
-        prompt_token_count: 100,
-        candidates_token_count: 50,
-        cache_read_input_token_count: Some(20),
-        cache_creation_input_token_count: Some(10),
-        thinking_token_count: Some(5),
+    let mut usage = StoredUsage {
+        input: Some(100),
+        output: Some(50),
+        cache_read: Some(20),
+        cache_write: Some(10),
+        reasoning: Some(5),
         ..Default::default()
     };
     assert_eq!(estimate(&cost, &usage), Some(priced(140, 410, 10, 30)));
-    usage.prompt_token_count = 101;
+    usage.input = Some(101);
     assert_eq!(estimate(&cost, &usage), Some(priced(284, 820, 20, 60)));
-    usage.prompt_token_count = 0;
+    usage.input = Some(0);
     assert_eq!(estimate(&cost, &usage), None);
 }
 
 #[test]
 fn distinguishes_unknown_and_free_prices() {
-    let usage = UsageMetadata {
-        prompt_token_count: 100,
-        candidates_token_count: 50,
-        cache_read_input_token_count: Some(20),
+    let usage = StoredUsage {
+        input: Some(100),
+        output: Some(50),
+        cache_read: Some(20),
         ..Default::default()
     };
     assert_eq!(estimate(&json!({"input":2,"output":8}), &usage), None);
@@ -37,27 +37,41 @@ fn distinguishes_unknown_and_free_prices() {
         estimate(&json!({"input":-1,"output":8,"cache_read":1}), &usage),
         None
     );
-    assert_eq!(estimate(&json!({}), &UsageMetadata::default()), None);
+    assert_eq!(estimate(&json!({}), &StoredUsage::default()), None);
     assert_eq!(micros(f64::INFINITY), None);
     assert_eq!(micros(-0.1), None);
     assert_eq!(micros(0.1234567), Some(123457));
 }
 
 #[test]
+fn keeps_missing_counts_unpriced() {
+    let cost = json!({"input":0,"output":0});
+    let mut usage = StoredUsage {
+        output: Some(0),
+        ..Default::default()
+    };
+    assert_eq!(estimate(&cost, &usage), None);
+    usage.input = Some(0);
+    assert_eq!(estimate(&cost, &usage), Some(priced(0, 0, 0, 0)));
+    usage.output = None;
+    assert_eq!(estimate(&cost, &usage), None);
+}
+
+#[test]
 fn prices_disjoint_audio_tokens() {
     let cost = json!({"input":2,"output":8,"input_audio":20,"output_audio":40});
-    let mut usage = UsageMetadata {
-        prompt_token_count: 100,
-        candidates_token_count: 50,
-        audio_input_token_count: Some(20),
-        audio_output_token_count: Some(10),
+    let mut usage = StoredUsage {
+        input: Some(100),
+        output: Some(50),
+        audio_input: Some(20),
+        audio_output: Some(10),
         ..Default::default()
     };
     assert_eq!(estimate(&cost, &usage), Some(priced(560, 720, 0, 0)));
     let mut unknown = usage.clone();
-    unknown.audio_input_token_count = None;
+    unknown.audio_input = None;
     assert_eq!(estimate(&cost, &unknown), None);
-    usage.cache_read_input_token_count = Some(10);
+    usage.cache_read = Some(10);
     assert_eq!(estimate(&cost, &usage), None);
 }
 
@@ -90,10 +104,10 @@ fn priced(input: u64, output: u64, cache_read: u64, cache_write: u64) -> Cost {
 
 #[test]
 fn reconciles_fractional_charges() {
-    let usage = UsageMetadata {
-        prompt_token_count: 2,
-        candidates_token_count: 1,
-        cache_read_input_token_count: Some(1),
+    let usage = StoredUsage {
+        input: Some(2),
+        output: Some(1),
+        cache_read: Some(1),
         ..Default::default()
     };
     assert_eq!(

@@ -3,6 +3,7 @@ pub(super) mod activity;
 pub(super) mod approvals;
 pub(super) mod assets;
 pub(in crate::store) mod background;
+pub(crate) mod blobs;
 mod calls;
 pub(super) mod checkpoints;
 mod children;
@@ -430,7 +431,7 @@ impl Ingress {
         if !event.llm_response.partial || event.id.is_empty() || event.id.len() > 256 {
             return Err(Fault::invalid("invalid streaming event"));
         }
-        let references = references::project(&event)?;
+        let references = references::partial(&event)?;
         let mut commentary = std::collections::BTreeMap::new();
         let parts = event
             .content()

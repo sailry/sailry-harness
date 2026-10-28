@@ -243,11 +243,16 @@ pub(super) async fn capture(
     })?)
     .map_err(storage_error)?;
     let event = event(&transaction, &approval).await?;
-    let valid = match event
-        .content()
-        .and_then(|content| content.parts.get(approval.index))
-    {
-        Some(adk_core::Part::FunctionCall { name, .. }) => {
+    let valid = match event.message().and_then(|message| {
+        message
+            .content
+            .iter()
+            .find(|block| block.index == approval.index)
+    }) {
+        Some(crate::agent::canonical::Block {
+            kind: crate::agent::canonical::BlockKind::ToolRequest(call),
+            ..
+        }) => {
             if let Some(context) = &request.plugin {
                 let package = super::plugins::package(&transaction, request).await?;
                 // The trusted handler may prepare arguments from the exact claimed call.
@@ -255,7 +260,7 @@ pub(super) async fn capture(
                 context.turn == Some(turn)
                     && context.session == Some(run.session)
                     && context.worktree == Some(worktree)
-                    && crate::plugins::tools::operation(&package, name) == Some(operation)
+                    && crate::plugins::tools::operation(&package, &call.name) == Some(operation)
             } else {
                 false
             }
@@ -314,7 +319,10 @@ fn version(text: &str) -> checkpoint::Version {
     }
 }
 
-async fn event(db: &Connection, approval: &Approval) -> Result<AdkEvent, Fault> {
+async fn event(
+    db: &Connection,
+    approval: &Approval,
+) -> Result<crate::agent::canonical::Record, Fault> {
     let body: Vec<u8> = {
         let mut statement = db
             .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")

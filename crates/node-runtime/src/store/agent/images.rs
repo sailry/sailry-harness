@@ -1,27 +1,27 @@
 //! Images are derived from canonical history, never another attachment store.
 use super::*;
-use adk_core::FunctionResponseData;
+use crate::agent::canonical::{AssetRef, Attachment, BlockKind, Record, ToolResponse};
 
 pub(super) async fn project(
     db: &Connection,
     turn: TurnId,
-    event: &AdkEvent,
+    event: &Record,
     part: usize,
-    response: &FunctionResponseData,
+    response: &ToolResponse,
 ) -> Result<Vec<Image>, Fault> {
     let mut images = Vec::new();
-    for (index, data) in response.inline_data.iter().enumerate() {
-        if supported(&data.mime_type, &data.data) {
+    for (index, asset) in response
+        .attachments
+        .iter()
+        .filter_map(|attachment| match attachment {
+            Attachment::Inline { asset } => Some(asset),
+            Attachment::File { .. } => None,
+        })
+        .enumerate()
+    {
+        if supported(&asset.mime, asset.size) {
             let worktree = runs::get(db, turn).await?.worktree;
-            images.push(describe(
-                turn,
-                worktree,
-                &event.id,
-                part,
-                index,
-                &data.mime_type,
-                &data.data,
-            )?);
+            images.push(describe(turn, worktree, &event.id, part, index, asset)?);
         }
     }
     Ok(images)
@@ -30,18 +30,17 @@ pub(super) async fn project(
 pub(super) async fn inline(
     db: &Connection,
     turn: TurnId,
-    event: &AdkEvent,
+    event: &Record,
     part: usize,
-    mime_type: &str,
-    data: &[u8],
+    asset: &AssetRef,
 ) -> Result<Image, Fault> {
-    if !supported(mime_type, data) {
+    if !supported(&asset.mime, asset.size) {
         return Err(sailry_protocol::Fault::invalid(
             "invalid image in canonical history",
         ));
     }
     let worktree = runs::get(db, turn).await?.worktree;
-    describe(turn, worktree, &event.id, part, 0, mime_type, data)
+    describe(turn, worktree, &event.id, part, 0, asset)
 }
 
 pub(super) async fn resolve(
@@ -74,52 +73,55 @@ pub(super) async fn resolve(
     };
     let (turn, body) = row.ok_or_else(missing)?;
     let turn = turn.parse().map_err(storage_error)?;
-    let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
-    let (mime_type, data) = match event
-        .content()
-        .and_then(|content| content.parts.get(image.part))
+    let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+    let asset = match event
+        .message()
+        .and_then(|message| {
+            message
+                .content
+                .iter()
+                .find(|block| block.index == image.part)
+        })
+        .map(|block| &block.kind)
     {
-        Some(adk_core::Part::FunctionResponse {
-            function_response, ..
-        }) => {
-            let data = function_response
-                .inline_data
-                .get(image.index)
-                .ok_or_else(missing)?;
-            (data.mime_type.as_str(), data.data.as_slice())
-        }
-        Some(adk_core::Part::InlineData {
-            mime_type, data, ..
-        }) if image.index == 0 => (mime_type.as_str(), data.as_slice()),
+        Some(BlockKind::ToolResponse(response)) => response
+            .attachments
+            .iter()
+            .filter_map(|attachment| match attachment {
+                Attachment::Inline { asset } => Some(asset),
+                Attachment::File { .. } => None,
+            })
+            .nth(image.index)
+            .ok_or_else(missing)?,
+        Some(BlockKind::Image { asset }) if image.index == 0 => asset,
         _ => return Err(missing()),
     };
-    if !supported(mime_type, data) {
+    if !supported(&asset.mime, asset.size) {
         return Err(missing());
     }
+    let data = super::blobs::get(db, &asset.digest).await?;
+    if data.len() as u64 != asset.size || blake3::hash(&data).to_hex().as_str() != asset.digest {
+        return Err(Fault::new(
+            ErrorCode::RevisionConflict,
+            "image data changed",
+        ));
+    }
     let worktree = runs::visible(db, session, turn).await?.worktree;
-    let current = describe(
-        turn,
-        worktree,
-        &event.id,
-        image.part,
-        image.index,
-        mime_type,
-        data,
-    )?;
+    let current = describe(turn, worktree, &event.id, image.part, image.index, asset)?;
     if current != *image {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "image metadata changed",
         ));
     }
-    Ok(data.to_vec())
+    Ok(data)
 }
 
-fn supported(mime_type: &str, data: &[u8]) -> bool {
+fn supported(mime_type: &str, size: u64) -> bool {
     mime_type.starts_with("image/")
         && mime_type.len() <= 255
-        && !data.is_empty()
-        && data.len() as u64 <= attachment::MAX_BYTES
+        && size > 0
+        && size <= attachment::MAX_BYTES
 }
 
 fn describe(
@@ -128,10 +130,10 @@ fn describe(
     entry: &str,
     part: usize,
     index: usize,
-    mime_type: &str,
-    data: &[u8],
+    asset: &AssetRef,
 ) -> Result<Image, Fault> {
-    let revision = blake3::hash(data).to_hex().to_string();
+    let revision = asset.digest.clone();
+    let mime_type = asset.mime.as_str();
     let mut identity = blake3::Hasher::new_derive_key("Sailry canonical image v1");
     identity.update(&encode(&(turn, entry, part, index, mime_type, &revision))?);
     let mut bytes: [u8; 16] = identity.finalize().as_bytes()[..16].try_into().unwrap();
@@ -159,7 +161,7 @@ fn describe(
                 worktree,
                 name: format!("image-{}.{extension}", index + 1),
                 media_type: mime_type.to_owned(),
-                size: data.len() as u64,
+                size: asset.size,
                 revision,
             },
         },

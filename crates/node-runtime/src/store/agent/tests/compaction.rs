@@ -22,6 +22,12 @@ fn summary(end: &AdkEvent) -> AdkEvent {
     summary
 }
 
+async fn validate(fixture: &Fixture, turn: TurnId, event: &AdkEvent) -> Result<(), Fault> {
+    let record =
+        crate::agent::canonical_bridge::from_adk(&fixture.database.connection, turn, event).await?;
+    context::validate(&fixture.database.connection, fixture.session, turn, &record).await
+}
+
 async fn load(fixture: &Fixture, turn: TurnId) -> Vec<AdkEvent> {
     sessions::get(
         &fixture.database.connection,
@@ -319,18 +325,13 @@ async fn materializes_only_canonical_owner_sources() {
         .unwrap()
         .get(0)
         .unwrap();
-    let saved: AdkEvent = serde_json::from_slice(&body).unwrap();
-    assert_eq!(
-        saved
-            .actions
-            .compaction
-            .unwrap()
-            .compacted_content
-            .parts
-            .len(),
-        1
-    );
-    assert!(saved.actions.state_delta.is_empty());
+    let saved: crate::agent::canonical::Record = serde_json::from_slice(&body).unwrap();
+    let crate::agent::canonical::Kind::Compaction(summary) = &saved.kind else {
+        panic!("canonical compaction expected")
+    };
+    assert_eq!(summary.summary.content.len(), 1);
+    assert!(saved.metadata.context.is_none());
+    assert!(saved.metadata.state.is_none());
 }
 
 #[tokio::test]
@@ -811,14 +812,9 @@ async fn accepts_complete_batches() {
     .await
     .unwrap();
     assert!(
-        context::validate(
-            &fixture.database.connection,
-            fixture.session,
-            turn,
-            &summary(&telemetry),
-        )
-        .await
-        .is_err()
+        validate(&fixture, turn, &summary(&telemetry),)
+            .await
+            .is_err()
     );
     let compacted = summary(&results[1]);
     history::append(
@@ -855,14 +851,9 @@ async fn accepts_complete_batches() {
     .await
     .unwrap();
     assert!(
-        context::validate(
-            &fixture.database.connection,
-            fixture.session,
-            turn,
-            &summary(&telemetry),
-        )
-        .await
-        .is_err()
+        validate(&fixture, turn, &summary(&telemetry),)
+            .await
+            .is_err()
     );
     history::append(
         &mut fixture.database,
@@ -964,24 +955,14 @@ async fn uses_real_turn_boundaries() {
     assert_eq!(history.events[0].id, original.id);
     assert_eq!(history.events[2].id, final_event.id);
     assert!(
-        context::validate(
-            &fixture.database.connection,
-            fixture.session,
-            current,
-            &summary(&original)
-        )
-        .await
-        .is_err()
+        validate(&fixture, current, &summary(&original))
+            .await
+            .is_err()
     );
     assert!(
-        context::validate(
-            &fixture.database.connection,
-            fixture.session,
-            current,
-            &summary(&final_event)
-        )
-        .await
-        .is_ok()
+        validate(&fixture, current, &summary(&final_event))
+            .await
+            .is_ok()
     );
 }
 
@@ -1023,7 +1004,7 @@ async fn ignores_contentless_attempts_for_recency() {
 }
 
 #[tokio::test]
-async fn preserves_owned_reasoning_before_summary() {
+async fn strips_retired_summary_configuration() {
     use adk_core::{ConfigurationUpdate, Part, ProviderData, ProviderOrigin, ReasoningEffort};
     let mut fixture = Fixture::new().await;
     let anchor = event("Completed evidence");
@@ -1051,16 +1032,22 @@ async fn preserves_owned_reasoning_before_summary() {
         .compacted_content
         .parts
         .insert(0, update.clone());
+    let text = compacted
+        .actions
+        .compaction
+        .as_ref()
+        .unwrap()
+        .compacted_content
+        .parts[1..]
+        .to_vec();
     let turn = fixture.append([compacted.clone()]).await;
     let loaded = load(&fixture, turn).await;
-    assert_eq!(loaded[0].content().unwrap().parts[0], update);
+    let parts = &loaded[0].content().unwrap().parts;
+    assert_eq!(parts, &text);
     history::rebuild(&mut fixture.database.connection)
         .await
         .unwrap();
-    assert_eq!(
-        load(&fixture, turn).await[0].content().unwrap().parts[0],
-        update
-    );
+    assert_eq!(load(&fixture, turn).await[0].content().unwrap().parts, text);
     for parts in [
         vec![update.clone()],
         vec![
@@ -1087,15 +1074,6 @@ async fn preserves_owned_reasoning_before_summary() {
             .unwrap()
             .compacted_content
             .parts = parts;
-        assert!(
-            context::validate(
-                &fixture.database.connection,
-                fixture.session,
-                turn,
-                &compacted
-            )
-            .await
-            .is_err()
-        );
+        assert!(validate(&fixture, turn, &compacted).await.is_err());
     }
 }

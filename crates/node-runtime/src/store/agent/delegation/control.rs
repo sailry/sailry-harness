@@ -156,16 +156,23 @@ pub(in crate::store) async fn response(
         .map_err(storage_error)?;
     while let Some(row) = rows.next().await.map_err(storage_error)? {
         let body = row.get::<Vec<u8>>(0).map_err(storage_error)?;
-        let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
-        if !event.llm_response.partial
-            && event.is_final_response()
-            && let Some(content) = event.content().filter(|content| content.role == "model")
-        {
-            let text: String = content
-                .parts
+        let event: crate::agent::canonical::Record =
+            serde_json::from_slice(&body).map_err(storage_error)?;
+        if let Some(message) = event.message().filter(|message| {
+            message.role == crate::agent::canonical::Role::Assistant
+                && message.content.iter().all(|block| {
+                    !matches!(
+                        &block.kind,
+                        crate::agent::canonical::BlockKind::ToolRequest(_)
+                            | crate::agent::canonical::BlockKind::ToolResponse(_)
+                    )
+                })
+        }) {
+            let text: String = message
+                .content
                 .iter()
-                .filter_map(|part| match part {
-                    adk_core::Part::Text { text } => Some(text.as_str()),
+                .filter_map(|block| match &block.kind {
+                    crate::agent::canonical::BlockKind::Text { text } => Some(text.as_str()),
                     _ => None,
                 })
                 .collect();

@@ -91,29 +91,27 @@ pub(in crate::store) async fn confirm(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
-    event: &AdkEvent,
+    event: &crate::agent::canonical::Record,
 ) -> Result<Vec<Task>, Fault> {
-    let Some(encoded) = event.provider_metadata.get(INPUT_IDS) else {
+    let Some(input) = &event.metadata.input else {
         return Ok(Vec::new());
     };
-    if event.author != "user"
-        || event
-            .provider_metadata
-            .get(super::super::sessions::INPUT_TURN)
-            != Some(&turn.to_string())
-    {
+    let Some(index) = input.notice_part else {
+        return Ok(Vec::new());
+    };
+    if event.provenance.author != "user" || input.turn != Some(turn) {
         return Err(storage_error("completion input has invalid provenance"));
     }
-    let ids: Vec<String> = serde_json::from_str(encoded).map_err(storage_error)?;
+    let ids = &input.notice_ids;
     let run = runs::get(db, turn).await?;
     let expected: Vec<_> = run.notices.iter().map(|notice| notice.id.clone()).collect();
-    if run.session != session || ids != expected || ids.is_empty() {
+    if run.session != session || *ids != expected || ids.is_empty() {
         return Err(storage_error(
             "completion input differs from its reservation",
         ));
     }
     let expected_text = render(db, &run.notices).await?;
-    if !matches!(event.content().and_then(|content|content.parts.first()),Some(adk_core::Part::Text{text}) if Some(text)==expected_text.as_ref())
+    if !matches!(event.message().and_then(|message| message.content.iter().find(|block| block.index == index)).map(|block| &block.kind), Some(crate::agent::canonical::BlockKind::Text { text }) if Some(text) == expected_text.as_ref())
     {
         return Err(storage_error(
             "completion input does not contain its reserved data",
@@ -121,7 +119,7 @@ pub(in crate::store) async fn confirm(
     }
     let mut changed = Vec::new();
     for id in ids {
-        let mut record = get(db, &id)
+        let mut record = get(db, id)
             .await?
             .ok_or_else(|| storage_error("reserved completion is missing"))?;
         if record.task.session != session || record.task.delivery != Some(turn) {

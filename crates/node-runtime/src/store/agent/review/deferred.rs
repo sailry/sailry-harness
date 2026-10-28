@@ -40,7 +40,7 @@ pub(in crate::store::agent) async fn completed(
     let Some(body) = body else {
         return Ok(false);
     };
-    let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+    let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
     if spec(&event).is_none() {
         return Ok(false);
     }
@@ -53,7 +53,10 @@ pub(in crate::store::agent) async fn publish(
     run: &Run,
     event: AdkEvent,
 ) -> Result<Changes, Fault> {
-    if run.status != Status::Completed || run.error.is_some() || spec(&event).is_none() {
+    if run.status != Status::Completed
+        || run.error.is_some()
+        || !event.provider_metadata.contains_key(SOURCE)
+    {
         return Err(sailry_protocol::Fault::invalid(
             "review requires successful plan completion",
         ));
@@ -106,18 +109,15 @@ async fn resolved(db: &Connection, question: &Question) -> Result<Changes, Fault
         }
     };
     if let Some(previous) = previous {
-        let previous: AdkEvent = serde_json::from_slice(&previous).map_err(storage_error)?;
-        let recorded: Recorded = serde_json::from_str(
-            previous
-                .provider_metadata
-                .get(RESULT)
-                .ok_or_else(|| Fault::invalid("review result metadata is missing"))?,
-        )
-        .map_err(storage_error)?;
-        if previous.author != TOOL
-            || recorded.call != question.entry
-            || recorded.response != response
-        {
+        let previous: Record = serde_json::from_slice(&previous).map_err(storage_error)?;
+        let Kind::Notice(Notice::PlanResult {
+            call,
+            response: recorded,
+        }) = &previous.kind
+        else {
+            return Err(Fault::invalid("review result metadata is missing"));
+        };
+        if previous.provenance.author != TOOL || call != &question.entry || recorded != &response {
             return Err(Fault::new(
                 ErrorCode::Conflict,
                 "review result already differs",

@@ -26,9 +26,12 @@ pub(super) fn id(request: &ToolConfirmationRequest) -> Result<&str, Fault> {
         .ok_or_else(|| sailry_protocol::Fault::invalid("tool call identifier is required"))
 }
 
-pub(super) fn matches(part: &adk_core::Part, request: &ToolConfirmationRequest) -> bool {
-    matches!(part, adk_core::Part::FunctionCall { id, name, args, .. }
-        if id == &request.function_call_id && name == &request.tool_name && args == &request.args)
+pub(super) fn matches(
+    part: &crate::agent::canonical::BlockKind,
+    request: &ToolConfirmationRequest,
+) -> bool {
+    matches!(part, crate::agent::canonical::BlockKind::ToolRequest(call)
+        if call.id == request.function_call_id && call.name == request.tool_name && call.arguments == request.args)
 }
 
 pub(super) async fn locate(
@@ -55,22 +58,22 @@ pub(super) async fn locate(
     };
     let mut found = None;
     for body in rows {
-        let event: AdkEvent =
+        let event: crate::agent::canonical::Record =
             serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error)?;
-        for (index, part) in event
-            .content()
+        for block in event
+            .message()
             .into_iter()
-            .flat_map(|content| content.parts.iter().enumerate())
+            .flat_map(|message| &message.content)
         {
-            if let adk_core::Part::FunctionCall { id, .. } = part
-                && id == &request.function_call_id
+            if let crate::agent::canonical::BlockKind::ToolRequest(call) = &block.kind
+                && call.id == request.function_call_id
             {
-                if !matches(part, request) || found.is_some() {
+                if !matches(&block.kind, request) || found.is_some() {
                     return Err(sailry_protocol::Fault::invalid(
                         "tool call identity is ambiguous or arguments differ",
                     ));
                 }
-                found = Some((event.id.clone(), index));
+                found = Some((event.id.clone(), block.index));
             }
         }
     }

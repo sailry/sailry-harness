@@ -68,10 +68,10 @@ impl Latencies {
 }
 
 // Resolve the latest observation once per turn, not once per event in its history.
-const PHASES: &str = "SELECT json_extract(e.body,'$.event_metadata.sailry_execution_phases')
+const PHASES: &str = "SELECT json_extract(e.body,'$.metadata.execution.phases')
      FROM conversation_turns h JOIN agent_events e ON e.sequence=(
          SELECT max(latest.sequence) FROM agent_events latest WHERE latest.turn=h.turn
-         AND json_type(latest.body,'$.event_metadata.sailry_execution_phases')='text')
+         AND json_type(latest.body,'$.metadata.execution.phases')='object')
      WHERE h.session=?1";
 
 pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault> {
@@ -85,7 +85,7 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
            WHERE membership.session=?1 AND t.kind='task'
            AND EXISTS(SELECT 1 FROM agent_events event WHERE event.turn=t.id)
          )
-         SELECT h.sequence,json_extract(e.body,'$.event_metadata.sailry_model_observation'),
+         SELECT h.sequence,json_extract(e.body,'$.metadata.execution.observation'),
           (SELECT json_extract(model.value,'$.context') FROM agent_runs r
            JOIN turns t ON t.id=r.turn
            JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision,
@@ -93,7 +93,7 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
            AND json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1),
           (SELECT turn_index FROM rounds WHERE rounds.id=e.turn)
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-         WHERE h.session=?1 AND json_type(e.body,'$.event_metadata.sailry_model_observation')='text'
+         WHERE h.session=?1 AND json_type(e.body,'$.metadata.execution.observation')='object'
          ORDER BY h.sequence"
     ).await.map_err(storage_error)?;
     let mut rows = query
@@ -149,16 +149,17 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
         u64::try_from(value).map_err(storage_error)
     };
     result.compactions =
-        scalar("count(CASE WHEN json_type(e.body,'$.actions.compaction')='object' THEN 1 END)")
-            .await?;
+        scalar("count(CASE WHEN json_extract(e.body,'$.kind')='compaction' THEN 1 END)").await?;
     result.replies = scalar(
-        "count(DISTINCT CASE WHEN json_extract(e.body,'$.content.role')='model' AND EXISTS (SELECT 1 FROM json_each(e.body,'$.content.parts') p WHERE length(json_extract(p.value,'$.text'))>0) THEN e.turn END)",
+        "count(DISTINCT CASE WHEN json_extract(e.body,'$.role')='assistant' AND EXISTS (SELECT 1 FROM json_each(e.body,'$.content') p WHERE length(json_extract(p.value,'$.text'))>0) THEN e.turn END)",
     ).await?;
     let usage_field = async |field: &str| -> Result<Option<u64>, Fault> {
         let value: Option<i64> = {
             let mut statement = db.prepare(&format!(
-            "SELECT CASE WHEN count(*)>0 AND count(*)=count(json_extract(e.body,'$.usage_metadata.{field}')) THEN sum(max(0,json_extract(e.body,'$.usage_metadata.{field}'))) END
-             FROM conversation_turns h JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1 AND json_type(e.body,'$.usage_metadata')='object'")).await.map_err(storage_error)?;
+            "WITH responses AS (SELECT coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage
+             FROM conversation_turns h JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1)
+             SELECT CASE WHEN count(*)>0 AND count(*)=count(json_extract(usage,'$.{field}')) THEN sum(json_extract(usage,'$.{field}')) END
+             FROM responses WHERE json_type(usage)='object'")).await.map_err(storage_error)?;
             statement
                 .query_row([session.to_string()])
                 .await
@@ -167,12 +168,12 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
         };
         value.map(u64::try_from).transpose().map_err(storage_error)
     };
-    result.cache_read = usage_field("cache_read_input_token_count").await?;
-    result.reasoning = usage_field("thinking_token_count").await?;
+    result.cache_read = usage_field("cache_read").await?;
+    result.reasoning = usage_field("reasoning").await?;
     let mut tools = db.prepare(
         "SELECT json_extract(p.value,'$.name'),count(*)
-         FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence, json_each(e.body,'$.content.parts') p
-         WHERE h.session=?1 AND json_type(p.value,'$.name')='text' AND json_type(p.value,'$.args')='object'
+         FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence, json_each(e.body,'$.content') p
+         WHERE h.session=?1 AND json_extract(p.value,'$.type')='tool_request' AND json_type(p.value,'$.name')='text' AND json_type(p.value,'$.arguments')='object'
          GROUP BY json_extract(p.value,'$.name')"
     ).await.map_err(storage_error)?;
     let mut rows = tools
@@ -218,7 +219,7 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
     drop(rows);
     drop(phases);
     let missing: i64 = {
-        let mut statement = db.prepare("SELECT count(*) FROM conversation_turns h JOIN agent_runs r ON r.turn=h.turn WHERE h.session=?1 AND json_extract(r.body,'$.status') IN ('completed','failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn AND json_type(e.body,'$.event_metadata.sailry_execution_phases')='text')").await.map_err(storage_error)?;
+        let mut statement = db.prepare("SELECT count(*) FROM conversation_turns h JOIN agent_runs r ON r.turn=h.turn WHERE h.session=?1 AND json_extract(r.body,'$.status') IN ('completed','failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn AND json_type(e.body,'$.metadata.execution.phases')='object')").await.map_err(storage_error)?;
         statement
             .query_row([session.to_string()])
             .await

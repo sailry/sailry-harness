@@ -249,6 +249,10 @@ CREATE TABLE IF NOT EXISTS agent_events (
     body BLOB NOT NULL,
     UNIQUE(session,id)
 );
+CREATE TABLE IF NOT EXISTS agent_blobs (
+    digest TEXT PRIMARY KEY CHECK(length(digest)=64),
+    bytes BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS conversation_turns (
     session TEXT NOT NULL REFERENCES sessions(id),
     turn TEXT NOT NULL REFERENCES turns(id),
@@ -290,21 +294,21 @@ CREATE INDEX IF NOT EXISTS agent_events_id ON agent_events(id);
 CREATE INDEX IF NOT EXISTS agent_events_turn ON agent_events(turn,sequence);
 CREATE INDEX IF NOT EXISTS agent_usage ON agent_events(
     turn,
-    max(0,json_extract(body,'$.usage_metadata.prompt_token_count')),
-    max(0,json_extract(body,'$.usage_metadata.candidates_token_count')),
-    max(0,coalesce(json_extract(body,'$.usage_metadata.cache_read_input_token_count'),0)),
-    max(0,coalesce(json_extract(body,'$.usage_metadata.thinking_token_count'),0))
-) WHERE json_type(body,'$.usage_metadata')='object';
+    max(0,coalesce(json_extract(body,'$.usage.input'),json_extract(body,'$.summary.usage.input'))),
+    max(0,coalesce(json_extract(body,'$.usage.output'),json_extract(body,'$.summary.usage.output'))),
+    max(0,coalesce(coalesce(json_extract(body,'$.usage.cache_read'),json_extract(body,'$.summary.usage.cache_read')),0)),
+    max(0,coalesce(coalesce(json_extract(body,'$.usage.reasoning'),json_extract(body,'$.summary.usage.reasoning')),0))
+) WHERE coalesce(json_type(body,'$.usage'),json_type(body,'$.summary.usage'))='object';
 CREATE INDEX IF NOT EXISTS agent_usage_time ON agent_events(
-    substr(json_extract(body,'$.timestamp'),1,19),
+    substr(json_extract(body,'$.created'),1,19),
     sequence,
     turn,
-    json_extract(body,'$.timestamp'),
-    max(0,json_extract(body,'$.usage_metadata.prompt_token_count')),
-    max(0,json_extract(body,'$.usage_metadata.candidates_token_count')),
-    max(0,coalesce(json_extract(body,'$.usage_metadata.cache_read_input_token_count'),0)),
-    max(0,coalesce(json_extract(body,'$.usage_metadata.thinking_token_count'),0))
-) WHERE json_type(body,'$.usage_metadata')='object';
+    json_extract(body,'$.created'),
+    max(0,coalesce(json_extract(body,'$.usage.input'),json_extract(body,'$.summary.usage.input'))),
+    max(0,coalesce(json_extract(body,'$.usage.output'),json_extract(body,'$.summary.usage.output'))),
+    max(0,coalesce(coalesce(json_extract(body,'$.usage.cache_read'),json_extract(body,'$.summary.usage.cache_read')),0)),
+    max(0,coalesce(coalesce(json_extract(body,'$.usage.reasoning'),json_extract(body,'$.summary.usage.reasoning')),0))
+) WHERE coalesce(json_type(body,'$.usage'),json_type(body,'$.summary.usage'))='object';
 CREATE TABLE IF NOT EXISTS agent_approvals (
     id TEXT PRIMARY KEY,
     turn TEXT NOT NULL REFERENCES turns(id),

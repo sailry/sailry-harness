@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::canonical::{Attachment as StoredAttachment, BlockKind, Record};
 
 #[tokio::test]
 async fn preserves_large_images() {
@@ -34,14 +35,20 @@ async fn preserves_large_images() {
         .await
         .and_then(|row| row.get(0))
         .unwrap();
-    let restored: AdkEvent = serde_json::from_slice(&body).unwrap();
-    let adk_core::Part::FunctionResponse {
-        function_response, ..
-    } = &restored.content().unwrap().parts[0]
-    else {
+    assert!(body.len() < 4096);
+    let restored: Record = serde_json::from_slice(&body).unwrap();
+    let BlockKind::ToolResponse(response) = &restored.message().unwrap().content[0].kind else {
         panic!("capture result expected")
     };
-    assert_eq!(function_response.inline_data[0].data, bytes);
+    let StoredAttachment::Inline { asset } = &response.attachments[0] else {
+        panic!("inline asset expected")
+    };
+    assert_eq!(
+        super::super::blobs::get(&fixture.database.connection, &asset.digest)
+            .await
+            .unwrap(),
+        bytes
+    );
     let projected = fixture.read(None, 100).await.page.entries;
     let Part::ToolResult { images, .. } = &projected[0].parts[0] else {
         panic!("tool result expected")

@@ -1,5 +1,6 @@
 //! Asset metadata is derived from the canonical history, never a second file index.
 use super::*;
+use crate::agent::canonical::Record;
 use sailry_protocol::conversation::assets::{self, Group, Kind, Query, Target};
 mod extract;
 #[cfg(test)]
@@ -73,8 +74,8 @@ pub(in crate::store) async fn read(
         bytes += body.len();
         scanned += 1;
         last = Some(sequence);
-        let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
-        let kind = if event.author == "user" {
+        let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+        let kind = if event.provenance.author == "user" {
             Kind::Resource
         } else {
             Kind::Artifact
@@ -99,7 +100,7 @@ pub(in crate::store) async fn read(
             }
         };
         let mut items = extract::items(&entry, root.as_deref());
-        extract::publications(&mut items, &event);
+        extract::publications(db, &mut items, &event).await?;
         if !items.is_empty() {
             page.groups.push(Group {
                 sequence,

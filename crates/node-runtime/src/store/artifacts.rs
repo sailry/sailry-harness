@@ -324,16 +324,22 @@ async fn authorize(
         let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
-    let event: adk_core::Event = serde_json::from_slice(&body).map_err(storage_error)?;
+    let event: crate::agent::canonical::Record =
+        serde_json::from_slice(&body).map_err(storage_error)?;
     let matches = event
-        .content()
-        .and_then(|content| content.parts.get(approval.index))
-        .is_some_and(|part| {
-            if let adk_core::Part::FunctionCall { args, name, .. } = part {
+        .message()
+        .and_then(|message| {
+            message
+                .content
+                .iter()
+                .find(|block| block.index == approval.index)
+        })
+        .is_some_and(|block| {
+            if let crate::agent::canonical::BlockKind::ToolRequest(call) = &block.kind {
                 binding
                     .as_ref()
-                    .is_some_and(|binding| binding.tool == *name)
-                    && serde_json::from_value::<artifact::Write>(args.clone())
+                    .is_some_and(|binding| binding.tool == call.name)
+                    && serde_json::from_value::<artifact::Write>(call.arguments.clone())
                         .is_ok_and(|approved| approved == *draft)
             } else {
                 false

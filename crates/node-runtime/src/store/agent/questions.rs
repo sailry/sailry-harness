@@ -222,7 +222,8 @@ async fn spec(db: &Connection, question: &Question) -> Result<Spec, Fault> {
         let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
-    let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+    let event: crate::agent::canonical::Record =
+        serde_json::from_slice(&body).map_err(storage_error)?;
     if question.index == 0
         && let Some(spec) = elicitation::spec(&event)?
     {
@@ -233,20 +234,26 @@ async fn spec(db: &Connection, question: &Question) -> Result<Spec, Fault> {
     {
         return Ok(spec);
     }
-    let Some(adk_core::Part::FunctionCall { name, args, .. }) = event
-        .content()
-        .and_then(|content| content.parts.get(question.index))
+    let Some(crate::agent::canonical::Block {
+        kind: crate::agent::canonical::BlockKind::ToolRequest(call),
+        ..
+    }) = event.message().and_then(|message| {
+        message
+            .content
+            .iter()
+            .find(|block| block.index == question.index)
+    })
     else {
         return Err(sailry_protocol::Fault::invalid(
             "question does not reference a canonical tool call",
         ));
     };
-    if name != "ask_user" {
+    if call.name != "ask_user" {
         return Err(sailry_protocol::Fault::invalid(
             "question references another tool",
         ));
     }
-    serde_json::from_value(args.clone()).map_err(storage_error)
+    serde_json::from_value(call.arguments.clone()).map_err(storage_error)
 }
 
 pub(super) async fn close(

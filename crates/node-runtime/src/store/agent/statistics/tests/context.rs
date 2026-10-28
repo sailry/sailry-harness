@@ -54,7 +54,7 @@ fn tool(text: &str) -> AdkEvent {
     let mut event = AdkEvent::new("context-fixture");
     event.author = "assistant".into();
     event.set_content(Content {
-        role: "user".into(),
+        role: "function".into(),
         parts: vec![AdkPart::FunctionResponse {
             id: Some("read".into()),
             function_response: FunctionResponseData::new(

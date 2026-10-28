@@ -100,11 +100,24 @@ async fn telemetry_preserves_visible_events() {
     let fixture = fixture::Fixture::new().await;
     let mut event = AdkEvent::new("telemetry-fixture");
     event.author = "system".into();
-    event
-        .provider_metadata
-        .insert("sailry_model_observation".into(), "{}".into());
+    event.provider_metadata.insert(
+        "sailry_model_observation".into(),
+        serde_json::json!({
+            "id":"visibility", "turn":TurnId::new(), "model":"fixture",
+            "context_limit":null, "timestamp_ms":0, "boundary":null, "attempts":[]
+        })
+        .to_string(),
+    );
     let pure = serde_json::to_value(event).unwrap();
     let visible = async |body: &serde_json::Value| -> bool {
+        let event = serde_json::from_value(body.clone()).unwrap();
+        let record = crate::agent::canonical_bridge::from_adk(
+            &fixture.database.connection,
+            TurnId::new(),
+            &event,
+        )
+        .await
+        .unwrap();
         fixture
             .database
             .connection
@@ -114,7 +127,7 @@ async fn telemetry_preserves_visible_events() {
             ))
             .await
             .unwrap()
-            .query_row([serde_json::to_string(body).unwrap()])
+            .query_row([serde_json::to_string(&record).unwrap()])
             .await
             .and_then(|row| row.get(0))
             .unwrap()
@@ -123,15 +136,25 @@ async fn telemetry_preserves_visible_events() {
     for (field, value) in [
         ("state_delta", serde_json::json!({"state":true})),
         ("artifact_delta", serde_json::json!({"file":1})),
-        ("tool_confirmation", serde_json::json!({"id":"tool"})),
+        (
+            "tool_confirmation",
+            serde_json::to_value(adk_core::ToolConfirmationRequest::new(
+                "read_file",
+                serde_json::json!({}),
+            ))
+            .unwrap(),
+        ),
         (
             "tool_confirmation_decision",
-            serde_json::json!({"id":"tool"}),
+            serde_json::to_value(adk_core::ToolConfirmationDecision::Approve).unwrap(),
         ),
         ("transfer_to_agent", serde_json::json!("child")),
         ("escalate", serde_json::json!(true)),
         ("route", serde_json::json!(["child"])),
-        ("workflow_positions", serde_json::json!({"step":1})),
+        (
+            "workflow_positions",
+            serde_json::json!({"step":{"iteration":1,"sub_agent":"child"}}),
+        ),
     ] {
         let mut mixed = pure.clone();
         mixed["actions"][field] = value;
@@ -140,7 +163,7 @@ async fn telemetry_preserves_visible_events() {
     for (field, value) in [
         (
             "usage_metadata",
-            serde_json::json!({"prompt_token_count":1}),
+            serde_json::json!({"prompt_token_count":1,"candidates_token_count":0,"total_token_count":1}),
         ),
         ("error_message", serde_json::json!("failure")),
         ("content", serde_json::json!({"role":"model","parts":[]})),
@@ -150,12 +173,15 @@ async fn telemetry_preserves_visible_events() {
         assert!(visible(&mixed).await, "response {field} remains visible");
     }
     let mut retry = pure.clone();
-    retry["event_metadata"]["sailry_retry"] = "{}".into();
+    retry["event_metadata"]["sailry_retry"] = r#"{"attempt":1,"limit":5}"#.into();
     assert!(visible(&retry).await);
+    let mut extension = pure.clone();
+    extension["event_metadata"]["extension"] = "unknown metadata".into();
+    assert!(visible(&extension).await);
     let mut missing = pure;
     missing["actions"]
         .as_object_mut()
         .unwrap()
         .remove("state_delta");
-    assert!(visible(&missing).await);
+    assert!(serde_json::from_value::<AdkEvent>(missing).is_err());
 }

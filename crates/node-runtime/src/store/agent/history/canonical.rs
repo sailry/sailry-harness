@@ -1,10 +1,11 @@
 //! Visible canonical events serve original model output and controller details.
 use super::*;
+use crate::agent::canonical::{BlockKind, Record};
 
 pub(in crate::store::agent) struct Source {
     pub sequence: u64,
     pub turn: TurnId,
-    pub event: AdkEvent,
+    pub event: Record,
 }
 
 pub(in crate::store::agent) async fn event(
@@ -76,8 +77,8 @@ pub(super) async fn result(
     let mut statement = db.prepare(
         "SELECT e.sequence,e.turn,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          WHERE h.session=?1 AND EXISTS(
-             SELECT 1 FROM json_each(e.body,'$.content.parts') part
-             WHERE json_extract(part.value,'$.id')=?2 AND json_type(part.value,'$.functionResponse')='object')
+             SELECT 1 FROM json_each(e.body,'$.content') part
+             WHERE json_extract(part.value,'$.id')=?2 AND json_extract(part.value,'$.type')='tool_response')
          ORDER BY h.sequence DESC",
     ).await.map_err(storage_error)?;
     let mut rows = statement
@@ -87,27 +88,22 @@ pub(super) async fn result(
     let mut found = false;
     while let Some(row) = rows.next().await.map_err(storage_error)? {
         let source = source(&row)?;
-        for part in source
+        for block in source
             .event
-            .content()
+            .message()
             .into_iter()
-            .flat_map(|content| &content.parts)
+            .flat_map(|message| &message.content)
         {
-            let adk_core::Part::FunctionResponse {
-                id: Some(id),
-                function_response,
-                ..
-            } = part
-            else {
+            let BlockKind::ToolResponse(response) = &block.kind else {
                 continue;
             };
-            if id != &reference.call {
+            if response.id.as_deref() != Some(reference.call.as_str()) {
                 continue;
             }
             found = true;
-            let value = &function_response.response;
+            let value = super::super::blobs::hydrate(db, &response.result).await?;
             if blake3::hash(value.to_string().as_bytes()).to_hex().as_str() == reference.revision {
-                return Ok((source.turn, value.clone()));
+                return Ok((source.turn, value));
             }
         }
     }

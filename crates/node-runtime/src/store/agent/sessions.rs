@@ -291,9 +291,12 @@ pub(super) async fn get(
         None
     };
     let sql = if summary.is_some() {
-        format!("SELECT e.body FROM conversation_events h
+        format!(
+            "SELECT e.body FROM conversation_events h
         JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence>?3
-        AND json_type(e.body,'$.actions.compaction') IS NULL AND {} ORDER BY h.sequence DESC LIMIT ?2", history::VISIBLE_EVENT)
+        AND json_extract(e.body,'$.kind')!='compaction' AND {} ORDER BY h.sequence DESC LIMIT ?2",
+            history::VISIBLE_EVENT
+        )
     } else {
         history_query()
     };
@@ -310,7 +313,7 @@ pub(super) async fn get(
     if summary.is_some() {
         parameters.push(turso::Value::Integer(boundary));
     }
-    let mut events = {
+    let bodies = {
         let mut rows = query
             .query(parameters)
             .await
@@ -324,13 +327,19 @@ pub(super) async fn get(
             let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
-        values.into_iter()
+        values
+    };
+    let mut events = Vec::with_capacity(bodies.len());
+    for body in bodies {
+        let record: crate::agent::canonical::Record =
+            serde_json::from_slice(&body.map_err(|error| adk_error(storage_error(error)))?)
+                .map_err(|error| adk_error(storage_error(error)))?;
+        events.push(
+            crate::agent::canonical_bridge::to_adk(db, &record)
+                .await
+                .map_err(adk_error)?,
+        );
     }
-    .map(|body| {
-        serde_json::from_slice::<AdkEvent>(&body.map_err(|error| adk_error(storage_error(error)))?)
-            .map_err(|error| adk_error(storage_error(error)))
-    })
-    .collect::<adk_core::Result<Vec<_>>>()?;
     events.reverse();
     if let Some((_, summary)) = summary {
         events.insert(0, summary);

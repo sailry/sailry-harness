@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::canonical::BlockKind;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
 pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
@@ -26,21 +27,21 @@ pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
     items
 }
 
-pub(super) fn publications(items: &mut Vec<Target>, event: &AdkEvent) {
-    for part in event
-        .content()
+pub(super) async fn publications(
+    db: &Connection,
+    items: &mut Vec<Target>,
+    event: &Record,
+) -> Result<(), Fault> {
+    for block in event
+        .message()
         .into_iter()
-        .flat_map(|content| &content.parts)
+        .flat_map(|message| &message.content)
     {
-        let adk_core::Part::FunctionResponse {
-            function_response, ..
-        } = part
-        else {
+        let BlockKind::ToolResponse(response) = &block.kind else {
             continue;
         };
-        let Some(content) =
-            sailry_protocol::tool::Presentation::Content.content(&function_response.response)
-        else {
+        let result = super::super::blobs::hydrate(db, &response.result).await?;
+        let Some(content) = sailry_protocol::tool::Presentation::Content.content(&result) else {
             continue;
         };
         for block in content.blocks {
@@ -55,6 +56,7 @@ pub(super) fn publications(items: &mut Vec<Target>, event: &AdkEvent) {
             }
         }
     }
+    Ok(())
 }
 
 fn markdown(items: &mut Vec<Target>, text: &str, root: Option<&str>, input: bool) {

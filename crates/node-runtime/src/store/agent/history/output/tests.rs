@@ -159,3 +159,35 @@ async fn checks_visible_history_and_invocation_owner() {
         ErrorCode::RevisionConflict
     );
 }
+
+#[tokio::test]
+async fn hydrates_original_tool_json() {
+    use crate::store::agent::tests::fixture::Fixture;
+    let mut fixture = Fixture::new().await;
+    let value = serde_json::json!({
+        "content":[{"type":"image","mimeType":"image/png","data":"AQID"}],
+        "structuredContent":{"revision":"original","nested":{"value":42}},
+        "isError":false,
+    });
+    let mut event = AdkEvent::new("binary-output");
+    event.set_content(adk_core::Content {
+        role: "function".into(),
+        parts: vec![adk_core::Part::FunctionResponse {
+            id: Some("binary-call".into()),
+            annotations: None,
+            function_response: adk_core::FunctionResponseData::new("capture", value.clone()),
+        }],
+    });
+    let turn = fixture.append([event]).await;
+    let reference = OutputReference {
+        call: "binary-call".into(),
+        revision: blake3::hash(value.to_string().as_bytes())
+            .to_hex()
+            .to_string(),
+    };
+    let resolved =
+        super::super::canonical::result(&fixture.database.connection, fixture.session, &reference)
+            .await
+            .unwrap();
+    assert_eq!(resolved, (turn, value));
+}

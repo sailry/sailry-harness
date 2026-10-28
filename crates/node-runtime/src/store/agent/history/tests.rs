@@ -6,6 +6,7 @@ use crate::store::{
 use tokio::sync::{mpsc, oneshot};
 
 mod defaults;
+mod links;
 
 tokio::task_local! {
     static WRITES: mpsc::UnboundedSender<oneshot::Sender<()>>;
@@ -167,10 +168,10 @@ async fn preserves_action_visibility() {
         serde_json::json!([]),
     );
     let mut changed = masked.clone();
-    changed
-        .actions
-        .state_delta
-        .insert("saved".into(), serde_json::json!(1));
+    changed.actions.state_delta.insert(
+        "sailry.context.policy".into(),
+        serde_json::json!("Captured policy"),
+    );
     let mut query = fixture
         .database
         .connection
@@ -187,7 +188,14 @@ async fn preserves_action_visibility() {
         (masked, false),
         (changed, true),
     ] {
-        let body = encode(&event).unwrap();
+        let record = crate::agent::canonical_bridge::from_adk(
+            &fixture.database.connection,
+            TurnId::new(),
+            &event,
+        )
+        .await
+        .unwrap();
+        let body = encode(&record).unwrap();
         let visible = query
             .query_row([body.as_slice()])
             .await
@@ -207,8 +215,15 @@ async fn hides_canonical_runtime_context() {
         .provider_metadata
         .insert(crate::agent::CONTEXT_METADATA.into(), "context".into());
     event.set_content(adk_core::Content::new("user").with_text("Captured runtime policy"));
+    let event = crate::agent::canonical_bridge::from_adk(
+        &fixture.database.connection,
+        TurnId::new(),
+        &event,
+    )
+    .await
+    .unwrap();
     let original = event.clone();
-    let entry = project(&fixture.database.connection, 1, TurnId::new(), &event)
+    let entry = project(&fixture.database.connection, 1, event.turn, &event)
         .await
         .unwrap();
     assert!(entry.parts.is_empty());
@@ -233,7 +248,14 @@ async fn preserves_commentary_part_indices() {
                 args:serde_json::json!({"path":"source.rs"}),thought_signature:None},
         ],
     });
-    let entry = project(&fixture.database.connection, 1, TurnId::new(), &event)
+    let event = crate::agent::canonical_bridge::from_adk(
+        &fixture.database.connection,
+        TurnId::new(),
+        &event,
+    )
+    .await
+    .unwrap();
+    let entry = project(&fixture.database.connection, 1, event.turn, &event)
         .await
         .unwrap();
     assert_eq!(entry.parts.len(), 2);
@@ -292,12 +314,15 @@ async fn retains_interrupted_commentary_phase() {
         .unwrap()
         .get(0)
         .unwrap();
-    let event: AdkEvent = serde_json::from_slice(&body).unwrap();
-    assert!(event.llm_response.interrupted);
-    let adk_core::Part::ServerToolCall { server_tool_call } = &event.content().unwrap().parts[0]
-    else {
+    let event: Record = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        event.message().unwrap().finish,
+        Some(records::Finish::Interrupted)
+    );
+    let BlockKind::ServerCall { value } = &event.message().unwrap().content[0].kind else {
         panic!("commentary message expected")
     };
+    let server_tool_call = &value.value;
     assert_eq!(server_tool_call["phase"], "commentary");
     assert_eq!(server_tool_call["id"], "msg-progress");
     assert_eq!(server_tool_call["status"], "incomplete");
@@ -426,12 +451,22 @@ async fn retains_captured_results_after_conflict() {
         .unwrap()
         .get(0)
         .unwrap();
-    let stored: AdkEvent = serde_json::from_slice(&body).unwrap();
+    let stored: Record = serde_json::from_slice(&body).unwrap();
+    let restored = crate::agent::canonical_bridge::to_adk(&fixture.database.connection, &stored)
+        .await
+        .unwrap();
     assert_eq!(
-        serde_json::to_value(stored.content()).unwrap(),
-        serde_json::to_value(event.content()).unwrap()
+        serde_json::to_value(&restored.content().unwrap().parts).unwrap(),
+        serde_json::to_value(&event.content().unwrap().parts).unwrap()
     );
-    assert_eq!(stored.actions.state_delta, event.actions.state_delta);
+    assert!(matches!(
+        stored.message().unwrap().role,
+        records::Role::User
+    ));
+    assert_eq!(
+        stored.metadata.state.as_ref().unwrap().session["saved"],
+        serde_json::json!(1)
+    );
     assert_eq!(
         state(&fixture.database.connection, session).await.unwrap()["saved"],
         1
@@ -541,4 +576,65 @@ async fn bounds_conflicts_without_partial_history() {
         published.try_recv(),
         Err(broadcast::error::TryRecvError::Empty)
     ));
+}
+
+#[tokio::test]
+async fn retains_slots_around_native_search() {
+    let fixture = Fixture::new().await;
+    let turn = TurnId::new();
+    let mut event = AdkEvent::new("native-search-slots");
+    event.author = "assistant".into();
+    event.branch = "search-branch".into();
+    event.set_content(adk_core::Content {
+        role: "model".into(),
+        parts: vec![
+            adk_core::Part::ServerToolCall {
+                server_tool_call: serde_json::json!({"type":"web_search_call","id":"search","status":"completed","action":{"query":"source"}}),
+            },
+            adk_core::Part::Text { text: "Engine slot".into() },
+            adk_core::Part::FunctionCall {
+                id: Some("read".into()), name: "read_file".into(),
+                args: serde_json::json!({"path":"source.rs"}), thought_signature: Some("signature".into()),
+            },
+        ],
+    });
+    let db = &fixture.database.connection;
+    let mut record = crate::agent::canonical_bridge::from_adk(db, turn, &event)
+        .await
+        .unwrap();
+    record.message_mut().unwrap().content.remove(1);
+    let entry = project(db, 1, turn, &record).await.unwrap();
+    assert_eq!(entry.author, "assistant");
+    assert_eq!(entry.branch, "search-branch");
+    assert_eq!(entry.timestamp_ms, event.timestamp.timestamp_millis());
+    assert_eq!(entry.parts.len(), 4);
+    assert_eq!(
+        entry.parts[1],
+        Part::Resource(serde_json::json!({"type":"provider_context"}))
+    );
+    assert!(matches!(&entry.parts[2], Part::ToolCall { id:Some(id), .. } if id == "read"));
+    assert!(matches!(&entry.parts[3], Part::ToolResult { id:Some(id), .. } if id == "search"));
+    let BlockKind::ToolRequest(request) = &record.message().unwrap().content[1].kind else {
+        panic!("tool request expected")
+    };
+    assert_eq!(request.signature.as_deref(), Some("signature"));
+    assert_eq!(record.message().unwrap().content[1].index, 2);
+    assert_eq!(
+        tools::raw(db, turn, 1, &record, 2)
+            .await
+            .unwrap()
+            .unwrap()
+            .id
+            .as_deref(),
+        Some("read")
+    );
+    assert_eq!(
+        tools::raw(db, turn, 1, &record, 3)
+            .await
+            .unwrap()
+            .unwrap()
+            .id
+            .as_deref(),
+        Some("search")
+    );
 }

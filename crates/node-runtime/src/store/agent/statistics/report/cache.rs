@@ -39,9 +39,11 @@ impl Cache {
         let row = db
             .prepare(
                 "SELECT coalesce(max(sequence),0),count(*) FROM agent_events
-                 WHERE json_type(body,'$.usage_metadata')='object'
-                   AND substr(json_extract(body,'$.timestamp'),1,19)>=?1
-                   AND substr(json_extract(body,'$.timestamp'),1,19)<=?2",
+                 WHERE json_type(coalesce(json_extract(body,'$.usage'),json_extract(body,'$.summary.usage')))='object'
+                   AND coalesce(json_extract(body,'$.usage.input'),json_extract(body,'$.summary.usage.input'))>=0
+                   AND coalesce(json_extract(body,'$.usage.output'),json_extract(body,'$.summary.usage.output'))>=0
+                   AND substr(json_extract(body,'$.created'),1,19)>=?1
+                   AND substr(json_extract(body,'$.created'),1,19)<=?2",
             )
             .await
             .map_err(storage_error)?
