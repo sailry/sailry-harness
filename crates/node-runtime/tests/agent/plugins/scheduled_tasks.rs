@@ -341,12 +341,14 @@ async fn preserves_enablement_and_planning_policy() {
                     .unwrap();
             }
             planning::configure(&mut fixture, mode).await;
+            let mut calls = vec![("tool_search".into(), json!({"query":tool,"limit":1}))];
             if mode == WorkMode::Plan {
-                server.replace_tools(vec![(tool.clone(), json!({
+                calls.push((tool.clone(), json!({
                     "action":"create","name":"Forbidden schedule","prompt":"Must not run",
                     "timing":{"kind":"once","data":{"at_ms":chrono::Utc::now().timestamp_millis()+3_600_000}}
-                }))]);
+                })));
             }
+            server.replace_tools(calls);
             let turn = submit(&fixture, "Inspect scheduled tools").await;
             let page = if mode == WorkMode::Plan {
                 questions::finish_plan(&fixture.client, fixture.session.id, turn).await

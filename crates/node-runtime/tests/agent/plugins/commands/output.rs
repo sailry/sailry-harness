@@ -2,7 +2,7 @@ use super::*;
 use sailry_protocol::process::OutputStream;
 use sailry_protocol::tool::OutputReference;
 
-async fn projected(server: &Server) -> Value {
+async fn projected(server: &Server) -> (Value, OutputReference) {
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             let value = server
@@ -17,7 +17,16 @@ async fn projected(server: &Server) -> Value {
                             .then(|| message["content"].as_str())
                             .flatten()
                             .and_then(|text| serde_json::from_str::<Value>(text).ok())
-                            .filter(|value| value["output"]["call"].is_string())
+                            .filter(|value| value["sailry_command"]["id"].is_string())
+                            .map(|value| {
+                                let output = OutputReference {
+                                    call: message["tool_call_id"].as_str().unwrap().into(),
+                                    revision: blake3::hash(value.to_string().as_bytes())
+                                        .to_hex()
+                                        .to_string(),
+                                };
+                                (value, output)
+                            })
                     })
                 });
             if let Some(value) = value {
@@ -62,9 +71,7 @@ async fn reads_large_failure_tail_at_original_offsets() {
         else {
             panic!("turn expected")
         };
-        let projected = projected(&server).await;
-        let reference: OutputReference =
-            serde_json::from_value(projected["output"].clone()).unwrap();
+        let (projected, reference) = projected(&server).await;
         let total = prefix_bytes + failure.len();
         assert_eq!(projected["data"]["stdout"]["total_bytes"], total);
         let mut offset = prefix_bytes;
@@ -125,8 +132,7 @@ async fn rejects_business_ids_as_command_streams() {
         else {
             panic!("turn expected")
         };
-        let projected = projected(&server).await;
-        let source: OutputReference = serde_json::from_value(projected["output"].clone()).unwrap();
+        let (projected, source) = projected(&server).await;
         let id: RequestId = projected["sailry_command"]["id"]
             .as_str()
             .unwrap()
@@ -248,7 +254,7 @@ async fn retains_foreground_streams_and_canonical_results() {
             panic!("turn expected")
         };
         let turn = turn.id;
-        let projected = projected(&server).await;
+        let (projected, reference) = projected(&server).await;
         assert!(
             projected["data"]["stdout"]["text"]
                 .as_str()
@@ -256,13 +262,11 @@ async fn retains_foreground_streams_and_canonical_results() {
                 .ends_with("last failure\n")
         );
         assert!(
-            !projected["data"]["stdout"]["text"]
+            projected["data"]["stdout"]["text"]
                 .as_str()
                 .unwrap()
                 .contains('\u{1b}')
         );
-        let reference: OutputReference =
-            serde_json::from_value(projected["output"].clone()).unwrap();
         let mut text = String::new();
         let mut offset = 0;
         loop {
@@ -287,6 +291,11 @@ async fn retains_foreground_streams_and_canonical_results() {
             offset = next;
         }
         let original: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(original, projected);
+        assert_eq!(
+            reference.revision,
+            blake3::hash(text.as_bytes()).to_hex().to_string()
+        );
         assert_eq!(
             original["data"]["outcome"],
             json!({"kind":"exited","data":7})

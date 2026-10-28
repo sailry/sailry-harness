@@ -30,6 +30,18 @@ async fn lifecycle_keeps_definitions_and_configuration() {
             .await
             .unwrap();
         server.replace_tools(vec![
+            (
+                "tool_search".into(),
+                json!({"query":plugin_tool("files", "list_ocr_models"),"limit":1}),
+            ),
+            (
+                "tool_search".into(),
+                json!({"query":plugin_tool("files", "install_ocr_model"),"limit":1}),
+            ),
+            (
+                "tool_search".into(),
+                json!({"query":plugin_tool("files", "uninstall_ocr_model"),"limit":1}),
+            ),
             (plugin_tool("files", "list_ocr_models"), json!({})),
             (plugin_tool("files", "install_ocr_model"), json!({"id":id})),
             (
@@ -54,13 +66,26 @@ async fn lifecycle_keeps_definitions_and_configuration() {
         process::decide(&fixture.client, &remove, Decision::Approve).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        let results: Vec<Value> = results(&fixture.client, &page).await;
+        let results: Vec<Value> = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|(name, _)| name != "tool_search")
+            .map(|(_, detail)| detail.result.unwrap())
+            .collect();
         assert_eq!(results.len(), 4, "{results:?}");
         assert_eq!(
             results[0]["models"].as_array().unwrap().len(),
             before.models.len()
         );
-        assert!(results[1].get("error").is_some(), "{results:?}");
+        assert_eq!(
+            results[1],
+            serde_json::to_value(rmcp::model::CallToolResult::error(vec![
+                rmcp::model::ContentBlock::text(
+                    "Tool execution was denied. Reason: Keep models unchanged"
+                ),
+            ]))
+            .unwrap()
+        );
         assert_eq!(results[2]["kind"], "local_model", "{results:?}");
         assert_eq!(results[2]["data"]["id"], id);
         assert_eq!(results[3]["models"], json!([]));
@@ -82,7 +107,9 @@ async fn lifecycle_keeps_definitions_and_configuration() {
                 .unwrap(),
             Output::LocalModels(before)
         );
-        let request = server.requests.lock().unwrap().first().cloned().unwrap();
+        let requests = server.requests.lock().unwrap().clone();
+        let request = requests.last().unwrap();
+        assert_eq!(requests.len(), 8);
         for name in [
             "list_ocr_models",
             "install_ocr_model",

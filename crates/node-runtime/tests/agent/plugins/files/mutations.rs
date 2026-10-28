@@ -139,11 +139,11 @@ async fn asks_before_deleting_a_file() {
         let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 1);
         assert_eq!(
-            output[0]["error"],
-            format!(
-                "Tool '{}' execution denied by confirmation policy",
-                name("delete_file")
-            )
+            output[0],
+            serde_json::to_value(rmcp::model::CallToolResult::error(vec![
+                rmcp::model::ContentBlock::text("Tool execution was denied."),
+            ]))
+            .unwrap()
         );
         assert!(
             checkpoints(&fixture.client, fixture.session.id, turn.id)

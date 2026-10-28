@@ -140,8 +140,8 @@ async fn confines_scripts_without_granting_tool_access() {
                 .await
                 .is_err()
         );
-        // ADK runs attempt callbacks before confirmation; they do not authorize the tool.
-        let attempted = format!("{read_tool}\n{write_tool}\n");
+        // Approval precedes execution hooks, so the denied write never runs its hook.
+        let attempted = format!("{read_tool}\n");
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("called.txt")).unwrap(),
             attempted

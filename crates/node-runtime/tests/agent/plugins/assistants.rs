@@ -272,7 +272,6 @@ fn model(request: &Value) {
         "read_skill_resource",
         "ask_user",
         "set_session_title",
-        "compact_context",
         "list_sessions",
         "read_session",
         "search_session",

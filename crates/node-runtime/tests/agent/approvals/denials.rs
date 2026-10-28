@@ -5,7 +5,7 @@ use process::Fixture;
 use sailry_protocol::conversation::ApprovalChoice;
 use serde_json::{Value, json};
 
-fn tool_messages(request: &Value) -> Vec<(String, Value)> {
+fn tool_messages(request: &Value) -> Vec<(String, String)> {
     request["messages"]
         .as_array()
         .unwrap()
@@ -14,7 +14,7 @@ fn tool_messages(request: &Value) -> Vec<(String, Value)> {
         .map(|message| {
             (
                 message["tool_call_id"].as_str().unwrap().into(),
-                serde_json::from_str(message["content"].as_str().unwrap()).unwrap(),
+                message["content"].as_str().unwrap().to_owned(),
             )
         })
         .collect()
@@ -35,11 +35,12 @@ async fn preserves_reasons_without_crossing_turns() {
             .await
             .pop()
             .unwrap();
-        assert!(
-            first_result.2["error"]
-                .as_str()
-                .unwrap()
-                .contains("execution denied by confirmation policy")
+        assert_eq!(
+            first_result.2,
+            serde_json::to_value(rmcp::model::CallToolResult::error(vec![
+                rmcp::model::ContentBlock::text("Tool execution was denied."),
+            ]))
+            .unwrap()
         );
         assert_eq!(original.approvals[0].reason, None);
         assert!(!fixture.root.join("effect.txt").exists());
@@ -76,7 +77,12 @@ async fn preserves_reasons_without_crossing_turns() {
         assert_eq!(first_result.1, second_result.1);
         assert_eq!(
             second_result.2,
-            json!({"error":format!("Tool execution was denied. Reason: {reason}")})
+            serde_json::to_value(rmcp::model::CallToolResult::error(vec![
+                rmcp::model::ContentBlock::text(format!(
+                    "Tool execution was denied. Reason: {reason}"
+                )),
+            ]))
+            .unwrap()
         );
         let retained = denied
             .approvals
@@ -90,8 +96,11 @@ async fn preserves_reasons_without_crossing_turns() {
         let requests = server.requests.lock().unwrap().clone();
         let messages = tool_messages(&requests[3]);
         assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0].1, first_result.2);
-        assert_eq!(messages[1].1, second_result.2);
+        assert_eq!(messages[0].1, "Tool execution was denied.");
+        assert_eq!(
+            messages[1].1,
+            format!("Tool execution was denied. Reason: {reason}")
+        );
         assert_eq!(messages[0].0, messages[1].0);
 
         fixture = restart(fixture, remote).await;
@@ -134,9 +143,13 @@ async fn preserves_reasons_without_crossing_turns() {
         assert_eq!(
             messages
                 .iter()
-                .map(|(_, response)| response)
+                .map(|(_, response)| response.clone())
                 .collect::<Vec<_>>(),
-            vec![&first_result.2, &second_result.2, &third_result.2]
+            vec![
+                "Tool execution was denied.".to_owned(),
+                format!("Tool execution was denied. Reason: {reason}"),
+                third_result.2.to_string(),
+            ]
         );
         assert!(
             messages

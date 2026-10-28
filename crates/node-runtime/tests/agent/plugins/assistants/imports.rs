@@ -452,7 +452,6 @@ async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
             "read_skill_resource".into(),
             "ask_user".into(),
             "set_session_title".into(),
-            "compact_context".into(),
             "read_tool_output".into()
         ])
     );

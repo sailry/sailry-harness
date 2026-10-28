@@ -141,7 +141,13 @@ fn received(parent: &Server, session: SessionId, outcome: &str, count: usize) {
     assert_eq!(delivered, count, "each child outcome is delivered once");
 }
 
-async fn completed(client: &Client, page: &Page, parent: &Server, receipt: &Value, answer: &str) {
+pub(super) async fn completed(
+    client: &Client,
+    page: &Page,
+    parent: &Server,
+    receipt: &Value,
+    answer: &str,
+) {
     assert_eq!(receipt["status"], "queued", "{receipt}");
     assert_eq!(receipt["admitted"], true);
     assert_eq!(receipt["pending"], true);

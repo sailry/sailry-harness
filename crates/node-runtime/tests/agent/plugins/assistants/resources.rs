@@ -127,8 +127,8 @@ async fn tools() {
                     .any(|(name, detail)| {
                         let result = detail.result.as_ref().unwrap();
                         name == &mcp
-                            && result["output"]["version"] == "Resource assistant"
-                            && result["output"]["value"] == "Resource read"
+                            && result["structuredContent"]["version"] == "Resource assistant"
+                            && result["structuredContent"]["value"] == "Resource read"
                     })
             );
             let request = server.requests.lock().unwrap()[0].clone();

@@ -472,6 +472,18 @@ async fn preserves_maximum_escaped_text() {
         .await;
         let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
+        // This fixture exercises full service payloads, independently of compaction.
+        let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+        provider.models[0].context = 4_000_000;
+        provider.models[0].compaction_tokens = Some(3_000_000);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap();
         configure(&mut fixture, Permission::Project, WorkMode::Code).await;
         let turn = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;

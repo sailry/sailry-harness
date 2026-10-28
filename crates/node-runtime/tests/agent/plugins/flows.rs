@@ -293,6 +293,18 @@ export function prefix({message,step,state}) {
   return {result:{first:state.first,second:message}};
 }
 "#,&[("prefix",&["storage.get"])],Some(4)).await;
+        // This fixture exercises full service payloads, independently of compaction.
+        let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+        provider.models[0].context = 4_000_000;
+        provider.models[0].compaction_tokens = Some(3_000_000);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap();
         let escaped_bytes = serde_json::to_vec("\u{0001}").unwrap().len() - 2;
         let message = format!(
             "🙂漢ab{}",

@@ -217,11 +217,15 @@ async fn keeps_admitted_operations_and_history() {
 #[tokio::test]
 async fn uses_storage_authority_and_filters_plan_writes() {
     for remote in [false, true] {
-        let server = Server::tools(vec![(
+        let mut calls: Vec<_> = ["read_note", "progress", "save_note", "delete_note"]
+            .into_iter()
+            .map(|tool| ("tool_search".into(), json!({"query":name(tool),"limit":1})))
+            .collect();
+        calls.push((
             name("save_note"),
             json!({"key":"review", "value":"approved", "expected_revision":0}),
-        )])
-        .await;
+        ));
+        let server = Server::tools(calls).await;
         let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&mut fixture).await;
         let turn = submit(&fixture, false).await;

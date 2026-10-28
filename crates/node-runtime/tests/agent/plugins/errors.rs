@@ -116,15 +116,15 @@ async fn reports_errors_and_rejects_partial_transactions() {
         let outputs: Vec<_> = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 4);
         // The final handler attempts a forbidden durable SDK command; its native
-        // permission classification must survive JavaScript and ADK projection.
+        // permission classification must survive JavaScript and GDK projection.
         for (output, code) in outputs.iter().zip([
             ErrorCode::InvalidRequest,
             ErrorCode::InvalidRequest,
             ErrorCode::InvalidRequest,
             ErrorCode::PermissionDenied,
         ]) {
-            assert_eq!(output["isError"], true);
-            let fault: Fault = serde_json::from_value(output["error"].clone()).unwrap();
+            let error: rmcp::ErrorData = serde_json::from_value(output.clone()).unwrap();
+            let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
             assert_eq!(fault.code, code);
             assert_eq!(fault.message, "plugin callback failed");
             assert!(matches!(

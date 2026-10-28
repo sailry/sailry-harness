@@ -162,7 +162,10 @@ async fn reads_figma_with_private_pat_and_approval() {
         assert_eq!(results[0]["depth"], 2);
         assert_eq!(
             results[1],
-            json!({"error":format!("Tool '{name}' execution denied by confirmation policy")})
+            serde_json::to_value(rmcp::model::CallToolResult::error(vec![
+                rmcp::model::ContentBlock::text("Tool execution was denied."),
+            ]))
+            .unwrap()
         );
         assert_eq!(results[2]["data"]["nodes"]["1:2"], serde_json::Value::Null);
         assert_eq!(results[2]["partial"], true);

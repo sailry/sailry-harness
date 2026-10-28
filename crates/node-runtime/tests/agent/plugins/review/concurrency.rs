@@ -87,6 +87,20 @@ async fn roles(fixture: &mut Fixture, servers: &[(&str, &Server)]) -> Vec<role::
     roles
 }
 
+async fn outcomes(fixture: &Fixture, page: &Page, parent: &Server, count: usize) {
+    let turn = page.runs.last().unwrap().turn;
+    let receipts: Vec<_> = crate::approvals::rules::results(&fixture.client, page, turn)
+        .await
+        .into_iter()
+        .filter_map(|(_, _, result)| (result["admitted"] == true).then_some(result))
+        .collect();
+    assert_eq!(receipts.len(), count);
+    for receipt in receipts {
+        crate::delegation::completed(&fixture.client, page, parent, &receipt, "answer-fixture-a")
+            .await;
+    }
+}
+
 fn group_receipt(scope: &Value, path: &str) -> Value {
     let group = scope["groups"]
         .as_array()
@@ -429,6 +443,7 @@ async fn retry(
     }
     let child_turn = child_turn.unwrap();
     let parent_page = completed(&fixture.client, fixture.session.id, turn.id).await;
+    outcomes(fixture, &parent_page, &parent, 1).await;
     let reused: Vec<_> = parent_page
         .children
         .iter()
@@ -539,7 +554,8 @@ async fn retries_parallel_reports_without_lost_receipts() {
         for release in releases {
             release.cancel();
         }
-        completed(&fixture.client, fixture.session.id, turn.id).await;
+        let parent_page = completed(&fixture.client, fixture.session.id, turn.id).await;
+        outcomes(&fixture, &parent_page, &parent, 2).await;
         let alpha_page = completed(&fixture.client, alpha, alpha_report.turn).await;
         let beta_page = completed(&fixture.client, beta, beta_report.turn).await;
         let alpha_results =
@@ -749,7 +765,8 @@ async fn retries_parallel_group_receipts() {
         for release in releases {
             release.cancel();
         }
-        completed(&fixture.client, fixture.session.id, turn.id).await;
+        let parent_page = completed(&fixture.client, fixture.session.id, turn.id).await;
+        outcomes(&fixture, &parent_page, &parent, 2).await;
         let alpha_page = completed(&fixture.client, alpha, alpha_receipt.turn).await;
         let beta_page = completed(&fixture.client, beta, beta_receipt.turn).await;
         let alpha_results =
@@ -875,10 +892,12 @@ async fn rejects_foreign_sessions_and_worktrees() {
         ])
         .await;
         roles(&mut fixture, &[("foreign-worktree", &delegated)]).await;
-        let (delegation,_) = calls(&fixture,vec![(plugin_tool("delegation","spawn_agent"),
+        let (delegation,parent) = calls(&fixture,vec![(plugin_tool("delegation","spawn_agent"),
             json!({"role":"foreign-worktree","worktree":worktree.id,
                 "task":"Try to read, report and finalize the captured review from this other worktree"}))]).await;
-        assert_eq!(delegation[0]["status"], "completed", "{delegation:?}");
+        let parent_page = history(&fixture.client, fixture.session.id).await;
+        outcomes(&fixture, &parent_page, &parent, 1).await;
+        assert_eq!(delegation.len(), 1);
         let child: SessionId = delegation[0]["session"].as_str().unwrap().parse().unwrap();
         let page = history(&fixture.client, child).await;
         assert_eq!(page.runs.len(), 1);

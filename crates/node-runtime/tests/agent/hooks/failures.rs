@@ -232,12 +232,9 @@ async fn retains_hidden_tool_failures() {
         let result = call.result(&page).unwrap();
         assert!(call.failure.is_some());
         assert!(result.get("isError").is_none());
-        assert!(
-            result["error"]
-                .as_str()
-                .unwrap()
-                .contains("before_tool hook failed")
-        );
+        let error: rmcp::ErrorData = serde_json::from_value(result.clone()).unwrap();
+        let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
+        assert!(fault.message.contains("before_tool hook failed"));
         let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
             panic!("snapshot expected")
         };

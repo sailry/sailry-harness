@@ -63,15 +63,10 @@ export function flow() { throw new Error('unexpected flow execution'); }
         let outputs = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 4, "{outputs:?}");
         for output in &outputs[..2] {
-            assert_eq!(output["isError"], true);
-            assert_eq!(output["error"]["code"], "invalid_request");
-            assert!(
-                output["error"]["message"]
-                    .as_str()
-                    .unwrap()
-                    .contains("/context"),
-                "{output}"
-            );
+            let error: rmcp::ErrorData = serde_json::from_value(output.clone()).unwrap();
+            let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
+            assert_eq!(fault.code, ErrorCode::InvalidRequest);
+            assert!(fault.message.contains("/context"), "{output}");
             assert!(!output.to_string().contains(PRIVATE));
             assert!(!output.to_string().contains("unexpected"));
         }
