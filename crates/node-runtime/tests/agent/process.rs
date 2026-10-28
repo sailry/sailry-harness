@@ -15,7 +15,7 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub(super) async fn new(remote: bool, server: &Server) -> Self {
-        Box::pin(Self::setup(remote, server, None)).await
+        Self::setup(remote, server, None).await
     }
 
     pub(super) async fn files(remote: bool, server: &Server) -> Self {
@@ -23,7 +23,7 @@ impl Fixture {
     }
 
     pub(super) async fn packages(remote: bool, server: &Server, packages: &[&str]) -> Self {
-        Box::pin(Self::setup(remote, server, Some(packages))).await
+        Self::setup(remote, server, Some(packages)).await
     }
 
     #[cfg(feature = "test-support")]
