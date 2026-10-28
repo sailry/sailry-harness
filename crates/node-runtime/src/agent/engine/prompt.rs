@@ -186,3 +186,34 @@ pub(crate) async fn prepared(session: &Session) -> PreparedInferenceRequest {
         &BTreeSet::new(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmcp::model::Tool;
+
+    #[test]
+    fn filters_only_deferred_declarations() {
+        let declarations = || InferenceInput {
+            tools: ["always", "loaded", "deferred"]
+                .map(|name| Tool::new(name, "Fixture", serde_json::Map::new()))
+                .to_vec(),
+            prompt_parts: vec![("owner".into(), "Current policy".into())],
+            moim_parts: vec!["Current task".into()],
+        };
+        let deferred = ["loaded".into(), "deferred".into()].into();
+        let request = prepare(declarations(), &["loaded".into()].into(), &deferred);
+        assert_eq!(
+            request
+                .tools
+                .iter()
+                .map(|tool| tool.name.as_ref())
+                .collect::<Vec<_>>(),
+            ["always", "loaded"]
+        );
+        assert_eq!(request.system_prompt, "Current policy\n\nCurrent task");
+        let request = prepare(declarations(), &BTreeSet::new(), &deferred);
+        assert_eq!(request.tools.len(), 1);
+        assert_eq!(request.tools[0].name, "always");
+    }
+}
