@@ -1,4 +1,4 @@
-//! Namespaced ADK MCP tools bound to the original turn, approval and package snapshot.
+//! Namespaced MCP tools retain the original turn, approval and package snapshot.
 pub(super) mod check;
 mod diagnostics;
 mod input;
@@ -6,13 +6,16 @@ mod limits;
 pub(super) mod management;
 mod pool;
 pub(crate) use pool::Pool;
+mod remote;
 mod schema;
 mod transport;
 
 use super::catalog::Registration;
 use super::*;
-use adk_core::{Tool, ToolConfirmationRequest, ToolContext};
+use crate::agent::{canonical::ToolIdentity, catalog::CallContext};
 use async_trait::async_trait;
+use goose_agent::{operation::Emitter, tool::ToolProvider};
+use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorData};
 use rmcp::{
     RoleClient,
     model::{ClientConfig, Tool as Descriptor},
@@ -47,7 +50,7 @@ struct Connected {
     name: String,
     transport: transport::Shared,
     peer: rmcp::Peer<RoleClient>,
-    toolset: adk_tool::McpToolset<Arc<input::Handler>>,
+    toolset: Arc<remote::Remote>,
     handler: Arc<input::Handler>,
     connector: Option<crate::plugins::connectors::mcp::Authorization>,
     python: Option<crate::python::Ready>,
@@ -104,7 +107,7 @@ impl Connections {
                 let cached = previous.iter().position(|connection| connection.reference == config.reference && connection.name == config.name)
                     .map(|index| previous.remove(index));
                 let cached = match cached {
-                    Some(connection) if connection.toolset.is_closed().await || connection.connector.as_ref().map(|value|value.key()) != connector.as_ref().map(|value|value.key()) => {
+                    Some(connection) if connection.toolset.is_closed() || connection.connector.as_ref().map(|value|value.key()) != connector.as_ref().map(|value|value.key()) => {
                         connection.close().await?;
                         None
                     }
@@ -116,8 +119,7 @@ impl Connections {
                     let handler = Arc::new(input::Handler::new());
                     let (mut transport, service) = transport::Connection::open(launch, connector.clone(), stop, handler.clone(), !reuse, &ingress.environment).await?;
                     let peer = service.peer().clone();
-                    let toolset = adk_tool::McpToolset::new(service)
-                        .with_task_support(adk_tool::mcp::McpTaskConfig::enabled().no_timeout());
+                    let toolset = remote::Remote::new(service);
                     transport.track_tasks(toolset.clone());
                     Connected { reference: config.reference, name: config.name.clone(), transport: Arc::new(tokio::sync::Mutex::new(transport)), peer, toolset, handler, connector, python, reuse }
                 };
@@ -158,9 +160,9 @@ impl Connections {
                                 transport: connection.transport.clone(),
                                 closed: closed.clone(),
                             });
-                            let mut registration = Registration::new(bound.clone(), presentation);
+                            let mut registration = Registration::new(bound.declaration(), bound.clone(), presentation);
                             registration.grouping = grouping;
-                            registration.display = display.map(|display| (registration.tool.name().into(), display));
+                            registration.display = display.map(|display| (registration.tool.name.to_string(), display));
                             registration.plugin = Some(config.plugin.clone());
                             tools.push(registration);
                         }
@@ -194,8 +196,8 @@ impl Connections {
         (tools, diagnostics)
     }
 
-    pub(super) fn screenshots(&self) -> Option<adk_core::BeforeModelCallback> {
-        (!self.images.is_empty()).then(|| media::screenshots(self.images.clone()))
+    pub(super) fn screenshots(&self) -> Vec<(Vec<String>, usize)> {
+        self.images.clone()
     }
 
     pub(super) async fn settle(&mut self) -> Result<(), Fault> {
@@ -292,7 +294,7 @@ struct Bound {
     name: String,
     description: String,
     descriptor: Descriptor,
-    toolset: adk_tool::McpToolset<Arc<input::Handler>>,
+    toolset: Arc<remote::Remote>,
     handler: Arc<input::Handler>,
     ingress: Arc<Ingress>,
     turn: TurnId,
@@ -306,22 +308,18 @@ struct Bound {
     closed: CancellationToken,
 }
 
-#[async_trait]
-impl Tool for Bound {
+impl Bound {
     fn name(&self) -> &str {
         &self.name
     }
     fn description(&self) -> &str {
         &self.description
     }
-    fn parameters_schema(&self) -> Option<Value> {
-        Some(Value::Object((*self.descriptor.input_schema).clone()))
-    }
-    fn response_schema(&self) -> Option<Value> {
-        self.descriptor
-            .output_schema
-            .as_ref()
-            .map(|schema| Value::Object((**schema).clone()))
+    fn declaration(&self) -> Descriptor {
+        let mut tool = self.descriptor.clone();
+        tool.name = self.name.clone().into();
+        tool.description = Some(self.description.clone().into());
+        tool
     }
     fn is_read_only(&self) -> bool {
         self.descriptor
@@ -330,15 +328,11 @@ impl Tool for Bound {
             .and_then(|annotations| annotations.read_only_hint)
             .unwrap_or(false)
     }
-    fn is_concurrency_safe(&self) -> bool {
-        self.is_read_only()
-    }
-
     async fn execute(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<CallToolResult, Fault> {
         let identity = crate::logging::Context {
             node: Some(self.ingress.node),
             turn: Some(self.turn),
@@ -351,19 +345,22 @@ impl Tool for Bound {
         let mut span = diagnostics::begin(identity, "call", &self.stop);
         let result = self.call(context.clone(), arguments, &mut span).await;
         if let Ok(value) = &result
-            && (diagnostics::server_error(value) || diagnostics::uncertain(value))
+            && (value.is_error.unwrap_or(false))
             && let Some(timeline) = self.ingress.agents.timeline(self.turn)
         {
             timeline.fail_tool(
                 context.branch(),
                 context.function_call_id(),
                 self.name(),
-                diagnostics::uncertain(value).then_some(ErrorCode::OutcomeUnknown),
+                None,
             );
         }
         diagnostics::finish(
             &mut span,
-            &result,
+            &result
+                .as_ref()
+                .map(|value| serde_json::to_value(value).unwrap())
+                .map_err(Clone::clone),
             self.stop.is_cancelled() || context.is_cancelled(),
         );
         result
@@ -373,21 +370,19 @@ impl Tool for Bound {
 impl Bound {
     async fn call(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
         span: &mut crate::logging::Span,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<CallToolResult, Fault> {
         if context.session_id() != self.session
             || context.is_cancelled()
             || self.stop.is_cancelled()
             || self.closed.is_cancelled()
         {
-            return Err(adk_core::AdkError::tool(
-                "MCP invocation is unavailable or cancelled",
-            ));
+            return Err(Fault::invalid("MCP invocation is unavailable or cancelled"));
         }
         let Value::Object(args) = &arguments else {
-            return Err(adk_core::AdkError::tool("MCP arguments must be an object"));
+            return Err(Fault::invalid("MCP arguments must be an object"));
         };
         if let Some(ready) = &self.python {
             diagnostics::stage(
@@ -401,11 +396,11 @@ impl Bound {
                         .plugins
                         .python(&self.ingress.environment)
                         .await
-                        .map_err(|error| adk_core::AdkError::tool(error.to_string()))?;
+                        .map_err(|error| Fault::invalid(error.to_string()))?;
                     manager
                         .refresh(ready, &self.stop)
                         .await
-                        .map_err(|error| adk_core::AdkError::tool(error.to_string()))
+                        .map_err(|error| Fault::invalid(error.to_string()))
                 },
             )
             .await?;
@@ -416,20 +411,11 @@ impl Bound {
                 &self.stop,
                 "authorization",
                 ErrorCode::PermissionDenied,
-                self.ingress.authorize(
-                    self.turn,
-                    ToolConfirmationRequest {
-                        acting: None,
-                        origin: None,
-                        tool_name: self.name.clone(),
-                        function_call_id: Some(context.function_call_id().into()),
-                        args: arguments.clone(),
-                    },
-                    None,
-                ),
+                self.ingress
+                    .authorize(self.turn, context.request().into(), None),
             )
             .await
-            .map_err(|_| adk_core::AdkError::tool("MCP authorization is unavailable"))?;
+            .map_err(|_| Fault::invalid("MCP authorization is unavailable"))?;
         }
         // Installed names are unique in this Node/profile. Content and settings
         // revisions deliberately do not split a service across admitted turns.
@@ -438,8 +424,8 @@ impl Bound {
                 if let Some(lock) = &self.exclusive {
                     Some(tokio::select! {
                         biased;
-                        _ = self.stop.cancelled() => return Err(adk_core::AdkError::tool("MCP invocation was cancelled")),
-                        _ = self.closed.cancelled() => return Err(adk_core::AdkError::tool("MCP connection is closed")),
+                        _ = self.stop.cancelled() => return Err(Fault::invalid("MCP invocation was cancelled")),
+                        _ = self.closed.cancelled() => return Err(Fault::invalid("MCP connection is closed")),
                         guard = lock.clone().lock_owned() => guard,
                     })
                 } else {
@@ -448,13 +434,13 @@ impl Bound {
             } else {
                 None
             };
-            // Neither ADK tool-call retries nor HTTP session-expiry replay is enabled.
+            // Remote calls are not replayed after an uncertain result.
             let serial = tokio::select! {
-                _ = self.stop.cancelled() => return Err(adk_core::AdkError::tool("MCP invocation was cancelled")),
-                _ = self.closed.cancelled() => return Err(adk_core::AdkError::tool("MCP connection is closed")),
+                _ = self.stop.cancelled() => return Err(Fault::invalid("MCP invocation was cancelled")),
+                _ = self.closed.cancelled() => return Err(Fault::invalid("MCP connection is closed")),
                 guard = self.handler.serial.lock() => guard,
             };
-            Ok::<_, adk_core::AdkError>((service, serial))
+            Ok::<_, Fault>((service, serial))
         };
         let (service, _serial) = diagnostics::stage(
             span,
@@ -465,7 +451,7 @@ impl Bound {
         )
         .await?;
         if context.is_cancelled() || self.stop.is_cancelled() || self.closed.is_cancelled() {
-            return Err(adk_core::AdkError::tool("MCP invocation was cancelled"));
+            return Err(Fault::invalid("MCP invocation was cancelled"));
         }
         if let Some(connector) = &self.connector
             && diagnostics::stage(
@@ -479,9 +465,7 @@ impl Bound {
             .is_err()
         {
             self.poisoned.store(true, Ordering::Relaxed);
-            return Err(adk_core::AdkError::tool(
-                "MCP connection is unavailable or changed",
-            ));
+            return Err(Fault::invalid("MCP connection is unavailable or changed"));
         }
         diagnostics::external(span);
         let mut external =
@@ -491,13 +475,7 @@ impl Bound {
             self.ingress.clone(),
             self.turn,
             self.session.clone(),
-            ToolConfirmationRequest {
-                acting: None,
-                origin: None,
-                tool_name: self.name.clone(),
-                function_call_id: Some(context.function_call_id().into()),
-                args: arguments.clone(),
-            },
+            context.request().into(),
             &self.stop,
         );
         let mut call = service.map(|guard| {
@@ -510,20 +488,59 @@ impl Bound {
         });
         let result = tokio::select! {
             biased;
-            _ = self.stop.cancelled() => Err(adk_core::AdkError::tool("MCP invocation was cancelled; remote effects may be uncertain")),
-            result = active.run(self.toolset.call_tool_value(&self.descriptor.name, args.clone())) => {
+            _ = self.stop.cancelled() => Err(Fault::invalid("MCP invocation was cancelled; remote effects may be uncertain")),
+            result = active.run(self.toolset.call(&self.descriptor.name, args.clone())) => {
                 if matches!(&result, Ok(Ok(_))) {
                     if let Some(call) = &mut call { call.confirmed(); }
                 } else { self.poisoned.store(true, Ordering::Relaxed); }
                 match result {
-                    Ok(Ok(mut value)) => {if let Some(connector)=&self.connector {connector.redact(&mut value);}Ok(value)},
-                    Ok(Err(error)) => {let mut value=json!({"error":{"code":"outcome_unknown","message":format!("MCP call failed and was not replayed; side effects may be uncertain: {error}")}});if let Some(connector)=&self.connector{connector.redact(&mut value);}Ok(value)},
-                    _ => Ok(json!({"error": {"code": "outcome_unknown", "message": "MCP result is unavailable; the call was not replayed and side effects may be uncertain"}})),
+                    Ok(Ok(value)) => {
+                        if let Some(connector) = &self.connector {
+                            let mut json = serde_json::to_value(value).map_err(|_| Fault::invalid("MCP result could not be encoded"))?;
+                            connector.redact(&mut json);
+                            serde_json::from_value(json).map_err(|_| Fault::invalid("MCP result could not be decoded"))
+                        } else { Ok(value) }
+                    },
+                    Ok(Err(error)) => {
+                        let mut value = serde_json::to_value(error).unwrap();
+                        if let Some(connector) = &self.connector { connector.redact(&mut value); }
+                        let error: Fault = serde_json::from_value(value).unwrap();
+                        Err(Fault::new(ErrorCode::OutcomeUnknown, format!("MCP call failed without replay; remote effects may be uncertain: {}", error.message)))
+                    },
+                    Err(_) => Err(Fault::new(ErrorCode::OutcomeUnknown, "MCP result is unavailable; remote effects may be uncertain")),
                 }
             }
         };
-        diagnostics::finish(&mut external, &result, self.stop.is_cancelled());
+        diagnostics::finish(
+            &mut external,
+            &result
+                .as_ref()
+                .map(|value| serde_json::to_value(value).unwrap())
+                .map_err(Clone::clone),
+            self.stop.is_cancelled(),
+        );
         result
+    }
+}
+
+#[async_trait]
+impl ToolProvider<CallContext> for Bound {
+    async fn tools(&self, _: &CallContext) -> anyhow::Result<Vec<Descriptor>> {
+        Ok(vec![self.declaration()])
+    }
+    async fn call(
+        &self,
+        context: &CallContext,
+        _: &str,
+        call: CallToolRequestParams,
+        _: &Emitter,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.execute(
+            Arc::new(context.clone()),
+            Value::Object(call.arguments.unwrap_or_default()),
+        )
+        .await
+        .map_err(crate::agent::catalog::fault)
     }
 }
 

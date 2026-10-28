@@ -2,7 +2,7 @@
 mod failures;
 use super::catalog::Registration as ToolRegistration;
 use super::*;
-pub(super) use failures::{bind as failure_callback, public as public_failure};
+pub(super) use failures::public as public_failure;
 use std::{collections::BTreeSet, sync::atomic::AtomicBool};
 mod assistants;
 mod management;
@@ -16,7 +16,16 @@ mod selection;
 pub(super) struct Contribution {
     pub tools: Vec<ToolRegistration>,
     pub instruction: String,
-    pub callbacks: Vec<(i16, adk_core::BeforeModelCallback)>,
+    pub callbacks: Vec<(
+        i16,
+        Arc<
+            dyn goose_agent::operation::Operation<
+                    crate::store::agent::RuntimeSession,
+                    super::engine::Effect,
+                >,
+        >,
+    )>,
+    pub images: Vec<(Vec<String>, usize)>,
     pub completion: Arc<AtomicBool>,
     loaded: BTreeSet<String>,
     instructions: std::collections::BTreeMap<String, String>,
@@ -25,7 +34,7 @@ pub(super) struct Contribution {
 impl Contribution {
     pub(super) fn mounted(&self, name: &str) -> bool {
         self.tools.iter().any(|entry| {
-            entry.tool.name() == name && (!entry.deferred || self.loaded.contains(name))
+            entry.tool.name.as_ref() == name && (!entry.deferred || self.loaded.contains(name))
         })
     }
 }
@@ -65,9 +74,6 @@ pub(super) async fn bind(
     };
     let mut skill_instruction = String::new();
     let mut connection_diagnostics = String::new();
-    if !restricted || invocation.turn.config.assistant.is_some() {
-        bound.tools.extend(model_tools::bind(ingress, invocation)?);
-    }
     if supports_tools && (!restricted || invocation.turn.config.assistant.is_some()) {
         bound
             .tools
@@ -109,10 +115,7 @@ pub(super) async fn bind(
                 .bind(&resources, ingress, invocation, stop, assistant)
                 .await;
             bound.tools.extend(tools);
-            if let Some(callback) = connections.screenshots() {
-                // After compaction (0) and package observers (10).
-                bound.callbacks.push((20, callback));
-            }
+            bound.images = connections.screenshots();
             diagnostics
         } else {
             String::new()
@@ -130,9 +133,12 @@ pub(super) async fn bind(
     assistants::apply(invocation, &mut bound)?;
     selection::apply(invocation, &mut bound)?;
     selection::defer(invocation, &mut bound.tools)?;
-    bound
-        .loaded
-        .retain(|name| bound.tools.iter().any(|entry| entry.tool.name() == name));
+    bound.loaded.retain(|name| {
+        bound
+            .tools
+            .iter()
+            .any(|entry| entry.tool.name.as_ref() == name)
+    });
     if let Some(search) = search::bind(
         invocation,
         stop,
@@ -146,7 +152,7 @@ pub(super) async fn bind(
         || bound
             .tools
             .iter()
-            .any(|entry| skills::NAMES.contains(&entry.tool.name()))
+            .any(|entry| skills::NAMES.contains(&entry.tool.name.as_ref()))
     {
         bound.instruction.push_str(&skill_instruction);
     }
@@ -154,7 +160,7 @@ pub(super) async fn bind(
         || bound
             .tools
             .iter()
-            .any(|entry| entry.tool.name().starts_with("mcp_"))
+            .any(|entry| entry.tool.name.as_ref().starts_with("mcp_"))
     {
         bound.instruction.push_str(&connection_diagnostics);
     }
@@ -165,7 +171,7 @@ pub(super) async fn bind(
     }
     for package in &invocation.plugins {
         let mounted = bound.tools.iter().any(|tool| {
-            bound.mounted(tool.tool.name())
+            bound.mounted(tool.tool.name.as_ref())
                 && tool.plugin.as_deref() == Some(package.summary.name.as_str())
         });
         if mounted && let Some(instructions) = bound.instructions.get(&package.summary.name) {
@@ -187,12 +193,12 @@ pub(super) async fn bind(
             .tools
             .iter()
             .find(|entry| {
-                entry.tool.is_agent_delegation()
-                    && entry.tool.parameters_schema().is_some_and(|schema| {
+                entry.delegation
+                    && Some(&entry.tool.input_schema).is_some_and(|schema| {
                         super::delegation::selected::accepts(&schema, &arguments)
                     })
             })
-            .map(|entry| entry.tool.name().to_owned())
+            .map(|entry| entry.tool.name.as_ref().to_owned())
             .ok_or_else(|| {
                 Fault::new(
                     ErrorCode::NotConfigured,
@@ -209,7 +215,7 @@ pub(super) async fn bind(
 fn connection_instructions(invocation: &Invocation, tools: &[ToolRegistration]) -> String {
     let selected: BTreeSet<_> = tools
         .iter()
-        .map(|registration| registration.tool.name())
+        .map(|registration| registration.tool.name.as_ref())
         .collect();
     let mut cards = BTreeSet::new();
     for package in &invocation.plugins {

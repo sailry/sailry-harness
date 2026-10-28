@@ -1,7 +1,6 @@
 //! Package tools share the bounded headless VM and the original Agent history.
 use super::*;
-use adk_core::{AdkError, Tool, ToolContext};
-use async_trait::async_trait;
+use crate::agent::catalog::CallContext;
 use sailry_protocol::{NodeId, plugin, tool};
 use serde_json::{Value, json};
 use std::sync::Mutex;
@@ -112,7 +111,7 @@ pub(super) async fn bind(
                 .handler
                 .as_ref()
                 .and_then(|handler| handler.operation);
-            let script: Arc<dyn Tool> = Arc::new(Script {
+            let script = Arc::new(Script {
                 ingress: ingress.clone(),
                 caller: invocation.caller,
                 package: package.clone(),
@@ -193,26 +192,29 @@ pub(super) async fn bind(
                 turn: turns.get(&package.summary.name).cloned(),
                 stop: stop.clone(),
             });
+            let descriptor = script.descriptor();
+            let delegation = script.is_agent_delegation();
             let mut registration = if matches!(
                 operation,
                 Some(tool::Operation::RunSsh | tool::Operation::TransferSsh)
             ) {
-                ToolRegistration::managed(script)
+                ToolRegistration::managed(descriptor, script)
             } else if operation.is_some_and(|operation| operation != tool::Operation::DelegateAgent)
                 || declaration
                     .handler
                     .as_ref()
                     .is_some_and(|handler| handler.flow.is_some())
             {
-                ToolRegistration::new(script, declaration.presentation)
+                ToolRegistration::new(descriptor, script, declaration.presentation)
             } else if invocation.turn.config.mode == sailry_protocol::WorkMode::Plan
                 && operation.is_none()
             {
                 // Plain handlers still pass through the runtime's Plan authority check.
-                ToolRegistration::new(script, declaration.presentation)
+                ToolRegistration::new(descriptor, script, declaration.presentation)
             } else {
-                ToolRegistration::managed(script)
+                ToolRegistration::managed(descriptor, script)
             };
+            registration.delegation = delegation;
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
@@ -225,7 +227,7 @@ pub(super) async fn bind(
                     ),
                     None => display,
                 };
-                (registration.tool.name().into(), display)
+                (registration.tool.name.to_string(), display)
             });
             registration
         })
@@ -250,8 +252,7 @@ struct Script {
     stop: CancellationToken,
 }
 
-#[async_trait]
-impl Tool for Script {
+impl Script {
     fn name(&self) -> &str {
         &self.name
     }
@@ -270,39 +271,40 @@ impl Tool for Script {
             &self.package.extension.as_ref().unwrap().actions,
         )
     }
-    fn is_concurrency_safe(&self) -> bool {
-        false
-    }
-
     async fn execute(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<rmcp::model::CallToolResult, Fault> {
         if self.handler.flow.is_some() {
-            return self.execute_flow(context, arguments).await;
+            return crate::agent::catalog::json(self.execute_flow(context, arguments).await?);
         }
         let prepared = self
             .evaluate(context.clone(), &self.handler.name, arguments.clone())
             .await?;
         if prepared.get("isError").and_then(Value::as_bool) == Some(true) {
-            return Ok(prepared);
+            return crate::agent::catalog::json(prepared);
         }
         // The VM has been released before waiting on Node work.
+        let mut meta = None;
         let mut output = if let Some(delegate) = &self.delegate {
-            delegate
+            let result = delegate
                 .execute_prepared(context.clone(), prepared, arguments.clone())
-                .await?
+                .await?;
+            meta = result.meta;
+            result
+                .structured_content
+                .ok_or_else(|| Fault::invalid("child result is unavailable"))?
         } else if let Some(operation) = &self.operation {
             operation
                 .execute_bound(context.clone(), prepared, arguments.clone())
                 .await?
         } else {
-            return Ok(prepared);
+            return crate::agent::catalog::json(prepared);
         };
         let media = media::Media::take(&mut output);
         let Some(handler) = &self.handler.result else {
-            return Ok(media.restore(output));
+            return formatted(media.restore(output), meta);
         };
         if output.get("isError").and_then(Value::as_bool) == Some(true) {
             // A formatter can add presentation, but cannot replace the Node's failure.
@@ -322,7 +324,7 @@ impl Tool for Script {
                     output["sailry_result"] = formatted["sailry_result"].clone();
                 }
             }
-            return Ok(output);
+            return formatted(output, meta);
         }
         match self
             .evaluate(
@@ -332,10 +334,10 @@ impl Tool for Script {
             )
             .await
         {
-            Ok(result) => Ok(media.restore(result)),
+            Ok(result) => formatted(media.restore(result),meta),
             // The operation has completed. Preserve its result; never replay it to repair formatting.
             Err(error) => {
-                Ok(media.restore(json!({"output":output, "presentation_error":super::failures::presentation(&error)})))
+                formatted(media.restore(json!({"output":output, "presentation_error":super::failures::presentation(&error)})),meta)
             }
         }
     }
@@ -344,22 +346,22 @@ impl Tool for Script {
 impl Script {
     async fn evaluate(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         export: &str,
         arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<Value, Fault> {
         if Some(context.session_id()) != self.context.session.map(|id| id.to_string()).as_deref() {
-            return Err(AdkError::tool("plugin tool belongs to another session"));
+            return Err(Fault::invalid("plugin tool belongs to another session"));
         }
         if context.is_cancelled() || self.stop.is_cancelled() {
-            return Err(AdkError::tool("plugin tool was cancelled"));
+            return Err(Fault::invalid("plugin tool was cancelled"));
         }
         if serde_json::to_vec(&arguments)
-            .map_err(|_| AdkError::tool("invalid tool arguments"))?
+            .map_err(|_| Fault::invalid("invalid tool arguments"))?
             .len()
             > plugin::host::MAX_DATA_BYTES
         {
-            return Err(AdkError::tool("plugin tool input exceeds limit"));
+            return Err(Fault::invalid("plugin tool input exceeds limit"));
         }
         let ingress = self.ingress.clone();
         let caller = self.caller;
@@ -368,7 +370,7 @@ impl Script {
         let call_id = identity::call(
             scope
                 .turn
-                .ok_or_else(|| AdkError::tool("plugin tool has no turn"))?,
+                .ok_or_else(|| Fault::invalid("plugin tool has no turn"))?,
             &scope.package,
             &self.name,
             context.function_call_id(),
@@ -387,7 +389,7 @@ impl Script {
                 .as_ref()
                 .map(|turn| turn.state.lock())
                 .transpose()
-                .map_err(|_| AdkError::tool("plugin turn state is unavailable"))?;
+                .map_err(|_| Fault::invalid("plugin turn state is unavailable"))?;
             let bundle = ingress
                 .plugins
                 .read_host(&package, stop.clone())
@@ -447,7 +449,7 @@ impl Script {
             crate::plugins::cards::stamp(&mut result, node, &card_scope, &card_package, call_id);
             if let Some(staged) = state
                 .lock()
-                .map_err(|_| AdkError::tool("plugin turn state is unavailable"))?
+                .map_err(|_| Fault::invalid("plugin turn state is unavailable"))?
                 .staged_turn
                 .take()
                 && let Some(current) = turn_state.as_mut()
@@ -455,31 +457,41 @@ impl Script {
                 **current = staged;
             }
             if context.is_cancelled() {
-                return Err(AdkError::tool("plugin tool was cancelled"));
+                return Err(Fault::invalid("plugin tool was cancelled"));
             }
             if result.get("isError").and_then(Value::as_bool) != Some(true) {
                 let snapshots = std::mem::take(
                     &mut *consumed
                         .lock()
-                        .map_err(|_| AdkError::tool("command read tracking is unavailable"))?,
+                        .map_err(|_| Fault::invalid("command read tracking is unavailable"))?,
                 );
                 for snapshot in snapshots {
-                    collect_runtime
-                        .block_on(collector.collect_command(parent, snapshot))
-                        .map_err(|fault| {
-                            AdkError::tool(fault.message.clone()).with_source(fault)
-                        })?;
+                    collect_runtime.block_on(collector.collect_command(parent, snapshot))?;
                 }
             }
             Ok(result)
         })
         .await
-        .map_err(|_| AdkError::tool("plugin tool worker failed"))?
+        .map_err(|_| Fault::invalid("plugin tool worker failed"))?
     }
 }
 
-fn error(fault: Fault) -> AdkError {
-    AdkError::tool(fault.message.clone()).with_source(fault)
+fn formatted(
+    value: Value,
+    meta: Option<rmcp::model::MetaObject>,
+) -> Result<rmcp::model::CallToolResult, Fault> {
+    let mut result = crate::agent::catalog::json(value)?;
+    if let Some(meta) = meta {
+        result
+            .meta
+            .get_or_insert_with(Default::default)
+            .extend(meta.0);
+    }
+    Ok(result)
+}
+
+fn error(fault: Fault) -> Fault {
+    fault
 }
 
 #[cfg(test)]
@@ -502,7 +514,9 @@ mod tests {
         diagnostic.operation = Some("write_plugin_value".into());
         diagnostic.request = Some(RequestId::new());
         fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(diagnostic)));
-        let projected = crate::agent::model::error(error(fault.clone()));
+        let projected = error(fault.clone());
         assert_eq!(projected, fault);
     }
 }
+
+crate::agent::catalog::provider!(Script, crate::agent::catalog::result);

@@ -1,8 +1,7 @@
-//! Standard skill loading uses ADK tools and the existing turn/session history.
+//! Skill loading uses the captured Node package resources and canonical context.
 use super::*;
+use crate::agent::catalog::CallContext;
 use crate::plugins::resources::Resources;
-use adk_core::{AdkError, Tool, ToolContext};
-use async_trait::async_trait;
 use sailry_protocol::tool::{Display, Presentation};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -47,7 +46,7 @@ impl Skills {
         stop: CancellationToken,
         ingress: Arc<Ingress>,
         turn: sailry_protocol::TurnId,
-    ) -> [Arc<dyn Tool>; 2] {
+    ) -> [Arc<Self>; 2] {
         [false, true].map(|resource| {
             Arc::new(Self {
                 resources: resources.clone(),
@@ -56,7 +55,7 @@ impl Skills {
                 resource,
                 ingress: ingress.clone(),
                 turn,
-            }) as Arc<dyn Tool>
+            })
         })
     }
 }
@@ -74,8 +73,7 @@ struct Read {
     path: String,
 }
 
-#[async_trait]
-impl Tool for Skills {
+impl Skills {
     fn name(&self) -> &str {
         if self.resource { NAMES[1] } else { NAMES[0] }
     }
@@ -88,9 +86,6 @@ impl Tool for Skills {
     }
     fn is_read_only(&self) -> bool {
         true
-    }
-    fn is_concurrency_safe(&self) -> bool {
-        self.resource
     }
     fn parameters_schema(&self) -> Option<Value> {
         let keys: Vec<_> = self
@@ -112,25 +107,25 @@ impl Tool for Skills {
     }
     async fn execute(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<rmcp::model::CallToolResult, Fault> {
         if context.session_id() != self.session
             || context.is_cancelled()
             || self.stop.is_cancelled()
         {
-            return Err(AdkError::tool("skill invocation is no longer active"));
+            return Err(Fault::invalid("skill invocation is no longer active"));
         }
         let (key, path) = if self.resource {
             let args: Read = serde_json::from_value(arguments)
-                .map_err(|_| AdkError::tool("invalid skill resource arguments"))?;
+                .map_err(|_| Fault::invalid("invalid skill resource arguments"))?;
             (args.skill, args.path)
         } else {
             let args: Load = serde_json::from_value(arguments)
-                .map_err(|_| AdkError::tool("invalid skill arguments"))?;
+                .map_err(|_| Fault::invalid("invalid skill arguments"))?;
             (args.skill, "SKILL.md".into())
         };
-        Ok(match self.resources.read(&key, &path).await {
+        let output = match self.resources.read(&key, &path).await {
             Ok(text) => {
                 self.ingress.agents.context_source(
                     self.turn,
@@ -144,18 +139,19 @@ impl Tool for Skills {
                         .resources
                         .python(&key, &self.ingress.environment)
                         .await
-                        .map_err(|error| AdkError::tool(error.to_string()))?;
+                        .map_err(|error| Fault::invalid(error.to_string()))?;
                     if let Some(ready) = &ready {
                         self.ingress
                             .agents
                             .bind_python(self.turn, ready.clone(), text.directory.clone().into())
-                            .map_err(|error| AdkError::tool(error.to_string()))?;
+                            .map_err(|error| Fault::invalid(error.to_string()))?;
                     }
                     json!({"skill": key, "path": path, "content": text.content, "directory": text.directory,"python":ready.map(|ready| ready.python)})
                 }
             }
             Err(error) => json!({"error": error}),
-        })
+        };
+        catalog::json(output)
     }
 }
 
@@ -176,7 +172,7 @@ pub(super) fn bind(
             .enumerate()
             .map(|(index, tool)| {
                 let display = (tool.name().into(), Skills::display(index == 1).clone());
-                let mut registration = catalog::Registration::managed(tool);
+                let mut registration = catalog::Registration::managed(tool.descriptor(), tool);
                 registration.presentation = Presentation::Summary;
                 registration.display = Some(display);
                 registration
@@ -188,3 +184,5 @@ pub(super) fn bind(
 
 #[cfg(test)]
 mod tests;
+
+crate::agent::catalog::provider!(Skills, crate::agent::catalog::result);

@@ -64,7 +64,7 @@ fn failure(mut outcome: Value, result: &Value, conflict: bool) -> Value {
     }
 }
 impl Script {
-    fn record_outcome(&self, context: &dyn ToolContext, error: Option<&Fault>) {
+    fn record_outcome(&self, context: &crate::agent::catalog::CallContext, error: Option<&Fault>) {
         if let Some(timeline) = self
             .context
             .turn
@@ -83,7 +83,7 @@ impl Script {
         }
     }
 
-    fn invalid(&self, context: &dyn ToolContext, message: &str) -> Value {
+    fn invalid(&self, context: &crate::agent::catalog::CallContext, message: &str) -> Value {
         let error = Fault::invalid(message);
         self.record_outcome(context, Some(&error));
         json!({"isError":true,"error":error})
@@ -91,9 +91,9 @@ impl Script {
 
     pub(super) async fn execute_flow(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<crate::agent::catalog::CallContext>,
         arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<Value, Fault> {
         let started = Instant::now();
         let mut state = Value::Null;
         let mut outcome = Value::Null;
@@ -192,13 +192,7 @@ impl Script {
                                     self.context.turn.ok_or_else(|| {
                                         Fault::invalid("command flow requires a turn")
                                     })?,
-                                    adk_core::ToolConfirmationRequest {
-                                        acting: None,
-                                        origin: None,
-                                        tool_name: self.name.clone(),
-                                        function_call_id: Some(context.function_call_id().into()),
-                                        args: arguments.clone(),
-                                    },
+                                    context.request_with(arguments.clone()).into(),
                                 )
                                 .await?;
                         }
@@ -213,13 +207,7 @@ impl Script {
                                     self.context.turn.ok_or_else(|| {
                                         Fault::invalid("connection flow requires a turn")
                                     })?,
-                                    adk_core::ToolConfirmationRequest {
-                                        acting: None,
-                                        origin: None,
-                                        tool_name: self.name.clone(),
-                                        function_call_id: Some(context.function_call_id().into()),
-                                        args: arguments.clone(),
-                                    },
+                                    context.request_with(arguments.clone()).into(),
                                     request.command.clone(),
                                 )
                                 .await?;

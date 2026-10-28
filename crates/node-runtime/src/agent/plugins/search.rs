@@ -1,7 +1,6 @@
 //! Discover schemas from this invocation's immutable execution catalog.
 use super::*;
-use adk_core::{AdkError, Tool, ToolContext};
-use async_trait::async_trait;
+use crate::agent::catalog::CallContext;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -34,25 +33,31 @@ pub(super) fn bind(
 ) -> Option<ToolRegistration> {
     let initial = tools
         .iter()
-        .filter(|entry| !entry.deferred || loaded.contains(entry.tool.name()))
+        .filter(|entry| !entry.deferred || loaded.contains(entry.tool.name.as_ref()))
         .flat_map(|entry| contexts(invocation, instructions, entry))
         .collect();
     let entries: Vec<_> = tools
         .iter()
         .filter(|entry| entry.deferred)
         .map(|entry| Entry {
-            name: entry.tool.name().into(),
-            description: entry.tool.enhanced_description(),
+            name: entry.tool.name.as_ref().into(),
+            description: entry
+                .tool
+                .description
+                .as_deref()
+                .unwrap_or_default()
+                .to_owned(),
             context: contexts(invocation, instructions, entry),
         })
         .collect();
     (!entries.is_empty()).then(|| {
-        ToolRegistration::managed(Arc::new(Search {
+        let tool = Arc::new(Search {
             session: invocation.turn.session.to_string(),
             stop: stop.clone(),
             entries,
             initial,
-        }))
+        });
+        ToolRegistration::managed(tool.descriptor(), tool)
     })
 }
 
@@ -87,7 +92,7 @@ fn contexts(
                 instructions
                     .any_tools
                     .iter()
-                    .any(|name| name == entry.tool.name())
+                    .any(|name| name == entry.tool.name.as_ref())
             })
             .map(|instructions| instructions.text.clone()),
     );
@@ -153,8 +158,7 @@ impl Search {
     }
 }
 
-#[async_trait]
-impl Tool for Search {
+impl Search {
     fn name(&self) -> &str {
         "tool_search"
     }
@@ -178,52 +182,41 @@ impl Tool for Search {
 
     async fn execute(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<rmcp::model::CallToolResult, Fault> {
         if context.session_id() != self.session
             || context.is_cancelled()
             || self.stop.is_cancelled()
         {
-            return Err(AdkError::tool(
+            return Err(Fault::invalid(
                 "tool discovery invocation is no longer active",
             ));
         }
         let arguments: Arguments =
-            tools::decode(arguments).map_err(|error| AdkError::tool(error.message))?;
-        let mut loaded = prompt::session::loaded(
-            context
-                .session()
-                .map(|session| session.state())
-                .or_else(|| context.state())
-                .and_then(|state| state.get(prompt::session::LOADED_TOOLS))
-                .as_ref(),
-        );
+            tools::decode(arguments).map_err(|error| Fault::invalid(error.message))?;
+        let mut loaded = context.context.loaded_tools.clone().unwrap_or_default();
         let output = self.output(arguments, &mut loaded);
-        let mut actions = context.actions();
-        actions
-            .state_delta
-            .insert(prompt::session::LOADED_TOOLS.into(), json!(loaded));
+        let mut delta = crate::agent::canonical::Context {
+            loaded_tools: Some(loaded),
+            ..Default::default()
+        };
         if let Some(addition) = output["sailry_context"]
             .as_str()
             .filter(|value| !value.is_empty())
         {
             let policy = context
-                .session()
-                .map(|session| session.state())
-                .or_else(|| context.state())
-                .and_then(|state| state.get(prompt::session::POLICY))
-                .and_then(|value| value.as_str().map(str::to_owned))
-                .ok_or_else(|| AdkError::tool("captured policy is unavailable"))?;
-            actions.state_delta.insert(
-                prompt::session::POLICY.into(),
-                json!(format!("{policy}\n\n{addition}")),
-            );
+                .context
+                .policy
+                .as_deref()
+                .ok_or_else(|| Fault::invalid("captured policy is unavailable"))?;
+            delta.policy = Some(format!("{policy}\n\n{addition}"));
         }
-        context.set_actions(actions);
-        Ok(output)
+        crate::agent::catalog::with_context(crate::agent::catalog::json(output)?, delta)
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+crate::agent::catalog::provider!(Search, crate::agent::catalog::result);

@@ -1,7 +1,6 @@
 //! Native clarification owns its deadline and never turns silence into consent.
 use super::*;
-use adk_core::{AdkError, Tool, ToolConfirmationRequest, ToolContext};
-use async_trait::async_trait;
+use crate::agent::catalog::CallContext;
 use sailry_protocol::conversation::question::{
     Answer, Input, MAX_TEXT_BYTES, Response, Spec, State,
 };
@@ -15,17 +14,19 @@ pub(super) struct Question {
     pub planning: bool,
 }
 
-#[async_trait]
-impl Tool for Question {
+impl Question {
+    pub(super) fn registration(self) -> super::catalog::Registration {
+        let provider = Arc::new(self);
+        super::catalog::Registration::managed(provider.descriptor(), provider)
+    }
+    fn is_read_only(&self) -> bool {
+        false
+    }
     fn name(&self) -> &str {
         "ask_user"
     }
     fn description(&self) -> &str {
         "Collect foreseeable missing information and preferences at the start of the task, grouping related decisions into concise questions. Proceed when the available information is sufficient; ask during work only for a newly discovered blocking question. Use text or single/multiple choices, optionally allowing another answer. Put the best-supported recommended option first and label it (Recommended). If the question times out, the tool returns that first option as an automatic recommendation, not a user answer; continue with that recommendation. Without choices, use the available context and state any necessary assumption; never invent missing facts or secrets. Do not use this tool for tool permissions, blanket authorization, or repeated confirmation of work the user already requested. Invoke the actual tool; the runtime handles any required approval separately. Answers do not grant tool permissions. Never request passwords or secrets: questions and answers are stored in conversation history and sent to the model. Cancellation or Stop is not a timeout or consent. Plan acceptance still requires an explicit user response. Permission modes never answer questions automatically."
-    }
-    fn timeout_override(&self) -> Option<Option<Duration>> {
-        // The same ADK budget is settled durably before this tool returns.
-        Some(None)
     }
     fn parameters_schema(&self) -> Option<Value> {
         Some(
@@ -45,16 +46,12 @@ impl Tool for Question {
             }}),
         )
     }
-    async fn execute(
-        &self,
-        context: Arc<dyn ToolContext>,
-        arguments: Value,
-    ) -> adk_core::Result<Value> {
+    async fn execute(&self, context: Arc<CallContext>, arguments: Value) -> Result<Value, Fault> {
         if context.session_id() != self.session {
-            return Err(AdkError::tool("question belongs to another session"));
+            return Err(Fault::invalid("question belongs to another session"));
         }
         if context.is_cancelled() || self.stop.is_cancelled() {
-            return Err(AdkError::tool("question was cancelled"));
+            return Err(Fault::invalid("question was cancelled"));
         }
         let result = async {
             let spec: Spec = serde_json::from_value(arguments.clone())
@@ -70,7 +67,7 @@ impl Tool for Question {
                     "plan review is unavailable in this turn",
                 ));
             }
-            let timeout = adk_agent::DEFAULT_TOOL_TIMEOUT;
+            let timeout = Duration::from_secs(300);
             #[cfg(any(test, feature = "test-support"))]
             let timeout = self
                 .ingress
@@ -79,16 +76,7 @@ impl Tool for Question {
                 .lock()
                 .unwrap()
                 .unwrap_or(timeout);
-            let waiting = self.ingress.ask(
-                self.turn,
-                ToolConfirmationRequest {
-                    acting: None,
-                    origin: None,
-                    tool_name: self.name().into(),
-                    function_call_id: Some(context.function_call_id().into()),
-                    args: arguments,
-                },
-            );
+            let waiting = self.ingress.ask(self.turn, context.request().into());
             tokio::pin!(waiting);
             let response = if matches!(spec.input, Input::Plan) {
                 waiting.await?
@@ -123,14 +111,6 @@ impl Tool for Question {
                 }
                 Response::Cancel => json!({"status": "cancelled"}),
                 Response::Answer(Answer::Text(text)) => {
-                    if matches!(
-                        spec.input,
-                        sailry_protocol::conversation::question::Input::Plan
-                    ) {
-                        let mut actions = context.actions();
-                        actions.skip_summarization = true;
-                        context.set_actions(actions);
-                    }
                     json!({"status": "answered", "answer": text})
                 }
                 Response::Answer(Answer::Choices { selected, other }) => {
@@ -147,9 +127,6 @@ impl Tool for Question {
                     json!({"status": "answered", "answers": answers})
                 }
                 Response::Answer(Answer::Plan { turn }) => {
-                    let mut actions = context.actions();
-                    actions.skip_summarization = true;
-                    context.set_actions(actions);
                     json!({"status": "accepted", "coding_turn": turn})
                 }
                 Response::StartCoding { .. } => {
@@ -162,8 +139,10 @@ impl Tool for Question {
         };
         tokio::select! {
             biased;
-            _ = self.stop.cancelled() => Err(AdkError::tool("question was cancelled")),
+            _ = self.stop.cancelled() => Err(Fault::invalid("question was cancelled")),
             result = result => match result { Ok(value) => Ok(value), Err(error) => Ok(json!({"error": error})) },
         }
     }
 }
+
+crate::agent::catalog::provider!(Question);

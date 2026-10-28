@@ -1,6 +1,5 @@
 //! The ADK tool result is the only durable progress record.
-use adk_core::{AdkError, Tool, ToolContext};
-use async_trait::async_trait;
+use crate::agent::catalog::CallContext;
 use sailry_link::CancellationToken;
 use sailry_protocol::conversation::progress::Progress;
 use serde_json::{Value, json};
@@ -13,8 +12,7 @@ pub(super) struct UpdatePlan {
     pub stop: CancellationToken,
 }
 
-#[async_trait]
-impl Tool for UpdatePlan {
+impl UpdatePlan {
     fn name(&self) -> &str {
         &self.name
     }
@@ -43,22 +41,20 @@ impl Tool for UpdatePlan {
         true
     }
 
-    async fn execute(
-        &self,
-        context: Arc<dyn ToolContext>,
-        arguments: Value,
-    ) -> adk_core::Result<Value> {
+    async fn execute(&self, context: Arc<CallContext>, arguments: Value) -> Result<Value, Fault> {
         if context.session_id() != self.session {
-            return Err(AdkError::tool("task progress belongs to another session"));
+            return Err(Fault::invalid("task progress belongs to another session"));
         }
         if context.is_cancelled() || self.stop.is_cancelled() {
-            return Err(AdkError::tool("task progress was cancelled"));
+            return Err(Fault::invalid("task progress was cancelled"));
         }
         let progress: Progress = serde_json::from_value(arguments)
-            .map_err(|_| AdkError::tool("invalid task progress arguments"))?;
+            .map_err(|_| Fault::invalid("invalid task progress arguments"))?;
         progress
             .validate()
-            .map_err(|error| AdkError::tool(error.message))?;
+            .map_err(|error| Fault::invalid(error.message))?;
         Ok(json!({"progress": progress}))
     }
 }
+
+crate::agent::catalog::provider!(UpdatePlan);

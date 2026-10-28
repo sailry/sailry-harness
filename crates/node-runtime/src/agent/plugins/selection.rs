@@ -22,7 +22,7 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
     }
     contribution.tools.retain(|entry| {
         // Paging an already-visible result adds no execution capability.
-        if entry.tool.name() == references::OUTPUT {
+        if entry.tool.name.as_ref() == references::OUTPUT {
             return true;
         }
         if let Some(selected) = selected {
@@ -31,8 +31,8 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
                 .any(|selection| matches(invocation, selection, entry));
         }
         if entry.plugin.is_none() {
-            return references::NAMES.contains(&entry.tool.name())
-                || skills::NAMES.contains(&entry.tool.name());
+            return references::NAMES.contains(&entry.tool.name.as_ref())
+                || skills::NAMES.contains(&entry.tool.name.as_ref());
         }
         let Some(package) = invocation
             .plugins
@@ -47,12 +47,12 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         if extension
             .model_tools
             .iter()
-            .any(|tool| model_tools::names(tool.capability).contains(&entry.tool.name()))
+            .any(|tool| model_tools::names(tool.capability).contains(&entry.tool.name.as_ref()))
         {
             return true;
         }
         extension.tools.iter().any(|tool| {
-            operations::alias(&package.summary.name, &tool.name) == entry.tool.name()
+            operations::alias(&package.summary.name, &tool.name) == entry.tool.name.as_ref()
                 && standard(tool)
         })
     });
@@ -73,14 +73,12 @@ pub(super) fn defer(invocation: &Invocation, tools: &mut [ToolRegistration]) -> 
 }
 
 fn initial(invocation: &Invocation, selected: Option<&str>, entry: &ToolRegistration) -> bool {
-    if entry.tool.is_builtin()
-        || entry.tool.is_agent_delegation() && invocation.message.selected_role().is_some()
-    {
+    if entry.delegation && invocation.message.selected_role().is_some() {
         return true;
     }
     let Some(owner) = entry.plugin.as_deref() else {
-        return references::NAMES.contains(&entry.tool.name())
-            || skills::NAMES.contains(&entry.tool.name());
+        return references::NAMES.contains(&entry.tool.name.as_ref())
+            || skills::NAMES.contains(&entry.tool.name.as_ref());
     };
     if selected == Some(owner) {
         return true;
@@ -94,16 +92,17 @@ fn initial(invocation: &Invocation, selected: Option<&str>, entry: &ToolRegistra
             extension
                 .model_tools
                 .iter()
-                .any(|tool| model_tools::names(tool.capability).contains(&entry.tool.name()))
+                .any(|tool| model_tools::names(tool.capability).contains(&entry.tool.name.as_ref()))
                 || extension.tools.iter().any(|tool| {
-                    operations::alias(owner, &tool.name) == entry.tool.name() && standard(tool)
+                    operations::alias(owner, &tool.name) == entry.tool.name.as_ref()
+                        && standard(tool)
                 })
         })
 }
 
 fn matches(invocation: &Invocation, selection: &Selection, entry: &ToolRegistration) -> bool {
     match selection {
-        Selection::Builtin { name } => entry.plugin.is_none() && entry.tool.name() == name,
+        Selection::Builtin { name } => entry.plugin.is_none() && entry.tool.name.as_ref() == name,
         Selection::Package { package, name } => {
             entry.plugin.as_ref() == Some(package)
                 && invocation.plugins.iter().any(|provider| {
@@ -111,7 +110,7 @@ fn matches(invocation: &Invocation, selection: &Selection, entry: &ToolRegistrat
                         && provider.extension.as_ref().is_some_and(|extension| {
                             extension.tools.iter().any(|tool| {
                                 tool.name == *name
-                                    && entry.tool.name()
+                                    && entry.tool.name.as_ref()
                                         == tool.server.as_ref().map_or_else(
                                             || operations::alias(package, name),
                                             |server| mcp::alias(package, server, name),
@@ -121,7 +120,7 @@ fn matches(invocation: &Invocation, selection: &Selection, entry: &ToolRegistrat
                 })
         }
         Selection::Model { capability } => {
-            model_tools::names(*capability).contains(&entry.tool.name())
+            model_tools::names(*capability).contains(&entry.tool.name.as_ref())
         }
         Selection::Plugin { .. } => false,
     }

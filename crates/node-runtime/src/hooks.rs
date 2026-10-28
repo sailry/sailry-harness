@@ -1,9 +1,6 @@
-//! User scripts reuse managed Node processes and canonical ADK session history.
-mod callbacks;
+//! User scripts reuse managed Node processes and durable execution receipts.
 
 use crate::store::{Ingress, agent::Invocation};
-use adk_core::Event;
-use adk_session::SessionService;
 use futures::FutureExt;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
@@ -51,11 +48,22 @@ impl Binding {
         })
     }
 
-    pub(crate) fn before(self: &Arc<Self>) -> adk_core::BeforeToolCallback {
-        callbacks::before(self.clone())
+    pub(crate) async fn before(self: &Arc<Self>, tool: &str) -> Result<(), Fault> {
+        let ordinal = self.before.fetch_add(1, Ordering::Relaxed);
+        self.execute(Phase::BeforeTool, ordinal, Some(tool), None)
+            .await
     }
-    pub(crate) fn after(self: &Arc<Self>) -> adk_core::AfterToolCallbackFull {
-        callbacks::after(self.clone())
+
+    pub(crate) async fn after(self: &Arc<Self>, tool: &str, success: bool) {
+        let ordinal = self.after.fetch_add(1, Ordering::Relaxed);
+        let status = if success { "succeeded" } else { "failed" };
+        if let Err(error) = self
+            .execute(Phase::AfterTool, ordinal, Some(tool), Some(status))
+            .await
+        {
+            // The actual tool response owns side effects that already happened.
+            self.remember(error);
+        }
     }
 
     pub(crate) async fn complete(self: &Arc<Self>, status: &str) -> Result<(), Fault> {
@@ -201,10 +209,9 @@ impl Binding {
             metadata.insert("SAILRY_HOOK_STATUS", status.to_string());
         }
         // Raw tool arguments, responses, provider configuration and credentials
-        // are deliberately absent from the script environment and history record.
+        // are deliberately absent from the script environment and launch receipt.
         let mut result = Ok(sailry_protocol::process::Outcome::Exited(0));
-        let mut records = Vec::new();
-        for (id, script) in scripts {
+        for (_, script) in scripts {
             if stop.is_cancelled() {
                 if matches!(&result, Ok(sailry_protocol::process::Outcome::Exited(0))) {
                     result = Ok(sailry_protocol::process::Outcome::Cancelled);
@@ -223,7 +230,6 @@ impl Binding {
                 .await
                 .map(|completion| completion.outcome);
             let success = matches!(&outcome, Ok(sailry_protocol::process::Outcome::Exited(0)));
-            records.push(serde_json::json!({"id": id, "result": &outcome}));
             if !success {
                 let uncertain = matches!(&outcome, Err(error) if error.code == ErrorCode::OutcomeUnknown)
                     || matches!(&outcome, Ok(sailry_protocol::process::Outcome::Unknown(_)));
@@ -245,33 +251,6 @@ impl Binding {
                     format!(
                         "hook completion could not be recorded: {error}; script was not replayed"
                     ),
-                )
-            })?;
-        let mut event = Event::new(self.turn.to_string());
-        event.id = format!("hook:{}:{}:{ordinal}", self.turn, phase.name());
-        event.author = "hooks".into();
-        let metadata = serde_json::json!({
-            "phase": phase,
-            "ordinal": ordinal,
-            "revision": self.settings.revision,
-            "tool": tool,
-            "status": status,
-            "result": &result,
-            "scripts": records,
-        });
-        let metadata = serde_json::to_string(&metadata)
-            .map_err(|_| Fault::new(ErrorCode::Internal, "hook result could not be encoded"))?;
-        event
-            .provider_metadata
-            .insert("sailry.hook".into(), metadata);
-        self.ingress
-            .sessions(self.turn)
-            .append_event(&self.session.to_string(), event)
-            .await
-            .map_err(|_| {
-                Fault::new(
-                    ErrorCode::OutcomeUnknown,
-                    "hook history could not be recorded; script was not replayed",
                 )
             })?;
         match result? {

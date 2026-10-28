@@ -35,6 +35,26 @@ fn entry(id: &str, phase: Phase, command: &str, enabled: bool) -> Entry {
     }
 }
 
+async fn receipts(
+    db: &turso::Connection,
+    session: SessionId,
+) -> Vec<(String, i64, Result<Outcome, Fault>, Settings)> {
+    let mut rows = db.query(
+        "SELECT h.phase,h.ordinal,h.result,r.hooks FROM hook_executions h JOIN turns t ON t.id=h.turn JOIN agent_runs r ON r.turn=t.id WHERE t.session=?1 ORDER BY h.turn,h.phase,h.ordinal",
+        [session.to_string()],
+    ).await.unwrap();
+    let mut receipts = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        receipts.push((
+            row.get::<String>(0).unwrap(),
+            row.get::<i64>(1).unwrap(),
+            serde_json::from_slice(&row.get::<Vec<u8>>(2).unwrap()).unwrap(),
+            serde_json::from_slice(&row.get::<Vec<u8>>(3).unwrap()).unwrap(),
+        ));
+    }
+    receipts
+}
+
 async fn read(client: &Client, worktree: WorktreeId) -> Settings {
     let Output::HookSettings(state) = execute(client, Command::ReadHooks { worktree }).await else {
         panic!("hook settings expected")
@@ -255,34 +275,20 @@ async fn orders_callbacks_in_worktree_scope() {
                 .unwrap(),
             3
         );
-        let mut rows = db
-            .query(
-                "SELECT body FROM agent_events WHERE session=?1",
-                [fixture.session.id.to_string()],
-            )
-            .await
-            .unwrap();
-        let mut events = Vec::new();
-        while let Some(row) = rows.next().await.unwrap() {
-            events.push(
-                serde_json::from_slice::<adk_core::Event>(&row.get::<Vec<u8>>(0).unwrap()).unwrap(),
-            );
-        }
-        drop(rows);
+        let hooks = receipts(&db, fixture.session.id).await;
         crate::database_fixture::close(database, db).await;
-        let hooks = events
-            .iter()
-            .filter_map(|event| event.provider_metadata.get("sailry.hook"))
-            .map(|body| serde_json::from_str::<serde_json::Value>(body).unwrap())
-            .collect::<Vec<_>>();
         assert_eq!(hooks.len(), 3);
         for phase in Phase::ALL {
-            let record = hooks
+            let (name, ordinal, outcome, settings) = hooks
                 .iter()
-                .find(|record| record["phase"] == phase.name())
+                .find(|(name, ..)| name == phase.name())
                 .unwrap();
-            assert_eq!(record["scripts"].as_array().unwrap().len(), 2);
-            assert_eq!(record["scripts"][0]["id"], phase.name());
+            assert_eq!(name, phase.name());
+            assert_eq!(*ordinal, 0);
+            assert_eq!(*outcome, Ok(Outcome::Exited(0)));
+            let scripts: Vec<_> = settings.scripts(phase).collect();
+            assert_eq!(scripts.len(), 2);
+            assert_eq!(scripts[0].0, phase.name());
         }
     }
 }

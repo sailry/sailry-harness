@@ -1,7 +1,10 @@
 //! Bounded package policy shares one ephemeral owner with its captured tool handlers.
 //! It can inspect its own visible results, never modify model messages or history.
 use super::*;
-use adk_core::{BeforeModelCallback, BeforeModelResult, Part};
+use crate::{agent::engine::Effect, store::agent::RuntimeSession};
+use goose_agent::operation::{Emitter, Operation, OperationResult};
+use goose_provider_types::conversation::message::MessageContentBlock;
+use goose_provider_types::conversation::{Conversation, EffectiveRole, effective_role};
 use std::{
     collections::BTreeMap,
     sync::atomic::{AtomicBool, Ordering},
@@ -112,7 +115,7 @@ impl Turn {
         })
     }
 
-    pub fn observer(self: &Arc<Self>, completion: Arc<AtomicBool>) -> Option<BeforeModelCallback> {
+    pub fn observer(self: &Arc<Self>, completion: Arc<AtomicBool>) -> Option<Arc<Observer>> {
         let handler = self
             .package
             .extension
@@ -123,43 +126,10 @@ impl Turn {
             .as_ref()?
             .before_model
             .clone()?;
-        let owner = self.clone();
-        Some(Box::new(move |_, request| {
-            let results: Vec<_> = request
-                .contents
-                .iter()
-                .flat_map(|content| &content.parts)
-                .filter_map(|part| {
-                    let Part::FunctionResponse {
-                        function_response, ..
-                    } = part
-                    else {
-                        return None;
-                    };
-                    owner
-                        .names
-                        .get(&function_response.name)
-                        .map(|name| json!({"name":name,"response":function_response.response}))
-                })
-                .collect();
-            let owner = owner.clone();
-            let handler = handler.clone();
-            let completion = completion.clone();
-            Box::pin(async move {
-                let result = owner
-                    .evaluate(handler, json!({"results":results}))
-                    .await
-                    .map_err(super::error)?;
-                if result.get("stop").and_then(Value::as_bool) == Some(true) {
-                    completion.store(true, Ordering::Release);
-                    return Ok(BeforeModelResult::Skip(adk_core::LlmResponse {
-                        turn_complete: true,
-                        finish_reason: Some(adk_core::FinishReason::Stop),
-                        ..Default::default()
-                    }));
-                }
-                Ok(BeforeModelResult::Continue(request))
-            })
+        Some(Arc::new(Observer {
+            owner: self.clone(),
+            handler,
+            completion,
         }))
     }
 
@@ -229,6 +199,76 @@ impl Turn {
         })
         .await
         .map_err(|_| sailry_protocol::Fault::invalid("plugin turn worker failed"))?
+    }
+}
+
+pub(super) struct Observer {
+    owner: Arc<Turn>,
+    handler: String,
+    completion: Arc<AtomicBool>,
+}
+
+#[async_trait::async_trait]
+impl Operation<RuntimeSession, Effect> for Observer {
+    fn name(&self) -> &'static str {
+        "plugin_turn"
+    }
+
+    async fn run(
+        &self,
+        _: &RuntimeSession,
+        conversation: &Conversation,
+        _: &Emitter,
+    ) -> anyhow::Result<OperationResult<Effect>> {
+        if conversation
+            .last()
+            .is_none_or(|last| effective_role(last) == EffectiveRole::Assistant)
+        {
+            return goose_agent::operation::not_applicable();
+        }
+        let calls: BTreeMap<_, _> = conversation
+            .messages()
+            .iter()
+            .flat_map(|message| &message.content)
+            .filter_map(|block| {
+                let MessageContentBlock::ToolRequest(request) = block else {
+                    return None;
+                };
+                request
+                    .tool_call
+                    .as_ref()
+                    .ok()
+                    .map(|call| (request.id.as_str(), call.name.as_ref()))
+            })
+            .collect();
+        let results: Vec<_> = conversation
+            .messages()
+            .iter()
+            .flat_map(|message| &message.content)
+            .filter_map(|block| {
+                let MessageContentBlock::ToolResponse(response) = block else {
+                    return None;
+                };
+                let name = self.owner.names.get(*calls.get(response.id.as_str())?)?;
+                let value = match &response.tool_result {
+                    Ok(result) => result
+                        .structured_content
+                        .clone()
+                        .unwrap_or_else(|| serde_json::to_value(result).unwrap()),
+                    Err(error) => serde_json::to_value(error).unwrap(),
+                };
+                Some(json!({"name":name,"response":value}))
+            })
+            .collect();
+        let result = self
+            .owner
+            .evaluate(self.handler.clone(), json!({"results":results}))
+            .await?;
+        if result.get("stop").and_then(Value::as_bool) == Some(true) {
+            self.completion.store(true, Ordering::Release);
+            return goose_agent::operation::yielded();
+        }
+        goose_agent::operation::not_applicable()
     }
 }
 

@@ -2,8 +2,10 @@
 pub(super) mod scope;
 use super::catalog::Registration;
 use super::*;
-use adk_core::{AdkError, Tool, ToolContext};
+use crate::agent::catalog::CallContext;
 use async_trait::async_trait;
+use goose_agent::{operation::Emitter, tool::ToolProvider};
+use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorData, Tool, ToolAnnotations};
 use sailry_link::{Local, Transport};
 use sailry_protocol::{Command, Output, Request, WorktreeId};
 use serde::de::DeserializeOwned;
@@ -71,22 +73,19 @@ pub(super) fn bind<D: Definition + 'static>(
         .map(|definition| {
             let presentation = definition.presentation();
             let display = definition.display();
-            let mut registration = Registration::new(
-                Arc::new(Operation {
-                    binding: binding.clone(),
-                    definition,
-                }) as Arc<dyn Tool>,
-                presentation,
-            );
+            let tool = Arc::new(Operation {
+                binding: binding.clone(),
+                definition,
+            });
+            let mut registration = Registration::new(tool.descriptor(), tool, presentation);
             registration.display =
-                display.map(|display| (registration.tool.name().into(), display));
+                display.map(|display| (registration.tool.name.to_string(), display));
             registration
         })
         .collect()
 }
 
-#[async_trait]
-impl<D: Definition + 'static> Tool for Operation<D> {
+impl<D: Definition + 'static> Operation<D> {
     fn name(&self) -> &str {
         self.definition.name()
     }
@@ -99,39 +98,26 @@ impl<D: Definition + 'static> Tool for Operation<D> {
     fn is_read_only(&self) -> bool {
         self.definition.read_only()
     }
-    fn is_concurrency_safe(&self) -> bool {
-        self.is_read_only()
-    }
-    async fn execute(
-        &self,
-        context: Arc<dyn ToolContext>,
-        arguments: Value,
-    ) -> adk_core::Result<Value> {
+    async fn execute(&self, context: Arc<CallContext>, arguments: Value) -> Result<Value, Fault> {
         if context.session_id() != self.binding.session {
-            return Err(AdkError::tool("tool belongs to another session"));
+            return Err(Fault::invalid("tool belongs to another session"));
         }
         if context.is_cancelled() || self.binding.stop.is_cancelled() {
-            return Err(AdkError::tool("tool invocation was cancelled"));
+            return Err(Fault::invalid("tool invocation was cancelled"));
         }
-        let authorization = adk_core::ToolConfirmationRequest {
-            acting: None,
-            origin: None,
-            tool_name: self.name().into(),
-            function_call_id: Some(context.function_call_id().into()),
-            args: arguments.clone(),
-        };
+        let authorization = context.request();
         let result = async {
             let command = self.definition.prepare(&self.binding, arguments).await?;
             scope::validate(&self.binding, &command).await?;
             let mut request = Request::new(self.binding.transport.target(), command);
             if !self.is_read_only() {
-                // Claim the exact persisted call once, including when ADK receives a reused call ID.
+                // Claim the exact persisted call once, including when a provider reuses a call ID.
                 request.id = self
                     .binding
                     .ingress
                     .authorize(
                         self.binding.turn,
-                        authorization,
+                        authorization.into(),
                         Some(request.command.clone()),
                     )
                     .await?;
@@ -150,7 +136,7 @@ impl<D: Definition + 'static> Tool for Operation<D> {
         };
         tokio::select! {
             biased;
-            _ = self.binding.stop.cancelled() => Err(AdkError::tool("tool invocation was cancelled")),
+            _ = self.binding.stop.cancelled() => Err(Fault::invalid("tool invocation was cancelled")),
             result = result => match result {
                 Ok(output) => Ok(output),
                 Err(error) => Ok(json!({"error": error})),
@@ -162,4 +148,40 @@ impl<D: Definition + 'static> Tool for Operation<D> {
 pub(super) fn decode<T: DeserializeOwned>(value: Value) -> Result<T, Fault> {
     serde_json::from_value(value)
         .map_err(|error| Fault::invalid(format!("invalid tool arguments: {error}")))
+}
+
+impl<D: Definition + 'static> Operation<D> {
+    fn descriptor(&self) -> Tool {
+        Tool::new(
+            self.name().to_owned(),
+            self.description().to_owned(),
+            self.definition
+                .parameters()
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        )
+        .with_annotations(ToolAnnotations::new().read_only(self.is_read_only()))
+    }
+}
+#[async_trait]
+impl<D: Definition + 'static> ToolProvider<CallContext> for Operation<D> {
+    async fn tools(&self, _: &CallContext) -> anyhow::Result<Vec<Tool>> {
+        Ok(vec![self.descriptor()])
+    }
+    async fn call(
+        &self,
+        context: &CallContext,
+        _: &str,
+        call: CallToolRequestParams,
+        _: &Emitter,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.execute(
+            Arc::new(context.clone()),
+            Value::Object(call.arguments.unwrap_or_default()),
+        )
+        .await
+        .and_then(crate::agent::catalog::json)
+        .map_err(crate::agent::catalog::fault)
+    }
 }

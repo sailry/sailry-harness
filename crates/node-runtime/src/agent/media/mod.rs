@@ -6,9 +6,8 @@ use sailry_protocol::{
 };
 use serde_json::{Value, json};
 mod error;
-mod screenshots;
-pub(super) use screenshots::callback as screenshots;
 mod generation;
+pub(in crate::agent) mod screenshots;
 mod usage;
 mod vision;
 use error::Failure;

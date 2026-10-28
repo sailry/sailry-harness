@@ -1,7 +1,7 @@
-//! Session naming commits through the same ADK event as its tool result.
-use adk_core::{AdkError, Tool, ToolContext};
-use async_trait::async_trait;
+//! Session naming commits on the canonical tool response.
+use super::catalog::CallContext;
 use sailry_link::CancellationToken;
+use sailry_protocol::Fault;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -28,11 +28,11 @@ pub(super) struct SetTitle {
 }
 
 pub(super) fn bind(session: String, stop: CancellationToken) -> super::catalog::Registration {
-    let mut registration =
-        super::catalog::Registration::managed(Arc::new(SetTitle { session, stop }));
+    let tool = Arc::new(SetTitle { session, stop });
+    let mut registration = super::catalog::Registration::managed(tool.descriptor(), tool);
     registration.presentation = sailry_protocol::tool::Presentation::Hidden;
     registration.display = Some((
-        registration.tool.name().into(),
+        registration.tool.name.to_string(),
         super::catalog::display::new(super::catalog::display::Label::Title),
     ));
     registration
@@ -44,8 +44,7 @@ struct Arguments {
     title: String,
 }
 
-#[async_trait]
-impl Tool for SetTitle {
+impl SetTitle {
     fn name(&self) -> &str {
         "set_session_title"
     }
@@ -66,32 +65,32 @@ impl Tool for SetTitle {
     fn is_read_only(&self) -> bool {
         true
     }
-    fn is_concurrency_safe(&self) -> bool {
-        false
-    }
 
     async fn execute(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<rmcp::model::CallToolResult, Fault> {
         if context.session_id() != self.session {
-            return Err(AdkError::tool("title belongs to another session"));
+            return Err(Fault::invalid("title belongs to another session"));
         }
         if context.is_cancelled() || self.stop.is_cancelled() {
-            return Err(AdkError::tool("title update was cancelled"));
+            return Err(Fault::invalid("title update was cancelled"));
         }
         let arguments: Arguments = serde_json::from_value(arguments)
-            .map_err(|_| AdkError::tool("invalid title arguments"))?;
+            .map_err(|_| Fault::invalid("invalid title arguments"))?;
         let title = arguments.title.trim();
         if title.is_empty() || title.chars().any(char::is_control) {
-            return Err(AdkError::tool("title must be nonempty single-line text"));
+            return Err(Fault::invalid("title must be nonempty single-line text"));
         }
-        let mut actions = context.actions();
-        actions
-            .state_delta
-            .insert(crate::store::agent::SESSION_TITLE.into(), json!(title));
-        context.set_actions(actions);
-        Ok(json!({"title": title}))
+        super::catalog::with_context(
+            super::catalog::json(json!({"title": title}))?,
+            super::canonical::Context {
+                title: Some(title.into()),
+                ..Default::default()
+            },
+        )
     }
 }
+
+crate::agent::catalog::provider!(SetTitle, crate::agent::catalog::result);

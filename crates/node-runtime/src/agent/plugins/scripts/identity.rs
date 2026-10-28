@@ -6,9 +6,9 @@ pub(super) fn call(
     package: &plugin::Reference,
     tool: &str,
     call: &str,
-) -> adk_core::Result<RequestId> {
+) -> Result<RequestId, Fault> {
     crate::plugins::cards::identity(turn, package, tool, call)
-        .map_err(|_| AdkError::tool("invalid plugin tool identity"))
+        .map_err(|_| Fault::invalid("invalid plugin tool identity"))
 }
 
 #[cfg(test)]

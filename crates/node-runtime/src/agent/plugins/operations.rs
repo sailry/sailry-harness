@@ -1,8 +1,7 @@
 //! Declared host operations run without a controller-side script or MCP process.
 use super::*;
-use adk_core::Tool;
-use adk_core::{AdkError, ToolContext};
-use async_trait::async_trait;
+use crate::agent::catalog::CallContext;
+use goose_agent::tool::ToolProvider;
 use sailry_link::{Local, Transport};
 use sailry_protocol::{Command, Request, plugin, tool::Operation};
 use serde_json::{Value, json};
@@ -59,46 +58,57 @@ pub(super) fn bind(
             }
             search_bound |= operation == Operation::SearchWeb;
             let name = alias(&package.summary.name, &declaration.name);
-            let tool: Arc<dyn Tool> = if operation == Operation::DelegateAgent {
-                Arc::new(super::super::delegation::Delegate::new(
-                    ingress,
-                    tasks,
-                    invocation,
-                    stop,
-                    name,
-                    declaration.description.clone().unwrap_or_default(),
-                    json!({"type":"object","properties":{"session":{"type":"string"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string"},"background":{"type":"boolean"},"worktree":{"type":["string","null"]}},"required":["task"],"additionalProperties":false}),
-                ))
-            } else if matches!(operation, Operation::GuideAgent | Operation::WaitAgent) {
-                Arc::new(super::super::delegation::Control::new(
-                    ingress,
-                    invocation,
-                    package,
-                    stop,
-                    operation,
-                    super::super::delegation::Delegate::new(
+            let (descriptor, tool): (rmcp::model::Tool, Arc<dyn ToolProvider<CallContext>>) =
+                if operation == Operation::DelegateAgent {
+                    let tool = Arc::new(super::super::delegation::Delegate::new(
                         ingress,
                         tasks,
                         invocation,
                         stop,
                         name,
                         declaration.description.clone().unwrap_or_default(),
-                        Value::Null,
-                    ),
-                ))
-            } else if operation == Operation::Progress {
-                Arc::new(progress::UpdatePlan {
-                    name,
-                    description: declaration.description.clone(),
-                    session: invocation.turn.session.to_string(),
-                    stop: stop.clone(),
-                })
-            } else {
-                let mut tool =
-                    HostOperation::new(ingress, invocation, package, declaration, operation, stop);
-                tool.managed = true;
-                Arc::new(tool)
-            };
+                        json!({"type":"object","properties":{"session":{"type":"string"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string"},"background":{"type":"boolean"},"worktree":{"type":["string","null"]}},"required":["task"],"additionalProperties":false}),
+                    ));
+                    (tool.descriptor(), tool)
+                } else if matches!(operation, Operation::GuideAgent | Operation::WaitAgent) {
+                    let tool = Arc::new(super::super::delegation::Control::new(
+                        ingress,
+                        invocation,
+                        package,
+                        stop,
+                        operation,
+                        super::super::delegation::Delegate::new(
+                            ingress,
+                            tasks,
+                            invocation,
+                            stop,
+                            name,
+                            declaration.description.clone().unwrap_or_default(),
+                            Value::Null,
+                        ),
+                    ));
+                    (tool.descriptor(), tool)
+                } else if operation == Operation::Progress {
+                    let tool = Arc::new(progress::UpdatePlan {
+                        name,
+                        description: declaration.description.clone(),
+                        session: invocation.turn.session.to_string(),
+                        stop: stop.clone(),
+                    });
+                    (tool.descriptor(), tool)
+                } else {
+                    let mut tool = HostOperation::new(
+                        ingress,
+                        invocation,
+                        package,
+                        declaration,
+                        operation,
+                        stop,
+                    );
+                    tool.managed = true;
+                    let tool = Arc::new(tool);
+                    (tool.descriptor(), tool)
+                };
             let mut registration = if matches!(
                 operation,
                 Operation::DelegateAgent
@@ -111,16 +121,17 @@ pub(super) fn bind(
                     | Operation::SaveDatabaseConnection
                     | Operation::SaveSshConnection
             ) {
-                ToolRegistration::managed(tool)
+                ToolRegistration::managed(descriptor, tool)
             } else {
-                ToolRegistration::new(tool, declaration.presentation)
+                ToolRegistration::new(descriptor, tool, declaration.presentation)
             };
+            registration.delegation = operation == Operation::DelegateAgent;
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
             registration.display = declaration.display.clone().map(|display| {
                 (
-                    registration.tool.name().into(),
+                    registration.tool.name.to_string(),
                     connections::display(operation, display, &invocation.connections),
                 )
             });
@@ -176,8 +187,7 @@ pub(super) struct HostOperation {
     managed: bool,
 }
 
-#[async_trait]
-impl Tool for HostOperation {
+impl HostOperation {
     fn name(&self) -> &str {
         &self.name
     }
@@ -190,26 +200,12 @@ impl Tool for HostOperation {
     fn is_read_only(&self) -> bool {
         self.operation.read_only()
     }
-    fn is_concurrency_safe(&self) -> bool {
-        self.is_read_only()
-            && !matches!(
-                self.operation,
-                Operation::ReadExternalBrowser
-                    | Operation::ControlExternalBrowser
-                    | Operation::ReadBrowser
-                    | Operation::ControlBrowser
-            )
-    }
-    async fn execute(
-        &self,
-        context: Arc<dyn ToolContext>,
-        arguments: Value,
-    ) -> adk_core::Result<Value> {
+    async fn execute(&self, context: Arc<CallContext>, arguments: Value) -> Result<Value, Fault> {
         if Some(context.session_id()) != self.context.session.map(|id| id.to_string()).as_deref() {
-            return Err(AdkError::tool("plugin tool belongs to another session"));
+            return Err(Fault::invalid("plugin tool belongs to another session"));
         }
         if context.is_cancelled() || self.stop.is_cancelled() {
-            return Err(AdkError::tool("plugin tool was cancelled"));
+            return Err(Fault::invalid("plugin tool was cancelled"));
         }
         if self.operation == Operation::ReadSettings {
             return self
@@ -221,7 +217,7 @@ impl Tool for HostOperation {
                         "plugin configuration is unavailable",
                     ))
                 })
-                .map_err(|fault| AdkError::tool(fault.message));
+                .map_err(|fault| Fault::invalid(fault.message));
         }
         let output = self
             .execute_bound(context, arguments.clone(), arguments)
@@ -315,28 +311,18 @@ impl HostOperation {
 
     pub(super) async fn authorize(
         &self,
-        context: &dyn ToolContext,
+        context: &CallContext,
         arguments: Value,
         prepared: Option<Command>,
     ) -> Result<sailry_protocol::RequestId, Fault> {
         self.ingress
-            .authorize(
-                self.turn,
-                adk_core::ToolConfirmationRequest {
-                    acting: None,
-                    origin: None,
-                    tool_name: self.name.clone(),
-                    function_call_id: Some(context.function_call_id().into()),
-                    args: arguments,
-                },
-                prepared,
-            )
+            .authorize(self.turn, context.request_with(arguments).into(), prepared)
             .await
     }
 
     pub(super) async fn dispatch(
         &self,
-        context: &dyn ToolContext,
+        context: &CallContext,
         request: Request,
     ) -> Result<Value, Fault> {
         if connections::handles(self.operation)
@@ -445,10 +431,10 @@ impl HostOperation {
 
     pub(super) async fn execute_bound(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
         authorized_arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<Value, Fault> {
         let work = async {
             let mut request = self.prepare(arguments.clone()).await?;
             if let Command::RunCommand { access, .. } = &mut request.command {
@@ -470,13 +456,7 @@ impl HostOperation {
                     .ingress
                     .approved_command_access(
                         self.turn,
-                        adk_core::ToolConfirmationRequest {
-                            acting: None,
-                            origin: None,
-                            tool_name: self.name.clone(),
-                            function_call_id: Some(context.function_call_id().into()),
-                            args: authorized_arguments.clone(),
-                        },
+                        context.request_with(authorized_arguments.clone()).into(),
                     )
                     .await?;
             }
@@ -491,11 +471,7 @@ impl HostOperation {
                 let decision = tokio::select! {
                     biased;
                     _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled,"connection approval was cancelled")),
-                    decision = self.ingress.confirm_connection(self.turn, adk_core::ToolConfirmationRequest {
-                        acting: None,
-                        origin: None,
-                        tool_name: self.name.clone(), function_call_id: Some(context.function_call_id().into()), args: authorized_arguments.clone(),
-                    }, crate::store::agent::ApprovalBinding { owner: self.context.package.clone(), tool: self.name.clone(), operation: Some(self.operation) }, request.command.clone(), trust.clone()) => decision?,
+                    decision = self.ingress.confirm_connection(self.turn, context.request_with(authorized_arguments.clone()).into(), crate::store::agent::ApprovalBinding { owner: self.context.package.clone(), tool: self.name.clone(), operation: Some(self.operation) }, request.command.clone(), trust.clone()) => decision?,
                 };
                 if !matches!(
                     decision,
@@ -517,13 +493,7 @@ impl HostOperation {
                     self.ingress
                         .confirm(
                             self.turn,
-                            adk_core::ToolConfirmationRequest {
-                                acting: None,
-                                origin: None,
-                                tool_name: self.name.clone(),
-                                function_call_id: Some(context.function_call_id().into()),
-                                args: authorized_arguments.clone(),
-                            },
+                            context.request_with(authorized_arguments.clone()).into(),
                             Some(crate::store::agent::ApprovalBinding {
                                 owner: self.context.package.clone(),
                                 tool: self.name.clone(),
@@ -603,3 +573,5 @@ impl HostOperation {
         })
     }
 }
+
+crate::agent::catalog::provider!(HostOperation);

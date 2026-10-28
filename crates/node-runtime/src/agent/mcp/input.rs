@@ -1,7 +1,6 @@
-//! Server callbacks are scoped to one admitted ADK call; no unsolicited prompts.
+//! Server callbacks are scoped to one admitted tool call; no unsolicited prompts.
 use super::*;
 use crate::store::agent::elicitation;
-use adk_session::SessionService;
 use rmcp::{
     ClientHandler,
     model::{
@@ -23,7 +22,7 @@ struct Call {
     ingress: Arc<Ingress>,
     turn: TurnId,
     session: String,
-    parent: ToolConfirmationRequest,
+    parent: ToolIdentity,
     stop: CancellationToken,
     waiting: watch::Sender<usize>,
     timing_owner: Option<u64>,
@@ -53,7 +52,7 @@ impl Handler {
         ingress: Arc<Ingress>,
         turn: TurnId,
         session: String,
-        parent: ToolConfirmationRequest,
+        parent: ToolIdentity,
         stop: &CancellationToken,
     ) -> Active<'_> {
         let (waiting, _) = watch::channel(0);
@@ -191,7 +190,7 @@ impl ClientHandler for Handler {
             spec: spec.clone(),
             schema,
         };
-        let event = elicitation::event(call.turn, &input);
+        let event = elicitation::event(call.turn, input);
         let id = event.id.clone();
         // Pause only the in-flight tool deadline while actual user input is pending.
         call.waiting.send_modify(|waiting| *waiting += 1);
@@ -211,18 +210,19 @@ impl ClientHandler for Handler {
                 .ingress
                 .ask(
                     call.turn,
-                    ToolConfirmationRequest {
-                        acting: None,
-                        origin: None,
-                        tool_name: elicitation::TOOL.into(),
-                        function_call_id: Some(id.clone()),
-                        args: serde_json::to_value(spec).map_err(|_| failed())?,
+                    ToolIdentity {
+                        id: Some(id.clone()),
+                        name: elicitation::TOOL.into(),
+                        arguments: serde_json::to_value(spec).map_err(|_| failed())?,
                     },
                 )
                 .await
                 .map_err(|_| failed())?;
             sessions
-                .append_event(&call.session, elicitation::result(call.turn, id, &response))
+                .append_event(
+                    &call.session,
+                    elicitation::result(call.turn, id, response.clone()),
+                )
                 .await
                 .map_err(|_| failed())?;
             Ok(match response {

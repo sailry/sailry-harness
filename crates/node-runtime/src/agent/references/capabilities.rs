@@ -10,7 +10,7 @@ pub(in crate::agent) fn tools(tools: &[catalog::Registration]) -> BTreeMap<Strin
             captured
                 .entry(plugin.clone())
                 .or_default()
-                .push(tool.tool.name().to_owned());
+                .push(tool.tool.name.to_string());
         }
     }
     captured

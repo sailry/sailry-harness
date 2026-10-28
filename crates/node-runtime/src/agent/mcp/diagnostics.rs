@@ -1,7 +1,7 @@
 //! MCP transport completion and tool execution outcomes are separate facts.
 use crate::logging::{Context, Entry, Phase, Span};
 use sailry_link::CancellationToken;
-use sailry_protocol::ErrorCode;
+use sailry_protocol::{ErrorCode, Fault};
 use serde_json::Value;
 use std::future::Future;
 
@@ -41,9 +41,9 @@ pub(super) fn external(span: &mut Span) {
     span.entry.execution_outcome = Some("unknown");
 }
 
-pub(super) fn finish(span: &mut Span, result: &adk_core::Result<Value>, cancelled: bool) {
+pub(super) fn finish(span: &mut Span, result: &Result<Value, Fault>, cancelled: bool) {
     let (phase, code) = match result {
-        Ok(value) if uncertain(value) => {
+        Err(error) if error.code == ErrorCode::OutcomeUnknown && !cancelled => {
             span.entry.communication_outcome = Some("unknown");
             span.entry.execution_outcome = Some("unknown");
             span.entry.reason = Some("result_unavailable");
@@ -75,18 +75,7 @@ pub(super) fn finish(span: &mut Span, result: &adk_core::Result<Value>, cancelle
 }
 
 pub(super) fn server_error(value: &Value) -> bool {
-    // Pinned ADK's server_error_response wraps isError=true in exactly this
-    // shape. Successful structured content is nested under `output`, even when
-    // that business object has its own `error` field.
-    value
-        .as_object()
-        .is_some_and(|value| value.len() == 1 && value.get("error").is_some_and(Value::is_string))
-}
-
-pub(super) fn uncertain(value: &Value) -> bool {
-    // This wrapper is created by Bound after an unconfirmed tools/call result.
-    value.as_object().is_some_and(|value| value.len() == 1)
-        && value.pointer("/error/code").and_then(Value::as_str) == Some("outcome_unknown")
+    value.get("isError").and_then(Value::as_bool) == Some(true)
 }
 
 #[cfg(test)]

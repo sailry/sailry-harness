@@ -3,7 +3,7 @@ use super::*;
 use std::future::Future;
 
 // Leave the remainder of ADK's tool budget for package VMs and Node settlement.
-const WINDOW: Duration = Duration::from_secs(adk_agent::DEFAULT_TOOL_TIMEOUT.as_secs() / 2);
+const WINDOW: Duration = Duration::from_secs(150);
 
 pub(super) struct Observer {
     stop: CancellationToken,

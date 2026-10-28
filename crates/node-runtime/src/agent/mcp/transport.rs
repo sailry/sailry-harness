@@ -1,6 +1,4 @@
-//! ADK owns tool adaptation; Node retains transport closure and child reaping.
-//! McpToolset does not expose RunningService::close, so both initialization failure
-//! and normal completion observe actual transport cleanup, not is_closed().
+//! Node retains MCP transport closure, remote task cancellation and child reaping.
 use super::*;
 use crate::{mcp_transport::Tracked, plugins::resources::mcp::Launch};
 use process_wrap::tokio::ChildWrapper;
@@ -193,7 +191,7 @@ pub(super) struct Connection {
     closing: CancellationToken,
     closed: Option<oneshot::Receiver<bool>>,
     child: Option<Child>,
-    tasks: Option<adk_tool::McpToolset<Arc<input::Handler>>>,
+    tasks: Option<Arc<remote::Remote>>,
     result: Option<Result<(), Fault>>,
 }
 
@@ -209,7 +207,7 @@ impl Connection {
         self.closing.clone()
     }
 
-    pub(super) fn track_tasks(&mut self, toolset: adk_tool::McpToolset<Arc<input::Handler>>) {
+    pub(super) fn track_tasks(&mut self, toolset: Arc<remote::Remote>) {
         self.tasks = Some(toolset);
     }
 
@@ -425,7 +423,7 @@ impl Connection {
         let Some(toolset) = &self.tasks else {
             return Ok(());
         };
-        match tokio::time::timeout(Duration::from_secs(5), toolset.cancel_pending_tasks()).await {
+        match tokio::time::timeout(Duration::from_secs(5), toolset.cancel_pending()).await {
             Ok(Ok(())) => Ok(()),
             _ => Err(Fault::new(
                 ErrorCode::OutcomeUnknown,

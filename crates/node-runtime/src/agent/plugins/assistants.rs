@@ -67,7 +67,7 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         && !contribution
             .tools
             .iter()
-            .any(|entry| entry.tool.is_agent_delegation() && allowed.contains(entry.tool.name()))
+            .any(|entry| entry.delegation && allowed.contains(entry.tool.name.as_ref()))
     {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
@@ -75,7 +75,7 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         ));
     }
     contribution.tools.retain(|entry| {
-        entry.tool.name() == references::OUTPUT || allowed.contains(entry.tool.name())
+        entry.tool.name.as_ref() == references::OUTPUT || allowed.contains(entry.tool.name.as_ref())
     });
     if !declaration.context.is_empty() {
         contribution.instruction.push_str("\n\n");

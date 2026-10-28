@@ -1,7 +1,6 @@
-//! An ADK delegation tool admits child work into the existing Node supervisor.
+//! Delegated work uses the existing Node admission and GDK child operation.
 use super::*;
-use adk_core::{AdkError, Tool, ToolConfirmationRequest, ToolContext};
-use async_trait::async_trait;
+use crate::agent::catalog::CallContext;
 use sailry_protocol::conversation::Input;
 use serde_json::{Value, json};
 mod control;
@@ -17,30 +16,56 @@ fn selected_call(turn: TurnId) -> String {
 pub(super) fn selection(
     invocation: &Invocation,
     name: String,
-) -> Result<adk_core::BeforeModelCallback, Fault> {
-    use adk_core::{BeforeModelResult, Content, LlmResponse, Part};
-    use std::sync::atomic::{AtomicBool, Ordering};
-    let arguments = selected::arguments(invocation)?;
-    let pending = AtomicBool::new(invocation.message.selected_role().is_some());
-    let call = selected_call(invocation.turn.id);
-    Ok(Box::new(move |_, request| {
-        let response = if pending.swap(false, Ordering::AcqRel) {
-            let mut content = Content::new("model");
-            content.parts.push(Part::FunctionCall {
-                id: Some(call.clone()),
-                name: name.clone(),
-                args: arguments.clone(),
-                thought_signature: None,
-            });
-            BeforeModelResult::Skip(LlmResponse {
-                content: Some(content),
-                ..Default::default()
-            })
-        } else {
-            BeforeModelResult::Continue(request)
-        };
-        Box::pin(async move { Ok(response) })
+) -> Result<
+    Arc<
+        dyn goose_agent::operation::Operation<
+                crate::store::agent::RuntimeSession,
+                super::engine::Effect,
+            >,
+    >,
+    Fault,
+> {
+    Ok(Arc::new(Selection {
+        arguments: selected::arguments(invocation)?,
+        name,
+        call: selected_call(invocation.turn.id),
     }))
+}
+
+struct Selection {
+    arguments: Value,
+    name: String,
+    call: String,
+}
+
+#[async_trait::async_trait]
+impl goose_agent::operation::Operation<crate::store::agent::RuntimeSession, super::engine::Effect>
+    for Selection
+{
+    fn name(&self) -> &'static str {
+        "selected_role"
+    }
+
+    async fn run(
+        &self,
+        _: &crate::store::agent::RuntimeSession,
+        conversation: &goose_provider_types::conversation::Conversation,
+        _: &goose_agent::operation::Emitter,
+    ) -> anyhow::Result<goose_agent::operation::OperationResult<super::engine::Effect>> {
+        use goose_provider_types::conversation::message::{Message, MessageContentBlock};
+        if conversation.messages().iter().flat_map(|message| &message.content).any(|block| {
+            matches!(block, MessageContentBlock::ToolRequest(request) if request.id == self.call)
+        }) {
+            return goose_agent::operation::not_applicable();
+        }
+        let call = rmcp::model::CallToolRequestParams::new(self.name.clone())
+            .with_arguments(self.arguments.as_object().cloned().unwrap_or_default());
+        let message = Message::assistant().with_content(MessageContentBlock::tool_request(
+            self.call.clone(),
+            Ok(call),
+        ));
+        goose_agent::operation::applied([message.into()])
+    }
 }
 
 pub(super) struct Delegate {
@@ -57,7 +82,10 @@ pub(super) struct Delegate {
 }
 
 impl Delegate {
-    fn record_failure(&self, context: &dyn ToolContext, error: &Fault) {
+    fn is_read_only(&self) -> bool {
+        false
+    }
+    fn record_failure(&self, context: &CallContext, error: &Fault) {
         if let Some(timeline) = self.ingress.agents.timeline(self.turn) {
             timeline.fail_tool(
                 context.branch(),
@@ -130,8 +158,7 @@ impl Drop for Active {
     }
 }
 
-#[async_trait]
-impl Tool for Delegate {
+impl Delegate {
     fn name(&self) -> &str {
         &self.name
     }
@@ -146,9 +173,9 @@ impl Tool for Delegate {
     }
     async fn execute(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<rmcp::model::CallToolResult, Fault> {
         self.execute_prepared(context, arguments.clone(), arguments)
             .await
     }
@@ -157,177 +184,123 @@ impl Tool for Delegate {
 impl Delegate {
     pub(super) async fn execute_prepared(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
         original: Value,
-    ) -> adk_core::Result<Value> {
-        let deadline = tokio::time::Instant::now() + observation::window(&self.ingress.agents);
+    ) -> Result<rmcp::model::CallToolResult, Fault> {
         if context.session_id() != self.session
             || context.is_cancelled()
             || self.stop.is_cancelled()
         {
-            return Err(AdkError::tool("delegation is no longer active"));
+            return Err(Fault::invalid("delegation is no longer active"));
         }
-        let parent_stop = self
-            .ingress
-            .agents
-            .begin_operation(self.turn)
-            .ok_or_else(|| AdkError::tool("parent execution has ended"))?;
         let background = arguments
             .get("background")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        // The session owns admitted work; an attached observer still cancels it on drop.
-        let stop = self.ingress.agents.stopped.child_token();
+        let children = if background {
+            None
+        } else {
+            Some(
+                context
+                    .children()
+                    .ok_or_else(|| Fault::invalid("child execution is unavailable"))?
+                    .clone(),
+            )
+        };
+        let parent_stop = self
+            .ingress
+            .agents
+            .begin_operation(self.turn)
+            .ok_or_else(|| Fault::invalid("parent execution has ended"))?;
         let active = Active {
             ingress: self.ingress.clone(),
             turn: self.turn,
         };
-        let mut observer = observation::Observer::new(stop.clone(), background);
+        let message = (context.function_call_id() == selected_call(self.turn))
+            .then(|| self.selected.clone())
+            .flatten();
+        let request = context.request_with(original);
+        if let Some(children) = children {
+            let invocation = self
+                .ingress
+                .delegate(
+                    self.turn,
+                    request.into(),
+                    arguments,
+                    message,
+                    parent_stop.child_token(),
+                )
+                .await?;
+            let session = invocation.turn.session;
+            let turn = invocation.turn.id;
+            children.register(invocation).map_err(|_| {
+                Fault::new(
+                    ErrorCode::OutcomeUnknown,
+                    "child was admitted but handoff failed; execution was not replayed",
+                )
+            })?;
+            drop(active);
+            let mut result = crate::agent::catalog::json(
+                json!({"admitted":true,"pending":true,"session":session,"turn":turn,"status":"queued"}),
+            )?;
+            let meta = result.meta.get_or_insert_with(Default::default);
+            meta.insert("foreground_subagent".into(), json!(true));
+            meta.insert("subagent_session_id".into(), json!(session.to_string()));
+            return Ok(result);
+        }
         let ingress = self.ingress.clone();
         let tasks = self.tasks.clone();
         let turn = self.turn;
         let parent = self.parent;
-        let message = (context.function_call_id() == selected_call(turn))
-            .then(|| self.selected.clone())
-            .flatten();
-        let request = ToolConfirmationRequest {
-            acting: None,
-            origin: None,
-            tool_name: self.name().into(),
-            function_call_id: Some(context.function_call_id().into()),
-            args: original,
-        };
+        let stop = self.ingress.agents.stopped.child_token();
         let (admitted, admission) = tokio::sync::oneshot::channel();
-        let task_stop = stop.clone();
-        let (deferred, mut defer) = tokio::sync::oneshot::channel();
         let result = self.tasks.spawn_child(&self.ingress.agents.stopped, async move {
-            let stop = task_stop;
             let _cancel = stop.clone().drop_guard();
-            let mut active = Some(active);
-            let mut observing = true;
-            // The supervisor retains child ownership across later tasks in this session.
             let mut token = stop.child_token();
-            let mut invocation = ingress.delegate(turn, request, arguments, message, token.clone()).await?;
+            let mut invocation = ingress.delegate(turn, request.into(), arguments, message, token.clone()).await?;
             ingress.agents.register_child(parent, invocation.turn.session, invocation.turn.id, stop.clone());
-            let _child = Child { ingress: ingress.clone(), parent, child: invocation.turn.session, turn: invocation.turn.id };
-            if parent_stop.is_cancelled() { stop.cancel(); }
-            if background { active.take(); }
-            let _ = admitted.send((invocation.turn.session, invocation.turn.id));
+            let _child = Child { ingress:ingress.clone(),parent,child:invocation.turn.session,turn:invocation.turn.id };
+            if parent_stop.is_cancelled() {stop.cancel();}
+            drop(active);
+            let _ = admitted.send((invocation.turn.session,invocation.turn.id));
             loop {
                 let session = invocation.turn.session;
                 let turn = invocation.turn.id;
-                let execution = scheduler::run(&ingress, &tasks, invocation, token, stop.clone());
-                tokio::pin!(execution);
-                let mut result = if active.is_some() && observing {
-                    tokio::select! {
-                        result = &mut execution => result,
-                        detached = &mut defer => {
-                            observing = false;
-                            if detached.is_ok() { active.take(); }
-                            execution.await
-                        }
-                    }
-                } else { execution.await };
+                let mut result = scheduler::run(&ingress,&tasks,invocation,token,stop.clone()).await;
                 let next_token = stop.child_token();
                 let next = if result.is_err() || stop.is_cancelled() || ingress.agents.stopped.is_cancelled() {
                     ingress.retain_guidance(turn).await?;
                     None
                 } else {
-                    match ingress.claim_guidance(turn, next_token.clone()).await {
+                    match ingress.claim_guidance(turn,next_token.clone()).await {
                         Ok(next) => next,
-                        Err(error) => {
-                            ingress.retain_guidance(turn).await?;
-                            result = Err(error);
-                            None
-                        }
+                        Err(error) => {ingress.retain_guidance(turn).await?;result=Err(error);None}
                     }
                 };
-                if let Some(next) = next {
-                    invocation = next;
-                    token = next_token;
-                    continue;
-                }
-                return Ok::<_, Fault>(match result {
-                    Ok((status, response)) => json!({"session": session, "turn": turn, "status": status, "response": response}),
-                    Err(error) => json!({"isError": true, "session": session, "turn": turn, "error": error}),
+                if let Some(next) = next {invocation=next;token=next_token;continue;}
+                return Ok::<_,Fault>(match result {
+                    Ok((status,response))=>json!({"session":session,"turn":turn,"status":status,"response":response}),
+                    Err(error)=>json!({"isError":true,"session":session,"turn":turn,"error":error}),
                 });
             }
-        }).await.map_err(|_| AdkError::tool("child supervisor is unavailable"))?;
-        let (session, turn) = match admission.await {
-            Ok(ids) => ids,
-            Err(_) => {
-                return match result.await {
-                    Ok(Err(error)) => {
-                        self.record_failure(context.as_ref(), &error);
-                        Ok(json!({"isError":true,"error":error}))
-                    }
-                    _ => Err(AdkError::tool("child admission outcome is unknown")),
-                };
-            }
-        };
-        if background {
-            return Ok(
+        }).await.map_err(|_|Fault::invalid("child supervisor is unavailable"))?;
+        match admission.await {
+            Ok((session, turn)) => crate::agent::catalog::json(
                 json!({"admitted":true,"pending":true,"session":session,"turn":turn,"status":"queued"}),
-            );
-        }
-        let observed = observation::wait(
-            result,
-            &self.stop,
-            deadline.saturating_duration_since(tokio::time::Instant::now()),
-        )
-        .await
-        .map_err(|error| AdkError::tool(error.message))?;
-        let Some(result) = observed else {
-            // Releasing observation is not cancellation or a new execution admission.
-            observer.detach();
-            let state = self
-                .ingress
-                .child_state_at(self.turn, session, Some(turn))
-                .await;
-            let _ = deferred.send(());
-            return match state {
-                Ok(state)
-                    if matches!(
-                        state.run.status,
-                        Status::Queued | Status::Running | Status::Stopping
-                    ) =>
-                {
-                    Ok(observation::pending(&state.run))
+            ),
+            Err(_) => match result.await {
+                Ok(Err(error)) => {
+                    self.record_failure(context.as_ref(), &error);
+                    crate::agent::catalog::json(json!({"isError":true,"error":error}))
                 }
-                Ok(state) => {
-                    self.ingress
-                        .collect_child(self.turn, session, turn)
-                        .await
-                        .map_err(|error| AdkError::tool(error.message))?;
-                    Ok(
-                        json!({"session":session,"turn":turn,"status":state.run.status,"response":state.response,"error":state.run.error}),
-                    )
-                }
-                Err(error) => Ok(
-                    json!({"admitted":true,"pending":true,"session":session,"turn":turn,"state_unavailable":true,"error":error}),
-                ),
-            };
-        };
-        match result {
-            Ok(Ok(value)) => {
-                if let (Some(session), Some(turn)) = (value.get("session"), value.get("turn")) {
-                    let session = serde_json::from_value(session.clone())
-                        .map_err(|_| AdkError::tool("child result session is invalid"))?;
-                    let turn = serde_json::from_value(turn.clone())
-                        .map_err(|_| AdkError::tool("child result turn is invalid"))?;
-                    self.ingress
-                        .collect_child(self.turn, session, turn)
-                        .await
-                        .map_err(|fault| AdkError::tool(fault.message))?;
-                }
-                Ok(value)
-            }
-            Ok(Err(error)) => {
-                self.record_failure(context.as_ref(), &error);
-                Ok(json!({"isError":true, "error": error}))
-            }
-            Err(_) => Err(AdkError::tool("child task outcome is unknown")),
+                _ => Err(Fault::new(
+                    ErrorCode::OutcomeUnknown,
+                    "child admission outcome is unknown",
+                )),
+            },
         }
     }
 }
+
+crate::agent::catalog::provider!(Delegate, crate::agent::catalog::result);

@@ -1,4 +1,4 @@
-//! The main ADK agent controls children through durable Node admission.
+//! The parent controls children through durable Node admission.
 use super::*;
 use sailry_link::{Local, Transport};
 use sailry_protocol::{Command, Request, SessionId, plugin, tool::Operation};
@@ -15,6 +15,9 @@ pub(in crate::agent) struct Control {
 }
 
 impl Control {
+    fn is_read_only(&self) -> bool {
+        false
+    }
     pub(in crate::agent) fn new(
         ingress: &Arc<Ingress>,
         invocation: &Invocation,
@@ -51,8 +54,7 @@ struct Arguments {
     turn: Option<TurnId>,
 }
 
-#[async_trait]
-impl Tool for Control {
+impl Control {
     fn name(&self) -> &str {
         self.resume.name()
     }
@@ -68,14 +70,14 @@ impl Tool for Control {
     }
     async fn execute(
         &self,
-        context: Arc<dyn ToolContext>,
+        context: Arc<CallContext>,
         arguments: Value,
-    ) -> adk_core::Result<Value> {
+    ) -> Result<rmcp::model::CallToolResult, Fault> {
         if context.session_id() != self.session
             || context.is_cancelled()
             || self.stop.is_cancelled()
         {
-            return Err(AdkError::tool("child control is no longer active"));
+            return Err(Fault::invalid("child control is no longer active"));
         }
         let loaded = async {
             let args: Arguments = serde_json::from_value(arguments.clone())
@@ -100,7 +102,9 @@ impl Tool for Control {
         .await;
         let (args, state) = match loaded {
             Ok(loaded) => loaded,
-            Err(error) => return Ok(self.failure(context.as_ref(), error)),
+            Err(error) => {
+                return crate::agent::catalog::json(self.failure(context.as_ref(), error));
+            }
         };
         if self.operation == Operation::GuideAgent
             && !matches!(
@@ -116,10 +120,16 @@ impl Tool for Control {
                     arguments,
                 )
                 .await?;
-            if output.get("session") == Some(&json!(args.session)) {
-                output["recipient"] = json!(state.run.turn);
+            let mut value = output
+                .structured_content
+                .take()
+                .ok_or_else(|| Fault::invalid("child result is unavailable"))?;
+            if value.get("session") == Some(&json!(args.session)) {
+                value["recipient"] = json!(state.run.turn);
             }
-            return Ok(output);
+            let mut result = crate::agent::catalog::json(value)?;
+            result.meta = output.meta;
+            return Ok(result);
         }
         let work = async {
             if self.operation == Operation::GuideAgent {
@@ -198,7 +208,7 @@ impl Tool for Control {
                 }
             }
         };
-        Ok(match work.await {
+        crate::agent::catalog::json(match work.await {
             Ok(output) => output,
             Err(error) => self.failure(context.as_ref(), error),
         })
@@ -206,7 +216,7 @@ impl Tool for Control {
 }
 
 impl Control {
-    fn failure(&self, context: &dyn ToolContext, error: Fault) -> Value {
+    fn failure(&self, context: &CallContext, error: Fault) -> Value {
         if let Some(timeline) = self.ingress.agents.timeline(self.turn) {
             timeline.fail_tool(
                 context.branch(),
@@ -218,3 +228,5 @@ impl Control {
         json!({"isError":true,"error":error})
     }
 }
+
+crate::agent::catalog::provider!(Control, crate::agent::catalog::result);

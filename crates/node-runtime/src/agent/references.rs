@@ -1,8 +1,7 @@
 //! Read-only conversation discovery and history stay on the executing Node.
 use super::*;
+use crate::agent::catalog::CallContext;
 use crate::store::agent::references::history::{List, Query, Read, Search, Source};
-use adk_core::{AdkError, Tool, ToolContext};
-use async_trait::async_trait;
 use serde_json::{Value, json};
 
 pub(super) mod capabilities;
@@ -34,7 +33,7 @@ pub(super) fn bind(
     let mut tools: Vec<_> = [Kind::List, Kind::Read, Kind::Search]
         .into_iter()
         .map(|kind| {
-            let tool: Arc<dyn Tool> = Arc::new(History {
+            let tool = Arc::new(History {
                 ingress: ingress.clone(),
                 source: Source {
                     caller: invocation.caller,
@@ -60,9 +59,12 @@ pub(super) fn bind(
                 })
                 .expect("history display is valid"),
             );
-            let mut registration =
-                catalog::Registration::new(tool, sailry_protocol::tool::Presentation::Summary);
-            registration.display = Some((registration.tool.name().into(), display));
+            let mut registration = catalog::Registration::new(
+                tool.descriptor(),
+                tool,
+                sailry_protocol::tool::Presentation::Summary,
+            );
+            registration.display = Some((registration.tool.name.to_string(), display));
             registration
         })
         .collect();
@@ -116,8 +118,7 @@ impl Kind {
     }
 }
 
-#[async_trait]
-impl Tool for History {
+impl History {
     fn name(&self) -> &str {
         NAMES[match self.kind {
             Kind::List => 0,
@@ -148,20 +149,12 @@ impl Tool for History {
         true
     }
 
-    fn is_concurrency_safe(&self) -> bool {
-        true
-    }
-
-    async fn execute(
-        &self,
-        context: Arc<dyn ToolContext>,
-        arguments: Value,
-    ) -> adk_core::Result<Value> {
+    async fn execute(&self, context: Arc<CallContext>, arguments: Value) -> Result<Value, Fault> {
         if context.session_id() != self.session
             || context.is_cancelled()
             || self.stop.is_cancelled()
         {
-            return Err(AdkError::tool("history invocation is no longer active"));
+            return Err(Fault::invalid("history invocation is no longer active"));
         }
         let result = async {
             let query = self.kind.query(arguments)?;
@@ -169,7 +162,7 @@ impl Tool for History {
         };
         tokio::select! {
             biased;
-            _ = self.stop.cancelled() => Err(AdkError::tool("history invocation was cancelled")),
+            _ = self.stop.cancelled() => Err(Fault::invalid("history invocation was cancelled")),
             result = result => Ok(match result {
                 Ok(value) => value,
                 Err(error) => json!({"error":error}),
@@ -206,3 +199,5 @@ mod tests {
         assert!(Kind::List.query(json!({"caller":NodeId([1;32])})).is_err());
     }
 }
+
+crate::agent::catalog::provider!(History);

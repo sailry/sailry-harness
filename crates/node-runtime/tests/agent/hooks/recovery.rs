@@ -220,31 +220,16 @@ async fn records_end_once_for_each_turn() {
         fixture.controller.close().await.unwrap();
         let (database, db) =
             crate::database_fixture::open(&directory.join("node/storage/node.turso"), true).await;
-        let mut rows = db
-            .query(
-                "SELECT body FROM agent_events WHERE session=?1",
-                [fixture.session.id.to_string()],
-            )
-            .await
-            .unwrap();
-        let mut events = Vec::new();
-        while let Some(row) = rows.next().await.unwrap() {
-            events.push(
-                serde_json::from_slice::<adk_core::Event>(&row.get::<Vec<u8>>(0).unwrap()).unwrap(),
-            );
-        }
-        drop(rows);
+        let hooks = receipts(&db, fixture.session.id).await;
         crate::database_fixture::close(database, db).await;
-        let hooks = events
-            .iter()
-            .filter_map(|event| event.provider_metadata.get("sailry.hook"))
-            .map(|body| serde_json::from_str::<serde_json::Value>(body).unwrap())
-            .collect::<Vec<_>>();
         assert_eq!(hooks.len(), 2);
         assert!(
             hooks
                 .iter()
-                .all(|record| record["phase"] == "turn_end" && record["revision"] == 1)
+                .all(|(phase, ordinal, outcome, settings)| phase == "turn_end"
+                    && *ordinal == 0
+                    && *outcome == Ok(Outcome::Exited(0))
+                    && settings.revision == 1)
         );
     }
 }
