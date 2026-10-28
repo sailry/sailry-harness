@@ -67,11 +67,13 @@ impl Server {
                     headers,
                     body,
                 });
-                let headers = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    reply.len()
-                );
-                socket.write_all(headers.as_bytes()).await.unwrap();
+                if !reply.starts_with("HTTP/") {
+                    let headers = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        reply.len()
+                    );
+                    socket.write_all(headers.as_bytes()).await.unwrap();
+                }
                 socket.write_all(reply.as_bytes()).await.unwrap();
             }
         });

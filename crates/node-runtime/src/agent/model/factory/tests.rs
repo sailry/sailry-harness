@@ -408,3 +408,37 @@ async fn shared_clients_keep_credentials_separate() {
             .all(|request| request.headers["x-policy"] == "captured")
     );
 }
+
+#[tokio::test]
+async fn uses_gdk_rate_limit_retry() {
+    let rejected = "HTTP/1.1 429 Rate limited\r\nContent-Type: application/json\r\nRetry-After: 0\r\nContent-Length: 28\r\nConnection: close\r\n\r\n{\"error\":{\"message\":\"Wait\"}}";
+    let server = Server::start(vec![rejected.into(), response(false)]).await;
+    let registry = registry::Registry::default();
+    let provider = provider(ModelApi::Responses, server.endpoint.clone());
+    let native = native(
+        &registry,
+        &provider,
+        "model",
+        SessionId::new(),
+        "captured",
+        HeaderMap::new(),
+    )
+    .unwrap();
+    let (message, _) = collect_stream(
+        native
+            .stream(
+                &ModelConfig::new("model"),
+                "",
+                &[Message::user().with_text("Hello")],
+                &[],
+            )
+            .await
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert!(message.content.iter().any(
+        |block| matches!(block, MessageContentBlock::Text(text) if text.text=="Read complete")
+    ));
+    assert_eq!(server.finish().await.len(), 2);
+}

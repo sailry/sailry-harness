@@ -10,12 +10,8 @@ mod assistants;
 mod cloud;
 #[path = "native/completion.rs"]
 mod completion;
-#[path = "native/configuration.rs"]
-mod configuration;
 #[path = "native/errors.rs"]
 mod errors;
-#[path = "native/function_tools.rs"]
-mod function_tools;
 #[path = "native/gemini.rs"]
 mod gemini;
 #[path = "native/grounding.rs"]
@@ -26,12 +22,8 @@ mod hosted;
 mod phases;
 #[path = "native/prompt.rs"]
 mod prompt;
-#[path = "native/provenance.rs"]
-mod provenance;
 #[path = "native/reasoning.rs"]
 mod reasoning;
-#[path = "native/retry.rs"]
-mod retry;
 #[path = "native/search_assistant.rs"]
 mod search_assistant;
 #[path = "native/search_packages.rs"]
@@ -40,14 +32,10 @@ mod search_packages;
 mod search_selection;
 #[path = "native/server.rs"]
 mod server;
-#[path = "native/stateless.rs"]
-mod stateless;
 #[path = "native/streaming.rs"]
 mod streaming;
 #[path = "native/tool_images.rs"]
 mod tool_images;
-#[path = "native/transport.rs"]
-mod transport;
 #[path = "native/usage.rs"]
 mod usage;
 #[path = "native/web_search.rs"]
