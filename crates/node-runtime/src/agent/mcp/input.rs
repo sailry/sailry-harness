@@ -190,7 +190,7 @@ impl ClientHandler for Handler {
             spec: spec.clone(),
             schema,
         };
-        let event = elicitation::event(call.turn, input);
+        let event = elicitation::event(call.turn, &input);
         let id = event.id.clone();
         // Pause only the in-flight tool deadline while actual user input is pending.
         call.waiting.send_modify(|waiting| *waiting += 1);
@@ -219,10 +219,7 @@ impl ClientHandler for Handler {
                 .await
                 .map_err(|_| failed())?;
             sessions
-                .append_event(
-                    &call.session,
-                    elicitation::result(call.turn, id, response.clone()),
-                )
+                .append_event(&call.session, elicitation::result(call.turn, id, &response))
                 .await
                 .map_err(|_| failed())?;
             Ok(match response {

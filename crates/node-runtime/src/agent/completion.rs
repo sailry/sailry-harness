@@ -1,5 +1,6 @@
 //! Tool-free plugin requests use GDK and the Node's frozen authorization.
 use super::*;
+use futures::StreamExt;
 use goose_provider_types::{
     base::collect_stream,
     conversation::message::{Message, MessageContentBlock},

@@ -1,6 +1,7 @@
 //! Standalone Skill management reuses the Node's inventory and durable package commands.
 use super::super::tools::{Binding, Definition, decode};
 use super::*;
+use async_trait::async_trait;
 use sailry_protocol::{
     Command, Output,
     plugin::{

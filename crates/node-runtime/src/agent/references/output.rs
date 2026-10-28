@@ -1,5 +1,6 @@
 //! Page the calling session's canonical results through the existing scoped owner.
 use super::*;
+use async_trait::async_trait;
 use sailry_protocol::{Command, Output, tool::MAX_OUTPUT_PAGE_BYTES};
 use serde::Deserialize;
 

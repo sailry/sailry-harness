@@ -5,6 +5,7 @@ use goose_provider_types::{
     conversation::message::{Message, MessageContentBlock},
 };
 use sailry_protocol::SessionConfig;
+use std::time::Instant;
 
 impl Media {
     pub(super) async fn inspect(&self, prompt: String, source: Source) -> Result<Value, Failure> {

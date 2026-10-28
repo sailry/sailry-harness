@@ -485,7 +485,7 @@ fn formatted(
         result
             .meta
             .get_or_insert_with(Default::default)
-            .extend(meta.0);
+            .extend(meta);
     }
     Ok(result)
 }

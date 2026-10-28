@@ -194,9 +194,10 @@ pub(super) async fn bind(
             .iter()
             .find(|entry| {
                 entry.delegation
-                    && Some(&entry.tool.input_schema).is_some_and(|schema| {
-                        super::delegation::selected::accepts(&schema, &arguments)
-                    })
+                    && super::delegation::selected::accepts(
+                        &Value::Object((*entry.tool.input_schema).clone()),
+                        &arguments,
+                    )
             })
             .map(|entry| entry.tool.name.as_ref().to_owned())
             .ok_or_else(|| {

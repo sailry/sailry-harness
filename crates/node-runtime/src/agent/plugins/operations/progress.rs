@@ -1,7 +1,7 @@
-//! The ADK tool result is the only durable progress record.
+//! The canonical tool result is the only durable progress record.
 use crate::agent::catalog::CallContext;
 use sailry_link::CancellationToken;
-use sailry_protocol::conversation::progress::Progress;
+use sailry_protocol::{Fault, conversation::progress::Progress};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
