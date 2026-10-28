@@ -82,9 +82,7 @@ pub(super) fn native(
     headers: HeaderMap,
 ) -> Result<Arc<dyn GdkProvider>, Fault> {
     let endpoint = crate::providers::endpoint_url(&provider.endpoint)?;
-    let same_origin = provider.authentication != Authentication::ApiKey
-        || matches!(provider.api, ModelApi::AzureAi | ModelApi::AzureOpenAi);
-    let shared = registry.http(same_origin.then(|| endpoint.origin()))?;
+    let shared = registry.http(Some(endpoint.origin()))?;
     let mut definition = match provider.api {
         ModelApi::OpenCodeGo | ModelApi::OpenCodeZen => {
             let name = if provider.api == ModelApi::OpenCodeGo {
@@ -178,13 +176,12 @@ pub(super) fn native(
         }
     };
     let client = |host: String, query: Vec<(String, String)>| -> Result<ApiClient, Fault> {
-        let mut client = ApiClient::new_with_tls(host, auth(), None)
+        let client = ApiClient::new_with_tls(host, auth(), None)
             .map_err(unavailable)?
             .with_query(query)
-            .with_request_builder(decorator.clone());
-        if same_origin {
-            client = client.with_same_origin_redirects().map_err(unavailable)?;
-        }
+            .with_request_builder(decorator.clone())
+            .with_same_origin_redirects()
+            .map_err(unavailable)?;
         Ok(client)
     };
     let query = endpoint
@@ -195,7 +192,7 @@ pub(super) fn native(
     let path = endpoint.path().trim_matches('/');
     let inner: Arc<dyn GdkProvider> = match provider.api {
         ModelApi::Responses => {
-            let path = if path.ends_with("responses") {
+            let path: String = if path.ends_with("responses") {
                 path.into()
             } else {
                 format!("{}/responses", path.trim_end_matches('/'))
@@ -310,9 +307,27 @@ pub(super) fn native(
         }
         ModelApi::AzureAi => {
             crate::providers::cloud::validate(provider)?;
+            let maas = goose_providers::azure_foundry::endpoint_kind(&provider.endpoint)
+                == goose_providers::azure_foundry::EndpointKind::Maas;
+            let (host, decorator) = if maas {
+                let path = path.trim_end_matches("/chat/completions");
+                let path = path.strip_suffix("/v1").unwrap_or(path);
+                let path = if path == "v1" { "" } else { path };
+                let host = if path.is_empty() {
+                    authority
+                } else {
+                    format!("{authority}/{path}")
+                };
+                let query: RequestBuilderDecorator = Arc::new(move |request| {
+                    Ok(decorator(request)?.query(&[("api-version", "2024-05-01-preview")]))
+                });
+                (host, query)
+            } else {
+                (provider.endpoint.clone(), decorator)
+            };
             Arc::new(
                 AzureFoundryProvider::create(
-                    provider.endpoint.clone(),
+                    host,
                     None,
                     Some(model.into()),
                     auth(),

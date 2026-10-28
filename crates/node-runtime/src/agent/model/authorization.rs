@@ -8,7 +8,7 @@ use goose_provider_types::{
     errors::ProviderError,
     model::ModelConfig,
 };
-use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::header::HeaderValue;
 use sailry_protocol::SessionId;
 use serde_json::json;
 
@@ -45,6 +45,43 @@ impl Model {
 impl GdkProvider for Model {
     fn get_name(&self) -> &str {
         "sailry_authorized"
+    }
+
+    async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
+        if let Some(limit) = override_limit {
+            return limit;
+        }
+        let resolved = async {
+            let (effective, authorized) =
+                current(&self.ingress, &self.provider, &self.config, &self.stop).await?;
+            let options = crate::providers::login::effective(&self.provider)?;
+            let headers = authorized.grant.headers(&options)?;
+            let fingerprint = registry::fingerprint(
+                &effective,
+                &self.config,
+                Some(authorized.credential.revision),
+            )?;
+            self.ingress
+                .model_clients
+                .get(self.session, fingerprint, || {
+                    factory::native(
+                        &self.ingress.model_clients,
+                        &effective,
+                        &self.config.model,
+                        self.session,
+                        "",
+                        headers,
+                    )
+                })
+        }
+        .await;
+        match resolved {
+            Ok(provider) => provider.get_context_limit(model, None).await,
+            Err(_) => {
+                goose_provider_types::context_limit::ContextLimitResolver::new(self.get_name())
+                    .resolve_local(model, None)
+            }
+        }
     }
 
     async fn stream(
@@ -110,14 +147,14 @@ impl GdkProvider for Model {
                     "You are Claude Code, Anthropic's official CLI for Claude.\n\n{system}"
                 );
                 for tool in &mut tools {
-                    tool.name = canonical(&tool.name).into();
+                    tool.name = canonical(&tool.name).to_string().into();
                 }
                 for message in &mut messages {
                     for block in &mut message.content {
                         if let MessageContentBlock::ToolRequest(request) = block
                             && let Ok(call) = &mut request.tool_call
                         {
-                            call.name = canonical(&call.name).into();
+                            call.name = canonical(&call.name).to_string().into();
                         }
                     }
                 }

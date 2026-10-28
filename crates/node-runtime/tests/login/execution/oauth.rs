@@ -1,7 +1,7 @@
 use super::*;
 use sailry_protocol::conversation::oauth::Options;
 
-async fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
+pub(super) async fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
     let body: Vec<u8> = {
         let sql = ("SELECT provider FROM agent_runs WHERE turn=?1").to_owned();
         let parameters = turso::params![turn.id.to_string()];
@@ -81,7 +81,6 @@ async fn captures_effective_defaults_without_changing_provider() {
 async fn keeps_captured_headers_through_restart_and_refresh() {
     for remote in [false, true] {
         for (authentication, api) in [
-            (Authentication::ChatGpt, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::ChatCompletions),
         ] {

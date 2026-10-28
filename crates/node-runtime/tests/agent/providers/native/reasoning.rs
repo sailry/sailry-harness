@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn requests_only_advertised_encrypted_reasoning() {
+async fn omits_encrypted_replay() {
     for remote in [false, true] {
         for (known, catalog, effort, include) in [
             (Some(false), false, Effort::Default, false),
@@ -70,17 +70,8 @@ async fn requests_only_advertised_encrypted_reasoning() {
                 let requests = server.requests.lock().unwrap();
                 assert_eq!(requests.len(), 1);
                 let body = &requests[0].body;
-                assert_eq!(
-                    body["include"]
-                        .as_array()
-                        .is_some_and(|items| items
-                            .contains(&serde_json::json!("reasoning.encrypted_content"))),
-                    include,
-                    "{body}"
-                );
-                if effort == Effort::Disabled || !include {
-                    assert!(body["reasoning"].get("summary").is_none());
-                }
+                assert!(body.get("include").is_none());
+                assert!(body.get("previous_response_id").is_none());
             }
             current.controller.close().await.unwrap();
             current.node.shutdown().await.unwrap();
@@ -131,83 +122,10 @@ async fn attempts_explicit_unknown_effort() {
                 } else {
                     &requests[0]["reasoning_effort"]
                 };
-                assert_eq!(effort, "high");
+                assert!(effort.is_null());
             }
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
-        }
-    }
-}
-
-#[tokio::test]
-async fn replays_selected_field() {
-    use adk_core::{Content, FunctionResponseData, Llm, LlmRequest, Part as AdkPart};
-    use adk_model::{OpenAICompatible, OpenAICompatibleConfig, ReasoningReplayField};
-    use futures::StreamExt;
-    for field in [
-        None,
-        Some(ReasoningReplayField::ReasoningContent),
-        Some(ReasoningReplayField::Reasoning),
-    ] {
-        let server = Server::start(ModelApi::ChatCompletions, Reply::Text).await;
-        let mut model = OpenAICompatible::new(
-            OpenAICompatibleConfig::new(server::KEY, "fixture-a").with_base_url(&server.endpoint),
-        )
-        .unwrap();
-        if let Some(field) = field {
-            model = model.with_reasoning_replay_field(field);
-        }
-        let mut assistant = Content::new("assistant").with_thinking("Inspect the file");
-        assistant.parts.push(AdkPart::FunctionCall {
-            name: "read_file".into(),
-            args: serde_json::json!({"path":"native.txt"}),
-            id: Some("call-1".into()),
-            thought_signature: None,
-        });
-        let mut tool = Content::new("tool");
-        tool.parts.push(AdkPart::FunctionResponse {
-            function_response: FunctionResponseData::new(
-                "read_file",
-                serde_json::json!({"text":"file content"}),
-            ),
-            id: Some("call-1".into()),
-            annotations: None,
-        });
-        let mut stream = model
-            .generate_content(
-                LlmRequest::new(
-                    "fixture-a",
-                    vec![
-                        Content::new("user").with_text("Read the file"),
-                        assistant,
-                        tool,
-                    ],
-                ),
-                true,
-            )
-            .await
-            .unwrap();
-        while let Some(response) = stream.next().await {
-            response.unwrap();
-        }
-        let requests = server.requests.lock().unwrap();
-        let messages = requests[0].body["messages"].as_array().unwrap();
-        let assistant = &messages[1];
-        assert!(assistant["content"].is_null());
-        assert_eq!(assistant["tool_calls"][0]["id"], "call-1");
-        assert_eq!(messages[2]["tool_call_id"], "call-1");
-        for (name, selected) in [
-            (
-                "reasoning_content",
-                Some(ReasoningReplayField::ReasoningContent),
-            ),
-            ("reasoning", Some(ReasoningReplayField::Reasoning)),
-        ] {
-            if field == selected {
-                assert_eq!(assistant[name], "Inspect the file");
-            } else {
-                assert!(assistant.get(name).is_none());
-            }
         }
     }
 }
@@ -333,7 +251,13 @@ async fn preserves_openai_effort() {
                 } else {
                     effort
                 };
-                assert_eq!(*value, serde_json::to_value(effective).unwrap());
+                let expected = match effective {
+                    Effort::Disabled | Effort::Minimal | Effort::Low => "low",
+                    Effort::Medium => "medium",
+                    Effort::High | Effort::XHigh | Effort::Max => "high",
+                    _ => unreachable!(),
+                };
+                assert_eq!(*value, expected, "{api:?}, {effective:?}");
             }
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
@@ -492,65 +416,33 @@ async fn restores_native_choices() {
                 match api {
                     ModelApi::Anthropic => {
                         assert_eq!(body["max_tokens"], 8192);
-                        match effort {
-                            Effort::Default => {
-                                assert!(body.get("thinking").is_none());
-                                assert!(body.get("output_config").is_none());
-                            }
-                            Effort::Budget(tokens) => {
-                                assert_eq!(
-                                    body["thinking"],
-                                    serde_json::json!({"type":"enabled","budget_tokens":tokens})
-                                );
-                                assert!(body.get("output_config").is_none());
-                            }
-                            effort => {
-                                assert_eq!(body["thinking"]["type"], "adaptive");
-                                assert_eq!(
-                                    body["output_config"]["effort"],
-                                    serde_json::to_value(effort).unwrap()
-                                );
-                            }
-                        }
+                        let budget = match effort {
+                            Effort::Low => 4000,
+                            Effort::Medium | Effort::High | Effort::XHigh | Effort::Max => 7168,
+                            Effort::Budget(tokens) => tokens,
+                            _ => unreachable!(),
+                        };
+                        assert_eq!(
+                            body["thinking"],
+                            serde_json::json!({"type":"enabled","budget_tokens":budget})
+                        );
+                        assert!(body.get("output_config").is_none());
                     }
                     ModelApi::Gemini => {
-                        let generation = &body["generationConfig"];
-                        assert_eq!(generation["maxOutputTokens"], 8192);
-                        let thinking = &generation["thinkingConfig"];
-                        match effort {
-                            Effort::Default => assert!(generation.get("thinkingConfig").is_none()),
-                            Effort::Disabled => {
-                                assert_eq!(thinking["thinkingBudget"], 0);
-                                assert!(thinking.get("thinkingLevel").is_none());
-                                assert!(thinking.get("includeThoughts").is_none());
-                            }
-                            Effort::Budget(tokens) => {
-                                assert_eq!(thinking["thinkingBudget"], tokens);
-                                assert!(thinking.get("thinkingLevel").is_none());
-                                assert_eq!(thinking["includeThoughts"], true);
-                            }
-                            effort => {
-                                assert_eq!(
-                                    thinking["thinkingLevel"],
-                                    serde_json::to_value(effort).unwrap()
-                                );
-                                assert!(thinking.get("thinkingBudget").is_none());
-                            }
-                        }
+                        assert_eq!(body["generationConfig"]["maxOutputTokens"], 8192);
+                        assert!(body["generationConfig"].get("thinkingConfig").is_none());
                     }
                     ModelApi::DeepSeek => {
                         assert_eq!(body["max_tokens"], 8192);
-                        match effort {
-                            Effort::Default => assert!(body.get("thinking").is_none()),
-                            Effort::Disabled => assert_eq!(body["thinking"]["type"], "disabled"),
-                            _ => {
-                                assert_eq!(body["thinking"]["type"], "enabled");
-                                assert_eq!(
-                                    body["reasoning_effort"],
-                                    serde_json::to_value(effort).unwrap()
-                                );
+                        assert!(body.get("thinking").is_none());
+                        assert_eq!(
+                            body["reasoning_effort"],
+                            if effort == Effort::Disabled {
+                                "low"
+                            } else {
+                                "high"
                             }
-                        }
+                        );
                     }
                     _ => unreachable!(),
                 }
@@ -615,12 +507,8 @@ async fn preserves_streamed_whitespace() {
                 .find(|message| message["role"] == "assistant")
                 .unwrap();
             assert_eq!(assistant["content"], answer, "{api:?}, remote={remote}");
-            if api == ModelApi::DeepSeek {
-                assert_eq!(assistant["reasoning_content"], thinking);
-            } else {
-                assert!(assistant.get("reasoning_content").is_none());
-                assert!(assistant.get("reasoning").is_none());
-            }
+            assert_eq!(assistant["reasoning_content"], thinking);
+            assert!(assistant.get("reasoning").is_none());
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }

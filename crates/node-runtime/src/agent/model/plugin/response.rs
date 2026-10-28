@@ -152,12 +152,15 @@ impl Accumulator {
                 Finish::ToolCalls => "tool_calls",
                 Finish::Length => "length",
                 Finish::ContentFilter => "content_filter",
+                Finish::Other => "other",
             }
             .into(),
         ]);
-        usage.additional_data = self
-            .reasoning
-            .map(|tokens| [("reasoning_tokens".into(), tokens.into())].into());
+        usage.additional_data = self.reasoning.map(|tokens| {
+            [("reasoning_tokens".into(), tokens.into())]
+                .into_iter()
+                .collect()
+        });
         output.push((Some(message), Some(usage)));
         Ok(output)
     }

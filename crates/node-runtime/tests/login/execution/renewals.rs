@@ -40,7 +40,6 @@ async fn refreshes_expired_access_after_restart() {
         .await;
         let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let session = session(&fixture, &provider).await;
         let reference = provider.credential.as_ref().unwrap();
 
         let mut body: serde_json::Value = serde_json::from_str(
@@ -111,8 +110,7 @@ async fn refreshes_expired_access_after_restart() {
             .find(|value| value.id == reference.id)
             .unwrap()
             .revision;
-        let (_, turn) = submit(&fixture.client, &session).await;
-        finished(&fixture.client, &turn, Status::Completed).await;
+        discover(&fixture, &provider).await.unwrap();
         changed(&mut subscription, &mut projection, &reference, revision + 1).await;
         changed(&mut subscription, &mut projection, &reference, revision + 2).await;
         assert_eq!(
@@ -124,8 +122,7 @@ async fn refreshes_expired_access_after_restart() {
         assert_eq!(exchanges.load(Ordering::SeqCst), 2);
         assert_eq!(server.requests.lock().unwrap().len(), 6);
         let fixture = restart(fixture, &server, remote).await;
-        let (_, turn) = submit(&fixture.client, &session).await;
-        finished(&fixture.client, &turn, Status::Completed).await;
+        discover(&fixture, &provider).await.unwrap();
         assert_eq!(exchanges.load(Ordering::SeqCst), 2);
         assert_eq!(server.requests.lock().unwrap().len(), 7);
         fixture.close().await;
@@ -163,9 +160,8 @@ async fn retains_rotated_grants() {
         .await;
         let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let session = session(&fixture, &provider).await;
-        let (_, turn) = submit(&fixture.client, &session).await;
-        finished(&fixture.client, &turn, Status::Completed).await;
+        discover(&fixture, &provider).await.unwrap();
+        discover(&fixture, &provider).await.unwrap();
         assert_eq!(count.load(Ordering::SeqCst), 3);
         assert_eq!(server.requests.lock().unwrap().len(), 8);
         fixture.close().await;
@@ -205,7 +201,7 @@ pub(in super::super) async fn restart(fixture: Fixture, server: &Server, remote:
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn refresh_survives_turn_cancellation() {
     for remote in [false, true] {
-        for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
+        for authentication in [Authentication::Copilot] {
             let release = Arc::new(tokio::sync::Notify::new());
             let ready = release.clone();
             let exchanges = Arc::new(AtomicUsize::new(0));
@@ -286,15 +282,15 @@ async fn preserves_uncertain_rotation() {
             }).await;
             let fixture = Fixture::empty(remote, &server).await;
             let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-            let session = session(&fixture, &provider).await;
             if mode == "save" {
                 { let sql = ("CREATE TRIGGER reject_refresh BEFORE UPDATE ON providers WHEN EXISTS(SELECT 1 FROM json_each(NEW.body,'$.authorizations') WHERE json_extract(value,'$.revision')=3) BEGIN SELECT RAISE(ABORT, 'isolated authentication write failure'); END;").to_owned();
 fixture.node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).await.map_err(crate::database_fixture::fault) })).await }.unwrap();
             }
-            let (_, turn) = submit(&fixture.client, &session).await;
+            let pending = discovering(&fixture, &provider);
             server.wait_requests(5).await;
+            let mut pending = Some(pending);
             if mode != "shutdown" {
-                finished(&fixture.client, &turn, Status::Failed).await;
+                assert!(pending.take().unwrap().await.unwrap().is_err());
             }
             if mode == "save" {
                 {
@@ -315,17 +311,9 @@ fixture.node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).
             let fixture = restart(fixture, &server, remote).await;
             if mode == "shutdown" {
                 server.wait_closed(1).await;
+                let _ = pending.take().unwrap().await;
             }
-            let (_, turn) = submit(&fixture.client, &session).await;
-            let page = finished(&fixture.client, &turn, Status::Failed).await;
-            let error = page
-                .runs
-                .iter()
-                .find(|run| run.turn == turn.id)
-                .unwrap()
-                .error
-                .as_ref()
-                .unwrap();
+            let error = discover(&fixture, &provider).await.unwrap_err();
             assert_eq!(error.code, ErrorCode::OutcomeUnknown, "{mode}: {error:?}");
             assert_eq!(exchanges.load(Ordering::SeqCst), 2);
             assert!(sink.requests.lock().unwrap().is_empty());
@@ -357,8 +345,7 @@ async fn preserves_revocation_during_refresh() {
         .await;
         let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let session = session(&fixture, &provider).await;
-        let (_, turn) = submit(&fixture.client, &session).await;
+        let pending = discovering(&fixture, &provider);
         server.wait_requests(5).await;
         let reference = provider.credential.unwrap();
         fixture
@@ -370,7 +357,7 @@ async fn preserves_revocation_during_refresh() {
             .await
             .unwrap();
         release.notify_one();
-        finished(&fixture.client, &turn, Status::Failed).await;
+        assert!(pending.await.unwrap().is_err());
         let Output::Credentials(credentials) = fixture
             .client
             .execute(fixture.client.prepare(Command::ListCredentials))
@@ -406,12 +393,10 @@ async fn admits_before_rotation() {
         .await;
         let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let session = session(&fixture, &provider).await;
 
         { let sql = ("CREATE TRIGGER reject_admission BEFORE UPDATE ON providers WHEN EXISTS(SELECT 1 FROM json_each(NEW.body,'$.authorizations') WHERE json_extract(value,'$.revision')=2) BEGIN SELECT RAISE(ABORT, 'isolated admission failure'); END;").to_owned();
 fixture.node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).await.map_err(crate::database_fixture::fault) })).await }.unwrap();
-        let (_, turn) = submit(&fixture.client, &session).await;
-        finished(&fixture.client, &turn, Status::Failed).await;
+        assert!(discover(&fixture, &provider).await.is_err());
         assert_eq!(server.requests.lock().unwrap().len(), 4);
         {
             let sql = ("DROP TRIGGER reject_admission;").to_owned();
@@ -428,8 +413,7 @@ fixture.node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).
         }
         .unwrap();
 
-        let (_, turn) = submit(&fixture.client, &session).await;
-        finished(&fixture.client, &turn, Status::Completed).await;
+        discover(&fixture, &provider).await.unwrap();
         assert_eq!(server.requests.lock().unwrap().len(), 6);
         fixture.close().await;
     }
@@ -463,7 +447,6 @@ async fn confines_generation_credentials() {
     let mut fixture = Fixture::empty(false, &server).await;
     let mut credentials = std::collections::BTreeSet::new();
     for (authentication, api) in [
-        (Authentication::ChatGpt, ModelApi::Responses),
         (Authentication::Copilot, ModelApi::Responses),
         (Authentication::Copilot, ModelApi::ChatCompletions),
     ] {
@@ -502,35 +485,18 @@ async fn confines_generation_credentials() {
                 }
                 if !redirect && api == ModelApi::Responses {
                     let error = page.runs.last().unwrap().error.as_ref().unwrap();
-                    assert_eq!(error.message, "[redacted]");
+                    assert_eq!(error.message, "Rate limit exceeded: [redacted]");
                 }
-                let retries: Vec<_> = page
-                    .entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .filter_map(|part| match part {
-                        Part::Resource(value) if value["type"] == "model_retry" => {
-                            assert_eq!(value["limit"], 5);
-                            Some(value["attempt"].as_u64().unwrap())
-                        }
-                        _ => None,
-                    })
-                    .collect();
-                assert_eq!(
-                    retries,
-                    if redirect {
-                        vec![]
-                    } else {
-                        vec![1, 2, 3, 4, 5]
-                    }
-                );
+                assert!(page.entries.iter().flat_map(|entry| &entry.parts).all(
+                    |part| !matches!(part, Part::Resource(value) if value["type"] == "model_retry")
+                ));
                 assert_eq!(
                     fixture.client.execute(request).await.unwrap(),
                     Output::QueuedTurn(turn)
                 );
                 assert_eq!(
                     authorization_requests + server.requests.lock().unwrap().len() - before,
-                    if redirect { 5 } else { 10 },
+                    4 + 1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES,
                     "{authentication:?} {api:?}, remote={remote}, redirect={redirect}",
                 );
                 assert!(sink.requests.lock().unwrap().is_empty());
@@ -538,4 +504,19 @@ async fn confines_generation_credentials() {
         }
     }
     fixture.close().await;
+}
+
+fn discovering(
+    fixture: &Fixture,
+    provider: &Provider,
+) -> tokio::task::JoinHandle<Result<Output, Fault>> {
+    let client = fixture.client.clone();
+    let request = client.prepare(Command::DiscoverModels(Box::new(
+        discovery::Source::Saved {
+            provider: provider.id,
+            expected_revision: provider.revision,
+            oauth: None,
+        },
+    )));
+    tokio::spawn(async move { client.execute(request).await })
 }

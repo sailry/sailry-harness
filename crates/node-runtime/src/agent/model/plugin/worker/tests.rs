@@ -1,8 +1,10 @@
 use super::*;
-use adk_core::{Content, LlmRequest, Part};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use goose_provider_types::{conversation::message::Message, model::ModelConfig};
+use rmcp::model::Tool;
 use sailry_protocol::{
     Effort,
-    plugin::model_adapter::{Capabilities, wire},
+    plugin::model_adapter::{Capabilities, Dialect, wire},
 };
 use serde_json::json;
 
@@ -14,23 +16,26 @@ async fn preserves_large_inline_payloads() {
         files: [(entry, "export function prepare(input){return {method:'POST',url:'https://example.test/models',body:JSON.stringify(input)}}".into())].into(),
     };
     let data: Vec<u8> = (0..2_126_177).map(|index| (index % 251) as u8).collect();
-    let mut content = Content::new("user").with_text("Inspect this attachment");
-    content.parts.push(Part::InlineData {
-        mime_type: "image/png".into(),
-        data,
-        uri: None,
-        annotations: None,
-    });
-    let mut request = LlmRequest::new("example", vec![content]);
-    for index in 0..128 {
-        let name = format!("tool_{index}");
-        request.tools.insert(name.clone(), json!({
-            "name":name,"description":"Read a scoped resource",
-            "parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}
-        }));
-    }
+    let messages = [Message::user()
+        .with_text("Inspect this attachment")
+        .with_image(STANDARD.encode(data), "image/png")];
+    let tools: Vec<_> = (0..128)
+        .map(|index| {
+            Tool::new(
+                format!("tool_{index}"),
+                "Read a scoped resource",
+                serde_json::from_value::<serde_json::Map<String, Value>>(json!({
+                    "type":"object","properties":{"path":{"type":"string"}},"required":["path"]
+                }))
+                .unwrap(),
+            )
+        })
+        .collect();
     let input = super::super::request::convert(
-        request,
+        &ModelConfig::new("example"),
+        "",
+        &messages,
+        &tools,
         "https://example.test",
         "example",
         Effort::Default,
@@ -40,7 +45,7 @@ async fn preserves_large_inline_payloads() {
             tools: true,
             ..Default::default()
         },
-        true,
+        Dialect::Generic,
     )
     .unwrap();
     let stop = CancellationToken::new();

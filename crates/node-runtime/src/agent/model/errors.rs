@@ -25,6 +25,10 @@ impl Provider for Protected {
         self.inner.get_name()
     }
 
+    async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
+        self.inner.get_context_limit(model, override_limit).await
+    }
+
     async fn stream(
         &self,
         config: &ModelConfig,
@@ -111,7 +115,10 @@ mod tests {
     fn redacts_overlapping_credentials() {
         let error = redact(
             ProviderError::Authentication("access-refresh and access".into()),
-            &[Secret::new("access"), Secret::new("access-refresh")],
+            &[
+                Secret::new("access".into()),
+                Secret::new("access-refresh".into()),
+            ],
         );
         assert_eq!(
             error,
@@ -130,6 +137,10 @@ mod streaming_tests {
         fn get_name(&self) -> &str {
             "fixture"
         }
+
+        async fn get_context_limit(&self, _: &str, override_limit: Option<usize>) -> usize {
+            override_limit.unwrap_or(245_760)
+        }
         async fn stream(
             &self,
             _: &ModelConfig,
@@ -144,8 +155,21 @@ mod streaming_tests {
     }
 
     #[tokio::test]
+    async fn forwards_context_discovery() {
+        let provider = wrap(Arc::new(Rejected), vec![]);
+        assert_eq!(provider.get_context_limit("model", None).await, 245_760);
+        assert_eq!(
+            provider.get_context_limit("model", Some(64_000)).await,
+            64_000
+        );
+    }
+
+    #[tokio::test]
     async fn removes_credentials_from_deferred_errors() {
-        let provider = wrap(Arc::new(Rejected), vec![Secret::new("private-access")]);
+        let provider = wrap(
+            Arc::new(Rejected),
+            vec![Secret::new("private-access".into())],
+        );
         let mut stream = provider
             .stream(&ModelConfig::new("model"), "", &[], &[])
             .await

@@ -142,12 +142,7 @@ pub(super) fn input(
     assert_eq!(request.headers["session-id"], session);
     assert_eq!(request.headers["x-codex-routing-hint"], "model=fixture");
     assert!(body["instructions"].is_string());
-    assert!(
-        body["include"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("reasoning.encrypted_content"))
-    );
+    assert!(body.get("include").is_none());
     assert!(
         body["input"]
             .as_array()

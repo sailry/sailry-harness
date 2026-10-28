@@ -2,7 +2,7 @@ use super::*;
 use sailry_protocol::search::{Selection, Update};
 
 #[tokio::test]
-async fn selects_one_tool() {
+async fn selects_fallback_tool() {
     for remote in [false, true] {
         let server = crate::agent_support::Server::start(false).await;
         let mut fixture = Fixture::packages(
@@ -13,12 +13,12 @@ async fn selects_one_tool() {
         )
         .await;
         for (metadata, summary, prefer_native, enabled, native, fallback) in [
-            (Some(true), false, true, true, true, false),
+            (Some(true), false, true, true, false, true),
             (Some(false), true, true, true, false, true),
             (None, false, true, true, false, true),
             (Some(true), true, false, true, false, true),
             (Some(false), false, true, false, false, false),
-            (Some(true), false, true, false, true, false),
+            (Some(true), false, true, false, false, false),
         ] {
             fixture.provider.models[0].web_search = summary;
             fixture.provider.models[0]

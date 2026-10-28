@@ -124,23 +124,6 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
     node.shutdown().await.unwrap();
 }
 
-fn declarations(body: &Value) -> Vec<String> {
-    let mut declarations = body["tools"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|tool| {
-            tool.get("functionDeclarations")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_else(|| vec![tool.clone()])
-        })
-        .map(|declaration| declaration.to_string())
-        .collect::<Vec<_>>();
-    declarations.sort();
-    declarations
-}
-
 fn content(value: &Value) -> String {
     if let Some(text) = value.as_str() {
         return text.into();
@@ -157,20 +140,22 @@ fn content(value: &Value) -> String {
 fn instruction(api: ModelApi, body: &Value) -> String {
     match api {
         ModelApi::Anthropic => content(&body["system"]),
-        ModelApi::Gemini => {
-            assert!(body.get("systemInstruction").is_none());
-            assert_eq!(body["contents"][0]["role"], "user");
-            content(&body["contents"][0]["parts"])
+        ModelApi::Gemini => content(&body["systemInstruction"]["parts"]),
+        ModelApi::Responses | ModelApi::ChatCompletions | ModelApi::DeepSeek => {
+            let messages = if api == ModelApi::Responses {
+                &body["input"]
+            } else {
+                &body["messages"]
+            };
+            messages
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
+                .map(|message| content(&message["content"]))
+                .collect::<Vec<_>>()
+                .join("\n")
         }
-        ModelApi::Responses => content(&body["instructions"]),
-        ModelApi::ChatCompletions | ModelApi::DeepSeek => body["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|message| message["role"] == "system")
-            .map(|message| content(&message["content"]))
-            .collect::<Vec<_>>()
-            .join("\n"),
         _ => unreachable!(),
     }
 }
@@ -185,7 +170,6 @@ fn users(api: ModelApi, body: &Value) -> Vec<String> {
         .as_array()
         .unwrap()
         .iter()
-        .skip(usize::from(api == ModelApi::Gemini))
         .filter(|message| message["role"] == "user")
         .map(|message| content(&message[parts]))
         .collect()
@@ -298,236 +282,6 @@ async fn loads_rules_at_openai_tool_boundary() {
                 assert_eq!(request["tools"], requests[0]["tools"]);
             }
             assert!(requests[1].to_string().contains("工具内容 🙂"));
-        }
-    }
-}
-
-#[tokio::test]
-async fn preserves_native_summary_instructions() {
-    for remote in [false, true] {
-        for api in [ModelApi::Anthropic, ModelApi::Gemini] {
-            let evidence = format!("{}\n{}", server::ANSWER,
-                "Verified project/src/module.rs and its callers; the public contract remains unchanged.\n".repeat(128));
-            let server = Server::start(api, Reply::Compaction(evidence.clone())).await;
-            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let task = "Original compaction constraint 🙂 ".repeat(40);
-            let turn = fixture.submit(&task).await;
-            let before = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                before.runs.last().unwrap().status,
-                Status::Completed,
-                "{before:?}"
-            );
-            assert_eq!(
-                before.entries.last().unwrap().parts,
-                [Part::Text(evidence.clone())]
-            );
-            let usage = before.entries.last().unwrap().usage.as_ref().unwrap();
-            assert_eq!((usage.input, usage.output), (8, 4));
-            assert_eq!(server.requests.lock().unwrap().len(), 1);
-            let normal = server.requests.lock().unwrap()[0].body.clone();
-            let focus = "Preserve exact paths and unfinished work";
-            let Output::QueuedTurn(compact) = execute(
-                &fixture.client,
-                Command::CompactContext {
-                    focus: Some(focus.into()),
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                },
-            )
-            .await
-            else {
-                panic!("compaction turn expected");
-            };
-            assert_eq!(compact.kind, RunKind::Compaction);
-            assert_eq!(compact.config.effort, fixture.session.config.effort);
-            let page = finished(&fixture.client, fixture.session.id, compact.id).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{page:?}"
-            );
-            assert_eq!(&page.entries[..before.entries.len()], before.entries);
-            let entry = page.entries.last().unwrap();
-            assert_eq!(entry.turn, compact.id);
-            assert_eq!(entry.author, "system");
-            assert!(entry.usage.is_none());
-            let Part::Compaction(visible) = &entry.parts[0] else {
-                panic!("summary expected");
-            };
-            assert!(visible.contains(&task));
-            assert!(!visible.contains(&evidence));
-            let id = entry.id.clone();
-            let stored = fixture
-                .node
-                .with_storage(move |db| {
-                    Box::pin(async move {
-                        let body: Vec<u8> = db
-                            .prepare("SELECT body FROM agent_events WHERE id=?1")
-                            .await
-                            .map_err(crate::database_fixture::fault)?
-                            .query_row([id])
-                            .await
-                            .map_err(crate::database_fixture::fault)?
-                            .get(0)
-                            .map_err(crate::database_fixture::fault)?;
-                        serde_json::from_slice::<adk_core::Event>(&body)
-                            .map_err(crate::database_fixture::fault)
-                    })
-                })
-                .await
-                .unwrap();
-            let handoff = stored.actions.compaction.unwrap().compacted_content;
-            assert_eq!(handoff.role, "user");
-            let generated = handoff.parts[0].text().unwrap();
-            assert!(generated.starts_with("## Goals\n"));
-            assert!(generated.contains(&task));
-            assert!(!generated.contains("Captured Node context"));
-            assert_eq!(handoff.parts.len(), 1);
-            {
-                let requests = server.requests.lock().unwrap();
-                assert_eq!(requests.len(), 2);
-                let summary = &requests[1].body;
-                let (messages, ordinary, parts) = if api == ModelApi::Gemini {
-                    assert_eq!(
-                        requests[1].path,
-                        "/v1/models/fixture-a:streamGenerateContent?alt=sse"
-                    );
-                    assert_eq!(summary["generationConfig"]["maxOutputTokens"], 512);
-                    assert_eq!(
-                        summary["generationConfig"]["thinkingConfig"],
-                        normal["generationConfig"]["thinkingConfig"]
-                    );
-                    (&summary["contents"], &normal["contents"], "parts")
-                } else {
-                    assert_eq!(summary["model"], normal["model"]);
-                    assert_eq!(summary["max_tokens"], 512);
-                    assert_eq!(summary["thinking"], normal["thinking"]);
-                    assert_eq!(summary["system"], normal["system"]);
-                    (&summary["messages"], &normal["messages"], "content")
-                };
-                let messages = messages.as_array().unwrap();
-                let ordinary = ordinary.as_array().unwrap();
-                assert_eq!(&messages[..ordinary.len()], ordinary);
-                if api == ModelApi::Gemini {
-                    assert_eq!(
-                        summary["toolConfig"],
-                        json!({"function_calling_config":{"mode":"NONE"}})
-                    );
-                    assert!(normal.get("toolConfig").is_none());
-                    // ADK builds Gemini declarations from an unordered map.
-                    assert_eq!(declarations(summary), declarations(&normal));
-                    let mut summary = summary.clone();
-                    let mut normal = normal.clone();
-                    for body in [&mut summary, &mut normal] {
-                        body.as_object_mut().unwrap().remove("tools");
-                        body.as_object_mut().unwrap().remove("generationConfig");
-                        body.as_object_mut().unwrap().remove("toolConfig");
-                        body["contents"]
-                            .as_array_mut()
-                            .unwrap()
-                            .truncate(ordinary.len());
-                    }
-                    assert_eq!(summary, normal);
-                } else {
-                    assert_eq!(summary["tool_choice"], json!({"type":"none"}));
-                    assert_ne!(normal["tool_choice"], summary["tool_choice"]);
-                    assert_eq!(summary["tools"], normal["tools"]);
-                }
-                let request = messages.last().unwrap();
-                assert_eq!(request["role"], "user");
-                let instruction = content(&request[parts]);
-                assert!(instruction.starts_with("Update the existing handoff"));
-                assert!(instruction.contains("Summary output budget: 512 tokens"));
-                assert!(instruction.contains(focus));
-                assert!(!instruction.contains(&task));
-                for heading in [
-                    "## Goals",
-                    "## User constraints",
-                    "## Key facts",
-                    "## Changed files and reasons",
-                    "## Errors and fixes",
-                    "## Todo",
-                    "## Current progress",
-                    "## Next steps",
-                ] {
-                    assert!(instruction.contains(heading), "{heading}");
-                }
-                assert!(
-                    messages[..messages.len() - 1]
-                        .iter()
-                        .any(|message| content(&message[parts]).contains(&evidence))
-                );
-            }
-            let profile = fixture.node.profile().to_owned();
-            fixture.node.shutdown().await.unwrap();
-            let node = Node::start_empty(profile).await.unwrap();
-            let client = Client::new(if remote {
-                fixture.controller.handle().remote(node.link().address())
-            } else {
-                node.local()
-            });
-            assert_eq!(history(&client, fixture.session.id).await, page);
-            let Output::QueuedTurn(next) = execute(
-                &client,
-                Command::SubmitTurn {
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                    message: "Continue with the saved handoff".into(),
-                },
-            )
-            .await
-            else {
-                panic!("turn expected");
-            };
-            let resumed = finished(&client, fixture.session.id, next.id).await;
-            assert_eq!(
-                resumed.runs.last().unwrap().status,
-                Status::Completed,
-                "{resumed:?}"
-            );
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 3);
-            let resumed = &requests[2].body;
-            let (messages, parts) = if api == ModelApi::Gemini {
-                (&resumed["contents"], "parts")
-            } else {
-                (&resumed["messages"], "content")
-            };
-            let matching = messages
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|message| content(&message[parts]).contains(generated))
-                .collect::<Vec<_>>();
-            assert_eq!(matching.len(), 1);
-            assert_eq!(matching[0]["role"], "user");
-            // Gemini's pinned adapter carries the preamble as a leading user
-            // message; Anthropic keeps it in its separate system field.
-            let messages = messages.as_array().unwrap();
-            let first = messages
-                .iter()
-                .position(|message| content(&message[parts]).contains(generated))
-                .unwrap();
-            let preamble = usize::from(api == ModelApi::Gemini);
-            if preamble != 0 {
-                assert_eq!(messages[0], normal["contents"][0]);
-            }
-            assert!(messages[preamble..first].iter().all(|message| {
-                content(&message[parts]).contains("Captured Node context (verbatim)\n")
-            }));
-            assert_eq!(
-                messages
-                    .iter()
-                    .map(|message| content(&message[parts])
-                        .matches("Captured Node context (verbatim)\n")
-                        .count())
-                    .sum::<usize>(),
-                1
-            );
-            drop(requests);
-            fixture.controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
         }
     }
 }

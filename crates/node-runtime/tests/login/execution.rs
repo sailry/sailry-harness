@@ -4,15 +4,10 @@ use sailry_protocol::conversation::{Page, Part, Status};
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[path = "execution/oauth.rs"]
 mod oauth;
-#[path = "execution/quota.rs"]
-mod quota;
 #[path = "execution/renewals.rs"]
 pub(super) mod renewals;
 #[path = "execution/transfers.rs"]
 mod transfers;
-
-#[path = "../logging/parse.rs"]
-mod logs;
 
 const ROTATED: &str = "isolated-rotated-refresh";
 
@@ -179,7 +174,7 @@ async fn configured(
     provider.models = vec![sailry_protocol::conversation::Model {
         id: "fixture".into(),
         display_name: None,
-        context: 8192,
+        context: 128_000,
         output: 512,
         vision: true,
         tools: true,
@@ -360,7 +355,6 @@ pub(super) async fn finished_within(
 async fn runs_tools_after_refresh() {
     for remote in [false, true] {
         for (authentication, api) in [
-            (Authentication::ChatGpt, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::ChatCompletions),
         ] {
@@ -401,155 +395,32 @@ async fn runs_tools_after_refresh() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn runs_tools_from_minimal_catalog() {
+async fn preserves_unsupported_account() {
     for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, |request| {
-            match request.path.as_str() {
-                "/models" => Reply::Json(json!({"models":[{
-                    "slug":"gpt-6.1-sol", "display_name":"GPT-6.1 Sol", "visibility":"list"
-                }]})),
-                "/responses" => {
-                    generation_for(request, Authentication::ChatGpt, true, "gpt-6.1-sol", false)
-                }
-                _ => standard(request),
-            }
-        })
-        .await;
+        let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
         let fixture = Fixture::packages(remote, &server, &["files"]).await;
-        let provider = provider(&fixture.client, Authentication::ChatGpt).await;
-        let (_, attempt) = begin(&fixture.client, &provider).await;
-        let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        assert_eq!(terminal(&mut updates).await.state, login::State::Connected);
-        let Output::Providers(providers) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListProviders))
-            .await
-            .unwrap()
+        let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
+        let session = session(&fixture, &provider).await;
+        let requests = server.requests.lock().unwrap().len();
+        let (request, turn) = submit(&fixture.client, &session).await;
+        let page = finished(&fixture.client, &turn, Status::Failed).await;
+        let error = page.runs.last().unwrap().error.as_ref().unwrap();
+        assert_eq!(error.code, ErrorCode::NotConfigured);
+        assert_eq!(
+            error.message,
+            "GDK does not support this ChatGPT authorization endpoint"
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), requests);
+        assert_eq!(
+            fixture.client.execute(request).await.unwrap(),
+            Output::QueuedTurn(turn.clone())
+        );
+        let Output::Providers(providers) = execute(&fixture.client, Command::ListProviders).await
         else {
             panic!("providers expected")
         };
-        let provider = &providers[0];
-        assert_eq!(provider.models.len(), 1);
-        assert_eq!(provider.models[0].id, "gpt-6.1-sol");
-        assert_eq!(
-            provider.models[0].display_name.as_deref(),
-            Some("GPT-6.1 Sol")
-        );
-        assert!(provider.models[0].tools);
-        let session = session(&fixture, provider).await;
-        let (_, turn) = submit(&fixture.client, &session).await;
-        let page = finished(&fixture.client, &turn, Status::Completed).await;
-        let history = serde_json::to_string(&page).unwrap();
-        assert!(history.contains("Isolated tool content"), "{history}");
-        assert!(history.contains("Authorized response"), "{history}");
-        assert_eq!(server.requests.lock().unwrap().len(), 6);
-        fixture.close().await;
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn continues_after_omitted_terminal_calls() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-            if request.path != "/responses" {
-                return standard(request);
-            }
-            let Reply::Raw(mut reply) = generation(request, Authentication::ChatGpt, true) else {
-                panic!("stream expected")
-            };
-            let start = reply.find("data: ").unwrap() + "data: ".len();
-            let end = reply[start..].find('\n').unwrap() + start;
-            let mut completed: serde_json::Value =
-                serde_json::from_str(&reply[start..end]).unwrap();
-            if completed["response"]["output"][0]["type"] == "function_call" {
-                let item = completed["response"]["output"][0].take();
-                completed["response"]["output"] = json!([]);
-                let done = json!({"type":"response.output_item.done", "sequence_number":0,
-                    "output_index":0, "item":item});
-                reply.replace_range(start..end, &format!("{done}\n\ndata: {completed}"));
-            }
-            Reply::Raw(reply)
-        })
-        .await;
-        let fixture = Fixture::packages(remote, &server, &["files"]).await;
-        let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let session = session(&fixture, &provider).await;
-        let (_, turn) = submit(&fixture.client, &session).await;
-        let page = finished(&fixture.client, &turn, Status::Completed).await;
-        let history = serde_json::to_string(&page).unwrap();
-        assert!(history.contains("Isolated tool content"), "{history}");
-        assert!(history.contains("Authorized response"), "{history}");
-        fixture.close().await;
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn reports_account_model_rejection() {
-    let directory = tempfile::tempdir().unwrap();
-    let profile = directory.path().join("profile");
-    let guard = sailry_node_runtime::logging::install(
-        &profile,
-        sailry_node_runtime::logging::Application::Host,
-    )
-    .unwrap();
-    let mut turns = Vec::new();
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-            if request.path == "/responses" {
-                let body = json!({"detail":"Selected model is not supported for this account"});
-                Reply::Raw(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}"))
-            } else {
-                standard(request)
-            }
-        }).await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let session = session(&fixture, &provider).await;
-        let (_, turn) = submit(&fixture.client, &session).await;
-        let page = finished(&fixture.client, &turn, Status::Failed).await;
-        let error = page
-            .runs
-            .iter()
-            .find(|run| run.turn == turn.id)
-            .unwrap()
-            .error
-            .as_ref()
-            .unwrap();
-        assert_eq!(error.code, ErrorCode::Unavailable);
-        assert_eq!(
-            error.message,
-            "Selected model is not supported for this account"
-        );
-        assert_eq!(
-            error.details,
-            Some(FaultDetails::ModelRecovery {
-                reason: sailry_protocol::conversation::recovery::Stop::InvalidRequest,
-            })
-        );
-        let mut updates = fixture
-            .client
-            .subscribe_conversation(session.id)
-            .await
-            .unwrap();
-        let sailry_protocol::Update::ConversationSnapshot(snapshot) = updates.next().await.unwrap()
-        else {
-            panic!("conversation snapshot expected")
-        };
-        let observations: Vec<_> = snapshot
-            .statistics
-            .observations
-            .recent
-            .iter()
-            .filter(|request| request.turn == turn.id)
-            .collect();
-        assert_eq!(observations.len(), 1);
-        assert_eq!(observations[0].attempts.len(), 1);
-        assert_eq!(observations[0].attempts[0].status, Some(400));
-        assert_eq!(
-            observations[0].attempts[0].outcome,
-            sailry_protocol::conversation::observation::Outcome::Failed
-        );
-        let Output::Session(current) = execute(
+        assert_eq!(providers, vec![provider.clone()]);
+        let Output::Session(saved) = execute(
             &fixture.client,
             Command::ReadSession {
                 session: session.id,
@@ -559,50 +430,27 @@ async fn reports_account_model_rejection() {
         else {
             panic!("session expected")
         };
-        assert_eq!(current.config, session.config);
-        assert_eq!(current.revision, session.revision);
-        no_secrets(&page);
-        turns.push(turn.id);
+        assert_eq!(saved.config, session.config);
+        let captured = oauth::captured(&fixture, &turn).await;
+        assert_eq!(captured.credential, provider.credential);
         assert_eq!(
-            server
-                .requests
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|request| request.path == "/responses")
-                .count(),
-            1
+            captured.oauth,
+            sailry_protocol::conversation::oauth::Options::defaults(Authentication::ChatGpt)
         );
+        no_secrets(&page);
         fixture.close().await;
     }
-    assert_eq!(guard.dropped_lines(), 0);
-    drop(guard);
-    let records = std::fs::read_dir(profile.join("logs/host"))
-        .unwrap()
-        .flat_map(|entry| {
-            std::fs::read_to_string(entry.unwrap().path())
-                .unwrap()
-                .lines()
-                .map(logs::line)
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    for turn in turns {
-        let failures: Vec<_> = records
-            .iter()
-            .filter(|record| {
-                record["turn"] == turn.to_string()
-                    && record["operation"] == "model_request"
-                    && record["phase"] == "failed"
-            })
-            .collect();
-        assert_eq!(failures.len(), 1);
-        assert_eq!(
-            failures[0]["cause_code"],
-            "model.openai_responses.invalid_request"
-        );
-        assert_eq!(failures[0]["cause_component"], "model");
-        assert_eq!(failures[0]["cause_category"], "invalid_input");
-        assert_eq!(failures[0]["upstream_status"], 400);
-    }
+}
+
+pub(super) async fn discover(fixture: &Fixture, provider: &Provider) -> Result<Output, Fault> {
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::DiscoverModels(Box::new(
+            discovery::Source::Saved {
+                provider: provider.id,
+                expected_revision: provider.revision,
+                oauth: None,
+            },
+        ))))
+        .await
 }

@@ -13,9 +13,14 @@ fn captures_signatures_and_extra_metadata() {
         ("thoughtSignature".into(), json!("signature")),
         ("extra".into(), json!("provider")),
     ]
-    .into();
-    let message =
-        Message::assistant().with_tool_request_with_metadata("call", Ok(call()), Some(&metadata));
+    .into_iter()
+    .collect();
+    let message = Message::assistant().with_tool_request_with_metadata(
+        "call",
+        Ok(call()),
+        Some(&metadata),
+        None,
+    );
     let response = response::convert(
         message,
         ProviderUsage::new("model".into(), Usage::default()),
@@ -32,10 +37,7 @@ fn captures_signatures_and_extra_metadata() {
         "provider"
     );
     let (_, _, messages, _) = request::convert(
-        LlmRequest {
-            contents: vec![response.content.unwrap()],
-            ..Default::default()
-        },
+        LlmRequest::new("model", vec![response.content.unwrap()]),
         &ModelConfig::new("model"),
     )
     .unwrap();
@@ -72,10 +74,7 @@ fn preserves_redacted_thinking_order() {
     assert_eq!(server_tool_response["content"][0]["data"], "first");
     assert_eq!(server_tool_response["content"][2]["id"], "call");
     let (_, _, messages, _) = request::convert(
-        LlmRequest {
-            contents: vec![response.content.unwrap()],
-            ..Default::default()
-        },
+        LlmRequest::new("model", vec![response.content.unwrap()]),
         &ModelConfig::new("model"),
     )
     .unwrap();

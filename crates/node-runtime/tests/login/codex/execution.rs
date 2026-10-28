@@ -62,7 +62,19 @@ async fn retains_capture_through_refresh() {
         })
         .await;
         let fixture = Fixture::packages(remote, &server, &["files"]).await;
-        let provider = configured(&fixture, Some(initial.clone())).await;
+        let mut provider = configured(&fixture, Some(initial.clone())).await;
+        provider.models[0].context = 128_000;
+        let Output::Provider(provider) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
         let session = super::super::execution::session(&fixture, &provider).await;
         let Output::QueuedTurn(turn) = fixture
             .client

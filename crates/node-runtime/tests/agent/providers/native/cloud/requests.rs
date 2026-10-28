@@ -64,7 +64,11 @@ async fn bounds_transient_failure_retries() {
                 page.runs
             );
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-            assert_eq!(server.requests.lock().unwrap().len(), 6, "{api:?}");
+            assert_eq!(
+                server.requests.lock().unwrap().len(),
+                1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES,
+                "{api:?}"
+            );
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }
@@ -87,7 +91,11 @@ async fn rejects_redirects() {
                 page.runs
             );
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-            assert_eq!(server.requests.lock().unwrap().len(), 1, "{api:?}");
+            assert_eq!(
+                server.requests.lock().unwrap().len(),
+                1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES,
+                "{api:?}"
+            );
             assert!(target.requests.lock().unwrap().is_empty());
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();

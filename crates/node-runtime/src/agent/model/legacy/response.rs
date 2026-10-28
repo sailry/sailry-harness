@@ -76,9 +76,6 @@ pub(super) fn convert(
             server_tool_response: json!({"type":"anthropic_message","content":content}),
         });
     }
-    let tools = parts
-        .iter()
-        .any(|part| matches!(part, Part::FunctionCall { .. }));
     let finish = if usage.finish_reasons.as_ref().is_some_and(|reasons| {
         reasons.iter().any(|reason| {
             matches!(
@@ -88,8 +85,6 @@ pub(super) fn convert(
         })
     }) {
         FinishReason::MaxTokens
-    } else if tools {
-        FinishReason::ToolCalls
     } else {
         FinishReason::Stop
     };
