@@ -250,7 +250,16 @@ async fn scopes_tool_switches_to_the_execution_node() {
             assert!(!instructions.contains("Use update_plan for substantial multi-step tasks"));
             let memory_rule =
                 "When an answer or action depends on earlier preferences or decisions";
-            assert_eq!(instructions.contains(memory_rule), enabled && index > 0);
+            assert_eq!(
+                instructions.matches(memory_rule).count(),
+                usize::from(enabled)
+            );
+            assert_eq!(
+                node_context(&requests[start], "Work mode")
+                    .matches(memory_rule)
+                    .count(),
+                usize::from(enabled && index > 0)
+            );
             if enabled && index == 0 {
                 assert!(
                     searched["sailry_context"]

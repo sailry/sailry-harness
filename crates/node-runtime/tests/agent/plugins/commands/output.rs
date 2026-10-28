@@ -73,7 +73,12 @@ async fn reads_large_failure_tail_at_original_offsets() {
         };
         let (projected, reference) = projected(&server).await;
         let total = prefix_bytes + failure.len();
-        assert_eq!(projected["data"]["stdout"]["total_bytes"], total);
+        let preview = &projected["sailry_command"]["stdout"];
+        assert_eq!(preview["total_bytes"], total);
+        let tail = preview["tail"].as_str().unwrap();
+        assert!(tail.ends_with("last failure\n"));
+        assert!(failure.ends_with(tail));
+        assert_eq!(preview["tail_offset"], total - tail.len());
         let mut offset = prefix_bytes;
         let mut text = String::new();
         loop {
@@ -256,7 +261,7 @@ async fn retains_foreground_streams_and_canonical_results() {
         let turn = turn.id;
         let (projected, reference) = projected(&server).await;
         assert!(
-            projected["data"]["stdout"]["text"]
+            projected["sailry_command"]["stdout"]["tail"]
                 .as_str()
                 .unwrap()
                 .ends_with("last failure\n")
