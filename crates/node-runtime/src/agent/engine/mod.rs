@@ -203,6 +203,13 @@ pub(super) async fn run(
         .last()
         .filter(|message| message.error_kind().is_some())
     {
+        if let Some(provider) = &invocation.provider
+            && let Some(failure) = ingress
+                .authorization_failure(provider, &invocation.turn.config)
+                .await?
+        {
+            return Err(failure);
+        }
         use goose_provider_types::conversation::message::MessageErrorKind;
         let reason = match message.error_kind() {
             Some(MessageErrorKind::Authentication) => ModelFailure::Unauthorized,
