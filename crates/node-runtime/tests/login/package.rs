@@ -9,6 +9,8 @@ pub(super) mod support;
 
 #[path = "package/adapter.rs"]
 mod adapter;
+#[path = "package/builtin.rs"]
+mod builtin;
 #[path = "package/headers.rs"]
 mod headers;
 #[path = "package/partners.rs"]
