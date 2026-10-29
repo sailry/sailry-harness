@@ -153,8 +153,11 @@ async fn explores_history_without_shell_approval() {
                 .iter()
                 .filter_map(|tool| tool["function"]["name"].as_str())
                 .collect();
-            assert!(tools.contains(show.as_str()));
-            assert!(tools.contains(blame.as_str()));
+            // History tools stay discoverable; direct calls still execute.
+            for name in ["git_show", "git_blame", show.as_str(), blame.as_str()] {
+                assert!(!tools.contains(name), "{name}");
+            }
+            assert!(tools.contains("git_status"));
             assert_eq!(
                 std::fs::read(repository.path().join("index")).unwrap(),
                 before

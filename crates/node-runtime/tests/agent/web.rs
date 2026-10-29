@@ -108,7 +108,7 @@ async fn binds_anonymous_reads_without_native_search() {
             assert!(
                 tools
                     .iter()
-                    .any(|tool| tool["function"]["name"] == plugin_tool("web-search", "web_fetch")),
+                    .any(|tool| tool["function"]["name"] == "web_fetch"),
                 "{tools:?}"
             );
             assert!(!tools.iter().any(|tool| tool["type"] == "web_search"));

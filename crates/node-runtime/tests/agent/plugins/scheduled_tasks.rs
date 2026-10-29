@@ -374,7 +374,7 @@ async fn preserves_enablement_and_planning_policy() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|declaration| declaration["function"]["name"] == tool);
+                    .any(|declaration| declaration["function"]["name"] == "scheduled_tasks");
                 assert_eq!(exposed, enabled);
             }
         }

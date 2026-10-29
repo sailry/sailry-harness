@@ -90,7 +90,7 @@ pub async fn respond_usage(
                 })
         });
     let delta = if read {
-        json!({"role":"assistant","tool_calls":[{"index":0,"id":"evidence-call","type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":"source.txt","limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":"evidence-call","type":"function","function":{"name":"read_file","arguments":json!({"path":"source.txt","limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
     } else {
         json!({"role":"assistant","content":if summary { handoff(text) } else { "Verified response".into() }})
     };
@@ -115,7 +115,7 @@ pub async fn respond_recent(
         .iter()
         .any(|message| message["role"] == "tool" && message["tool_call_id"] == id);
     let delta = if read {
-        json!({"role":"assistant","tool_calls":[{"index":0,"id":id,"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":path,"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":id,"type":"function","function":{"name":"read_file","arguments":json!({"path":path,"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
     } else {
         json!({"role":"assistant","content":"Recent result verified"})
     };
@@ -210,7 +210,7 @@ pub async fn respond_loop(
     let read = completed < 6;
     let index = completed + 1;
     let delta = if read {
-        json!({"role":"assistant","tool_calls":[{"index":0,"id":format!("loop-{index}"),"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":format!("source-{index}.txt"),"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":format!("loop-{index}"),"type":"function","function":{"name":"read_file","arguments":json!({"path":format!("source-{index}.txt"),"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
     } else {
         json!({"role":"assistant","content":"Verified all six files"})
     };
@@ -346,7 +346,7 @@ pub async fn respond_exchange(
     };
     let read = !calls.is_empty();
     let delta = if read {
-        json!({"role":"assistant","tool_calls":calls.into_iter().enumerate().map(|(index,(id,name,args))| json!({"index":index,"id":id,"type":"function","function":{"name":name,"arguments":args.to_string()}})).collect::<Vec<_>>()})
+        json!({"role":"assistant","tool_calls":calls.into_iter().enumerate().map(|(index,(id,name,args))| json!({"index":index,"id":id,"type":"function","function":{"name":offered(body, &name),"arguments":args.to_string()}})).collect::<Vec<_>>()})
     } else {
         json!({"role":"assistant","content":"Verified the independent results"})
     };

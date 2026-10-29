@@ -131,14 +131,11 @@ async fn freezes_config_and_history() {
                 text.contains("Inspect 中文 A"),
                 text.contains("Inspect 中文 B")
             );
-            assert!(
-                request["tools"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|tool| tool["function"]["name"]
-                        != crate::agent_support::plugin_tool("delegation", "spawn_agent"))
-            );
+            assert!(request["tools"].as_array().unwrap().iter().all(
+                |tool| tool["function"]["name"] != "spawn_agent"
+                    && tool["function"]["name"]
+                        != crate::agent_support::plugin_tool("delegation", "spawn_agent")
+            ));
         }
         let mut histories = Vec::new();
         let mut captured = Vec::new();

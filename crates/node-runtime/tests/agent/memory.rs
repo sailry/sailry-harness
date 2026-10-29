@@ -148,9 +148,7 @@ async fn preserves_reads_in_plan() {
                 "consolidate_memories",
             ] {
                 assert_eq!(
-                    tools
-                        .iter()
-                        .any(|tool| tool["function"]["name"] == plugin_tool("memory", name)),
+                    tools.iter().any(|tool| tool["function"]["name"] == name),
                     index > 0
                 );
             }
@@ -424,10 +422,14 @@ async fn applies_tool_settings() {
                 for (index, request) in requests.iter().enumerate() {
                     let tools = request["tools"].as_array().unwrap();
                     for name in ["search_memory", "review_memories"] {
-                        assert_eq!(tools.iter().any(|tool| tool["function"]["name"] == plugin_tool("memory", name)), enabled && index > 0);
+                        assert_eq!(
+                            tools.iter().any(|tool| tool["function"]["name"] == name),
+                            enabled && index > 0
+                        );
                     }
                     for name in ["save_memory", "forget_memory", "consolidate_memories"] {
-                        assert!(tools.iter().all(|tool| tool["function"]["name"] != plugin_tool("memory", name)));
+                        assert!(tools.iter().all(|tool| tool["function"]["name"] != name
+                            && tool["function"]["name"] != plugin_tool("memory", name)));
                     }
                 }
                 let prompt = requests[0]["messages"].to_string();

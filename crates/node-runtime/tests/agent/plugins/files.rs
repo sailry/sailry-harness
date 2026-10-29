@@ -438,23 +438,25 @@ async fn preserves_ask_and_plan_policy() {
             .iter()
             .map(|tool| tool["function"]["name"].as_str().unwrap())
             .collect();
-        for read in [
+        for visible in [
             "list_directory",
             "read_file",
             "find_files",
             "search_files",
-            "read_office",
-        ] {
-            assert!(names.contains(&name(read).as_str()));
-        }
-        for mutation in [
             "write_file",
             "edit_file",
+        ] {
+            assert!(names.contains(&visible));
+        }
+        // Less common capabilities stay discoverable through tool search.
+        for deferred in [
+            "read_office",
             "delete_file",
             "move_file",
             "create_directory",
         ] {
-            assert!(names.contains(&name(mutation).as_str()));
+            assert!(!names.contains(&deferred));
+            assert!(!names.contains(&name(deferred).as_str()));
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

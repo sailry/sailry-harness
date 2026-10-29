@@ -267,7 +267,7 @@ fn model(request: &Value) {
         .map(|tool| tool["function"]["name"].as_str().unwrap())
         .collect();
     for name in [
-        plugin_tool("files", "read_file").as_str(),
+        "read_file",
         "load_skill",
         "read_skill_resource",
         "ask_user",
@@ -279,14 +279,16 @@ fn model(request: &Value) {
     ] {
         assert!(tools.contains(name), "missing tool {name}");
     }
-    assert!(tools.contains(alias("read_note").as_str()));
-    for name in [
-        plugin_tool("files", "write_file").as_str(),
-        plugin_tool("delegation", "spawn_agent").as_str(),
+    assert!(tools.contains(exposed(&alias("read_note"))));
+    for (package, name) in [
+        ("files", "write_file"),
+        ("delegation", "spawn_agent"),
+        ("commands", "run_command"),
     ] {
         assert!(!tools.contains(name), "unexpected tool {name}");
+        assert!(!tools.contains(plugin_tool(package, name).as_str()));
     }
-    assert!(!tools.contains(plugin_tool("commands", "run_command").as_str()));
+    assert!(!tools.contains("list_notes"));
     assert!(!tools.contains(alias("list_notes").as_str()));
     let messages = request["messages"].as_array().unwrap();
     assert_eq!(

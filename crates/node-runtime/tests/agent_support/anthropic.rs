@@ -27,11 +27,9 @@ pub fn blocks(request: &Value, reply: Reply) -> (Vec<Value>, &'static str) {
         .to_string()
         .contains("Search companion content");
     let tool = !returned
-        && request["tools"].as_array().is_some_and(|tools| {
-            tools
-                .iter()
-                .any(|tool| tool["name"] == plugin_tool("files", "read_file"))
-        });
+        && request["tools"]
+            .as_array()
+            .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == "read_file"));
     let mut blocks = Vec::new();
     if search && !returned {
         if !resumed {
@@ -64,7 +62,7 @@ pub fn blocks(request: &Value, reply: Reply) -> (Vec<Value>, &'static str) {
     }
     if tool {
         blocks.push(
-            json!({"type":"tool_use", "id":"read-fixture", "name":plugin_tool("files", "read_file"),
+            json!({"type":"tool_use", "id":"read-fixture", "name":"read_file",
             "input":{"path":"native.txt"}}),
         );
     }

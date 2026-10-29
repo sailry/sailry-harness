@@ -141,7 +141,7 @@ async fn tools() {
             assert_eq!(
                 tools,
                 BTreeSet::from([
-                    alias("read_note"),
+                    "read_note".into(),
                     mcp,
                     "ask_user".into(),
                     "set_session_title".into(),

@@ -54,7 +54,13 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
 
 /// Common worktree capabilities stay visible; other captured tools are discoverable.
 pub(super) fn defer(invocation: &Invocation, tools: &mut [ToolRegistration]) -> Result<(), Fault> {
-    if invocation.child.is_some() || invocation.turn.config.assistant.is_some() {
+    if invocation.turn.config.assistant.is_some()
+        || invocation
+            .child
+            .as_ref()
+            .and_then(|child| child.role.as_ref())
+            .is_some_and(|role| role.tools.is_some())
+    {
         return Ok(());
     }
     let selected = crate::plugins::modes::selected(&invocation.plugins, &invocation.turn.config)?
@@ -83,7 +89,7 @@ fn initial(invocation: &Invocation, selected: Option<&str>, entry: &ToolRegistra
         .and_then(|package| package.extension.as_ref())
         .is_some_and(|extension| {
             extension.tools.iter().any(|tool| {
-                operations::alias(owner, &tool.name) == entry.tool.name.as_ref() && standard(tool)
+                operations::alias(owner, &tool.name) == entry.tool.name.as_ref() && visible(tool)
             })
         })
 }
@@ -129,7 +135,64 @@ pub(super) fn declared(
     }
 }
 
+/// The delegated catalog retains its standard execution authority.
 fn standard(tool: &sailry_protocol::tool::Declaration) -> bool {
+    declares(tool, |operation| {
+        visible_operation(operation)
+            || matches!(
+                operation,
+                Operation::DeleteFile
+                    | Operation::MoveFile
+                    | Operation::CreateDirectory
+                    | Operation::ReadOffice
+                    | Operation::ReadNotebook
+                    | Operation::ReadArtifact
+                    | Operation::ListArtifacts
+                    | Operation::EditNotebook
+                    | Operation::ReadGitLog
+                    | Operation::ReadGitShow
+                    | Operation::ReadGitBlame
+                    | Operation::ListGitChanges
+                    | Operation::ReadGitChange
+                    | Operation::ListWorktrees
+            )
+    })
+}
+
+/// The main agent starts with everyday capabilities; the rest stay discoverable.
+fn visible(tool: &sailry_protocol::tool::Declaration) -> bool {
+    declares(tool, visible_operation)
+}
+
+fn visible_operation(operation: Operation) -> bool {
+    matches!(
+        operation,
+        Operation::ReadFile
+            | Operation::ReadFileLines
+            | Operation::ListDirectory
+            | Operation::FindFiles
+            | Operation::SearchFiles
+            | Operation::WriteFile
+            | Operation::EditFile
+            | Operation::SearchCode
+            | Operation::OutlineCode
+            | Operation::InspectGit
+            | Operation::ReadGitDiff
+            | Operation::RunCommand
+            | Operation::ReadCommand
+            | Operation::StopCommand
+            | Operation::FetchWeb
+            | Operation::SearchWeb
+            | Operation::Progress
+            | Operation::ListRoles
+            | Operation::ListArtifactRevisions
+    )
+}
+
+fn declares(
+    tool: &sailry_protocol::tool::Declaration,
+    accepted: impl Fn(Operation) -> bool,
+) -> bool {
     let operations: Vec<_> = tool
         .operation
         .into_iter()
@@ -142,45 +205,7 @@ fn standard(tool: &sailry_protocol::tool::Declaration) -> bool {
             )
         }))
         .collect();
-    !operations.is_empty()
-        && operations.into_iter().all(|operation| {
-            matches!(
-                operation,
-                Operation::ReadFile
-                    | Operation::ReadFileLines
-                    | Operation::ListDirectory
-                    | Operation::FindFiles
-                    | Operation::SearchFiles
-                    | Operation::WriteFile
-                    | Operation::EditFile
-                    | Operation::DeleteFile
-                    | Operation::MoveFile
-                    | Operation::CreateDirectory
-                    | Operation::ReadOffice
-                    | Operation::ReadNotebook
-                    | Operation::ReadArtifact
-                    | Operation::ListArtifacts
-                    | Operation::ListArtifactRevisions
-                    | Operation::EditNotebook
-                    | Operation::SearchCode
-                    | Operation::OutlineCode
-                    | Operation::InspectGit
-                    | Operation::ReadGitDiff
-                    | Operation::ReadGitLog
-                    | Operation::ReadGitShow
-                    | Operation::ReadGitBlame
-                    | Operation::ListGitChanges
-                    | Operation::ReadGitChange
-                    | Operation::ListWorktrees
-                    | Operation::RunCommand
-                    | Operation::ReadCommand
-                    | Operation::StopCommand
-                    | Operation::FetchWeb
-                    | Operation::SearchWeb
-                    | Operation::Progress
-                    | Operation::ListRoles
-            )
-        })
+    !operations.is_empty() && operations.into_iter().all(accepted)
 }
 
 #[cfg(test)]
@@ -224,6 +249,37 @@ mod tests {
             Operation::WriteArtifact,
         ] {
             assert!(!standard(&tool(operation)));
+        }
+        for operation in [
+            Operation::ReadFile,
+            Operation::EditFile,
+            Operation::SearchFiles,
+            Operation::InspectGit,
+            Operation::ReadGitDiff,
+            Operation::RunCommand,
+            Operation::Progress,
+            Operation::ListArtifactRevisions,
+        ] {
+            assert!(visible(&tool(operation)));
+        }
+        for operation in [
+            Operation::DeleteFile,
+            Operation::MoveFile,
+            Operation::CreateDirectory,
+            Operation::ReadOffice,
+            Operation::ReadNotebook,
+            Operation::EditNotebook,
+            Operation::ReadGitLog,
+            Operation::ReadGitShow,
+            Operation::ReadGitBlame,
+            Operation::ListGitChanges,
+            Operation::ReadGitChange,
+            Operation::ReadArtifact,
+            Operation::ListArtifacts,
+            Operation::ListWorktrees,
+        ] {
+            assert!(standard(&tool(operation)));
+            assert!(!visible(&tool(operation)));
         }
     }
 }

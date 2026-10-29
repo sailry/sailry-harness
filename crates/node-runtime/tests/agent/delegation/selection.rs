@@ -225,7 +225,7 @@ async fn restores_frozen_input() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|tool| tool["function"]["name"] == plugin_tool("delegation", "spawn_agent"))
+                .any(|tool| tool["function"]["name"] == "spawn_agent")
         );
         let Output::Session(branch) = client
             .execute(client.prepare(Command::ForkConversation {

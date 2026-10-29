@@ -35,8 +35,7 @@ async fn omits_unavailable_search() {
         assert_eq!(requests.len(), 1);
         assert!(
             !requests[0]["tools"].as_array().unwrap().iter().any(|tool| {
-                tool["type"] == "web_search"
-                    || tool["function"]["name"] == plugin_tool("web-search", "web_search")
+                tool["type"] == "web_search" || tool["function"]["name"] == "web_search"
             })
         );
         assert!(page.entries.iter().all(|entry| entry.citations.is_empty()));

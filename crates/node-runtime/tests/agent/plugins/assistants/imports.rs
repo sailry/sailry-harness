@@ -183,7 +183,7 @@ async fn qualifies_policy_without_a_loader() {
             .iter()
             .filter_map(|tool| tool["function"]["name"].as_str())
             .collect();
-        assert!(tools.contains(alias("read_note").as_str()));
+        assert!(tools.contains("read_note"));
         assert!(!tools.contains("load_skill"));
         assert!(!tools.contains("read_skill_resource"));
         let instruction = node_context(&request, "Work mode");
@@ -443,10 +443,11 @@ async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
         .collect();
     assert_eq!(
         names,
+        // Both packages declare read_note, so only that conflict keeps aliases.
         BTreeSet::from([
-            inspect,
+            "inspect".into(),
             read,
-            run,
+            "run_command".into(),
             alias("read_note"),
             "load_skill".into(),
             "read_skill_resource".into(),

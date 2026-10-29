@@ -1132,7 +1132,7 @@ fn declares(request: &serde_json::Value, name: &str) -> bool {
         .as_array()
         .unwrap()
         .iter()
-        .any(|tool| tool["function"]["name"] == name)
+        .any(|tool| tool["function"]["name"] == exposed(name))
 }
 
 #[tokio::test]

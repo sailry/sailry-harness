@@ -1,4 +1,3 @@
-use crate::agent_support::plugin_tool;
 use sailry_link::CancellationToken;
 use sailry_protocol::conversation::ModelApi;
 use serde_json::json;
@@ -222,7 +221,7 @@ async fn respond(
         | ModelApi::AzureAi
         | ModelApi::AzureOpenAi => {
             let delta = if tool {
-                json!({"reasoning_content":"Inspect the file 🙂", "tool_calls":[{"index":0, "id":"native-call", "type":"function", "function":{"name":plugin_tool("files", "read_file"), "arguments":"{\"path\":\"native.txt\"}"}}]})
+                json!({"reasoning_content":"Inspect the file 🙂", "tool_calls":[{"index":0, "id":"native-call", "type":"function", "function":{"name":"read_file", "arguments":"{\"path\":\"native.txt\"}"}}]})
             } else {
                 json!({"content":ANSWER})
             };
@@ -247,7 +246,7 @@ async fn respond(
                 json!({"input_tokens":8,"output_tokens":0})
             };
             let block = if tool {
-                json!({"type":"tool_use", "id":"native-call", "name":plugin_tool("files", "read_file"), "input":{}})
+                json!({"type":"tool_use", "id":"native-call", "name":"read_file", "input":{}})
             } else {
                 json!({"type":"text", "text":""})
             };
@@ -289,7 +288,7 @@ async fn respond(
                 json!({"promptTokenCount":8,"candidatesTokenCount":4,"totalTokenCount":12})
             };
             let part = if tool {
-                json!({"functionCall":{"id":"native-call", "name":plugin_tool("files", "read_file"), "args":{"path":"native.txt"}}})
+                json!({"functionCall":{"id":"native-call", "name":"read_file", "args":{"path":"native.txt"}}})
             } else {
                 json!({"text":answer})
             };
@@ -321,7 +320,7 @@ fn response_events(tool: bool, streaming: bool, index: usize) -> Vec<serde_json:
     let output = if tool {
         json!([
             {"type":"reasoning", "id":"reasoning", "summary":[{"type":"summary_text","text":"Read the file"}],"encrypted_content":"fixture-encrypted-reasoning"},
-            {"type":"function_call", "id":"read-item", "call_id":"native-call", "name":plugin_tool("files","read_file"), "arguments":"{\"path\":\"native.txt\"}", "status":"completed"}
+            {"type":"function_call", "id":"read-item", "call_id":"native-call", "name":"read_file", "arguments":"{\"path\":\"native.txt\"}", "status":"completed"}
         ])
     } else {
         json!([{"type":"message", "id":format!("native-answer-{index}"), "role":"assistant","status":"completed", "content":[{"type":"output_text","text":ANSWER, "annotations":[]}]}])

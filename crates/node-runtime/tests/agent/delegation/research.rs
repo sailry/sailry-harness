@@ -104,17 +104,21 @@ async fn loads_the_skill_without_expanding_authority() {
         let request = requests
             .iter()
             .find(|request| {
-                request["tools"].as_array().unwrap().iter().all(|tool| {
-                    tool["function"]["name"] != plugin_tool("delegation", "spawn_agent")
-                })
+                request["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|tool| tool["function"]["name"] != "spawn_agent")
             })
             .expect("delegated model request");
         let parent_request = requests
             .iter()
             .find(|request| {
-                request["tools"].as_array().unwrap().iter().any(|tool| {
-                    tool["function"]["name"] == plugin_tool("delegation", "spawn_agent")
-                })
+                request["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == "spawn_agent")
             })
             .expect("coordinator model request");
         assert!(
@@ -137,7 +141,7 @@ async fn loads_the_skill_without_expanding_authority() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|tool| tool["function"]["name"] == plugin_tool("web-search", name)),
+                    .any(|tool| tool["function"]["name"] == name),
                 "missing research tool {name}"
             );
         }

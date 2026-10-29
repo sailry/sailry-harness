@@ -223,12 +223,16 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                 "{stage}"
             );
             for name in ["spawn_agent", "guide_agent", "wait_agent"] {
-                assert!(!tools.contains(tool(name).as_str()), "{stage} {name}");
+                assert!(
+                    !tools.contains(name) && !tools.contains(tool(name).as_str()),
+                    "{stage} {name}"
+                );
             }
             let worktrees = stage == "enabled";
             for name in ["create_worktree", "register_worktree"] {
                 assert!(
-                    !tools.contains(plugin_tool("worktrees", name).as_str()),
+                    !tools.contains(name)
+                        && !tools.contains(plugin_tool("worktrees", name).as_str()),
                     "{stage} {name}"
                 );
             }
@@ -422,7 +426,7 @@ async fn edits_catalog_and_applies_future_capture() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|entry| entry["function"]["name"] == tool("spawn_agent"))
+                .find(|entry| entry["function"]["name"] == "spawn_agent")
                 .unwrap();
             let role = &declaration["function"]["parameters"]["properties"]["role"];
             assert!(role.get("enum").is_none());
@@ -433,7 +437,7 @@ async fn edits_catalog_and_applies_future_capture() {
                     request["tools"]
                         .as_array()?
                         .iter()
-                        .find(|entry| entry["function"]["name"] == tool("spawn_agent"))
+                        .find(|entry| entry["function"]["name"] == "spawn_agent")
                 })
                 .unwrap();
             assert_eq!(

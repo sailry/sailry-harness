@@ -196,7 +196,10 @@ async fn main_direction_reaches_running_child() {
                     |request| request["tools"].as_array().unwrap().iter().all(|tool| {
                         !["spawn_agent", "guide_agent", "wait_agent"]
                             .iter()
-                            .any(|name| tool["function"]["name"] == plugin_tool("delegation", name))
+                            .any(|name| {
+                                tool["function"]["name"] == *name
+                                    || tool["function"]["name"] == plugin_tool("delegation", name)
+                            })
                     })
                 )
         );

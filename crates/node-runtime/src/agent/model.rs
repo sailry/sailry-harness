@@ -2,6 +2,7 @@ use super::*;
 mod authorization;
 mod errors;
 mod factory;
+mod names;
 pub(in crate::agent) mod observation;
 pub(super) mod plugin;
 pub(crate) mod registry;
@@ -17,6 +18,7 @@ pub(super) struct Binding {
     pub provider: Arc<dyn GdkProvider>,
     pub config: ModelConfig,
     pub sources: observation::Sources,
+    pub names: names::Registry,
 }
 
 #[derive(Clone, Copy)]
@@ -57,6 +59,7 @@ pub(super) async fn provider(
         purpose,
         stop,
         binding.sources.clone(),
+        binding.names.clone(),
     );
     Ok(binding)
 }
@@ -126,5 +129,6 @@ pub(super) async fn binding(
         provider: inner,
         config: model_config,
         sources: observation::Sources::default(),
+        names: names::Registry::default(),
     })
 }

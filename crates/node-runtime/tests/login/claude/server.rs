@@ -161,11 +161,7 @@ pub(super) fn generation(request: &discovery_support::Request, access: &str, too
             .as_array()
             .unwrap()
             .iter()
-            .find_map(|tool| {
-                tool["name"]
-                    .as_str()
-                    .filter(|name| name.ends_with("_read_file"))
-            })
+            .find_map(|tool| tool["name"].as_str().filter(|name| *name == "read_file"))
             .expect("files read tool expected");
         json!({"type":"tool_use", "id":"call_claude", "name":name, "input":{}})
     } else {

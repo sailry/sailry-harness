@@ -542,7 +542,7 @@ async fn settles_batch_before_handoff() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|tool| { tool["function"]["name"] == plugin_tool("files", "read_file") })
+                .any(|tool| tool["function"]["name"] == "read_file")
         );
         assert_eq!(
             std::fs::read_to_string(fixture.root().join("first.txt")).unwrap(),

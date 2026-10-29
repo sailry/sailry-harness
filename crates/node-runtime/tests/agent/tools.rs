@@ -36,7 +36,7 @@ async fn reads_bound_worktree() {
             ),
             (
                 plugin_tool("files", "search_files"),
-                json!({"query": ".", "regex": true, "globs": ["**/*.rs", "**/*.py", "**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", "**/*.go", "**/*.java", "**/*.c", "**/*.h", "**/*.cpp", "**/*.hpp", "**/*.rb", "**/*.php", "**/*.swift", "**/*.kt", "**/*.txt"]}),
+                json!({"query": ".", "mode":"content", "regex": true, "globs": ["**/*.rs", "**/*.py", "**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", "**/*.go", "**/*.java", "**/*.c", "**/*.h", "**/*.cpp", "**/*.hpp", "**/*.rb", "**/*.php", "**/*.swift", "**/*.kt", "**/*.txt"]}),
             ),
             (plugin_tool("git", "git_status"), json!({})),
             (
@@ -53,13 +53,20 @@ async fn reads_bound_worktree() {
                 json!({"path": "资料.txt", "worktree": WorktreeId::new()}),
             ),
         ];
-        let deferred: Vec<_> = ["create_worktree", "register_worktree", "remove_worktree"]
-            .into_iter()
-            .map(|name| plugin_tool("worktrees", name))
-            .collect();
+        let deferred: Vec<_> = [
+            ("worktrees", "create_worktree"),
+            ("worktrees", "register_worktree"),
+            ("worktrees", "remove_worktree"),
+            ("worktrees", "list_worktrees"),
+            ("git", "git_log"),
+            ("files", "read_office"),
+        ]
+        .into_iter()
+        .map(|(package, name)| plugin_tool(package, name))
+        .collect();
         let mut script = vec![(
             "tool_search".into(),
-            json!({"query":deferred.join(" "),"limit":3}),
+            json!({"query":deferred.join(" "),"limit":6}),
         )];
         script.extend(calls.clone());
         let server = Server::tools(script).await;
@@ -176,9 +183,10 @@ async fn reads_bound_worktree() {
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), calls.len() + 2);
         let catalog = requests[0]["tools"].as_array().unwrap();
-        let history_tool = catalog
+        let discovered = requests[1]["tools"].as_array().unwrap();
+        let history_tool = discovered
             .iter()
-            .find(|tool| tool["function"]["name"] == plugin_tool("git", "git_log"))
+            .find(|tool| tool["function"]["name"] == "git_log")
             .unwrap();
         assert_eq!(
             history_tool["function"]["parameters"]["properties"]["cursor"]["type"],
@@ -206,16 +214,20 @@ async fn reads_bound_worktree() {
             assert!(!catalog.iter().any(|tool| tool["function"]["name"] == name));
         }
         for name in ["get_goal", "create_goal", "update_goal"] {
+            assert!(!catalog.iter().any(|tool| tool["function"]["name"] == name));
+        }
+        for name in &deferred {
             assert!(
                 !catalog
                     .iter()
-                    .any(|tool| tool["function"]["name"] == plugin_tool("goals", name))
+                    .any(|tool| tool["function"]["name"] == exposed(name))
             );
         }
-        for name in &deferred {
-            assert!(!catalog.iter().any(|tool| tool["function"]["name"] == *name));
-        }
-        let discovered = requests[1]["tools"].as_array().unwrap();
+        let mut expected: Vec<_> = expected
+            .iter()
+            .map(|name| exposed(name).to_owned())
+            .collect();
+        expected.sort();
         let mut added: Vec<_> = discovered
             .iter()
             .filter(|tool| !catalog.contains(tool))
@@ -230,7 +242,7 @@ async fn reads_bound_worktree() {
         for name in ["run_command", "read_command", "stop_command"] {
             let tool = catalog
                 .iter()
-                .find(|tool| tool["function"]["name"] == plugin_tool("commands", name))
+                .find(|tool| tool["function"]["name"] == name)
                 .unwrap();
             assert!(
                 tool["function"]["parameters"]["properties"]
@@ -242,11 +254,15 @@ async fn reads_bound_worktree() {
                     .get("session")
                     .is_none()
             );
-            assert!(!catalog.iter().any(|tool| tool["function"]["name"] == name));
+            assert!(
+                !catalog
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == plugin_tool("commands", name))
+            );
         }
         let directory_tool = catalog
             .iter()
-            .find(|tool| tool["function"]["name"] == plugin_tool("files", "list_directory"))
+            .find(|tool| tool["function"]["name"] == "list_directory")
             .unwrap();
         assert_eq!(
             directory_tool["function"]["parameters"]["properties"]["cursor"]["type"],
@@ -254,21 +270,21 @@ async fn reads_bound_worktree() {
         );
         let search = catalog
             .iter()
-            .find(|tool| tool["function"]["name"] == plugin_tool("files", "search_files"))
+            .find(|tool| tool["function"]["name"] == "search_files")
             .unwrap();
         assert_eq!(
             search["function"]["parameters"]["properties"]["query"]["minLength"],
             1
         );
         for name in [
-            plugin_tool("files", "read_office").as_str(),
+            "read_office",
             "load_skill",
             "read_skill_resource",
             "set_session_title",
-            plugin_tool("worktrees", "list_worktrees").as_str(),
-            plugin_tool("worktrees", "create_worktree").as_str(),
-            plugin_tool("worktrees", "register_worktree").as_str(),
-            plugin_tool("worktrees", "remove_worktree").as_str(),
+            "list_worktrees",
+            "create_worktree",
+            "register_worktree",
+            "remove_worktree",
         ] {
             assert!(
                 discovered
@@ -293,7 +309,7 @@ async fn reads_bound_worktree() {
                     "search_files"
                 ]
                 .iter()
-                .any(|name| tool["function"]["name"] == plugin_tool("files", name)))
+                .any(|name| tool["function"]["name"] == *name))
                 .all(|tool| {
                     tool["function"]["parameters"]["properties"]
                         .get("worktree")

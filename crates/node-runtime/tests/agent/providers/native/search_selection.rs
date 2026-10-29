@@ -53,8 +53,7 @@ async fn selects_configured_tool() {
             assert_eq!(
                 tools
                     .iter()
-                    .filter(|tool| tool["type"] == "function"
-                        && tool["name"] == plugin_tool("web-search", "web_search"))
+                    .filter(|tool| tool["type"] == "function" && tool["name"] == "web_search")
                     .count(),
                 usize::from(enabled)
             );
@@ -64,8 +63,7 @@ async fn selects_configured_tool() {
                     .iter()
                     .filter(|tool| {
                         tool["type"] == "web_search"
-                            || tool["type"] == "function"
-                                && tool["name"] == plugin_tool("web-search", "web_search")
+                            || tool["type"] == "function" && tool["name"] == "web_search"
                     })
                     .count()
             );

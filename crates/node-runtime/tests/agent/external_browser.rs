@@ -285,26 +285,27 @@ async fn filters_without_provisioning() {
                 assert!(page.approvals.is_empty());
                 {
                     let requests = fixture._server.requests.lock().unwrap();
+                    // Only this package declares browser tools, so they use bare names.
                     let prefix = plugin_tool("external-browser", "browser_");
-                    assert!(requests[0]["tools"].as_array().unwrap().iter().all(|tool| {
-                        !tool["function"]["name"]
-                            .as_str()
-                            .is_some_and(|name| name.starts_with(&prefix))
-                    }));
-                    let tools = requests.last().unwrap()["tools"].as_array().unwrap();
-                    let count = tools
-                        .iter()
-                        .filter(|tool| {
-                            tool["function"]["name"]
-                                .as_str()
-                                .is_some_and(|name| name.starts_with(&prefix))
+                    let external = |tool: &serde_json::Value| {
+                        tool["function"]["name"].as_str().is_some_and(|name| {
+                            name.starts_with(&prefix) || name.starts_with("browser_")
                         })
-                        .count();
+                    };
+                    assert!(
+                        !requests[0]["tools"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(external)
+                    );
+                    let tools = requests.last().unwrap()["tools"].as_array().unwrap();
+                    let count = tools.iter().filter(|tool| external(tool)).count();
                     assert_eq!(count, if enabled { 49 } else { 0 });
                     let contains = |name| {
                         tools
                             .iter()
-                            .any(|entry| entry["function"]["name"] == tool(name))
+                            .any(|entry| entry["function"]["name"] == exposed(&tool(name)))
                     };
                     assert_eq!(contains("external_browser_navigate"), enabled);
                     assert_eq!(contains("external_browser_click"), enabled);

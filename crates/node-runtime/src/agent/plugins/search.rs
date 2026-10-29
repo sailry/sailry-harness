@@ -216,6 +216,45 @@ impl Search {
     }
 }
 
+/// Only the discovery owner projects its name fields; descriptions and package
+/// context remain untouched, including text which resembles a tool alias.
+pub(in crate::agent) fn project(
+    result: &mut rmcp::model::CallToolResult,
+    name: impl Fn(&str) -> String,
+) {
+    let Some(original) = &result.structured_content else {
+        return;
+    };
+    let mut projected = original.clone();
+    let Some(tools) = projected.get_mut("tools").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for tool in tools {
+        let Some(value) = tool.get_mut("name").filter(|value| value.is_string()) else {
+            return;
+        };
+        *value = Value::String(name(value.as_str().unwrap()));
+    }
+    if projected == *original {
+        return;
+    }
+    let encoded = original.to_string();
+    let updated = projected.to_string();
+    let mut mirrored = false;
+    for content in &mut result.content {
+        if let rmcp::model::ContentBlock::Text(text) = content
+            && (text.text == encoded
+                || serde_json::from_str::<Value>(&text.text).is_ok_and(|value| &value == original))
+        {
+            text.text.clone_from(&updated);
+            mirrored = true;
+        }
+    }
+    if mirrored {
+        result.structured_content = Some(projected);
+    }
+}
+
 #[cfg(test)]
 mod tests;
 

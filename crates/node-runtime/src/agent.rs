@@ -442,6 +442,32 @@ async fn execute_with(
         connections,
     )
     .await?;
+    if tool_capable && invocation.child.is_none() {
+        extensions.tools.push(title::bind(
+            invocation.turn.session.to_string(),
+            stop.clone(),
+        ));
+        extensions.tools.push(
+            question::Question {
+                ingress: ingress.clone(),
+                turn: invocation.turn.id,
+                session: invocation.turn.session.to_string(),
+                stop: stop.clone(),
+                planning: reviewing,
+            }
+            .registration(),
+        );
+    }
+    let names = model.names.capture(invocation, &extensions.tools)?;
+    if invocation.child.is_none() {
+        extensions
+            .instruction
+            .push_str(&plugins::connection_instructions(
+                invocation,
+                &extensions.tools,
+                |name| names.name(name).to_owned(),
+            ));
+    }
     let environment = prompt::environment(ingress, invocation, &stop).await;
     for captured in &invocation.instructions {
         if tool_capable
@@ -470,22 +496,6 @@ async fn execute_with(
     .chain(Some(extensions.context.trim().to_owned()).filter(|text| !text.is_empty()))
     .collect::<Vec<_>>()
     .join("\n\n");
-    if tool_capable && invocation.child.is_none() {
-        extensions.tools.push(title::bind(
-            invocation.turn.session.to_string(),
-            stop.clone(),
-        ));
-        extensions.tools.push(
-            question::Question {
-                ingress: ingress.clone(),
-                turn: invocation.turn.id,
-                session: invocation.turn.session.to_string(),
-                stop: stop.clone(),
-                planning: reviewing,
-            }
-            .registration(),
-        );
-    }
     let capability_tools = references::capabilities::tools(&extensions.tools);
     if invocation.turn.kind != sailry_protocol::conversation::RunKind::Compaction {
         let mut inputs = inputs::Batch::capture(ingress, invocation).await?;

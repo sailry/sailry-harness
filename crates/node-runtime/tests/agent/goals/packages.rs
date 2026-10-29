@@ -182,9 +182,7 @@ async fn commands_and_new_turns_follow_enablement() {
                 "clear_goal",
             ] {
                 assert_eq!(
-                    tools
-                        .iter()
-                        .any(|tool| tool["function"]["name"] == plugin_tool("outcomes", name)),
+                    tools.iter().any(|tool| tool["function"]["name"] == name),
                     enabled
                 );
             }

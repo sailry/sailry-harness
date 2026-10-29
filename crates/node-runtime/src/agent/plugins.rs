@@ -8,7 +8,7 @@ mod assistants;
 mod management;
 mod operations;
 mod scripts;
-mod search;
+pub(in crate::agent) mod search;
 mod selection;
 
 #[derive(Default)]
@@ -165,11 +165,6 @@ pub(super) async fn bind(
     {
         bound.instruction.push_str(&connection_diagnostics);
     }
-    if invocation.child.is_none() {
-        bound
-            .instruction
-            .push_str(&connection_instructions(invocation, &bound.tools));
-    }
     for package in &invocation.plugins {
         let mounted = bound.tools.iter().any(|tool| {
             bound.mounted(tool.tool.name.as_ref())
@@ -214,7 +209,11 @@ pub(super) async fn bind(
     Ok(bound)
 }
 
-fn connection_instructions(invocation: &Invocation, tools: &[ToolRegistration]) -> String {
+pub(super) fn connection_instructions(
+    invocation: &Invocation,
+    tools: &[ToolRegistration],
+    name: impl Fn(&str) -> String,
+) -> String {
     let selected: BTreeSet<_> = tools
         .iter()
         .map(|registration| registration.tool.name.as_ref())
@@ -243,7 +242,7 @@ fn connection_instructions(invocation: &Invocation, tools: &[ToolRegistration]) 
             (false, true) => "MCP authorization",
             (false, false) => "no setup action",
         };
-        instruction.push_str(&format!("\n- {alias}: {actions}"));
+        instruction.push_str(&format!("\n- {}: {actions}", name(&alias)));
     }
     instruction.push_str("\nThese tools only read and present current state. Settings and authorization require explicit controller actions. Do not start them, replay a blocked operation, or treat access denial, throttling, timeouts, or unknown failures as authorization evidence.");
     instruction

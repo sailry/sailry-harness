@@ -141,7 +141,7 @@ async fn scopes_tool_switches_to_the_execution_node() {
             ("git", "git_status"),
             ("commands", "run_command"),
             ("files", "read_file"),
-            ("worktrees", "list_worktrees"),
+            ("files", "search_files"),
         ];
         for (index, enabled) in [true, false, true].into_iter().enumerate() {
             if !server.requests.lock().unwrap().is_empty() {
@@ -217,13 +217,12 @@ async fn scopes_tool_switches_to_the_execution_node() {
             };
             let initial = names(&requests[start]);
             let tools = names(requests.last().unwrap());
-            for (package, name) in common {
-                let name = plugin_tool(package, name);
-                assert_eq!(initial.contains(&name), enabled, "{name}");
-                assert_eq!(tools.contains(&name), enabled, "{name}");
+            for (_, name) in common {
+                assert_eq!(initial.contains(name), enabled, "{name}");
+                assert_eq!(tools.contains(name), enabled, "{name}");
             }
-            assert_eq!(initial.contains(&memory), enabled && index > 0);
-            assert_eq!(tools.contains(&memory), enabled);
+            assert_eq!(initial.contains(exposed(&memory)), enabled && index > 0);
+            assert_eq!(tools.contains(exposed(&memory)), enabled);
             for (package, name) in [
                 ("commands", "write_command"),
                 ("delegation", "spawn_agent"),
@@ -231,7 +230,7 @@ async fn scopes_tool_switches_to_the_execution_node() {
                 ("worktrees", "create_worktree"),
             ] {
                 assert!(
-                    !tools.contains(&plugin_tool(package, name)),
+                    !tools.contains(name) && !tools.contains(&plugin_tool(package, name)),
                     "{package}/{name}"
                 );
             }
@@ -239,7 +238,9 @@ async fn scopes_tool_switches_to_the_execution_node() {
                 for (_, declarations) in &plugins {
                     assert!(declarations.iter().all(|name| {
                         !initial.contains(name)
+                            && !initial.contains(exposed(name))
                             && !tools.contains(name)
+                            && !tools.contains(exposed(name))
                             && !discovered.contains(name.as_str())
                     }));
                 }

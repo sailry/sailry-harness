@@ -204,7 +204,7 @@ async fn scopes_database_approvals() {
                 "{denied}"
             );
         }
-        let query_name = agent_support::plugin_tool("databases", "database_query");
+        let query_name = "database_query";
         assert!(
             tools
                 .iter()

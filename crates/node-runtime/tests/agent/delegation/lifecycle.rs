@@ -158,7 +158,7 @@ async fn drains_with_full_root_pool() {
         }
         let requests = parent.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 16);
-        let spawn = plugin_tool("delegation", "spawn_agent");
+        let spawn = "spawn_agent";
         for turn in &parents {
             let requests: Vec<_> = requests
                 .iter()

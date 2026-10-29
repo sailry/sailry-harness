@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 mod commands;
 mod files;
+mod search;
 mod terminal;
 
 pub(in crate::agent) fn project(messages: &mut [Message]) {
@@ -20,7 +21,7 @@ pub(in crate::agent) fn project(messages: &mut [Message]) {
         };
         if !matches!(
             original["kind"].as_str(),
-            Some("command_result" | "command_output" | "file_lines")
+            Some("command_result" | "command_output" | "file_lines" | "search_results")
         ) || original["output"]["call"] == response.id
         {
             continue;
@@ -30,8 +31,16 @@ pub(in crate::agent) fn project(messages: &mut [Message]) {
             "call":response.id,
             "revision":blake3::hash(encoded.as_bytes()).to_hex().to_string(),
         });
-        if original["kind"] == "file_lines" {
-            let Some(projected) = files::project(original, &source) else {
+        if matches!(
+            original["kind"].as_str(),
+            Some("file_lines" | "search_results")
+        ) {
+            let projected = if original["kind"] == "file_lines" {
+                files::project(original, &source)
+            } else {
+                search::project(original, &source)
+            };
+            let Some(projected) = projected else {
                 continue;
             };
             let mut mirrored = false;
@@ -48,7 +57,7 @@ pub(in crate::agent) fn project(messages: &mut [Message]) {
             if !mirrored {
                 result.content.push(ContentBlock::text(projected));
             }
-            // Plugin adapters serialize the whole result. Keep its numbered text
+            // Plugin adapters serialize the whole result. Keep its compact text
             // once, with the exact original JSON available through the reference.
             result.structured_content = None;
             continue;

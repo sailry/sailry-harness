@@ -24,7 +24,7 @@ struct File {
 }
 
 fn default_limit() -> usize {
-    100
+    sailry_protocol::MAX_FILE_LINES
 }
 
 #[derive(Deserialize)]
@@ -112,7 +112,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
     match operation {
         Operation::ListDirectory => "List a directory in the captured worktree",
         Operation::ReadFile | Operation::ReadFileLines => {
-            "Read numbered lines with a full file revision; offset starts at zero and defaults to 0, limit defaults to 100"
+            "Read numbered lines with a full file revision; offset defaults to 0 and limit to 2000"
         }
         Operation::WriteFile => "Write UTF-8 text using the expected file revision",
         Operation::EditFile => {
@@ -129,7 +129,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
             "Find regular file paths by glob within path, respecting .gitignore and never following symlinks. Newest files come first. Use next_offset for another page; partial scans have no continuation"
         }
         Operation::SearchFiles => {
-            "Search UTF-8 files within path using embedded ripgrep matching, respecting .gitignore and never following symlinks. Choose content rows, matching paths, or matching line counts. type uses ripgrep language names; context adds neighboring lines; multiline permits newline-spanning matches. Use next_offset for complete-scan pagination; narrow path if partial"
+            "Search UTF-8 files within path using embedded ripgrep matching, respecting .gitignore and never following symlinks. Matching paths are the default; select content rows or line counts when needed. type uses ripgrep language names; context adds neighboring lines; multiline permits newline-spanning matches. Use next_offset for complete-scan pagination; narrow path if partial"
         }
         Operation::ReadOffice => {
             "Read document sections from a worktree path or a current-turn attachment ID"
@@ -152,7 +152,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["path", "after"],
         ),
         Operation::ReadFile | Operation::ReadFileLines => (
-            json!({"path":path,"expected_revision":{"type":"string"},"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":100}}),
+            json!({"path":path,"expected_revision":{"type":"string"},"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"default":sailry_protocol::MAX_FILE_LINES}}),
             vec!["path"],
         ),
         Operation::WriteFile => (
@@ -170,11 +170,11 @@ pub(super) fn parameters(operation: Operation) -> Value {
         ),
         Operation::CreateDirectory => (json!({"path":path}), vec!["path"]),
         Operation::FindFiles => (
-            json!({"globs":{"type":"array","items":{"type":"string","minLength":1},"minItems":1},"path":{"type":"string","default":""},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":500},"offset":{"type":"integer","minimum":0,"default":0}}),
+            json!({"globs":{"type":"array","items":{"type":"string","minLength":1},"minItems":1},"path":{"type":"string","default":""},"limit":{"type":"integer","minimum":1,"default":500},"offset":{"type":"integer","minimum":0,"default":0}}),
             vec!["globs"],
         ),
         Operation::SearchFiles => (
-            json!({"query":{"type":"string","minLength":1},"regex":{"type":"boolean","default":false},"case_sensitive":{"type":"boolean","default":false},"globs":{"type":"array","items":{"type":"string"},"default":[]},"path":{"type":"string","default":""},"mode":{"type":"string","enum":["content","files","count"],"default":"content"},"context":{"type":"integer","minimum":0,"maximum":9_007_199_254_740_991u64,"default":0},"type":{"type":["string","null"]},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":200},"offset":{"type":"integer","minimum":0,"default":0},"multiline":{"type":"boolean","default":false}}),
+            json!({"query":{"type":"string","minLength":1},"regex":{"type":"boolean","default":false},"case_sensitive":{"type":"boolean","default":false},"globs":{"type":"array","items":{"type":"string"},"default":[]},"path":{"type":"string","default":""},"mode":{"type":"string","enum":["content","files","count"],"default":"files"},"context":{"type":"integer","minimum":0,"default":0},"type":{"type":["string","null"]},"limit":{"type":"integer","minimum":1,"default":200},"offset":{"type":"integer","minimum":0,"default":0},"multiline":{"type":"boolean","default":false}}),
             vec!["query"],
         ),
         Operation::ReadNotebook => {
@@ -302,10 +302,16 @@ pub(super) fn command(
                 offset: input.offset,
             }
         }
-        Operation::SearchFiles => Command::SearchFiles {
-            worktree,
-            options: decode::<FileSearch>(arguments)?,
-        },
+        Operation::SearchFiles => {
+            let mut arguments = arguments;
+            if let Some(arguments) = arguments.as_object_mut() {
+                arguments.entry("mode").or_insert_with(|| json!("files"));
+            }
+            Command::SearchFiles {
+                worktree,
+                options: decode::<FileSearch>(arguments)?,
+            }
+        }
         Operation::ReadNotebook => Command::ReadNotebook {
             worktree,
             options: decode(arguments)?,
@@ -325,6 +331,64 @@ pub(super) fn command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn applies_agent_defaults_without_replacing_choices() {
+        let context = plugin::Context {
+            invocation: None,
+            turn: None,
+            surface: Default::default(),
+            package: plugin::Reference {
+                name: "files-fixture".into(),
+                digest: "a".repeat(64),
+                settings_revision: 0,
+            },
+            worktree: Some(sailry_protocol::WorktreeId::new()),
+            session: None,
+        };
+        let Command::ReadFileLines { offset, limit, .. } =
+            command(Operation::ReadFile, json!({"path":"source.rs"}), &context).unwrap()
+        else {
+            panic!("file lines command expected")
+        };
+        assert_eq!((offset, limit), (0, sailry_protocol::MAX_FILE_LINES));
+        for (arguments, expected) in [
+            (
+                json!({"query":"needle"}),
+                sailry_protocol::SearchMode::Files,
+            ),
+            (
+                json!({"query":"needle","mode":"content","offset":7,"limit":3}),
+                sailry_protocol::SearchMode::Content,
+            ),
+            (
+                json!({"query":"needle","mode":"count"}),
+                sailry_protocol::SearchMode::Count,
+            ),
+        ] {
+            let Command::SearchFiles { options, .. } =
+                command(Operation::SearchFiles, arguments.clone(), &context).unwrap()
+            else {
+                panic!("search command expected")
+            };
+            assert_eq!(options.mode, expected);
+            if arguments["offset"] == 7 {
+                assert_eq!((options.offset, options.limit), (7, 3));
+            }
+        }
+        assert_eq!(
+            FileSearch::default().mode,
+            sailry_protocol::SearchMode::Content
+        );
+        assert!(
+            command(
+                Operation::SearchFiles,
+                json!({"query":"needle","mode":null}),
+                &context
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn marks_only_expected_read_failures() {

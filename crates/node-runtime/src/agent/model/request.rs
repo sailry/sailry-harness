@@ -30,6 +30,7 @@ pub(super) struct Model {
     stop: CancellationToken,
     identity: crate::logging::Context,
     sources: observation::Sources,
+    names: names::Registry,
 }
 
 impl Model {
@@ -40,6 +41,7 @@ impl Model {
         purpose: Purpose,
         stop: &CancellationToken,
         sources: observation::Sources,
+        names: names::Registry,
     ) -> Arc<dyn GdkProvider> {
         observation::install();
         Arc::new(Self {
@@ -50,6 +52,7 @@ impl Model {
             purpose,
             stop: stop.clone(),
             sources,
+            names,
             identity: crate::logging::Context {
                 node: Some(ingress.node),
                 turn: Some(invocation.turn.id),
@@ -85,6 +88,9 @@ impl GdkProvider for Model {
         messages: &[Message],
         tools: &[rmcp::model::Tool],
     ) -> Result<MessageStream, ProviderError> {
+        let exposure = self.names.get(self.purpose)?;
+        let messages = exposure.messages(messages);
+        let tools = exposure.tools(tools);
         let mut capture = Capture::new(self, config, system)?;
         let payload = capture
             .state
@@ -93,7 +99,7 @@ impl GdkProvider for Model {
             .payload
             .clone();
         let response = payload
-            .scope(self.inner.stream(config, system, messages, tools))
+            .scope(self.inner.stream(config, system, &messages, &tools))
             .await;
         let responses = match response {
             Ok(responses) => responses,
@@ -103,9 +109,9 @@ impl GdkProvider for Model {
             }
         };
         Ok(Box::pin(stream::unfold(
-            Some((responses, capture)),
+            Some((responses, capture, exposure)),
             |state| async move {
-                let (mut responses, mut capture) = state?;
+                let (mut responses, mut capture, exposure) = state?;
                 let payload = capture
                     .state
                     .as_ref()
@@ -114,9 +120,12 @@ impl GdkProvider for Model {
                     .clone();
                 let response = payload.scope(responses.next()).await;
                 match response {
-                    Some(Ok((message, mut usage))) => {
+                    Some(Ok((mut message, mut usage))) => {
+                        if let Some(message) = &mut message {
+                            exposure.restore(message);
+                        }
                         capture.receive(message.as_ref(), usage.as_mut());
-                        Some((Ok((message, usage)), Some((responses, capture))))
+                        Some((Ok((message, usage)), Some((responses, capture, exposure))))
                     }
                     Some(Err(error)) => {
                         capture.record_failure(&error).await;

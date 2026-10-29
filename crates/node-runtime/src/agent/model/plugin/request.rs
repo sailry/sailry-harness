@@ -75,6 +75,7 @@ pub(super) fn convert(
         })
         .collect();
     let mut output = Vec::new();
+    let mut calls = BTreeMap::new();
     for message in messages {
         let assistant = message.role == rmcp::model::Role::Assistant;
         let mut parts = Vec::new();
@@ -130,6 +131,7 @@ pub(super) fn convert(
                 }),
                 MessageContentBlock::ToolRequest(request) => {
                     if let Ok(call) = &request.tool_call {
+                        calls.insert(request.id.clone(), call.name.to_string());
                         parts.push(wire::Part::ToolCall {
                             id: request.id.clone(),
                             name: call.name.to_string(),
@@ -146,24 +148,7 @@ pub(super) fn convert(
                         ),
                         Err(error) => (serde_json::to_value(error).unwrap(), true),
                     };
-                    let name = messages
-                        .iter()
-                        .flat_map(|message| &message.content)
-                        .find_map(|block| {
-                            let MessageContentBlock::ToolRequest(request) = block else {
-                                return None;
-                            };
-                            (request.id == response.id)
-                                .then(|| {
-                                    request
-                                        .tool_call
-                                        .as_ref()
-                                        .ok()
-                                        .map(|call| call.name.to_string())
-                                })
-                                .flatten()
-                        })
-                        .unwrap_or_default();
+                    let name = calls.get(&response.id).cloned().unwrap_or_default();
                     output.push(wire::Message::Tool {
                         call_id: response.id.clone(),
                         name,

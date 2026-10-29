@@ -170,13 +170,15 @@ async fn scripts_use_node_environment() {
             .iter()
             .filter_map(|tool| tool["function"]["name"].as_str())
             .collect();
-        for required in ["load_skill", plugin_tool("files", "read_office").as_str()] {
+        for required in ["load_skill", "run_command"] {
             assert!(names.contains(&required));
         }
-        assert!(names.contains(&plugin_tool("commands", "run_command").as_str()));
+        // Office reading stays discoverable through tool search.
         for removed in [
             "write_office".to_owned(),
             "edit_office".to_owned(),
+            "read_office".to_owned(),
+            "get_office_runtime".to_owned(),
             plugin_tool("files", "get_office_runtime"),
         ] {
             assert!(!names.contains(&removed.as_str()));

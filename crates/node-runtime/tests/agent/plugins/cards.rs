@@ -145,7 +145,8 @@ async fn keeps_login_private_and_does_not_replay() {
         assert_eq!(card.props, json!({"configured":false}));
         let alias = plugin_tool("card-fixture", "connection");
         let prompt = model.requests.lock().unwrap()[0]["messages"].to_string();
-        assert!(prompt.contains(&format!("- {alias}: MCP authorization")));
+        assert!(prompt.contains("- connection: MCP authorization"));
+        assert!(!prompt.contains(&format!("- {alias}: MCP authorization")));
         assert_eq!(
             issuer.registrations.load(Ordering::SeqCst),
             0,

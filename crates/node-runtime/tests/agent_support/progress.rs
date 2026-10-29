@@ -46,7 +46,7 @@ async fn reply(
         });
         output.push(
             json!({"type":"function_call", "id":"read-item", "call_id":"read-progress",
-            "name":name, "arguments":arguments.to_string(), "status":"completed"}),
+            "name":offered(request, &name), "arguments":arguments.to_string(), "status":"completed"}),
         );
     }
     let response = json!({"id":response_id, "object":"response", "created_at":1,

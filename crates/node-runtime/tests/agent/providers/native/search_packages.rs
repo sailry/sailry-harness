@@ -291,10 +291,7 @@ async fn ordinary_packages_share_one_fallback_tool() {
             assert_eq!(
                 tools
                     .iter()
-                    .filter(|tool| {
-                        tool["name"] == plugin_tool("source-finder", "web_search")
-                            || tool["name"] == plugin_tool("source-helper", "web_search")
-                    })
+                    .filter(|tool| tool["type"] == "function" && tool["name"] == "web_search")
                     .count(),
                 1
             );

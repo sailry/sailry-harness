@@ -289,6 +289,22 @@ pub(super) fn alias(plugin: &str, server: &str, tool: &str) -> String {
     format!("mcp_{label}_{}", &hash.finalize().to_hex()[..24])
 }
 
+pub(super) fn is_alias(name: &str) -> bool {
+    name.strip_prefix("mcp_")
+        .and_then(|suffix| suffix.rsplit_once('_'))
+        .is_some_and(|(label, digest)| {
+            !label.is_empty()
+                && label.len() <= 32
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+                && digest.len() == 24
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+}
+
 struct Bound {
     package: sailry_protocol::plugin::Reference,
     name: String,

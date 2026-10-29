@@ -75,12 +75,11 @@ export function flow() { throw new Error('Rejected private flow arguments'); }
         assert!(page.approvals.is_empty());
         let request = server.requests.lock().unwrap().last().unwrap().clone();
         for name in ["plain", "flow"] {
-            let alias = plugin_tool("schema-probe", name);
             let declaration = request["tools"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|tool| tool["function"]["name"] == alias)
+                .find(|tool| tool["function"]["name"] == name)
                 .unwrap();
             assert_eq!(declaration["function"]["parameters"], schema);
         }

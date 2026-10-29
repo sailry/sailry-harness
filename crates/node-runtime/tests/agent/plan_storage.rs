@@ -256,15 +256,9 @@ async fn rejects_hidden_writes() {
                     .iter()
                     .filter_map(|item| item["function"]["name"].as_str())
                     .collect();
-                assert_eq!(
-                    tools.contains(&plugin_tool(PACKAGE, "plain").as_str()),
-                    index > 0
-                );
+                assert_eq!(tools.contains(&"plain"), index > 0);
                 for name in ["declared", "read", "flow"] {
-                    assert_eq!(
-                        tools.contains(&plugin_tool(PACKAGE, name).as_str()),
-                        index > 0
-                    );
+                    assert_eq!(tools.contains(&name), index > 0);
                 }
             }
             if mode == WorkMode::Plan {

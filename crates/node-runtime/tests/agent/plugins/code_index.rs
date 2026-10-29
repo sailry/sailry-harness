@@ -71,10 +71,9 @@ fn schemas(server: &Server) {
     let requests = server.requests.lock().unwrap();
     let tools = requests.first().unwrap()["tools"].as_array().unwrap();
     for name in ["code_search", "code_outline", "code_context"] {
-        let alias = plugin_tool("code", name);
         let schema = tools
             .iter()
-            .find(|tool| tool["function"]["name"] == alias)
+            .find(|tool| tool["function"]["name"] == name)
             .unwrap_or_else(|| panic!("missing declared tool {name}"));
         assert_eq!(schema["function"]["parameters"]["type"], "object");
     }

@@ -87,7 +87,7 @@ async fn mounts_flagship_tools_without_discovery() {
             );
             let requests = server.requests.lock().unwrap();
             let names = tool_names(requests.last().unwrap());
-            assert_eq!(names.contains(&spawn.as_str()), flagship);
+            assert_eq!(names.contains(&exposed(&spawn)), flagship);
             if !flagship {
                 assert!(names.contains(&"tool_search"));
             }
@@ -148,7 +148,7 @@ async fn preserves_queued_write_authority() {
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
         for request in requests {
-            assert!(tool_names(&request).contains(&plugin_tool("files", "write_file").as_str()));
+            assert!(tool_names(&request).contains(&"write_file"));
             assert!(
                 !request["messages"]
                     .to_string()
@@ -226,12 +226,12 @@ async fn freezes_child_mode() {
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 4);
         assert!(tool_names(&requests[0]).contains(&"tool_search"));
-        assert!(!tool_names(&requests[0]).contains(&spawn.as_str()));
+        assert!(!tool_names(&requests[0]).contains(&exposed(&spawn)));
         let mut delegated = 0;
         for (index, request) in requests.into_iter().enumerate() {
             let names = tool_names(&request);
-            assert!(names.contains(&plugin_tool("files", "write_file").as_str()));
-            assert!(names.contains(&plugin_tool("commands", "run_command").as_str()));
+            assert!(names.contains(&"write_file"));
+            assert!(names.contains(&"run_command"));
             let messages = request["messages"].to_string();
             if messages.contains("You are a delegated child") {
                 delegated += 1;
@@ -240,7 +240,7 @@ async fn freezes_child_mode() {
             } else {
                 assert!(messages.contains("This is a planning turn"));
                 if index > 0 {
-                    assert!(names.contains(&spawn.as_str()));
+                    assert!(names.contains(&exposed(&spawn)));
                 }
             }
         }
@@ -311,22 +311,23 @@ async fn restores_frozen_tools() {
         for (index, request) in requests.iter().enumerate() {
             let names = tool_names(request);
             for name in [
-                plugin_tool("files", "read_file").as_str(),
-                plugin_tool("files", "search_files").as_str(),
-                plugin_tool("files", "list_directory").as_str(),
-                plugin_tool("git", "git_status").as_str(),
-                plugin_tool("git", "git_diff").as_str(),
-                plugin_tool("git", "git_log").as_str(),
-                plugin_tool("worktrees", "list_worktrees").as_str(),
+                "read_file",
+                "search_files",
+                "list_directory",
+                "git_status",
+                "git_diff",
                 "ask_user",
+                "write_file",
+                "run_command",
             ] {
                 assert!(names.contains(&name), "missing {name}: {names:?}");
             }
-            assert!(names.contains(&plugin_tool("files", "write_file").as_str()));
-            assert!(names.contains(&plugin_tool("commands", "run_command").as_str()));
+            for name in ["git_log", "list_worktrees"] {
+                assert!(!names.contains(&name), "unexpected {name}: {names:?}");
+            }
             for (position, name) in deferred.iter().enumerate() {
                 assert_eq!(
-                    names.contains(&name.as_str()),
+                    names.contains(&exposed(name)),
                     index > position,
                     "unexpected mounted tool {name} in request {index}"
                 );
@@ -471,7 +472,7 @@ async fn rejects_mutations_before_approval() {
                 for group in [&requests[..initial_requests], &requests[initial_requests..]] {
                     assert!(!group.is_empty());
                     for request in group {
-                        assert!(tool_names(request).contains(&name.as_str()));
+                        assert!(tool_names(request).contains(&exposed(&name)));
                         assert_eq!(request["tools"], group[0]["tools"]);
                         assert_eq!(system(request), system(&group[0]));
                     }

@@ -177,29 +177,35 @@ async fn routes_through_controller() {
                     .any(|tool| tool["function"]["name"] == "tool_search")
             );
             for (index, name) in discovered.iter().enumerate() {
-                assert!(initial.iter().all(|tool| tool["function"]["name"] != *name));
+                assert!(
+                    initial
+                        .iter()
+                        .all(|tool| tool["function"]["name"] != exposed(name))
+                );
                 assert!(
                     requests[index + 1]["tools"]
                         .as_array()
                         .unwrap()
                         .iter()
-                        .any(|tool| tool["function"]["name"] == *name)
+                        .any(|tool| tool["function"]["name"] == exposed(name))
                 );
             }
             let tools = requests[discovered.len()]["tools"].as_array().unwrap();
-            assert!(tools.iter().all(
-                |tool| tool["function"]["name"] != plugin_tool("browser", "browser_screenshot")
-            ));
+            assert!(
+                tools
+                    .iter()
+                    .all(|tool| tool["function"]["name"] != "browser_screenshot")
+            );
             for (name, _) in calls {
-                assert!(tools.iter().any(|tool| tool["function"]["name"] == name));
+                assert!(
+                    tools
+                        .iter()
+                        .any(|tool| tool["function"]["name"] == exposed(&name))
+                );
             }
             if mode == WorkMode::Plan {
                 for name in mutating {
-                    assert!(
-                        tools
-                            .iter()
-                            .any(|tool| tool["function"]["name"] == plugin_tool("browser", name))
-                    );
+                    assert!(tools.iter().any(|tool| tool["function"]["name"] == name));
                 }
                 assert!(page.approvals.is_empty());
             } else {
@@ -580,10 +586,8 @@ async fn omits_disabled_tools() {
                 let tools = request["tools"].as_array().unwrap();
                 assert!(!tools.is_empty());
                 assert!(tools.iter().all(|tool| {
-                    !tool["function"]["name"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .starts_with(&plugin_tool("browser", ""))
+                    let name = tool["function"]["name"].as_str().unwrap_or_default();
+                    !name.starts_with(&plugin_tool("browser", "")) && !name.starts_with("browser_")
                 }));
             }
         }

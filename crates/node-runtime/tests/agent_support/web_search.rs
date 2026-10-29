@@ -33,13 +33,13 @@ pub(super) async fn respond(
         })).collect::<Vec<_>>()) }));
     if !returned
         && request["tools"].as_array().is_some_and(|tools| {
-            tools.iter().any(|tool| {
-                tool["type"] == "function" && tool["name"] == plugin_tool("files", "read_file")
-            })
+            tools
+                .iter()
+                .any(|tool| tool["type"] == "function" && tool["name"] == "read_file")
         })
     {
         output.push(json!({"type":"function_call", "id":"read-item", "call_id":"read-fixture",
-            "name":plugin_tool("files", "read_file"), "arguments":json!({"path":"native.txt"}).to_string(), "status":"completed"}));
+            "name":"read_file", "arguments":json!({"path":"native.txt"}).to_string(), "status":"completed"}));
     }
     let response = json!({"id":response_id, "object":"response", "created_at":1,
         "status":"completed", "model":request["model"], "output":output});

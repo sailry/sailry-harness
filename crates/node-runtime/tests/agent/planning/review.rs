@@ -199,7 +199,7 @@ async fn starts_one_coding_turn() {
         );
         for (index, request) in requests.iter().enumerate() {
             let planning = index == 0;
-            assert!(tool_names(request).contains(&plugin_tool("files", "write_file").as_str()));
+            assert!(tool_names(request).contains(&"write_file"));
             assert_eq!(request["tools"], requests[0]["tools"]);
             let latest = node_context(request, "Work mode");
             assert_eq!(latest.contains("This is a planning turn"), planning);

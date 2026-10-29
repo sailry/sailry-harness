@@ -250,10 +250,10 @@ async fn uses_storage_authority_and_filters_plan_writes() {
             .iter()
             .filter_map(|tool| tool["function"]["name"].as_str())
             .collect();
-        assert!(names.contains(&name("read_note").as_str()));
-        assert!(names.contains(&name("progress").as_str()));
-        assert!(names.contains(&name("save_note").as_str()));
-        assert!(names.contains(&name("delete_note").as_str()));
+        assert!(names.contains(&"read_note"));
+        assert!(names.contains(&"progress"));
+        assert!(names.contains(&"save_note"));
+        assert!(names.contains(&"delete_note"));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

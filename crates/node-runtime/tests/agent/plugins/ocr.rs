@@ -120,7 +120,7 @@ async fn lifecycle_keeps_definitions_and_configuration() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|tool| tool["function"]["name"] == plugin_tool("files", name))
+                    .any(|tool| tool["function"]["name"] == name)
             );
         }
         fixture.controller.close().await.unwrap();

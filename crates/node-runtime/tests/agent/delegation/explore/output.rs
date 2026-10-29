@@ -19,7 +19,7 @@ fn result(server: &Server, name: &str, id: &str) -> String {
                 }
                 if message["role"] == "tool"
                     && message["tool_call_id"] == id
-                    && called.get(message["tool_call_id"].as_str()?) == Some(&name)
+                    && called.get(message["tool_call_id"].as_str()?) == Some(&exposed(name))
                 {
                     result = message["content"].as_str().map(str::to_owned);
                 }
@@ -212,7 +212,8 @@ async fn follows_raw_output_with_read_authority() {
                 .iter()
                 .filter_map(|tool| tool["function"]["name"].as_str())
                 .collect();
-            assert!(names.contains(&plugin_tool(PACKAGE, "read").as_str()));
+            assert!(names.contains(&"read"));
+            assert!(!names.contains(&"run_command"));
             assert!(!names.contains(&plugin_tool("commands", "run_command").as_str()));
         }
         assert!(

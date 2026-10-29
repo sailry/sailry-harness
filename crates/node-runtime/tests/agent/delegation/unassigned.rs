@@ -235,12 +235,16 @@ async fn delegates_from_private_workspaces() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|tool| tool["function"]["name"] == spawn)
+                    .any(|tool| tool["function"]["name"] == exposed(&spawn))
             }));
             assert!(requests.iter().any(|request| {
                 let tools = request["tools"].as_array().unwrap();
-                tools.iter().any(|tool| tool["function"]["name"] == command)
-                    && tools.iter().all(|tool| tool["function"]["name"] != spawn)
+                tools
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == exposed(&command))
+                    && tools
+                        .iter()
+                        .all(|tool| tool["function"]["name"] != exposed(&spawn))
             }));
         }
     }

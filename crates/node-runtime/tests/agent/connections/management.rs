@@ -432,7 +432,7 @@ async fn credential_edits_keep_revision_and_plan_boundaries() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|entry| entry["function"]["name"] == tool("ssh_save_connection"))
+                .any(|entry| entry["function"]["name"] == "ssh_save_connection")
         }));
         assert_eq!(ssh_profiles(&fixture.client).await, profiles);
         assert!(
@@ -548,7 +548,7 @@ async fn bundled_tools_keep_saved_id() {
         assert_eq!(output[3]["data"][0]["id"], profiles[0].id.to_string());
         {
             let requests = server.requests.lock().unwrap();
-            let query = agent_support::plugin_tool("databases", "database_query");
+            let query = "database_query";
             assert!(
                 requests[0]["tools"]
                     .as_array()
@@ -930,7 +930,7 @@ async fn relative_saves_preserve_scope_and_plan() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|entry| entry["function"]["name"] == tool("database_save_connection"))
+                .any(|entry| entry["function"]["name"] == "database_save_connection")
         }));
         assert!(databases(&fixture.client).await.is_empty());
         assert!(!fixture.root.join("sales.db").exists());

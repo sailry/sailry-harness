@@ -406,9 +406,9 @@ async fn plan_mode_preserves_process_declarations() {
         assert!(
             tools
                 .iter()
-                .any(|tool| tool["function"]["name"] == name("read_command"))
+                .any(|tool| tool["function"]["name"] == "read_command")
         );
-        for name in [name("run_command"), name("stop_command")] {
+        for name in ["run_command", "stop_command"] {
             assert!(tools.iter().any(|tool| tool["function"]["name"] == name));
         }
         fixture.node.shutdown().await.unwrap();

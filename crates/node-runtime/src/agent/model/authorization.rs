@@ -11,6 +11,10 @@ use goose_provider_types::{
 use reqwest::header::HeaderValue;
 use sailry_protocol::SessionId;
 use serde_json::json;
+use std::collections::BTreeMap;
+
+#[cfg(test)]
+mod tests;
 
 pub(super) struct Model {
     ingress: Arc<Ingress>,
@@ -113,11 +117,15 @@ impl GdkProvider for Model {
         let mut system = system.to_owned();
         let mut messages = messages.to_vec();
         let mut tools = tools.to_vec();
-        let names: Vec<_> = tools.iter().map(|tool| tool.name.to_string()).collect();
         let claude = matches!(
             authorized.grant,
             crate::providers::login::Grant::ClaudeOAuth { .. }
         );
+        let names = if claude {
+            names(&tools)?
+        } else {
+            BTreeMap::new()
+        };
         match &authorized.grant {
             crate::providers::login::Grant::ChatGptOAuth { .. } => {
                 // The Codex endpoint requires instructions rather than a system input item.
@@ -155,7 +163,13 @@ impl GdkProvider for Model {
                         if let MessageContentBlock::ToolRequest(request) = block
                             && let Ok(call) = &mut request.tool_call
                         {
-                            call.name = canonical(&call.name).to_string().into();
+                            let wire = canonical(&call.name);
+                            if names
+                                .get(wire)
+                                .is_some_and(|name| name == call.name.as_ref())
+                            {
+                                call.name = wire.to_owned().into();
+                            }
                         }
                     }
                 }
@@ -221,9 +235,7 @@ impl GdkProvider for Model {
                     for block in &mut message.content {
                         if let MessageContentBlock::ToolRequest(request) = block
                             && let Ok(call) = &mut request.tool_call
-                            && let Some(original) = names
-                                .iter()
-                                .find(|name| name.eq_ignore_ascii_case(&call.name))
+                            && let Some(original) = names.get(call.name.as_ref())
                         {
                             call.name = original.clone().into();
                         }
@@ -269,7 +281,20 @@ fn header(value: &str) -> Result<HeaderValue, ProviderError> {
         .map_err(|_| ProviderError::InvalidValue("model authorization header is invalid".into()))
 }
 
-fn canonical(name: &str) -> &str {
+fn names(tools: &[rmcp::model::Tool]) -> Result<BTreeMap<String, String>, ProviderError> {
+    let names: BTreeMap<_, _> = tools
+        .iter()
+        .map(|tool| (canonical(&tool.name).to_owned(), tool.name.to_string()))
+        .collect();
+    if names.len() != tools.len() {
+        return Err(ProviderError::InvalidValue(
+            "authorized model tool names conflict".into(),
+        ));
+    }
+    Ok(names)
+}
+
+pub(super) fn canonical(name: &str) -> &str {
     const TOOLS: &[&str] = &[
         "Read",
         "Write",

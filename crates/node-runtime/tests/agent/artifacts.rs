@@ -408,16 +408,14 @@ async fn supports_bound_connections() {
                     .iter()
                     .filter_map(|tool| tool.pointer("/function/name").and_then(Value::as_str))
                     .collect::<Vec<_>>();
-                for name in ["write", "read", "list", "revisions"] {
-                    assert!(
-                        names.contains(&plugin_tool(PACKAGE, name).as_str()),
-                        "{names:?}"
-                    );
+                for name in ["write", "revisions"] {
+                    assert!(names.contains(&name), "{names:?}");
                 }
-                assert!(
-                    !names.contains(&plugin_tool("files", "read_file").as_str()),
-                    "{names:?}"
-                );
+                for name in ["read", "list"] {
+                    assert!(!names.contains(&name), "{names:?}");
+                }
+                assert!(names.contains(&"tool_search"));
+                assert!(!names.contains(&"read_file"), "{names:?}");
             }
             server.replace_tools(vec![
                 (plugin_tool(PACKAGE, "read"), json!({"id":document.id})),
@@ -843,14 +841,9 @@ async fn excludes_writes_from_delegated_tools() {
                     .iter()
                     .filter_map(|tool| tool.pointer("/function/name").and_then(Value::as_str))
                     .collect::<Vec<_>>();
-                assert!(
-                    !names.contains(&plugin_tool(PACKAGE, "write").as_str()),
-                    "{names:?}"
-                );
-                assert!(
-                    names.contains(&plugin_tool(PACKAGE, "read").as_str()),
-                    "{names:?}"
-                );
+                assert!(!names.contains(&"write"), "{names:?}");
+                assert!(!names.contains(&"read"), "{names:?}");
+                assert!(names.contains(&"tool_search"));
             }
         }
         assert!(

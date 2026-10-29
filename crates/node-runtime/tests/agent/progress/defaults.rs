@@ -93,7 +93,7 @@ async fn adds_progress_to_existing_conversations() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|tool| tool["function"]["name"] == plugin_tool("progress", "update_plan")),
+                    .any(|tool| tool["function"]["name"] == "update_plan"),
                 available
             );
         }
@@ -163,8 +163,7 @@ async fn retains_disabled_and_removed_defaults() {
                         .as_array()
                         .unwrap()
                         .iter()
-                        .any(|tool| tool["function"]["name"]
-                            == plugin_tool("progress", "update_plan")),
+                        .any(|tool| tool["function"]["name"] == "update_plan"),
                     index > 0
                 );
             }
@@ -247,7 +246,7 @@ async fn retains_disabled_and_removed_defaults() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|tool| tool["function"]["name"] == plugin_tool("progress", "update_plan"))
+                    .any(|tool| tool["function"]["name"] == "update_plan")
             );
             assert_eq!(observe(&client, fixture.session.id).await.calls, view.calls);
             node.shutdown().await.unwrap();

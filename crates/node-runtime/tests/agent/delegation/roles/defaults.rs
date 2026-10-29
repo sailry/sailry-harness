@@ -74,7 +74,7 @@ fn has_delegate(request: &Value) -> bool {
         .as_array()
         .unwrap()
         .iter()
-        .any(|tool| tool["function"]["name"] == plugin_tool("delegation", "spawn_agent"))
+        .any(|tool| tool["function"]["name"] == "spawn_agent")
 }
 
 fn context(request: &Value, personal: &str) -> String {
@@ -113,7 +113,7 @@ fn context(request: &Value, personal: &str) -> String {
             .as_array()
             .unwrap()
             .iter()
-            .find(|tool| tool["function"]["name"] == plugin_tool("delegation", "spawn_agent"))
+            .find(|tool| tool["function"]["name"] == "spawn_agent")
             .unwrap();
         let purpose = tool["function"]["parameters"]["properties"]["role"]["description"]
             .as_str()

@@ -305,8 +305,7 @@ fn registered(request: &wire::Request) -> bool {
         .unwrap()
         .iter()
         .any(|tool| {
-            tool["name"] == plugin_tool("media", "generate_image")
-                || tool["function"]["name"] == plugin_tool("media", "generate_image")
+            tool["name"] == "generate_image" || tool["function"]["name"] == "generate_image"
         })
 }
 

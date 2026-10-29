@@ -84,14 +84,15 @@ pub(super) async fn verify(fixture: &Fixture, child: &Session, package: &plugin:
             .iter()
             .map(|tool| tool["function"]["name"].as_str().unwrap())
             .collect();
-        assert!(names.contains(&plugin_tool("files", "read_file").as_str()));
-        assert!(names.contains(&plugin_tool(PACKAGE, "inspect").as_str()));
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"inspect"));
         for (package, name) in [
             ("files", "write_file"),
             ("files", "edit_file"),
             ("commands", "run_command"),
             ("memory", "save_memory"),
         ] {
+            assert!(!names.contains(&name));
             assert!(!names.contains(&plugin_tool(package, name).as_str()));
         }
     }

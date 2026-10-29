@@ -40,9 +40,11 @@ async fn pages_prior_results_without_command_tools() {
                     .iter()
                     .any(|tool| tool["function"]["name"] == "read_tool_output")
             );
-            assert!(!catalog.iter().any(|tool| {
-                tool["function"]["name"] == plugin_tool("commands", "read_command")
-            }));
+            assert!(
+                !catalog
+                    .iter()
+                    .any(|tool| { tool["function"]["name"] == "read_command" })
+            );
             requests
                 .iter()
                 .rev()

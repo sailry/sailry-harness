@@ -54,7 +54,7 @@ pub(super) async fn respond_loop(
         _ => None,
     };
     let delta = if let Some((name, args)) = &call {
-        json!({"role":"assistant","tool_calls":[{"index":0,"id":format!("goal-{continuations}-{recent}"),"type":"function","function":{"name":name,"arguments":args.to_string()}}]})
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":format!("goal-{continuations}-{recent}"),"type":"function","function":{"name":offered(body, name),"arguments":args.to_string()}}]})
     } else {
         json!({"role":"assistant","content":"Evidence verified 中文 🙂"})
     };
@@ -84,7 +84,7 @@ pub(super) async fn respond(
         None
     };
     let delta = if let Some((name, args)) = &call {
-        json!({"role":"assistant","tool_calls":[{"index":0,"id":"requested-goal","type":"function","function":{"name":name,"arguments":args.to_string()}}]})
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":"requested-goal","type":"function","function":{"name":offered(body, name),"arguments":args.to_string()}}]})
     } else {
         json!({"role":"assistant","content":"Goal recorded"})
     };
@@ -131,7 +131,7 @@ pub(super) async fn respond_reasoning(
         _ => None,
     };
     let delta = if let Some((name, args)) = &call {
-        json!({"role":"assistant","tool_calls":[{"index":0,"id":format!("reasoning-{}-{recent}",count.load(Ordering::SeqCst)),"type":"function","function":{"name":name,"arguments":args.to_string()}}]})
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":format!("reasoning-{}-{recent}",count.load(Ordering::SeqCst)),"type":"function","function":{"name":offered(body, name),"arguments":args.to_string()}}]})
     } else {
         json!({"role":"assistant","content":"Reasoning and writing progress 中文 🙂"})
     };

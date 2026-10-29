@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "roles/defaults.rs"]
 mod defaults;
+#[path = "roles/exposure.rs"]
+mod exposure;
 
 #[tokio::test]
 async fn inherits_parent_model() {
@@ -163,10 +165,7 @@ async fn inherits_parent_model() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|tool| {
-                    tool["function"]["name"]
-                        == crate::agent_support::plugin_tool("delegation", "spawn_agent")
-                })
+                .find(|tool| tool["function"]["name"] == "spawn_agent")
                 .unwrap();
             let description = declaration["function"]["description"].as_str().unwrap();
             assert!(description.contains("Choose an exact listed role"));
@@ -184,10 +183,7 @@ async fn inherits_parent_model() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .find(|tool| {
-                        tool["function"]["name"]
-                            == crate::agent_support::plugin_tool("delegation", "spawn_agent")
-                    })
+                    .find(|tool| tool["function"]["name"] == "spawn_agent")
                     .unwrap();
                 assert_eq!(tool["function"]["parameters"]["required"], json!(["task"]));
                 assert_eq!(
@@ -204,10 +200,11 @@ async fn inherits_parent_model() {
             let child = requests
                 .iter()
                 .find(|request| {
-                    request["tools"].as_array().unwrap().iter().all(|tool| {
-                        tool["function"]["name"]
-                            != crate::agent_support::plugin_tool("delegation", "spawn_agent")
-                    })
+                    request["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|tool| tool["function"]["name"] != "spawn_agent")
                 })
                 .unwrap();
             assert_eq!(child["reasoning_effort"], "high");

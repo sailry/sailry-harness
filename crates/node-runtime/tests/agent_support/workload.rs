@@ -36,7 +36,7 @@ pub(super) async fn respond(mut stream: TcpStream, body: &Value) -> std::io::Res
         let delta = if completed {
             json!({"content":format!("Streaming result {index}: preserve source and task constraints 中文 🙂.\n")})
         } else {
-            json!({"role":"assistant","tool_calls":[{"index":0,"id":"workload-read","type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":"{\"path\":\"source.txt\"}"}}]})
+            json!({"role":"assistant","tool_calls":[{"index":0,"id":"workload-read","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"source.txt\"}"}}]})
         };
         let chunk = json!({"id":"workload","object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
         stream

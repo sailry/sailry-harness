@@ -93,12 +93,19 @@ async fn executes_selected_search() {
                 .count(),
             0
         );
-        assert_eq!(tools.iter().filter(|tool| tool["name"] == name).count(), 1);
-        assert!(!tools.iter().any(
-            |tool| tool["name"] == plugin_tool("web-search", "web_search")
-                || tool["name"] == plugin_tool(OWNER, "hidden_fetch")
-                || tool["name"] == plugin_tool("files", "read_file")
-        ));
+        assert_eq!(tools.iter().filter(|tool| tool["name"] == TOOL).count(), 1);
+        for (package, hidden) in [
+            ("web-search", "web_search"),
+            (OWNER, "hidden_fetch"),
+            ("files", "read_file"),
+        ] {
+            assert!(
+                !tools
+                    .iter()
+                    .any(|tool| tool["name"] == hidden
+                        || tool["name"] == plugin_tool(package, hidden))
+            );
+        }
         assert_eq!(
             http.requests
                 .lock()

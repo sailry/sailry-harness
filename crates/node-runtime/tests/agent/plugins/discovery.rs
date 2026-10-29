@@ -54,7 +54,7 @@ async fn restores_selection(name: &str, arguments: Value) {
         let first = &requests[0];
         let second = &requests[1];
         assert!(names(first).contains(&"tool_search"));
-        assert!(names(first).contains(&agent_support::plugin_tool("files", "read_file").as_str()));
+        assert!(names(first).contains(&"read_file"));
         assert!(!names(first).contains(&"manage_plugins"));
         assert!(names(second).contains(&"manage_plugins"));
         let unchanged: Vec<_> = second["tools"]

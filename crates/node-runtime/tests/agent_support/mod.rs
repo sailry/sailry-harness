@@ -870,7 +870,7 @@ async fn respond(
                 body["tools"].as_array().is_some_and(|tools| {
                     tools
                         .iter()
-                        .any(|tool| tool["function"]["name"].as_str() == Some(name.as_str()))
+                        .any(|tool| tool["function"]["name"].as_str() == Some(offered(&body, name)))
                 })
             })
             .collect::<Vec<_>>()
@@ -907,7 +907,7 @@ async fn respond(
     let spawn_available = body["tools"].as_array().is_some_and(|tools| {
         tools
             .iter()
-            .any(|tool| tool["function"]["name"] == plugin_tool("delegation", "spawn_agent"))
+            .any(|tool| tool["function"]["name"] == "spawn_agent")
     });
     let discover = matches!(&reply, Reply::Parallel(_) | Reply::TurnParallel(_))
         && completed == 0
@@ -934,11 +934,11 @@ async fn respond(
         (Reply::Markdown(text, ..), _, _) => json!({"role":"assistant", "content":text.as_str()}),
         (Reply::Parallel(calls) | Reply::TurnParallel(calls) | Reply::Batch(calls), true, _) => {
             json!({"role": "assistant", "tool_calls": calls.iter().enumerate().map(|(index, (name, args))|
-                json!({"index": index, "id": format!("call-fixture-{index}"), "type": "function", "function": {"name": name, "arguments": args.to_string()}})
+                json!({"index": index, "id": format!("call-fixture-{index}"), "type": "function", "function": {"name": offered(&body, name), "arguments": args.to_string()}})
             ).collect::<Vec<_>>()})
         }
         (_, _, Some((name, arguments))) => {
-            json!({"role": "assistant", "tool_calls": [{"index": 0, "id": format!("call-fixture-{completed}"), "type": "function", "function": {"name": name, "arguments": arguments.to_string()}}]})
+            json!({"role": "assistant", "tool_calls": [{"index": 0, "id": format!("call-fixture-{completed}"), "type": "function", "function": {"name": offered(&body, name), "arguments": arguments.to_string()}}]})
         }
         _ => {
             json!({"role": "assistant", "content": if matches!(reply, Reply::Text { slow: true }) { "partial-fixture".to_owned() } else { format!("answer-{model}") }})
@@ -1084,5 +1084,27 @@ fn split_context(body: &mut Value) {
         }
         body["turn_context"] = Value::String(context);
         return;
+    }
+}
+
+/// Expected model-facing spelling for a unique ordinary package tool.
+pub fn exposed(name: &str) -> &str {
+    name.strip_prefix("plugin_")
+        .and_then(|suffix| suffix.split_once('_'))
+        .filter(|(digest, _)| {
+            digest.len() == 16 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+        .map_or(name, |(_, name)| name)
+}
+
+fn offered<'a>(request: &Value, name: &'a str) -> &'a str {
+    if request["tools"].as_array().is_some_and(|tools| {
+        tools
+            .iter()
+            .any(|tool| tool["function"]["name"] == name || tool["name"] == name)
+    }) {
+        name
+    } else {
+        exposed(name)
     }
 }

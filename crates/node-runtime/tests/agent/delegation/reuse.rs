@@ -283,7 +283,7 @@ async fn preserves_child_history_and_configuration() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|tool| tool["function"]["name"] == plugin_tool("files", "read_file"))
+                .any(|tool| tool["function"]["name"] == "read_file")
         );
         assert_eq!(fixture.parent.requests.lock().unwrap().len(), 2);
         assert_eq!(next_parent.requests.lock().unwrap().len(), 2);

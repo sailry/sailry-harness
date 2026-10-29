@@ -93,7 +93,7 @@ async fn restores_without_replay() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|tool| tool["function"]["name"] == plugin_tool("progress", "update_plan"))
+                .any(|tool| tool["function"]["name"] == "update_plan")
         );
         let Output::Session(branch) = fixture
             .client
