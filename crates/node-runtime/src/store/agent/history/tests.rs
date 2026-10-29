@@ -151,6 +151,25 @@ async fn rolls_back_context_with_rejected_input() {
 }
 
 #[tokio::test]
+async fn rejects_another_turn_record() {
+    let mut fixture = Fixture::new().await;
+    let previous = fixture.completed(&["Previous answer"]).await;
+    let current = running(&mut fixture).await;
+    let mut event = message("assistant", Role::Assistant, Vec::new());
+    event.turn = previous;
+    let error = append(
+        &mut fixture.database,
+        fixture.session,
+        current,
+        event,
+        &fixture.events,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.message, "event belongs to another turn");
+}
+
+#[tokio::test]
 async fn preserves_explicit_visibility() {
     let fixture = Fixture::new().await;
     let mut telemetry = message("system", Role::Assistant, Vec::new());

@@ -60,6 +60,9 @@ pub(super) async fn append_with_context(
     context: Option<(TurnId, Record)>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
+    if event.turn != turn {
+        return Err(Fault::invalid("event belongs to another turn"));
+    }
     write(
         database,
         session,
@@ -271,6 +274,9 @@ async fn write(
             }
             .await;
             let (context, batches) = prepared?;
+            if batches.is_empty() {
+                return Ok(());
+            }
             let publication = publication.lock().await;
             crate::store::database::conflict::commit(transaction).await?;
             let mut context = context;
