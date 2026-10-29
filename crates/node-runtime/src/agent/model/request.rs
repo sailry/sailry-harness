@@ -29,6 +29,7 @@ pub(super) struct Model {
     purpose: Purpose,
     stop: CancellationToken,
     identity: crate::logging::Context,
+    sources: observation::Sources,
 }
 
 impl Model {
@@ -38,7 +39,9 @@ impl Model {
         invocation: &Invocation,
         purpose: Purpose,
         stop: &CancellationToken,
+        sources: observation::Sources,
     ) -> Arc<dyn GdkProvider> {
+        observation::install();
         Arc::new(Self {
             inner,
             ingress: ingress.clone(),
@@ -46,6 +49,7 @@ impl Model {
             session: invocation.turn.session,
             purpose,
             stop: stop.clone(),
+            sources,
             identity: crate::logging::Context {
                 node: Some(ingress.node),
                 turn: Some(invocation.turn.id),
@@ -81,8 +85,16 @@ impl GdkProvider for Model {
         messages: &[Message],
         tools: &[rmcp::model::Tool],
     ) -> Result<MessageStream, ProviderError> {
-        let mut capture = Capture::new(self, config)?;
-        let response = self.inner.stream(config, system, messages, tools).await;
+        let mut capture = Capture::new(self, config, system)?;
+        let payload = capture
+            .state
+            .as_ref()
+            .expect("active request")
+            .payload
+            .clone();
+        let response = payload
+            .scope(self.inner.stream(config, system, messages, tools))
+            .await;
         let responses = match response {
             Ok(responses) => responses,
             Err(error) => {
@@ -94,7 +106,13 @@ impl GdkProvider for Model {
             Some((responses, capture)),
             |state| async move {
                 let (mut responses, mut capture) = state?;
-                let response = responses.next().await;
+                let payload = capture
+                    .state
+                    .as_ref()
+                    .expect("active request")
+                    .payload
+                    .clone();
+                let response = payload.scope(responses.next()).await;
                 match response {
                     Some(Ok((message, mut usage))) => {
                         capture.receive(message.as_ref(), usage.as_mut());
@@ -126,6 +144,8 @@ struct State {
     first_text: Option<u64>,
     usage: Option<Usage>,
     cache_reported: bool,
+    reasoning_reported: bool,
+    payload: observation::Payload,
     stop: CancellationToken,
     lease: Lease,
     span: crate::logging::Span,
@@ -146,7 +166,7 @@ impl Capture {
         }
     }
 
-    fn new(model: &Model, config: &ModelConfig) -> Result<Self, ProviderError> {
+    fn new(model: &Model, config: &ModelConfig, system: &str) -> Result<Self, ProviderError> {
         model
             .ingress
             .agents
@@ -189,6 +209,8 @@ impl Capture {
                 first_text: None,
                 usage: None,
                 cache_reported: false,
+                reasoning_reported: false,
+                payload: model.sources.capture(system, started),
                 stop: model.stop.clone(),
                 lease: Lease {
                     controls: model.ingress.agents.clone(),
@@ -212,7 +234,10 @@ impl Capture {
                 stats.time_to_first_token_ms = state.first_text.map(|value| value / 1000);
             }
             state.cache_reported = usage.usage.cache_read_input_tokens.is_some();
-            state.usage = counts(usage);
+            if let Ok(usage) = crate::agent::engine::history::provider_usage(usage) {
+                state.reasoning_reported = usage.reasoning.is_some();
+                state.usage = counts(&usage);
+            }
         }
     }
     async fn finish(
@@ -259,21 +284,23 @@ impl State {
         } else {
             outcome
         };
+        // Package HTTP reports its latest prepared request; native HTTP stays opaque.
+        let (categories, complete_context, http) = self.payload.snapshot();
         self.request.attempts.push(Attempt {
             index: 1,
             transport: "gdk".into(),
             reused: None,
-            headers_us: None,
-            response_us: None,
+            headers_us: http.map(|receipt| receipt.headers_us),
+            response_us: http.map(|receipt| receipt.headers_us),
             first_text_us: self.first_text,
             elapsed_us: Some(micros(elapsed)),
-            status: None,
+            status: http.map(|receipt| receipt.status),
             outcome,
-            categories: Vec::new(),
-            complete_context: false,
+            categories,
+            complete_context,
             usage: self.usage,
             cache_reported: self.cache_reported,
-            reasoning_reported: false,
+            reasoning_reported: self.reasoning_reported,
         });
         if let Some(timeline) = self.ingress.agents.timeline(self.request.turn) {
             let wait = self.first_text.unwrap_or_else(|| micros(elapsed));
@@ -343,16 +370,12 @@ impl State {
         })
     }
 }
-fn counts(usage: &ProviderUsage) -> Option<Usage> {
+fn counts(usage: &canonical::Usage) -> Option<Usage> {
     Some(Usage {
-        input: u64::try_from(usage.usage.input_tokens?).ok()?,
-        output: u64::try_from(usage.usage.output_tokens?).ok()?,
-        cached_input: usage
-            .usage
-            .cache_read_input_tokens
-            .and_then(|value| u64::try_from(value).ok())
-            .unwrap_or(0),
-        reasoning: 0,
+        input: usage.input?,
+        output: usage.output?,
+        cached_input: usage.cache_read.unwrap_or(0),
+        reasoning: usage.reasoning.unwrap_or(0),
     })
 }
 fn micros(duration: std::time::Duration) -> u64 {

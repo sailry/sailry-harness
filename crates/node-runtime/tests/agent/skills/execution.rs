@@ -337,6 +337,31 @@ async fn loads_complete_resources() {
         gate.notify_one();
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+        let statistics = crate::observations::statistics(&client, session.id).await;
+        let attempt = statistics
+            .observations
+            .recent
+            .last()
+            .unwrap()
+            .attempts
+            .last()
+            .unwrap();
+        use sailry_protocol::conversation::observation::CategoryKind;
+        for kind in [CategoryKind::Skills, CategoryKind::Injected] {
+            assert!(
+                attempt
+                    .categories
+                    .iter()
+                    .find(|row| row.kind == kind)
+                    .unwrap()
+                    .tokens
+                    .unwrap()
+                    > 0
+            );
+        }
+        let encoded = serde_json::to_string(&statistics.observations).unwrap();
+        assert!(!encoded.contains("Complete end"));
+        assert!(!encoded.contains("Guide 1.0.0"));
         drop(client);
         node.shutdown().await.unwrap();
         let node = Node::start_empty(directory.path().join("node"))
@@ -348,6 +373,10 @@ async fn loads_complete_resources() {
             node.local()
         });
         assert_eq!(history(&client, session.id).await, page);
+        assert_eq!(
+            crate::observations::statistics(&client, session.id).await,
+            statistics
+        );
         assert_eq!(
             client.execute(request).await.unwrap(),
             Output::QueuedTurn(turn)
@@ -379,6 +408,25 @@ async fn loads_complete_resources() {
         gate.notify_one();
         let restored = finished(&client, session.id, next.id).await;
         assert_eq!(restored.runs.last().unwrap().status, Status::Completed);
+        let restored = crate::observations::statistics(&client, session.id).await;
+        let attempt = restored
+            .observations
+            .recent
+            .last()
+            .unwrap()
+            .attempts
+            .last()
+            .unwrap();
+        assert!(
+            attempt
+                .categories
+                .iter()
+                .find(|row| row.kind == CategoryKind::Skills)
+                .unwrap()
+                .tokens
+                .unwrap()
+                > 0
+        );
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

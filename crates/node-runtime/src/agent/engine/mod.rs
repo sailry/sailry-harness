@@ -118,6 +118,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         stop: stop.clone(),
         deferred,
         images,
+        sources: binding.sources.clone(),
     });
     let tool_pairs = Arc::new(tool_pairs::ToolPairs::new(
         summary.provider.clone(),

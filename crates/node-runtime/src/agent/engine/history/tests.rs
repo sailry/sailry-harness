@@ -1,5 +1,26 @@
 use super::*;
 
+#[test]
+fn preserves_optional_reasoning_usage() {
+    use goose_provider_types::conversation::token_usage::{ProviderUsage, Usage};
+    let mut source = ProviderUsage::new("fixture".into(), Usage::new(Some(12), Some(3), Some(15)));
+    assert_eq!(provider_usage(&source).unwrap().reasoning, None);
+    for (value, expected) in [
+        (json!(0), Some(0)),
+        (json!(2), Some(2)),
+        (json!(u64::MAX), Some(u64::MAX)),
+        (Value::Null, None),
+        (json!(-1), None),
+        (json!(1.5), None),
+        (json!("2"), None),
+    ] {
+        source.additional_data = Some([("reasoning_tokens".into(), value)].into_iter().collect());
+        let usage = provider_usage(&source).unwrap();
+        assert_eq!(usage.reasoning, expected);
+        assert_eq!((usage.input, usage.output), (Some(12), Some(3)));
+    }
+}
+
 async fn database() -> (turso::Database, Connection) {
     let database = turso::Builder::new_local(":memory:").build().await.unwrap();
     let db = database.connect().unwrap();

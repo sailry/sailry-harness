@@ -371,7 +371,13 @@ async fn restores_authenticated_history() {
 
 #[tokio::test]
 async fn executes_tools_with_history() {
-    for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
+    for api in [
+        ModelApi::Anthropic,
+        ModelApi::Gemini,
+        ModelApi::DeepSeek,
+        ModelApi::ChatCompletions,
+        ModelApi::Responses,
+    ] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Tool).await;
             let fixture = Fixture::packages(remote, api, &server.endpoint, &["files"]).await;
@@ -395,8 +401,74 @@ async fn executes_tools_with_history() {
             assert_eq!(requests.len(), 2);
             assert!(requests[0].body.to_string().contains("read_file"));
             assert!(requests[1].body.to_string().contains("工具内容 🙂"));
+            if matches!(api, ModelApi::DeepSeek | ModelApi::ChatCompletions) {
+                let assistant = requests[1].body["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|message| message["role"] == "assistant")
+                    .unwrap();
+                assert!(assistant["content"].is_null());
+                assert!(!assistant["tool_calls"].as_array().unwrap().is_empty());
+                assert_eq!(assistant["reasoning_content"], "Inspect the file 🙂");
+            }
+            let statistics =
+                crate::observations::statistics(&fixture.client, fixture.session.id).await;
+            let observed = &statistics.observations;
+            assert_eq!(observed.calls, 2);
+            let attempt = observed.recent.last().unwrap().attempts.last().unwrap();
+            use sailry_protocol::conversation::observation::CategoryKind;
+            for kind in [
+                CategoryKind::System,
+                CategoryKind::Tools,
+                CategoryKind::User,
+                CategoryKind::Injected,
+                CategoryKind::Assistant,
+                CategoryKind::Results,
+            ] {
+                assert!(
+                    attempt
+                        .categories
+                        .iter()
+                        .find(|row| row.kind == kind)
+                        .unwrap()
+                        .tokens
+                        .unwrap()
+                        > 0,
+                    "{api:?}: {kind:?}"
+                );
+            }
+            assert_eq!(
+                attempt
+                    .categories
+                    .iter()
+                    .find(|row| row.kind == CategoryKind::Skills)
+                    .unwrap()
+                    .tokens,
+                Some(0)
+            );
+            assert!(attempt.complete_context);
+            assert!(
+                !attempt.reasoning_reported,
+                "native GDK usage does not retain this field"
+            );
+            assert_eq!(attempt.status, None);
+            assert_eq!(attempt.headers_us, None);
+            assert_eq!(attempt.response_us, None);
+            let wire = serde_json::to_string(observed).unwrap();
+            assert!(!wire.contains(server::KEY));
+            assert!(!wire.contains("工具内容"));
+            let profile = fixture.node.profile().to_owned();
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
+            let node = Node::start_empty(profile).await.unwrap();
+            assert_eq!(
+                crate::observations::statistics(&Client::new(node.local()), fixture.session.id)
+                    .await,
+                statistics
+            );
+            assert_eq!(server.requests.lock().unwrap().len(), 2);
+            node.shutdown().await.unwrap();
         }
     }
 }

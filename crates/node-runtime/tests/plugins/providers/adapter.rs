@@ -60,7 +60,7 @@ async fn last_attempt(
     turn: TurnId,
 ) -> sailry_protocol::conversation::observation::Attempt {
     let value: String = node.with_storage(move |db| Box::pin(async move {
-        db.prepare("SELECT json_extract(body,'$.event_metadata.sailry_model_observation') FROM agent_events WHERE turn=?1 AND json_type(body,'$.event_metadata.sailry_model_observation')='text' ORDER BY sequence DESC LIMIT 1")
+        db.prepare("SELECT json_extract(body,'$.metadata.execution.observation') FROM agent_events WHERE turn=?1 AND json_type(body,'$.metadata.execution.observation')='object' ORDER BY sequence DESC LIMIT 1")
             .await.map_err(crate::plugins::database_fixture::fault)?
             .query_row([turn.to_string()]).await.map_err(crate::plugins::database_fixture::fault)?
             .get(0).map_err(crate::plugins::database_fixture::fault)
@@ -80,6 +80,13 @@ async fn runs_captured_translations_without_manual_approval() {
         let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let source = directory.path().join("source/package");
         declare_adapter(&source, 1);
+        let script = source.join("dev.sailry.platform/adapter.js");
+        let translation = fs::read_to_string(&script).unwrap().replace(
+            "output_tokens:chunk.usage.completion_tokens}",
+            "output_tokens:chunk.usage.completion_tokens,reasoning_tokens:2}",
+        );
+        assert!(translation.contains("reasoning_tokens:2"));
+        fs::write(script, translation).unwrap();
         let installed = info(execute(&client, install(worktree, 0)).await);
         assert!(installed.issues.is_empty(), "{:?}", installed.issues);
         let server = model_fixture::Server::tools(vec![(
@@ -141,6 +148,44 @@ async fn runs_captured_translations_without_manual_approval() {
             panic!("turn expected")
         };
         finish(&client, session.id, first.id).await;
+        let observed = last_attempt(&node, first.id).await;
+        assert_eq!(observed.usage.as_ref().unwrap().reasoning, 2);
+        assert!(observed.reasoning_reported);
+        assert!(observed.complete_context);
+        use sailry_protocol::conversation::observation::CategoryKind;
+        for kind in [
+            CategoryKind::System,
+            CategoryKind::Injected,
+            CategoryKind::Tools,
+            CategoryKind::User,
+            CategoryKind::Assistant,
+            CategoryKind::Results,
+        ] {
+            assert!(
+                observed
+                    .categories
+                    .iter()
+                    .find(|row| row.kind == kind)
+                    .unwrap()
+                    .tokens
+                    .unwrap()
+                    > 0,
+                "{kind:?}"
+            );
+        }
+        assert_eq!(
+            observed
+                .categories
+                .iter()
+                .find(|row| row.kind == CategoryKind::Skills)
+                .unwrap()
+                .tokens,
+            Some(0)
+        );
+        assert_eq!(observed.status, Some(200));
+        assert!(observed.headers_us.is_some());
+        assert_eq!(observed.response_us, observed.headers_us);
+        assert!(observed.headers_us.unwrap() <= observed.first_text_us.unwrap());
         let original = captured(&node, first.id).await;
         assert!(
             original
@@ -283,8 +328,26 @@ async fn runs_captured_translations_without_manual_approval() {
                 }
             );
             assert!(attempt.elapsed_us.is_some());
+            assert!(attempt.categories.iter().any(|row| row.tokens.is_some()));
+            if !cancel {
+                assert_eq!(attempt.status, Some(400));
+                assert!(attempt.headers_us.is_some());
+                assert_eq!(attempt.response_us, attempt.headers_us);
+                assert!(attempt.headers_us.unwrap() <= attempt.elapsed_us.unwrap());
+            }
         }
+        let profile = node.profile().to_owned();
         controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
+        assert_eq!(last_attempt(&node, first.id).await, observed);
+        let totals: (i64, i64) = node.with_storage(move |db| Box::pin(async move {
+            let row = db.prepare("SELECT count(*),sum(json_extract(body,'$.usage.reasoning')) FROM agent_events WHERE turn=?1 AND json_type(body,'$.usage.reasoning')='integer'")
+                .await.map_err(crate::plugins::database_fixture::fault)?
+                .query_row([first.id.to_string()]).await.map_err(crate::plugins::database_fixture::fault)?;
+            Ok((row.get(0).map_err(crate::plugins::database_fixture::fault)?, row.get(1).map_err(crate::plugins::database_fixture::fault)?))
+        })).await.unwrap();
+        assert_eq!(totals, (2, 4));
         node.shutdown().await.unwrap();
     }
 }
@@ -535,7 +598,16 @@ export async function echo(input) {
                     )
                 {
                     assert_eq!(run.status, sailry_protocol::conversation::Status::Failed);
-                    assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Internal);
+                    let error = run.error.as_ref().unwrap();
+                    assert_eq!(error.code, ErrorCode::Unavailable);
+                    assert_eq!(
+                        error.details,
+                        Some(sailry_protocol::FaultDetails::ModelRequest {
+                            reason: sailry_protocol::ModelFailure::Request,
+                        }),
+                    );
+                    assert!(error.message.contains("plugin translation failed"));
+                    assert!(!error.message.contains("Synthetic prepare failure"));
                     break page;
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;

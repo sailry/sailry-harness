@@ -202,6 +202,34 @@ fn joins_calls_and_keeps_unknown_usage() {
 }
 
 #[test]
+fn retains_optional_reasoning_counts() {
+    for tokens in [None, Some(0), Some(2)] {
+        let mut output = response::Accumulator::default();
+        output
+            .push(
+                vec![
+                    Delta::Usage {
+                        input_tokens: Some(12),
+                        output_tokens: Some(3),
+                        cached_input_tokens: None,
+                        reasoning_tokens: tokens,
+                    },
+                    Delta::Finish {
+                        reason: Finish::Stop,
+                    },
+                ],
+                &[],
+            )
+            .unwrap();
+        let chunks = output.finish("fixture").unwrap();
+        let source = chunks.last().unwrap().1.as_ref().unwrap();
+        let usage = crate::agent::engine::history::provider_usage(source).unwrap();
+        assert_eq!(usage.reasoning, tokens);
+        assert_eq!((usage.input, usage.output), (Some(12), Some(3)));
+    }
+}
+
+#[test]
 fn marks_invalid_arguments_without_substitution() {
     let mut output = response::Accumulator::default();
     output

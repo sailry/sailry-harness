@@ -96,6 +96,33 @@ async fn finalizes_terminal_and_cancelled_streams() {
                 }
             );
             assert!(attempt.elapsed_us.is_some());
+            use sailry_protocol::conversation::observation::CategoryKind;
+            assert!(attempt.complete_context);
+            for kind in [
+                CategoryKind::System,
+                CategoryKind::User,
+                CategoryKind::Injected,
+            ] {
+                assert!(
+                    attempt
+                        .categories
+                        .iter()
+                        .find(|row| row.kind == kind)
+                        .unwrap()
+                        .tokens
+                        .unwrap()
+                        > 0
+                );
+            }
+            assert_eq!(
+                attempt
+                    .categories
+                    .iter()
+                    .find(|row| row.kind == CategoryKind::Skills)
+                    .unwrap()
+                    .tokens,
+                Some(0)
+            );
             if !cancel {
                 assert_eq!(attempt.transport, "gdk");
                 assert_eq!(attempt.status, None);

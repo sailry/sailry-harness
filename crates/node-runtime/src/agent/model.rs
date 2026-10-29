@@ -2,6 +2,7 @@ use super::*;
 mod authorization;
 mod errors;
 mod factory;
+pub(in crate::agent) mod observation;
 pub(super) mod plugin;
 pub(crate) mod registry;
 mod request;
@@ -15,6 +16,7 @@ use sailry_protocol::{
 pub(super) struct Binding {
     pub provider: Arc<dyn GdkProvider>,
     pub config: ModelConfig,
+    pub sources: observation::Sources,
 }
 
 #[derive(Clone, Copy)]
@@ -44,7 +46,18 @@ pub(super) async fn provider(
         stop,
     )
     .await?;
-    binding.provider = request::Model::wrap(binding.provider, ingress, invocation, purpose, stop);
+    if matches!(purpose, Purpose::Compaction) {
+        // Both GDK summary paths use fixed prompts without Node owner parts.
+        binding.sources.replace(Vec::new());
+    }
+    binding.provider = request::Model::wrap(
+        binding.provider,
+        ingress,
+        invocation,
+        purpose,
+        stop,
+        binding.sources.clone(),
+    );
     Ok(binding)
 }
 
@@ -112,5 +125,6 @@ pub(super) async fn binding(
     Ok(Binding {
         provider: inner,
         config: model_config,
+        sources: observation::Sources::default(),
     })
 }

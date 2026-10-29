@@ -73,6 +73,7 @@ impl Model {
             .await
             .map_err(response::translation)?;
         let framing = prepared.framing.unwrap_or(self.declaration.framing);
+        super::observation::prepared(prepared.body.as_deref());
         let received = transport::send(
             &self.client,
             prepared,
@@ -84,6 +85,7 @@ impl Model {
         )
         .await
         .map_err(transport::Failure::model)?;
+        super::observation::headers(received.status().as_u16());
         if !received.status().is_success() {
             return Err(classify(received, &worker, credentials, stop).await?);
         }

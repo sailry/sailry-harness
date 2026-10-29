@@ -52,7 +52,14 @@ async fn load(fixture: &Fixture, turn: TurnId) -> Session {
 }
 
 fn usage() -> ProviderUsage {
-    ProviderUsage::new("fixture".into(), GdkUsage::new(Some(12), Some(3), Some(15)))
+    let mut usage =
+        ProviderUsage::new("fixture".into(), GdkUsage::new(Some(12), Some(3), Some(15)));
+    usage.additional_data = Some(
+        [("reasoning_tokens".into(), json!(2))]
+            .into_iter()
+            .collect(),
+    );
+    usage
 }
 
 fn summary(after: &str) -> GdkMessage {
@@ -330,6 +337,7 @@ async fn retains_error_only_usage() {
         .find(|record| record.id == id)
         .unwrap();
     let stored = record.usage().unwrap();
+    assert_eq!(stored.reasoning, Some(2));
     assert_eq!(
         (stored.input, stored.output, stored.total),
         (Some(12), Some(3), Some(15))
@@ -362,6 +370,10 @@ async fn retains_usage_without_output() {
         session.records.last().unwrap().usage().unwrap().total,
         Some(15)
     );
+    assert_eq!(
+        session.records.last().unwrap().usage().unwrap().reasoning,
+        Some(2)
+    );
     assert!(
         !session
             .records
@@ -373,6 +385,66 @@ async fn retains_usage_without_output() {
             .unwrap()
             .user_visible
     );
+}
+
+#[tokio::test]
+async fn retains_completed_and_compacted_reasoning() {
+    let (mut fixture, turn) = running().await;
+    let answer = GdkMessage::assistant()
+        .with_generated_id()
+        .with_text("Final answer");
+    let id = answer.id.clone().unwrap();
+    apply(
+        &mut fixture,
+        turn,
+        vec![
+            GdkMessage::user()
+                .with_generated_id()
+                .with_text("Task")
+                .into(),
+            answer.into(),
+            Effect::Usage(usage()),
+        ],
+    )
+    .await
+    .unwrap();
+    let session = load(&fixture, turn).await;
+    assert_eq!(
+        session
+            .records
+            .iter()
+            .find(|record| record.id == id)
+            .unwrap()
+            .usage()
+            .unwrap()
+            .reasoning,
+        Some(2)
+    );
+    let summary = GdkMessage::user()
+        .with_generated_id()
+        .with_text("Compacted handoff");
+    let id = summary.id.clone().unwrap();
+    apply(
+        &mut fixture,
+        turn,
+        vec![Effect::Compaction {
+            summary: Box::new(summary),
+            usage: usage(),
+            files: Vec::new(),
+        }],
+    )
+    .await
+    .unwrap();
+    let restored = load(&fixture, turn).await;
+    let record = restored
+        .records
+        .iter()
+        .find(|record| record.id == id)
+        .unwrap();
+    assert!(matches!(record.kind, Kind::Compaction(_)));
+    assert_eq!(record.usage().unwrap().reasoning, Some(2));
+    let decoded: Record = serde_json::from_slice(&serde_json::to_vec(record).unwrap()).unwrap();
+    assert_eq!(decoded.usage().unwrap().reasoning, Some(2));
 }
 
 #[tokio::test]

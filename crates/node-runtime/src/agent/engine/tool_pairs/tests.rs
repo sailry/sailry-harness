@@ -51,24 +51,30 @@ impl Provider for Fixture {
         if self.fail == Some(index) {
             return Err(ProviderError::RequestFailed("summary unavailable".into()));
         }
+        let mut usage = ProviderUsage::new(
+            "fixture".into(),
+            Usage {
+                input_tokens: Some(12),
+                output_tokens: Some(10),
+                total_tokens: Some(22),
+                cache_read_input_tokens: Some(3),
+                ..Default::default()
+            },
+        )
+        .with_cost(0.01, CostSource::ProviderReported)
+        .with_stats(ProviderStats {
+            elapsed_ms: Some(2),
+            time_to_first_token_ms: Some(1),
+            ..Default::default()
+        });
+        usage.additional_data = Some(
+            [("reasoning_tokens".into(), serde_json::json!(2))]
+                .into_iter()
+                .collect(),
+        );
         Ok(stream_from_single_message(
             Message::assistant().with_text(format!("Summary {index}")),
-            ProviderUsage::new(
-                "fixture".into(),
-                Usage {
-                    input_tokens: Some(12),
-                    output_tokens: Some(10),
-                    total_tokens: Some(22),
-                    cache_read_input_tokens: Some(3),
-                    ..Default::default()
-                },
-            )
-            .with_cost(0.01, CostSource::ProviderReported)
-            .with_stats(ProviderStats {
-                elapsed_ms: Some(2),
-                time_to_first_token_ms: Some(1),
-                ..Default::default()
-            }),
+            usage,
         ))
     }
 }
@@ -221,6 +227,7 @@ async fn protects_current_kickoff_and_batches_old_pairs() {
             (Some(12), Some(10), Some(22))
         );
         assert_eq!(usage.cache_read, Some(3));
+        assert_eq!(usage.reasoning, Some(2));
         assert_eq!(usage.cost, Some(0.01));
         let runtime = charge.metadata.runtime.as_ref().unwrap();
         assert!(!runtime.agent_visible && !runtime.user_visible);

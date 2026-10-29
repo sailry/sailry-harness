@@ -63,6 +63,7 @@ pub(super) struct Preparer {
     pub stop: CancellationToken,
     pub deferred: BTreeSet<String>,
     pub images: Vec<(Vec<String>, usize)>,
+    pub sources: crate::agent::model::observation::Sources,
 }
 #[async_trait]
 impl InferenceRequestPreparer<Session> for Preparer {
@@ -80,6 +81,30 @@ impl InferenceRequestPreparer<Session> for Preparer {
         _: &Conversation,
         input: InferenceInput,
     ) -> anyhow::Result<PreparedInferenceRequest> {
+        use crate::agent::model::observation::Source;
+        use sailry_protocol::conversation::observation::CategoryKind;
+        let owners = owners::collect(&session.records).parts();
+        self.sources.replace(
+            input
+                .prompt_parts
+                .iter()
+                .filter(|(name, _)| name != "instruction")
+                .map(|(name, text)| Source {
+                    kind: if name.starts_with("skill:")
+                        && owners.iter().any(|(key, part)| key == name && part == text)
+                    {
+                        CategoryKind::Skills
+                    } else {
+                        CategoryKind::Injected
+                    },
+                    text: text.clone(),
+                })
+                .chain(input.moim_parts.iter().map(|text| Source {
+                    kind: CategoryKind::Injected,
+                    text: text.clone(),
+                }))
+                .collect(),
+        );
         let mut loaded = session.context.loaded_tools.clone().unwrap_or_default();
         for record in &session.records {
             if let Some(message) = record.message() {

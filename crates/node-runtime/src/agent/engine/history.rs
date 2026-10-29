@@ -17,9 +17,13 @@ use turso::Connection;
 pub(crate) fn provider_usage(
     source: &goose_provider_types::conversation::token_usage::ProviderUsage,
 ) -> Result<Usage, Fault> {
-    Ok(metadata::usage(&gdk::MessageUsage::from_provider_usage(
-        source, false,
-    )))
+    let mut usage = metadata::usage(&gdk::MessageUsage::from_provider_usage(source, false));
+    usage.reasoning = source
+        .additional_data
+        .as_ref()
+        .and_then(|data| data.get("reasoning_tokens"))
+        .and_then(Value::as_u64);
+    Ok(usage)
 }
 
 pub(crate) async fn capture(
