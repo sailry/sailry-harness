@@ -206,27 +206,13 @@ pub(super) fn native(
         .binding
         .as_ref()
         .and_then(|binding| binding.key_injection.as_ref());
-    let auth = || {
-        if provider.authentication != Authentication::ApiKey || key.is_empty() {
-            AuthMethod::NoAuth
-        } else if let Some(injection) = injection {
-            AuthMethod::ApiKey {
-                header_name: injection.header.clone(),
-                key: injection.template.replace("{key}", key),
-            }
-        } else {
-            match provider.api {
-                ModelApi::Anthropic => AuthMethod::ApiKey {
-                    header_name: "x-api-key".into(),
-                    key: key.into(),
-                },
-                ModelApi::AzureOpenAi | ModelApi::AzureAi => AuthMethod::ApiKey {
-                    header_name: "api-key".into(),
-                    key: key.into(),
-                },
-                _ => AuthMethod::BearerToken(key.into()),
-            }
-        }
+    let auth = || match crate::providers::request::auth(provider, key) {
+        crate::providers::request::KeyAuth::None => AuthMethod::NoAuth,
+        crate::providers::request::KeyAuth::Bearer(value) => AuthMethod::BearerToken(value),
+        crate::providers::request::KeyAuth::Header { name, value } => AuthMethod::ApiKey {
+            header_name: name,
+            key: value,
+        },
     };
     let client = |host: String, query: Vec<(String, String)>| -> Result<ApiClient, Fault> {
         let client = ApiClient::new_with_tls(host, auth(), None)

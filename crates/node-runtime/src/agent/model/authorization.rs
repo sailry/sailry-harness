@@ -1,5 +1,6 @@
 //! Each request resolves the turn's captured authorization through the Node owner.
 use super::*;
+use crate::providers::request::{self as policy, Metadata, Placement, Prepared};
 use async_trait::async_trait;
 use futures::StreamExt;
 use goose_provider_types::{
@@ -8,10 +9,9 @@ use goose_provider_types::{
     errors::ProviderError,
     model::ModelConfig,
 };
-use reqwest::header::HeaderValue;
-use sailry_protocol::SessionId;
-use serde_json::json;
-use std::collections::BTreeMap;
+use sailry_protocol::{RequestId, SessionId};
+
+pub(super) use policy::canonical;
 
 #[cfg(test)]
 mod tests;
@@ -56,21 +56,22 @@ impl GdkProvider for Model {
             return limit;
         }
         let resolved = async {
-            let (effective, authorized) =
-                current(&self.ingress, &self.provider, &self.config, &self.stop).await?;
-            let options = crate::providers::login::effective(&self.provider)?;
-            let headers = authorized.grant.headers(&options)?;
-            let fingerprint = registry::fingerprint(
-                &effective,
-                &self.config,
-                Some(authorized.credential.revision),
-            )?;
+            let resolved = policy::current(
+                &self.ingress,
+                &self.provider,
+                self.config.credential.as_ref(),
+                &self.stop,
+            )
+            .await?;
+            let headers = policy::headers(&resolved.provider, &resolved.credentials)?;
+            let fingerprint =
+                registry::fingerprint(&resolved.provider, &self.config, resolved.revision)?;
             self.ingress
                 .model_clients
                 .get(self.session, fingerprint, || {
                     factory::native(
                         &self.ingress.model_clients,
-                        &effective,
+                        &resolved.provider,
                         &self.config.model,
                         self.session,
                         "",
@@ -95,147 +96,74 @@ impl GdkProvider for Model {
         messages: &[Message],
         tools: &[rmcp::model::Tool],
     ) -> Result<MessageStream, ProviderError> {
-        let (effective, authorized) =
-            current(&self.ingress, &self.provider, &self.config, &self.stop)
-                .await
-                .map_err(errors::provider)?;
-        let options =
-            crate::providers::login::effective(&self.provider).map_err(errors::provider)?;
-        let mut headers = authorized
-            .grant
-            .headers(&options)
-            .map_err(errors::provider)?;
-        let secrets = authorized.grant.secrets(&headers);
-        let cached_headers = headers.clone();
-        let fingerprint = registry::fingerprint(
-            &effective,
-            &self.config,
-            Some(authorized.credential.revision),
+        let resolved = policy::current(
+            &self.ingress,
+            &self.provider,
+            self.config.credential.as_ref(),
+            &self.stop,
+        )
+        .await
+        .map_err(errors::provider)?;
+        let tool_names: Vec<_> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+        let user = messages
+            .iter()
+            .rev()
+            .find(|message| !message.is_turn_context())
+            .is_some_and(|message| {
+                message.role == rmcp::model::Role::User && !message.is_tool_response()
+            });
+        let prepared = policy::prepare(
+            &resolved.provider,
+            &resolved.credentials,
+            Metadata {
+                model: &config.model_name,
+                session: self.session,
+                request: RequestId::new(),
+                system,
+                tool_names: &tool_names,
+                delegated: self.delegated,
+                user,
+                vision: messages
+                    .iter()
+                    .flat_map(|message| &message.content)
+                    .any(|block| matches!(block, MessageContentBlock::Image(_))),
+            },
         )
         .map_err(errors::provider)?;
+        let fingerprint =
+            registry::fingerprint(&resolved.provider, &self.config, resolved.revision)
+                .map_err(errors::provider)?;
         let mut config = config.clone();
         let mut system = system.to_owned();
         let mut messages = messages.to_vec();
         let mut tools = tools.to_vec();
-        let claude = matches!(
-            authorized.grant,
-            crate::providers::login::Grant::ClaudeOAuth { .. }
-        );
-        let names = if claude {
-            names(&tools)?
-        } else {
-            BTreeMap::new()
-        };
-        match &authorized.grant {
-            crate::providers::login::Grant::ChatGptOAuth { .. } => {
-                // The Codex endpoint requires instructions rather than a system input item.
-                config.max_tokens = None;
-                config.temperature = None;
-                config = config.with_merged_request_params(
-                    [
-                        ("instructions".into(), json!(system)),
-                        ("prompt_cache_key".into(), json!(self.session.to_string())),
-                    ]
-                    .into(),
-                );
-                system.clear();
-                headers.insert("session-id", header(&self.session.to_string())?);
-                headers.insert(
-                    "x-codex-routing-hint",
-                    header(&format!("model={}", config.model_name))?,
-                );
-            }
-            crate::providers::login::Grant::ChatGpt { .. } => {
-                config.max_tokens = None;
-                config.temperature = None;
-            }
-            crate::providers::login::Grant::ClaudeOAuth { .. } => {
-                // Pi's reviewed subscription identity is an authorization requirement.
-                // Source: pi 4270522473e677ddba7b093caa0064a3df51d459 (MIT).
-                system = format!(
-                    "You are Claude Code, Anthropic's official CLI for Claude.\n\n{system}"
-                );
-                for tool in &mut tools {
-                    tool.name = canonical(&tool.name).to_string().into();
-                }
-                for message in &mut messages {
-                    for block in &mut message.content {
-                        if let MessageContentBlock::ToolRequest(request) = block
-                            && let Ok(call) = &mut request.tool_call
-                        {
-                            let wire = canonical(&call.name);
-                            if names
-                                .get(wire)
-                                .is_some_and(|name| name == call.name.as_ref())
-                            {
-                                call.name = wire.to_owned().into();
-                            }
-                        }
-                    }
-                }
-            }
-            crate::providers::login::Grant::Copilot { .. } => {
-                let user = !self.delegated
-                    && messages
-                        .iter()
-                        .rev()
-                        .find(|message| !message.is_turn_context())
-                        .is_some_and(|message| {
-                            message.role == rmcp::model::Role::User && !message.is_tool_response()
-                        });
-                headers.insert(
-                    "openai-intent",
-                    HeaderValue::from_static("conversation-agent"),
-                );
-                headers.insert(
-                    "x-initiator",
-                    HeaderValue::from_static(if user { "user" } else { "agent" }),
-                );
-                headers.insert(
-                    "x-request-id",
-                    header(&sailry_protocol::RequestId::new().to_string())?,
-                );
-                if messages
-                    .iter()
-                    .flat_map(|message| &message.content)
-                    .any(|block| matches!(block, MessageContentBlock::Image(_)))
-                {
-                    headers.insert("copilot-vision-request", HeaderValue::from_static("true"));
-                }
-            }
-            crate::providers::login::Grant::Plugin { .. } => {}
-        }
-        let request_headers = config.request_headers.get_or_insert_with(Default::default);
-        for (name, value) in &headers {
-            request_headers.insert(
-                name.as_str().into(),
-                value
-                    .to_str()
-                    .map_err(|_| {
-                        ProviderError::InvalidValue("model authorization header is invalid".into())
-                    })?
-                    .into(),
-            );
-        }
+        apply(
+            &prepared,
+            &mut config,
+            &mut system,
+            &mut messages,
+            &mut tools,
+        )?;
         let provider = self
             .ingress
             .model_clients
             .get(self.session, fingerprint, || {
                 factory::native(
                     &self.ingress.model_clients,
-                    &effective,
+                    &resolved.provider,
                     &self.config.model,
                     self.session,
                     "",
-                    cached_headers,
+                    prepared.cached_headers,
                 )
             })
             .map_err(errors::provider)?;
-        let provider = errors::wrap(provider, secrets);
+        let provider = errors::wrap(provider, prepared.secrets);
         let responses = provider.stream(&config, &system, &messages, &tools).await?;
+        let names = prepared.names.reverse;
         Ok(Box::pin(responses.map(move |item| {
             item.map(|(mut message, usage)| {
-                if claude && let Some(message) = &mut message {
+                if let Some(message) = &mut message {
                     for block in &mut message.content {
                         if let MessageContentBlock::ToolRequest(request) = block
                             && let Ok(call) = &mut request.tool_call
@@ -251,76 +179,55 @@ impl GdkProvider for Model {
     }
 }
 
-async fn current(
-    ingress: &Arc<Ingress>,
-    provider: &Provider,
-    config: &SessionConfig,
-    stop: &CancellationToken,
-) -> Result<(Provider, crate::store::login::Authorization), Fault> {
-    let reference = config
-        .credential
-        .clone()
-        .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "provider sign-in is required"))?;
-    let options = crate::providers::login::effective(provider)?;
-    let authorized = ingress
-        .authorization(
-            reference,
-            provider.id,
-            provider.authentication,
-            &options,
-            stop,
-        )
-        .await?;
-    let mut effective = provider.clone();
-    effective.endpoint = authorized.grant.endpoint().into();
-    #[cfg(any(test, feature = "test-support"))]
-    if let Some(endpoint) = ingress.authorization_endpoint.lock().unwrap().as_ref() {
-        effective.endpoint = endpoint.clone();
+fn apply(
+    prepared: &Prepared,
+    config: &mut ModelConfig,
+    system: &mut String,
+    messages: &mut [Message],
+    tools: &mut [rmcp::model::Tool],
+) -> Result<(), ProviderError> {
+    for name in prepared.remove_params {
+        match *name {
+            "max_tokens" => config.max_tokens = None,
+            "temperature" => config.temperature = None,
+            _ => {}
+        }
     }
-    Ok((effective, authorized))
-}
-
-fn header(value: &str) -> Result<HeaderValue, ProviderError> {
-    HeaderValue::from_str(value)
-        .map_err(|_| ProviderError::InvalidValue("model authorization header is invalid".into()))
-}
-
-fn names(tools: &[rmcp::model::Tool]) -> Result<BTreeMap<String, String>, ProviderError> {
-    let names: BTreeMap<_, _> = tools
-        .iter()
-        .map(|tool| (canonical(&tool.name).to_owned(), tool.name.to_string()))
-        .collect();
-    if names.len() != tools.len() {
-        return Err(ProviderError::InvalidValue(
-            "authorized model tool names conflict".into(),
-        ));
+    if !prepared.parameters.is_empty() {
+        *config = config
+            .clone()
+            .with_merged_request_params(prepared.parameters.clone().into_iter().collect());
     }
-    Ok(names)
-}
-
-pub(super) fn canonical(name: &str) -> &str {
-    const TOOLS: &[&str] = &[
-        "Read",
-        "Write",
-        "Edit",
-        "Bash",
-        "Grep",
-        "Glob",
-        "AskUserQuestion",
-        "EnterPlanMode",
-        "ExitPlanMode",
-        "KillShell",
-        "NotebookEdit",
-        "Skill",
-        "Task",
-        "TaskOutput",
-        "TodoWrite",
-        "WebFetch",
-        "WebSearch",
-    ];
-    TOOLS
-        .iter()
-        .copied()
-        .find(|candidate| candidate.eq_ignore_ascii_case(name))
-        .unwrap_or(name)
+    match prepared.system.placement {
+        Placement::Instructions => system.clear(),
+        Placement::Native => system.clone_from(&prepared.system.text),
+    }
+    for tool in tools {
+        if let Some(wire) = prepared.names.forward.get(tool.name.as_ref()) {
+            tool.name = wire.clone().into();
+        }
+    }
+    for message in messages {
+        for block in &mut message.content {
+            if let MessageContentBlock::ToolRequest(request) = block
+                && let Ok(call) = &mut request.tool_call
+                && let Some(wire) = prepared.names.forward.get(call.name.as_ref())
+            {
+                call.name = wire.clone().into();
+            }
+        }
+    }
+    let headers = config.request_headers.get_or_insert_with(Default::default);
+    for (name, value) in &prepared.headers {
+        headers.insert(
+            name.as_str().into(),
+            value
+                .to_str()
+                .map_err(|_| {
+                    ProviderError::InvalidValue("model authorization header is invalid".into())
+                })?
+                .into(),
+        );
+    }
+    Ok(())
 }

@@ -230,7 +230,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
     if let Some(message) = last_error(&session, invocation.turn.id) {
         if let Some(provider) = &invocation.provider
             && let Some(failure) = ingress
-                .authorization_failure(provider, &invocation.turn.config)
+                .authorization_failure(provider, invocation.turn.config.credential.as_ref())
                 .await?
         {
             return Err(failure);

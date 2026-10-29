@@ -386,12 +386,12 @@ impl Ingress {
     pub(crate) async fn authorization_failure(
         &self,
         provider: &Provider,
-        config: &SessionConfig,
+        reference: Option<&CredentialRef>,
     ) -> Result<Option<Fault>, Fault> {
         if provider.authentication == Authentication::ApiKey {
             return Ok(None);
         }
-        let Some(reference) = &config.credential else {
+        let Some(reference) = reference else {
             return Ok(None);
         };
         let storage = self.storage.get().ok_or_else(super::super::unavailable)?;
