@@ -5,7 +5,10 @@ use super::{
     unavailable,
 };
 use sailry_link::Admission;
-use sailry_protocol::{ErrorCode, Event, Fault, Output, Request, python::Settings};
+use sailry_protocol::{
+    ErrorCode, Event, Fault, Output, Request,
+    python::{Info, Settings},
+};
 use tokio::sync::oneshot;
 use turso::Connection;
 
@@ -32,6 +35,13 @@ pub(super) async fn read(db: &Connection) -> Result<Settings, Fault> {
     Ok(settings)
 }
 
+pub(super) fn output(settings: Settings) -> Output {
+    Output::PythonSettings(Info {
+        settings,
+        version: crate::python::VERSION.into(),
+    })
+}
+
 pub(super) async fn save(
     db: &Connection,
     request: &Request,
@@ -49,7 +59,7 @@ pub(super) async fn save(
     db.execute("INSERT INTO python_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&updated)?]).await
         .map_err(storage_error)?;
     Ok((
-        Output::PythonSettings(updated.clone()),
+        output(updated.clone()),
         Some(Event::PythonSettingsChanged {
             revision: updated.revision,
         }),

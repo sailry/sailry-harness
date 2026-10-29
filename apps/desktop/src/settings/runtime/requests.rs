@@ -34,9 +34,10 @@ impl Panel {
                     return;
                 }
                 match result {
-                    Ok(Ok(Output::PythonSettings(python))) => {
-                        panel.accept_index(&python, window, cx);
-                        panel.python = Some(python);
+                    Ok(Ok(Output::PythonSettings(info))) => {
+                        panel.accept_index(&info.settings, window, cx);
+                        panel.python = Some(info.settings);
+                        panel.version = Some(info.version.into());
                         panel.error = None;
                         panel.fault = None;
                     }
@@ -96,8 +97,9 @@ impl Panel {
                     match result {
                         Ok((Ok(output), _)) => {
                             panel.request = None;
-                            if let Output::PythonSettings(settings) = output {
-                                panel.python = Some(settings);
+                            if let Output::PythonSettings(info) = output {
+                                panel.python = Some(info.settings);
+                                panel.version = Some(info.version.into());
                             }
                             crate::feedback::info("", &crate::tr("knowledge_saved"), window, cx);
                             panel.load(window, cx);

@@ -304,7 +304,7 @@ pub(super) fn execute<'a>(
         }),
         Command::ReadPythonSettings => defer(move || async move {
             super::python::controller(request)?;
-            Ok((Output::PythonSettings(super::python::read(db).await?), None))
+            Ok((super::python::output(super::python::read(db).await?), None))
         }),
         Command::SavePythonSettings(settings) => {
             defer(move || async move { super::python::save(db, request, settings).await })

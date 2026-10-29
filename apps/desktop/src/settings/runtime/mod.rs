@@ -29,6 +29,8 @@ pub(super) struct Panel {
     binding: Binding,
     active: bool,
     python: Option<sailry_protocol::python::Settings>,
+    version: Option<SharedString>,
+    preparations: Vec<sailry_protocol::python::Preparation>,
     index: Entity<InputState>,
     source: Entity<SelectState<Vec<Index>>>,
     pending: bool,
@@ -105,6 +107,8 @@ impl Panel {
             binding,
             active: false,
             python: None,
+            version: None,
+            preparations: Vec::new(),
             index,
             source,
             pending: false,
@@ -150,7 +154,17 @@ impl Workspace {
             .entry(binding.client.target())
             .or_insert_with(|| cx.new(|cx| Panel::new(binding, window, cx)))
             .clone();
+        let python = &self.plugin_catalog.python;
+        let preparations = if python.connected {
+            python.preparations.clone()
+        } else {
+            Vec::new()
+        };
         panel.update(cx, |panel, cx| {
+            if panel.preparations != preparations {
+                panel.preparations = preparations;
+                cx.notify();
+            }
             if !panel.active {
                 panel.active = true;
                 panel.watch(window, cx);

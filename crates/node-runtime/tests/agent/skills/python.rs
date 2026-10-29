@@ -175,17 +175,19 @@ async fn runs_in_the_managed_session_scope() {
         let path = record["path"].as_str().unwrap();
         assert!(!std::env::split_paths(path).any(|entry| entry.starts_with(&runtime)));
 
-        let Output::PythonSettings(mut settings) =
-            execute(&client, Command::ReadPythonSettings).await
+        let Output::PythonSettings(info) = execute(&client, Command::ReadPythonSettings).await
         else {
             panic!("Python settings expected");
         };
+        assert_eq!(info.version, "3.12.13");
+        let mut settings = info.settings;
         settings.index = Some("https://pypi.org/simple/".into());
         let previous = client.prepare(Command::SavePythonSettings(settings));
         let saved = client.execute(previous.clone()).await.unwrap();
-        let Output::PythonSettings(mut settings) = saved.clone() else {
+        let Output::PythonSettings(info) = saved.clone() else {
             panic!("Python settings expected");
         };
+        let mut settings = info.settings;
         let index = "https://pypi.tuna.tsinghua.edu.cn/simple/";
         settings.index = Some(index.into());
         let current = execute(&client, Command::SavePythonSettings(settings)).await;

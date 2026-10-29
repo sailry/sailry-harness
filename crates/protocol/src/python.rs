@@ -18,6 +18,14 @@ pub enum Stage {
     Validating,
 }
 
+/// Editable settings with the read-only bundled runtime version of the Node.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Info {
+    pub settings: Settings,
+    pub version: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
@@ -68,6 +76,21 @@ mod tests {
             .validate()
             .unwrap();
         }
+    }
+
+    #[test]
+    fn info_round_trips() {
+        let info = Info {
+            settings: Settings {
+                revision: 2,
+                index: Some("https://pypi.org/simple".into()),
+            },
+            version: "3.12.13".into(),
+        };
+        let value = serde_json::to_value(&info).unwrap();
+        assert_eq!(value["version"], "3.12.13");
+        assert_eq!(value["settings"]["revision"], 2);
+        assert_eq!(serde_json::from_value::<Info>(value).unwrap(), info);
     }
 
     #[test]

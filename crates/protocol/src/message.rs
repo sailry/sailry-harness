@@ -1979,7 +1979,7 @@ pub enum Output {
         record: crate::backup::Record,
         target: String,
     },
-    PythonSettings(crate::python::Settings),
+    PythonSettings(crate::python::Info),
     LocalModelSettings(crate::models::Settings),
     LocalModels(crate::models::Catalog),
     Decision(crate::decision::Response),
