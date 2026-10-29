@@ -86,7 +86,7 @@ impl GdkProvider for Model {
         let responses = match response {
             Ok(responses) => responses,
             Err(error) => {
-                capture.finish(Outcome::Failed, Some(&error)).await?;
+                capture.record_failure(&error).await;
                 return Err(error);
             }
         };
@@ -101,8 +101,8 @@ impl GdkProvider for Model {
                         Some((Ok((message, usage)), Some((responses, capture))))
                     }
                     Some(Err(error)) => {
-                        let recorded = capture.finish(Outcome::Failed, Some(&error)).await;
-                        Some((Err(recorded.err().unwrap_or(error)), None))
+                        capture.record_failure(&error).await;
+                        Some((Err(error), None))
                     }
                     None => match capture.finish(Outcome::Succeeded, None).await {
                         Ok(()) => None,
@@ -140,6 +140,12 @@ impl Drop for Lease {
     }
 }
 impl Capture {
+    async fn record_failure(&mut self, error: &ProviderError) {
+        if let Err(recording) = self.finish(Outcome::Failed, Some(error)).await {
+            tracing::error!(error = %recording, "model request observation could not be recorded");
+        }
+    }
+
     fn new(model: &Model, config: &ModelConfig) -> Result<Self, ProviderError> {
         model
             .ingress

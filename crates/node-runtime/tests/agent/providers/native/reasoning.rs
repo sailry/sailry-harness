@@ -122,7 +122,7 @@ async fn attempts_explicit_unknown_effort() {
                 } else {
                     &requests[0]["reasoning_effort"]
                 };
-                assert!(effort.is_null());
+                assert_eq!(*effort, "high");
             }
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
@@ -252,9 +252,13 @@ async fn preserves_openai_effort() {
                     effort
                 };
                 let expected = match effective {
-                    Effort::Disabled | Effort::Minimal | Effort::Low => "low",
+                    Effort::Disabled => "none",
+                    Effort::Minimal => "minimal",
+                    Effort::Low => "low",
                     Effort::Medium => "medium",
-                    Effort::High | Effort::XHigh | Effort::Max => "high",
+                    Effort::High => "high",
+                    Effort::XHigh => "xhigh",
+                    Effort::Max => "max",
                     _ => unreachable!(),
                 };
                 assert_eq!(*value, expected, "{api:?}, {effective:?}");
@@ -430,19 +434,35 @@ async fn restores_native_choices() {
                     }
                     ModelApi::Gemini => {
                         assert_eq!(body["generationConfig"]["maxOutputTokens"], 8192);
-                        assert!(body["generationConfig"].get("thinkingConfig").is_none());
+                        let thinking = &body["generationConfig"]["thinkingConfig"];
+                        match effort {
+                            Effort::Disabled => assert!(thinking.is_null()),
+                            Effort::Budget(tokens) => {
+                                assert_eq!(thinking["thinkingBudget"], tokens)
+                            }
+                            Effort::Minimal => assert_eq!(thinking["thinkingLevel"], "minimal"),
+                            Effort::Low => assert_eq!(thinking["thinkingLevel"], "low"),
+                            Effort::Medium => assert_eq!(thinking["thinkingLevel"], "medium"),
+                            Effort::High => assert_eq!(thinking["thinkingLevel"], "high"),
+                            _ => unreachable!(),
+                        }
                     }
                     ModelApi::DeepSeek => {
                         assert_eq!(body["max_tokens"], 8192);
-                        assert!(body.get("thinking").is_none());
                         assert_eq!(
-                            body["reasoning_effort"],
+                            body["thinking"]["type"],
                             if effort == Effort::Disabled {
-                                "low"
+                                "disabled"
                             } else {
-                                "high"
+                                "enabled"
                             }
                         );
+                        match effort {
+                            Effort::Disabled => assert!(body.get("reasoning_effort").is_none()),
+                            Effort::High => assert_eq!(body["reasoning_effort"], "high"),
+                            Effort::Max => assert_eq!(body["reasoning_effort"], "max"),
+                            _ => unreachable!(),
+                        }
                     }
                     _ => unreachable!(),
                 }

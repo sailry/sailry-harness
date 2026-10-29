@@ -103,6 +103,8 @@ pub(in crate::agent) fn fault(error: ProviderError) -> Fault {
 
 pub(super) fn provider(error: Fault) -> ProviderError {
     match error.code {
+        sailry_protocol::ErrorCode::Cancelled => ProviderError::ExecutionError(error.message),
+        sailry_protocol::ErrorCode::InvalidRequest => ProviderError::InvalidValue(error.message),
         sailry_protocol::ErrorCode::NotConfigured => ProviderError::NotConfigured,
         sailry_protocol::ErrorCode::PermissionDenied => {
             ProviderError::Authentication(error.message)
@@ -128,6 +130,20 @@ mod tests {
             error,
             ProviderError::Authentication("[redacted] and [redacted]".into())
         );
+    }
+
+    #[test]
+    fn keeps_local_failures_nonretryable() {
+        for code in [
+            sailry_protocol::ErrorCode::Cancelled,
+            sailry_protocol::ErrorCode::InvalidRequest,
+        ] {
+            let error = provider(Fault::new(code, "request was rejected"));
+            assert!(!goose_provider_types::retry::should_retry(
+                &error,
+                &goose_provider_types::retry::RetryConfig::default(),
+            ));
+        }
     }
 }
 

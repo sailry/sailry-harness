@@ -34,6 +34,18 @@ pub(super) fn convert(
         capabilities,
         dialect,
     } = context;
+    if (!capabilities.reasoning && !matches!(effort, Effort::Default | Effort::Disabled))
+        || (!capabilities.tools && !tools.is_empty())
+    {
+        return Err(unsupported());
+    }
+    if config.temperature.is_some_and(|value| !value.is_finite())
+        || config
+            .request_param::<f64>("top_p")
+            .is_some_and(|value| !value.is_finite())
+    {
+        return Err(Fault::invalid("model request options are invalid"));
+    }
     let schemas: Vec<Value> = match dialect {
         Dialect::OpenAi => goose_provider_types::formats::openai::format_tools(tools)
             .map_err(|_| Fault::invalid("model tool schema is invalid"))?
@@ -67,6 +79,23 @@ pub(super) fn convert(
         let assistant = message.role == rmcp::model::Role::Assistant;
         let mut parts = Vec::new();
         for block in &message.content {
+            match block {
+                MessageContentBlock::Thinking(_) | MessageContentBlock::RedactedThinking(_)
+                    if !capabilities.reasoning =>
+                {
+                    return Err(unsupported());
+                }
+                MessageContentBlock::Image(_) if !capabilities.vision => return Err(unsupported()),
+                MessageContentBlock::Document(_) if !capabilities.files => {
+                    return Err(unsupported());
+                }
+                MessageContentBlock::ToolRequest(_) | MessageContentBlock::ToolResponse(_)
+                    if !capabilities.tools =>
+                {
+                    return Err(unsupported());
+                }
+                _ => {}
+            }
             match block {
                 MessageContentBlock::Text(text) => parts.push(wire::Part::Text {
                     text: text.text.clone(),
@@ -147,7 +176,14 @@ pub(super) fn convert(
         }
         flush(&mut output, &mut parts, assistant);
     }
-    let params = config.request_params.clone().unwrap_or_default();
+    let mut params = config.request_params.clone().unwrap_or_default();
+    params.retain(|key, _| {
+        !goose_provider_types::model::is_goose_internal_request_param(key)
+            && !matches!(
+                key.as_str(),
+                "thinking_budget" | "budget_tokens" | "enable_thinking"
+            )
+    });
     Ok(wire::Request {
         version: "v1".into(),
         model: config.model_name.clone(),
@@ -173,8 +209,15 @@ pub(super) fn convert(
         stream: true,
         session: session.into(),
         endpoint: endpoint.into(),
-        options: params.into_iter().collect(),
+        options: params
+            .into_iter()
+            .filter(|(key, _)| !matches!(key.as_str(), "top_p" | "stop"))
+            .collect(),
     })
+}
+
+fn unsupported() -> Fault {
+    Fault::invalid("model adapter does not support the requested capability")
 }
 
 fn flush(messages: &mut Vec<wire::Message>, parts: &mut Vec<wire::Part>, assistant: bool) {

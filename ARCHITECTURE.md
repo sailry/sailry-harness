@@ -63,8 +63,9 @@ link          → protocol + transport dependencies
 
 Test-only integration fixtures may construct real Nodes without changing the
 production controller boundary. The root Cargo workspace owns pinned Rust
-dependencies and lockfiles. The four GDK crates use the same upstream main
-source, with the resolved Git revision committed in Cargo.lock. Retained
+dependencies and lockfiles. The GDK crates share one locked Goose source revision.
+The pinned fork contains minimal stream-completion and native request-option fixes,
+with the resolved Git revision committed in Cargo.lock. Retained
 third-party source keeps its upstream licenses and provenance. Feature modules stay inside their owning crate unless
 a concrete platform or dependency boundary requires another crate.
 

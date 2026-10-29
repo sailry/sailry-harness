@@ -102,6 +102,7 @@ impl GdkProvider for Model {
             .headers(&options)
             .map_err(errors::provider)?;
         let secrets = authorized.grant.secrets(&headers);
+        let cached_headers = headers.clone();
         let fingerprint = registry::fingerprint(
             &effective,
             &self.config,
@@ -208,7 +209,7 @@ impl GdkProvider for Model {
                     &self.config.model,
                     self.session,
                     "",
-                    headers,
+                    cached_headers,
                 )
             })
             .map_err(errors::provider)?;

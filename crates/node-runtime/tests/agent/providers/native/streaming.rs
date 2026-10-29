@@ -1,6 +1,81 @@
 use super::*;
 use sailry_client::conversation::View;
 use sailry_link::CancellationToken;
+use serde_json::json;
+
+#[tokio::test]
+async fn rejects_truncation_without_replay() {
+    for remote in [false, true] {
+        for api in [
+            ModelApi::ChatCompletions,
+            ModelApi::Responses,
+            ModelApi::Anthropic,
+            ModelApi::Gemini,
+        ] {
+            for broken_transport in [false, true] {
+                let events = match api {
+                    ModelApi::ChatCompletions => vec![json!({
+                        "id":"partial","object":"chat.completion.chunk","created":1,"model":"fixture-a",
+                        "choices":[{"index":0,"delta":{"content":"Partial answer"},"finish_reason":null}]
+                    })],
+                    ModelApi::Responses => vec![json!({
+                        "type":"response.output_text.delta","sequence_number":0,"item_id":"partial",
+                        "output_index":0,"content_index":0,"delta":"Partial answer","logprobs":[]
+                    })],
+                    ModelApi::Anthropic => vec![
+                        json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+                        json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Partial answer"}}),
+                    ],
+                    ModelApi::Gemini => vec![json!({
+                        "candidates":[{"content":{"role":"model","parts":[{"text":"Partial answer"}]}}],
+                        "modelVersion":"fixture-a"
+                    })],
+                    _ => unreachable!(),
+                };
+                let body = events
+                    .into_iter()
+                    .map(|event| format!("data: {event}\n\n"))
+                    .collect::<String>();
+                let raw = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len() + if broken_transport { 100 } else { 0 },
+                );
+                let server = Server::start(api, Reply::Raw(Arc::new(raw.into_bytes()))).await;
+                let fixture = Fixture::empty(remote, api, &server.endpoint).await;
+                let turn = fixture.submit("Keep partial output on interruption").await;
+                let page = finished(&fixture.client, fixture.session.id, turn).await;
+                assert_eq!(
+                    page.runs.last().unwrap().status,
+                    Status::Failed,
+                    "{api:?}, remote={remote}, transport={broken_transport}: {:?}",
+                    page.runs
+                );
+                assert!(
+                    completion::response(&page).contains("Partial answer"),
+                    "{api:?}: {:?}",
+                    page.entries
+                );
+                assert_eq!(
+                    server.requests.lock().unwrap().len(),
+                    1,
+                    "partial generation must not be replayed"
+                );
+                let statistics =
+                    crate::observations::statistics(&fixture.client, fixture.session.id).await;
+                let request = statistics
+                    .observations
+                    .recent
+                    .iter()
+                    .find(|request| request.turn == turn)
+                    .unwrap();
+                assert!(request.attempts.iter().all(|attempt| attempt.outcome
+                    == sailry_protocol::conversation::observation::Outcome::Failed));
+                fixture.controller.close().await.unwrap();
+                fixture.node.shutdown().await.unwrap();
+            }
+        }
+    }
+}
 
 #[tokio::test]
 async fn publishes_before_completion() {

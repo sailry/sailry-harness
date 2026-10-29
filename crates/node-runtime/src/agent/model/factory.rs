@@ -39,6 +39,11 @@ pub(super) fn config(
             .and_then(|value| value.reasoning)
             .or(Some(metadata.reasoning));
         config.supports_vision = Some(metadata.vision);
+    } else {
+        config.supports_vision = Some(crate::providers::media::supports_api(
+            sailry_protocol::media::Kind::Vision,
+            provider,
+        ));
     }
     let effort = if session.effort == Effort::Default {
         metadata.map_or(Effort::Default, |model| model.default_effort)
@@ -62,10 +67,12 @@ pub(super) fn config(
             json!(tokens),
         )])),
     };
-    if matches!(
-        provider.api,
-        ModelApi::Responses | ModelApi::ChatCompletions
-    ) {
+    if provider.authentication == Authentication::ApiKey
+        && matches!(
+            provider.api,
+            ModelApi::Responses | ModelApi::ChatCompletions
+        )
+    {
         config = config.with_merged_request_params(
             [("prompt_cache_key".into(), json!(owner.to_string()))].into(),
         );
@@ -74,10 +81,44 @@ pub(super) fn config(
     for policy in crate::providers::policy::body(provider, &session.model) {
         config = config.with_merged_request_params(policy.into_iter().collect());
     }
-    if session
-        .features
-        .get("speed")
-        .is_some_and(|value| value == "fast")
+    if metadata
+        .and_then(|model| model.capabilities.as_ref())
+        .and_then(|capabilities| capabilities.reasoning)
+        != Some(false)
+    {
+        config = config.with_merged_request_params(
+            crate::providers::policy::reasoning(provider, &session.model, effort)
+                .into_iter()
+                .collect(),
+        );
+    }
+    if provider.api == ModelApi::DeepSeek && effort == Effort::Disabled {
+        // The native API switches thinking off without an OpenAI effort field.
+        config.reasoning = Some(false);
+    }
+    if matches!(provider.api, ModelApi::Anthropic | ModelApi::AzureAi)
+        && effort == Effort::XHigh
+        && goose_provider_types::formats::anthropic::thinking_type(&config)
+            == goose_provider_types::formats::anthropic::ThinkingType::Adaptive
+    {
+        let mut output = config
+            .request_param::<serde_json::Map<String, serde_json::Value>>("output_config")
+            .unwrap_or_default();
+        output.insert("effort".into(), json!("xhigh"));
+        config =
+            config.with_merged_request_params([("output_config".into(), json!(output))].into());
+    }
+    if provider.api == ModelApi::Responses
+        && provider.authentication != Authentication::Copilot
+        && metadata.is_some_and(|model| {
+            model
+                .validate_features(provider.api, &session.features)
+                .is_ok()
+        })
+        && session
+            .features
+            .get("speed")
+            .is_some_and(|value| value == "fast")
     {
         config =
             config.with_merged_request_params([("service_tier".into(), json!("priority"))].into());

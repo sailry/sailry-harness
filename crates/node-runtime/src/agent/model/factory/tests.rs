@@ -6,6 +6,7 @@ use goose_provider_types::{
 use rmcp::model::{CallToolResult, ContentBlock as Content, Tool};
 use serde_json::{Value, json};
 
+mod configuration;
 mod server;
 use server::Server;
 

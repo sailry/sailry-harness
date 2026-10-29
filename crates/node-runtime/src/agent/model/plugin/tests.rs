@@ -48,6 +48,10 @@ fn retains_neutral_messages_and_schemas() {
             [
                 ("top_p".into(), json!(0.9)),
                 ("custom".into(), json!("frozen")),
+                ("thinking_effort".into(), json!("high")),
+                ("budget_tokens".into(), json!(4096)),
+                ("preserve_thinking_context".into(), json!(true)),
+                ("stop".into(), json!(["END"])),
             ]
             .into(),
         );
@@ -84,6 +88,9 @@ fn retains_neutral_messages_and_schemas() {
             "string"
         );
         assert_eq!(input.options["custom"], "frozen");
+        assert_eq!(input.options.len(), 1);
+        assert_eq!(input.top_p, Some(0.9));
+        assert_eq!(input.stop, vec!["END"]);
         assert!(matches!(input.tool_choice, wire::Choice::Auto));
         assert!(
             matches!(&input.messages[1], wire::Message::Assistant {parts} if matches!(&parts[0],wire::Part::Reasoning {replay:Some(signature),..} if signature=="signature"))
@@ -91,6 +98,54 @@ fn retains_neutral_messages_and_schemas() {
         assert!(
             matches!(&input.messages[2], wire::Message::Tool {call_id,is_error:false,..} if call_id=="call-1")
         );
+    }
+}
+
+#[test]
+fn rejects_undeclared_capabilities() {
+    for (messages, effort) in [
+        (vec![Message::user().with_text("task")], Effort::High),
+        (
+            vec![Message::user().with_image("aW1hZ2U=", "image/png")],
+            Effort::Default,
+        ),
+        (
+            vec![Message::assistant().with_thinking("reason", "signature")],
+            Effort::Default,
+        ),
+        (
+            vec![Message::user().with_document("cGRm", "application/pdf", None)],
+            Effort::Default,
+        ),
+        (
+            vec![
+                Message::assistant()
+                    .with_tool_request("call", Ok(CallToolRequestParams::new("lookup"))),
+            ],
+            Effort::Default,
+        ),
+    ] {
+        let error = request::convert(
+            &ModelConfig::new("captured"),
+            "",
+            &messages,
+            &[],
+            request::Context {
+                endpoint: "http://localhost",
+                session: "session",
+                effort,
+                features: Default::default(),
+                capabilities: &Capabilities {
+                    vision: false,
+                    files: false,
+                    tools: false,
+                    reasoning: false,
+                },
+                dialect: Dialect::Generic,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, sailry_protocol::ErrorCode::InvalidRequest);
     }
 }
 

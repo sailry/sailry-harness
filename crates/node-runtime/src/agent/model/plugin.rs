@@ -121,7 +121,15 @@ impl GdkProvider for Model {
             request::Context {
                 endpoint: &self.provider.endpoint,
                 session: &self.session.to_string(),
-                effort: self.config.effort,
+                effort: if self.config.effort == Effort::Default {
+                    self.provider
+                        .models
+                        .iter()
+                        .find(|model| model.id == config.model_name)
+                        .map_or(Effort::Default, |model| model.default_effort)
+                } else {
+                    self.config.effort
+                },
                 features: self.config.features.clone(),
                 capabilities: &self.declaration.capabilities,
                 dialect: self.declaration.schema_dialect,
