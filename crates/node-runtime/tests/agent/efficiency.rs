@@ -2,6 +2,8 @@
 use super::*;
 use serde_json::json;
 
+mod cache;
+
 const CALL_LIMIT: usize = 8;
 const MARKER: &str = "FIRST=Sailry-synthetic-token-acceptance";
 
