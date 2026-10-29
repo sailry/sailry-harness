@@ -15,6 +15,7 @@ use sailry_protocol::{
 pub(super) struct State {
     pub plugins: Option<Vec<Summary>>,
     pub entries: Vec<Entry>,
+    pub loaded: bool,
     read: Option<Read>,
 }
 
@@ -34,11 +35,6 @@ pub(super) fn selected(reference: Option<&PresetRef>, entries: &[Entry]) -> Opti
         .iter()
         .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
         .cloned()
-        .or_else(|| {
-            super::presets::bundled()
-                .into_iter()
-                .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
-        })
 }
 
 impl Workspace {
@@ -78,7 +74,8 @@ impl Workspace {
                     }
                     live.directory.read = None;
                     if let Ok(Some(Ok(Output::ChannelPresets(listing)))) = result {
-                        live.directory.entries = listing.entries;
+                        live.directory.entries = super::presets::presentation(listing.entries);
+                        live.directory.loaded = true;
                         apply(
                             &mut owner.providers.channels,
                             &live.providers,
@@ -100,9 +97,8 @@ fn apply(
     entries: &[Entry],
 ) {
     for channel in channels {
-        let reference = providers
-            .get(&channel.id)
-            .and_then(|provider| provider.preset.as_ref());
+        let provider = providers.get(&channel.id);
+        let reference = provider.and_then(|provider| provider.preset.as_ref());
         channel.directory = selected(reference, entries).or_else(|| {
             channel.directory.take().filter(|entry| {
                 reference.is_some_and(|reference| {
@@ -110,6 +106,9 @@ fn apply(
                 })
             })
         });
+        if let Some(provider) = provider {
+            channel.preset = super::live::preset(provider, channel.directory.as_ref());
+        }
     }
 }
 
@@ -137,5 +136,67 @@ mod tests {
         assert!(selected(Some(&reference), &[]).is_none());
         reference.source = sailry_protocol::conversation::presets::Source::Partner;
         assert!(selected(Some(&reference), &[entry]).is_none());
+    }
+
+    #[test]
+    fn loaded_directory_never_borrows_local_entries() {
+        let entry = super::super::presets::bundled().remove(0);
+        let reference = super::super::presets::reference(&entry, &entry.preset.routes[0]);
+        assert!(selected(Some(&reference), &[]).is_none());
+    }
+
+    #[test]
+    fn refresh_preserves_saved_overrides() {
+        use sailry_protocol::conversation::{
+            ModelApi,
+            connection::{Options, Product},
+        };
+        let mut entry = super::super::presets::bundled()
+            .into_iter()
+            .find(|entry| entry.preset.id == "qwen")
+            .unwrap();
+        let reference = super::super::presets::reference(&entry, &entry.preset.routes[0]);
+        let credential = sailry_protocol::CredentialRef {
+            node: sailry_protocol::NodeId::new(),
+            id: sailry_protocol::CredentialId::new(),
+        };
+        let model = super::super::live::model(&super::super::data::Model::example("saved-model"));
+        let provider: Provider = serde_json::from_value(serde_json::json!({
+            "id":sailry_protocol::ProviderId::new(),"revision":7,"name":"Saved custom name",
+            "api":"chat_completions","authentication":"api_key","endpoint":"https://custom.invalid/v1",
+            "enabled":true,"models":[model],"default_model":"saved-model","credential":credential,"preset":reference,
+            "options":Options::Hosted { product: Product::Metered }
+        })).unwrap();
+        assert_eq!(provider.api, ModelApi::ChatCompletions);
+        let channel = super::super::live::channel(7, &provider);
+        let before = channel.clone();
+        entry.preset.name = "Execution Node preset".into();
+        entry.preset.locales.clear();
+        entry.preset.brand_display = None;
+        entry.preset.routes[0].endpoint = "https://new-default.invalid/v1".into();
+        let entries = super::super::presets::presentation(vec![entry.clone()]);
+        let mut channels = [channel];
+        apply(&mut channels, &[(7, provider.clone())].into(), &entries);
+        let current = &channels[0];
+        assert_eq!(current.directory.as_ref(), Some(&entries[0]));
+        assert_eq!(
+            super::super::presets::brand_label(current.directory.as_ref().unwrap()),
+            "Execution Node preset"
+        );
+        assert_eq!(current.name, before.name);
+        assert_eq!(current.endpoint, before.endpoint);
+        assert_eq!(current.models, before.models);
+        assert_eq!(current.default_model, before.default_model);
+        assert_eq!(current.credential_configured, before.credential_configured);
+        assert_eq!(
+            current.options,
+            Some(Options::Hosted {
+                product: Product::Metered
+            })
+        );
+        assert_eq!(current.label().as_ref(), "Execution Node preset");
+        assert_eq!(provider.endpoint, "https://custom.invalid/v1");
+        assert_eq!(provider.preset.as_ref(), Some(&reference));
+        assert_eq!(provider.credential.as_ref(), Some(&credential));
     }
 }

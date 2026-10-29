@@ -19,21 +19,54 @@ pub(super) fn catalog() -> &'static Catalog {
 }
 
 pub(super) fn bundled() -> Vec<Entry> {
-    catalog()
-        .builtin
+    presentation(
+        catalog()
+            .builtin
+            .iter()
+            .cloned()
+            .map(|preset| Entry {
+                source: Source::Builtin,
+                preset,
+                provenance: Provenance::Bundled,
+                package: None,
+                icon: None,
+                login: None,
+                origin: None,
+                requested: Default::default(),
+            })
+            .collect(),
+    )
+}
+
+/// Resolve group presentation from the same directory snapshot as its methods.
+pub(super) fn presentation(mut entries: Vec<Entry>) -> Vec<Entry> {
+    let displays = entries
         .iter()
-        .cloned()
-        .map(|preset| Entry {
-            source: Source::Builtin,
-            preset,
-            provenance: Provenance::Bundled,
-            package: None,
-            icon: None,
-            login: None,
-            origin: None,
-            requested: Default::default(),
+        .map(|entry| {
+            entry.preset.brand_display.clone().or_else(|| {
+                let brand = entry.preset.brand.as_ref()?;
+                entries
+                    .iter()
+                    .find(|base| base.source == entry.source && base.preset.id == *brand)
+                    .map(|base| display(&base.preset))
+            })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    for (entry, display) in entries.iter_mut().zip(displays) {
+        entry.preset.brand_display = display;
+    }
+    entries
+}
+
+fn display(preset: &Preset) -> sailry_protocol::plugin::desktop::Navigation {
+    preset
+        .brand_display
+        .clone()
+        .unwrap_or_else(|| sailry_protocol::plugin::desktop::Navigation {
+            label: preset.name.clone(),
+            locales: preset.locales.clone(),
+            icon: None,
+        })
 }
 
 /// Match a saved channel without a directory reference to its declared type.
@@ -128,15 +161,21 @@ pub(crate) fn installed(
     if !info.summary.enabled || !info.issues.is_empty() {
         return None;
     }
-    let preset = info
-        .extension
-        .as_ref()?
-        .model_providers
+    let declarations = &info.extension.as_ref()?.model_providers;
+    let mut preset = declarations
         .iter()
-        .find(|preset| preset.id == reference.id)?;
+        .find(|preset| preset.id == reference.id)?
+        .clone();
+    if preset.brand_display.is_none() {
+        preset.brand_display = preset
+            .brand
+            .as_ref()
+            .and_then(|brand| declarations.iter().find(|base| base.id == *brand))
+            .map(display);
+    }
     Some(Entry {
         source: reference.source.clone(),
-        preset: preset.clone(),
+        preset,
         provenance: if matches!(info.origin, Some(sailry_protocol::plugin::Origin::Bundled)) {
             Provenance::Bundled
         } else {
@@ -163,16 +202,6 @@ pub(crate) fn brand_label(entry: &Entry) -> String {
     if let Some(display) = &entry.preset.brand_display {
         return display.label(&rust_i18n::locale()).to_owned();
     }
-    if entry.source == Source::Builtin {
-        if entry.preset.brand.as_deref() == Some("opencode") {
-            return "OpenCode".into();
-        }
-        if let Some(brand) = &entry.preset.brand
-            && let Some(base) = catalog().builtin.iter().find(|value| value.id == *brand)
-        {
-            return label(base);
-        }
-    }
     label(&entry.preset)
 }
 
@@ -190,20 +219,6 @@ pub(super) fn groups(entries: &[Entry]) -> Vec<(String, Vec<Entry>)> {
 }
 
 pub(super) fn kind(entry: &Entry, route: &Route) -> Kind {
-    if entry.source == Source::Builtin {
-        if let Some(super::data::Category::Vendor(vendor)) = super::data::Category::ALL
-            .into_iter()
-            .find(|category| category.logo() == entry.preset.logo && entry.preset.logo.is_some())
-        {
-            return Kind::Hosted(vendor);
-        }
-        match entry.preset.id.as_str() {
-            "openai" => return Kind::OpenAi,
-            "anthropic" => return Kind::Anthropic,
-            "gemini" => return Kind::Gemini,
-            _ => {}
-        }
-    }
     if let Auth::Builtin { authentication } = entry.preset.auth {
         return match authentication {
             Authentication::ChatGptOAuth => Kind::ChatGptOAuth,
@@ -216,7 +231,49 @@ pub(super) fn kind(entry: &Entry, route: &Route) -> Kind {
             _ => api_kind(route.protocol),
         };
     }
+    if entry.source == Source::Builtin {
+        match (entry.preset.id.as_str(), route.protocol) {
+            ("openai", Protocol::OpenAiResponses) => return Kind::OpenAi,
+            ("anthropic", Protocol::Anthropic) => return Kind::Anthropic,
+            ("gemini", Protocol::Gemini) => return Kind::Gemini,
+            _ => {}
+        }
+    }
     api_kind(route.protocol)
+}
+
+pub(super) fn authentication(entry: &Entry) -> Authentication {
+    match entry.preset.auth {
+        Auth::Builtin { authentication } => authentication,
+        Auth::Plugin { .. } => Authentication::Plugin,
+        _ => Authentication::ApiKey,
+    }
+}
+
+pub(super) fn custom_endpoint(entry: &Entry, route: &Route) -> bool {
+    entry.source != Source::Builtin || route.endpoint.is_empty()
+}
+
+pub(super) fn product_label(
+    preset: &Preset,
+    product: sailry_protocol::conversation::connection::Product,
+) -> gpui_kit::SharedString {
+    preset
+        .products
+        .iter()
+        .find(|item| item.kind == product)
+        .and_then(|item| item.display.as_ref())
+        .map_or_else(
+            || {
+                crate::tr(match product {
+                    sailry_protocol::conversation::connection::Product::Metered => {
+                        "provider_metered"
+                    }
+                    sailry_protocol::conversation::connection::Product::Coding => "provider_coding",
+                })
+            },
+            |display| display.label(&rust_i18n::locale()).to_owned().into(),
+        )
 }
 
 fn api_kind(protocol: Protocol) -> Kind {
@@ -243,76 +300,4 @@ pub(super) fn reference(entry: &Entry, route: &Route) -> PresetRef {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use core::prelude::v1::test;
-
-    #[test]
-    fn preserves_builtin_icons_and_methods() {
-        let entries = bundled();
-        let groups = groups(&entries);
-        let (_, openai) = groups.iter().find(|(key, _)| key == "openai").unwrap();
-        assert!(
-            openai
-                .iter()
-                .any(|entry| entry.preset.id == "chat-gpt-oauth")
-        );
-        assert!(
-            openai
-                .iter()
-                .any(|entry| entry.preset.id == "compatible-responses")
-        );
-        for entry in entries.iter().filter(|entry| entry.preset.offered) {
-            assert!(
-                entry
-                    .preset
-                    .logo
-                    .as_ref()
-                    .is_some_and(|path| path.starts_with("icons/providers/"))
-            );
-            assert!(!entry.preset.routes.is_empty());
-        }
-    }
-
-    #[test]
-    fn keeps_package_brands_separate() {
-        let mut entries = bundled();
-        let mut plugin = entries[0].clone();
-        plugin.source = Source::Package {
-            name: "sample.models".into(),
-        };
-        plugin.provenance = Provenance::ThirdParty;
-        let key = brand(&plugin);
-        entries.push(plugin);
-        assert_eq!(
-            groups(&entries)
-                .iter()
-                .filter(|(brand, _)| brand == &key)
-                .count(),
-            1
-        );
-        assert_ne!(key, brand(&entries[0]));
-    }
-
-    #[test]
-    fn prefers_declared_brand_glyphs() {
-        let mut plugin = bundled().remove(0);
-        plugin.source = Source::Package {
-            name: "sample.models".into(),
-        };
-        plugin.preset.logo = None;
-        assert_eq!(glyph(&plugin), Glyph::Fallback);
-        plugin.icon = Some("data:image/svg+xml;base64,PHN2Zy8+".into());
-        assert_eq!(
-            glyph(&plugin),
-            Glyph::Image(ImageFormat::Svg, b"<svg/>".to_vec())
-        );
-        let declared = sailry_protocol::plugin::desktop::Icon::Name("reicon:messages/chat".into());
-        plugin.preset.brand_display = Some(sailry_protocol::plugin::desktop::Navigation {
-            label: "Sample".into(),
-            locales: Default::default(),
-            icon: Some(declared.clone()),
-        });
-        assert_eq!(glyph(&plugin), Glyph::Declared(&declared));
-    }
-}
+mod tests;

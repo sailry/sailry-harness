@@ -7,12 +7,12 @@ use gpui_kit::component::{
 };
 use sailry_protocol::{
     Command, Output,
-    conversation::presets::{Entry, Models, PresetRef, Route},
+    conversation::presets::{Entry, PresetRef, Route},
 };
 
 impl Editor {
     pub(super) fn authentication(&self) -> sailry_protocol::Authentication {
-        use sailry_protocol::{Authentication, conversation::presets::Auth};
+        use sailry_protocol::Authentication;
         self.selected.as_ref().map_or_else(
             || {
                 self.provider
@@ -22,12 +22,38 @@ impl Editor {
                         provider.authentication
                     })
             },
-            |entry| match entry.preset.auth {
-                Auth::Builtin { authentication } => authentication,
-                Auth::Plugin { .. } => Authentication::Plugin,
-                _ => Authentication::ApiKey,
-            },
+            presets::authentication,
         )
+    }
+
+    pub(super) fn custom_endpoint(&self) -> bool {
+        self.selected
+            .as_ref()
+            .zip(self.selected_route())
+            .map_or_else(
+                || self.preset.custom_endpoint(),
+                |(entry, route)| presets::custom_endpoint(entry, route),
+            )
+    }
+
+    pub(super) fn metadata_only(&self) -> bool {
+        self.preset.cloud()
+            || self
+                .selected
+                .as_ref()
+                .is_some_and(|entry| routes::metadata_only(&entry.preset, self.selected_route()))
+    }
+
+    pub(super) fn clear_route(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.probe = None;
+        self.models.clear();
+        self.default_model = 0;
+        self.configured = false;
+        self.original_key = None;
+        self.key_ready = true;
+        self.credential
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.error = None;
     }
 
     pub(super) fn uses_login(&self) -> bool {
@@ -51,13 +77,11 @@ impl Editor {
             && self.flow.step == flow::Step::Configure
             && self.selected.as_ref().is_some_and(|entry| {
                 entry.source == sailry_protocol::conversation::presets::Source::Builtin
-                    && matches!(
-                        entry.preset.id.as_str(),
-                        "compatible-responses"
-                            | "compatible-chat"
-                            | "compatible-anthropic"
-                            | "compatible-gemini"
-                    )
+                    && self
+                        .selected_route()
+                        .is_some_and(|route| route.endpoint.is_empty())
+                    && !self.preset.cloud()
+                    && !self.uses_login()
             })
     }
 
@@ -100,20 +124,17 @@ impl Editor {
                 }
                 match result {
                     Ok(Ok(Output::ChannelPresets(listing))) => {
-                        editor.directory = listing.entries;
+                        editor.directory = presets::presentation(listing.entries);
                         // Resolving a label for an existing channel must preserve its draft.
-                        if editor.selected.is_none() {
-                            editor.selected = editor.provider.as_ref().and_then(|provider| {
-                                let reference = provider.preset.as_ref()?;
-                                editor
-                                    .directory
-                                    .iter()
-                                    .find(|entry| {
-                                        entry.source == reference.source
-                                            && entry.preset.id == reference.id
-                                    })
-                                    .cloned()
-                            });
+                        editor.selected = refreshed(
+                            &editor.directory,
+                            editor.selected_ref.as_ref(),
+                            editor.selected.as_ref(),
+                        );
+                        if let Some(entry) = &editor.selected
+                            && let Some(route) = editor.selected_route()
+                        {
+                            editor.preset = presets::kind(entry, route);
                         }
                         if let Some(brand) = editor.flow.requested.take() {
                             if presets::groups(&editor.directory)
@@ -223,7 +244,7 @@ impl Editor {
         let Some(entry) = self.selected.clone() else {
             return;
         };
-        let route = route_target(&entry.preset.routes, self.selected_route(), route);
+        let route = routes::target(&entry.preset.routes, self.selected_route(), route);
         if self.navigation_blocked()
             || self.editing.is_some()
             || self.selected_route() == Some(&route)
@@ -247,23 +268,7 @@ impl Editor {
         let Some(entry) = &self.selected else {
             return;
         };
-        let mut ids = match &entry.preset.models {
-            Models::Static { ids } => ids.clone(),
-            Models::Discover => Vec::new(),
-        };
-        if let Some(product) = self.selected_route().and_then(|route| route.product)
-            && let Some(id) = entry
-                .preset
-                .products
-                .iter()
-                .find(|item| item.kind == product)
-                .and_then(|item| item.default_model.clone())
-        {
-            ids.insert(0, id);
-        }
-        let mut seen = HashSet::new();
-        ids.retain(|id| seen.insert(id.clone()));
-        for id in ids {
+        for id in routes::models(&entry.preset, self.selected_route()) {
             self.add_model(window, cx);
             self.models.last_mut().unwrap().expanded = false;
             self.models
@@ -353,7 +358,7 @@ impl Editor {
         let Some(current) = self.selected_route() else {
             return form;
         };
-        let choices = route_choices(&entry.preset.routes, current, region);
+        let choices = routes::choices(&entry.preset.routes, current, region);
         if choices.len() < 2 {
             return form;
         }
@@ -362,7 +367,8 @@ impl Editor {
         } else {
             "provider_product"
         };
-        let label = route_label(current, region);
+        let label = routes::label(&entry.preset, current, region);
+        let preset = entry.preset.clone();
         let owner = cx.entity();
         form.child(
             Field::new().label(tr(key)).child(
@@ -375,13 +381,12 @@ impl Editor {
                         choices.iter().fold(menu, |menu, route| {
                             let route = route.clone();
                             let owner = owner.clone();
-                            menu.item(PopupMenuItem::new(route_label(&route, region)).on_click(
-                                move |_, window, cx| {
-                                    owner.update(cx, |editor, cx| {
-                                        editor.change_route(route.clone(), window, cx)
-                                    })
-                                },
-                            ))
+                            let label = routes::label(&preset, &route, region);
+                            menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                                owner.update(cx, |editor, cx| {
+                                    editor.change_route(route.clone(), window, cx)
+                                })
+                            }))
                         })
                     }),
             ),
@@ -389,33 +394,20 @@ impl Editor {
     }
 }
 
-fn route_label(route: &Route, region: bool) -> SharedString {
-    use sailry_protocol::conversation::{connection::Product, presets::Region};
-    tr(if region {
-        match route.region {
-            Some(Region::China) => "provider_region_china",
-            _ => "provider_region_global",
-        }
-    } else {
-        match route.product {
-            Some(Product::Coding) => "provider_coding",
-            _ => "provider_metered",
-        }
-    })
-}
-
-fn route_target(routes: &[Route], current: Option<&Route>, requested: Route) -> Route {
-    current
-        .filter(|current| current.product != requested.product)
-        .and_then(|current| {
-            routes.iter().find(|candidate| {
-                candidate.protocol == requested.protocol
-                    && candidate.product == requested.product
-                    && candidate.region == current.region
-            })
+pub(super) fn refreshed(
+    directory: &[Entry],
+    reference: Option<&PresetRef>,
+    current: Option<&Entry>,
+) -> Option<Entry> {
+    let reference = reference?;
+    directory
+        .iter()
+        .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
+        .or_else(|| {
+            current
+                .filter(|entry| entry.source == reference.source && entry.preset.id == reference.id)
         })
         .cloned()
-        .unwrap_or(requested)
 }
 
 /// Partner entries offering the current route's protocol, for one-shot prefill.
@@ -443,102 +435,31 @@ fn partner_choices(directory: &[Entry], current: &Route) -> Vec<(Entry, Route)> 
         .collect()
 }
 
-fn route_choices(routes: &[Route], current: &Route, region: bool) -> Vec<Route> {
-    let mut choices: Vec<Route> = Vec::new();
-    for route in routes {
-        let applicable = if region {
-            route.product == current.product && route.protocol == current.protocol
-        } else {
-            route.protocol == current.protocol
-        };
-        if applicable
-            && !choices.iter().any(|other| {
-                if region {
-                    other.region == route.region
-                } else {
-                    other.product == route.product
-                }
-            })
-        {
-            choices.push(route.clone());
-        }
-    }
-    choices
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use core::prelude::v1::test;
-    use sailry_protocol::conversation::{connection::Product, presets::Region};
 
     #[test]
-    fn preserves_region_across_products() {
-        let entry = presets::bundled()
-            .into_iter()
-            .find(|entry| entry.preset.id == "qwen")
-            .unwrap();
-        let current = entry
-            .preset
-            .routes
-            .iter()
-            .find(|route| {
-                route.region == Some(Region::Global) && route.product == Some(Product::Metered)
-            })
-            .unwrap();
-        let requested = entry
-            .preset
-            .routes
-            .iter()
-            .find(|route| {
-                route.region == Some(Region::China) && route.product == Some(Product::Coding)
-            })
-            .unwrap()
-            .clone();
-        let target = route_target(&entry.preset.routes, Some(current), requested);
-        assert_eq!(target.region, Some(Region::Global));
-        assert_eq!(target.product, Some(Product::Coding));
-        assert_eq!(
-            target.endpoint,
-            entry
-                .preset
-                .routes
-                .iter()
-                .find(|route| route.key() == target.key())
-                .unwrap()
-                .endpoint
+    fn refreshes_metadata_without_reselecting() {
+        let current = presets::bundled().remove(0);
+        let reference = presets::reference(&current, &current.preset.routes[0]);
+        let mut update = current.clone();
+        update.preset.name = "Execution Node method".into();
+        update.preset.routes[0].endpoint = "https://new-default.invalid/v1".into();
+        let selected = refreshed(
+            std::slice::from_ref(&update),
+            Some(&reference),
+            Some(&current),
         );
-        let choices = route_choices(&entry.preset.routes, &target, true);
-        assert_eq!(choices.len(), 2);
-        assert!(
-            choices
-                .iter()
-                .all(|route| route.product == Some(Product::Coding))
-        );
-    }
-
-    #[test]
-    fn keeps_explicit_missing_region_fallback() {
-        let entry = presets::bundled()
-            .into_iter()
-            .find(|entry| entry.preset.id == "doubao")
-            .unwrap();
-        let current = entry
-            .preset
-            .routes
-            .iter()
-            .find(|route| route.product == Some(Product::Metered))
-            .unwrap();
-        let requested = entry
-            .preset
-            .routes
-            .iter()
-            .find(|route| route.product == Some(Product::Coding))
-            .unwrap()
-            .clone();
+        assert_eq!(selected.as_ref(), Some(&update));
         assert_eq!(
-            route_target(&entry.preset.routes, Some(current), requested.clone()),
-            requested
+            reference,
+            presets::reference(&current, &current.preset.routes[0])
+        );
+        assert_eq!(
+            refreshed(&[], Some(&reference), Some(&current)),
+            Some(current)
         );
     }
 

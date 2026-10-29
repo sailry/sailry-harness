@@ -44,11 +44,21 @@ impl Status {
         if channel.credential_configured {
             return None;
         }
+        if authentication == Authentication::ApiKey
+            && channel.directory.as_ref().is_some_and(|entry| {
+                matches!(
+                    entry.preset.auth,
+                    sailry_protocol::conversation::presets::Auth::None
+                )
+            })
+        {
+            return None;
+        }
         if authentication != Authentication::ApiKey {
             return Some(Self::SignedOut);
         }
         // Keyless custom endpoints are valid, matching the editor's save rule.
-        let keyless = channel.preset.custom_endpoint() && !channel.preset.cloud();
+        let keyless = channel.custom_endpoint() && !channel.preset.cloud();
         (!keyless).then_some(Self::MissingKey)
     }
 

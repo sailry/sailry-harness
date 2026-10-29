@@ -390,31 +390,46 @@ pub struct Channel {
 }
 
 impl Channel {
+    pub(super) fn custom_endpoint(&self) -> bool {
+        self.directory
+            .as_ref()
+            .and_then(|entry| {
+                entry
+                    .preset
+                    .routes
+                    .iter()
+                    .find(|route| route.protocol.api() == self.preset.api())
+                    .map(|route| super::presets::custom_endpoint(entry, route))
+            })
+            .unwrap_or_else(|| self.preset.custom_endpoint())
+    }
+
     pub fn label(&self) -> gpui_kit::SharedString {
         use sailry_protocol::conversation::connection::{Options, Product};
-        if let Some(entry) = self
-            .directory
-            .as_ref()
-            .filter(|entry| entry.source != sailry_protocol::conversation::presets::Source::Builtin)
-        {
-            return super::presets::label(&entry.preset).into();
-        }
-        let Preset::Hosted(vendor) = self.preset else {
+        let Some(entry) = self.directory.as_ref() else {
             return crate::tr(self.preset.key());
         };
-        let key = if matches!(
-            self.options,
-            Some(Options::Hosted {
-                product: Product::Coding
-            })
-        ) {
-            vendor.coding_key()
-        } else {
-            self.preset.key()
+        let product = match self.options {
+            Some(Options::Hosted { product }) => Some(product),
+            _ => None,
         };
-        let label = crate::tr(key);
-        vendor
-            .region(&self.endpoint)
+        let builtin = entry.source == sailry_protocol::conversation::presets::Source::Builtin;
+        let label = if builtin && product == Some(Product::Coding) {
+            super::presets::product_label(&entry.preset, Product::Coding)
+        } else {
+            super::presets::label(&entry.preset).into()
+        };
+        entry
+            .preset
+            .routes
+            .iter()
+            .find(|route| {
+                builtin
+                    && route.protocol.api() == self.preset.api()
+                    && route.product == product
+                    && route.endpoint.trim_end_matches('/') == self.endpoint.trim_end_matches('/')
+            })
+            .and_then(|route| route.region)
             .map_or(label.clone(), |region| {
                 let key = match region {
                     Region::China => "provider_region_china",

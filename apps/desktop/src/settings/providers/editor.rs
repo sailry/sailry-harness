@@ -23,11 +23,10 @@ mod directory;
 mod discovery;
 mod entry;
 mod flow;
-mod hosted;
 mod kind;
 mod live;
 mod oauth;
-mod region;
+mod routes;
 
 pub(super) struct Editor {
     pub(super) focus: FocusHandle,
@@ -45,9 +44,6 @@ pub(super) struct Editor {
     pub preset: Preset,
     name: Entity<InputState>,
     endpoint: Entity<InputState>,
-    region: Entity<gpui_kit::component::select::SelectState<Vec<region::Choice>>>,
-    offering: Entity<gpui_kit::component::select::SelectState<Vec<hosted::Offering>>>,
-    hosted_product: Option<sailry_protocol::conversation::connection::Product>,
     credential: Entity<InputState>,
     original_key: Option<sailry_protocol::Secret>,
     key_ready: bool,
@@ -200,30 +196,43 @@ impl Editor {
             window,
             cx,
         );
-        let hosted_product = initial.as_ref().and_then(|channel| match channel.options {
-            Some(sailry_protocol::conversation::connection::Options::Hosted { product }) => {
-                Some(product)
-            }
-            _ => None,
-        });
-        let offering = hosted::new(preset, hosted_product, window, cx);
-        let region = region::new(
-            preset,
-            &endpoint,
-            hosted_product.unwrap_or(sailry_protocol::conversation::connection::Product::Metered),
-            window,
-            cx,
-        );
+        let directory = owner
+            .read(cx)
+            .provider_link
+            .as_ref()
+            .filter(|live| live.directory.loaded)
+            .map_or_else(super::presets::bundled, |live| {
+                live.directory.entries.clone()
+            });
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(tr("provider_search")));
         cx.observe(&search, |_, _, cx| cx.notify()).detach();
+        let selected_ref = provider
+            .as_ref()
+            .and_then(|provider| provider.preset.clone())
+            .or_else(|| {
+                let channel = initial.as_ref()?;
+                let entry = channel.directory.as_ref()?;
+                let product = channel.options.as_ref().and_then(|options| match options {
+                    sailry_protocol::conversation::connection::Options::Hosted { product } => {
+                        Some(*product)
+                    }
+                    _ => None,
+                });
+                let route = entry
+                    .preset
+                    .routes
+                    .iter()
+                    .filter(|route| route.protocol.api() == channel.preset.api())
+                    .filter(|route| product.is_none_or(|product| route.product == Some(product)))
+                    .min_by_key(|route| route.endpoint != channel.endpoint)?;
+                Some(super::presets::reference(entry, route))
+            });
         let mut editor = Self {
             flow: flow::Flow::new(editing.is_some()),
             search,
-            directory: super::presets::bundled(),
+            directory,
             selected: None,
-            selected_ref: provider
-                .as_ref()
-                .and_then(|provider| provider.preset.clone()),
+            selected_ref,
             partner_key_url: None,
             directory_task: None,
             partner_task: None,
@@ -231,9 +240,6 @@ impl Editor {
             focus: cx.focus_handle(),
             cloud,
             oauth,
-            region,
-            offering,
-            hosted_product,
             owner,
             editing,
             preset,
@@ -266,13 +272,13 @@ impl Editor {
                 .new(|cx| InputState::new(window, cx).placeholder(tr("provider_key_hint"))),
             error: None,
         };
-        editor.selected = editor.selected_ref.as_ref().and_then(|reference| {
-            editor
-                .directory
-                .iter()
-                .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
-                .cloned()
-        });
+        editor.selected = directory::refreshed(
+            &editor.directory,
+            editor.selected_ref.as_ref(),
+            initial
+                .as_ref()
+                .and_then(|channel| channel.directory.as_ref()),
+        );
         editor.load_key(window, cx);
         editor.load_directory(false, window, cx);
         editor
@@ -285,8 +291,6 @@ impl Editor {
         let same_kind = self.preset.kind() == preset.kind();
         self.preset = preset;
         self.partner_key_url = None;
-        self.hosted_product = matches!(preset, Preset::Hosted(_))
-            .then_some(sailry_protocol::conversation::connection::Product::Metered);
         self.probe = None;
         self.models.clear();
         self.default_model = 0;
@@ -300,18 +304,9 @@ impl Editor {
         self.original_key = None;
         self.key_ready = true;
         self.endpoint.update(cx, |input, cx| {
-            input.set_value(
-                match preset {
-                    Preset::Hosted(vendor) => vendor.endpoint(),
-                    _ => "",
-                },
-                window,
-                cx,
-            );
+            input.set_value("", window, cx);
             input.set_placeholder(tr(preset.endpoint_hint()), window, cx);
         });
-        self.sync_region(window, cx);
-        self.sync_product(window, cx);
         self.credential.update(cx, |input, cx| {
             input.set_value("", window, cx);
         });
@@ -436,7 +431,7 @@ impl Editor {
             return Err("provider_name_required");
         }
         let endpoint = self.endpoint.read(cx).value().trim().to_owned();
-        if self.preset.custom_endpoint()
+        if self.custom_endpoint()
             && !(endpoint.starts_with("https://")
                 || (self.binding.is_some() && endpoint.starts_with("http://")))
         {
@@ -446,7 +441,7 @@ impl Editor {
             || (self.configured && (self.binding.is_none() || !self.uses_key()));
         if self.uses_key()
             && !configured
-            && !(self.binding.is_some() && self.preset.custom_endpoint() && !self.preset.cloud())
+            && !(self.binding.is_some() && self.custom_endpoint() && !self.preset.cloud())
         {
             return Err(if self.binding.is_some() {
                 "provider_key_required"
@@ -487,12 +482,12 @@ impl Editor {
             directory: self.selected.clone(),
             options: if let Some(product) = self.selected_route().and_then(|route| route.product) {
                 Some(sailry_protocol::conversation::connection::Options::Hosted { product })
-            } else if matches!(self.preset, Preset::Hosted(_)) {
-                self.hosted_product.map(|product| {
-                    sailry_protocol::conversation::connection::Options::Hosted { product }
-                })
             } else {
-                self.cloud.options(self.preset, cx)?
+                self.cloud.options(self.preset, cx)?.or_else(|| {
+                    self.provider
+                        .as_ref()
+                        .and_then(|provider| provider.options.clone())
+                })
             },
             oauth: if self.authentication() == sailry_protocol::Authentication::Plugin {
                 None
@@ -546,7 +541,7 @@ impl Render for Editor {
                     .child(self.kind_control(cx)),
             );
         }
-        if preset.custom_endpoint() {
+        if self.custom_endpoint() {
             form = form.child(
                 Field::new().label(tr("provider_endpoint")).child(
                     Input::new(&self.endpoint)
@@ -555,13 +550,8 @@ impl Render for Editor {
                 ),
             );
         }
-        if self.selected.is_some() {
-            form = self.route_field(form, false, cx);
-            form = self.route_field(form, true, cx);
-        } else {
-            form = self.product_form(form);
-            form = self.region_form(form);
-        }
+        form = self.route_field(form, false, cx);
+        form = self.route_field(form, true, cx);
         form = self.cloud_form(form);
         if self.uses_key() {
             form = form.child(

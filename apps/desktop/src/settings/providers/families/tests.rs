@@ -144,3 +144,21 @@ fn preserves_unknown_saved_identity() {
         Selection::Group("package:sample:unlisted".into())
     );
 }
+
+#[test]
+fn loaded_identity_outweighs_local_groups() {
+    let mut entry = presets::bundled()
+        .into_iter()
+        .find(|entry| entry.preset.id == "compatible-responses")
+        .unwrap();
+    entry.preset.brand = Some("node-defined-brand".into());
+    let reference = presets::reference(&entry, &entry.preset.routes[0]);
+    assert_eq!(
+        for_reference(Some(&reference), Preset::CompatibleResponses, Some(&entry)),
+        Selection::Group("node-defined-brand".into())
+    );
+    assert_eq!(
+        for_reference(Some(&reference), Preset::CompatibleResponses, None),
+        Selection::Group("compatible-responses".into())
+    );
+}

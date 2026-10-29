@@ -3,7 +3,6 @@ use super::super::presets;
 use super::entry::brand_label;
 use super::*;
 use gpui_kit::component::{button::ButtonCustomVariant, input::Input};
-use sailry_protocol::conversation::presets::Auth;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
@@ -73,12 +72,12 @@ enum Access {
 }
 
 impl Access {
-    fn of(kind: Preset, login: bool) -> Self {
+    fn of(kind: Preset, login: bool, custom_endpoint: bool) -> Self {
         if login {
             Self::Login
         } else if kind.cloud() {
             Self::Cloud
-        } else if kind.custom_endpoint() {
+        } else if custom_endpoint {
             Self::Endpoint
         } else {
             Self::Key
@@ -217,7 +216,7 @@ impl Editor {
         let method = method_summary(
             &family,
             self.method_label(),
-            Access::of(self.preset, self.uses_login()),
+            Access::of(self.preset, self.uses_login(), self.custom_endpoint()),
         );
         h_flex()
             .w_full()
@@ -361,11 +360,13 @@ impl Editor {
                     })
                     .children(choices.into_iter().map(|entry| {
                         let route = &entry.preset.routes[0];
-                        let login = matches!(
-                            entry.preset.auth,
-                            Auth::Builtin { .. } | Auth::Plugin { .. }
+                        let login = presets::authentication(&entry)
+                            != sailry_protocol::Authentication::ApiKey;
+                        let access = Access::of(
+                            presets::kind(&entry, route),
+                            login,
+                            presets::custom_endpoint(&entry, route),
                         );
-                        let access = Access::of(presets::kind(&entry, route), login);
                         let label: SharedString = presets::label(&entry.preset).into();
                         surface(
                             Button::new(SharedString::from(format!(

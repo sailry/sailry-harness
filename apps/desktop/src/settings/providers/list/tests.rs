@@ -77,6 +77,22 @@ mod status {
     }
 
     #[test]
+    fn named_routes_require_declared_keys() {
+        let mut hosted = channel(Preset::CompatibleChat);
+        hosted.credential_configured = false;
+        hosted.directory = super::super::super::presets::bundled()
+            .into_iter()
+            .find(|entry| entry.preset.id == "qwen");
+        assert_eq!(
+            Status::of(&hosted, Authentication::ApiKey),
+            Some(Status::MissingKey)
+        );
+        hosted.directory.as_mut().unwrap().preset.auth =
+            sailry_protocol::conversation::presets::Auth::None;
+        assert_eq!(Status::of(&hosted, Authentication::ApiKey), None);
+    }
+
+    #[test]
     fn reports_missing_login() {
         let mut login = channel(Preset::ChatGptOAuth);
         login.credential_configured = false;

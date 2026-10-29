@@ -271,6 +271,7 @@ impl Workspace {
                                 })
                             })
                     });
+                    channel.preset = preset(provider, channel.directory.as_ref());
                     channel.quota = snapshot
                         .provider_quotas
                         .iter()
@@ -381,17 +382,26 @@ pub(in crate::settings) fn local(owner: &mut Workspace, cx: &mut Context<Workspa
 }
 
 /// The editor preset a configured provider corresponds to.
-fn preset(provider: &Provider) -> Preset {
+pub(super) fn preset(
+    provider: &Provider,
+    entry: Option<&sailry_protocol::conversation::presets::Entry>,
+) -> Preset {
     if let Some(reference) = &provider.preset
-        && let Some(entry) = super::presets::bundled()
-            .iter()
-            .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
+        && let Some(entry) = entry
+            .filter(|entry| entry.source == reference.source && entry.preset.id == reference.id)
         && let Some(route) = entry
             .preset
             .routes
             .iter()
             .find(|route| reference.route.as_ref() == Some(&route.key()))
-            .or_else(|| entry.preset.routes.first())
+            .or_else(|| {
+                entry
+                    .preset
+                    .routes
+                    .iter()
+                    .find(|route| route.protocol.api() == provider.api)
+            })
+        && route.protocol.api() == provider.api
     {
         return super::presets::kind(entry, route);
     }
@@ -408,25 +418,9 @@ fn preset(provider: &Provider) -> Preset {
             ModelApi::DeepSeek => Preset::Hosted(super::vendors::Vendor::DeepSeek),
             ModelApi::OpenCodeGo => Preset::OpenCodeGo,
             ModelApi::OpenCodeZen => Preset::OpenCodeZen,
-            ModelApi::ChatCompletions => super::vendors::Vendor::from_endpoint(&provider.endpoint)
-                .map(Preset::Hosted)
-                .unwrap_or(Preset::CompatibleChat),
-            ModelApi::Responses if provider.endpoint == "https://api.openai.com/v1" => {
-                Preset::OpenAi
-            }
+            ModelApi::ChatCompletions => Preset::CompatibleChat,
             ModelApi::Responses => Preset::CompatibleResponses,
-            ModelApi::Anthropic
-                if provider.endpoint.trim_end_matches('/') == "https://api.anthropic.com" =>
-            {
-                Preset::Anthropic
-            }
             ModelApi::Anthropic => Preset::CompatibleAnthropic,
-            ModelApi::Gemini
-                if provider.endpoint.trim_end_matches('/')
-                    == "https://generativelanguage.googleapis.com/v1beta" =>
-            {
-                Preset::Gemini
-            }
             ModelApi::Gemini => Preset::CompatibleGemini,
         },
     }
@@ -441,18 +435,32 @@ pub(crate) fn logo(provider: &Provider) -> Option<String> {
     {
         return entry.preset.logo.clone();
     }
-    preset(provider).category().logo()
+    super::presets::bundled()
+        .into_iter()
+        .find(|entry| {
+            super::presets::authentication(entry) == provider.authentication
+                && entry.preset.routes.iter().any(|route| {
+                    route.protocol.api() == provider.api
+                        && !route.endpoint.is_empty()
+                        && route.endpoint.trim_end_matches('/')
+                            == provider.endpoint.trim_end_matches('/')
+                })
+        })
+        .and_then(|entry| entry.preset.logo)
+        .or_else(|| preset(provider, None).category().logo())
 }
 
 pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
+    let directory =
+        super::directory::selected(provider.preset.as_ref(), &super::presets::bundled());
     Channel {
         options: provider.options.clone(),
         oauth: provider.oauth.clone(),
         quota: None,
-        directory: super::directory::selected(provider.preset.as_ref(), &[]),
+        preset: preset(provider, directory.as_ref()),
+        directory,
         id,
         name: provider.name.clone(),
-        preset: preset(provider),
         endpoint: provider.endpoint.clone(),
         credential_configured: provider.credential.is_some(),
         account_label: None,

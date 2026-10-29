@@ -52,10 +52,13 @@ mod access {
 
     #[test]
     fn classifies_methods() {
-        assert_eq!(Access::of(Preset::OpenAi, false), Access::Key);
-        assert_eq!(Access::of(Preset::CompatibleChat, false), Access::Endpoint);
-        assert_eq!(Access::of(Preset::AzureOpenAi, false), Access::Cloud);
-        assert_eq!(Access::of(Preset::ChatGptOAuth, true), Access::Login);
+        assert_eq!(Access::of(Preset::OpenAi, false, false), Access::Key);
+        assert_eq!(
+            Access::of(Preset::CompatibleChat, false, true),
+            Access::Endpoint
+        );
+        assert_eq!(Access::of(Preset::AzureOpenAi, false, true), Access::Cloud);
+        assert_eq!(Access::of(Preset::ChatGptOAuth, true, false), Access::Login);
     }
 
     #[test]

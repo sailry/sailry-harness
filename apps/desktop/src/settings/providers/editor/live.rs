@@ -6,34 +6,12 @@ impl Editor {
         &self,
         cx: &App,
     ) -> Result<(sailry_protocol::conversation::ModelApi, String), &'static str> {
-        if let Some(route) = self.selected_route() {
-            let endpoint = self.endpoint.read(cx).value().trim().to_owned();
-            if endpoint.is_empty() {
-                return Err("provider_endpoint_required");
-            }
-            return Ok((route.protocol.api(), endpoint));
-        }
-        let api = self.preset.api();
-        let endpoint = self.endpoint.read(cx).value().trim().to_owned();
-        let endpoint = match self.preset {
-            Preset::OpenAi => "https://api.openai.com/v1".into(),
-            Preset::OpenCodeGo => "https://opencode.ai/zen/go/v1".into(),
-            Preset::OpenCodeZen => "https://opencode.ai/zen/v1".into(),
-            Preset::ChatGptOAuth => "https://chatgpt.com/backend-api/codex".into(),
-            Preset::ChatGpt => "https://api.openai.com/v1".into(),
-            Preset::ClaudeOAuth => "https://api.anthropic.com".into(),
-            Preset::Copilot | Preset::CopilotResponses => "https://api.githubcopilot.com".into(),
-            Preset::Hosted(vendor) if endpoint.is_empty() => vendor.endpoint().into(),
-            Preset::Anthropic if endpoint.is_empty() => "https://api.anthropic.com".into(),
-            Preset::Gemini if endpoint.is_empty() => {
-                "https://generativelanguage.googleapis.com/v1beta".into()
-            }
-            _ => endpoint,
-        };
-        if endpoint.is_empty() {
-            return Err("provider_endpoint_required");
-        }
-        Ok((api, endpoint))
+        connection(
+            self.selected_route(),
+            self.provider.as_ref(),
+            self.preset,
+            &self.endpoint.read(cx).value(),
+        )
     }
 
     pub(super) fn save_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -190,5 +168,85 @@ impl Editor {
             });
         }));
         cx.notify();
+    }
+}
+
+fn connection(
+    route: Option<&sailry_protocol::conversation::presets::Route>,
+    provider: Option<&Provider>,
+    preset: Preset,
+    endpoint: &str,
+) -> Result<(sailry_protocol::conversation::ModelApi, String), &'static str> {
+    let api = route.map_or_else(
+        || provider.map_or(preset.api(), |provider| provider.api),
+        |route| route.protocol.api(),
+    );
+    let endpoint = endpoint.trim().to_owned();
+    if endpoint.is_empty() {
+        return Err("provider_endpoint_required");
+    }
+    Ok((api, endpoint))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use sailry_protocol::conversation::{ModelApi, presets::Protocol};
+
+    #[test]
+    fn preserves_custom_endpoints() {
+        for entry in super::super::super::presets::bundled() {
+            for route in &entry.preset.routes {
+                let kind = super::super::super::presets::kind(&entry, route);
+                assert_eq!(
+                    connection(Some(route), None, kind, "https://custom.invalid/v1").unwrap(),
+                    (route.protocol.api(), "https://custom.invalid/v1".into())
+                );
+                assert_eq!(
+                    connection(None, None, kind, "https://custom.invalid/v1").unwrap(),
+                    (kind.api(), "https://custom.invalid/v1".into())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn saved_api_survives_missing_declaration() {
+        let provider: Provider = serde_json::from_value(serde_json::json!({
+            "id":sailry_protocol::ProviderId::new(),"revision":3,"name":"Saved provider",
+            "api":"chat_completions","authentication":"api_key","endpoint":"https://saved.invalid/v1",
+            "enabled":true,"models":[],"default_model":"","credential":null
+        })).unwrap();
+        assert_eq!(
+            connection(None, Some(&provider), Preset::OpenAi, &provider.endpoint).unwrap(),
+            (ModelApi::ChatCompletions, provider.endpoint.clone())
+        );
+        let mut route = super::super::super::presets::bundled()
+            .remove(0)
+            .preset
+            .routes
+            .remove(0);
+        route.protocol = Protocol::Anthropic;
+        assert_eq!(
+            connection(
+                Some(&route),
+                Some(&provider),
+                Preset::OpenAi,
+                "https://custom.invalid"
+            )
+            .unwrap()
+            .0,
+            ModelApi::Anthropic
+        );
+    }
+
+    #[test]
+    fn empty_input_does_not_restore_defaults() {
+        let entry = super::super::super::presets::bundled().remove(0);
+        assert_eq!(
+            connection(Some(&entry.preset.routes[0]), None, Preset::OpenAi, " "),
+            Err("provider_endpoint_required")
+        );
     }
 }

@@ -7,7 +7,9 @@ impl Editor {
         entries: Option<&[sailry_protocol::conversation::presets::Entry]>,
         icon: Rems,
     ) -> Vec<(String, SharedString, AnyElement)> {
-        let entries = entries.map(<[_]>::to_vec).unwrap_or_else(presets::bundled);
+        let entries = entries.map_or_else(presets::bundled, |entries| {
+            presets::presentation(entries.to_vec())
+        });
         presets::groups(&entries)
             .into_iter()
             .map(|(key, entries)| {

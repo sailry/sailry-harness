@@ -43,7 +43,7 @@ impl Editor {
         if !self.key_ready && key.trim().is_empty() {
             return Err("provider_key_failed");
         }
-        if self.uses_key() && !self.preset.custom_endpoint() && key.trim().is_empty() {
+        if self.uses_key() && !self.custom_endpoint() && key.trim().is_empty() {
             return Err("provider_key_required");
         }
         Ok(discovery::Source::Draft(discovery::Draft {

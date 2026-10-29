@@ -62,13 +62,10 @@ fn stable_preset_outweighs_endpoint_guessing() {
         &entry,
         &entry.preset.routes[0],
     ));
-    assert_eq!(
-        preset(&provider),
-        Preset::Hosted(super::super::vendors::Vendor::Qwen)
-    );
+    assert_eq!(preset(&provider, Some(&entry)), Preset::CompatibleChat);
     assert_eq!(logo(&provider), entry.preset.logo);
     provider.preset = None;
-    assert_eq!(preset(&provider), Preset::CompatibleChat);
+    assert_eq!(preset(&provider, None), Preset::CompatibleChat);
 }
 
 #[test]

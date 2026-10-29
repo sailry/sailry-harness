@@ -35,14 +35,7 @@ pub(super) fn for_reference(
     if let Some(entry) = entry {
         return Selection::Group(presets::brand(entry));
     }
-    let bundled = presets::bundled();
     if let Some(reference) = reference {
-        if let Some(entry) = bundled
-            .iter()
-            .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
-        {
-            return Selection::Group(presets::brand(entry));
-        }
         let id = match &reference.source {
             Source::Builtin => reference.id.clone(),
             Source::Partner => format!("partner:{}", reference.id),
@@ -115,7 +108,7 @@ impl Workspace {
         let entries = self
             .provider_link
             .as_ref()
-            .filter(|live| !live.directory.entries.is_empty())
+            .filter(|live| live.directory.loaded)
             .map_or(bundled.as_slice(), |live| live.directory.entries.as_slice());
         let known = self
             .providers
