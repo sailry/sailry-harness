@@ -161,12 +161,21 @@ fn size(bytes: u64) -> String {
 }
 
 impl Target {
-    fn entry(&self, key: &ModelKey, cx: &App) -> Option<ManagedModel> {
-        let entries = match self {
+    pub(super) fn entries(&self, cx: &App) -> Vec<ManagedModel> {
+        match self {
             Self::Node(panel, kind) => panel.read(cx).model_entries(*kind, cx),
             Self::Speech(panel) => panel.read(cx).model_entries(cx),
-        };
-        entries.into_iter().find(|model| &model.key == key)
+        }
+    }
+    fn entry(&self, key: &ModelKey, cx: &App) -> Option<ManagedModel> {
+        self.entries(cx).into_iter().find(|model| &model.key == key)
+    }
+    /// Catalog results only identify Node models by source; speech rows keep their own entries.
+    pub(super) fn source_entry(&self, source: &Source, cx: &App) -> Option<ManagedModel> {
+        match self {
+            Self::Node(panel, kind) => panel.read(cx).source_entry(source, *kind, cx),
+            Self::Speech(_) => None,
+        }
     }
     fn definition(&self, key: &ModelKey, cx: &App) -> Option<Definition> {
         match (self, key) {

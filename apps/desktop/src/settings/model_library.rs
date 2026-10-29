@@ -1,4 +1,4 @@
-//! Public model catalog composition shared by the two model-library entry points.
+//! Public model catalog composition shared by the dialog and inline model-library entry points.
 mod details;
 mod managed;
 mod requests;
@@ -240,6 +240,7 @@ pub(super) struct Library {
     loading: bool,
     generation: u64,
     closed: bool,
+    inline: bool,
     read: Option<requests::Read>,
 }
 
@@ -249,7 +250,68 @@ pub(super) fn open(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Library> {
-    let library = cx.new(|cx| {
+    let library = cx.new(|cx| Library::new(target, binding, false, window, cx));
+    let result = library.clone();
+    window.open_dialog(cx, move |dialog, window, cx| {
+        let close = library.clone();
+        dialog
+            .form_title(
+                tr(match library.read(cx).target.kind() {
+                    Kind::Embedding => "model_library_embedding",
+                    Kind::Speech => "model_library_speech",
+                    Kind::Ocr => "model_library_ocr",
+                    Kind::Decision => "model_library_decision",
+                }),
+                cx,
+            )
+            .w((window.viewport_size().width - px(48.)).min(px(680.)))
+            .overlay_closable(false)
+            .on_ok(|_, _, _| false)
+            .on_close(move |_, _, cx| {
+                close.update(cx, |library, _| {
+                    library.closed = true;
+                    library.cancel();
+                });
+            })
+            .child(library.clone())
+    });
+    start(&result, window, cx);
+    result
+}
+
+/// A catalog embedded in its owner's page instead of a dialog.
+pub(super) fn inline(
+    target: Target,
+    binding: Binding,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Library> {
+    let library = cx.new(|cx| Library::new(target, binding, true, window, cx));
+    start(&library, window, cx);
+    library
+}
+
+fn start(library: &Entity<Library>, window: &mut Window, cx: &mut App) {
+    library.update(cx, |_, cx| {
+        // The target's listener still owns its update while the catalog opens.
+        cx.defer_in(window, |library, window, cx| {
+            if library.read.is_none() {
+                library.loading = false;
+                library.search(false, window, cx);
+                cx.notify();
+            }
+        });
+    });
+}
+
+impl Library {
+    fn new(
+        target: Target,
+        binding: Binding,
+        inline: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let query = cx.new(|cx| InputState::new(window, cx).placeholder(tr("model_library_query")));
         let hub = cx.new(|cx| {
             SelectState::new(
@@ -339,7 +401,7 @@ pub(super) fn open(
                 .observe(panel, |library: &mut Library, _, cx| library.changed(cx))
                 .detach(),
         }
-        Library {
+        Self {
             target,
             binding,
             query,
@@ -358,44 +420,10 @@ pub(super) fn open(
             loading: true,
             generation: 0,
             closed: false,
+            inline,
             read: None,
         }
-    });
-    let result = library.clone();
-    window.open_dialog(cx, move |dialog, window, cx| {
-        let close = library.clone();
-        dialog
-            .form_title(
-                tr(match library.read(cx).target.kind() {
-                    Kind::Embedding => "model_library_embedding",
-                    Kind::Speech => "model_library_speech",
-                    Kind::Ocr => "model_library_ocr",
-                    Kind::Decision => "model_library_decision",
-                }),
-                cx,
-            )
-            .w((window.viewport_size().width - px(48.)).min(px(680.)))
-            .overlay_closable(false)
-            .on_ok(|_, _, _| false)
-            .on_close(move |_, _, cx| {
-                close.update(cx, |library, _| {
-                    library.closed = true;
-                    library.cancel();
-                });
-            })
-            .child(library.clone())
-    });
-    result.update(cx, |_, cx| {
-        // The target's button listener still owns its update while this dialog opens.
-        cx.defer_in(window, |library, window, cx| {
-            if library.read.is_none() {
-                library.loading = false;
-                library.search(false, window, cx);
-                cx.notify();
-            }
-        });
-    });
-    result
+    }
 }
 
 impl Library {

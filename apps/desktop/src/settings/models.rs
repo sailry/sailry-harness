@@ -30,6 +30,9 @@ use sailry_protocol::{
 };
 use std::collections::BTreeMap;
 
+/// Section tab that lists installable models.
+const AVAILABLE: usize = 1;
+
 #[derive(Default)]
 pub(super) struct State {
     panels: BTreeMap<NodeId, Entity<Panel>>,
@@ -45,6 +48,7 @@ pub(super) struct Panel {
     models: Vec<Model>,
     availability: BTreeMap<Kind, Availability>,
     tabs: BTreeMap<Kind, usize>,
+    catalogs: BTreeMap<Kind, Entity<model_library::Library>>,
     pending: bool,
     loading: bool,
     refresh: bool,
@@ -162,6 +166,7 @@ impl Panel {
             models: Vec::new(),
             availability: BTreeMap::new(),
             tabs: BTreeMap::new(),
+            catalogs: BTreeMap::new(),
             pending: false,
             loading: false,
             refresh: false,
@@ -271,30 +276,48 @@ impl Panel {
             .map(|model| model.definition.clone())
     }
     pub(in crate::settings) fn model_entries(&self, kind: Kind, cx: &App) -> Vec<ManagedModel> {
-        let node = self.binding.client.target();
         self.models
             .iter()
             .filter(|model| model.definition.format.kind() == kind)
-            .map(|model| ManagedModel {
-                key: ModelKey::Node(kind, model.id.clone()),
-                name: model.definition.name.clone().into(),
-                detail: model.definition.source.repository.clone(),
-                status: status(
-                    &model.state,
-                    (model.state == Status::Downloading)
-                        .then(|| crate::installations::model_progress(node, &model.id, cx))
-                        .flatten(),
-                ),
-                selected: self
-                    .settings
-                    .as_ref()
-                    .and_then(|settings| settings.selected(kind))
-                    == Some(model.id.as_str()),
-                selectable: false,
-                removable: model.state == Status::Installed,
-                cancelling: !self.active,
-            })
+            .map(|model| self.entry(model, kind, cx))
             .collect()
+    }
+    /// The registered model behind a catalog result, preferring its most advanced state.
+    pub(in crate::settings) fn source_entry(
+        &self,
+        source: &Source,
+        kind: Kind,
+        cx: &App,
+    ) -> Option<ManagedModel> {
+        self.models
+            .iter()
+            .filter(|model| {
+                model.definition.source == *source && model.definition.format.kind() == kind
+            })
+            .max_by_key(|model| rank(&model.state))
+            .map(|model| self.entry(model, kind, cx))
+    }
+    fn entry(&self, model: &Model, kind: Kind, cx: &App) -> ManagedModel {
+        let node = self.binding.client.target();
+        ManagedModel {
+            key: ModelKey::Node(kind, model.id.clone()),
+            name: model.definition.name.clone().into(),
+            detail: model.definition.source.repository.clone(),
+            status: status(
+                &model.state,
+                (model.state == Status::Downloading)
+                    .then(|| crate::installations::model_progress(node, &model.id, cx))
+                    .flatten(),
+            ),
+            selected: self
+                .settings
+                .as_ref()
+                .and_then(|settings| settings.selected(kind))
+                == Some(model.id.as_str()),
+            selectable: false,
+            removable: model.state == Status::Installed,
+            cancelling: !self.active,
+        }
     }
     pub(in crate::settings) fn install(
         &mut self,
@@ -320,13 +343,19 @@ impl Panel {
     ) {
         self.submit(Command::DeleteLocalModel { id }, window, cx);
     }
-    fn library(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) {
-        model_library::open(
-            model_library::Target::Node(cx.entity(), kind),
-            self.binding.clone(),
-            window,
-            cx,
-        );
+    /// Switches a section's tab, loading its catalog the first time it becomes visible.
+    fn show(&mut self, kind: Kind, tab: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.tabs.insert(kind, tab);
+        if tab == AVAILABLE && !self.catalogs.contains_key(&kind) {
+            let catalog = model_library::inline(
+                model_library::Target::Node(cx.entity(), kind),
+                self.binding.clone(),
+                window,
+                cx,
+            );
+            self.catalogs.insert(kind, catalog);
+        }
+        cx.notify();
     }
     fn deactivate(&mut self, cx: &mut Context<Self>) {
         self.active = false;
@@ -383,12 +412,15 @@ impl Workspace {
 
 fn availability<'a>(models: impl Iterator<Item = &'a Model>) -> ModelStatus {
     models
-        .max_by_key(|model| match model.state {
-            Status::Installed => 2,
-            Status::Downloading => 1,
-            Status::Missing => 0,
-        })
+        .max_by_key(|model| rank(&model.state))
         .map_or(ModelStatus::Missing, |model| status(&model.state, None))
+}
+fn rank(state: &Status) -> u8 {
+    match state {
+        Status::Installed => 2,
+        Status::Downloading => 1,
+        Status::Missing => 0,
+    }
 }
 /// Catalog state with transfer progress from the Node's installation observation.
 fn status(value: &Status, progress: Option<Progress>) -> ModelStatus {

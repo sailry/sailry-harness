@@ -4,12 +4,13 @@ use crate::{
     tr,
 };
 use gpui_kit::component::{
-    button::{Button, ButtonVariants},
+    button::Button,
     select::Select,
     switch::Switch,
     tab::{Tab, TabBar},
     tag::Tag,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 
 impl Render for Panel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -92,68 +93,70 @@ impl Panel {
                     .child(tr("local_models_unavailable")),
             ));
         }
+        let entries = self.model_entries(kind, cx);
+        let installed = entries
+            .iter()
+            .filter(|model| matches!(model.status, ModelStatus::Installed))
+            .count();
+        let catalog = self
+            .catalogs
+            .get(&kind)
+            .filter(|_| tab == AVAILABLE)
+            .cloned();
         let tabs = TabBar::new(SharedString::from(format!("local-model-{slug}-tabs")))
             .segmented()
             .menu(false)
             .selected_index(tab)
-            .child(Tab::new().label(tr("knowledge_installed")))
-            .child(Tab::new().label(tr("knowledge_missing")))
-            .on_click(cx.listener(move |panel, tab, _, cx| {
-                panel.tabs.insert(kind, *tab);
-                cx.notify();
-            }));
-        let entries = self
-            .model_entries(kind, cx)
-            .into_iter()
-            .filter(|model| (tab == 0) == matches!(model.status, ModelStatus::Installed))
-            .collect();
-        let rows = Group::new("local_models")
-            .heading(false)
-            .empty(
-                IconName::Cpu,
-                if tab == 0 {
-                    "local_models_empty"
-                } else {
-                    "local_models_available_empty"
-                },
+            .child(
+                Tab::new().label(tr("knowledge_installed")).suffix(
+                    div()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(installed.to_string()),
+                ),
             )
-            .children(model_library::model_rows(
-                model_library::Target::Node(cx.entity(), kind),
-                entries,
-                locked,
-                false,
-                cx,
-            ));
+            .child(Tab::new().label(tr("local_models_available")))
+            .on_click(
+                cx.listener(move |panel, tab, window, cx| panel.show(kind, *tab, window, cx)),
+            );
+        let header = h_flex()
+            .w_full()
+            .items_center()
+            .flex_wrap()
+            .gap_3()
+            .child(tabs)
+            .when_some(catalog.as_ref(), |header, catalog| {
+                header.child(catalog.read(cx).controls(locked))
+            });
+        let body = match catalog {
+            Some(catalog) => catalog.into_any_element(),
+            None => Group::new("local_models")
+                .heading(false)
+                .empty(IconName::Cpu, "local_models_empty")
+                .empty_action(
+                    Button::new(SharedString::from(format!("local-model-{slug}-browse")))
+                        .outline()
+                        .small()
+                        .label(tr("local_models_browse"))
+                        .on_click(cx.listener(move |panel, _, window, cx| {
+                            panel.show(kind, AVAILABLE, window, cx)
+                        })),
+                )
+                .children(model_library::model_rows(
+                    model_library::Target::Node(cx.entity(), kind),
+                    entries
+                        .into_iter()
+                        .filter(|model| matches!(model.status, ModelStatus::Installed))
+                        .collect(),
+                    locked,
+                    false,
+                    cx,
+                ))
+                .into_any_element(),
+        };
         v_flex()
             .id(SharedString::from(format!("local-model-section-{slug}")))
             .gap_6()
             .child(controls)
-            .child(
-                v_flex()
-                    .gap_4()
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .w_full()
-                            .justify_between()
-                            .gap_3()
-                            .child(tabs)
-                            .child(
-                                Button::new(SharedString::from(format!(
-                                    "local-model-{slug}-library"
-                                )))
-                                .ghost()
-                                .small()
-                                .icon(gpui_kit::assets::IconName::Download)
-                                .tooltip(tr("model_library_manage"))
-                                .accessibility_label(tr("model_library_manage"))
-                                .disabled(locked)
-                                .on_click(cx.listener(
-                                    move |panel, _, window, cx| panel.library(kind, window, cx),
-                                )),
-                            ),
-                    )
-                    .child(rows),
-            )
+            .child(v_flex().gap_4().child(header).child(body))
     }
 }

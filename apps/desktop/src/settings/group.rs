@@ -20,6 +20,7 @@ pub struct Group {
     heading: bool,
     loading: bool,
     empty: (IconName, &'static str),
+    empty_action: Option<Button>,
 }
 
 impl Group {
@@ -33,11 +34,18 @@ impl Group {
             heading: true,
             loading: false,
             empty: (IconName::Inbox, "settings_empty"),
+            empty_action: None,
         }
     }
 
     pub fn empty(mut self, icon: IconName, label: &'static str) -> Self {
         self.empty = (icon, label);
+        self
+    }
+
+    /// A follow-up action shown under the empty state.
+    pub fn empty_action(mut self, button: Button) -> Self {
+        self.empty_action = Some(button);
         self
     }
 
@@ -95,7 +103,10 @@ impl RenderOnce for Group {
             .gap_0()
             .debug_selector(move || format!("settings-group-{key}"));
         if self.rows.is_empty() {
-            rows = rows.child(crate::empty_state::list(self.empty.0, self.empty.1, cx));
+            rows = rows.child(
+                crate::empty_state::list(self.empty.0, self.empty.1, cx)
+                    .when_some(self.empty_action, |empty, action| empty.child(action)),
+            );
         }
         for (index, row) in self.rows.into_iter().enumerate() {
             if index > 0 {
