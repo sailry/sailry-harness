@@ -689,6 +689,9 @@ without browser authentication. Search settings
 and credentials belong to that Node. A turn uses the configured Node search tool;
 transient failures can try each configured driver once and respect rate-limit
 cooldowns.
+Successful search pages stay in Node memory for five minutes, with at most 50
+entries keyed by driver selection and normalized request. Settings changes clear
+the cache; driver availability tests always make a fresh request.
 Search keys and manually supplied GitHub credentials are stored as plaintext in
 the Node configuration database. Connecting an existing `gh` login stores its
 account identity, then reads the current token transiently for MCP requests;

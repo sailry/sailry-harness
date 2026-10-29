@@ -12,6 +12,7 @@ use std::{
 
 mod bocha;
 mod brave;
+mod cache;
 mod cooldown;
 mod deepseek;
 mod exa;
@@ -50,9 +51,15 @@ pub(crate) struct Plan {
     pub credentials: BTreeMap<Driver, Auth>,
 }
 
+#[derive(Default)]
+pub(crate) struct Options {
+    pub fresh: bool,
+}
+
 struct State {
     settings: search::Settings,
     cooldowns: BTreeMap<Driver, SystemTime>,
+    cache: cache::Cache,
 }
 
 pub(crate) struct Searcher {
@@ -68,6 +75,7 @@ impl Default for Searcher {
             state: Mutex::new(State {
                 settings: Default::default(),
                 cooldowns: Default::default(),
+                cache: Default::default(),
             }),
             active: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -81,6 +89,7 @@ impl Searcher {
         let mut state = self.state.lock().expect("search state lock is healthy");
         if state.settings != settings {
             state.cooldowns.clear();
+            state.cache.clear();
             state.settings = settings;
         }
     }
@@ -127,7 +136,21 @@ impl Searcher {
         input: &search::Request,
         stop: &CancellationToken,
     ) -> Result<search::Page, Fault> {
+        self.search_with(caller, id, plan, input, stop, Options::default())
+            .await
+    }
+
+    pub async fn search_with(
+        self: &Arc<Self>,
+        caller: NodeId,
+        id: RequestId,
+        plan: Plan,
+        input: &search::Request,
+        stop: &CancellationToken,
+        options: Options,
+    ) -> Result<search::Page, Fault> {
         input.validate()?;
+        let input = input.normalized();
         let request = {
             let mut active = self.active.lock().expect("search requests lock is healthy");
             if active.contains_key(&(caller, id)) {
@@ -144,7 +167,41 @@ impl Searcher {
                 stop,
             }
         };
-        self.execute(plan, &input.normalized(), &request.stop).await
+        if request.stop.is_cancelled() {
+            return Err(Failure::cancelled().fault);
+        }
+        let key = cache::Key::new(plan.settings.driver, input.clone());
+        if !options.fresh {
+            let cached = {
+                let mut state = self.state.lock().expect("search state lock is healthy");
+                if state.settings == plan.settings {
+                    state.cache.get(&key, std::time::Instant::now())
+                } else {
+                    None
+                }
+            };
+            if let Some(page) = cached {
+                return if request.stop.is_cancelled() {
+                    Err(Failure::cancelled().fault)
+                } else {
+                    Ok(page)
+                };
+            }
+        }
+        let settings = plan.settings.clone();
+        let page = self.execute(plan, &input, &request.stop).await?;
+        if request.stop.is_cancelled() {
+            return Err(Failure::cancelled().fault);
+        }
+        if !options.fresh {
+            let mut state = self.state.lock().expect("search state lock is healthy");
+            if state.settings == settings {
+                state
+                    .cache
+                    .insert(key, page.clone(), std::time::Instant::now());
+            }
+        }
+        Ok(page)
     }
 
     async fn execute(

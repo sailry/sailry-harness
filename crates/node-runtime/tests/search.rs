@@ -21,6 +21,8 @@ mod server;
 mod tinyfish;
 use server::{Reply, Server};
 
+mod caching;
+
 async fn controller(node: &Node, path: &std::path::Path) -> (Link, Arc<dyn Transport>) {
     let controller = Link::controller(path.join("controller"), NetworkScope::default())
         .await
@@ -420,10 +422,10 @@ async fn shares_fallback_cooldown_and_cancellation() {
         )
         .await;
         http.respond("/mcp", vec![Reply::Status(429, Some("30".into()))]);
-        for _ in 0..2 {
+        for index in 0..2 {
             let Output::SearchPage(page) = client
                 .execute(client.prepare(Command::SearchWeb(search::Request {
-                    query: "source".into(),
+                    query: format!("source {index}"),
                     limit: 5,
                     ..Default::default()
                 })))

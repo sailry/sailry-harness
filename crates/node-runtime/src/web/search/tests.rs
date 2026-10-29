@@ -2,6 +2,7 @@ use super::*;
 #[path = "../../../tests/support/search.rs"]
 mod server;
 use server::{Reply, Server};
+mod caching;
 mod parameters;
 mod selection;
 mod tinyfish;
@@ -60,6 +61,19 @@ async fn search(owner: &Arc<Searcher>, plan: Plan) -> Result<search::Page, Fault
             plan,
             &input(),
             &CancellationToken::new(),
+        )
+        .await
+}
+
+async fn fresh(owner: &Arc<Searcher>, plan: Plan) -> Result<search::Page, Fault> {
+    owner
+        .search_with(
+            NodeId([1; 32]),
+            RequestId::new(),
+            plan,
+            &input(),
+            &CancellationToken::new(),
+            Options { fresh: true },
         )
         .await
 }
@@ -291,7 +305,7 @@ async fn cools_keyless_mcp_and_preserves_auth_errors() {
     owner.fixture(Driver::Tavily, &server.url(Driver::Tavily));
     server.respond("/mcp", vec![Reply::Status(429, Some("37".into()))]);
     assert_eq!(
-        search(&owner, plan.clone()).await.unwrap().driver,
+        fresh(&owner, plan.clone()).await.unwrap().driver,
         Driver::Tavily
     );
     assert!(owner.cooldown(Driver::Exa, 0).is_some());
@@ -300,7 +314,7 @@ async fn cools_keyless_mcp_and_preserves_auth_errors() {
     owner.configure(plan.settings.clone());
     server.respond("/mcp", vec![Reply::Status(503, None)]);
     assert_eq!(
-        search(&owner, plan.clone()).await.unwrap().driver,
+        fresh(&owner, plan.clone()).await.unwrap().driver,
         Driver::Tavily
     );
     assert!(
@@ -312,7 +326,7 @@ async fn cools_keyless_mcp_and_preserves_auth_errors() {
     for (index, status) in [401, 403].into_iter().enumerate() {
         server.respond("/mcp", vec![Reply::Status(status, None)]);
         assert_eq!(
-            search(&owner, plan.clone()).await.unwrap_err().code,
+            fresh(&owner, plan.clone()).await.unwrap_err().code,
             ErrorCode::PermissionDenied
         );
         assert_eq!(server.count("/mcp"), index + 3);
@@ -338,7 +352,7 @@ async fn switches_once_then_skips_cooled_driver() {
     server.respond("/exa", vec![Reply::Status(429, Some("37".into()))]);
     for _ in 0..2 {
         assert_eq!(
-            search(&owner, plan.clone()).await.unwrap().driver,
+            fresh(&owner, plan.clone()).await.unwrap().driver,
             Driver::Tavily
         );
     }
@@ -347,7 +361,7 @@ async fn switches_once_then_skips_cooled_driver() {
     let mut updated = plan.clone();
     updated.settings.revision = 1;
     owner.configure(updated.settings.clone());
-    assert_eq!(search(&owner, updated).await.unwrap().driver, Driver::Exa);
+    assert_eq!(fresh(&owner, updated).await.unwrap().driver, Driver::Exa);
     assert_eq!(server.count("/exa"), 2);
 }
 
@@ -411,15 +425,15 @@ async fn restricts_fallback_to_transient_failures() {
         ],
     );
     assert_eq!(
-        search(&owner, plan.clone()).await.unwrap().driver,
+        fresh(&owner, plan.clone()).await.unwrap().driver,
         Driver::Tavily
     );
     assert_eq!(
-        search(&owner, plan.clone()).await.unwrap_err().code,
+        fresh(&owner, plan.clone()).await.unwrap_err().code,
         ErrorCode::PermissionDenied
     );
     assert_eq!(
-        search(&owner, plan).await.unwrap_err().code,
+        fresh(&owner, plan).await.unwrap_err().code,
         ErrorCode::InvalidRequest
     );
     assert_eq!(server.count("/tavily"), 1);

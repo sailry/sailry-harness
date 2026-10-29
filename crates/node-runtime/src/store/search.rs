@@ -4,7 +4,7 @@ use super::{
     database::{encode, storage_error},
     unavailable,
 };
-use crate::web::search::{Auth, Plan};
+use crate::web::search::{Auth, Options, Plan};
 use sailry_link::Admission;
 use sailry_protocol::{
     Command, ErrorCode, Event, Fault, NodeId, Output, Request, Secret,
@@ -286,7 +286,14 @@ impl Ingress {
                 };
                 Output::SearchPage(
                     self.search
-                        .search(caller, request.id, plan, &input, &self.closed)
+                        .search_with(
+                            caller,
+                            request.id,
+                            plan,
+                            &input,
+                            &self.closed,
+                            Options { fresh: true },
+                        )
                         .await?,
                 )
             }
