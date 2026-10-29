@@ -252,8 +252,9 @@ fn sync_editor(cx: &mut App) {
     style.editor_active_line = Some(active);
 }
 
-/// Floating surfaces (popovers, menus, overlays, dialogs) share one near-opaque fill so they
-/// stay readable while letting content beneath show faintly, independent of window material.
+/// Floating surfaces (popovers, menus, overlays) share one near-opaque fill so they stay
+/// readable while letting content beneath show faintly, independent of window material.
+/// Dialogs draw the same color fully opaque.
 const FLOATING_ALPHA: f32 = 0.95;
 
 fn sync_window(cx: &mut App) {

@@ -6,6 +6,7 @@ settings_connectors_description: "Управление подключениям�
 connector_search: "Поиск коннекторов"
 connector_empty: "Нет подключений"
 connector_not_connected: "Не подключено"
+connector_choose_account: "Выберите аккаунт для привязки"
 connector_expired: "Истекло"
 connector_confirmation: "Нужно подтверждение"
 connector_failed: "Ошибка подключения"

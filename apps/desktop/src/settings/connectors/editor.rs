@@ -1,4 +1,5 @@
 //! The form owns drafts; the Node owns authentication and connection state.
+mod account;
 mod choices;
 mod login;
 use super::*;
@@ -538,23 +539,16 @@ impl Editor {
                 Auth::LocalCli { .. } => v_flex()
                     .gap_3()
                     .when(!self.inspecting, |element| {
-                        element.child(
-                            h_flex()
-                                .gap_3()
-                                .child(Icon::new(if self.cli.is_some() {
-                                    IconName::CircleCheck
-                                } else {
-                                    IconName::CircleAlert
-                                }))
-                                .child(
-                                    self.cli
-                                        .as_ref()
-                                        .map(|identity| identity.name.clone())
-                                        .unwrap_or_else(|| {
-                                            tr("connector_not_connected").to_string()
-                                        }),
-                                ),
-                        )
+                        element
+                            .when(self.cli.is_some(), |element| {
+                                element.child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(tr("connector_choose_account")),
+                                )
+                            })
+                            .child(account::list(self.cli.as_ref(), cx))
                     })
                     .into_any_element(),
                 Auth::McpOauth { client: None, .. }
@@ -576,6 +570,8 @@ impl Editor {
             .connection
             .as_ref()
             .is_some_and(|account| account.state == connector::State::NeedsConfirmation);
+        // The local CLI account list already names the bound identity.
+        let local = !self.configuring() && auth.kind() == Kind::LocalCli;
         let registration = matches!(
             auth,
             Auth::Application {
@@ -594,7 +590,8 @@ impl Editor {
             .when_some(
                 self.connection
                     .as_ref()
-                    .and_then(|account| account.identity.as_ref()),
+                    .and_then(|account| account.identity.as_ref())
+                    .filter(|_| !local),
                 |body, identity| {
                     body.child(
                         div()

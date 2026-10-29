@@ -12,8 +12,10 @@ pub(crate) trait DialogStyle {
 
 impl DialogStyle for Dialog {
     fn floating_surface(self, cx: &App) -> Self {
-        // Kit's default dialog fill follows the possibly translucent window background.
-        self.bg(cx.theme().popover)
+        // Kit's default dialog fill follows the possibly translucent window background,
+        // and the shared popover token keeps a slight translucency for menus. A dialog
+        // holds forms and long text, so content beneath must not show through it.
+        self.bg(cx.theme().popover.alpha(1.))
             .text_color(cx.theme().popover_foreground)
             .when(!cx.theme().is_dark(), |dialog| dialog.border_0())
     }
