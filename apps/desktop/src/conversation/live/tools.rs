@@ -130,8 +130,7 @@ impl View {
             .unwrap_or(false);
         let detail = summary.detail;
         if !expandable(calls, page) {
-            return self.activity(
-                calls[0],
+            return activity(
                 format!("live-{turn}-{key}"),
                 Summary {
                     icon: summary.icon,
@@ -203,7 +202,7 @@ impl View {
                     .preparing_summary(summary(call, page), &[call], page)
                     .continuing(continuing);
                 if !call.details(page) {
-                    return self.activity(call, format!("live-{turn}-{key}"), summary, cx);
+                    return activity(format!("live-{turn}-{key}"), summary, cx);
                 }
                 let has_result = call.details(page);
                 let references = call.detail_reference(page).into_iter().collect::<Vec<_>>();
@@ -290,11 +289,6 @@ impl View {
         let approval = call.approval.as_ref().map(|approval| approval.state);
         let denied = approval == Some(ApprovalState::Denied);
         let result = call.result(page).filter(|_| !denied);
-        let arguments = call.arguments(page);
-        let path = arguments
-            .and_then(|arguments| arguments["path"].as_str())
-            .filter(|path| !path.is_empty())
-            .map(|path| SharedString::from(path.to_owned()));
         let card = result.map(|result| {
             let selector = format!("live-tool-result-{key}");
             let images = call.images(page);
@@ -341,7 +335,7 @@ impl View {
                     .into_any_element();
             }
             let body = if output::fault(call.failure.as_ref(), Some(result)).is_some() {
-                self.generic(&key, call, path.clone(), result, cx)
+                self.generic(&key, call, result, cx)
             } else if let Some(body) = projection::render(self, &key, call, page, result, cx) {
                 body
             } else if let Some(progress) = &call.progress {
@@ -353,7 +347,7 @@ impl View {
                     cx,
                 )
             } else {
-                self.generic(&key, call, path.clone(), result, cx)
+                self.generic(&key, call, result, cx)
             };
             v_flex()
                 .id(selector.clone())
@@ -403,48 +397,10 @@ impl View {
             .on_click(cx.listener(move |view, _, _, cx| {
                 cx.stop_propagation();
                 if let Some(reference) = reference.clone() {
-                    view.load_detail(reference, details::Action::Copy, cx);
+                    view.copy_detail(reference, cx);
                 }
             }))
             .into_any_element()
-    }
-
-    fn activity(
-        &self,
-        call: &Call,
-        id: String,
-        mut summary: Summary,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        summary.detail.hide_caret = true;
-        if let Some(path) = activity_path(call) {
-            let node = self.binding.client.target();
-            let turn = call.turn;
-            let worktree = self.turn_worktree(turn);
-            let path = path.to_owned();
-            let reference = self
-                .history
-                .snapshot
-                .as_ref()
-                .and_then(|snapshot| call.detail_reference(&snapshot.page));
-            let loaded = call.detail.is_some();
-            return disclosure::trigger(id, summary.icon, summary.label, summary.detail, false, cx)
-                .w_full()
-                .on_click(cx.listener(move |view, _, _, cx| {
-                    if view.binding.client.target() == node
-                        && view.turn_worktree(turn) == worktree
-                        && let Some(worktree) = worktree
-                    {
-                        if !loaded && let Some(reference) = reference.clone() {
-                            view.load_detail(reference, details::Action::Open(worktree), cx);
-                        } else {
-                            cx.emit(Event::FileAt(worktree, path.clone()));
-                        }
-                    }
-                }))
-                .into_any_element();
-        }
-        disclosure::summary(id, summary.icon, summary.label, summary.detail, cx).into_any_element()
     }
 
     fn preparing_summary(&self, mut summary: Summary, calls: &[&Call], page: &Page) -> Summary {
@@ -454,44 +410,10 @@ impl View {
         summary
     }
 
-    fn path_result(
-        &self,
-        key: &str,
-        turn: TurnId,
-        path: Option<SharedString>,
-        content: AnyElement,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let Some(path) = path else { return content };
-        let node = self.binding.client.target();
-        let worktree = self.turn_worktree(turn);
-        gpui_kit::base::Button::new(format!("{key}-open"))
-            .w_full()
-            .min_w_0()
-            .items_start()
-            .justify_start()
-            .line_height(relative(1.5))
-            .accessibility_label(path.clone())
-            .child(content)
-            .on_click(cx.listener(move |view, event, _, cx| {
-                if !stationary(event) {
-                    return;
-                }
-                if view.binding.client.target() == node
-                    && view.turn_worktree(turn) == worktree
-                    && let Some(worktree) = worktree
-                {
-                    cx.emit(Event::FileAt(worktree, path.to_string()));
-                }
-            }))
-            .into_any_element()
-    }
-
     fn generic(
         &self,
         key: &str,
         call: &Call,
-        path: Option<SharedString>,
         result: &serde_json::Value,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -532,13 +454,7 @@ impl View {
                 ))
                 .child(notices)
         };
-        self.path_result(
-            key,
-            call.turn,
-            path,
-            surface::result(key, content.into_any_element(), actions, cx).into_any_element(),
-            cx,
-        )
+        surface::result(key, content.into_any_element(), actions, cx).into_any_element()
     }
 }
 
@@ -619,29 +535,8 @@ fn expandable(calls: &[&Call], page: &Page) -> bool {
     calls.len() > 1 || calls.iter().any(|call| call.details(page))
 }
 
-fn activity_path(call: &Call) -> Option<&str> {
-    let resolved = call.resolved()?;
-    resolved
-        .output
-        .as_ref()
-        .filter(|output| output.paths.len() == 1)
-        .map(|output| output.paths[0].as_str())
-        .or_else(|| {
-            resolved
-                .input
-                .target
-                .as_ref()
-                .map(|target| target.text.as_str())
-        })
-        .filter(|path| !path.is_empty())
-}
-
-fn stationary(event: &ClickEvent) -> bool {
-    if let ClickEvent::Mouse(mouse) = event {
-        let moved = mouse.up.position - mouse.down.position;
-        return moved.x.abs() <= px(3.) && moved.y.abs() <= px(3.);
-    }
-    true
+fn activity(id: String, summary: Summary, cx: &App) -> AnyElement {
+    disclosure::summary(id, summary.icon, summary.label, summary.detail, cx).into_any_element()
 }
 
 fn outcome_tone(call: &Call, result: &serde_json::Value, cx: &App) -> Option<Hsla> {

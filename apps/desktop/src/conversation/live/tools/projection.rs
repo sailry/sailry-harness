@@ -70,48 +70,35 @@ pub(super) fn group(
             call.diagnostics(page).then_some((*call, result))
         })
         .collect();
-    let worktree = view.turn_worktree(first.turn);
-    let node = view.binding.client.target();
-    let turn = first.turn;
     Some(Group {
         count: paths.len().max(declared).max(failures.len()),
         content: v_flex()
             .gap_2()
             .children(paths.into_iter().enumerate().map(|(index, path)| {
-                disclosure::trigger(
-                    format!(
-                        "live-tool-file-{}-{}-{index}",
-                        first.turn,
-                        first.source.key()
-                    ),
-                    IconName::FileText,
-                    path.clone(),
-                    Detail {
-                        secondary: true,
-                        hide_caret: true,
-                        ..Default::default()
-                    },
-                    false,
-                    cx,
-                )
-                .w_full()
-                .text_size(cx.theme().typography_tokens().sm.size)
-                .font_normal()
-                .font_family(cx.theme().mono_font_family.clone())
-                .on_click(cx.listener(move |view, _, _, cx| {
-                    if view.binding.client.target() == node
-                        && view.turn_worktree(turn) == worktree
-                        && let Some(worktree) = worktree
-                    {
-                        cx.emit(Event::FileAt(worktree, path.to_string()));
-                    }
-                }))
+                div()
+                    .w_full()
+                    .font_normal()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .child(disclosure::summary(
+                        format!(
+                            "live-tool-file-{}-{}-{index}",
+                            first.turn,
+                            first.source.key()
+                        ),
+                        IconName::FileText,
+                        path,
+                        Detail {
+                            secondary: true,
+                            hide_caret: true,
+                            ..Default::default()
+                        },
+                        cx,
+                    ))
             }))
             .children(failures.into_iter().map(|(call, result)| {
                 view.generic(
                     &format!("{}-{}", call.turn, call.source.key()),
                     call,
-                    None,
                     result,
                     cx,
                 )
@@ -149,19 +136,16 @@ pub(super) fn render(
             actions.push(view.copy_result(key, call, page, cx));
         }
         if let Some(style) = body.diff {
-            return Some(view.path_result(
-                key,
-                call.turn,
-                path.map(|path| path.to_owned().into()),
+            return Some(
                 diff::file_rows(
                     key,
                     text,
                     path.unwrap_or_default(),
                     style == Format::Added,
                     actions,
-                ),
-                cx,
-            ));
+                )
+                .into_any_element(),
+            );
         }
         let content =
             if text.is_empty() {
@@ -178,13 +162,7 @@ pub(super) fn render(
                     cx,
                 )
             };
-        return Some(view.path_result(
-            key,
-            call.turn,
-            path.map(|path| path.to_owned().into()),
-            surface::result(key, content, actions, cx).into_any_element(),
-            cx,
-        ));
+        return Some(surface::result(key, content, actions, cx).into_any_element());
     }
     if output.preview.is_empty() && output.notices.is_empty() {
         return None;
@@ -218,17 +196,5 @@ pub(super) fn render(
     if !copy.is_empty() {
         actions.push(view.copy_result(key, call, page, cx));
     }
-    let path = call
-        .resolved()
-        .and_then(|resolved| resolved.input.target.as_ref())
-        .map(|path| path.text.as_str())
-        .filter(|path| !path.is_empty())
-        .map(|path| path.to_owned().into());
-    Some(view.path_result(
-        key,
-        call.turn,
-        path,
-        surface::result(key, content.into_any_element(), actions, cx).into_any_element(),
-        cx,
-    ))
+    Some(surface::result(key, content.into_any_element(), actions, cx).into_any_element())
 }

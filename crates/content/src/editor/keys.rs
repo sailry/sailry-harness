@@ -49,7 +49,11 @@ pub(super) fn init(cx: &mut App) {
     cx.set_global(Installed);
     cx.bind_keys([
         KeyBinding::new(
-            "secondary-enter",
+            if cx.platform_info().is_mac() {
+                "cmd-enter"
+            } else {
+                "ctrl-enter"
+            },
             gpui_kit::component::input::Enter {
                 secondary: true,
                 shift: false,
@@ -205,5 +209,38 @@ pub(super) fn init(cx: &mut App) {
             KeyBinding::new("ctrl-e", Code, context),
             KeyBinding::new("ctrl-shift-x", Strike, context),
         ]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use gpui_kit::{Keystroke, TestAppContext, gpui};
+
+    #[gpui::test]
+    fn registers_platform_submit_once(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            init(cx);
+            let count = cx.key_bindings().borrow().bindings().len();
+            let submit = gpui_kit::component::input::Enter {
+                secondary: true,
+                shift: false,
+            };
+            let key = Keystroke::parse_with_os("secondary-enter", cx.platform_info().os)
+                .expect("platform submit key");
+            assert_eq!(
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_action(&submit)
+                    .filter(|binding| {
+                        binding.match_keystrokes(std::slice::from_ref(&key)) == Some(false)
+                    })
+                    .count(),
+                1
+            );
+            init(cx);
+            assert_eq!(cx.key_bindings().borrow().bindings().len(), count);
+        });
     }
 }

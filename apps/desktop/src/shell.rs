@@ -516,7 +516,15 @@ impl Shell {
                 self.layout.panel_open[0] = true;
                 cx.notify();
             } else if self.side_resource.is_some() {
-                self.close_file_panel(window, cx);
+                // Collapse the existing resource so reopening retains its page and drafts.
+                self.layout.panel_open[0] = false;
+                if let Some(crate::resources::SideResource::CardBrowser(browser)) =
+                    &self.side_resource
+                {
+                    browser.update(cx, |browser, cx| browser.hide(cx));
+                }
+                self.focus.focus(window, cx);
+                cx.notify();
             } else {
                 let plugins = self.current_chat().cloned().map(|source| {
                     let panel = cx.new(|cx| crate::plugins::Panel::new(source, cx));

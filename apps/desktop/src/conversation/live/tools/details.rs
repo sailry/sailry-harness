@@ -2,11 +2,6 @@
 use super::*;
 use sailry_protocol::tool::detail::{Detail as ToolDetail, Reference};
 
-pub(super) enum Action {
-    Copy,
-    Open(WorktreeId),
-}
-
 impl View {
     pub(in crate::conversation::live) fn select_details(&self, bounds: Bounds<Pixels>) {
         if !self.details_visible.get() {
@@ -52,11 +47,11 @@ impl View {
         }
     }
 
-    pub(super) fn load_detail(&self, reference: Reference, action: Action, cx: &mut Context<Self>) {
-        self.load_once(reference, action, true, cx);
+    pub(super) fn copy_detail(&self, reference: Reference, cx: &mut Context<Self>) {
+        self.load_once(reference, true, cx);
     }
 
-    fn load_once(&self, reference: Reference, action: Action, retry: bool, cx: &mut Context<Self>) {
+    fn load_once(&self, reference: Reference, retry: bool, cx: &mut Context<Self>) {
         use sailry_client::conversation::details::Read;
         let client = self.binding.client.clone();
         let stop = self.stop.clone();
@@ -97,7 +92,7 @@ impl View {
                                     .detail_reference(page)
                             });
                         if let Some(current) = current {
-                            view.load_once(current, action, false, cx);
+                            view.load_once(current, false, cx);
                             return;
                         }
                         tr("chat_history_changed").to_string()
@@ -105,16 +100,7 @@ impl View {
                     Ok(Read::Superseded) => tr("chat_history_changed").to_string(),
                     Ok(Read::TooLarge(limit)) => limit.message().to_string(),
                     Ok(Read::Ready(detail)) => {
-                        match action {
-                            Action::Copy => {
-                                cx.write_to_clipboard(ClipboardItem::new_string(copy_text(&detail)))
-                            }
-                            Action::Open(worktree) => {
-                                if let Some(path) = full_path(&detail) {
-                                    cx.emit(Event::FileAt(worktree, path.to_owned()));
-                                }
-                            }
-                        }
+                        cx.write_to_clipboard(ClipboardItem::new_string(copy_text(&detail)));
                         return;
                     }
                     Err(message) => message,
@@ -192,32 +178,6 @@ pub(super) fn selection(
     }
     selected.extend(protected.iter().cloned());
     (selected, protected)
-}
-
-fn full_path(detail: &sailry_protocol::tool::detail::Detail) -> Option<&str> {
-    detail
-        .resolved
-        .as_ref()
-        .and_then(|resolved| {
-            resolved
-                .output
-                .as_ref()
-                .filter(|output| output.paths.len() == 1)
-                .map(|output| output.paths[0].as_str())
-                .or_else(|| {
-                    resolved
-                        .input
-                        .target
-                        .as_ref()
-                        .map(|target| target.text.as_str())
-                })
-        })
-        .or_else(|| {
-            detail
-                .arguments
-                .get("path")
-                .and_then(serde_json::Value::as_str)
-        })
 }
 
 fn copy_text(detail: &sailry_protocol::tool::detail::Detail) -> String {
