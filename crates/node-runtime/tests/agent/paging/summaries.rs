@@ -5,7 +5,14 @@ fn assert_order(request: &serde_json::Value) {
     let messages = request["messages"].as_array().unwrap();
     let kickoff = messages
         .iter()
-        .position(|message| message["role"] == "user" && message["content"] == "History fixture")
+        .enumerate()
+        .filter(|(_, message)| message["role"] == "user")
+        .find_map(|(index, message)| {
+            message["content"]
+                .as_str()?
+                .find("History fixture")
+                .map(|offset| (index, offset))
+        })
         .unwrap();
     let answer = messages
         .iter()
@@ -16,17 +23,20 @@ fn assert_order(request: &serde_json::Value) {
     let summaries = messages
         .iter()
         .enumerate()
-        .filter(|(_, message)| {
-            message["role"] == "user"
-                && message["content"] == "The tool request and response completed."
+        .filter(|(_, message)| message["role"] == "user")
+        .flat_map(|(index, message)| {
+            message["content"]
+                .as_str()
+                .unwrap_or("")
+                .match_indices("The tool request and response completed.")
+                .map(move |(offset, _)| (index, offset))
         })
-        .map(|(index, _)| index)
         .collect::<Vec<_>>();
     assert_eq!(summaries.len(), 10);
     assert!(
         summaries
             .into_iter()
-            .all(|index| kickoff < index && index < answer)
+            .all(|position| kickoff < position && position < (answer, 0))
     );
     assert_eq!(messages.last().unwrap()["role"], "user");
     assert_eq!(messages.last().unwrap()["content"], "History fixture");
