@@ -52,7 +52,7 @@ fn row(line: &sailry_protocol::FileLine) -> (String, bool) {
         (line.text.as_str(), " [no trailing newline]\n")
     };
     let (end, _) = crate::process::output::edges(text.as_bytes(), LINE_LIMIT, 0);
-    let mut row = format!("{:>5}\t{}", line.number, &text[..end]);
+    let mut row = format!("{}\t{}", line.number, &text[..end]);
     if end < text.len() {
         row.push_str(&format!(
             " [... {} content bytes omitted from this line ...]",

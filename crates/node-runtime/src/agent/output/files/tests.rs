@@ -59,9 +59,9 @@ fn numbers_text_and_preserves_line_endings() {
         file_revision,
         blake3::hash(raw.as_bytes()).to_hex().as_str()
     );
-    assert!(projected.contains("    8\t\n    9\t  trailing spaces  \r\n"));
-    assert!(projected.contains("   10\t\t中文🙂\r\n"));
-    assert!(projected.contains("   11\tlast line [no trailing newline]\n"));
+    assert!(projected.contains("\n8\t\n9\t  trailing spaces  \r\n"));
+    assert!(projected.contains("\n10\t\t中文🙂\r\n"));
+    assert!(projected.contains("\n11\tlast line [no trailing newline]\n"));
     assert!(result.structured_content.is_none());
     assert_eq!(metadata(projected)["output"], source(&value));
     assert_ne!(metadata(projected)["output"]["revision"], file_revision);
@@ -137,9 +137,9 @@ fn separates_long_lines_from_file_continuation() {
     let prefix = "中".repeat(LINE_LIMIT / 3);
     let omitted = 9000 - prefix.len();
     assert!(projected.contains(&format!(
-        "    1\t{prefix} [... {omitted} content bytes omitted from this line ...]\r\n"
+        "\n1\t{prefix} [... {omitted} content bytes omitted from this line ...]\r\n"
     )));
-    assert!(projected.contains("    2\t\n    3\tlast line [no trailing newline]\n"));
+    assert!(projected.contains("\n2\t\n3\tlast line [no trailing newline]\n"));
     assert!(projected.contains("For omitted line text, use read_tool_output"));
     assert!(!projected.contains("Next file page"));
     assert!(metadata(&projected)["next_offset"].is_null());

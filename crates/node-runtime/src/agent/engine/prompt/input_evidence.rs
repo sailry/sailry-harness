@@ -286,7 +286,7 @@ fn unbounded(value: &Value, id: &str) -> String {
         )
     };
     for line in &page.lines {
-        text.push_str(&format!("{:>5}\t{}", line.number, line.text));
+        text.push_str(&format!("{}\t{}", line.number, line.text));
         if !line.text.ends_with('\n') {
             text.push_str(" [no trailing newline]\n");
         }

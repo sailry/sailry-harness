@@ -56,9 +56,9 @@ async fn pages_prior_results_without_command_tools() {
                         serde_json::from_value(metadata["output"].clone()).ok()?;
                     assert_eq!(output.call, message["tool_call_id"].as_str().unwrap());
                     assert!(text.contains("Lines 1–5;"));
-                    assert!(text.contains("    2\t  trailing spaces  \r\n"));
-                    assert!(text.contains("    4\t\t中文🙂\r\n"));
-                    assert!(text.contains("    5\tLast marker [no trailing newline]"));
+                    assert!(text.contains("\n2\t  trailing spaces  \r\n"));
+                    assert!(text.contains("\n4\t\t中文🙂\r\n"));
+                    assert!(text.contains("\n5\tLast marker [no trailing newline]"));
                     assert_ne!(text, original);
                     Some(output)
                 })
