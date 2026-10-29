@@ -261,12 +261,16 @@ fn preserves_vendor_routes_and_products() {
             .contains(&id)
         );
     }
-    for (id, default) in [
-        ("qwen", "qwen3.6-plus"),
-        ("moonshot", "kimi-for-coding"),
-        ("minimax", "MiniMax-M3.1-Flash-Preview"),
-        ("zhipu", "glm-5.2"),
-        ("doubao", "ark-code-latest"),
+    for (id, default, label) in [
+        ("qwen", "qwen3.6-plus", "Qwen Coding Plan"),
+        ("moonshot", "kimi-for-coding", "Kimi Code"),
+        (
+            "minimax",
+            "MiniMax-M3.1-Flash-Preview",
+            "MiniMax Coding Plan",
+        ),
+        ("zhipu", "glm-5.2", "GLM Coding Plan"),
+        ("doubao", "ark-code-latest", "Ark Coding Plan"),
     ] {
         let preset = catalog
             .builtin
@@ -281,9 +285,51 @@ fn preserves_vendor_routes_and_products() {
             })
             .unwrap();
         assert_eq!(product.default_model.as_deref(), Some(default));
+        let display = product.display.as_ref().unwrap();
+        assert_eq!(display.label("en"), label);
+        assert_eq!(display.label("zh-CN"), label);
         assert_eq!(product.discover, id == "minimax");
         assert!(preset.routes.iter().any(|route| route.product
             == Some(sailry_protocol::conversation::connection::Product::Coding)));
+    }
+    let mut groups = BTreeMap::new();
+    for preset in &catalog.builtin {
+        assert!(group(preset, &mut groups));
+    }
+    assert_eq!(groups["opencode"].label("en"), "OpenCode");
+}
+
+#[test]
+fn validates_product_displays() {
+    let mut original: Value = serde_json::from_slice(FIXTURE).unwrap();
+    original["partners"][0]["products"] = json!([{
+        "kind":"coding",
+        "display":{"label":"Example Plan","locales":{"zh-CN":"示例套餐"}},
+        "default_model":"example-text",
+        "discover":false
+    }]);
+    let catalog = parse(&serde_json::to_vec(&original).unwrap()).unwrap();
+    assert_eq!(
+        catalog.partners[0].products[0]
+            .display
+            .as_ref()
+            .unwrap()
+            .label("zh-CN"),
+        "示例套餐"
+    );
+    for display in [
+        json!({"label":""}),
+        json!({"label":"Example Plan","locales":{"en":"\n"}}),
+        json!({"label":"Example Plan","icon":"invalid icon"}),
+    ] {
+        let mut invalid = original.clone();
+        invalid["partners"][0]["products"][0]["display"] = display;
+        assert!(
+            parse(&serde_json::to_vec(&invalid).unwrap())
+                .unwrap()
+                .partners
+                .is_empty()
+        );
     }
 }
 

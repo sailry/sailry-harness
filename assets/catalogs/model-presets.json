@@ -505,6 +505,9 @@
       "key_url": null,
       "badge": null,
       "brand": "opencode",
+      "brand_display": {
+        "label": "OpenCode"
+      },
       "offered": true,
       "routes": [
         {
@@ -547,6 +550,9 @@
       "key_url": null,
       "badge": null,
       "brand": "opencode",
+      "brand_display": {
+        "label": "OpenCode"
+      },
       "offered": true,
       "routes": [
         {
@@ -756,6 +762,9 @@
       "products": [
         {
           "kind": "coding",
+          "display": {
+            "label": "Qwen Coding Plan"
+          },
           "default_model": "qwen3.6-plus",
           "discover": false
         }
@@ -822,6 +831,9 @@
       "products": [
         {
           "kind": "coding",
+          "display": {
+            "label": "Kimi Code"
+          },
           "default_model": "kimi-for-coding",
           "discover": false
         }
@@ -1308,6 +1320,9 @@
       "products": [
         {
           "kind": "coding",
+          "display": {
+            "label": "MiniMax Coding Plan"
+          },
           "default_model": "MiniMax-M3.1-Flash-Preview",
           "discover": true
         }
@@ -1362,6 +1377,9 @@
       "products": [
         {
           "kind": "coding",
+          "display": {
+            "label": "Ark Coding Plan"
+          },
           "default_model": "ark-code-latest",
           "discover": false
         }
@@ -1428,6 +1446,9 @@
       "products": [
         {
           "kind": "coding",
+          "display": {
+            "label": "GLM Coding Plan"
+          },
           "default_model": "glm-5.2",
           "discover": false
         }

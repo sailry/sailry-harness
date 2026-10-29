@@ -54,6 +54,8 @@ pub struct Preset {
 #[serde(deny_unknown_fields)]
 pub struct Product {
     pub kind: ProductKind,
+    #[serde(default)]
+    pub display: Option<crate::plugin::desktop::Navigation>,
     pub default_model: Option<String>,
     #[serde(default = "offered")]
     pub discover: bool,

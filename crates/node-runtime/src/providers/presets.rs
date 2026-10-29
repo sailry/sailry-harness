@@ -217,6 +217,12 @@ pub(crate) fn validate(
             .brand_display
             .as_ref()
             .is_some_and(|display| preset.brand.is_none() || !display.valid())
+        || preset.products.iter().any(|product| {
+            product
+                .display
+                .as_ref()
+                .is_some_and(|display| !display.valid())
+        })
         || (!builtin && matches!(preset.auth, Auth::Builtin { .. }))
         || (!package && (matches!(preset.auth, Auth::Plugin { .. }) || preset.adapter.is_some()))
         || preset.routes.iter().any(|route| {

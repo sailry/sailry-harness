@@ -2973,6 +2973,17 @@
           "default": true,
           "type": "boolean"
         },
+        "display": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Navigation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "kind": {
           "$ref": "#/$defs/Product"
         }

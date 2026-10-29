@@ -64,3 +64,23 @@ fn preserves_protocol_mapping_and_default_authentication() {
     assert_eq!(preset.models, Models::Discover);
     assert_eq!(preset.routes[0].region, None);
 }
+
+#[test]
+fn retains_optional_product_display() {
+    let original = json!({"kind":"coding","default_model":"fixture"});
+    let product: Product = serde_json::from_value(original.clone()).unwrap();
+    assert!(product.display.is_none());
+    let display = json!({"label":"Example Plan","locales":{"zh-CN":"示例套餐"}});
+    let mut declared = original;
+    declared["display"] = display.clone();
+    let product: Product = serde_json::from_value(declared).unwrap();
+    assert_eq!(product.display.as_ref().unwrap().label("zh-CN"), "示例套餐");
+    assert_eq!(
+        product.display.as_ref().unwrap().label("en"),
+        "Example Plan"
+    );
+    let encoded = serde_json::to_value(&product).unwrap();
+    assert_eq!(encoded["display"]["label"], display["label"]);
+    assert_eq!(encoded["display"]["locales"], display["locales"]);
+    assert_eq!(serde_json::from_value::<Product>(encoded).unwrap(), product);
+}
