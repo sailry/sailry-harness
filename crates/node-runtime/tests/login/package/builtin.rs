@@ -170,13 +170,25 @@ async fn retains_accounts_during_alias_changes() {
             Some("codex@example.com")
         );
         let target = binding(&fixture, &provider).await;
-        assert_eq!(target["package"], installed.summary.name);
-        assert_eq!(target["flow"], declaration.id);
-        assert_eq!(target["digest"], installed.summary.digest);
-        assert_eq!(target["provider"], provider.id.to_string());
+        let mut scopes = declaration.scopes.clone();
+        scopes.sort();
+        scopes.dedup();
+        // Bundled accounts retain declaration ownership across implementation updates.
         assert_eq!(
-            target["origin"],
-            serde_json::to_value(consent::Origin::Bundled).unwrap()
+            target,
+            json!({
+                "provider":provider.id,
+                "package":installed.summary.name,
+                "digest":null,
+                "origin":consent::Origin::Bundled,
+                "flow":declaration.id,
+                "endpoint":provider.endpoint,
+                "authorization":declaration.flow,
+                "refresh":declaration.refresh.as_ref().map(|refresh| &refresh.request),
+                "inject":declaration.inject,
+                "fields":{"client_id":declaration.client.client_id.as_ref().unwrap()},
+                "scopes":scopes
+            })
         );
         let requests = server.requests.lock().unwrap().len();
         let disabled = support::info(
