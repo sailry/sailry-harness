@@ -66,9 +66,18 @@ async fn restores_selection(name: &str, arguments: Value) {
         assert_eq!(serde_json::to_value(unchanged).unwrap(), first["tools"]);
         let prefix = first["messages"].as_array().unwrap();
         assert_eq!(
-            &second["messages"].as_array().unwrap()[..prefix.len()],
-            prefix
+            &second["messages"].as_array().unwrap()[..prefix.len() - 1],
+            &prefix[..prefix.len() - 1]
         );
+        let context = turn_context(first).expect("initial request context expected");
+        assert_eq!(
+            message_text(&prefix.last().unwrap()["content"])
+                .strip_suffix(context)
+                .unwrap()
+                .trim_end_matches('\n'),
+            message_text(&second["messages"][prefix.len() - 1]["content"])
+        );
+        assert!(turn_context(second).is_some());
 
         let node = fixture.node.id();
         fixture.node.shutdown().await.unwrap();

@@ -140,13 +140,7 @@ pub(super) async fn bind(
             .iter()
             .any(|entry| entry.tool.name.as_ref() == name)
     });
-    if let Some(search) = search::bind(
-        invocation,
-        stop,
-        &bound.tools,
-        &bound.instructions,
-        &bound.loaded,
-    ) {
+    if let Some(search) = search::bind(invocation, stop, &bound.tools, &bound.loaded) {
         bound.tools.push(search);
     }
     if assistant.is_some()

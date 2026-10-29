@@ -28,13 +28,12 @@ pub(super) fn bind(
     invocation: &Invocation,
     stop: &CancellationToken,
     tools: &[ToolRegistration],
-    instructions: &std::collections::BTreeMap<String, String>,
     loaded: &BTreeSet<String>,
 ) -> Option<ToolRegistration> {
     let initial = tools
         .iter()
         .filter(|entry| !entry.deferred || loaded.contains(entry.tool.name.as_ref()))
-        .flat_map(|entry| contexts(invocation, instructions, entry))
+        .flat_map(|entry| contexts(invocation, entry))
         .collect();
     let entries: Vec<_> = tools
         .iter()
@@ -47,7 +46,7 @@ pub(super) fn bind(
                 .as_deref()
                 .unwrap_or_default()
                 .to_owned(),
-            context: contexts(invocation, instructions, entry),
+            context: contexts(invocation, entry),
         })
         .collect();
     (!entries.is_empty()).then(|| {
@@ -61,19 +60,10 @@ pub(super) fn bind(
     })
 }
 
-fn contexts(
-    invocation: &Invocation,
-    initialized: &std::collections::BTreeMap<String, String>,
-    entry: &ToolRegistration,
-) -> Vec<String> {
+fn contexts(invocation: &Invocation, entry: &ToolRegistration) -> Vec<String> {
     let mut context = Vec::new();
     if let Some(owner) = &entry.plugin {
-        context.extend(
-            initialized
-                .get(owner)
-                .filter(|value| !value.is_empty())
-                .cloned(),
-        );
+        // Per-turn script instructions already live in the request-only tail.
         context.extend(
             invocation
                 .plugins

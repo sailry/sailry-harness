@@ -431,6 +431,21 @@ async fn applies_tool_settings() {
                         assert!(tools.iter().all(|tool| tool["function"]["name"] != name
                             && tool["function"]["name"] != plugin_tool("memory", name)));
                     }
+                    let context = turn_context(request).expect("request context expected");
+                    assert_eq!(
+                        context.matches(&id.to_string()).count(),
+                        usize::from(enabled)
+                    );
+                    assert!(
+                        request["messages"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .all(|message| {
+                                !matches!(message["role"].as_str(), Some("system" | "developer"))
+                                    || !message_text(&message["content"]).contains(&id.to_string())
+                            })
+                    );
                 }
                 let prompt = requests[0]["messages"].to_string();
                 assert_eq!(prompt.contains(&id.to_string()), enabled);

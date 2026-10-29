@@ -240,12 +240,9 @@ async fn new_turns_follow_updates_and_enablement() {
         assert_eq!(requests.len(), 5);
         for (index, request) in requests.iter().enumerate() {
             assert_eq!(
-                request["tools"]
-                    .as_array()
-                    .is_some_and(|tools| tools
-                        .iter()
-                        .any(|tool| tool["function"]["name"]
-                            == plugin_tool("web-search", "web_search"))),
+                request["tools"].as_array().is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == "web_search")),
                 index != 2
             );
         }

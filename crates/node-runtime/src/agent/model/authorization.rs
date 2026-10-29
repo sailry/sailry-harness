@@ -176,9 +176,13 @@ impl GdkProvider for Model {
             }
             crate::providers::login::Grant::Copilot { .. } => {
                 let user = !self.delegated
-                    && messages.last().is_some_and(|message| {
-                        message.role == rmcp::model::Role::User && !message.is_tool_response()
-                    });
+                    && messages
+                        .iter()
+                        .rev()
+                        .find(|message| !message.is_turn_context())
+                        .is_some_and(|message| {
+                            message.role == rmcp::model::Role::User && !message.is_tool_response()
+                        });
                 headers.insert(
                     "openai-intent",
                     HeaderValue::from_static("conversation-agent"),
