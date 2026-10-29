@@ -46,14 +46,18 @@ async fn inspects_without_model_metadata() {
         .await;
         let mut provider = fixture.provider.clone();
         provider.models.clear();
-        execute(
+        let Output::Provider(saved) = execute(
             &fixture.client,
             Command::PutProvider {
                 expected_revision: provider.revision,
                 provider,
             },
         )
-        .await;
+        .await
+        else {
+            panic!("provider expected")
+        };
+        assert!(saved.models.is_empty());
         let Output::Session(session) = execute(
             &fixture.client,
             Command::SetSessionConfig {
@@ -127,10 +131,35 @@ async fn inspects_without_model_metadata() {
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 2);
+            let request = &requests[1];
+            assert_eq!(request.path, "/v1/chat/completions");
+            assert_eq!(request.body["model"], "fixture-a");
+            let users: Vec<_> = request.body["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["role"] == "user")
+                .collect();
+            assert_eq!(users.len(), 1);
+            let content = users[0]["content"].as_array().unwrap();
+            assert_eq!(content.len(), 2);
+            assert!(
+                content
+                    .iter()
+                    .any(|part| part["type"] == "text" && part["text"] == "Describe this image")
+            );
+            let images: Vec<_> = content
+                .iter()
+                .filter(|part| part["type"] == "image_url")
+                .collect();
+            assert_eq!(images.len(), 1);
             assert_eq!(
-                requests[1].body["messages"][0]["content"][1]["image_url"]["url"],
+                images[0]["image_url"]["url"],
                 format!("data:image/png;base64,{image}")
             );
+            let serialized = request.body.to_string();
+            assert!(!serialized.contains("image omitted"));
+            assert!(!serialized.contains("model does not support vision"));
         }
         execute(&fixture.client, Command::StopTurn { turn }).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
