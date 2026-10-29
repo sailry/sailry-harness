@@ -43,7 +43,7 @@ impl Workspace {
                     PopupMenuItem::new(tr("settings_edit"))
                         .disabled(busy)
                         .on_click(move |_, window, cx| {
-                            editor::open(edit.clone(), Some(id), window, cx);
+                            editor::open(edit.clone(), Some(id), None, window, cx);
                         }),
                 );
                 let menu = match login {

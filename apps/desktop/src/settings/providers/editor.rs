@@ -31,7 +31,7 @@ mod routes;
 pub(super) struct Editor {
     pub(super) focus: FocusHandle,
     flow: flow::Flow,
-    search: Entity<InputState>,
+    return_to: Option<super::ReturnTo>,
     directory: Vec<sailry_protocol::conversation::presets::Entry>,
     selected: Option<sailry_protocol::conversation::presets::Entry>,
     selected_ref: Option<sailry_protocol::conversation::presets::PresetRef>,
@@ -68,19 +68,38 @@ pub(super) struct Editor {
 pub(super) fn open(
     owner: Entity<Workspace>,
     editing: Option<usize>,
+    return_to: Option<super::ReturnTo>,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Editor> {
-    let editor = cx.new(|cx| Editor::new(owner, editing, window, cx));
+    let editor = cx.new(|cx| Editor::new(owner, editing, return_to, window, cx));
     let entity = editor.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
-        let width = (window.viewport_size().width - px(48.)).min(px(760.));
+        let configure = editor.read(cx).flow.step == flow::Step::Configure;
+        let desired = match editor.read(cx).flow.step {
+            flow::Step::Brand => super::brands::WIDTH,
+            flow::Step::Method => px(540.),
+            flow::Step::Configure => px(760.),
+        };
+        let width = (window.viewport_size().width - px(48.)).min(desired);
         let save = editor.clone();
         let close = editor.clone();
         let cancel = editor.clone();
         let real = editor.read(cx).binding.is_some();
+        let heading = editor.update(cx, |editor, cx| editor.heading(cx));
+        let dialog = if configure {
+            dialog.form_title(heading, cx)
+        } else {
+            dialog
+                .floating_surface(cx)
+                .p_0()
+                .border_1()
+                .border_color(cx.theme().border)
+                .rounded(cx.theme().radius_lg)
+                .close_button(false)
+                .title(heading)
+        };
         dialog
-            .form_title(editor.update(cx, |editor, cx| editor.heading(cx)), cx)
             .w(width)
             .max_h(window.viewport_size().height * 0.8)
             .margin_top(window.viewport_size().height * 0.1)
@@ -90,48 +109,50 @@ pub(super) fn open(
             .on_close(move |_, window, cx| close.update(cx, |editor, cx| editor.close(window, cx)))
             .content({
                 let editor = editor.clone();
-                move |content, _, _| content.min_h_0().pt_1().child(editor.clone())
+                move |content, _, _| {
+                    content
+                        .min_h_0()
+                        .when(configure, |content| content.pt_1())
+                        .child(editor.clone())
+                }
             })
-            .footer(
-                DialogFooter::new()
-                    .w_full()
-                    .child(
-                        Button::new("provider-cancel")
-                            .debug_selector(|| "provider-cancel".into())
-                            .label(tr("settings_cancel"))
-                            .on_click(move |_, window, cx| {
-                                cancel.update(cx, |editor, cx| editor.close(window, cx));
-                                window.close_dialog(cx);
-                            }),
-                    )
-                    .when(
-                        editor.read(cx).flow.step == flow::Step::Configure,
-                        |footer| {
-                            footer.child(
-                                Button::new("provider-save")
-                                    .primary()
-                                    .debug_selector(|| "provider-save".into())
-                                    .label(tr(
-                                        if real
-                                            && editor.read(cx).editing.is_none()
-                                            && editor.read(cx).uses_login()
-                                            && !editor.read(cx).configured
-                                        {
-                                            "provider_save_login"
-                                        } else if real {
-                                            "provider_save"
-                                        } else {
-                                            "settings_save_preview"
-                                        },
-                                    ))
-                                    .disabled(editor.read(cx).pending)
-                                    .on_click(move |_, window, cx| {
-                                        save.update(cx, |editor, cx| editor.save(window, cx))
-                                    }),
-                            )
-                        },
-                    ),
-            )
+            .when(configure, |dialog| {
+                dialog.footer(
+                    DialogFooter::new()
+                        .w_full()
+                        .child(
+                            Button::new("provider-cancel")
+                                .debug_selector(|| "provider-cancel".into())
+                                .label(tr("settings_cancel"))
+                                .on_click(move |_, window, cx| {
+                                    cancel.update(cx, |editor, cx| editor.close(window, cx));
+                                    window.close_dialog(cx);
+                                }),
+                        )
+                        .child(
+                            Button::new("provider-save")
+                                .primary()
+                                .debug_selector(|| "provider-save".into())
+                                .label(tr(
+                                    if real
+                                        && editor.read(cx).editing.is_none()
+                                        && editor.read(cx).uses_login()
+                                        && !editor.read(cx).configured
+                                    {
+                                        "provider_save_login"
+                                    } else if real {
+                                        "provider_save"
+                                    } else {
+                                        "settings_save_preview"
+                                    },
+                                ))
+                                .disabled(editor.read(cx).pending)
+                                .on_click(move |_, window, cx| {
+                                    save.update(cx, |editor, cx| editor.save(window, cx))
+                                }),
+                        ),
+                )
+            })
     });
     entity
 }
@@ -140,6 +161,7 @@ impl Editor {
     pub fn new(
         owner: Entity<Workspace>,
         editing: Option<usize>,
+        return_to: Option<super::ReturnTo>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -203,8 +225,6 @@ impl Editor {
                 .as_ref()
                 .map(|live| live.directory.entries.as_slice()),
         );
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder(tr("provider_search")));
-        cx.observe(&search, |_, _, cx| cx.notify()).detach();
         let selected_ref = provider
             .as_ref()
             .and_then(|provider| provider.preset.clone())
@@ -227,8 +247,15 @@ impl Editor {
                 Some(super::presets::reference(entry, route))
             });
         let mut editor = Self {
-            flow: flow::Flow::new(editing.is_some()),
-            search,
+            flow: flow::Flow::new(
+                editing.is_some(),
+                if return_to.is_some() {
+                    flow::Origin::Welcome
+                } else {
+                    flow::Origin::Providers
+                },
+            ),
+            return_to,
             directory,
             selected: None,
             selected_ref,

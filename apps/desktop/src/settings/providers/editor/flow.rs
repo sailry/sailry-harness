@@ -2,7 +2,7 @@
 use super::super::presets;
 use super::entry::brand_label;
 use super::*;
-use gpui_kit::component::{button::ButtonCustomVariant, input::Input};
+mod methods;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
@@ -11,15 +11,22 @@ pub(super) enum Step {
     Configure,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Origin {
+    Providers,
+    Welcome,
+}
+
 pub(super) struct Flow {
     pub step: Step,
     pub brand: Option<String>,
     pub requested: Option<String>,
     editing: bool,
+    origin: Origin,
 }
 
 impl Flow {
-    pub fn new(editing: bool) -> Self {
+    pub fn new(editing: bool, origin: Origin) -> Self {
         Self {
             step: if editing {
                 Step::Configure
@@ -29,6 +36,7 @@ impl Flow {
             brand: None,
             requested: None,
             editing,
+            origin,
         }
     }
 
@@ -51,14 +59,15 @@ impl Flow {
         }
     }
 
-    fn back(&mut self, count: usize) {
+    fn back(&mut self, count: usize) -> Option<Origin> {
         if self.editing {
-            return;
+            return None;
         }
         self.step = match self.step {
             Step::Configure if count > 1 => Step::Method,
             _ => Step::Brand,
         };
+        (self.step == Step::Brand).then_some(self.origin)
     }
 }
 
@@ -114,23 +123,6 @@ fn method_summary(family: &SharedString, method: SharedString, access: Access) -
     }
 }
 
-/// Framed choice surface. Kit derives a custom variant's border from its color
-/// in every state, so the theme border stays stable while hover uses the list token.
-fn surface(button: Button, cx: &App) -> Button {
-    button
-        .custom(
-            ButtonCustomVariant::new(cx)
-                .color(cx.theme().border)
-                .foreground(cx.theme().foreground)
-                .hover(cx.theme().list_hover)
-                .active(cx.theme().list_active),
-        )
-        .w_full()
-        .min_w_0()
-        .border_1()
-        .bg(cx.theme().transparent)
-}
-
 fn icon_tile(size: Pixels, icon: impl IntoElement, cx: &App) -> Div {
     div()
         .size(size)
@@ -160,23 +152,32 @@ impl Editor {
         self.pending || self.closed || self.probe.is_some()
     }
 
-    fn back(&mut self, cx: &mut Context<Self>) {
+    fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.navigation_blocked() {
             return;
         }
-        self.flow.back(self.choices_count());
+        if self.flow.back(self.choices_count()) == Some(Origin::Welcome)
+            && let Some(return_to) = self.return_to.clone()
+        {
+            self.close(window, cx);
+            window.close_dialog(cx);
+            return_to(window, cx);
+            return;
+        }
         self.scroll.set_offset(point(px(0.), px(0.)));
         cx.notify();
     }
 
     pub(super) fn heading(&self, cx: &Context<Self>) -> AnyElement {
-        // A fixed row height keeps every step's title level with the close button.
+        let configure = self.flow.step == Step::Configure;
         h_flex()
             .debug_selector(|| "provider-dialog-title".into())
             .w_full()
             .min_w_0()
-            .h_6()
-            .pr_6()
+            .when(configure, |row| row.h_6().pr_6())
+            .when(!configure, |row| {
+                row.pt(px(24.)).pl(px(28.)).pr(px(24.)).h(px(56.)).text_lg()
+            })
             .items_center()
             .gap_2()
             .when(
@@ -189,7 +190,7 @@ impl Editor {
                             .icon(IconName::ArrowLeft)
                             .accessibility_label(tr("provider_step_back"))
                             .disabled(self.navigation_blocked())
-                            .on_click(cx.listener(|editor, _, _, cx| editor.back(cx))),
+                            .on_click(cx.listener(|editor, _, window, cx| editor.back(window, cx))),
                     )
                 },
             )
@@ -208,6 +209,14 @@ impl Editor {
                         }
                     })),
             )
+            .when(!configure, |row| {
+                row.child(
+                    div().size_8().flex_shrink_0().child(
+                        gpui_kit::component::dialog::DialogClose::new()
+                            .trigger(|button| button.ghost().size_8().icon(IconName::Close)),
+                    ),
+                )
+            })
             .into_any_element()
     }
 
@@ -261,161 +270,34 @@ impl Editor {
     }
 
     pub(super) fn choices(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
-        let width = (window.viewport_size().width - px(96.)).min(px(712.));
-        let selected = self.flow.brand.as_deref();
-        let groups = presets::groups(&self.directory);
-        let mut body = v_flex()
+        let width = (window.viewport_size().width - px(48.)).min(super::super::brands::WIDTH);
+        let content = if self.flow.step == Step::Brand {
+            let owner = cx.entity().downgrade();
+            div()
+                .pt(px(31.))
+                .pb(px(45.))
+                .child(super::super::brands::matrix(
+                    Some(&self.directory),
+                    width,
+                    self.navigation_blocked(),
+                    move |brand, window, cx| {
+                        let _ =
+                            owner.update(cx, |editor, cx| editor.choose_brand(brand, window, cx));
+                    },
+                ))
+                .into_any_element()
+        } else {
+            methods::render(self, cx)
+        };
+        v_flex()
             .id("provider-choices")
             .w_full()
             .min_h_0()
-            .gap_3()
             .overflow_y_scroll()
-            .track_scroll(&self.scroll);
-        if self.flow.step == Step::Brand {
-            let query = self.search.read(cx).value().trim().to_lowercase();
-            let columns = if width >= px(640.) {
-                5
-            } else if width >= px(500.) {
-                4
-            } else if width >= px(360.) {
-                3
-            } else {
-                2
-            };
-            body = body.child(
-                Input::new(&self.search)
-                    .w_full()
-                    .prefix(IconName::Search)
-                    .aria_label(tr("provider_search")),
-            );
-            body = body.child(
-                div().grid().grid_cols(columns).w_full().gap_3().children(
-                    groups
-                        .into_iter()
-                        .filter(|(_, choices)| {
-                            query.is_empty()
-                                || brand_label(&choices[0]).to_lowercase().contains(&query)
-                        })
-                        .map(|(key, choices)| {
-                            let first = &choices[0];
-                            let name = brand_label(first);
-                            surface(
-                                Button::new(SharedString::from(format!("provider-brand-{key}"))),
-                                cx,
-                            )
-                            .h(px(92.))
-                            .p_2()
-                            .accessibility_label(name.clone())
-                            .child(
-                                v_flex()
-                                    .size_full()
-                                    .min_w_0()
-                                    .items_center()
-                                    .justify_center()
-                                    .gap_2()
-                                    .child(presets::render_icon(first, rems(1.75)))
-                                    .child(
-                                        div()
-                                            .max_w_full()
-                                            .truncate()
-                                            .text_center()
-                                            .text_sm()
-                                            .child(name),
-                                    ),
-                            )
-                            .on_click(cx.listener(
-                                move |editor, _, window, cx| {
-                                    editor.choose_brand(key.clone(), window, cx);
-                                },
-                            ))
-                        }),
-                ),
-            );
-        } else if let Some((_, choices)) = groups
-            .into_iter()
-            .find(|(key, _)| Some(key.as_str()) == selected)
-        {
-            body = body.child(
-                h_flex()
-                    .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    .child(presets::render_icon(&choices[0], rems(1.5)))
-                    .child(
-                        div()
-                            .truncate()
-                            .font_medium()
-                            .child(brand_label(&choices[0])),
-                    ),
-            );
-            body = body.child(
-                div()
-                    .grid()
-                    .w_full()
-                    .gap_2()
-                    .grid_cols(if choices.len() > 4 && width >= px(480.) {
-                        2
-                    } else {
-                        1
-                    })
-                    .children(choices.into_iter().map(|entry| {
-                        let route = &entry.preset.routes[0];
-                        let login = presets::authentication(&entry)
-                            != sailry_protocol::Authentication::ApiKey;
-                        let access = Access::of(
-                            presets::kind(&entry, route),
-                            login,
-                            presets::custom_endpoint(&entry, route),
-                        );
-                        let label: SharedString = presets::label(&entry.preset).into();
-                        surface(
-                            Button::new(SharedString::from(format!(
-                                "provider-method-{}",
-                                entry.preset.id
-                            ))),
-                            cx,
-                        )
-                        .h(px(56.))
-                        .px_3()
-                        .accessibility_label(label.clone())
-                        .child(
-                            h_flex()
-                                .size_full()
-                                .min_w_0()
-                                .items_center()
-                                .gap_3()
-                                .child(icon_tile(px(32.), access.icon().size_4(), cx))
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .items_start()
-                                        .gap_0p5()
-                                        .child(div().max_w_full().truncate().child(label))
-                                        .child(
-                                            div()
-                                                .max_w_full()
-                                                .truncate()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(tr(access.key())),
-                                        ),
-                                )
-                                .child(
-                                    Icon::new(IconName::ChevronRight)
-                                        .size_4()
-                                        .text_color(cx.theme().muted_foreground),
-                                ),
-                        )
-                        .on_click(cx.listener(
-                            move |editor, _, window, cx| {
-                                editor.choose_entry(entry.clone(), window, cx)
-                            },
-                        ))
-                    })),
-            );
-        }
-        body.vertical_scrollbar(&self.scroll).into_any_element()
+            .track_scroll(&self.scroll)
+            .child(content)
+            .vertical_scrollbar(&self.scroll)
+            .into_any_element()
     }
 }
 

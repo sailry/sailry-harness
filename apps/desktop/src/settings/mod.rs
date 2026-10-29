@@ -26,7 +26,7 @@ mod preferences;
 mod providers;
 mod requests;
 mod resource_card;
-pub(crate) use providers::{Channel, Model, ModelCategory};
+pub(crate) use providers::{Channel, Model, ModelCategory, ReturnTo};
 pub(crate) use providers::{
     channel, fallback_preset, installed_preset, logo as provider_logo, type_icon, type_key,
     type_label,

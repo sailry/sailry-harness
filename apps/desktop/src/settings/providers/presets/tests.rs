@@ -105,6 +105,57 @@ fn prefers_declared_brand_glyphs() {
 }
 
 #[test]
+fn retains_intrinsic_and_neutral_paint() {
+    let groups = groups(&bundled());
+    assert_eq!(groups.len(), 14);
+    assert_eq!(
+        groups
+            .iter()
+            .filter(|(_, entries)| matches!(glyph(&entries[0]), Glyph::Image(ImageFormat::Svg, _)))
+            .count(),
+        10
+    );
+    assert_eq!(
+        groups
+            .iter()
+            .filter(|(_, entries)| glyph(&entries[0]) == Glyph::Fallback)
+            .count(),
+        4
+    );
+    let mut entry = groups[0].1[0].clone();
+    entry.source = Source::Package {
+        name: "sample.models".into(),
+    };
+    entry.icon = None;
+    for (svg, colored) in [
+        (
+            r##"<svg viewBox="0 0 24 24"><path fill="#6688ff" d="M0 0h24v24z"/></svg>"##,
+            true,
+        ),
+        (
+            r#"<svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" d="M0 0h24v24z"/></svg>"#,
+            false,
+        ),
+    ] {
+        let declaration = sailry_protocol::plugin::desktop::Icon::Svg { svg: svg.into() };
+        entry.preset.brand_display = Some(sailry_protocol::plugin::desktop::Navigation {
+            label: "Sample".into(),
+            locales: Default::default(),
+            icon: Some(declaration.clone()),
+        });
+        assert_eq!(intrinsic(svg), colored);
+        assert_eq!(
+            glyph(&entry),
+            if colored {
+                Glyph::Image(ImageFormat::Svg, svg.as_bytes().to_vec())
+            } else {
+                Glyph::Declared(&declaration)
+            }
+        );
+    }
+}
+
+#[test]
 fn routes_outweigh_brand_glyphs() {
     let mut entry = bundled()
         .into_iter()

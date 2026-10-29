@@ -3,20 +3,6 @@ use super::super::presets;
 use super::*;
 
 impl Editor {
-    pub(in crate::settings::providers) fn brands(
-        entries: Option<&[sailry_protocol::conversation::presets::Entry]>,
-        icon: Rems,
-    ) -> Vec<(String, SharedString, AnyElement)> {
-        let entries = presets::available(entries);
-        presets::groups(&entries)
-            .into_iter()
-            .map(|(key, entries)| {
-                let first = &entries[0];
-                (key, brand_label(first), presets::render_icon(first, icon))
-            })
-            .collect()
-    }
-
     pub(in crate::settings::providers) fn choose_brand(
         &mut self,
         brand: String,

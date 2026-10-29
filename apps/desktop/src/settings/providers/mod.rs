@@ -1,3 +1,4 @@
+mod brands;
 mod catalog;
 pub(super) mod contributions;
 mod data;
@@ -38,21 +39,25 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
+pub(crate) type ReturnTo = std::rc::Rc<dyn Fn(&mut Window, &mut App)>;
+
 impl Workspace {
-    pub(crate) fn provider_brands(
+    pub(crate) fn provider_matrix(
         entries: Option<&[sailry_protocol::conversation::presets::Entry]>,
-        icon: Rems,
-    ) -> Vec<(String, SharedString, AnyElement)> {
-        editor::Editor::brands(entries, icon)
+        width: Pixels,
+        select: impl Fn(String, &mut Window, &mut App) + 'static,
+    ) -> AnyElement {
+        brands::matrix(entries, width, false, select)
     }
 
     pub(crate) fn add_provider(
         owner: Entity<Self>,
         brand: Option<String>,
+        return_to: Option<ReturnTo>,
         window: &mut Window,
         cx: &mut App,
     ) {
-        let editor = editor::open(owner, None, window, cx);
+        let editor = editor::open(owner, None, return_to, window, cx);
         if let Some(brand) = brand {
             editor.update(cx, |editor, cx| editor.choose_brand(brand, window, cx));
         }
@@ -134,7 +139,7 @@ impl Workspace {
                             .label(tr("settings_add"))
                             .icon(IconName::Plus)
                             .on_click(move |_, window, cx| {
-                                Self::add_provider(owner.clone(), None, window, cx);
+                                Self::add_provider(owner.clone(), None, None, window, cx);
                             }),
                     ),
             );

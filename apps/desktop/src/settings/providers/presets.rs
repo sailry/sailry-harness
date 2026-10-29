@@ -1,7 +1,7 @@
 //! Presentation of the shared directory; execution always resolves it on the Node.
 use super::data::Preset as Kind;
 use gpui_kit::{
-    AnyElement, Image, ImageFormat, IntoElement, Rems, Styled,
+    AnyElement, AssetSource as _, Image, ImageFormat, IntoElement, Rems, Styled,
     component::{Icon, IconName},
     img,
 };
@@ -104,7 +104,7 @@ pub(super) fn icon(entry: &Entry) -> Icon {
 /// One directory type's glyph, resolved the same way wherever the type appears.
 #[derive(Debug, PartialEq)]
 enum Glyph<'a> {
-    /// The package's declared brand glyph; monochrome, it follows the text color.
+    /// Neutral declared vectors follow the Kit foreground color.
     Declared(&'a sailry_protocol::plugin::desktop::Icon),
     Image(ImageFormat, Vec<u8>),
     Remote(&'a str),
@@ -119,6 +119,11 @@ fn glyph(entry: &Entry) -> Glyph<'_> {
         .as_ref()
         .and_then(|display| display.icon.as_ref())
     {
+        if let sailry_protocol::plugin::desktop::Icon::Svg { svg } = icon
+            && intrinsic(svg)
+        {
+            return Glyph::Image(ImageFormat::Svg, svg.as_bytes().to_vec());
+        }
         return Glyph::Declared(icon);
     }
     if let Some((prefix, data)) = entry.icon.as_deref().and_then(|data| data.split_once(',')) {
@@ -131,12 +136,38 @@ fn glyph(entry: &Entry) -> Glyph<'_> {
             return Glyph::Image(format, bytes);
         }
     }
+    if entry.source == Source::Builtin
+        && let Some(path) = &entry.preset.logo
+        && let Ok(Some(bytes)) = crate::assets::Assets.load(path)
+        && std::str::from_utf8(&bytes).is_ok_and(intrinsic)
+    {
+        return Glyph::Image(ImageFormat::Svg, bytes.into_owned());
+    }
     entry
         .preset
         .logo
         .as_deref()
         .filter(|path| path.starts_with("https://"))
         .map_or(Glyph::Fallback, Glyph::Remote)
+}
+
+/// Paint belongs to the vector, not to a second vendor or theme color table.
+fn intrinsic(svg: &str) -> bool {
+    let Ok(document) = roxmltree::Document::parse(svg) else {
+        return false;
+    };
+    document
+        .descendants()
+        .filter(|node| node.is_element())
+        .any(|node| {
+            node.attributes().any(|attribute| {
+                matches!(attribute.name(), "fill" | "stroke" | "stop-color" | "color")
+                    && !matches!(
+                        attribute.value().trim().to_ascii_lowercase().as_str(),
+                        "none" | "currentcolor" | "inherit" | "transparent"
+                    )
+            })
+        })
 }
 
 pub(crate) fn render_icon(entry: &Entry, size: Rems) -> AnyElement {
