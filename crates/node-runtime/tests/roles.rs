@@ -1,10 +1,9 @@
+use crate::database_fixture;
 use sailry_client::{Apply, Client, Projection};
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::{conversation::*, *};
 use std::time::Duration;
-#[path = "support/database/native.rs"]
-mod database_fixture;
 #[path = "roles/defaults.rs"]
 mod defaults;
 #[path = "roles/sessions.rs"]
