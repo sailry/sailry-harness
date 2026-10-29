@@ -5,6 +5,13 @@ use sailry_protocol::conversation::{
 };
 use serde_json::json;
 
+#[allow(
+    dead_code,
+    reason = "The shared discovery fixture includes modes used by other integration suites"
+)]
+#[path = "../../../discovery_support/mod.rs"]
+mod discovery_http;
+
 #[tokio::test]
 async fn retains_declared_routes_and_captured_policy() {
     for remote in [false, true] {
@@ -18,8 +25,8 @@ async fn retains_declared_routes_and_captured_policy() {
             .insert("thinking".into(), json!({"clear_thinking":true}));
         let first = json!({"version":1,"partners":[preset.clone()]});
         let second = json!({"version":1,"partners":[latest.clone()]});
-        let catalog = crate::discovery_support::Server::start(ModelApi::Responses, move |path| {
-            crate::discovery_support::Reply::Json(match path {
+        let catalog = discovery_http::Server::start(ModelApi::Responses, move |path| {
+            discovery_http::Reply::Json(match path {
                 "/v1" => first.clone(),
                 "/v1/updated" => second.clone(),
                 _ => panic!("unexpected catalog fixture route"),
