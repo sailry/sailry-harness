@@ -65,6 +65,53 @@ async fn resolves_standard_paths() {
 }
 
 #[tokio::test]
+async fn handles_mixed_gateway_metadata() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote).await;
+        let server = Server::start(ModelApi::Anthropic, |path| {
+            if path.starts_with("/v1beta/models?") {
+                Reply::Json(json!({"models":[
+                    {"name":"known", "inputTokenLimit":null, "outputTokenLimit":null,
+                     "supportedGenerationMethods":null},
+                    {"name":"models/unknown"},
+                    {"name":"models/embedding", "supportedGenerationMethods":["embedContent"]}
+                ], "nextPageToken":null}))
+            } else {
+                Reply::Json(json!({"object":"list", "data":[{"id":"other-protocol"}]}))
+            }
+        })
+        .await;
+        let Output::DiscoveredModels(catalog) =
+            execute(&fixture.client, discover(source(ModelApi::Gemini, &server))).await
+        else {
+            panic!("catalog expected")
+        };
+        assert_eq!(catalog.endpoint, format!("{}/v1beta", server.endpoint));
+        assert_eq!(
+            catalog.models,
+            ["known", "unknown"].map(|id| discovery::Model {
+                id: id.into(),
+                display_name: None,
+                context: None,
+                output: None,
+                capabilities: None,
+            })
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[0].path, "/models?pageSize=100");
+            assert_eq!(requests[1].path, "/v1beta/models?pageSize=100");
+            for request in requests.iter() {
+                assert_eq!(request.headers["x-goog-api-key"], KEY);
+                assert!(!request.path.contains(KEY));
+            }
+        }
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn stops_on_authentication_and_server_errors() {
     for remote in [false, true] {
         let fixture = Fixture::new(remote).await;
@@ -97,26 +144,30 @@ async fn stops_on_authentication_and_server_errors() {
 async fn does_not_switch_paths_midway() {
     for remote in [false, true] {
         let fixture = Fixture::new(remote).await;
-        let server = Server::start(ModelApi::Anthropic, |path| {
-            if path.contains("pageToken=") {
-                status(404)
-            } else {
-                Reply::Json(catalog(ModelApi::Gemini, false))
-            }
-        })
-        .await;
-        assert!(
-            fixture
-                .client
-                .execute(
-                    fixture
-                        .client
-                        .prepare(discover(source(ModelApi::Gemini, &server)))
-                )
-                .await
-                .is_err()
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        for foreign_catalog in [false, true] {
+            let server = Server::start(ModelApi::Anthropic, move |path| {
+                if !path.contains("pageToken=") {
+                    Reply::Json(catalog(ModelApi::Gemini, false))
+                } else if foreign_catalog {
+                    Reply::Json(json!({"object":"list", "data":[]}))
+                } else {
+                    status(404)
+                }
+            })
+            .await;
+            assert!(
+                fixture
+                    .client
+                    .execute(
+                        fixture
+                            .client
+                            .prepare(discover(source(ModelApi::Gemini, &server)))
+                    )
+                    .await
+                    .is_err()
+            );
+            assert_eq!(server.requests.lock().unwrap().len(), 2);
+        }
         fixture.close().await;
     }
 }

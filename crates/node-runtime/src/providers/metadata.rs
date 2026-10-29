@@ -14,12 +14,21 @@ pub(super) fn parse(api: ModelApi, value: &Value) -> Result<Page, Fault> {
         .ok_or_else(|| unavailable("provider model list has invalid shape"))?;
     let mut models = Vec::new();
     for entry in entries {
-        if gemini
-            && !entry["supportedGenerationMethods"]
-                .as_array()
-                .is_some_and(|methods| methods.iter().any(|method| method == "generateContent"))
-        {
-            continue;
+        if gemini {
+            let methods = entry
+                .get("supportedGenerationMethods")
+                .filter(|value| !value.is_null())
+                .map(|value| {
+                    value
+                        .as_array()
+                        .ok_or_else(|| unavailable("provider generation methods are invalid"))
+                })
+                .transpose()?;
+            if methods
+                .is_some_and(|methods| !methods.iter().any(|method| method == "generateContent"))
+            {
+                continue;
+            }
         }
         let id = entry[if gemini { "name" } else { "id" }]
             .as_str()

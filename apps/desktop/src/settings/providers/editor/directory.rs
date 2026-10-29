@@ -146,15 +146,6 @@ impl Editor {
                                 editor.report_error("provider_preset_unavailable", window, cx);
                             }
                         }
-                        if refresh_partners
-                            && listing.partners_unavailable
-                            && editor.suggestions_active()
-                        {
-                            editor.report_error("provider_partners_unavailable", window, cx);
-                        }
-                    }
-                    _ if refresh_partners && editor.suggestions_active() => {
-                        editor.report_error("provider_partners_unavailable", window, cx)
                     }
                     _ if editor.flow.requested.take().is_some() => {
                         editor.report_error("provider_preset_unavailable", window, cx)

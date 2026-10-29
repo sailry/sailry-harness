@@ -115,6 +115,14 @@ async fn rejects_partial_or_conflicting_lists() {
                 ModelApi::Gemini,
                 json!({"models":[], "nextPageToken":"repeated"}),
             ),
+            (
+                ModelApi::Gemini,
+                json!({"models":[{"name":"broken", "supportedGenerationMethods":"generateContent"}]}),
+            ),
+            (
+                ModelApi::Gemini,
+                json!({"models":null, "object":"list", "data":[]}),
+            ),
         ] {
             let server = Server::start(api, move |_| Reply::Json(value.clone())).await;
             assert_eq!(

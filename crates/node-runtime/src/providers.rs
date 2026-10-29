@@ -196,6 +196,15 @@ async fn pages(
             return Ok(None);
         }
         let value = read(response, remaining).await?;
+        // A gateway's unversioned catalog may belong to another protocol.
+        if api == ModelApi::Gemini
+            && cursor.is_none()
+            && value.get("models").is_none()
+            && value["object"] == "list"
+            && value["data"].is_array()
+        {
+            return Ok(None);
+        }
         let page = metadata::parse(api, &value)?;
         for model in page.models {
             if models
