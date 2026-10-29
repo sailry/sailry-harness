@@ -21,11 +21,30 @@ async fn running(
         .into_iter()
         .find(|provider| provider.id == primary_id)
         .unwrap();
+    // Unknown metadata is attempted; the held primary must explicitly decline vision.
+    provider.models[0].vision = false;
+    provider.models[0].capabilities = Some(conversation::discovery::Capabilities {
+        vision: Some(false),
+        ..Default::default()
+    });
+    let Output::Provider(saved) = execute(
+        client,
+        Command::PutProvider {
+            expected_revision: provider.revision,
+            provider: provider.clone(),
+        },
+    )
+    .await
+    else {
+        panic!("provider expected")
+    };
+    assert!(!saved.models[0].vision);
     provider.id = ProviderId::new();
     provider.revision = 0;
     provider.endpoint = endpoint.into();
     provider.name = "Media fixture".into();
     provider.models[0].vision = true;
+    provider.models[0].capabilities.as_mut().unwrap().vision = Some(true);
     provider.models[0].generates = vec![Generation::Image, Generation::Video];
     execute(
         client,
