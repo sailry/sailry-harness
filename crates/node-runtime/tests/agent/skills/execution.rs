@@ -217,7 +217,8 @@ async fn loads_complete_resources() {
             ("load_skill".into(), json!({"skill": "analysis"})),
             ("load_skill".into(), json!({"skill": "example:analysis"})),
         ];
-        let server = Server::tools(calls.clone()).await;
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let server = Server::held_completion(calls.clone(), gate.clone()).await;
         let (directory, node, controller, client, session) = fixture(remote, &server).await;
         let Output::Plugins(packages) = execute(&client, Command::ListPlugins).await else {
             panic!("plugins expected")
@@ -254,8 +255,9 @@ async fn loads_complete_resources() {
         let Output::QueuedTurn(turn) = client.execute(request.clone()).await.unwrap() else {
             panic!("turn expected")
         };
-        let page = finished(&client, session.id, turn.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+        server.wait_count(calls.len() + 1).await;
+        let page = history(&client, session.id).await;
+        assert_eq!(page.runs[0].status, Status::Running);
         super::super::evaluation::trajectory(&client, &page, &calls).await;
         let output = results(&client, &page).await;
         assert_eq!(output.len(), 6);
@@ -332,6 +334,9 @@ async fn loads_complete_resources() {
                 output[index]
             );
         }
+        gate.notify_one();
+        let page = finished(&client, session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         drop(client);
         node.shutdown().await.unwrap();
         let node = Node::start_empty(directory.path().join("node"))
@@ -360,8 +365,7 @@ async fn loads_complete_resources() {
         else {
             panic!("turn expected")
         };
-        let restored = finished(&client, session.id, next.id).await;
-        assert_eq!(restored.runs.last().unwrap().status, Status::Completed);
+        server.wait_count(calls.len() + 2).await;
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), calls.len() + 2);
         input::assert_content(
@@ -372,6 +376,9 @@ async fn loads_complete_resources() {
             input::owner(requests.last().unwrap(), "SKILL.md"),
             output[5]
         );
+        gate.notify_one();
+        let restored = finished(&client, session.id, next.id).await;
+        assert_eq!(restored.runs.last().unwrap().status, Status::Completed);
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

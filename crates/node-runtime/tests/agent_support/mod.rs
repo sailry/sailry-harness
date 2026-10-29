@@ -85,6 +85,11 @@ enum Reply {
     },
     Tools(Arc<Vec<(String, Value)>>),
     HeldTools(Arc<Calls>, Arc<tokio::sync::Notify>),
+    HeldCompletion {
+        calls: Arc<Calls>,
+        per_turn: bool,
+        release: Arc<tokio::sync::Notify>,
+    },
     AvailableTools(Arc<Vec<(String, Value)>>),
     ReasonedTools(Arc<Vec<(String, Value)>>),
     TurnTools(Arc<Vec<(String, Value)>>),
@@ -351,6 +356,25 @@ impl Server {
     /// Holds the next model response after a tool result, keeping its turn active.
     pub async fn held_after_tool(calls: Calls, release: Arc<tokio::sync::Notify>) -> Self {
         Self::serve(Reply::HeldTools(Arc::new(calls), release)).await
+    }
+
+    /// Holds completion after the scripted calls, keeping output reads in scope.
+    pub async fn held_completion(calls: Calls, release: Arc<tokio::sync::Notify>) -> Self {
+        Self::serve(Reply::HeldCompletion {
+            calls: Arc::new(calls),
+            per_turn: false,
+            release,
+        })
+        .await
+    }
+
+    pub async fn held_turn_completion(calls: Calls, release: Arc<tokio::sync::Notify>) -> Self {
+        Self::serve(Reply::HeldCompletion {
+            calls: Arc::new(calls),
+            per_turn: true,
+            release,
+        })
+        .await
     }
 
     pub async fn available_tools(calls: Vec<(String, Value)>) -> Self {
@@ -782,6 +806,7 @@ async fn respond(
             !matches!(
                 reply,
                 Reply::TurnTools(_)
+                    | Reply::HeldCompletion { per_turn: true, .. }
                     | Reply::ResultTools(_)
                     | Reply::MemoryTools { .. }
                     | Reply::ScriptedTools(_)
@@ -800,7 +825,14 @@ async fn respond(
                     || message["tool_call_id"] != "discovery-fixture")
         })
         .count()
-        + if matches!(reply, Reply::Tools(_)) {
+        + if matches!(
+            reply,
+            Reply::Tools(_)
+                | Reply::HeldCompletion {
+                    per_turn: false,
+                    ..
+                }
+        ) {
             compaction::summarized_pairs(&body)
         } else {
             0
@@ -846,6 +878,7 @@ async fn respond(
         Reply::AvailableTools(_) => available.get(completed).copied(),
         Reply::Tools(calls)
         | Reply::HeldTools(calls, _)
+        | Reply::HeldCompletion { calls, .. }
         | Reply::ReasonedTools(calls)
         | Reply::TurnTools(calls) => calls.get(completed),
         Reply::ScriptedTools(_) => scripted.as_ref().unwrap().get(completed),
@@ -911,6 +944,11 @@ async fn respond(
     records.lock().unwrap().push(body);
     if let Reply::HeldTools(_, release) = &reply
         && completed > 0
+    {
+        release.notified().await;
+    }
+    if let Reply::HeldCompletion { release, .. } = &reply
+        && call.is_none()
     {
         release.notified().await;
     }

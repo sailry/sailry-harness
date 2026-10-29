@@ -3,10 +3,14 @@ use super::*;
 #[tokio::test]
 async fn retains_admitted_versions() {
     for remote in [false, true] {
-        let server = Server::turn_tools(vec![(
-            "read_skill_resource".into(),
-            json!({"skill": "example:analysis", "path": "references/guide.md"}),
-        )])
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let server = Server::held_turn_completion(
+            vec![(
+                "read_skill_resource".into(),
+                json!({"skill": "example:analysis", "path": "references/guide.md"}),
+            )],
+            gate.clone(),
+        )
         .await;
         let (directory, node, controller, client, session) = fixture(remote, &server).await;
         enabled_only(&client, &["example"]).await;
@@ -63,7 +67,8 @@ async fn retains_admitted_versions() {
         .await;
         for (index, (turn, version)) in [(&old, "1.0.0"), (&new, "2.0.0")].into_iter().enumerate() {
             execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
-            let page = finished(&client, session.id, turn.id).await;
+            server.wait_count((index + 1) * 2).await;
+            let page = history(&client, session.id).await;
             assert_eq!(
                 results(&client, &page).await.last().unwrap()["content"],
                 format!("Guide {version} 中文 🙂")
@@ -74,7 +79,7 @@ async fn retains_admitted_versions() {
                     .find(|run| run.turn == turn.id)
                     .unwrap()
                     .status,
-                Status::Completed
+                Status::Running
             );
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), (index + 1) * 2);
@@ -101,6 +106,16 @@ async fn retains_admitted_versions() {
                 assert_ne!(previous["directory"], receipt["directory"]);
                 assert!(previous.get("output").is_none());
             }
+            gate.notify_one();
+            let page = finished(&client, session.id, turn.id).await;
+            assert_eq!(
+                page.runs
+                    .iter()
+                    .find(|run| run.turn == turn.id)
+                    .unwrap()
+                    .status,
+                Status::Completed
+            );
         }
         let Output::Session(branch) = execute(
             &client,
