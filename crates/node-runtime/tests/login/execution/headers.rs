@@ -8,7 +8,12 @@ async fn keeps_transient_headers_out_of_cache() {
                 if exchange(request) {
                     Reply::Json(exchanged(request, Authentication::Copilot, true))
                 } else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
-                    generation(request, Authentication::Copilot, true)
+                    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+                    let tools = body
+                        .get("tools")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|tools| !tools.is_empty());
+                    generation(request, Authentication::Copilot, tools)
                 } else {
                     standard(request)
                 }
