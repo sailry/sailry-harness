@@ -94,7 +94,7 @@ impl MachineEffect for Effect {
             Self::Conversation(effect) => effect.ensure_message_ids(),
             Self::Compaction { summary, .. } => {
                 if summary.id.is_none() {
-                    *summary = Box::new(summary.as_ref().clone().with_generated_id());
+                    **summary = summary.as_ref().clone().with_generated_id();
                 }
             }
             Self::Usage(_) | Self::Records(_) | Self::Approval { .. } => {}
