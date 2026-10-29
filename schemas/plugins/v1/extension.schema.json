@@ -500,16 +500,6 @@
     "Capabilities": {
       "additionalProperties": false,
       "properties": {
-        "web_search": {
-          "default": false,
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
-    "Capabilities2": {
-      "additionalProperties": false,
-      "properties": {
         "files": {
           "default": false,
           "type": "boolean"
@@ -1456,7 +1446,7 @@
       "additionalProperties": false,
       "properties": {
         "capabilities": {
-          "$ref": "#/$defs/Capabilities2",
+          "$ref": "#/$defs/Capabilities",
           "default": {
             "files": false,
             "reasoning": false,
@@ -2871,12 +2861,6 @@
             }
           ],
           "default": null
-        },
-        "capabilities": {
-          "$ref": "#/$defs/Capabilities",
-          "default": {
-            "web_search": false
-          }
         },
         "description": {
           "type": [
