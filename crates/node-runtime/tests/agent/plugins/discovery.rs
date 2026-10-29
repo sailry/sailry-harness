@@ -94,10 +94,11 @@ async fn restores_selection(name: &str, arguments: Value) {
                 .status,
             Status::Completed
         );
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 3);
-        assert_eq!(requests[2]["tools"], second["tools"]);
-        drop(requests);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert_eq!(requests[2]["tools"], second["tools"]);
+        }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

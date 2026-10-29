@@ -69,7 +69,7 @@ async fn summary(
         .filter(|call| call.summary(page).is_some_and(|summary| summary.published))
     {
         let call = call.with_detail(
-            crate::agent_support::details::read(&client, call.detail_reference(page).unwrap())
+            crate::agent_support::details::read(client, call.detail_reference(page).unwrap())
                 .await
                 .unwrap(),
         );
