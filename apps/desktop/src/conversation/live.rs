@@ -109,6 +109,12 @@ pub(crate) enum Event {
     LocationChanged,
 }
 
+type DetailRow = (
+    sailry_protocol::tool::detail::Reference,
+    Bounds<Pixels>,
+    bool,
+);
+
 pub(crate) struct View {
     contributions: Entity<crate::plugins::contributions::Registry>,
     contribution_metadata: Entity<crate::plugins::metadata::Metadata>,
@@ -150,15 +156,7 @@ pub(crate) struct View {
     expanded: BTreeMap<(TurnId, String), bool>,
     details: sailry_client::conversation::details::Tracker,
     details_visible: Cell<bool>,
-    detail_rows: Rc<
-        std::cell::RefCell<
-            Vec<(
-                sailry_protocol::tool::detail::Reference,
-                Bounds<Pixels>,
-                bool,
-            )>,
-        >,
-    >,
+    detail_rows: Rc<std::cell::RefCell<Vec<DetailRow>>>,
     publication_heights:
         Rc<std::cell::RefCell<BTreeMap<sailry_protocol::tool::detail::Reference, Pixels>>>,
     changes: BTreeMap<TurnId, Entity<messages::changes::Card>>,

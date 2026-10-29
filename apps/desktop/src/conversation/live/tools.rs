@@ -155,9 +155,11 @@ impl View {
             .iter()
             .filter_map(|call| call.detail_reference(page))
             .collect();
-        let visible = (open && projected)
-            .then(|| references.clone())
-            .unwrap_or_default();
+        let visible = if open && projected {
+            references.clone()
+        } else {
+            Vec::new()
+        };
         Collapsible::new()
             .open(open)
             .w_full()
@@ -211,7 +213,7 @@ impl View {
                         .get(&(turn, key.clone()))
                         .copied()
                         .unwrap_or(false);
-                let visible = open.then(|| references.clone()).unwrap_or_default();
+                let visible = if open { references.clone() } else { Vec::new() };
                 Collapsible::new()
                     .open(open)
                     .w_full()
@@ -502,10 +504,10 @@ impl View {
             .as_ref()
             .and_then(|snapshot| inspector::copy(call, &snapshot.page))
             .unwrap_or_else(|| body.copy_text());
-        if !copy.is_empty() {
-            if let Some(snapshot) = &self.history.snapshot {
-                actions.push(self.copy_result(key, call, &snapshot.page, cx));
-            }
+        if !copy.is_empty()
+            && let Some(snapshot) = &self.history.snapshot
+        {
+            actions.push(self.copy_result(key, call, &snapshot.page, cx));
         }
         let tone = outcome_tone(call, result, cx);
         let notices = v_flex().children(body.notices.iter().map(|notice| {
