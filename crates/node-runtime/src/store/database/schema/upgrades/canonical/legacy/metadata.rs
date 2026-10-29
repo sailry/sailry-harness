@@ -155,6 +155,7 @@ fn context(event: &Event) -> Result<Context, Fault> {
             serde_json::from_value(value.clone()).map_err(storage_error)?,
         );
     }
+    // The former masked-output cache belonged to the retired ADK loop.
     Ok(Context {
         captured: event
             .metadata
@@ -169,8 +170,6 @@ fn context(event: &Event) -> Result<Context, Fault> {
             .get("sailry.context.loaded_tools")
             .map(|value| serde_json::from_value(value.clone()).map_err(storage_error))
             .transpose()?,
-        // The former masked-output cache belonged to the retired ADK loop.
-        ..Context::default()
     })
 }
 

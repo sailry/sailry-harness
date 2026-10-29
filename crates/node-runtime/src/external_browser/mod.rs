@@ -172,7 +172,7 @@ fn unavailable(message: impl Into<String>) -> Fault {
     Fault::new(ErrorCode::Unavailable, message)
 }
 fn io_error(error: std::io::Error) -> Fault {
-    unavailable(&format!("managed browser file operation failed: {error}"))
+    unavailable(format!("managed browser file operation failed: {error}"))
 }
 
 fn path_text(path: &std::path::Path) -> Result<&str, Fault> {
