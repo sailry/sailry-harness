@@ -212,7 +212,8 @@ async fn projected(
     .expect("queue projection deadline");
 }
 
-fn prompt(request: &serde_json::Value) -> &str {
+fn prompt(request: &serde_json::Value) -> String {
+    let request = crate::agent_support::task_request(request);
     request["messages"]
         .as_array()
         .unwrap()
@@ -222,6 +223,7 @@ fn prompt(request: &serde_json::Value) -> &str {
         .unwrap()["content"]
         .as_str()
         .unwrap()
+        .to_owned()
 }
 
 #[tokio::test]

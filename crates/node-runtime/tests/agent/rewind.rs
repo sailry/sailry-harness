@@ -345,7 +345,8 @@ async fn recovers_subscribers_after_rewind() {
             );
         }
         assert_eq!(*view.borrow().snapshot.as_ref().unwrap().page, resumed);
-        let body = server.requests.lock().unwrap().last().unwrap().clone();
+        let body =
+            crate::agent_support::task_request(server.requests.lock().unwrap().last().unwrap());
         let contents: Vec<_> = body["messages"]
             .as_array()
             .unwrap()

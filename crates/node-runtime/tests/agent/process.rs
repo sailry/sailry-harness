@@ -812,7 +812,8 @@ async fn delivers_completion_without_consuming_controller_reads() {
         assert_eq!(notice.notices[0].id, id);
         assert!(notice.input.is_none());
         assert_eq!(server.requests.lock().unwrap().len(), 2);
-        let request = server.requests.lock().unwrap().last().unwrap().clone();
+        let request =
+            crate::agent_support::task_request(server.requests.lock().unwrap().last().unwrap());
         let content = request["messages"]
             .as_array()
             .unwrap()

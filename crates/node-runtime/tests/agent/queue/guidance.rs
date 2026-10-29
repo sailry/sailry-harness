@@ -518,18 +518,31 @@ async fn keeps_turn_through_repeated_guidance() {
                 .to_string()
                 .contains("Fresh preference at the guidance boundary")
         }));
-        for pair in requests.windows(2) {
-            let prefix = pair[0]["messages"].as_array().unwrap();
+        let tasks: Vec<_> = requests
+            .iter()
+            .map(crate::agent_support::task_request)
+            .collect();
+        for (pair, tasks) in requests.windows(2).zip(tasks.windows(2)) {
+            let prefix = tasks[0]["messages"].as_array().unwrap();
             assert_eq!(
                 serde_json::to_vec(prefix).unwrap(),
-                serde_json::to_vec(&pair[1]["messages"].as_array().unwrap()[..prefix.len()])
+                serde_json::to_vec(&tasks[1]["messages"].as_array().unwrap()[..prefix.len()])
                     .unwrap()
             );
+            let context = crate::agent_support::turn_context(&pair[0]).unwrap();
+            assert_eq!(crate::agent_support::turn_context(&pair[1]), Some(context));
+            // The original wire prefix stays byte-identical up to the
+            // request-only tail, including any coalesced user text.
+            let encoded = serde_json::to_string(&pair[0]["messages"]).unwrap();
+            let tail = serde_json::to_string(&format!("\n{context}")).unwrap();
+            let boundary = encoded.rfind(&tail[1..tail.len() - 1]).unwrap();
+            let next = serde_json::to_string(&pair[1]["messages"]).unwrap();
+            assert!(next.as_bytes().starts_with(&encoded.as_bytes()[..boundary]));
             assert_eq!(pair[0]["tools"], pair[1]["tools"]);
         }
         for text in ["Use the first detail", "Also use the later detail"] {
             assert_eq!(
-                requests[2]["messages"]
+                tasks[2]["messages"]
                     .as_array()
                     .unwrap()
                     .iter()
