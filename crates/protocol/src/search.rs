@@ -43,6 +43,41 @@ impl Driver {
                 | Self::Deepseek
         )
     }
+
+    pub fn capability(self, key_configured: bool) -> Capability {
+        Capability {
+            key_required: self.key_required(),
+            quota: match self {
+                Self::Exa if !key_configured => Quota::AnonymousQuota,
+                Self::Searxng => Quota::Keyless,
+                Self::Bocha | Self::Deepseek => Quota::Paid,
+                _ => Quota::FreeQuota,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Quota {
+    Keyless,
+    AnonymousQuota,
+    FreeQuota,
+    Paid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Capability {
+    pub key_required: bool,
+    pub quota: Quota,
+}
+
+fn capabilities() -> BTreeMap<Driver, Capability> {
+    Driver::ALL
+        .into_iter()
+        .map(|driver| (driver, driver.capability(false)))
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +103,19 @@ pub struct Settings {
     pub driver: Option<Selection>,
     pub fallback: bool,
     pub providers: BTreeMap<Driver, Config>,
+    /// Node-owned driver declarations; clients cannot change them through a settings update.
+    #[serde(default = "capabilities")]
+    pub capabilities: BTreeMap<Driver, Capability>,
+}
+
+impl Settings {
+    pub fn describe(&mut self) {
+        self.capabilities = self
+            .providers
+            .iter()
+            .map(|(driver, config)| (*driver, driver.capability(config.key_configured)))
+            .collect();
+    }
 }
 
 impl Default for Settings {
@@ -76,6 +124,7 @@ impl Default for Settings {
             revision: 0,
             driver: Some(Selection::Auto),
             fallback: true,
+            capabilities: capabilities(),
             providers: Driver::ALL
                 .into_iter()
                 .map(|driver| {
@@ -240,6 +289,42 @@ pub struct Page {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn declares_quota_and_key_requirements() {
+        let mut settings = Settings::default();
+        assert_eq!(
+            settings.capabilities[&Driver::Exa].quota,
+            Quota::AnonymousQuota
+        );
+        assert_eq!(
+            settings.capabilities[&Driver::Searxng].quota,
+            Quota::Keyless
+        );
+        for driver in [
+            Driver::Tinyfish,
+            Driver::Tavily,
+            Driver::Brave,
+            Driver::Volcengine,
+        ] {
+            assert_eq!(settings.capabilities[&driver].quota, Quota::FreeQuota);
+            assert!(settings.capabilities[&driver].key_required);
+        }
+        for driver in [Driver::Bocha, Driver::Deepseek] {
+            assert_eq!(settings.capabilities[&driver].quota, Quota::Paid);
+        }
+        settings
+            .providers
+            .get_mut(&Driver::Exa)
+            .unwrap()
+            .key_configured = true;
+        settings.describe();
+        assert_eq!(settings.capabilities[&Driver::Exa].quota, Quota::FreeQuota);
+        assert_eq!(
+            serde_json::from_value::<Settings>(serde_json::to_value(&settings).unwrap()).unwrap(),
+            settings
+        );
+    }
 
     #[test]
     fn defaults_select_auto_and_bound_results() {

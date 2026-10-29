@@ -46,7 +46,8 @@ async fn stored(db: &Connection) -> Result<Stored, Fault> {
 }
 
 async fn load(db: &Connection) -> Result<Stored, Fault> {
-    let stored = stored(db).await?;
+    let mut stored = stored(db).await?;
+    stored.settings.describe();
     validate(&stored)?;
     Ok(stored)
 }
@@ -74,6 +75,7 @@ pub(in crate::store) async fn apply_defaults(db: &Connection) -> Result<(), Faul
     for (driver, config) in search::Settings::default().providers {
         stored.settings.providers.entry(driver).or_insert(config);
     }
+    stored.settings.describe();
     validate(&stored)?;
     db.execute(
         "UPDATE search_settings SET body=?1 WHERE singleton=1",
@@ -200,6 +202,7 @@ pub(super) async fn save(
         config.key_configured = auth.key.is_some();
         config.basic_configured = auth.basic.is_some();
     }
+    stored.settings.describe();
     validate(&stored)?;
     db.execute("INSERT INTO search_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&stored)?]).await.map_err(storage_error)?;
     Ok((

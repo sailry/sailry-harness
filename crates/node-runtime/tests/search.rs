@@ -7,6 +7,8 @@ use sailry_protocol::{
     search::{self, Driver, Selection},
 };
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
+#[path = "search/capabilities.rs"]
+mod capabilities;
 #[path = "search/domestic.rs"]
 mod domestic;
 #[path = "search/filters.rs"]
