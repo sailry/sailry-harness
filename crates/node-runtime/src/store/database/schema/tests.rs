@@ -228,6 +228,11 @@ async fn keeps_contract_versions_at_one() {
     identity(&connection, Path::new("fixture"), NodeId([1; 32]))
         .await
         .unwrap();
+    assert!(
+        generation::current(&connection, Path::new("fixture"))
+            .await
+            .unwrap()
+    );
     for (pragma, value) in [("user_version", 2), ("application_id", 1)] {
         connection.pragma_update(pragma, value).await.unwrap();
         assert!(ownership(&connection, Path::new("fixture")).await.is_err());

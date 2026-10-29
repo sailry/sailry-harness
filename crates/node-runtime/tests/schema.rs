@@ -9,8 +9,8 @@ use std::{
 };
 use turso::{Connection, Database, Value};
 
-#[path = "schema/legacy.rs"]
-mod legacy;
+#[path = "schema/generation.rs"]
+mod generation;
 
 #[tokio::test]
 async fn preserves_current_resources_on_both_paths() {
@@ -106,6 +106,10 @@ async fn preserves_current_resources_on_both_paths() {
                 .get::<i64>(0)
                 .unwrap(),
             1
+        );
+        assert_eq!(
+            rows(&connection, "SELECT storage_generation FROM node").await,
+            vec![vec![Value::Integer(1)]]
         );
         drop(connection);
         drop(_database);
@@ -285,6 +289,7 @@ async fn assert_rejected(sql: &str, detail: &str) {
     assert!(error.contains(detail), "{error}");
     assert!(error.contains("existing data was not changed"), "{error}");
     assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert!(backups(&profile).is_empty());
 }
 
 async fn open(path: &Path, read_only: bool) -> (Database, Connection) {

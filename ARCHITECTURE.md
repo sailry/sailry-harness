@@ -355,12 +355,16 @@ digest. Record references retain MIME type, size and original position. Structur
 tool JSON stores references for declared binary fields and hydrates the exact JSON
 for public output pages, immutable revisions and artifact receipts. Records and
 their blobs commit in the existing history transaction; exported asset indexes and
-UI rows remain rebuildable projections. Startup recognizes pre-GDK Node storage
-only through known event, search-setting, role-tool or usage-index definitions.
-It validates an empty replacement in isolation, saves the complete closed database
-family in a private backup, logs that location and creates an empty current Node
-database. It does not convert those records. Other invalid definitions fail without
-resetting storage. Runtime readers accept only current canonical records.
+UI rows remain rebuildable projections. The current development baseline stores
+`node.storage_generation=1`, independently of the v1 protocol and `user_version`.
+An existing owned Node database without that column is development data: startup
+closes and removes the Node and knowledge database families and creates an empty
+current database. This reset does not migrate or back up development records.
+Ordinary resource collection removes unreferenced attachments and plugin packages.
+Node identity and external project files remain in place. Generation 1 databases
+retain their data; unknown generation values and other invalid current definitions
+fail without resetting storage. Runtime readers accept only current canonical
+records.
 Streaming drafts and canonical entries retain ordinary text, thinking and tool
 parts. Interruption preserves those parts without a separate commentary phase.
 Context observations pair provider-reported input and output tokens with the
@@ -1045,15 +1049,16 @@ contracts remain v1 and change in place. Startup adds missing schema objects and
 fills missing storage fields with their defaults. Updates remain centralized and
 simple, with no historical state inference or versioned migration framework. Each
 update is validated on an isolated snapshot, backed up privately and applied with
-current-format validation in one transaction. The backup retains original records;
-startup does not reset or delete user data. Normal startup validates current
+current-format validation in one transaction. The backup retains original records.
+The development baseline rebuild for databases without a storage generation
+uses the separate reset path described above; validation failures
+never authorize rebuilding a current database. Normal startup validates current
 configuration and records used by recovery, including the latest saved session
 order. Immutable historical captures, receipts and history are validated when their
 authoritative readers load them; unrelated archive damage therefore fails that
 read instead of blocking startup. Upgrades and backup acceptance still validate
-the complete stored data before applying changes. Conversation conversion decodes
-the former engine format only inside the startup updater. Runtime readers accept
-the current Sailry record format, and the private backup retains original bytes.
+the complete stored data before applying changes. Runtime readers accept the current
+Sailry record format, and the private backup retains original bytes.
 Third-party dependency versions, ordinary
 data revisions and event sequences are independent. Release compatibility remains
 a separate decision.

@@ -36,7 +36,7 @@ fn copies_only_the_closed_family() {
 }
 
 #[test]
-fn rebuild_preserves_backup_and_neighbors() {
+fn preserves_backup_and_neighbors() {
     let directory = tempfile::tempdir().unwrap();
     let source = directory.path().join("node.turso");
     let bodies = ["database", "logical log", "write log", "shared memory"];

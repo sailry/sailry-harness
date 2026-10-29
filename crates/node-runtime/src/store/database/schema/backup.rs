@@ -108,7 +108,7 @@ pub(in crate::store) fn save(path: &Path) -> Result<PathBuf, Error> {
     Ok(target.join(path.file_name().ok_or_else(unavailable)?))
 }
 
-/// Remove only a closed Node database family after its complete backup is saved.
+/// Remove a closed native database family under the caller's reset policy.
 pub(in crate::store) fn clear(path: &Path) -> Result<(), Error> {
     for file in crate::profile::database_files(path) {
         match std::fs::remove_file(file) {

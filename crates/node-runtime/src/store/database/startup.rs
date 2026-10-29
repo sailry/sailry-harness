@@ -105,38 +105,11 @@ async fn rebuild(
     node: NodeId,
     plugins: Option<&crate::plugins::Host>,
 ) -> Result<(Database, Connection, Option<PathBuf>), Error> {
-    let preview = schema::backup::preview(path)?;
-    schema::backup::clear(preview.path())?;
-    {
-        let resources = rehearsal(plugins, node)?;
-        let (_handle, connection) = Box::pin(empty(
-            preview.path(),
-            node,
-            resources.as_ref().map(|(_, host)| host),
-        ))
-        .await?;
-        driver::checkpoint(&connection).await?;
-    }
-    let backup = schema::backup::save(path)?;
-    crate::logging::database_rebuild(node, &backup);
-    let result = async {
-        schema::backup::clear(path)?;
-        Box::pin(empty(path, node, plugins)).await
-    }
-    .await;
-    match result {
-        Ok((handle, connection)) => Ok((handle, connection, Some(backup))),
-        Err(error) => {
-            if let Err(restore) =
-                schema::backup::clear(path).and_then(|()| schema::backup::copy(&backup, path))
-            {
-                return Err(Error::Worker(format!(
-                    "Node database rebuild failed ({error}); original storage could not be restored ({restore}); the private backup remains at {backup:?}"
-                )));
-            }
-            Err(error)
-        }
-    }
+    schema::backup::clear(path)?;
+    schema::backup::clear(&path.with_file_name("knowledge.turso"))?;
+    let (handle, connection) = Box::pin(empty(path, node, plugins)).await?;
+    crate::logging::database_rebuild(node);
+    Ok((handle, connection, None))
 }
 
 pub(super) async fn open(

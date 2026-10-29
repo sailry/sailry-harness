@@ -1,7 +1,7 @@
 //! Synchronize the current native schema without importing another database format.
 pub(in crate::store) mod backup;
 mod definition;
-mod legacy;
+mod generation;
 mod plan;
 #[cfg(test)]
 mod tests;
@@ -61,7 +61,7 @@ enum State {
     Fresh,
     Current,
     Update(plan::Plan),
-    Legacy,
+    Rebuild,
 }
 
 impl Schema {
@@ -70,7 +70,7 @@ impl Schema {
     }
 
     pub(super) fn needs_rebuild(&self) -> bool {
-        matches!(self.state, State::Legacy)
+        matches!(self.state, State::Rebuild)
     }
 
     /// The bootstrap owner supplies the transaction and owns rehearsal and backup.
@@ -82,9 +82,9 @@ impl Schema {
                 upgrades::apply(connection).await?;
             }
             State::Current => {}
-            State::Legacy => {
+            State::Rebuild => {
                 return Err(Error::Worker(
-                    "legacy Node storage requires a private backup and an empty database".into(),
+                    "Node storage without a generation requires a development reset".into(),
                 ));
             }
         }
@@ -148,9 +148,9 @@ pub(super) async fn prepare(
     let fresh = ownership(connection, path).await?;
     if !fresh {
         identity(connection, path, node).await?;
-        if legacy::detected(connection).await? {
+        if !generation::current(connection, path).await? {
             return Ok(Schema {
-                state: State::Legacy,
+                state: State::Rebuild,
                 expected: Objects::new(),
                 path: path.to_owned(),
             });

@@ -62,9 +62,12 @@ plugin data, and attachments. Credentials stay out of public events, logs and UI
 caches. Projects remain at their registered paths. Remote
 execution data stays on the execution Node. Startup restores missing schema
 objects and storage defaults after validating an isolated snapshot and saving a
-private backup. Recognized pre-GDK Node storage instead receives a complete private
-backup and an empty current database; the Node log records the backup location.
-Other incompatible definitions fail without resetting or deleting data.
+private backup. For the current development baseline, existing owned Node storage
+without `node.storage_generation` is reset along with its derived knowledge cache.
+This reset creates an empty current database without migrating or backing up
+development data. Current generation 1 storage retains its data. Unknown generation
+values and other incompatible current definitions fail without resetting or
+deleting data.
 
 Host is a long-running headless service, not an interactive agent CLI. Desktop or
 Mobile controls it through the shared protocol. See [Host deployment](ARCHITECTURE.md#deployment-and-operations)

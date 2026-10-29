@@ -55,7 +55,7 @@ fn filters_payloads_and_upstream_events() {
 }
 
 #[test]
-fn records_private_rebuild_location() {
+fn records_rebuild() {
     let directory = tempfile::tempdir().unwrap();
     let (writer, worker) = writer(
         directory.path(),
@@ -66,12 +66,8 @@ fn records_private_rebuild_location() {
     .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     let node = sailry_protocol::NodeId([47; 32]);
-    let backup = PathBuf::from(format!(
-        "/private/工作\n{}/backups/node-before-upgrade-fixture/node.turso",
-        "x".repeat(300)
-    ));
     tracing::dispatcher::with_default(&dispatch, || {
-        database_rebuild(node, &backup);
+        database_rebuild(node);
     });
     drop(worker);
     let records = lines(directory.path());
@@ -79,7 +75,8 @@ fn records_private_rebuild_location() {
     assert_eq!(records[0]["area"], "node");
     assert_eq!(records[0]["operation"], "database_rebuild");
     assert_eq!(records[0]["node"], node.to_string());
-    assert_eq!(records[0]["backup_path"], backup.to_str().unwrap());
+    assert_eq!(records[0]["phase"], "completed");
+    assert!(records[0].get("backup_path").is_none());
 }
 
 #[test]
