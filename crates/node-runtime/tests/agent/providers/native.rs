@@ -318,7 +318,10 @@ async fn restores_authenticated_history() {
                             );
                             assert_eq!(request.body["model"], "fixture-a");
                             assert_eq!(request.body["max_tokens"], 512);
-                            assert!(request.body.get("thinking").is_none());
+                            assert_eq!(
+                                request.body["thinking"],
+                                serde_json::json!({"type":"enabled"})
+                            );
                             assert_eq!(request.body["reasoning_effort"], "high");
                         }
                         ModelApi::Anthropic => {
@@ -336,10 +339,9 @@ async fn restores_authenticated_history() {
                             );
                             assert_eq!(request.headers.get("x-goog-api-key").unwrap(), server::KEY);
                             assert_eq!(request.body["generationConfig"]["maxOutputTokens"], 512);
-                            assert!(
-                                request.body["generationConfig"]
-                                    .get("thinkingConfig")
-                                    .is_none()
+                            assert_eq!(
+                                request.body["generationConfig"]["thinkingConfig"],
+                                serde_json::json!({"thinkingLevel":"high","includeThoughts":true})
                             );
                         }
                         _ => unreachable!(),

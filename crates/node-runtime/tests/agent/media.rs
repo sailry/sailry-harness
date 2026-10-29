@@ -165,8 +165,8 @@ async fn restores_frozen_execution() {
         provider.id = ProviderId::new();
         provider.revision = 0;
         provider.endpoint = media.endpoint.clone();
-        // The configured media API is authoritative when the catalog is absent.
-        provider.models.clear();
+        provider.models[0].vision = true;
+        provider.models[0].capabilities.as_mut().unwrap().vision = Some(true);
         let catalog = serde_json::to_vec(&json!({"version":1,"partners":[{
             "id":"media-fixture","name":"Media fixture",
             "routes":[{"protocol":"openai-chat-completions","endpoint":media.endpoint}],
@@ -193,7 +193,7 @@ async fn restores_frozen_execution() {
         else {
             panic!("provider expected")
         };
-        assert!(provider.models.is_empty());
+        assert!(provider.models[0].vision);
         let settings = Settings {
             revision: 0,
             bindings: [Kind::Vision, Kind::Image, Kind::Video]

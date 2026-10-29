@@ -9,41 +9,52 @@ async fn preserves_failure_when_observation_write_fails() {
     for remote in [false, true] {
         for status in [401, 429] {
             let raw = format!(
-                "HTTP/1.1 {status} Fixture error\r\nContent-Type: application/json\r\nRetry-After: 0\r\nConnection: close\r\n\r\n{{\"message\":\"{MESSAGE}\"}}"
+                "HTTP/1.1 {status} Fixture error\r\nContent-Type: application/json\r\nRetry-After: 0\r\nConnection: close\r\n\r\n{{\"message\":\"{status}: {MESSAGE}\"}}"
             );
             let server =
                 Server::start(ModelApi::Responses, Reply::Raw(Arc::new(raw.into_bytes()))).await;
-            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-            fixture.node.with_storage(|db| Box::pin(async move {
+            let mut baseline = None;
+            for reject_observation in [false, true] {
+                let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+                let before = server.requests.lock().unwrap().len();
+                if reject_observation {
+                    fixture.node.with_storage(|db| Box::pin(async move {
                 db.execute_batch("CREATE TRIGGER reject_observation BEFORE INSERT ON agent_events WHEN json_type(NEW.body,'$.metadata.execution.observation')='object' BEGIN SELECT RAISE(ABORT,'injected observation failure'); END;")
                     .await.map_err(crate::database_fixture::fault)
             })).await.unwrap();
-            let turn = fixture.submit("Keep the provider rejection").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            let run = page.runs.last().unwrap();
-            assert_eq!(run.status, Status::Failed);
-            let error = run.error.as_ref().unwrap();
-            assert_eq!(
-                error.details,
-                Some(sailry_protocol::FaultDetails::ModelRequest {
-                    reason: if status == 401 {
-                        sailry_protocol::ModelFailure::Unauthorized
-                    } else {
-                        sailry_protocol::ModelFailure::RateLimited
-                    },
-                })
-            );
-            assert!(!error.message.contains("observation"), "{error:?}");
-            assert_eq!(
-                server.requests.lock().unwrap().len(),
-                if status == 401 {
-                    1
-                } else {
-                    1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES
                 }
-            );
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
+                let turn = fixture.submit("Keep the provider rejection").await;
+                let page = finished(&fixture.client, fixture.session.id, turn).await;
+                let run = page.runs.last().unwrap();
+                assert_eq!(run.status, Status::Failed);
+                let error = run.error.as_ref().unwrap();
+                if status == 401 {
+                    assert_eq!(
+                        error.details,
+                        Some(sailry_protocol::FaultDetails::ModelRequest {
+                            reason: sailry_protocol::ModelFailure::Unauthorized,
+                        })
+                    );
+                }
+                assert!(error.message.contains(MESSAGE), "{error:?}");
+                assert!(error.message.contains(&status.to_string()), "{error:?}");
+                assert!(!error.message.contains("observation"), "{error:?}");
+                if let Some(expected) = &baseline {
+                    assert_eq!(error, expected);
+                } else {
+                    baseline = Some(error.clone());
+                }
+                assert_eq!(
+                    server.requests.lock().unwrap().len() - before,
+                    if status == 401 {
+                        1
+                    } else {
+                        1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES
+                    }
+                );
+                fixture.controller.close().await.unwrap();
+                fixture.node.shutdown().await.unwrap();
+            }
         }
     }
 }

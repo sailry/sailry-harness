@@ -1,5 +1,24 @@
 use super::*;
 
+fn metadata(id: &str) -> sailry_protocol::conversation::Model {
+    sailry_protocol::conversation::Model {
+        id: id.into(),
+        display_name: None,
+        context: 100_000,
+        output: 4096,
+        compaction_tokens: None,
+        capabilities: None,
+        vision: false,
+        tools: true,
+        reasoning: true,
+        web_search: false,
+        generates: vec![],
+        efforts: vec![],
+        custom_efforts: false,
+        default_effort: Effort::High,
+    }
+}
+
 fn session(provider: &Provider, model: &str, effort: Effort) -> SessionConfig {
     serde_json::from_value(json!({
         "provider":provider.id,"model":model,"effort":effort,"mode":"code",
@@ -31,10 +50,7 @@ fn preserves_compatible_reasoning() {
         ),
     ] {
         let mut provider = provider(api, "https://example.test/v1".into());
-        provider.models = serde_json::from_value(json!([{
-            "id":model,"reasoning":true,"default_effort":"high"
-        }]))
-        .unwrap();
+        provider.models = vec![metadata(model)];
         for (effort, expected) in choices {
             let config = config(
                 &provider,
@@ -73,10 +89,10 @@ fn preserves_compatible_reasoning() {
 #[test]
 fn preserves_native_effort_levels() {
     let mut provider = provider(ModelApi::Anthropic, "https://example.test".into());
-    provider.models = serde_json::from_value(json!([{
-        "id":"claude-opus-4-8","reasoning":true,"output":16000
-    }]))
-    .unwrap();
+    provider.models = vec![sailry_protocol::conversation::Model {
+        output: 16000,
+        ..metadata("claude-opus-4-8")
+    }];
     let selected = session(&provider, "claude-opus-4-8", Effort::XHigh);
     let config = config(&provider, &selected, SessionId::new());
     assert_eq!(
@@ -110,9 +126,20 @@ fn scopes_optional_request_fields() {
         ] {
             let mut provider = provider(api, "https://example.test/v1".into());
             provider.authentication = authentication;
-            provider.models = serde_json::from_value(json!([{
-                "id":"captured","capabilities":{"features":[{"id":"speed","options":[{"id":"fast"}]}]}
-            }])).unwrap();
+            let mut model = metadata("captured");
+            model.capabilities = Some(sailry_protocol::conversation::discovery::Capabilities {
+                features: vec![sailry_protocol::conversation::features::Feature {
+                    id: "speed".into(),
+                    name: None,
+                    icon: None,
+                    options: vec![sailry_protocol::conversation::features::FeatureOption {
+                        id: "fast".into(),
+                        name: None,
+                    }],
+                }],
+                ..Default::default()
+            });
+            provider.models = vec![model];
             let mut selected = session(&provider, "captured", Effort::Default);
             selected.features.insert("speed".into(), "fast".into());
             let config = config(&provider, &selected, SessionId::new());
@@ -152,8 +179,7 @@ fn sends_images_without_model_metadata() {
             .to_string()
             .contains("data:image/png;base64,aW1hZ2U=")
     );
-    provider.models =
-        serde_json::from_value(json!([{"id":"uncatalogued","vision":false}])).unwrap();
+    provider.models = vec![metadata("uncatalogued")];
     assert_eq!(
         super::config(&provider, &selected, SessionId::new()).supports_vision,
         Some(false)
