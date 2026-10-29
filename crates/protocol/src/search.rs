@@ -16,22 +16,31 @@ pub enum Driver {
     Brave,
     Searxng,
     Bocha,
+    Volcengine,
+    Deepseek,
 }
 
 impl Driver {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Exa,
         Self::Tinyfish,
         Self::Tavily,
         Self::Brave,
         Self::Searxng,
         Self::Bocha,
+        Self::Volcengine,
+        Self::Deepseek,
     ];
 
     pub fn key_required(self) -> bool {
         matches!(
             self,
-            Self::Tinyfish | Self::Tavily | Self::Brave | Self::Bocha
+            Self::Tinyfish
+                | Self::Tavily
+                | Self::Brave
+                | Self::Bocha
+                | Self::Volcengine
+                | Self::Deepseek
         )
     }
 }

@@ -40,6 +40,22 @@ async fn maps_time_and_domain_filters() {
             let url = url::Url::parse(&format!("http://fixture{path}")).unwrap();
             let parameters = url.query_pairs().collect::<BTreeMap<_, _>>();
             match driver {
+                Driver::Volcengine => {
+                    assert_eq!(
+                        body["TimeRange"],
+                        ["OneDay", "OneDay", "OneWeek", "OneMonth", "OneYear"][index]
+                    );
+                    assert_eq!(body["Filter"]["Sites"], input.include_domains.join("|"));
+                    assert_eq!(
+                        body["Filter"]["BlockHosts"],
+                        input.exclude_domains.join("|")
+                    );
+                }
+                Driver::Deepseek => {
+                    let query = body["query"].as_str().unwrap();
+                    assert!(query.starts_with(&filters::query(&input)));
+                    assert!(query.contains(" after:"));
+                }
                 Driver::Tinyfish => {
                     assert_eq!(
                         parameters["include_domains"],

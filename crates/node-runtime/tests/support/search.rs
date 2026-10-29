@@ -146,6 +146,8 @@ impl Server {
                 Driver::Brave => "brave",
                 Driver::Searxng => "searxng",
                 Driver::Bocha => "bocha",
+                Driver::Volcengine => "volcengine",
+                Driver::Deepseek => "deepseek",
             }
         )
     }
@@ -187,6 +189,10 @@ pub fn mapping(path: &str) -> Value {
     match path {
         "/brave" => json!({"web":{"results":[common]}}),
         "/bocha" => json!({"code":200,"data":{"webPages":{"value":[common]}}}),
+        "/volcengine" => json!({"ResponseMetadata":{},"Result":{"WebResults":[{
+            "Title":"Public source","Url":"https://example.com/source","Snippet":"Untrusted content",
+            "PublishTime":"2026-10-09"
+        }]}}),
         _ => json!({"results":[common]}),
     }
 }

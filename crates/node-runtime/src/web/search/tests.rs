@@ -3,6 +3,7 @@ use super::*;
 mod server;
 use server::{Reply, Server};
 mod parameters;
+mod selection;
 mod tinyfish;
 
 impl Server {
@@ -94,6 +95,9 @@ async fn maps_provider_requests_and_results() {
         } else if header.starts_with("POST /exa") {
             assert!(lower.contains("x-api-key: fixture-key"));
             assert_eq!(body["numResults"], 5);
+        } else if header.starts_with("POST /volcengine") {
+            assert!(lower.contains("authorization: bearer fixture-key"));
+            assert_eq!(body["Query"], input().query);
         } else {
             assert!(lower.contains("authorization: bearer fixture-key"));
             assert_eq!(body["query"], input().query);

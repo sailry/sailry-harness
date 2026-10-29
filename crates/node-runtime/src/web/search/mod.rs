@@ -13,6 +13,7 @@ use std::{
 mod bocha;
 mod brave;
 mod cooldown;
+mod deepseek;
 mod exa;
 mod filters;
 mod network;
@@ -34,6 +35,7 @@ pub(super) async fn json_request(
         .map_err(|failure| failure.fault)
 }
 mod tinyfish;
+mod volcengine;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -154,7 +156,7 @@ impl Searcher {
         if stop.is_cancelled() {
             return Err(Failure::cancelled().fault);
         }
-        let candidates = candidates(&plan.settings);
+        let candidates = ordered(&plan.settings, &input.query);
         if candidates.is_empty() {
             return Err(Fault::new(
                 ErrorCode::NotConfigured,
@@ -174,7 +176,7 @@ impl Searcher {
             let mut page_input = input.clone();
             page_input.limit = match driver {
                 Driver::Brave | Driver::Tavily => input.limit.min(20),
-                Driver::Bocha => input.limit.min(50),
+                Driver::Bocha | Driver::Volcengine | Driver::Deepseek => input.limit.min(50),
                 Driver::Exa => input.limit.min(100),
                 Driver::Searxng => input.limit,
                 Driver::Tinyfish => input.limit,
@@ -194,6 +196,8 @@ impl Searcher {
                             Driver::Searxng => searxng::search(&endpoint, &auth, input).await,
                             Driver::Bocha => bocha::search(&endpoint, &auth, input).await,
                             Driver::Tinyfish => tinyfish::search(&endpoint, &auth, input).await,
+                            Driver::Volcengine => volcengine::search(&endpoint, &auth, input).await,
+                            Driver::Deepseek => deepseek::search(&endpoint, &auth, input).await,
                         }
                     }) => result.unwrap_or_else(|_| Err(Failure::unavailable("search service deadline exceeded"))),
                 }
@@ -281,6 +285,8 @@ impl Searcher {
                 .unwrap_or_default(),
             Driver::Bocha => "https://api.bochaai.com/v1/web-search".into(),
             Driver::Tinyfish => "https://api.search.tinyfish.ai".into(),
+            Driver::Volcengine => "https://open.feedcoopapi.com/search_api/web_search".into(),
+            Driver::Deepseek => "https://api.deepseek.com/v1/tools/search".into(),
         }
     }
 
@@ -296,6 +302,32 @@ impl Searcher {
             .expect("search fixture lock is healthy")
             .insert(driver, endpoint.into());
     }
+}
+
+fn chinese(query: &str) -> bool {
+    let mut total = 0;
+    let mut han = 0;
+    for character in query
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+    {
+        total += 1;
+        han += usize::from(matches!(character as u32,
+            0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x323af));
+    }
+    total > 0 && han * 2 > total
+}
+
+fn ordered(settings: &search::Settings, query: &str) -> Vec<Driver> {
+    let mut drivers = candidates(settings);
+    if settings.driver == Some(Selection::Auto) && chinese(query) {
+        drivers.sort_by_key(|driver| match driver {
+            Driver::Bocha => 0,
+            Driver::Volcengine => 1,
+            _ => 2,
+        });
+    }
+    drivers
 }
 
 fn candidates(settings: &search::Settings) -> Vec<Driver> {
