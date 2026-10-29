@@ -8,15 +8,27 @@ use turso::{Connection, Database};
 #[cfg(test)]
 mod tests;
 
+pub(super) enum Source {
+    Profile,
+    Backup,
+}
+
 pub(super) async fn upgrade(
     path: &Path,
     node: NodeId,
     plugins: Option<&crate::plugins::Host>,
+    source: Source,
 ) -> Result<(Database, Connection, Option<PathBuf>), Error> {
     let mut handle = engine(path).await?;
     let mut connection = connect(&handle).await?;
     let schema = schema::prepare(&connection, path, node, plugins).await?;
     if schema.needs_rebuild() {
+        if matches!(source, Source::Backup) {
+            return Err(sailry_protocol::Fault::invalid(
+                "backup storage generation is incompatible",
+            )
+            .into());
+        }
         driver::checkpoint(&connection).await?;
         drop(connection);
         drop(handle);
@@ -105,8 +117,8 @@ async fn rebuild(
     node: NodeId,
     plugins: Option<&crate::plugins::Host>,
 ) -> Result<(Database, Connection, Option<PathBuf>), Error> {
-    schema::backup::clear(path)?;
     schema::backup::clear(&path.with_file_name("knowledge.turso"))?;
+    schema::backup::clear(path)?;
     let (handle, connection) = Box::pin(empty(path, node, plugins)).await?;
     crate::logging::database_rebuild(node);
     Ok((handle, connection, None))
@@ -117,7 +129,7 @@ pub(super) async fn open(
     node: NodeId,
     plugins: Option<&crate::plugins::Host>,
 ) -> Result<(Database, Connection), Error> {
-    let (handle, mut connection, _) = upgrade(path, node, plugins).await?;
+    let (handle, mut connection, _) = upgrade(path, node, plugins, Source::Profile).await?;
     let transaction = connection.transaction().await?;
     store::plugins::connectors::login::recover(&transaction)
         .await

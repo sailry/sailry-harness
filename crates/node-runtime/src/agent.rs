@@ -458,7 +458,9 @@ async fn execute_with(
             .registration(),
         );
     }
-    let names = model.names.capture(invocation, &extensions.tools)?;
+    let names = model
+        .names
+        .capture(invocation, &extensions.tools, &prompt_session.tool_names)?;
     if invocation.child.is_none() {
         extensions
             .instruction

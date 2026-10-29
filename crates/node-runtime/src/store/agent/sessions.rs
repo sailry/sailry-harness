@@ -19,7 +19,7 @@ use goose_provider_types::{
     thinking::ThinkingEffort,
 };
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 mod presentation;
 #[cfg(test)]
 mod tests;
@@ -213,6 +213,7 @@ impl Sessions {
 pub(crate) struct Session {
     pub id: String,
     pub records: Vec<Record>,
+    pub tool_names: BTreeSet<String>,
     pub conversation: Conversation,
     pub context: Context,
     pub capability: Option<String>,
@@ -367,9 +368,19 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
     }
     let mut rows = db.query("SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence",[query.session.to_string()]).await.map_err(storage_error)?;
     let mut records = Vec::new();
+    let mut tool_names = BTreeSet::new();
     while let Some(row) = rows.next().await.map_err(storage_error)? {
         let body: Vec<u8> = row.get(0).map_err(storage_error)?;
         let record: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+        for block in record
+            .message()
+            .into_iter()
+            .flat_map(|message| &message.content)
+        {
+            if let BlockKind::ToolRequest(request) = &block.kind {
+                tool_names.insert(request.name.clone());
+            }
+        }
         if query.after.is_none_or(|after| record.created >= after) {
             records.push(record);
         }
@@ -411,6 +422,7 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
     Ok(Session {
         id: query.session.to_string(),
         records,
+        tool_names,
         conversation: Conversation::new_unvalidated(messages),
         context: Context::from_state(&state),
         capability: capability(db, query.session).await?,

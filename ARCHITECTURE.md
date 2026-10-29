@@ -172,6 +172,8 @@ External project paths remain references. Local folders, WebDAV and S3 publish v
 password-encrypted age segments before their manifest; uncertain operations keep
 their original request identity. Explicit restore validates the archive into a new empty profile,
 relocates only current profile-owned paths and preserves immutable history.
+Archives without the current storage generation are rejected before any startup
+reset can run; failed restoration does not publish an empty profile.
 Temporary files and model caches are excluded, and restored
 profiles do not start automatically. Export requires a user passphrase; keys and
 Node identity remain inside the authenticated encrypted archive. The passphrase

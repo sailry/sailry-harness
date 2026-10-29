@@ -55,7 +55,6 @@ const FIELDS: &[&str] = &[
     "revision",
     "command",
     "operation",
-    "backup_path",
     "stage",
     "source_kind",
     "reason",
@@ -140,10 +139,6 @@ impl Fields {
 impl Visit for Fields {
     fn record_debug(&mut self, _: &Field, _: &dyn fmt::Debug) {}
     fn record_str(&mut self, field: &Field, value: &str) {
-        if field.name() == "backup_path" {
-            self.set(field, Value::String(value.into()));
-            return;
-        }
         let value: String = value
             .chars()
             .filter(|character| !character.is_control())

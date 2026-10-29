@@ -74,6 +74,42 @@ fn summary(after: &str) -> GdkMessage {
 }
 
 #[tokio::test]
+async fn retains_names_outside_requested_history() {
+    let (mut fixture, turn) = running().await;
+    apply(
+        &mut fixture,
+        turn,
+        vec![
+            GdkMessage::assistant()
+                .with_generated_id()
+                .with_tool_request("old", Ok(CallToolRequestParams::new("read_file")))
+                .with_visibility(false, false)
+                .into(),
+            GdkMessage::user()
+                .with_generated_id()
+                .with_tool_response("old", Ok(CallToolResult::success(vec![])))
+                .with_visibility(false, false)
+                .into(),
+        ],
+    )
+    .await
+    .unwrap();
+    let session = get(
+        &fixture.database.connection,
+        turn,
+        Query {
+            session: fixture.session,
+            recent: Some(0),
+            after: Some(Utc::now() + chrono::Duration::days(1)),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(session.records.is_empty());
+    assert_eq!(session.tool_names, ["read_file".into()].into());
+}
+
+#[tokio::test]
 async fn keeps_summary_before_current_output() {
     for failed in [false, true] {
         let (mut fixture, turn) = running().await;

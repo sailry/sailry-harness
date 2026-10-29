@@ -15,6 +15,7 @@ pub(super) fn session(messages: Vec<(TurnId, Message)>) -> Session {
     Session {
         id: "output-fixture".into(),
         records,
+        tool_names: Default::default(),
         conversation: Conversation::new_unvalidated(
             messages.into_iter().map(|(_, message)| message),
         ),

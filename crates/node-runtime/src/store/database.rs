@@ -1451,9 +1451,12 @@ pub(super) async fn upgrade_backup(
     path: &Path,
     node: NodeId,
 ) -> Result<Option<std::path::PathBuf>, Fault> {
-    let (handle, connection, backup) = startup::upgrade(path, node, None)
+    let (handle, connection, backup) = startup::upgrade(path, node, None, startup::Source::Backup)
         .await
-        .map_err(storage_error)?;
+        .map_err(|error| match error {
+            Error::Link(fault) => fault,
+            error => storage_error(error),
+        })?;
     driver::checkpoint(&connection)
         .await
         .map_err(storage_error)?;

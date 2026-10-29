@@ -14,6 +14,7 @@ use std::{collections::BTreeSet, sync::Arc};
 pub(in crate::agent) struct Session {
     context: Context,
     sessions: Sessions,
+    pub tool_names: BTreeSet<String>,
 }
 
 impl Session {
@@ -29,6 +30,7 @@ impl Session {
         Ok(Self {
             context: session.context,
             sessions,
+            tool_names: session.tool_names,
         })
     }
     pub fn loaded(&self) -> BTreeSet<String> {

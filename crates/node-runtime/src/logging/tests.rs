@@ -39,7 +39,7 @@ fn filters_payloads_and_upstream_events() {
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Desktop));
     tracing::dispatcher::with_default(&dispatch, || {
         tracing::error!(target: "sailry", area = "desktop", phase = "failed", reason = "fixture", body = "PRIVATE_BODY", credential = "PRIVATE_KEY", url = "PRIVATE_URL", error = ?"PRIVATE_ERROR", code = ?"PRIVATE_CODE");
-        tracing::error!(target: "sailry", input = "PRIVATE_INPUT", output = "PRIVATE_OUTPUT", headers = "PRIVATE_AUTHORIZATION", query = "PRIVATE_SQL", path = "PRIVATE_PATH", url = "https://fixture.invalid/?token=PRIVATE_QUERY_TOKEN");
+        tracing::error!(target: "sailry", input = "PRIVATE_INPUT", output = "PRIVATE_OUTPUT", headers = "PRIVATE_AUTHORIZATION", query = "PRIVATE_SQL", path = "PRIVATE_PATH", backup_path = "PRIVATE_BACKUP_PATH", url = "https://fixture.invalid/?token=PRIVATE_QUERY_TOKEN");
         tracing::error!(target: "reqwest::headers", "PRIVATE_HTTP_HEADER");
         tracing::error!(target: "gpui_shell::script", "PRIVATE_CONSOLE_VALUE");
     });

@@ -1,6 +1,67 @@
 use super::*;
 
 #[tokio::test]
+async fn failed_cache_cleanup_preserves_reset_marker() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("node.turso");
+    let knowledge = directory.path().join("knowledge.turso");
+    let node = NodeId([90; 32]);
+    {
+        let (handle, connection) = empty(&path, node, None).await.unwrap();
+        connection
+            .execute_batch(
+                "ALTER TABLE node DROP COLUMN storage_generation;
+                 INSERT INTO counters(namespace,value) VALUES('sessions',73)",
+            )
+            .await
+            .unwrap();
+        driver::checkpoint(&connection).await.unwrap();
+        drop(connection);
+        drop(handle);
+    }
+    std::fs::create_dir(&knowledge).unwrap();
+    assert!(matches!(
+        upgrade(&path, node, None, Source::Profile).await,
+        Err(Error::Io(_))
+    ));
+    assert!(path.is_file());
+    {
+        let handle = engine(&path).await.unwrap();
+        let connection = connect(&handle).await.unwrap();
+        let value = connection
+            .prepare("SELECT value FROM counters WHERE namespace='sessions'")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
+            .unwrap();
+        assert_eq!(value, 73);
+        assert!(
+            schema::prepare(&connection, &path, node, None)
+                .await
+                .unwrap()
+                .needs_rebuild()
+        );
+    }
+    std::fs::remove_dir(&knowledge).unwrap();
+    let (_handle, connection, backup) = upgrade(&path, node, None, Source::Profile).await.unwrap();
+    assert!(backup.is_none());
+    assert!(!knowledge.exists());
+    let count = connection
+        .prepare("SELECT count(*) FROM counters WHERE namespace='sessions'")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get::<i64>(0)
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
 async fn failed_rehearsal_preserves_live_packages() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("profile");

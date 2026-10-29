@@ -105,6 +105,7 @@ fn session(conversation: &Conversation) -> Session {
     Session {
         id: "session".into(),
         records: Vec::new(),
+        tool_names: Default::default(),
         conversation: conversation.clone(),
         context: Default::default(),
         capability: None,

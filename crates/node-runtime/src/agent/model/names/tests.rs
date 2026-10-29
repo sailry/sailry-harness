@@ -87,6 +87,37 @@ fn reserves_deferred_and_internal_names() {
 }
 
 #[test]
+fn reserves_historical_core_names() {
+    let plugins: [Info; 1] = [serde_json::from_value(json!({
+        "summary":{"name":"fixture","revision":1,"digest":"fixture","settings_revision":0,
+            "enabled":true,"version":"0.1.0"},
+        "extension":{"api_version":"v1","tools":[{"name":"read","operation":"files.read"}]}
+    }))
+    .unwrap()];
+    let canonical = alias("fixture", "read");
+    let mut registration = crate::agent::title::bind("session".into(), CancellationToken::new());
+    registration.tool = tool(canonical.clone());
+    registration.plugin = Some("fixture".into());
+    let tools = [registration];
+    let historical = ["read".into()].into();
+    for claude in [false, true] {
+        let names = Exposure::capture(&plugins, &tools, &historical, claude);
+        let core = if claude { "Read" } else { "read" };
+        assert_eq!(names.name(&canonical), canonical);
+        assert_eq!(names.tools(&[tool(canonical.clone())])[0].name, canonical);
+        let history = [call("old", core), call("new", canonical.clone())];
+        assert_eq!(names.messages(&history).as_ref(), history);
+        for mut response in history {
+            let original = response.clone();
+            names.restore(&mut response);
+            assert_eq!(response, original);
+        }
+    }
+    let names = Exposure::capture(&plugins, &tools, &BTreeSet::new(), false);
+    assert_eq!(names.name(&canonical), "read");
+}
+
+#[test]
 fn captures_only_eligible_package_declarations() {
     let package = |name: &str| -> Info {
         serde_json::from_value(json!({
@@ -105,7 +136,7 @@ fn captures_only_eligible_package_declarations() {
     };
     let plugins = [package("eligible"), package("unavailable")];
     let tools = [registration("eligible")];
-    let names = Exposure::capture(&plugins, &tools, false);
+    let names = Exposure::capture(&plugins, &tools, &BTreeSet::new(), false);
     assert_eq!(names.name(&alias("eligible", "read")), "read");
     assert_eq!(
         names.name(&alias("unavailable", "read")),
@@ -119,7 +150,7 @@ fn captures_only_eligible_package_declarations() {
     assert_eq!(called(&sent[0]), called(&history[0]));
     assert_eq!(called(&sent[1]), "read");
     let tools = [registration("eligible"), registration("unavailable")];
-    let names = Exposure::capture(&plugins, &tools, false);
+    let names = Exposure::capture(&plugins, &tools, &BTreeSet::new(), false);
     assert_eq!(
         names.name(&alias("eligible", "read")),
         alias("eligible", "read")

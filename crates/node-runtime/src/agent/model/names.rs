@@ -24,12 +24,18 @@ impl Registry {
         &self,
         invocation: &Invocation,
         tools: &[Registration],
+        historical: &BTreeSet<String>,
     ) -> Result<Arc<Exposure>, Fault> {
         let claude = invocation
             .provider
             .as_ref()
             .is_some_and(|provider| provider.authentication == Authentication::ClaudeOAuth);
-        let exposure = Arc::new(Exposure::capture(&invocation.plugins, tools, claude));
+        let exposure = Arc::new(Exposure::capture(
+            &invocation.plugins,
+            tools,
+            historical,
+            claude,
+        ));
         self.0
             .set(exposure.clone())
             .map_err(|_| Fault::invalid("tool exposure was already captured"))?;
@@ -53,7 +59,12 @@ pub(in crate::agent) struct Exposure {
 }
 
 impl Exposure {
-    fn capture(plugins: &[Info], tools: &[Registration], claude: bool) -> Self {
+    fn capture(
+        plugins: &[Info],
+        tools: &[Registration],
+        historical: &BTreeSet<String>,
+        claude: bool,
+    ) -> Self {
         let declared = tools.iter().filter_map(|entry| {
             let owner = entry.plugin.as_deref()?;
             let declaration = plugins
@@ -76,6 +87,7 @@ impl Exposure {
             tools
                 .iter()
                 .map(|entry| entry.tool.name.to_string())
+                .chain(historical.iter().cloned())
                 .collect(),
             claude,
         )
@@ -98,8 +110,8 @@ impl Exposure {
         for name in declared.values() {
             *counts.entry(wire(name)).or_insert(0) += 1;
         }
-        // Reserve every internal identity, including deferred tools and aliases
-        // which happen to resemble another package's declared name.
+        // Reserve current and historical identities, including deferred tools and
+        // aliases which happen to resemble another package's declared name.
         let occupied: BTreeSet<_> = registered.iter().map(|name| wire(name)).collect();
         let forward: BTreeMap<_, _> = declared
             .into_iter()
