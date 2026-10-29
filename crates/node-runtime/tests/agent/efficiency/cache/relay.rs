@@ -8,6 +8,14 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
+#[derive(Clone, Default, serde::Serialize)]
+pub(super) struct Usage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cached_tokens: Option<u64>,
+    pub reasoning_tokens: Option<u64>,
+}
+
 #[derive(Clone)]
 pub(super) struct Request {
     pub body: Value,
@@ -16,6 +24,7 @@ pub(super) struct Request {
     pub transport_failed: bool,
     pub completion: Option<&'static str>,
     pub output_limited: bool,
+    pub provider_usage: Usage,
 }
 
 pub(super) struct Relay {
@@ -147,6 +156,7 @@ async fn forward(
             transport_failed: false,
             completion: None,
             output_limited: false,
+            provider_usage: Usage::default(),
         });
         index
     };
@@ -213,6 +223,18 @@ fn completion(pending: &mut Vec<u8>, chunk: &[u8], request: &mut Request) {
         let Ok(event) = serde_json::from_slice::<Value>(data) else {
             continue;
         };
+        if matches!(
+            event["type"].as_str(),
+            Some("response.completed" | "response.incomplete" | "response.failed")
+        ) {
+            let usage = &event["response"]["usage"];
+            request.provider_usage = Usage {
+                input_tokens: usage["input_tokens"].as_u64(),
+                output_tokens: usage["output_tokens"].as_u64(),
+                cached_tokens: usage["input_tokens_details"]["cached_tokens"].as_u64(),
+                reasoning_tokens: usage["output_tokens_details"]["reasoning_tokens"].as_u64(),
+            };
+        }
         request.output_limited |=
             event["response"]["incomplete_details"]["reason"] == "max_output_tokens";
         request.completion = match event["type"].as_str() {

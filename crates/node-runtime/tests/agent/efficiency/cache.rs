@@ -89,6 +89,7 @@ impl Prefix {
         let metric = json!({
             "http_status":request.status,"transport_failed":request.transport_failed,
             "completion":request.completion,"output_limited":request.output_limited,"output_limit":OUTPUT_LIMIT,
+            "provider_usage":request.provider_usage,
             "estimated":{"method":"o200k over actual serialized request segments; not provider usage; segment counts are not additive",
                 "system":tokens(&system.to_string()),"messages":tokens(&messages.to_string()),"tools":tokens(&tools.to_string()),
                 "serialized_request":tokens(&request.encoded),"wire_bytes":request.encoded.len(),
@@ -260,7 +261,7 @@ async fn reports_selected_model_cache() {
                             "hit_percent":100.0*actual.cached_input as f64/actual.input as f64})
                     });
                     usage.push(json!({"usage":actual,
-                        "cache_reported":attempt.cache_reported,"outcome":attempt.outcome,
+                        "cache_reported":attempt.cache_reported,"reasoning_reported":attempt.reasoning_reported,"outcome":attempt.outcome,
                         "observation_attempt":attempt.index,"transport":attempt.transport,"observation_categories":attempt.categories}));
                 }
             }
@@ -286,6 +287,28 @@ async fn reports_selected_model_cache() {
                 && !request.transport_failed
                 && request.completion == Some("completed")
                 && !request.output_limited));
+            let completed: Vec<_> = wire
+                .iter()
+                .filter(|request| request.completion == Some("completed"))
+                .collect();
+            let observed: Vec<_> = requests
+                .iter()
+                .flat_map(|request| &request.attempts)
+                .collect();
+            assert_eq!(completed.len(), observed.len());
+            for (request, attempt) in completed.into_iter().zip(observed) {
+                let actual = attempt.usage.as_ref().unwrap();
+                if let Some(input) = request.provider_usage.input_tokens {
+                    assert_eq!(actual.input, input);
+                }
+                if let Some(output) = request.provider_usage.output_tokens {
+                    assert_eq!(actual.output, output);
+                }
+                if let Some(cached) = request.provider_usage.cached_tokens {
+                    assert_eq!(actual.cached_input, cached);
+                    assert!(attempt.cache_reported);
+                }
+            }
             let answer: String = page
                 .entries
                 .iter()
