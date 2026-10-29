@@ -135,21 +135,31 @@ async fn retains_history_after_brief_removal() {
         {
             let requests = server.requests.lock().unwrap();
             let request = &requests[0];
-            assert!(node_context(request, "Work mode").contains(&instructions));
-            assert!(
-                request["messages"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|message| {
-                        message["role"] != "user"
-                            || !message_text(&message["content"]).contains(&instructions)
-                    })
-            );
+            assert!(!system_prompt(request).contains(&instructions));
             assert!(has_tool(request, "tool_search"));
-            assert!(!has_tool(request, &write));
-            for name in ["write_brief", "read_brief", "list_briefs"] {
-                assert!(has_tool(&requests[1], &plugin_tool("brief", name)));
+            assert!(!has_tool(request, "write_brief"));
+            assert!(has_tool(&requests[1], "write_brief"));
+            for name in ["read_brief", "list_briefs"] {
+                assert!(!has_tool(&requests[1], name));
+            }
+            for (index, request) in requests.iter().enumerate() {
+                assert_eq!(
+                    node_context(request, "Work mode")
+                        .matches(&instructions)
+                        .count(),
+                    usize::from(index > 0),
+                );
+                assert!(!turn_context(request).contains(&instructions));
+                assert!(
+                    request["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|message| {
+                            message["role"] != "user"
+                                || !message_text(&message["content"]).contains(&instructions)
+                        })
+                );
             }
         }
 
@@ -174,8 +184,9 @@ async fn retains_history_after_brief_removal() {
                 assert!(!current.contains(&instructions));
                 assert!(!current.contains("offer an optional HTML brief"));
                 assert!(!system_prompt(request).contains(&instructions));
+                assert!(!turn_context(request).contains(&instructions));
                 for name in ["write_brief", "read_brief", "list_briefs"] {
-                    assert!(!has_tool(request, &plugin_tool("brief", name)));
+                    assert!(!has_tool(request, name));
                 }
             }
         }
@@ -198,7 +209,7 @@ fn system_prompt(request: &Value) -> String {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|message| message["role"] == "system")
+        .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
         .map(|message| message_text(&message["content"]))
         .collect::<Vec<_>>()
         .join("\n")

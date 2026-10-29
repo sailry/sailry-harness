@@ -2,6 +2,8 @@ use super::*;
 use crate::process::Fixture;
 
 fn assert_order(request: &serde_json::Value) {
+    turn_context(request);
+    let request = task_request(request);
     let messages = request["messages"].as_array().unwrap();
     let kickoff = messages
         .iter()

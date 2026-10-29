@@ -237,6 +237,8 @@ async fn resumes_without_tool_replay() {
         );
         assert_eq!(server.requests.lock().unwrap().len(), 4);
         let body = server.requests.lock().unwrap().last().unwrap().clone();
+        turn_context(&body);
+        let body = task_request(&body);
         let contents: Vec<_> = body["messages"]
             .as_array()
             .unwrap()

@@ -167,7 +167,31 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
             "end"
         );
         assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
-        assert_eq!(peer.tasks.cancelled.load(Ordering::SeqCst), 1);
+        let cancelled = peer.tasks.cancelled.load(Ordering::SeqCst);
+        let trace = peer.tasks.trace();
+        // Dropping the task and confirming cleanup can each send one cancellation.
+        assert!(
+            (1..=2).contains(&cancelled),
+            "remote={remote}, cancelled={cancelled}, trace={trace:?}"
+        );
+        assert_eq!(trace.len(), 1);
+        let requests = &trace["task-1"];
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(method, _)| method == "tasks/cancel")
+                .count(),
+            cancelled
+        );
+        let first_cancel = requests
+            .iter()
+            .position(|(method, _)| method == "tasks/cancel")
+            .unwrap();
+        assert!(
+            requests[first_cancel + 1..]
+                .iter()
+                .any(|(method, terminal)| method == "tasks/get" && !*terminal)
+        );
         assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 0);
         assert!(page.questions.is_empty());
         assert_eq!(server.requests.lock().unwrap().len(), 3);

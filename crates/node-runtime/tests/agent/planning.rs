@@ -164,15 +164,19 @@ async fn preserves_queued_write_authority() {
 async fn freezes_child_mode() {
     for remote in [false, true] {
         let spawn = plugin_tool("delegation", "spawn_agent");
-        let server = Server::available_tools(vec![
-            discover(&spawn),
-            (
-                spawn.clone(),
-                json!({
-                    "role": null, "task": "Inspect the task and propose a plan"
-                }),
-            ),
-        ])
+        let prompt = "Delegate the independent analysis";
+        let server = Server::prompt_tools(
+            prompt.into(),
+            vec![
+                discover(&spawn),
+                (
+                    spawn.clone(),
+                    json!({
+                        "role": null, "task": "Inspect the task and propose a plan"
+                    }),
+                ),
+            ],
+        )
         .await;
         let mut fixture = Fixture::packages(
             remote,
@@ -186,7 +190,7 @@ async fn freezes_child_mode() {
             .execute(fixture.client.prepare(Command::QueueTurn {
                 session: fixture.session.id,
                 expected_revision: fixture.session.revision,
-                message: "Delegate the independent analysis".into(),
+                message: prompt.into(),
             }))
             .await
             .unwrap()

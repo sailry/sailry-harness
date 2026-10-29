@@ -301,7 +301,10 @@ fn model(request: &Value) {
             .count(),
         1
     );
-    let user: Vec<_> = messages
+    let task = task_request(request);
+    let user: Vec<_> = task["messages"]
+        .as_array()
+        .unwrap()
         .iter()
         .filter(|message| message["role"] == "user")
         .map(|message| message_text(&message["content"]))

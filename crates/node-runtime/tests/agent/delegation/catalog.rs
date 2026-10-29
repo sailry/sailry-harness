@@ -444,10 +444,10 @@ async fn edits_catalog_and_applies_future_capture() {
                 declaration["function"]["parameters"],
                 first["function"]["parameters"]
             );
-            assert!(
-                prompt(requests.last().unwrap())
-                    .contains(&format!("{} ({})", edited.key, edited.name))
-            );
+            let request = requests.last().unwrap();
+            let label = format!("{} ({})", edited.key, edited.name);
+            assert_eq!(turn_context(request).matches(&label).count(), 1);
+            assert!(!prompt(request).contains(&label));
         }
 
         server.replace_tools(vec![

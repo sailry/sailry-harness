@@ -14,6 +14,8 @@ pub mod anthropic;
 mod browser;
 pub mod compaction;
 mod connection_results;
+#[cfg(test)]
+mod context;
 mod delegation;
 pub mod details;
 mod goals;
@@ -1043,11 +1045,22 @@ pub fn turn_context(body: &Value) -> Option<&str> {
     None
 }
 
-/// Only the responder's private view omits request context from its task input.
+/// Derive a task-only view without changing captured wire evidence.
+pub fn task_request(body: &Value) -> Value {
+    let mut body = body.clone();
+    let _ = strip_context(&mut body);
+    body
+}
+
+/// Only the responder's private view separates request context from task input.
 fn split_context(body: &mut Value) {
-    let Some(context) = turn_context(body).map(str::to_owned) else {
-        return;
-    };
+    if let Some(context) = strip_context(body) {
+        body["turn_context"] = Value::String(context);
+    }
+}
+
+fn strip_context(body: &mut Value) -> Option<String> {
+    let context = turn_context(body)?.to_owned();
     for field in ["messages", "input", "contents"] {
         let Some(messages) = body[field].as_array_mut() else {
             continue;
@@ -1063,7 +1076,9 @@ fn split_context(body: &mut Value) {
         let removed = match &mut last[key] {
             Value::String(text) if text.ends_with(&context) => {
                 text.truncate(text.len() - context.len());
-                text.truncate(text.trim_end_matches('\n').len());
+                if text.ends_with('\n') {
+                    text.pop();
+                }
                 true
             }
             Value::Array(parts) if parts.last().is_some_and(|part| part["text"] == context) => {
@@ -1082,9 +1097,9 @@ fn split_context(body: &mut Value) {
         } {
             messages.pop();
         }
-        body["turn_context"] = Value::String(context);
-        return;
+        return Some(context);
     }
+    None
 }
 
 /// Expected model-facing spelling for a unique ordinary package tool.

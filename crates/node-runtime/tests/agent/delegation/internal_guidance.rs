@@ -605,6 +605,9 @@ async fn completes_before_background_child() {
             .unwrap()["content"]
             .as_str()
             .unwrap();
+        let input = input
+            .strip_suffix(turn_context(&request))
+            .expect("request context must follow the background completion");
         assert!(input.starts_with("Node background completion data follows as JSON."));
         let data: Value = serde_json::from_str(input.split_once('\n').unwrap().1).unwrap();
         assert_eq!(data[0]["output"]["response"], "Final child evidence");
