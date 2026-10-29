@@ -176,7 +176,11 @@ mod tests {
             .unwrap();
         let reference = super::super::presets::reference(&entry, &entry.preset.routes[0]);
         let credential = sailry_protocol::CredentialRef {
-            node: sailry_protocol::NodeId::new(),
+            node: sailry_protocol::NodeId(
+                ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+                    .verifying_key()
+                    .to_bytes(),
+            ),
             id: sailry_protocol::CredentialId::new(),
         };
         let model = super::super::live::model(&super::super::data::Model::example("saved-model"));
