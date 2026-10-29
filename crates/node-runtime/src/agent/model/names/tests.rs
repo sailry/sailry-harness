@@ -92,7 +92,7 @@ fn captures_only_eligible_package_declarations() {
         serde_json::from_value(json!({
             "summary":{"name":name,"revision":1,"digest":"fixture","settings_revision":0,
                 "enabled":true,"version":"0.1.0"},
-            "extension":{"api_version":"v1","tools":[{"name":"read","operation":"read_file"}]}
+            "extension":{"api_version":"v1","tools":[{"name":"read","operation":"files.read"}]}
         }))
         .unwrap()
     };
