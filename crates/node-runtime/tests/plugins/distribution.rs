@@ -117,16 +117,26 @@ async fn loads_large_manifests() {
         );
         assert!(installed.issues.is_empty(), "{:?}", installed.issues);
         assert_eq!(installed.extension.as_ref(), Some(&expected));
+        // Immutable package metadata excludes installation provenance and revision.
+        let mut captured = installed.clone();
+        captured.origin = None;
+        captured.summary.revision = 0;
         package(&root, "2.0.0");
-        for command in [
-            Command::ReadPlugin {
-                name: "example".into(),
-            },
-            Command::ReadPluginVersion {
-                package: installed.summary.reference(),
-            },
+        for (command, expected) in [
+            (
+                Command::ReadPlugin {
+                    name: "example".into(),
+                },
+                &installed,
+            ),
+            (
+                Command::ReadPluginVersion {
+                    package: installed.summary.reference(),
+                },
+                &captured,
+            ),
         ] {
-            assert_eq!(info(execute(&client, command).await), installed);
+            assert_eq!(&info(execute(&client, command).await), expected);
         }
         view(&client, &installed, &expected).await;
         node.shutdown().await.unwrap();
