@@ -1,6 +1,6 @@
 use super::Ingress;
 use sailry_link::Admission;
-use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Request};
+use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Request, search::Driver};
 
 struct Operation<'a> {
     controls: &'a crate::agent::Controls,
@@ -36,7 +36,25 @@ impl Ingress {
                 } else {
                     (None, self.closed.clone())
                 };
-                Output::WebPage(self.web.fetch(caller, request.id, input, &stop).await?)
+                let configured = self
+                    .search
+                    .settings()
+                    .providers
+                    .get(&Driver::Tinyfish)
+                    .is_some_and(|config| config.enabled && config.key_configured);
+                let renderer = if input.offset == 0 && configured {
+                    self.search.renderer(&self.search_plan().await?)
+                } else {
+                    None
+                };
+                let page = if let Some(renderer) = renderer.as_ref() {
+                    self.web
+                        .fetch_with(caller, request.id, input, &stop, Some(renderer))
+                        .await?
+                } else {
+                    self.web.fetch(caller, request.id, input, &stop).await?
+                };
+                Output::WebPage(page)
             }
             Command::CancelWebFetch { request } => {
                 self.web.cancel(caller, *request);

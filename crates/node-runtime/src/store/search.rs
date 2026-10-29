@@ -304,7 +304,7 @@ impl Ingress {
         })
     }
 
-    async fn search_plan(&self) -> Result<Plan, Fault> {
+    pub(super) async fn search_plan(&self) -> Result<Plan, Fault> {
         let (reply, response) = tokio::sync::oneshot::channel();
         self.submit(Job::SearchPlan { reply })
             .await

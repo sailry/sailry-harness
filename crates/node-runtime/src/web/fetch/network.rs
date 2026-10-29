@@ -93,6 +93,14 @@ async fn check_proxy(owner: &Fetcher, url: &Url) -> Result<(), Fault> {
     Ok(())
 }
 
+pub(super) async fn validate(owner: &Fetcher, url: &Url) -> Result<(), Fault> {
+    if proxy::select(owner, url).await?.is_some() {
+        check_proxy(owner, url).await
+    } else {
+        resolve(owner, url).await.map(|_| ())
+    }
+}
+
 pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fault> {
     for redirects in 0..=web::MAX_REDIRECTS {
         let proxy = proxy::select(owner, &url).await?;

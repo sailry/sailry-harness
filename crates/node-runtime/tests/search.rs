@@ -9,6 +9,8 @@ use sailry_protocol::{
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 #[path = "search/filters.rs"]
 mod filters;
+#[path = "search/rendering.rs"]
+mod rendering;
 #[path = "support/search.rs"]
 mod server;
 #[path = "search/tinyfish.rs"]

@@ -20,6 +20,19 @@ mod searxng;
 mod tavily;
 #[cfg(test)]
 mod tests;
+
+pub(super) fn http_client() -> Result<reqwest::Client, Fault> {
+    network::client().map_err(|failure| failure.fault)
+}
+
+pub(super) async fn json_request(
+    request: reqwest::RequestBuilder,
+    limit: usize,
+) -> Result<serde_json::Value, Fault> {
+    network::json_with_limit(request, limit)
+        .await
+        .map_err(|failure| failure.fault)
+}
 mod tinyfish;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -80,6 +93,28 @@ impl Searcher {
 
     pub fn available(&self) -> bool {
         !candidates(&self.settings()).is_empty()
+    }
+
+    pub fn renderer(&self, plan: &Plan) -> Option<super::Renderer> {
+        let configured = plan.settings.providers.get(&Driver::Tinyfish)?;
+        if !configured.enabled {
+            return None;
+        }
+        let key = plan.credentials.get(&Driver::Tinyfish)?.key.clone()?;
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(endpoint) = self
+            .fixtures
+            .lock()
+            .expect("search fixture lock is healthy")
+            .get(&Driver::Tinyfish)
+            .cloned()
+        {
+            return Some(super::Renderer { endpoint, key });
+        }
+        Some(super::Renderer {
+            endpoint: "https://api.fetch.tinyfish.ai".into(),
+            key,
+        })
     }
 
     pub async fn search(

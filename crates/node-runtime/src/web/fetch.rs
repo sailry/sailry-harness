@@ -1,4 +1,4 @@
-//! Public, credential-free web reads with consistent paged snapshots.
+//! Public web reads with consistent paged snapshots.
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, NodeId, RequestId, web};
 use std::{
@@ -11,8 +11,11 @@ mod cache;
 mod html;
 mod network;
 mod policy;
+mod render;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use render::Renderer;
 
 pub(crate) struct Fetcher {
     active: Mutex<BTreeMap<(NodeId, RequestId), CancellationToken>>,
@@ -42,7 +45,19 @@ impl Fetcher {
         input: &web::Request,
         stop: &CancellationToken,
     ) -> Result<web::Page, Fault> {
+        self.fetch_with(caller, id, input, stop, None).await
+    }
+
+    pub async fn fetch_with(
+        self: &Arc<Self>,
+        caller: NodeId,
+        id: RequestId,
+        input: &web::Request,
+        stop: &CancellationToken,
+        renderer: Option<&Renderer>,
+    ) -> Result<web::Page, Fault> {
         let url = policy::url(&input.url)?;
+        let deadline = tokio::time::Instant::now() + self.deadline;
         let query = {
             let mut active = self.active.lock().expect("web fetch lock is healthy");
             if active.contains_key(&(caller, id)) {
@@ -62,13 +77,19 @@ impl Fetcher {
         tokio::select! {
             biased;
             _ = query.stop.cancelled() => Err(Fault::new(ErrorCode::Cancelled, "web fetch was cancelled")),
-            result = tokio::time::timeout(self.deadline, self.page(url, input.offset)) => {
+            result = tokio::time::timeout_at(deadline, self.page(url, input.offset, renderer, deadline)) => {
                 result.map_err(|_| Fault::new(ErrorCode::Unavailable, "web fetch deadline exceeded"))?
             }
         }
     }
 
-    async fn page(&self, url: reqwest::Url, offset: usize) -> Result<web::Page, Fault> {
+    async fn page(
+        &self,
+        url: reqwest::Url,
+        offset: usize,
+        renderer: Option<&Renderer>,
+        deadline: tokio::time::Instant,
+    ) -> Result<web::Page, Fault> {
         let slot = self
             .cache
             .lock()
@@ -82,7 +103,19 @@ impl Fetcher {
             if offset != 0 {
                 return Err(cache::restart());
             }
-            *document = Some(network::fetch(self, url).await?);
+            let direct = network::fetch(self, url).await?;
+            let loaded = if let Some(renderer) = renderer.filter(|_| render::needed(&direct)) {
+                renderer
+                    .fetch(
+                        self,
+                        direct,
+                        deadline.saturating_duration_since(tokio::time::Instant::now()),
+                    )
+                    .await?
+            } else {
+                direct
+            };
+            *document = Some(loaded);
         }
         document
             .as_ref()

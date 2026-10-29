@@ -111,11 +111,14 @@ impl Server {
                         "/gbk-json" => response("application/json; charset=gbk", &encoding_rs::GBK.encode(ENCODED_JSON).0),
                         "/invalid-charset" => response("text/plain; charset=utf-8", b"\xd6\xd0"),
                         "/json" => response("application/json", JSON.as_bytes()),
+                        "/long-html" => response("text/html", format!("<article><p>{}</p></article>", "Public content. ".repeat(100)).as_bytes()),
+                        "/empty-html" => response("text/html", b"<html><body><div id='root'></div><script>start()</script></body></html>"),
                         "/paged" => response("text/plain", paged().as_bytes()),
                         "/markdown" => response("text/markdown", MARKDOWN.as_bytes()),
                         "/long-json" => response("application/json", serde_json::to_string(&serde_json::json!({"content": paged()})).unwrap().as_bytes()),
                         "/pdf" => response("application/pdf", include_bytes!("../../src/office/fixtures/report.pdf")),
                         "/missing" => b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 7\r\nConnection: close\r\n\r\nmissing".to_vec(),
+                        "/missing-html" => b"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: 14\r\nConnection: close\r\n\r\n<p>missing</p>".to_vec(),
                         "/binary" => b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 3\r\nConnection: close\r\n\r\npng".to_vec(),
                         path if path.starts_with("/redirect/") && path != "/redirect/0" => {
                             let hops: usize = path.strip_prefix("/redirect/").unwrap().parse().unwrap();

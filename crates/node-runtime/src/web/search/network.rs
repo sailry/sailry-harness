@@ -15,6 +15,13 @@ pub(super) fn client() -> Result<Client, Failure> {
 }
 
 pub(super) async fn json(request: RequestBuilder) -> Result<Value, Failure> {
+    json_with_limit(request, MAX_BODY).await
+}
+
+pub(super) async fn json_with_limit(
+    request: RequestBuilder,
+    limit: usize,
+) -> Result<Value, Failure> {
     let mut response = request.send().await.map_err(|error| {
         if error.is_builder() {
             Failure::invalid("search request is invalid")
@@ -42,7 +49,7 @@ pub(super) async fn json(request: RequestBuilder) -> Result<Value, Failure> {
     }
     if response
         .content_length()
-        .is_some_and(|size| size > MAX_BODY as u64)
+        .is_some_and(|size| size > limit as u64)
     {
         return Err(Failure::invalid("search service response is too large"));
     }
@@ -52,7 +59,7 @@ pub(super) async fn json(request: RequestBuilder) -> Result<Value, Failure> {
         .await
         .map_err(|_| Failure::unavailable("search response was interrupted"))?
     {
-        if chunk.len() > MAX_BODY.saturating_sub(body.len()) {
+        if chunk.len() > limit.saturating_sub(body.len()) {
             return Err(Failure::invalid("search service response is too large"));
         }
         body.extend_from_slice(&chunk);
