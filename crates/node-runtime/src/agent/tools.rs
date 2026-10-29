@@ -114,7 +114,7 @@ impl<D: Definition + 'static> Operation<D> {
                     .ingress
                     .authorize(
                         self.binding.turn,
-                        authorization.into(),
+                        authorization,
                         Some(request.command.clone()),
                     )
                     .await?;

@@ -10,18 +10,30 @@ use sailry_protocol::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+pub(super) struct Context<'a> {
+    pub endpoint: &'a str,
+    pub session: &'a str,
+    pub effort: Effort,
+    pub features: BTreeMap<String, String>,
+    pub capabilities: &'a Capabilities,
+    pub dialect: Dialect,
+}
+
 pub(super) fn convert(
     config: &ModelConfig,
     system: &str,
     messages: &[Message],
     tools: &[rmcp::model::Tool],
-    endpoint: &str,
-    session: &str,
-    effort: Effort,
-    features: BTreeMap<String, String>,
-    capabilities: &Capabilities,
-    dialect: Dialect,
+    context: Context<'_>,
 ) -> Result<wire::Request, Fault> {
+    let Context {
+        endpoint,
+        session,
+        effort,
+        features,
+        capabilities,
+        dialect,
+    } = context;
     let schemas: Vec<Value> = match dialect {
         Dialect::OpenAi => goose_provider_types::formats::openai::format_tools(tools)
             .map_err(|_| Fault::invalid("model tool schema is invalid"))?

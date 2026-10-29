@@ -408,8 +408,7 @@ impl Bound {
                 &self.stop,
                 "authorization",
                 ErrorCode::PermissionDenied,
-                self.ingress
-                    .authorize(self.turn, context.request().into(), None),
+                self.ingress.authorize(self.turn, context.request(), None),
             )
             .await
             .map_err(|_| Fault::invalid("MCP authorization is unavailable"))?;
@@ -472,7 +471,7 @@ impl Bound {
             self.ingress.clone(),
             self.turn,
             self.session.clone(),
-            context.request().into(),
+            context.request(),
             &self.stop,
         );
         let mut call = service.map(|guard| {

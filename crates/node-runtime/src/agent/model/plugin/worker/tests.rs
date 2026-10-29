@@ -36,16 +36,18 @@ async fn preserves_large_inline_payloads() {
         "",
         &messages,
         &tools,
-        "https://example.test",
-        "example",
-        Effort::Default,
-        Default::default(),
-        &Capabilities {
-            vision: true,
-            tools: true,
-            ..Default::default()
+        super::super::request::Context {
+            endpoint: "https://example.test",
+            session: "example",
+            effort: Effort::Default,
+            features: Default::default(),
+            capabilities: &Capabilities {
+                vision: true,
+                tools: true,
+                ..Default::default()
+            },
+            dialect: Dialect::Generic,
         },
-        Dialect::Generic,
     )
     .unwrap();
     let stop = CancellationToken::new();

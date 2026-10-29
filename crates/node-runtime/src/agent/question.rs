@@ -76,7 +76,7 @@ impl Question {
                 .lock()
                 .unwrap()
                 .unwrap_or(timeout);
-            let waiting = self.ingress.ask(self.turn, context.request().into());
+            let waiting = self.ingress.ask(self.turn, context.request());
             tokio::pin!(waiting);
             let response = if matches!(spec.input, Input::Plan) {
                 waiting.await?

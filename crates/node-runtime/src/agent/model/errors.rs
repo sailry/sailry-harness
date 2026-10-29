@@ -56,14 +56,14 @@ pub(super) fn redact(mut error: ProviderError, secrets: &[Secret]) -> ProviderEr
     if let Some(details) = error.details_mut() {
         *details = safe(details, secrets);
     }
-    if let ProviderError::CreditsExhausted { top_up_url, .. } = &mut error {
-        if top_up_url.as_ref().is_some_and(|value| {
+    if let ProviderError::CreditsExhausted { top_up_url, .. } = &mut error
+        && top_up_url.as_ref().is_some_and(|value| {
             secrets
                 .iter()
                 .any(|secret| !secret.expose().is_empty() && value.contains(secret.expose()))
-        }) {
-            *top_up_url = None;
-        }
+        })
+    {
+        *top_up_url = None;
     }
     error
 }
