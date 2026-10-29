@@ -25,9 +25,8 @@ fn content(root: &std::path::Path) -> (String, String) {
     (file, skill)
 }
 
-async fn prepare(client: &Client, provider: &Provider, root: &std::path::Path) -> Session {
+async fn prepare(client: &Client, provider: &Provider, session: Session) -> Session {
     approvals::install(client, &["files"]).await;
-    let (session, _) = configured_session(client, &provider.endpoint, root).await;
     let Output::Plugin(package) = client
         .execute(client.prepare(Command::InstallPlugin {
             worktree: session.worktree,
@@ -105,7 +104,7 @@ async fn prepares_without_model_requests() {
         else {
             panic!("provider expected")
         };
-        let session = prepare(&fixture.client, &provider, &fixture.root).await;
+        let session = prepare(&fixture.client, &provider, fixture.session).await;
         assert_eq!(session.config.provider, provider.id);
         assert_eq!(session.config.model, MODEL);
         assert_eq!(session.config.effort, Effort::High);
@@ -267,7 +266,8 @@ async fn reports_selected_model_cache() {
         };
         assert_eq!(saved.endpoint, relay.endpoint);
         assert_eq!(saved.credential, selected.credential);
-        let session = prepare(&client, &saved, &root).await;
+        let (session, _) = configured_session(&client, &saved.endpoint, &root).await;
+        let session = prepare(&client, &saved, session).await;
         let prompts = [
             "Load skill cache-fixture:analysis exactly once with load_skill. Read cache-file.txt exactly once with read_file, offset=0 and limit=2000. Reply with only the FILE_FIRST and SKILL_FIRST lines you observed in those results. Preserve all files; use no other tools.",
             "Reuse the unchanged file and loaded skill already in this conversation. Use no tools. Reply with only the exact FILE_FIRST and SKILL_FIRST lines you previously observed.",
