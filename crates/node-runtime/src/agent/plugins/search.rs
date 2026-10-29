@@ -124,7 +124,7 @@ impl Search {
             .collect()
     }
 
-    fn output(&self, arguments: Arguments, loaded: &mut BTreeSet<String>) -> Value {
+    fn output(&self, arguments: Arguments, loaded: &mut Vec<String>) -> Value {
         let matched = self.matching(&arguments.query, arguments.limit.unwrap_or(5).clamp(1, 8));
         let previous: BTreeSet<_> = self
             .entries
@@ -132,7 +132,11 @@ impl Search {
             .filter(|entry| loaded.contains(&entry.name))
             .flat_map(|entry| entry.context.iter().cloned())
             .collect();
-        loaded.extend(matched.iter().map(|entry| entry.name.clone()));
+        for entry in &matched {
+            if !loaded.contains(&entry.name) {
+                loaded.push(entry.name.clone());
+            }
+        }
         let context: BTreeSet<_> = matched
             .iter()
             .flat_map(|entry| &entry.context)

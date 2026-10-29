@@ -624,14 +624,14 @@ async fn merges_disjoint_discovered_tools() {
     };
     let anchor = event("Completed discovery");
     fixture
-        .append([discovered("first"), discovered("second"), anchor.clone()])
+        .append([discovered("zeta"), discovered("alpha"), anchor.clone()])
         .await;
     let turn = fixture.append([summary(&anchor)]).await;
     for _ in 0..2 {
         let loaded = load(&fixture, turn).await;
         assert_eq!(
             loaded.context.loaded_tools,
-            Some(["first".into(), "second".into()].into())
+            Some(["zeta".into(), "alpha".into()].into())
         );
         let saved = loaded.records.last().unwrap();
         assert!(saved.context().is_none());
@@ -639,7 +639,7 @@ async fn merges_disjoint_discovered_tools() {
             history::state(&fixture.database.connection, fixture.session)
                 .await
                 .unwrap()[LOADED_TOOLS],
-            json!(["first", "second"])
+            json!(["zeta", "alpha"])
         );
         history::rebuild_session(&fixture.database.connection, fixture.session)
             .await

@@ -144,15 +144,13 @@ impl InferenceRequestPreparer<Session> for Preparer {
         let mut loaded = session.context.loaded_tools.clone().unwrap_or_default();
         for record in &session.records {
             if let Some(message) = record.message() {
-                loaded.extend(
-                    message
-                        .content
-                        .iter()
-                        .filter_map(|block| match &block.kind {
-                            BlockKind::ToolRequest(call) => Some(call.name.clone()),
-                            _ => None,
-                        }),
-                );
+                for block in &message.content {
+                    if let BlockKind::ToolRequest(call) = &block.kind
+                        && !loaded.contains(&call.name)
+                    {
+                        loaded.push(call.name.clone());
+                    }
+                }
             }
         }
         Ok(prepare(input, &loaded, &self.deferred))
@@ -193,16 +191,23 @@ impl Preparer {
 
 fn prepare(
     input: InferenceInput,
-    loaded: &BTreeSet<String>,
+    loaded: &[String],
     deferred: &BTreeSet<String>,
 ) -> PreparedInferenceRequest {
-    let tools = input
-        .tools
-        .into_iter()
-        .filter(|tool| {
-            !deferred.contains(tool.name.as_ref()) || loaded.contains(tool.name.as_ref())
-        })
-        .collect();
+    let mut tools = Vec::new();
+    let mut additional = std::collections::BTreeMap::new();
+    for tool in input.tools {
+        if deferred.contains(tool.name.as_ref()) {
+            additional.insert(tool.name.to_string(), tool);
+        } else {
+            tools.push(tool);
+        }
+    }
+    for name in loaded {
+        if let Some(tool) = additional.remove(name) {
+            tools.push(tool);
+        }
+    }
     let parts: Vec<_> = input
         .prompt_parts
         .into_iter()
@@ -253,7 +258,7 @@ pub(crate) async fn prepared(session: &Session) -> PreparedInferenceRequest {
                 .unwrap(),
             ..Default::default()
         },
-        &BTreeSet::new(),
+        &[],
         &BTreeSet::new(),
     )
 }
@@ -262,6 +267,32 @@ pub(crate) async fn prepared(session: &Session) -> PreparedInferenceRequest {
 mod tests {
     use super::*;
     use rmcp::model::Tool;
+
+    #[test]
+    fn appends_discoveries_after_existing_declarations() {
+        let declarations = || InferenceInput {
+            tools: ["alpha", "base", "tool_search", "zeta"]
+                .map(|name| Tool::new(name, "Fixture", serde_json::Map::new()))
+                .to_vec(),
+            ..Default::default()
+        };
+        let deferred = ["alpha".into(), "zeta".into()].into();
+        let first = prepare(declarations(), &["zeta".into()], &deferred);
+        let second = prepare(
+            declarations(),
+            &["zeta".into(), "alpha".into(), "zeta".into()],
+            &deferred,
+        );
+        assert_eq!(second.tools[..first.tools.len()], first.tools);
+        assert_eq!(
+            second
+                .tools
+                .iter()
+                .map(|tool| tool.name.as_ref())
+                .collect::<Vec<_>>(),
+            ["base", "tool_search", "zeta", "alpha"]
+        );
+    }
 
     #[test]
     fn filters_only_deferred_declarations() {
@@ -273,7 +304,7 @@ mod tests {
             moim_parts: vec!["Current task".into()],
         };
         let deferred = ["loaded".into(), "deferred".into()].into();
-        let request = prepare(declarations(), &["loaded".into()].into(), &deferred);
+        let request = prepare(declarations(), &["loaded".into()], &deferred);
         assert_eq!(
             request
                 .tools
@@ -292,7 +323,7 @@ mod tests {
             context.as_concat_text(),
             "<turn-context>\nCurrent task\n</turn-context>"
         );
-        let request = prepare(declarations(), &BTreeSet::new(), &deferred);
+        let request = prepare(declarations(), &[], &deferred);
         assert_eq!(request.tools.len(), 1);
         assert_eq!(request.tools[0].name, "always");
     }

@@ -5,6 +5,7 @@ use sailry_protocol::plugin;
 mod dispatch;
 mod hooks;
 mod output;
+mod permissions;
 
 async fn execute(client: &Client, command: Command) -> Output {
     client.execute(client.prepare(command)).await.unwrap()

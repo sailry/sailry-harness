@@ -204,6 +204,7 @@ impl View {
             .borrow_mut()
             .retain(|key, _| prefixes.iter().any(|prefix| key.starts_with(prefix)));
         self.rows = rows;
+        self.prune_tool_texts();
         self.changes.retain(|turn, _| self.rows.contains(turn));
     }
 }

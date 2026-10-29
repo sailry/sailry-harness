@@ -240,7 +240,7 @@ async fn routes_through_controller() {
                     panic!("denied browser turn expected")
                 };
                 let denied_page = finished(&client, session.id, denied.id).await;
-                planning_denial(&denied_page, denied.id);
+                planning_denial(&client, &denied_page, denied.id).await;
                 assert!(
                     tokio::time::timeout(Duration::from_millis(20), subscription.next())
                         .await

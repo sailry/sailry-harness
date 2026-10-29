@@ -29,6 +29,7 @@ impl View {
             selection(&self.detail_rows.borrow(), bounds, &current, protected);
         self.details.protect(protected);
         self.details.set(selected);
+        self.prune_tool_texts();
     }
 
     pub(in crate::conversation::live) fn detail_bounds(

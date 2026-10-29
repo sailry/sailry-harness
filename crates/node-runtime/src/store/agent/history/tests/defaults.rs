@@ -79,7 +79,7 @@ async fn missing_tools_deduplicate_per_session() {
     let fork = fixture.fork(fixture.session, turn).await;
     assert_eq!(
         state(&fixture.database.connection, fork.id).await.unwrap()[LOADED_TOOLS],
-        serde_json::json!(["called_tool", "discovered_tool", "second_tool"])
+        serde_json::json!(["discovered_tool", "called_tool", "second_tool"])
     );
     fixture
         .database
@@ -130,7 +130,7 @@ async fn fills_called_names_with_backup() {
         fixture.database.close().await.unwrap();
         fixture.database = Database::open(&path, node, None).await.unwrap();
         let expected = if partial {
-            serde_json::json!(["called_tool", "discovered_tool"])
+            serde_json::json!(["discovered_tool", "called_tool"])
         } else {
             serde_json::json!(["called_tool"])
         };

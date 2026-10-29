@@ -24,7 +24,7 @@ impl View {
         while let Some((position, block)) = source.next() {
             let id = format!("tool-content-{key}-{position}");
             blocks.push(match block {
-                Block::Text(data) => text::render(&id, data, result, literal, cx),
+                Block::Text(data) => text::render(self, &id, call, data, result, literal, cx),
                 Block::Notice { message } => {
                     surface::notice(message.label(&rust_i18n::locale()).to_owned(), cx)
                         .into_any_element()

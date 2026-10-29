@@ -170,7 +170,7 @@ async fn preserves_reads_in_plan() {
             panic!("denied memory turn expected")
         };
         let denied_page = finished(&fixture.client, fixture.session.id, denied.id).await;
-        planning_denial(&denied_page, denied.id);
+        planning_denial(&fixture.client, &denied_page, denied.id).await;
         assert_eq!(support::read(&fixture.client, id).await.unwrap(), original);
         assert_eq!(
             support::list(&fixture.client).await.unwrap(),

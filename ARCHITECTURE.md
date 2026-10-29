@@ -549,8 +549,10 @@ eviction as an operation failure.
 Desktop selects expanded rows and published cards by their own viewport bounds;
 offscreen cards retain only their reference and measured height. Hidden cached
 views release their selections until displayed again. Mobile consumes the same
-tracker states. Plugin snapshots read details directly with
-bounded concurrency and no automatic retry; their returned JSON belongs to the
+tracker states. Desktop retains Kit parsing state for tool text while its source
+is retained by Client, and releases it when the view is hidden.
+Plugin snapshots read details directly with bounded concurrency and no automatic
+retry; their returned JSON belongs to the
 caller. Copy and open actions use temporary reads. Superseded background reads are
 silent; explicit reads can refresh their current reference once.
 Node uses one 128 MiB serialized-detail cache, including at most 64 MiB of idle
@@ -563,8 +565,10 @@ second persistent schema cache. Ordinary inference uses the current loaded catal
 summary requests contain no tools. Common tools follow declared operations and selected mode or role scope; additional tools are
 discovered through `tool_search` from that catalog. Discovery adds declarations and their package
 context for later requests without executing tools or increasing permissions.
-The session state row owns loaded-tool membership. Explicitly discovered and
-called tools stay loaded; tools exposed only by a work mode or assistant do not
+The session state row owns loaded-tool membership and first-seen order. Newly
+loaded declarations append after the common tools and earlier discoveries without
+reordering them. Explicitly discovered and called tools stay loaded; tools exposed
+only by a work mode or assistant do not
 become permanently loaded. Flagship and selected roles
 expose their delegation tools on the first request.
 Changed tool membership is intentional; unchanged loadouts retain the same request

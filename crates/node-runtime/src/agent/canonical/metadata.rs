@@ -5,7 +5,7 @@ use sailry_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Metadata {
@@ -140,8 +140,9 @@ pub(crate) struct Context {
     pub personal: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub guides: BTreeMap<String, Guide>,
+    /// Append-only first-seen order, merged by the canonical history writer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub loaded_tools: Option<BTreeSet<String>>,
+    pub loaded_tools: Option<Vec<String>>,
 }
 
 impl Context {

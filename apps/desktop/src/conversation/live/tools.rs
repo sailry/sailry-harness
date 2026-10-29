@@ -16,6 +16,7 @@ pub(super) mod progress;
 mod projection;
 #[cfg(test)]
 mod tests;
+pub(super) mod text;
 
 impl View {
     pub(super) fn tools(
@@ -446,12 +447,7 @@ impl View {
             v_flex().child(notices)
         } else {
             v_flex()
-                .child(surface::code(
-                    &format!("{key}-output"),
-                    &body.text,
-                    px(f32::from(self.message_text_size)),
-                    cx,
-                ))
+                .child(self.code(&format!("{key}-output"), call, &body.text, cx))
                 .child(notices)
         };
         surface::result(key, content.into_any_element(), actions, cx).into_any_element()

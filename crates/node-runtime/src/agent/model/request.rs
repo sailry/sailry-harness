@@ -219,7 +219,10 @@ impl Capture {
                 usage: None,
                 cache_reported: false,
                 reasoning_reported: false,
-                payload: model.sources.capture(system, started),
+                payload: model
+                    .sources
+                    .capture(system, started)
+                    .with_identity(identity),
                 stop: model.stop.clone(),
                 lease: Lease {
                     controls: model.ingress.agents.clone(),

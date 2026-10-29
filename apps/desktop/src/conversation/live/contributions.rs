@@ -23,6 +23,7 @@ impl View {
             self.detail_rows.borrow_mut().clear();
             self.details.protect([]);
             self.details.set([]);
+            self.tool_texts.borrow_mut().clear();
         }
     }
 

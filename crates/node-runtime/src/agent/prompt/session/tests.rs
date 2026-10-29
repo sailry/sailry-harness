@@ -176,7 +176,7 @@ async fn appends_only_changed_runtime_context() {
 #[tokio::test]
 async fn preserves_loaded_tools() {
     let fixture = Fixture::new().await;
-    let loaded: BTreeSet<_> = ["fixture".into(), "removed".into()].into();
+    let loaded: Vec<_> = ["removed".into(), "fixture".into()].into();
     let mut record = Record::new(
         fixture.invocation.turn.id,
         Kind::Configuration(canonical::Configuration {
@@ -198,7 +198,7 @@ async fn preserves_loaded_tools() {
     let restored = Session::load(&fixture.store.ingress, &fixture.invocation)
         .await
         .unwrap();
-    assert_eq!(restored.loaded(), loaded);
+    assert_eq!(restored.loaded(), loaded.iter().cloned().collect());
     let history = fixture.history().await;
     assert_eq!(history.context.loaded_tools.as_ref(), Some(&loaded));
     assert!(history.records[1].context().unwrap().loaded_tools.is_none());

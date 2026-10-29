@@ -926,6 +926,7 @@ chat_model_unauthorized: 模型凭据被拒绝
 chat_model_rate_limited: 模型请求已达速率上限
 chat_config_changed: 配置已变化，请重新发送
 chat_config_unavailable: 会话配置不可用，请检查供应商
+chat_action_denied: "操作未被允许"
 chat_retry: 重试
 chat_new: 新建会话
 session_tab_close: 关闭标签

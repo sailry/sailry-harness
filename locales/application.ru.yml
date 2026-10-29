@@ -831,6 +831,7 @@ chat_model_unauthorized: "Учётные данные модели отклон�
 chat_model_rate_limited: "Достигнут лимит запросов к модели"
 chat_config_changed: "Конфигурация изменена; отправить снова"
 chat_config_unavailable: "Конфигурация сеанса недоступна; проверьте поставщика"
+chat_action_denied: "Операция не разрешена"
 chat_retry: "Повторить"
 chat_new: "Новый разговор"
 session_tab_close: "Закрыть вкладку"

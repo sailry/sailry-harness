@@ -145,6 +145,15 @@ pub(crate) fn code(id: &str, text: &str, text_size: Pixels, cx: &App) -> AnyElem
 }
 
 pub(crate) fn literal_text(id: &str, text: &str, text_size: Pixels, cx: &App) -> AnyElement {
+    text_view(
+        id,
+        TextView::markdown(id.to_owned(), literal(text)),
+        text_size,
+        cx,
+    )
+}
+
+pub(super) fn text_view(id: &str, view: TextView, text_size: Pixels, cx: &App) -> AnyElement {
     let line_height = text_size * (LINE_HEIGHT / 14.);
     let bare = StyleRefinement::default()
         .bg(cx.theme().transparent)
@@ -159,8 +168,7 @@ pub(crate) fn literal_text(id: &str, text: &str, text_size: Pixels, cx: &App) ->
             move || format!("{id}-content")
         })
         .child(
-            TextView::markdown(id.to_owned(), literal(text))
-                .selectable(true)
+            view.selectable(true)
                 .text_size(text_size)
                 .line_height(line_height)
                 .style(TextViewStyle::default().code_block(bare)),

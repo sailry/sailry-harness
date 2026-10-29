@@ -48,7 +48,7 @@ async fn retains_called_and_discovered_tools() {
     let invoked = message(
         "assistant",
         Role::Assistant,
-        ["first", "second"]
+        ["zeta", "alpha"]
             .map(|name| BlockKind::ToolRequest(request(name, name, serde_json::json!({}))))
             .to_vec(),
     );
@@ -56,13 +56,13 @@ async fn retains_called_and_discovered_tools() {
         "system",
         Kind::Configuration(records::Configuration {
             context: records::Context {
-                loaded_tools: Some(["third".into()].into()),
+                loaded_tools: Some(["middle".into(), "zeta".into()].into()),
                 ..Default::default()
             },
         }),
     );
     fixture.append([invoked, discovered]).await;
-    let expected = serde_json::json!(["first", "second", "third"]);
+    let expected = serde_json::json!(["zeta", "alpha", "middle"]);
     assert_eq!(
         state(&fixture.database.connection, fixture.session)
             .await

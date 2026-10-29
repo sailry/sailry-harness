@@ -420,7 +420,7 @@ async fn preserves_ask_and_plan_policy() {
         configure(&mut fixture, Permission::Full, WorkMode::Plan).await;
         let planned = submit(&fixture).await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, planned.id).await;
-        planning_denial(&page, planned.id);
+        planning_denial(&fixture.client, &page, planned.id).await;
         assert_eq!(page.approvals.len(), 1);
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("approved.txt")).unwrap(),

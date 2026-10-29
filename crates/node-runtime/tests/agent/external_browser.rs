@@ -278,7 +278,7 @@ async fn filters_without_provisioning() {
                     finished(&fixture.client, fixture.session, fixture.turn).await
                 };
                 if denied {
-                    planning_denial(&page, fixture.turn);
+                    planning_denial(&fixture.client, &page, fixture.turn).await;
                 } else {
                     assert_eq!(page.runs.last().unwrap().status, Status::Completed);
                 }

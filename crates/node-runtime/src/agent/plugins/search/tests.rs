@@ -23,7 +23,7 @@ fn catalog() -> Search {
 #[test]
 fn adds_matches_without_removing_loaded_tools() {
     let catalog = catalog();
-    let mut loaded = BTreeSet::new();
+    let mut loaded = Vec::new();
     let first = catalog.output(
         Arguments {
             query: "database".into(),
@@ -32,7 +32,7 @@ fn adds_matches_without_removing_loaded_tools() {
         &mut loaded,
     );
     assert_eq!(first["tools"][0]["name"], "query_database");
-    assert_eq!(loaded, ["query_database".into()].into());
+    assert_eq!(loaded, ["query_database"]);
     let second = catalog.output(
         Arguments {
             query: "remote host".into(),
@@ -41,7 +41,7 @@ fn adds_matches_without_removing_loaded_tools() {
         &mut loaded,
     );
     assert_eq!(second["tools"][0]["name"], "run_ssh");
-    assert_eq!(loaded, ["query_database".into(), "run_ssh".into()].into());
+    assert_eq!(loaded, ["query_database", "run_ssh"]);
     assert_eq!(second["sailry_context"], "SSH context");
     let repeated = catalog.output(
         Arguments {
@@ -67,8 +67,24 @@ fn unmatched_queries_leave_selection_intact() {
             &mut loaded,
         );
         assert_eq!(result["tools"], json!([]));
-        assert_eq!(loaded, ["run_ssh".into()].into());
+        assert_eq!(loaded, ["run_ssh"]);
     }
+}
+
+#[test]
+fn preserves_discovery_order() {
+    let catalog = catalog();
+    let mut loaded = Vec::new();
+    for query in ["run_ssh", "query_database", "run_ssh"] {
+        catalog.output(
+            Arguments {
+                query: query.into(),
+                limit: Some(1),
+            },
+            &mut loaded,
+        );
+    }
+    assert_eq!(loaded, ["run_ssh", "query_database"]);
 }
 
 #[test]
@@ -79,7 +95,7 @@ fn shared_context_is_injected_once() {
         description: "Write database rows".into(),
         context: vec!["Database context".into()],
     });
-    let mut loaded = BTreeSet::new();
+    let mut loaded = Vec::new();
     let first = catalog.output(
         Arguments {
             query: "query_database".into(),

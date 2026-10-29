@@ -274,7 +274,19 @@ impl EffectHandler<Session, Effect> for Sessions {
                     .agents
                     .runner(self.turn)
                     .unwrap_or_else(|| self.ingress.agents.stopped.child_token());
-                let decision = tokio::select! {biased;_=stop.cancelled()=>return Err(Fault::new(ErrorCode::Cancelled,"tool approval was cancelled").into()),decision=self.ingress.confirm(self.turn,request.clone(),binding.clone())=>decision?};
+                let decision = tokio::select! {
+                    biased;
+                    _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "tool approval was cancelled").into()),
+                    decision = self.ingress.confirm(self.turn, request.clone(), binding.clone()) => {
+                        match decision {
+                            Ok(decision) => decision,
+                            Err(fault) if fault.code == ErrorCode::PermissionDenied => {
+                                Decision::DenyWithReason(fault.message)
+                            }
+                            Err(fault) => return Err(fault.into()),
+                        }
+                    }
+                };
                 match decision {
                     Decision::Approve | Decision::ApproveSession | Decision::ApprovePrefix(_) => {
                         pending.push(Effect::from(ConversationEffect::PatchToolRequestMeta {

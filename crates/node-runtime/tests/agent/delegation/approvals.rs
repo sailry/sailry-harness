@@ -1,5 +1,55 @@
 use super::*;
 
+#[cfg(unix)]
+#[tokio::test]
+async fn requires_command_approval_before_execution() {
+    for remote in [false, true] {
+        let parent = Server::turn_tools(vec![(
+            plugin_tool("delegation", "spawn_agent"),
+            json!({"role":"review","task":"Run the command after approval"}),
+        )])
+        .await;
+        let child = Server::turn_tools(vec![(
+            plugin_tool("commands", "run_command"),
+            json!({"access":"unrestricted","command":"printf approved >> approved.txt"}),
+        )])
+        .await;
+        let fixture = fixture::Fixture::start(remote, parent, child).await;
+        let turn = fixture.push("Delegate the command").await;
+        let child = children(&fixture.client, fixture.session.id, 1)
+            .await
+            .pop()
+            .unwrap();
+        assert_eq!(child.config.mode, WorkMode::Code);
+        assert_eq!(child.config.permission, Permission::Ask);
+        // Observe the same ordered subscription used by controller approval views.
+        let approval = crate::approvals::rules::pending(&fixture.client, child.id).await;
+        assert_eq!(approval.source, ApprovalSource::User);
+        assert_eq!(approval.session, child.id);
+        assert!(!fixture.root().join("approved.txt").exists());
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ResolveApproval {
+                session: child.id,
+                approval: approval.id,
+                decision: Decision::Approve,
+            }))
+            .await
+            .unwrap();
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Completed);
+        let page = finished(&fixture.client, child.id, approval.turn).await;
+        assert_eq!(page.runs[0].status, Status::Completed);
+        assert_eq!(page.approvals[0].state, ApprovalState::Approved);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root().join("approved.txt")).unwrap(),
+            "approved"
+        );
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
+        fixture.close().await;
+    }
+}
+
 #[tokio::test]
 async fn isolates_call_identity() {
     for remote in [false, true] {

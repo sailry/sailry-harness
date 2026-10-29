@@ -632,7 +632,7 @@ async fn apply_state(db: &Connection, session: SessionId, event: &Record) -> Res
 pub(in crate::store) async fn remember(
     db: &Connection,
     session: SessionId,
-    names: BTreeSet<String>,
+    names: Vec<String>,
 ) -> Result<(), Fault> {
     if names.is_empty() {
         return Ok(());
@@ -641,18 +641,22 @@ pub(in crate::store) async fn remember(
         .prepare("SELECT body FROM agent_state WHERE owner=?1 AND key=?2")
         .await
         .map_err(storage_error)?;
-    let mut loaded: BTreeSet<String> = match query
+    let mut loaded: Vec<String> = match query
         .query_row(params![session.to_string(), LOADED_TOOLS])
         .await
     {
         Ok(row) => serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
             .map_err(storage_error)?,
-        Err(turso::Error::QueryReturnedNoRows) => BTreeSet::new(),
+        Err(turso::Error::QueryReturnedNoRows) => Vec::new(),
         Err(error) => return Err(storage_error(error)),
     };
     drop(query);
     let previous = loaded.len();
-    loaded.extend(names);
+    for name in names {
+        if !loaded.contains(&name) {
+            loaded.push(name);
+        }
+    }
     if loaded.len() != previous {
         db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body",
             params![session.to_string(), LOADED_TOOLS, encode(&loaded)?]).await.map_err(storage_error)?;
@@ -704,31 +708,6 @@ pub(in crate::store) async fn missing_tools(
             .insert(name);
     }
     Ok(missing)
-}
-
-pub(in crate::store::agent) async fn called(
-    db: &Connection,
-    session: SessionId,
-    boundary: i64,
-) -> Result<BTreeSet<String>, Fault> {
-    let mut query = db
-        .prepare(
-            "SELECT DISTINCT json_extract(part.value,'$.name')
-        FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-        JOIN json_each(e.body,'$.content') part WHERE h.session=?1 AND h.sequence<=?2
-        AND json_extract(part.value,'$.type')='tool_request'",
-        )
-        .await
-        .map_err(storage_error)?;
-    let mut rows = query
-        .query(params![session.to_string(), boundary])
-        .await
-        .map_err(storage_error)?;
-    let mut names = BTreeSet::new();
-    while let Some(row) = rows.next().await.map_err(storage_error)? {
-        names.insert(row.get::<String>(0).map_err(storage_error)?);
-    }
-    Ok(names)
 }
 
 pub(super) async fn state(
@@ -821,10 +800,19 @@ pub(in crate::store) async fn rebuild_session(
                 db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body",
                 params![session.to_string(), key.as_str(), encode(&value)?]).await.map_err(storage_error)?;
             }
+            let names = event
+                .message()
+                .into_iter()
+                .flat_map(|message| &message.content)
+                .filter_map(|block| match &block.kind {
+                    BlockKind::ToolRequest(request) => Some(request.name.clone()),
+                    _ => None,
+                })
+                .collect();
+            remember(db, session, names).await?;
         }
     }
     drop(query);
-    remember(db, session, called(db, session, i64::MAX).await?).await?;
     Ok(())
 }
 

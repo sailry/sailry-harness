@@ -356,7 +356,7 @@ async fn preserves_enablement_and_planning_policy() {
                 finished(&fixture.client, fixture.session.id, turn).await
             };
             if mode == WorkMode::Plan {
-                planning_denial(&page, turn);
+                planning_denial(&fixture.client, &page, turn).await;
                 let context = context(&fixture).await;
                 assert!(schedules(&fixture.client, &context).await.is_empty());
                 assert!(

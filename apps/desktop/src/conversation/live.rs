@@ -162,6 +162,7 @@ pub(crate) struct View {
     changes: BTreeMap<TurnId, Entity<messages::changes::Card>>,
     editing: Option<messages::Editing>,
     texts: std::cell::RefCell<BTreeMap<String, Entity<crate::content::markdown::State>>>,
+    tool_texts: std::cell::RefCell<BTreeMap<String, tools::text::Parsed>>,
     prompts: std::cell::RefCell<BTreeMap<TurnId, Entity<super::prompt::State>>>,
     cards: std::cell::RefCell<
         BTreeMap<sailry_protocol::plugin::card::Receipt, Entity<crate::plugins::cards::Card>>,
@@ -487,6 +488,7 @@ impl View {
             changes: BTreeMap::new(),
             editing: None,
             texts: Default::default(),
+            tool_texts: Default::default(),
             prompts: Default::default(),
             cards: Default::default(),
             selection: None,
@@ -654,6 +656,7 @@ impl Render for View {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use gpui_kit::prelude::FluentBuilder as _;
 
+        self.prune_tool_texts();
         self.sync_question(window, cx);
         self.contribution_metadata = self.contributions.update(cx, |registry, cx| {
             registry.sync(

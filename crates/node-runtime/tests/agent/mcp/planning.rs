@@ -79,10 +79,11 @@ async fn preserves_readonly_execution() {
         )]);
         let (_, denied) = submit(&fixture, false).await;
         let denied_page = finished(&fixture.client, fixture.session.id, denied.id).await;
-        planning_denial(&denied_page, denied.id);
+        planning_denial(&fixture.client, &denied_page, denied.id).await;
         let denied_requests = model.requests.lock().unwrap().clone();
-        assert_eq!(denied_requests.len(), 4);
+        assert_eq!(denied_requests.len(), 5);
         assert_eq!(denied_requests[3]["tools"], requests[2]["tools"]);
+        assert_eq!(denied_requests[4]["tools"], denied_requests[3]["tools"]);
         assert!(!data.join("effects").exists());
         assert!(!data.join("holding").exists());
         fixture.node.shutdown().await.unwrap();

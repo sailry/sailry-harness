@@ -34,7 +34,12 @@ impl Session {
         })
     }
     pub fn loaded(&self) -> BTreeSet<String> {
-        self.context.loaded_tools.clone().unwrap_or_default()
+        self.context
+            .loaded_tools
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
     }
 
     pub async fn append(

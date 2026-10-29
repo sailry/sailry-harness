@@ -566,8 +566,26 @@ impl View {
 pub(super) fn error_key(error: &Fault) -> &'static str {
     match error.code {
         ErrorCode::RevisionConflict | ErrorCode::Conflict => "chat_config_changed",
-        ErrorCode::NotConfigured | ErrorCode::PermissionDenied => "chat_config_unavailable",
+        ErrorCode::NotConfigured => "chat_config_unavailable",
+        ErrorCode::PermissionDenied => "chat_action_denied",
         ErrorCode::OutcomeUnknown | ErrorCode::Unavailable => "chat_action_unknown",
         _ => "chat_action_failed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[core::prelude::v1::test]
+    fn distinguishes_permission_from_configuration() {
+        assert_eq!(
+            error_key(&Fault::new(ErrorCode::PermissionDenied, "denied")),
+            "chat_action_denied"
+        );
+        assert_eq!(
+            error_key(&Fault::new(ErrorCode::NotConfigured, "unconfigured")),
+            "chat_config_unavailable"
+        );
     }
 }

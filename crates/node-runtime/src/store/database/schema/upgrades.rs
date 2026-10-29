@@ -65,9 +65,13 @@ pub(super) async fn apply(connection: &Connection) -> Result<(), Error> {
             .await
             .map_err(|error| Error::Worker(error.message))?
         {
-            crate::store::agent::history::remember(connection, session, names)
-                .await
-                .map_err(|error| Error::Worker(error.message))?;
+            crate::store::agent::history::remember(
+                connection,
+                session,
+                names.into_iter().collect(),
+            )
+            .await
+            .map_err(|error| Error::Worker(error.message))?;
         }
         connection
             .execute("UPDATE node SET tool_defaults=1 WHERE singleton=1", ())

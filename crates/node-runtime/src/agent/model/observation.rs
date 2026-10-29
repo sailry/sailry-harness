@@ -10,6 +10,7 @@ use std::{
 
 mod categories;
 mod context;
+mod fingerprints;
 pub(in crate::agent) use context::Context;
 #[cfg(test)]
 mod tests;
@@ -66,6 +67,7 @@ impl Sources {
             complete: false,
             started,
             http: None,
+            diagnostic: None,
         })))
     }
 }
@@ -80,6 +82,7 @@ struct State {
     complete: bool,
     started: Instant,
     http: Option<Http>,
+    diagnostic: Option<(crate::logging::Context, u64)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +96,16 @@ tokio::task_local! {
 }
 
 impl Payload {
+    pub(super) fn with_identity(self, identity: crate::logging::Context) -> Self {
+        if std::env::var_os("SAILRY_DEBUG_REQUEST_FINGERPRINTS").is_some_and(|value| value == "1") {
+            self.0
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .diagnostic = Some((identity, 0));
+        }
+        self
+    }
+
     pub(super) async fn scope<F: Future>(&self, future: F) -> F::Output {
         CURRENT.scope(self.clone(), future).await
     }
@@ -104,6 +117,10 @@ impl Payload {
 
     fn prepared(&self, body: &serde_json::Value) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some((identity, attempt)) = &mut state.diagnostic {
+            *attempt = attempt.saturating_add(1);
+            fingerprints::record(body, identity, *attempt);
+        }
         // A later prepared request must not inherit a previous retry's receipt.
         state.http = None;
         let sources = if categories::retains_system(body, state.system) {

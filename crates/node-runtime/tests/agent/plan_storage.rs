@@ -277,7 +277,7 @@ async fn rejects_hidden_writes() {
                     panic!("denied private storage turn expected")
                 };
                 let denied_page = finished(&fixture.client, fixture.session.id, denied.id).await;
-                planning_denial(&denied_page, denied.id);
+                planning_denial(&fixture.client, &denied_page, denied.id).await;
                 assert!(!value(&fixture, &ui, "code").await.present);
                 assert_eq!(value(&fixture, &ui, "seed").await.value, "original");
             }

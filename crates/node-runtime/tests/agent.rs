@@ -160,14 +160,25 @@ fn turn_context(request: &serde_json::Value) -> &str {
     agent_support::turn_context(request).expect("request-only turn context expected")
 }
 
-fn planning_denial(page: &Page, turn: TurnId) {
+async fn planning_denial(client: &Client, page: &Page, turn: TurnId) {
     let run = page.runs.iter().find(|run| run.turn == turn).unwrap();
-    assert_eq!(run.status, Status::Failed, "{run:?}");
-    let error = run.error.as_ref().unwrap();
-    assert_eq!(error.code, sailry_protocol::ErrorCode::PermissionDenied);
-    assert!(error.message.contains("planning"), "{error:?}");
+    assert_eq!(run.status, Status::Completed, "{run:?}");
+    assert!(run.error.is_none());
+    let mut page = page.clone();
+    page.entries.retain(|entry| entry.turn == turn);
+    assert!(tool_details(client, &page).await.iter().any(|(_, detail)| {
+        detail.result.as_ref().is_some_and(|result| {
+            result["isError"] == true
+                && result["content"].as_array().is_some_and(|content| {
+                    content.iter().any(|block| {
+                        block["text"]
+                            .as_str()
+                            .is_some_and(|text| text.contains("planning turns"))
+                    })
+                })
+        })
+    }));
     assert!(page.approvals.iter().all(|approval| approval.turn != turn));
-    assert!(page.questions.iter().all(|question| question.turn != turn));
 }
 
 async fn isolate_model_tools(client: &Client) {
