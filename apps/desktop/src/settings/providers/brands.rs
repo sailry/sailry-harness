@@ -1,6 +1,10 @@
 //! Shared channel-brand matrix for the welcome guide and provider editor.
 use super::presets;
 use gpui_kit::{
+    base::{
+        animation::cubic_bezier,
+        motion::{self, Transition},
+    },
     component::{
         button::{Button, ButtonCustomVariant, ButtonVariants},
         *,
@@ -8,7 +12,7 @@ use gpui_kit::{
     *,
 };
 use sailry_protocol::conversation::presets::Entry;
-use std::{collections::BTreeMap, rc::Rc};
+use std::{collections::BTreeMap, rc::Rc, time::Duration};
 
 pub(super) const WIDTH: Pixels = px(640.);
 const TILE: Pixels = px(76.);
@@ -25,6 +29,27 @@ fn row_lengths(count: usize) -> Vec<usize> {
             (length > 0).then_some(length)
         })
         .collect()
+}
+
+/// Distance of each tile from the matrix centre in tile steps. Rows are centred.
+fn distances(lengths: &[usize]) -> Vec<f32> {
+    let middle = (lengths.len() as f32 - 1.) / 2.;
+    lengths
+        .iter()
+        .enumerate()
+        .flat_map(|(row, &length)| {
+            let y = row as f32 - middle;
+            (0..length).map(move |column| (column as f32 - (length as f32 - 1.) / 2.).hypot(y))
+        })
+        .collect()
+}
+
+/// Fill alpha and edge strength, fading outward from the centre.
+fn fade(distance: f32) -> (f32, f32) {
+    (
+        (0.64 - 0.095 * distance).max(0.22),
+        (1. - 0.16 * distance).max(0.35),
+    )
 }
 
 fn groups(entries: Option<&[Entry]>) -> Vec<(String, Vec<Entry>)> {
@@ -114,44 +139,90 @@ impl RenderOnce for Matrix {
         });
         let lengths = row_lengths(self.groups.len());
         let tile = ((self.width - px(56.) - GAP * 5.) / 6.).clamp(px(36.), TILE);
-        let glyph = rems(2.125 * f32::from(tile) / f32::from(TILE));
-        let mut groups = self.groups.into_iter().zip(handles.iter());
+        let glyph = 1.75 * f32::from(tile) / f32::from(TILE);
+        let mut tiles = Vec::new();
+        for (((key, choices), handle), distance) in self
+            .groups
+            .into_iter()
+            .zip(&handles)
+            .zip(distances(&lengths))
+        {
+            let entry = &choices[0];
+            let label = presets::brand_label(entry);
+            let hover = window.use_keyed_state(
+                SharedString::from(format!("provider-brand-hover-{key}")),
+                cx,
+                |_, _| false,
+            );
+            let target = if *hover.read(cx) && !self.disabled {
+                1.
+            } else {
+                0.
+            };
+            let progress = motion::transition(
+                format!("provider-brand-lift-{key}"),
+                target,
+                Transition::new(Duration::from_millis(350)).ease(cubic_bezier(0.22, 1., 0.36, 1.)),
+                window,
+                cx,
+            );
+            let (alpha, edge) = fade(distance);
+            // Kit's hover color follows the animated fill so it does not jump.
+            let fill = cx
+                .theme()
+                .secondary
+                .opacity(alpha + (1. - alpha) * progress);
+            let select = self.select.clone();
+            tiles.push(
+                Button::new(SharedString::from(format!("provider-brand-{key}")))
+                    .custom(
+                        ButtonCustomVariant::new(cx)
+                            .color(fill)
+                            .foreground(cx.theme().foreground)
+                            .hover(fill)
+                            .active(cx.theme().list_active),
+                    )
+                    .size(tile)
+                    .p_0()
+                    .border_1()
+                    .border_color(cx.theme().border.opacity(0.7 + 0.3 * edge))
+                    .rounded(cx.theme().radius_lg)
+                    // The theme has no shadow color token; a black drop shadow sits below the tile.
+                    .shadow(vec![
+                        BoxShadow::new(
+                            px(0.),
+                            px(6.),
+                            gpui_kit::black().opacity(0.24 * (0.65 + 0.35 * edge)),
+                        )
+                        .blur_radius(px(7.))
+                        .spread_radius(px(-5.)),
+                    ])
+                    .disabled(self.disabled)
+                    .track_focus(handle)
+                    .accessibility_label(label.clone())
+                    .tooltip(label)
+                    .tooltip_placement(Placement::Top)
+                    .child(presets::render_icon(
+                        entry,
+                        rems(glyph * (1. + 0.18 * progress)),
+                    ))
+                    .on_hover(move |hovered, _, cx| {
+                        hover.update(cx, |hover, cx| {
+                            *hover = *hovered;
+                            cx.notify();
+                        })
+                    })
+                    .on_click(move |_, window, cx| select(key.clone(), window, cx)),
+            );
+        }
+        let mut tiles = tiles.into_iter();
         let rows = lengths
             .iter()
             .map(|length| {
                 h_flex()
                     .justify_center()
                     .gap(GAP)
-                    .children(
-                        groups
-                            .by_ref()
-                            .take(*length)
-                            .map(|((key, choices), handle)| {
-                                let entry = &choices[0];
-                                let label = presets::brand_label(entry);
-                                let select = self.select.clone();
-                                Button::new(SharedString::from(format!("provider-brand-{key}")))
-                                    .custom(
-                                        ButtonCustomVariant::new(cx)
-                                            .color(cx.theme().secondary)
-                                            .foreground(cx.theme().foreground)
-                                            .hover(cx.theme().list_hover)
-                                            .active(cx.theme().list_active),
-                                    )
-                                    .size(tile)
-                                    .p_0()
-                                    .border_1()
-                                    .border_color(cx.theme().border)
-                                    .rounded(cx.theme().radius_lg)
-                                    .disabled(self.disabled)
-                                    .track_focus(handle)
-                                    .accessibility_label(label.clone())
-                                    .tooltip(label)
-                                    .tooltip_placement(Placement::Top)
-                                    .child(presets::render_icon(entry, glyph))
-                                    .on_click(move |_, window, cx| select(key.clone(), window, cx))
-                            }),
-                    )
+                    .children(tiles.by_ref().take(*length))
             })
             .collect::<Vec<_>>();
         v_flex()
@@ -205,6 +276,18 @@ mod tests {
         assert_eq!(next(&rows, 0, "up"), Some(10));
         assert_eq!(next(&rows, 1, "enter"), None);
         assert_eq!(next(&[], 0, "left"), None);
+    }
+
+    #[test]
+    fn fades_outward_from_centre() {
+        let rows = row_lengths(14);
+        let distances = distances(&rows);
+        assert_eq!(distances.len(), 14);
+        assert!((0..14).all(|index| distances[index] == distances[13 - index]));
+        assert_eq!(distances[6], 0.5);
+        assert_eq!(distances[0], 1.5f32.hypot(1.));
+        assert_eq!(fade(0.), (0.64, 1.));
+        assert_eq!(fade(10.), (0.22, 0.35));
     }
 
     #[test]
