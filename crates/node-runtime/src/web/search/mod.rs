@@ -20,6 +20,8 @@ mod filters;
 mod network;
 mod searxng;
 mod tavily;
+mod tinyfish;
+mod volcengine;
 #[cfg(test)]
 mod tests;
 
@@ -35,9 +37,6 @@ pub(super) async fn json_request(
         .await
         .map_err(|failure| failure.fault)
 }
-mod tinyfish;
-mod volcengine;
-
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Auth {

@@ -21,6 +21,7 @@ mod server;
 mod tinyfish;
 use server::{Reply, Server};
 
+#[path = "search/caching.rs"]
 mod caching;
 
 async fn controller(node: &Node, path: &std::path::Path) -> (Link, Arc<dyn Transport>) {
