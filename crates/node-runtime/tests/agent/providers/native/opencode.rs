@@ -2,6 +2,87 @@ use super::*;
 use serde_json::json;
 
 #[tokio::test]
+async fn preserves_selected_reasoning() {
+    for remote in [false, true] {
+        for api in [ModelApi::OpenCodeGo, ModelApi::OpenCodeZen] {
+            for model in ["glm-5.1", "deepseek-v4-pro"] {
+                let server = Server::start(ModelApi::ChatCompletions, Reply::Text).await;
+                let mut fixture = Fixture::empty(remote, api, &server.endpoint).await;
+                fixture.provider.models[0].id = model.into();
+                fixture.provider.models[0].efforts =
+                    vec![Effort::Disabled, Effort::High, Effort::Max];
+                fixture.provider.default_model = model.into();
+                fixture.provider.binding =
+                    Some(Box::new(sailry_protocol::conversation::presets::Binding {
+                        policies: vec![sailry_protocol::conversation::presets::RequestPolicy {
+                            models: vec![model.into()],
+                            reasoning_replay: None,
+                            body: json!({"thinking":{"type":"enabled","clear_thinking":false}})
+                                .as_object()
+                                .unwrap()
+                                .clone(),
+                        }],
+                        ..Default::default()
+                    }));
+                execute(
+                    &fixture.client,
+                    Command::PutProvider {
+                        expected_revision: fixture.provider.revision,
+                        provider: fixture.provider.clone(),
+                    },
+                )
+                .await;
+                for effort in [Effort::Disabled, Effort::High, Effort::Max] {
+                    let mut config = fixture.session.config.clone();
+                    config.model = model.into();
+                    config.effort = effort;
+                    let Output::Session(session) = execute(
+                        &fixture.client,
+                        Command::SetSessionConfig {
+                            session: fixture.session.id,
+                            expected_revision: fixture.session.revision,
+                            config,
+                        },
+                    )
+                    .await
+                    else {
+                        panic!("session expected")
+                    };
+                    fixture.session = session;
+                    let turn = fixture.submit("Use the captured reasoning settings").await;
+                    let page = finished(&fixture.client, fixture.session.id, turn).await;
+                    assert_eq!(
+                        page.runs.last().unwrap().status,
+                        Status::Completed,
+                        "{api:?}, {model}, remote={remote}: {:?}",
+                        page.runs
+                    );
+                }
+                let requests = server.requests.lock().unwrap().clone();
+                assert_eq!(requests.len(), 3);
+                for (request, expected) in requests.iter().zip(["none", "high", "max"]) {
+                    assert_eq!(
+                        request.body["reasoning_effort"], expected,
+                        "{api:?}, {model}, remote={remote}"
+                    );
+                    assert_eq!(request.body["thinking"]["clear_thinking"], false);
+                    assert_eq!(
+                        request.body["thinking"]["type"],
+                        if expected == "none" {
+                            "disabled"
+                        } else {
+                            "enabled"
+                        }
+                    );
+                }
+                fixture.controller.close().await.unwrap();
+                fixture.node.shutdown().await.unwrap();
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn retains_errors_and_status() {
     for remote in [false, true] {
         for status in [400, 401, 403] {

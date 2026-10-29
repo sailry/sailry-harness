@@ -44,6 +44,8 @@ pub(crate) fn reasoning(provider: &Provider, model: &str, effort: Effort) -> Map
             | ModelApi::ChatCompletions
             | ModelApi::DeepSeek
             | ModelApi::AzureOpenAi
+            | ModelApi::OpenCodeGo
+            | ModelApi::OpenCodeZen
     ) {
         return Map::new();
     }
