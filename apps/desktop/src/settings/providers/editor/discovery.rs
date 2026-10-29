@@ -189,7 +189,7 @@ impl Editor {
                     }
                     match result {
                         Ok(Some(Ok((Output::DiscoveredModels(catalog), metadata)))) => {
-                            if preset.custom_endpoint() {
+                            if editor.custom_endpoint() {
                                 editor.endpoint.update(cx, |input, cx| {
                                     input.set_value(catalog.endpoint, window, cx)
                                 });
