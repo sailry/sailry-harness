@@ -12,18 +12,26 @@ async fn preserves_selected_reasoning() {
                 fixture.provider.models[0].efforts =
                     vec![Effort::Disabled, Effort::High, Effort::Max];
                 fixture.provider.default_model = model.into();
-                fixture.provider.binding =
-                    Some(Box::new(sailry_protocol::conversation::presets::Binding {
-                        policies: vec![sailry_protocol::conversation::presets::RequestPolicy {
-                            models: vec![model.into()],
-                            reasoning_replay: None,
-                            body: json!({"thinking":{"type":"enabled","clear_thinking":false}})
-                                .as_object()
-                                .unwrap()
-                                .clone(),
-                        }],
-                        ..Default::default()
-                    }));
+                let protocol = if api == ModelApi::OpenCodeGo {
+                    "opencode-go"
+                } else {
+                    "opencode-zen"
+                };
+                let catalog = serde_json::to_vec(&json!({"version":1,"partners":[{
+                    "id":"gateway-fixture","name":"Gateway fixture",
+                    "routes":[{"protocol":protocol,"endpoint":server.endpoint}],
+                    "policies":[{"models":[model],"body":{"thinking":{"type":"enabled","clear_thinking":false}}}]
+                }]})).unwrap();
+                fixture.node.with_storage(move |db| Box::pin(async move {
+                    db.execute("INSERT INTO channel_presets(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [catalog])
+                        .await.map_err(crate::database_fixture::fault)?;
+                    Ok(())
+                })).await.unwrap();
+                fixture.provider.preset = Some(sailry_protocol::conversation::presets::PresetRef {
+                    source: sailry_protocol::conversation::presets::Source::Partner,
+                    id: "gateway-fixture".into(),
+                    route: None,
+                });
                 execute(
                     &fixture.client,
                     Command::PutProvider {
