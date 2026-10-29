@@ -84,7 +84,7 @@ async fn pages_after_reload_and_formats_compaction() {
                 .await
                 .into_iter()
                 .filter(|(tool, _)| tool == &name("read_file"))
-                .last()
+                .next_back()
                 .unwrap()
                 .1
                 .result
