@@ -36,7 +36,9 @@ pub(crate) fn reasoning(provider: &Provider, model: &str, effort: Effort) -> Map
             Effort::High => "high",
             _ => return Map::new(),
         };
-        return [("thinking_level".into(), level.into())].into();
+        return [("thinking_level".into(), level.into())]
+            .into_iter()
+            .collect();
     }
     if !matches!(
         provider.api,
