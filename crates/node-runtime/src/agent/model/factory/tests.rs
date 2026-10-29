@@ -66,7 +66,12 @@ async fn responses_use_sse_and_stable_calls() {
     let user = Message::user().with_text("Read the file");
     let (call, usage) = collect_stream(
         native
-            .stream(&config, "Captured instructions", &[user.clone()], &[tool()])
+            .stream(
+                &config,
+                "Captured instructions",
+                std::slice::from_ref(&user),
+                &[tool()],
+            )
             .await
             .unwrap(),
     )

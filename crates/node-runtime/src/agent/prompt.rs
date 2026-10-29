@@ -42,6 +42,69 @@ pub(super) fn recipient(child: bool) -> &'static str {
     }
 }
 
+/// File tools discover scoped guides through the existing captured Node worktree.
+pub(in crate::agent) async fn observe(
+    ingress: &crate::store::Ingress,
+    worktree: sailry_protocol::WorktreeId,
+    operation: sailry_protocol::tool::Operation,
+    context: &crate::agent::catalog::CallContext,
+    output: &mut serde_json::Value,
+    stop: &sailry_link::CancellationToken,
+) -> Result<(), sailry_protocol::Fault> {
+    use instructions::Scope;
+    use sailry_protocol::tool::Operation;
+    use serde_json::{Value, json};
+    if output.get("error").is_some() {
+        return Ok(());
+    }
+    let data = output.get("data").unwrap_or(output);
+    let Some(path) = data.get("path").and_then(Value::as_str).map(str::to_owned) else {
+        return Ok(());
+    };
+    let revision = data.get("revision").cloned();
+    let scope = match operation {
+        Operation::ListDirectory => Scope::Directory(path.clone()),
+        Operation::ReadFile | Operation::ReadFileLines | Operation::ReadOffice => {
+            Scope::File(path.clone())
+        }
+        _ => return Ok(()),
+    };
+    if matches!(operation, Operation::ReadFile | Operation::ReadFileLines)
+        && revision.as_ref().is_some_and(|revision| {
+            context
+                .context
+                .guides
+                .get(&instructions::key(&path))
+                .is_some_and(|guide| guide.path == path && json!(guide.revision) == *revision)
+        })
+    {
+        output["sailry_guide_loaded"] = json!({"path":path,"revision":revision});
+    }
+    let mut delta = crate::agent::canonical::Context::default();
+    for guide in instructions::capture(ingress, worktree, &[scope], stop).await? {
+        if context
+            .context
+            .guides
+            .get(&guide.key())
+            .is_none_or(|previous| previous.revision != guide.revision)
+        {
+            delta.guides.insert(
+                guide.key(),
+                crate::agent::canonical::Guide {
+                    path: guide.path.clone(),
+                    revision: guide.revision.clone(),
+                    content: guide.render(),
+                },
+            );
+        }
+    }
+    if !delta.guides.is_empty() {
+        output["sailry_context"] = serde_json::to_value(delta)
+            .map_err(|_| sailry_protocol::Fault::invalid("captured guides could not be encoded"))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,67 +275,4 @@ mod tests {
             assert!(!child.contains(rule), "{rule}");
         }
     }
-}
-
-/// File tools discover scoped guides through the existing captured Node worktree.
-pub(in crate::agent) async fn observe(
-    ingress: &crate::store::Ingress,
-    worktree: sailry_protocol::WorktreeId,
-    operation: sailry_protocol::tool::Operation,
-    context: &crate::agent::catalog::CallContext,
-    output: &mut serde_json::Value,
-    stop: &sailry_link::CancellationToken,
-) -> Result<(), sailry_protocol::Fault> {
-    use instructions::Scope;
-    use sailry_protocol::tool::Operation;
-    use serde_json::{Value, json};
-    if output.get("error").is_some() {
-        return Ok(());
-    }
-    let data = output.get("data").unwrap_or(output);
-    let Some(path) = data.get("path").and_then(Value::as_str).map(str::to_owned) else {
-        return Ok(());
-    };
-    let revision = data.get("revision").cloned();
-    let scope = match operation {
-        Operation::ListDirectory => Scope::Directory(path.clone()),
-        Operation::ReadFile | Operation::ReadFileLines | Operation::ReadOffice => {
-            Scope::File(path.clone())
-        }
-        _ => return Ok(()),
-    };
-    if matches!(operation, Operation::ReadFile | Operation::ReadFileLines)
-        && revision.as_ref().is_some_and(|revision| {
-            context
-                .context
-                .guides
-                .get(&instructions::key(&path))
-                .is_some_and(|guide| guide.path == path && json!(guide.revision) == *revision)
-        })
-    {
-        output["sailry_guide_loaded"] = json!({"path":path,"revision":revision});
-    }
-    let mut delta = crate::agent::canonical::Context::default();
-    for guide in instructions::capture(ingress, worktree, &[scope], stop).await? {
-        if context
-            .context
-            .guides
-            .get(&guide.key())
-            .is_none_or(|previous| previous.revision != guide.revision)
-        {
-            delta.guides.insert(
-                guide.key(),
-                crate::agent::canonical::Guide {
-                    path: guide.path.clone(),
-                    revision: guide.revision.clone(),
-                    content: guide.render(),
-                },
-            );
-        }
-    }
-    if !delta.guides.is_empty() {
-        output["sailry_context"] = serde_json::to_value(delta)
-            .map_err(|_| sailry_protocol::Fault::invalid("captured guides could not be encoded"))?;
-    }
-    Ok(())
 }
