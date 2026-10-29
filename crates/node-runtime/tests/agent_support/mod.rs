@@ -37,6 +37,7 @@ pub struct Server {
 #[derive(Clone)]
 enum Reply {
     Reasoning,
+    ReasoningAfterAnswer,
     Terminal,
     Http {
         failures: usize,
@@ -111,6 +112,9 @@ enum Reply {
 impl Server {
     pub async fn reasoning() -> Self {
         Self::serve(Reply::Reasoning).await
+    }
+    pub async fn reasoning_after_answer() -> Self {
+        Self::serve(Reply::ReasoningAfterAnswer).await
     }
     pub async fn terminal() -> Self {
         Self::serve(Reply::Terminal).await
@@ -882,6 +886,9 @@ async fn respond(
             && completed == 0
             && spawn_available);
     let delta = match (&reply, batch, call) {
+        (Reply::ReasoningAfterAnswer, _, _) if !records.lock().unwrap().is_empty() => {
+            json!({"role":"assistant","reasoning_content":"Retained reasoning without a final answer"})
+        }
         _ if discover => json!({"role":"assistant", "tool_calls":[{"index":0,
             "id":"discovery-fixture", "type":"function", "function":{
                 "name":"tool_search", "arguments":json!({

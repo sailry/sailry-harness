@@ -4,6 +4,73 @@ use super::*;
 mod approvals;
 
 #[tokio::test]
+async fn omits_previous_answer_from_current_outcome() {
+    for remote in [false, true] {
+        let parent = Server::scripted_tools(vec![(
+            plugin_tool("delegation", "spawn_agent"),
+            json!({"role":"review","task":"Initial child task"}),
+        )])
+        .await;
+        let child = Server::reasoning_after_answer().await;
+        let fixture = Fixture::start(remote, parent, child).await;
+        let first = fixture.push("Read the initial child answer").await;
+        let original = finished(&fixture.client, fixture.session.id, first.id).await;
+        assert_eq!(original.runs[0].status, Status::Completed);
+        let child = children(&fixture.client, fixture.session.id, 1)
+            .await
+            .pop()
+            .unwrap();
+        let before = history(&fixture.client, child.id).await;
+        assert!(text(&before).contains("answer-fixture-child"));
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        fixture.parent.replace_tools(vec![(
+            plugin_tool("delegation", "spawn_agent"),
+            json!({"session":child.id,"task":"Continue with reasoning only"}),
+        )]);
+        let second = fixture.push("Continue the existing child").await;
+        let parent = finished(&fixture.client, fixture.session.id, second.id).await;
+        assert!(
+            parent
+                .runs
+                .iter()
+                .all(|run| run.status == Status::Completed)
+        );
+        let after = history(&fixture.client, child.id).await;
+        assert_eq!(after.runs.len(), 2);
+        assert!(after.runs.iter().all(|run| run.status == Status::Completed));
+        let current = after.runs.last().unwrap().turn;
+        let parts = after
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == current && entry.author == "assistant")
+            .flat_map(|entry| &entry.parts)
+            .collect::<Vec<_>>();
+        assert!(parts.iter().any(|part| matches!(part, Part::Thinking(_))));
+        assert!(parts.iter().all(|part| !matches!(part, Part::Text(_))));
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
+        let requests = fixture.parent.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 4);
+        let outcome = requests.last().unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .filter(|message| message["role"] == "user")
+            .filter_map(|message| message["content"].as_str())
+            .find(|text| text.starts_with("Subagent ") && text.contains(" completed:"))
+            .unwrap();
+        assert!(outcome.contains(&child.id.to_string()));
+        assert!(!outcome.contains("answer-fixture-child"));
+        assert!(
+            requests[2]["messages"]
+                .to_string()
+                .contains("answer-fixture-child")
+        );
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn preserves_child_history_and_configuration() {
     for remote in [false, true] {
         let parent = Server::turn_tools(vec![(

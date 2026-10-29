@@ -12,6 +12,9 @@ mod entries;
 mod removal;
 #[path = "paging/seek.rs"]
 mod seek;
+#[cfg(unix)]
+#[path = "paging/summaries.rs"]
+mod summaries;
 #[path = "paging/transport.rs"]
 pub(super) mod transport;
 use transport::Observed;
