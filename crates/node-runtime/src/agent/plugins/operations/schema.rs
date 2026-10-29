@@ -253,7 +253,13 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["url"],
         ),
         Operation::SearchWeb => (
-            json!({"query":{"type":"string", "minLength":1}, "limit":{"type":"integer", "default":5, "minimum":1, "maximum":9_007_199_254_740_991u64}}),
+            json!({
+                "query":{"type":"string", "minLength":1},
+                "limit":{"type":"integer", "default":5, "minimum":1, "maximum":9_007_199_254_740_991u64},
+                "freshness":{"type":"string", "enum":["hour","day","week","month","year"], "description":"Limit results to recent content within this time range"},
+                "include_domains":{"type":"array", "maxItems":sailry_protocol::search::MAX_DOMAINS, "items":{"type":"string", "minLength":1}, "description":"Include only these hostnames and their subdomains"},
+                "exclude_domains":{"type":"array", "maxItems":sailry_protocol::search::MAX_DOMAINS, "items":{"type":"string", "minLength":1}, "description":"Exclude these hostnames and their subdomains"}
+            }),
             vec!["query"],
         ),
         Operation::GetValue => (json!({"key":key}), vec!["key"]),
@@ -776,6 +782,46 @@ mod tests {
         };
         assert_eq!(request.url, url);
         assert_eq!(request.offset, 0);
+    }
+
+    #[test]
+    fn search_preserves_optional_filters() {
+        let arguments = json!({
+            "query":"current sources", "limit":500, "freshness":"hour",
+            "include_domains":["example.com"], "exclude_domains":["other.test"]
+        });
+        let schema = parameters(Operation::SearchWeb);
+        let validator = jsonschema::draft202012::options().build(&schema).unwrap();
+        assert!(validator.is_valid(&arguments));
+        let Command::SearchWeb(request) =
+            command(Operation::SearchWeb, arguments, &scope()).unwrap()
+        else {
+            panic!("search request expected")
+        };
+        request.validate().unwrap();
+        assert_eq!(request.limit, sailry_protocol::search::MAX_LIMIT);
+        assert_eq!(
+            request.freshness,
+            Some(sailry_protocol::search::Freshness::Hour)
+        );
+        assert_eq!(request.include_domains, ["example.com"]);
+        assert_eq!(request.exclude_domains, ["other.test"]);
+        let Command::SearchWeb(defaults) = command(
+            Operation::SearchWeb,
+            json!({"query":"current sources"}),
+            &scope(),
+        )
+        .unwrap() else {
+            panic!("search request expected")
+        };
+        assert_eq!(defaults.limit, sailry_protocol::search::DEFAULT_LIMIT);
+        assert_eq!(defaults.freshness, None);
+        assert!(defaults.include_domains.is_empty());
+        assert!(defaults.exclude_domains.is_empty());
+        assert!(!validator.is_valid(&json!({"query":"source", "freshness":"minute"})));
+        assert!(!validator.is_valid(&json!({
+            "query":"source", "include_domains":vec!["example.com";sailry_protocol::search::MAX_DOMAINS+1]
+        })));
     }
 
     #[test]

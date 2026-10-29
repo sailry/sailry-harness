@@ -33,9 +33,26 @@ pub(super) async fn search(
         };
         return hosted(endpoint, input, stop).await;
     }
-    let request = network::json(network::client()?.post(endpoint).header("x-api-key", network::key(auth)?).json(&json!({
-        "query": input.query, "numResults": input.limit, "type": "auto", "contents": {"text": {"maxCharacters": 4000}},
-    })));
+    let mut body = json!({
+        "query": input.query, "numResults": input.limit, "type": "auto",
+        "contents": {"text": {"maxCharacters": 4000}},
+    });
+    if let Some(freshness) = input.freshness {
+        body["startPublishedDate"] =
+            json!(filters::since(freshness, chrono::Utc::now()).to_rfc3339());
+    }
+    if !input.include_domains.is_empty() {
+        body["includeDomains"] = json!(input.include_domains);
+    }
+    if !input.exclude_domains.is_empty() {
+        body["excludeDomains"] = json!(input.exclude_domains);
+    }
+    let request = network::json(
+        network::client()?
+            .post(endpoint)
+            .header("x-api-key", network::key(auth)?)
+            .json(&body),
+    );
     let response = tokio::select! {
         biased;
         _ = stop.cancelled() => return Err(Failure::cancelled()),
@@ -97,7 +114,7 @@ async fn hosted(
         }
     };
     let params = CallToolRequestParams::new("web_search_exa").with_arguments(
-        json!({"query":input.query,"numResults":input.limit})
+        json!({"query":filters::query(input),"numResults":input.limit})
             .as_object()
             .expect("search arguments are an object")
             .clone(),

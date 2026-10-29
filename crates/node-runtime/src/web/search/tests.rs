@@ -2,6 +2,7 @@ use super::*;
 #[path = "../../../tests/support/search.rs"]
 mod server;
 use server::{Reply, Server};
+mod parameters;
 
 impl Server {
     fn stall(&self, method: &str) {
@@ -45,6 +46,7 @@ fn input() -> search::Request {
     search::Request {
         query: "source 中文 🙂".into(),
         limit: 5,
+        ..Default::default()
     }
 }
 
@@ -488,6 +490,7 @@ async fn requests_each_provider_page_without_requerying() {
         let input = search::Request {
             query: "source".into(),
             limit: 50,
+            ..Default::default()
         };
         let page = owner
             .search(

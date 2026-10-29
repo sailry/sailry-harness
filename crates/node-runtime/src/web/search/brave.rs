@@ -5,14 +5,27 @@ pub(super) async fn search(
     auth: &Auth,
     input: &search::Request,
 ) -> Result<Vec<search::Result>, Failure> {
+    let mut parameters = vec![
+        ("q", filters::query(input)),
+        ("count", input.limit.to_string()),
+    ];
+    if let Some(freshness) = input.freshness {
+        parameters.push((
+            "freshness",
+            match freshness {
+                search::Freshness::Hour | search::Freshness::Day => "pd",
+                search::Freshness::Week => "pw",
+                search::Freshness::Month => "pm",
+                search::Freshness::Year => "py",
+            }
+            .into(),
+        ));
+    }
     let response = network::json(
         network::client()?
             .get(endpoint)
             .header("X-Subscription-Token", network::key(auth)?)
-            .query(&[
-                ("q", input.query.clone()),
-                ("count", input.limit.to_string()),
-            ]),
+            .query(&parameters),
     )
     .await?;
     parse(&response)

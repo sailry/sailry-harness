@@ -14,6 +14,7 @@ mod bocha;
 mod brave;
 mod cooldown;
 mod exa;
+mod filters;
 mod network;
 mod searxng;
 mod tavily;
@@ -105,7 +106,7 @@ impl Searcher {
                 stop,
             }
         };
-        self.execute(plan, input, &request.stop).await
+        self.execute(plan, &input.normalized(), &request.stop).await
     }
 
     async fn execute(
@@ -161,6 +162,7 @@ impl Searcher {
             };
             match attempt {
                 Ok(mut results) => {
+                    filters::apply(&mut results, input, chrono::Utc::now());
                     results.truncate(input.limit as usize);
                     return Ok(search::Page {
                         driver,

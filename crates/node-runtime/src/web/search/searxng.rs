@@ -12,9 +12,20 @@ pub(super) async fn search(
             .join("search")
             .map_err(|_| Failure::invalid("SearXNG endpoint is invalid"))?;
     }
-    let mut request = network::client()?
-        .get(endpoint)
-        .query(&[("q", input.query.as_str()), ("format", "json")]);
+    let mut parameters = vec![("q", filters::query(input)), ("format", "json".into())];
+    if let Some(freshness) = input.freshness {
+        // SearXNG accepts day/month/year; local filtering narrows widened ranges.
+        parameters.push((
+            "time_range",
+            match freshness {
+                search::Freshness::Hour | search::Freshness::Day => "day",
+                search::Freshness::Week | search::Freshness::Month => "month",
+                search::Freshness::Year => "year",
+            }
+            .into(),
+        ));
+    }
+    let mut request = network::client()?.get(endpoint).query(&parameters);
     if let Some(key) = &auth.key {
         request = request.header("X-API-Key", key.expose());
     }

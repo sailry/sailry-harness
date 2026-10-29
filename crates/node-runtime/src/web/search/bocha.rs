@@ -6,9 +6,28 @@ pub(super) async fn search(
     auth: &Auth,
     input: &search::Request,
 ) -> Result<Vec<search::Result>, Failure> {
-    let response = network::json(network::client()?.post(endpoint).bearer_auth(network::key(auth)?).json(&json!({
-        "query": input.query, "count": input.limit, "freshness": "noLimit", "summary": false,
-    }))).await?;
+    let mut body = json!({"query": input.query, "count": input.limit, "summary": false});
+    if let Some(freshness) = input.freshness {
+        body["freshness"] = json!(match freshness {
+            search::Freshness::Hour | search::Freshness::Day => "oneDay",
+            search::Freshness::Week => "oneWeek",
+            search::Freshness::Month => "oneMonth",
+            search::Freshness::Year => "oneYear",
+        });
+    }
+    if !input.include_domains.is_empty() {
+        body["include"] = json!(input.include_domains.join("|"));
+    }
+    if !input.exclude_domains.is_empty() {
+        body["exclude"] = json!(input.exclude_domains.join("|"));
+    }
+    let response = network::json(
+        network::client()?
+            .post(endpoint)
+            .bearer_auth(network::key(auth)?)
+            .json(&body),
+    )
+    .await?;
     parse(&response)
 }
 

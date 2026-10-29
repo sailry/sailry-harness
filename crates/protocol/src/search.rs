@@ -1,10 +1,11 @@
 //! Execution-Node search configuration and bounded, untrusted search results.
 use crate::{Fault, plugin::settings::SecretUpdate};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const DEFAULT_LIMIT: u8 = 5;
 pub const MAX_LIMIT: u8 = u8::MAX;
+pub const MAX_DOMAINS: usize = 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -101,12 +102,40 @@ pub struct Update {
     pub credentials: BTreeMap<Driver, Credentials>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Freshness {
+    Hour,
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub query: String,
     #[serde(default = "default_limit")]
     pub limit: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freshness: Option<Freshness>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub include_domains: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude_domains: Vec<String>,
+}
+
+impl Default for Request {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            limit: DEFAULT_LIMIT,
+            freshness: None,
+            include_domains: Vec::new(),
+            exclude_domains: Vec::new(),
+        }
+    }
 }
 
 fn default_limit() -> u8 {
@@ -118,8 +147,62 @@ impl Request {
         if self.query.trim().is_empty() || self.query.contains('\0') || self.limit == 0 {
             return Err(Fault::invalid("invalid search query or result limit"));
         }
+        if self.include_domains.len() > MAX_DOMAINS || self.exclude_domains.len() > MAX_DOMAINS {
+            return Err(Fault::invalid("search domain lists exceed the host limit"));
+        }
+        let included = self
+            .include_domains
+            .iter()
+            .map(|value| domain(value))
+            .collect::<std::result::Result<BTreeSet<_>, _>>()?;
+        for value in &self.exclude_domains {
+            if included.contains(&domain(value)?) {
+                return Err(Fault::invalid("search domain filters overlap"));
+            }
+        }
         Ok(())
     }
+
+    /// Normalize a validated request without changing its query syntax.
+    pub fn normalized(&self) -> Self {
+        let mut request = self.clone();
+        request.query = request.query.trim().to_owned();
+        for values in [&mut request.include_domains, &mut request.exclude_domains] {
+            for value in values.iter_mut() {
+                if let Ok(host) = domain(value) {
+                    *value = host;
+                }
+            }
+            values.sort();
+            values.dedup();
+        }
+        request
+    }
+}
+
+fn domain(value: &str) -> std::result::Result<String, Fault> {
+    if value.contains('%') {
+        return Err(Fault::invalid("search domain filters require hostnames"));
+    }
+    let Ok(url::Host::Domain(host)) = url::Host::parse(value) else {
+        return Err(Fault::invalid("search domain filters require hostnames"));
+    };
+    let host = host.strip_suffix('.').unwrap_or(&host);
+    if host.is_empty()
+        || host.len() > 253
+        || host.split('.').any(|label| {
+            label.is_empty()
+                || label.len() > 63
+                || label.starts_with('-')
+                || label.ends_with('-')
+                || !label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+    {
+        return Err(Fault::invalid("search domain filters require hostnames"));
+    }
+    Ok(host.to_owned())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,10 +241,18 @@ mod tests {
         );
         let request: Request = serde_json::from_value(json!({"query":"current sources"})).unwrap();
         assert_eq!(request.limit, DEFAULT_LIMIT);
+        assert_eq!(request.freshness, None);
+        assert!(request.include_domains.is_empty());
+        assert!(request.exclude_domains.is_empty());
+        assert_eq!(
+            serde_json::to_value(&request).unwrap(),
+            json!({"query":"current sources", "limit":DEFAULT_LIMIT})
+        );
         request.validate().unwrap();
         let expanded = Request {
             query: "source ".repeat(700),
             limit: 50,
+            ..Default::default()
         };
         expanded.validate().unwrap();
         assert!(
@@ -175,6 +266,134 @@ mod tests {
         assert!(
             serde_json::from_value::<Request>(json!({"query":"source","key":"secret"})).is_err()
         );
+    }
+
+    #[test]
+    fn serializes_each_freshness() {
+        for (freshness, name) in [
+            (Freshness::Hour, "hour"),
+            (Freshness::Day, "day"),
+            (Freshness::Week, "week"),
+            (Freshness::Month, "month"),
+            (Freshness::Year, "year"),
+        ] {
+            let value = json!({
+                "query":"current sources", "freshness":name,
+                "include_domains":["example.com"], "exclude_domains":["other.test"]
+            });
+            let request: Request = serde_json::from_value(value).unwrap();
+            request.validate().unwrap();
+            assert_eq!(request.freshness, Some(freshness));
+            assert_eq!(serde_json::to_value(&request).unwrap()["freshness"], name);
+        }
+        assert!(
+            serde_json::from_value::<Request>(json!({
+                "query":"current sources", "freshness":"minute"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn normalizes_hosts_and_preserves_query_syntax() {
+        let request = Request {
+            query: "  site:example.com \"two  words\"\nOR source  ".into(),
+            include_domains: vec![
+                "EXAMPLE.COM.".into(),
+                "example.com".into(),
+                "b.example.com".into(),
+            ],
+            exclude_domains: vec!["OTHER.test.".into(), "other.test".into()],
+            ..Default::default()
+        };
+        request.validate().unwrap();
+        let normalized = request.normalized();
+        assert_eq!(
+            normalized.query,
+            "site:example.com \"two  words\"\nOR source"
+        );
+        assert_eq!(normalized.include_domains, ["b.example.com", "example.com"]);
+        assert_eq!(normalized.exclude_domains, ["other.test"]);
+        assert_eq!(normalized.normalized(), normalized);
+
+        let request = Request {
+            query: "Unicode hostname".into(),
+            include_domains: vec!["例子.测试".into()],
+            ..Default::default()
+        };
+        request.validate().unwrap();
+        assert_eq!(
+            request.normalized().include_domains,
+            ["xn--fsqu00a.xn--0zwm56d"]
+        );
+    }
+
+    #[test]
+    fn rejects_overlapping_or_oversized_domains() {
+        for (include_domains, exclude_domains) in [
+            (vec!["EXAMPLE.com.".into()], vec!["example.com".into()]),
+            (vec!["example.com".into(); MAX_DOMAINS + 1], vec![]),
+            (vec![], vec!["example.com".into(); MAX_DOMAINS + 1]),
+        ] {
+            assert!(
+                Request {
+                    query: "current sources".into(),
+                    include_domains,
+                    exclude_domains,
+                    ..Default::default()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        let request = Request {
+            query: "current sources".into(),
+            include_domains: (0..MAX_DOMAINS)
+                .map(|index| format!("host{index}.example"))
+                .collect(),
+            exclude_domains: vec!["other.test".into(); MAX_DOMAINS],
+            ..Default::default()
+        };
+        request.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_non_host_filters() {
+        for value in [
+            "",
+            "https://example.com",
+            "example.com/path",
+            "example.com:443",
+            "user@example.com",
+            "*.example.com",
+            ".example.com",
+            "example..com",
+            "example.com..",
+            "example_com",
+            "-example.com",
+            "example-.com",
+            " example.com",
+            "example.com ",
+            "example.com?x=1",
+            "example.com#fragment",
+            "127.0.0.1",
+            "[::1]",
+            "::1",
+            "%65xample.com",
+        ] {
+            for exclude in [false, true] {
+                let mut request = Request {
+                    query: "current sources".into(),
+                    ..Default::default()
+                };
+                if exclude {
+                    request.exclude_domains.push(value.into());
+                } else {
+                    request.include_domains.push(value.into());
+                }
+                assert!(request.validate().is_err(), "{value:?}");
+            }
+        }
     }
 
     #[test]

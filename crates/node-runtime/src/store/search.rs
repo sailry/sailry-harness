@@ -239,6 +239,7 @@ impl Ingress {
                 let input = search::Request {
                     query: "Sailry".into(),
                     limit: 1,
+                    ..Default::default()
                 };
                 Output::SearchPage(
                     self.search

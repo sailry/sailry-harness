@@ -7,6 +7,8 @@ use sailry_protocol::{
     search::{self, Driver, Selection},
 };
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
+#[path = "search/filters.rs"]
+mod filters;
 #[path = "support/search.rs"]
 mod server;
 use server::{Reply, Server};
@@ -40,6 +42,7 @@ async fn searches_public_sources_without_credentials() {
             .execute(client.prepare(Command::SearchWeb(search::Request {
                 query: "Rust language official documentation".into(),
                 limit: 3,
+                ..Default::default()
             })))
             .await
             .unwrap()
@@ -78,6 +81,7 @@ async fn searches_keyless_exa_without_initialization() {
             .execute(client.prepare(Command::SearchWeb(search::Request {
                 query: "Public source".into(),
                 limit: 1,
+                ..Default::default()
             })))
             .await
             .unwrap()
@@ -301,6 +305,7 @@ async fn searches_all_saved_drivers_without_task_approval() {
             let request = client.prepare(Command::SearchWeb(search::Request {
                 query: "Public source 中文 🙂".into(),
                 limit: 1,
+                ..Default::default()
             }));
             assert!(!request.command.durable());
             let Output::SearchPage(page) = client.execute(request).await.unwrap() else {
@@ -326,7 +331,8 @@ async fn searches_all_saved_drivers_without_task_approval() {
             client
                 .execute(client.prepare(Command::SearchWeb(search::Request {
                     query: "disabled".into(),
-                    limit: 5
+                    limit: 5,
+                    ..Default::default()
                 })))
                 .await
                 .unwrap_err()
@@ -411,6 +417,7 @@ async fn shares_fallback_cooldown_and_cancellation() {
                 .execute(client.prepare(Command::SearchWeb(search::Request {
                     query: "source".into(),
                     limit: 5,
+                    ..Default::default()
                 })))
                 .await
                 .unwrap()
@@ -428,6 +435,7 @@ async fn shares_fallback_cooldown_and_cancellation() {
         let request = client.prepare(Command::SearchWeb(search::Request {
             query: "wait".into(),
             limit: 5,
+            ..Default::default()
         }));
         let id = request.id;
         let active = client.clone();
