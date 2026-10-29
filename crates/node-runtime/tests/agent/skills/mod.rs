@@ -112,7 +112,6 @@ async fn fixture(
         vision: false,
         tools: true,
         reasoning: false,
-        web_search: false,
         generates: vec![],
         efforts: vec![],
         capabilities: None,

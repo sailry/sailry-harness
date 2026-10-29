@@ -9,19 +9,6 @@ const TOOL: &str = "lookup";
 
 async fn setup(remote: bool, endpoint: &str) -> Fixture {
     let mut fixture = Fixture::packages(remote, ModelApi::Responses, endpoint, &[]).await;
-    fixture.provider.models[0].web_search = false;
-    fixture.provider.models[0]
-        .capabilities
-        .get_or_insert_with(Default::default)
-        .web_search = Some(false);
-    execute(
-        &fixture.client,
-        Command::PutProvider {
-            expected_revision: fixture.provider.revision,
-            provider: fixture.provider.clone(),
-        },
-    )
-    .await;
     let root = fixture.root.join("assistant");
     std::fs::create_dir_all(root.join(plugin::NAMESPACE)).unwrap();
     std::fs::write(

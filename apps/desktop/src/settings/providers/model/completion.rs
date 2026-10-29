@@ -90,11 +90,6 @@ impl Draft {
                     .iter()
                     .any(|effort| *effort != Effort::Default);
         }
-        model.web_search = model
-            .capabilities
-            .as_ref()
-            .and_then(|value| value.web_search)
-            .unwrap_or(current.web_search);
         if !refresh_efforts || model.efforts.is_empty() {
             model.efforts = current.efforts;
             model.default_effort = current.default_effort;

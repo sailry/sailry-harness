@@ -32,7 +32,6 @@ pub(super) fn model(id: &str) -> Model {
         vision: true,
         tools: true,
         reasoning: false,
-        web_search: false,
         generates: vec![],
         efforts: vec![],
         capabilities: None,

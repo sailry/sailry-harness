@@ -46,7 +46,6 @@ impl Draft {
             vision: completed.vision,
             tools: completed.tools,
             reasoning: completed.reasoning,
-            web_search: completed.web_search,
             generates: completed.generates,
             efforts: completed.efforts,
             custom_efforts: completed.custom_efforts,

@@ -54,7 +54,6 @@ async fn configure_model(client: &Client, endpoint: String, api: conversation::M
             vision: false,
             tools: false,
             reasoning: api == conversation::ModelApi::DeepSeek,
-            web_search: false,
             generates: vec![],
             capabilities: None,
             custom_efforts: false,

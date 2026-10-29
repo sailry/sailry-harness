@@ -1,4 +1,4 @@
-//! Skills share the existing package metadata and ADK load_skill execution path.
+//! Skills reuse package metadata and Node's load_skill execution path.
 use super::*;
 use sailry_protocol::plugin;
 

@@ -93,7 +93,6 @@ impl Fixture {
                 vision: false,
                 tools: true,
                 reasoning: true,
-                web_search: false,
                 generates: Vec::new(),
                 efforts: vec![Effort::Low, Effort::High],
                 capabilities: Some(discovery::Capabilities {

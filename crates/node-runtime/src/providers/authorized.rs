@@ -156,7 +156,6 @@ fn parse(
                         Vec::new()
                     },
                     vision,
-                    web_search: metadata::capabilities(entry)?.and_then(|value| value.web_search),
                     tools: None,
                     reasoning,
                     efforts,
@@ -173,7 +172,6 @@ fn parse(
                 discovery::Capabilities {
                     features: Vec::new(),
                     vision: boolean(supports, "vision")?,
-                    web_search: boolean(supports, "web_search")?,
                     tools: boolean(supports, "tool_calls")?,
                     reasoning,
                     efforts,

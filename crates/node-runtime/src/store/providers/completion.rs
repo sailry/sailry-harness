@@ -7,7 +7,6 @@ use sailry_protocol::{
 use turso::Connection;
 
 pub(in crate::store) async fn fill(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
-    crate::providers::search::enable(provider);
     let cached = super::catalog::status(db).await?.revision != 0;
     for models in provider.models.chunks_mut(100) {
         let ids = models
@@ -81,9 +80,6 @@ fn resolve(
     }
     .configuration(reference, api, authentication);
     completed.reasoning = reasoning;
-    completed.web_search = native
-        .and_then(|value| value.web_search)
-        .unwrap_or(model.web_search);
     if !refresh_efforts || completed.efforts.is_empty() {
         completed.efforts = model.efforts.clone();
         completed.default_effort = model.default_effort;

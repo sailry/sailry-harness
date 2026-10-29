@@ -478,7 +478,7 @@ impl Editor {
         if self.models.is_empty() && !(self.binding.is_some() && self.uses_login()) {
             return Err("provider_model_required");
         }
-        let mut models = self
+        let models = self
             .models
             .iter()
             .map(|model| {
@@ -489,17 +489,6 @@ impl Editor {
                 Ok(model)
             })
             .collect::<Result<Vec<_>, &'static str>>()?;
-        for model in &mut models {
-            if !self
-                .selected
-                .as_ref()
-                .map_or(self.preset.web_search(), |entry| {
-                    entry.preset.capabilities.web_search
-                })
-            {
-                model.web_search = false;
-            }
-        }
         let mut ids = HashSet::new();
         if models.iter().any(|model| !ids.insert(&model.id)) {
             return Err("provider_model_duplicate");

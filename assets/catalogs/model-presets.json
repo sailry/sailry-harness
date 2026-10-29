@@ -37,9 +37,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": true
-      },
       "policies": [],
       "products": []
     },
@@ -85,9 +82,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": true
-      },
       "policies": [],
       "products": []
     },
@@ -126,9 +120,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": []
@@ -171,9 +162,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -215,9 +203,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -258,9 +243,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": []
@@ -309,9 +291,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -353,9 +332,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -394,9 +370,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": true
       },
       "policies": [],
       "products": []
@@ -437,9 +410,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": true
-      },
       "policies": [],
       "products": []
     },
@@ -478,9 +448,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": true
       },
       "policies": [],
       "products": []
@@ -524,9 +491,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -569,9 +533,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -610,9 +571,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": true
       },
       "policies": [],
       "products": []
@@ -653,9 +611,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -694,9 +649,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": []
@@ -754,9 +706,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": [
@@ -824,9 +773,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": [
         {
@@ -875,9 +821,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -916,9 +859,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": []
@@ -959,9 +899,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -1000,9 +937,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": []
@@ -1043,9 +977,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -1084,9 +1015,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": []
@@ -1127,9 +1055,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -1168,9 +1093,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": []
@@ -1211,9 +1133,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -1252,9 +1171,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": []
@@ -1313,9 +1229,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": [
         {
@@ -1369,9 +1282,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": [
@@ -1439,9 +1349,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": [
         {
@@ -1490,9 +1397,6 @@
       "models": {
         "kind": "discover"
       },
-      "capabilities": {
-        "web_search": false
-      },
       "policies": [],
       "products": []
     },
@@ -1531,9 +1435,6 @@
       },
       "models": {
         "kind": "discover"
-      },
-      "capabilities": {
-        "web_search": false
       },
       "policies": [],
       "products": []

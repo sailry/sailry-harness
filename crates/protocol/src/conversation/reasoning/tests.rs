@@ -71,7 +71,6 @@ fn enforces_native_bounds_and_choices() {
         vision: false,
         tools: false,
         reasoning: true,
-        web_search: false,
         generates: vec![],
         efforts: vec![Effort::Default, Effort::Budget(1024)],
         capabilities: None,

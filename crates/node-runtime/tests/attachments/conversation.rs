@@ -60,14 +60,12 @@ async fn session(
             vision: true,
             tools: false,
             reasoning: false,
-            web_search: false,
             generates: vec![],
             efforts: vec![],
             capabilities: Some(sailry_protocol::conversation::discovery::Capabilities {
                 vision: Some(true),
                 tools: Some(false),
                 reasoning: Some(false),
-                web_search: Some(false),
                 ..Default::default()
             }),
             custom_efforts: false,

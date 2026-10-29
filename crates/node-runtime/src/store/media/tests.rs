@@ -30,7 +30,6 @@ fn fixture() -> (Provider, SessionConfig) {
             vision: false,
             tools: false,
             reasoning: false,
-            web_search: false,
             generates: vec![],
             efforts: vec![Effort::Low, Effort::High],
             capabilities: None,

@@ -5,7 +5,7 @@ use crate::agent_support::Server as SearchServer;
 async fn omits_unavailable_search() {
     for remote in [false, true] {
         let server = SearchServer::start(false).await;
-        let mut fixture = Fixture::packages(
+        let fixture = Fixture::packages(
             remote,
             ModelApi::ChatCompletions,
             &server.endpoint,
@@ -24,15 +24,6 @@ async fn omits_unavailable_search() {
                 settings,
                 credentials: Default::default(),
             }),
-        )
-        .await;
-        fixture.provider.models[0].web_search = true;
-        execute(
-            &fixture.client,
-            Command::PutProvider {
-                expected_revision: fixture.provider.revision,
-                provider: fixture.provider.clone(),
-            },
         )
         .await;
         let turn = fixture.submit("Search is required").await;

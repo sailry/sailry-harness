@@ -105,7 +105,7 @@ export function prepareFile(path, text, expectedRevision) {
   return prepareRequest({kind: "write_file", data: {worktree: scope.worktree, path, text, expected_revision: expectedRevision}});
 }
 
-// Invocation-only typed state; no ADK objects or arbitrary session-state keys are exposed.
+// Invocation-only typed state; arbitrary session-state keys are not exposed.
 export function newId() { return call("id.new", null); }
 export function callId() { return call("id.call", null); }
 

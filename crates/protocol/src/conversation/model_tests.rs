@@ -9,7 +9,12 @@ fn missing_capabilities_are_disabled() {
     assert!(!model.vision);
     assert!(!model.tools);
     assert!(!model.reasoning);
-    assert!(!model.web_search);
+    assert!(
+        serde_json::to_value(&model)
+            .unwrap()
+            .get("web_search")
+            .is_none()
+    );
     assert!(model.generates.is_empty());
     assert!(model.efforts.is_empty());
     assert!(!model.custom_efforts);
@@ -60,7 +65,7 @@ fn identity_and_capacity_remain_required() {
         missing.as_object_mut().unwrap().remove(field);
         assert!(serde_json::from_value::<Model>(missing).is_err());
     }
-    for field in ["vision", "tools", "reasoning", "web_search"] {
+    for field in ["vision", "tools", "reasoning"] {
         let mut malformed = value.clone();
         malformed[field] = json!("true");
         assert!(serde_json::from_value::<Model>(malformed).is_err());

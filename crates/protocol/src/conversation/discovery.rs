@@ -54,7 +54,6 @@ pub struct Capabilities {
     pub features: Vec<super::features::Feature>,
     pub vision: Option<bool>,
     pub tools: Option<bool>,
-    pub web_search: Option<bool>,
     pub reasoning: Option<bool>,
     pub efforts: Option<Vec<Effort>>,
     pub default_effort: Option<Effort>,

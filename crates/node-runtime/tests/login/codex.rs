@@ -64,7 +64,6 @@ pub(super) async fn configured(fixture: &Fixture, options: Option<Options>) -> P
         vision: true,
         tools: true,
         reasoning: false,
-        web_search: false,
         generates: vec![],
         efforts: vec![],
         capabilities: Some(sailry_protocol::conversation::discovery::Capabilities {

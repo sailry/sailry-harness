@@ -3,7 +3,7 @@ use serde_json::json;
 
 fn model() -> Model {
     serde_json::from_value(json!({"id":"fixture","context":4096,"output":512,
-        "capabilities":{"vision":null,"tools":null,"web_search":null,"reasoning":null,"efforts":null,"default_effort":null,
+        "capabilities":{"vision":null,"tools":null,"reasoning":null,"efforts":null,"default_effort":null,
             "features":[{"id":"speed","name":"Speed","icon":"reicon:newicons/flash","options":[{"id":"fast","name":"Fast"},{"id":"ultrafast","name":"Ultra fast"}]}]}})).unwrap()
 }
 
@@ -71,7 +71,8 @@ fn preserves_absent_configuration_fields() {
     assert_eq!(config.effort, crate::Effort::High);
     config.features.clear();
     assert_eq!(serde_json::to_value(&config).unwrap(), value);
-    let before = json!({"vision":null,"tools":null,"web_search":null,"reasoning":null,"efforts":null,"default_effort":null});
+    let before =
+        json!({"vision":null,"tools":null,"reasoning":null,"efforts":null,"default_effort":null});
     let capabilities: super::super::discovery::Capabilities =
         serde_json::from_value(before.clone()).unwrap();
     assert!(capabilities.features.is_empty());

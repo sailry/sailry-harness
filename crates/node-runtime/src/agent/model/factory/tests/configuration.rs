@@ -11,7 +11,6 @@ fn metadata(id: &str) -> sailry_protocol::conversation::Model {
         vision: false,
         tools: true,
         reasoning: true,
-        web_search: false,
         generates: vec![],
         efforts: vec![],
         custom_efforts: false,

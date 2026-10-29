@@ -39,7 +39,6 @@ async fn requires_explicit_models() {
                 vision: false,
                 tools: true,
                 reasoning: true,
-                web_search: false,
                 generates: vec![],
                 efforts: vec![Effort::Low, Effort::High],
                 capabilities: None,

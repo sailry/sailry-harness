@@ -35,7 +35,6 @@ fn provider(endpoint: &str, name: &str) -> Provider {
             vision: false,
             tools: false,
             reasoning: true,
-            web_search: false,
             generates: vec![],
             efforts: vec![sailry_protocol::Effort::Low, sailry_protocol::Effort::High],
             custom_efforts: false,

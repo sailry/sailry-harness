@@ -140,7 +140,6 @@ class _RecordFormState extends State<RecordForm> {
                     'vision': false,
                     'tools': true,
                     'reasoning': false,
-                    'web_search': false,
                     'generates': [],
                     'efforts': [],
                     'custom_efforts': false,

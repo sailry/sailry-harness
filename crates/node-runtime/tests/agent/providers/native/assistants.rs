@@ -5,15 +5,6 @@ use serde_json::json;
 
 async fn setup(remote: bool, api: ModelApi, endpoint: &str, allow_search: bool) -> Fixture {
     let mut fixture = Fixture::packages(remote, api, endpoint, &[]).await;
-    fixture.provider.models[0].web_search = true;
-    execute(
-        &fixture.client,
-        Command::PutProvider {
-            expected_revision: fixture.provider.revision,
-            provider: fixture.provider.clone(),
-        },
-    )
-    .await;
     let root = fixture.root.join("assistant");
     std::fs::create_dir_all(root.join(sailry_protocol::plugin::NAMESPACE)).unwrap();
     std::fs::write(

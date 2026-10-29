@@ -44,7 +44,6 @@ async fn provider(client: &Client, secret: Option<&str>) -> Provider {
                     vision: false,
                     tools: true,
                     reasoning: true,
-                    web_search: false,
                     generates: vec![],
                     efforts: vec![sailry_protocol::Effort::Low, sailry_protocol::Effort::High],
                     capabilities: None,

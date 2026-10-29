@@ -178,7 +178,6 @@ async fn discovers_without_persistence() {
                         vision: false,
                         tools: false,
                         reasoning: false,
-                        web_search: false,
                         generates: vec![],
                         efforts: vec![],
                         capabilities: None,

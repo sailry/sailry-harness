@@ -73,7 +73,6 @@ fn native_metadata_precedes_cached() {
         vision: Some(false),
         tools: Some(false),
         reasoning: Some(false),
-        web_search: Some(false),
         efforts: Some(vec![]),
         ..Default::default()
     });
@@ -84,7 +83,7 @@ fn native_metadata_precedes_cached() {
         ModelApi::Responses,
         Authentication::ChatGptOAuth,
     );
-    assert!(!model.vision && !model.tools && !model.reasoning && !model.web_search);
+    assert!(!model.vision && !model.tools && !model.reasoning);
     assert_eq!(model.capabilities, native);
     assert_eq!((model.context, model.output), (8192, 2048));
 }

@@ -297,18 +297,6 @@ impl Preset {
         }
     }
 
-    pub fn web_search(self) -> bool {
-        matches!(
-            self,
-            Self::OpenAi
-                | Self::CompatibleResponses
-                | Self::Anthropic
-                | Self::CompatibleAnthropic
-                | Self::Gemini
-                | Self::CompatibleGemini
-        )
-    }
-
     pub fn authentication(self) -> sailry_protocol::Authentication {
         use sailry_protocol::Authentication;
         match self {
@@ -332,7 +320,6 @@ pub struct Model {
     pub vision: bool,
     pub tools: bool,
     pub reasoning: bool,
-    pub web_search: bool,
     pub generates: Vec<sailry_protocol::media::Generation>,
     pub efforts: Vec<sailry_protocol::Effort>,
     pub custom_efforts: bool,
@@ -357,7 +344,6 @@ impl Model {
             vision: true,
             tools: true,
             reasoning: true,
-            web_search: false,
             generates: vec![],
             efforts: vec![
                 sailry_protocol::Effort::Low,

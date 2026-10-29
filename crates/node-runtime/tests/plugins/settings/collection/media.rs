@@ -118,7 +118,6 @@ async fn retains_frozen_fallbacks_after_updates() {
             vision: true,
             tools: false,
             reasoning: false,
-            web_search: false,
             generates: vec![],
             efforts: vec![],
             capabilities: None,

@@ -183,7 +183,6 @@ async fn configured(
         vision: true,
         tools: true,
         reasoning: false,
-        web_search: false,
         generates: vec![],
         efforts: vec![],
         capabilities: (authentication == Authentication::ChatGpt).then(|| {

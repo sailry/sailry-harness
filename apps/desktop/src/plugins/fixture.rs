@@ -400,7 +400,6 @@ impl Fixture {
                 vision: false,
                 tools: true,
                 reasoning: false,
-                web_search: false,
                 generates: vec![],
                 efforts: Vec::new(),
                 custom_efforts: false,

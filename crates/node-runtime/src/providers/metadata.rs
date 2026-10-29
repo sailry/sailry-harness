@@ -98,12 +98,6 @@ pub(super) fn capabilities(entry: &Value) -> Result<Option<discovery::Capabiliti
                     .and_then(|value| value.get(name))
                     .filter(|value| !value.is_null())
             })
-            .or_else(|| {
-                (name == "web_search")
-                    .then(|| entry.pointer("/capabilities/server_tools/web_search/supported"))
-                    .flatten()
-            })
-            .filter(|value| !value.is_null())
             .map(|value| {
                 value
                     .as_bool()
@@ -135,7 +129,6 @@ pub(super) fn capabilities(entry: &Value) -> Result<Option<discovery::Capabiliti
         reasoning: boolean("reasoning")?.or(reasoning),
         efforts,
         default_effort,
-        web_search: boolean("web_search")?,
     };
     Ok((value != discovery::Capabilities::default()).then_some(value))
 }
@@ -222,52 +215,31 @@ mod capability_tests {
     }
 
     #[test]
-    fn requires_search_metadata() {
+    fn reads_reported_flags() {
         assert_eq!(capabilities(&json!({"id":"gpt-5.6-luna"})).unwrap(), None);
-        assert_eq!(
-            capabilities(&json!({"tool_call":true}))
-                .unwrap()
-                .unwrap()
-                .web_search,
-            None
-        );
         for entry in [
-            json!({"web_search":true}),
-            json!({"capabilities":{"web_search":true}}),
-            json!({"capabilities":{"server_tools":{"web_search":{"supported":true}}}}),
+            json!({"vision":true,"tool_call":false,"reasoning":true}),
+            json!({"capabilities":{"vision":true,"tool_call":false,"reasoning":true}}),
         ] {
+            let value = capabilities(&entry).unwrap().unwrap();
             assert_eq!(
-                capabilities(&entry).unwrap().unwrap().web_search,
-                Some(true)
+                (value.vision, value.tools, value.reasoning),
+                (Some(true), Some(false), Some(true))
             );
         }
         assert_eq!(
-            capabilities(&json!({"web_search":false}))
+            capabilities(&json!({"vision":false,"capabilities":{"vision":true}}))
                 .unwrap()
                 .unwrap()
-                .web_search,
+                .vision,
             Some(false)
         );
-        assert!(capabilities(&json!({"web_search":"true"})).is_err());
-        assert!(
-            capabilities(
-                &json!({"capabilities":{"server_tools":{"web_search":{"supported":"true"}}}})
-            )
-            .is_err()
-        );
-        assert_eq!(
-            capabilities(
-                &json!({"capabilities":{"server_tools":{"web_search":{"supported":false}}}})
-            )
-            .unwrap()
-            .unwrap()
-            .web_search,
-            Some(false)
-        );
-        assert_eq!(
-            capabilities(&json!({"web_search":null,"capabilities":{"web_search":null,"server_tools":{"web_search":{"supported":false}}}}))
-                .unwrap().unwrap().web_search,
-            Some(false)
-        );
+        for entry in [
+            json!({"vision":"true"}),
+            json!({"tool_call":"true"}),
+            json!({"reasoning":"true"}),
+        ] {
+            assert!(capabilities(&entry).is_err());
+        }
     }
 }

@@ -86,7 +86,6 @@ async fn session_api(
             vision: false,
             tools: true,
             reasoning: false,
-            web_search: false,
             generates: Vec::new(),
             efforts: Vec::new(),
             capabilities: None,

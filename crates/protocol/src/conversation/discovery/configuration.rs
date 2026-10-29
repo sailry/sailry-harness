@@ -57,9 +57,6 @@ impl Model {
                 .and_then(|value| value.reasoning)
                 .or(reference.and_then(|model| model.reasoning))
                 .unwrap_or(false),
-            web_search: capabilities
-                .and_then(|value| value.web_search)
-                .unwrap_or(false),
             generates: reference
                 .map(|model| {
                     model

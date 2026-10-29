@@ -137,8 +137,6 @@ pub struct Model {
     #[serde(default)]
     pub reasoning: bool,
     #[serde(default)]
-    pub web_search: bool,
-    #[serde(default)]
     pub generates: Vec<crate::media::Generation>,
     #[serde(default)]
     pub efforts: Vec<crate::Effort>,
@@ -338,7 +336,7 @@ pub enum ApprovalSource {
     CodeRule,
 }
 
-/// Authorization metadata references the exact call in canonical ADK history.
+/// Authorization metadata references the exact call in current canonical history.
 /// Approved does not imply that the tool executed or completed successfully.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Approval {

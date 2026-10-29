@@ -112,7 +112,6 @@ impl Fixture {
             vision: true,
             tools: true,
             reasoning: true,
-            web_search: false,
             generates: vec![],
             efforts: vec![effort],
             capabilities: None,

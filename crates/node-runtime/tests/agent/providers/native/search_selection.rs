@@ -5,38 +5,14 @@ use sailry_protocol::search::{Selection, Update};
 async fn selects_configured_tool() {
     for remote in [false, true] {
         let server = crate::agent_support::Server::start(false).await;
-        let mut fixture = Fixture::packages(
+        let fixture = Fixture::packages(
             remote,
             ModelApi::Responses,
             &server.endpoint,
             &["web-search"],
         )
         .await;
-        for (metadata, summary, enabled) in [
-            (Some(true), false, true),
-            (Some(false), true, true),
-            (None, false, true),
-            (Some(true), true, true),
-            (Some(false), false, false),
-            (Some(true), false, false),
-        ] {
-            fixture.provider.models[0].web_search = summary;
-            fixture.provider.models[0]
-                .capabilities
-                .get_or_insert_with(Default::default)
-                .web_search = metadata;
-            let Output::Provider(provider) = execute(
-                &fixture.client,
-                Command::PutProvider {
-                    expected_revision: fixture.provider.revision,
-                    provider: fixture.provider.clone(),
-                },
-            )
-            .await
-            else {
-                panic!("provider expected");
-            };
-            fixture.provider = provider;
+        for enabled in [true, false] {
             let Output::SearchSettings(mut settings) =
                 execute(&fixture.client, Command::ReadSearchSettings).await
             else {

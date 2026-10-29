@@ -77,7 +77,6 @@ async fn survives_without_projects() {
                 vision: false,
                 tools: false,
                 reasoning: false,
-                web_search: false,
                 generates: vec![],
                 efforts: vec![],
                 capabilities: Some(discovery::Capabilities {

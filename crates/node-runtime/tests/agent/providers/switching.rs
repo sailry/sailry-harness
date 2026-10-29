@@ -39,7 +39,6 @@ async fn isolates_reasoning_across_apis() {
                 vision: false,
                 tools: true,
                 reasoning: true,
-                web_search: false,
                 generates: Vec::new(),
                 efforts: vec![Effort::Low, Effort::High],
                 capabilities: Some(sailry_protocol::conversation::discovery::Capabilities {

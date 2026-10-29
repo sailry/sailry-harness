@@ -246,7 +246,6 @@ pub(super) async fn provider(client: &Client, endpoint: &str) -> conversation::P
                     vision: false,
                     tools: true,
                     reasoning: false,
-                    web_search: false,
                     generates: Vec::new(),
                     efforts: Vec::new(),
                     custom_efforts: false,

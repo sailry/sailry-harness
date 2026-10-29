@@ -79,7 +79,6 @@ pub(super) async fn prepare(
                         vision: false,
                         tools: true,
                         reasoning: false,
-                        web_search: false,
                         generates: vec![],
                         efforts: vec![],
                         custom_efforts: false,

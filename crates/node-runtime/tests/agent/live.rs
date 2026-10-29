@@ -52,7 +52,6 @@ async fn completes_file_task() {
             vision: false,
             tools: true,
             reasoning: true,
-            web_search: false,
             generates: vec![],
             efforts: vec![Effort::Low],
             capabilities: None,

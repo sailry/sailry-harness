@@ -43,7 +43,7 @@ impl Entry {
     }
 }
 
-/// In-memory preview admission only; real queue ownership belongs to Node/ADK.
+/// In-memory preview admission only; real queue ownership belongs to Node.
 #[derive(Default)]
 pub(crate) struct State {
     pub entries: Vec<Entry>,

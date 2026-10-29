@@ -36,7 +36,6 @@ fn attempts_unknown_input_and_tools() {
             assert_eq!(configured.id, "gpt-6.1-sol");
             assert_eq!(configured.display_name.as_deref(), Some("GPT-6.1 Sol"));
             assert!(discovered.capabilities.is_none());
-            assert!(!configured.web_search);
             assert!(!configured.reasoning);
             assert!(configured.efforts.is_empty());
             assert_eq!(configured.default_effort, Effort::Default);
@@ -182,7 +181,6 @@ fn completes_only_missing_capabilities() {
         assert_eq!(configured.generates, [Generation::Image]);
         assert_eq!(configured.efforts, [Effort::Low, Effort::High]);
         assert_eq!(configured.default_effort, Effort::Low);
-        assert!(!configured.web_search);
         assert_eq!(configured.display_name, discovered.display_name);
 
         discovered.capabilities = Some(Capabilities {

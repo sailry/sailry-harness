@@ -277,7 +277,6 @@ pub(in crate::store) fn partner_policy(provider: &Provider) -> Result<bool, Faul
             || binding.origin.is_some()
             || binding.auth.is_some()
             || binding.adapter.is_some()
-            || binding.capabilities != Default::default()
         {
             return Err(Fault::invalid(
                 "partner policy cannot bind executable package resources",
@@ -385,7 +384,6 @@ async fn bind(db: &Connection, provider: &mut Provider, messages: bool) -> Resul
         let entry = resolve(db, reference).await?;
         binding.package = entry.package;
         binding.origin = entry.origin;
-        binding.capabilities = entry.preset.capabilities;
         if let Auth::ApiKey { header, prefix } = &entry.preset.auth
             && (header.is_some() || prefix.is_some())
         {

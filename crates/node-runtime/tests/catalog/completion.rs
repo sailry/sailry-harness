@@ -27,7 +27,6 @@ fn provider() -> Provider {
             vision: false,
             tools: true,
             reasoning: true,
-            web_search: false,
             generates: vec![],
             efforts: vec![Effort::Default],
             capabilities: None,
@@ -71,7 +70,6 @@ async fn fills_missing_choices() {
         let server = Server::start(ModelApi::Responses, move |_| Reply::Json(data.clone())).await;
         let fixture = Fixture::new(remote, &server).await;
         let original = save(&fixture.client, provider()).await;
-        assert!(original.models[0].web_search);
         assert_eq!(original.models[0].efforts, [Effort::Default]);
         let mut custom = provider();
         custom.endpoint = "https://gateway.example/v1".into();
@@ -146,13 +144,6 @@ async fn fills_missing_choices() {
             gateway.models[0].efforts,
             [Effort::High, Effort::Medium, Effort::Low]
         );
-        assert!(gateway.models[0].web_search);
-        let mut unknown = provider();
-        unknown.endpoint = gateway.endpoint.clone();
-        unknown.models[0].id = "unknown-model".into();
-        unknown.default_model = "unknown-model".into();
-        let unknown = save(&fixture.client, unknown).await;
-        assert!(!unknown.models[0].web_search);
         let Fixture {
             _directory,
             node,

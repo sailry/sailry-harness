@@ -67,7 +67,6 @@ async fn independent_resume() {
             vision: false,
             tools: false,
             reasoning: true,
-            web_search: false,
             generates: vec![],
             efforts: vec![sailry_protocol::Effort::High],
             capabilities: None,

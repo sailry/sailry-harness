@@ -41,8 +41,6 @@ pub struct Preset {
     #[serde(default)]
     pub models: Models,
     #[serde(default)]
-    pub capabilities: Capabilities,
-    #[serde(default)]
     pub policies: Vec<RequestPolicy>,
     #[serde(default)]
     pub products: Vec<Product>,
@@ -172,13 +170,6 @@ pub enum Models {
     },
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Capabilities {
-    #[serde(default)]
-    pub web_search: bool,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RequestPolicy {
@@ -227,8 +218,6 @@ pub struct Binding {
     pub policies: Vec<RequestPolicy>,
     #[serde(default)]
     pub key_injection: Option<crate::plugin::model_auth::Injection>,
-    #[serde(default)]
-    pub capabilities: Capabilities,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

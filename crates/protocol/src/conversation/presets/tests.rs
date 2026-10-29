@@ -63,6 +63,18 @@ fn preserves_protocol_mapping_and_default_authentication() {
     );
     assert_eq!(preset.models, Models::Discover);
     assert_eq!(preset.routes[0].region, None);
+    assert!(
+        serde_json::to_value(&preset)
+            .unwrap()
+            .get("capabilities")
+            .is_none()
+    );
+    assert!(
+        serde_json::to_value(Binding::default())
+            .unwrap()
+            .get("capabilities")
+            .is_none()
+    );
 }
 
 #[test]

@@ -27,7 +27,6 @@ pub(super) async fn session(client: &Client, worktree: WorktreeId) -> Session {
             vision: false,
             tools: true,
             reasoning: false,
-            web_search: false,
             generates: vec![],
             efforts: vec![],
             capabilities: None,

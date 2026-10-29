@@ -9,7 +9,6 @@ pub(crate) mod media;
 mod metadata;
 pub(crate) mod policy;
 pub(crate) mod presets;
-pub(crate) mod search;
 pub(crate) use metadata::validate;
 
 use reqwest::{

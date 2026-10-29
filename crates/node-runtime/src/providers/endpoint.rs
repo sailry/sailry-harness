@@ -35,7 +35,7 @@ pub(crate) fn parse(value: &str) -> Result<Url, Fault> {
 
 pub(crate) fn anthropic(value: &str) -> Result<Url, Fault> {
     let mut url = parse(value)?;
-    // Anthropic requests append /v1 themselves, including requests made by ADK.
+    // Anthropic requests append /v1 themselves.
     let path = url.path().trim_end_matches('/');
     let path = path.strip_suffix("/v1").unwrap_or(path).to_owned();
     url.set_path(&path);

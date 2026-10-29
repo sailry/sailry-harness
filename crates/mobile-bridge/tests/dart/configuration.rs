@@ -37,7 +37,6 @@ pub(super) async fn provider(client: &Client, endpoint: &str, model: &str) -> Pr
                     vision: false,
                     tools: false,
                     reasoning: false,
-                    web_search: false,
                     generates: vec![],
                     efforts: Vec::new(),
                     capabilities: None,

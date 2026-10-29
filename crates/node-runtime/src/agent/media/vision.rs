@@ -181,7 +181,6 @@ mod tests {
                 vision: true,
                 tools: true,
                 reasoning: true,
-                web_search: false,
                 generates: vec![],
                 efforts: vec![Effort::High, Effort::Low],
                 capabilities: Some(

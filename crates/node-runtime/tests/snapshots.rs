@@ -47,7 +47,6 @@ async fn configure(client: &Client) -> SessionConfig {
                     vision: false,
                     tools: true,
                     reasoning: false,
-                    web_search: false,
                     generates: vec![],
                     efforts: vec![],
                     capabilities: None,

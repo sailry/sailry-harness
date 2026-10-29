@@ -18,7 +18,6 @@ pub(super) fn model(id: &str) -> Model {
         vision: false,
         tools: true,
         reasoning: true,
-        web_search: false,
         generates: vec![],
         efforts: vec![sailry_protocol::Effort::Low, sailry_protocol::Effort::High],
         capabilities: None,

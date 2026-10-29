@@ -62,7 +62,6 @@ pub(super) async fn prepare_model(
         vision: false,
         tools: true,
         reasoning: false,
-        web_search: false,
         generates: vec![],
         efforts: Vec::new(),
         capabilities: None,

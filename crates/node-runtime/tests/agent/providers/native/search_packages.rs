@@ -10,7 +10,6 @@ async fn prepare(remote: bool, server: &SearchServer) -> (Fixture, http::Server)
         &["web-search"],
     )
     .await;
-    fixture.provider.models[0].web_search = false;
     fixture.provider.models[0]
         .capabilities
         .get_or_insert_with(Default::default)
