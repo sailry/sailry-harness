@@ -1070,7 +1070,7 @@ fn split_context(body: &mut Value) {
 fn strip_context(body: &mut Value) -> Option<String> {
     let context = turn_context(body)?.to_owned();
     for field in ["messages", "input", "contents"] {
-        let Some(messages) = body[field].as_array_mut() else {
+        let Some(messages) = body.get_mut(field).and_then(Value::as_array_mut) else {
             continue;
         };
         let Some(last) = messages.last_mut().filter(|last| last["role"] == "user") else {
@@ -1081,28 +1081,24 @@ fn strip_context(body: &mut Value) -> Option<String> {
         } else {
             "parts"
         };
-        let removed = match &mut last[key] {
+        let Some(content) = last.get_mut(key) else {
+            continue;
+        };
+        let empty = match content {
             Value::String(text) if text.ends_with(&context) => {
                 text.truncate(text.len() - context.len());
                 if text.ends_with('\n') {
                     text.pop();
                 }
-                true
+                text.is_empty()
             }
             Value::Array(parts) if parts.last().is_some_and(|part| part["text"] == context) => {
                 parts.pop();
-                true
+                parts.is_empty()
             }
-            _ => false,
+            _ => continue,
         };
-        if !removed {
-            continue;
-        }
-        if match &last[key] {
-            Value::String(text) => text.is_empty(),
-            Value::Array(parts) => parts.is_empty(),
-            _ => false,
-        } {
+        if empty {
             messages.pop();
         }
         return Some(context);
