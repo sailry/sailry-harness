@@ -95,6 +95,7 @@ impl Prefix {
                 "overlapping_subsets":{"file_results":file.iter().map(|text|tokens(text)).sum::<usize>(),
                     "retained_skill_system":skill.iter().map(|text|tokens(text)).sum::<usize>()}},
             "prefix":{"system_digest":digest(&system),"tools_digest":digest(tools),"cache_key_digest":digest(cache_key),
+                "cache_key_present":cache_key.is_string(),
                 "system_vs_previous":self.system.as_ref().map(|previous|common(&previous.to_string(),&system.to_string())),
                 "tools_unchanged":self.tools.as_ref().map(|previous|previous==tools),
                 "cache_key_unchanged":self.cache_key.as_ref().map(|previous|previous==cache_key)},
@@ -255,7 +256,7 @@ async fn reports_selected_model_cache() {
                         totals.0 += actual.input;
                         totals.1 += actual.output;
                         totals.2 += actual.cached_input;
-                        json!({"input":actual.input,"output":actual.output,"cached_input":actual.cached_input,
+                        json!({"input":actual.input,"output":actual.output,"cached_input":actual.cached_input,"reasoning":actual.reasoning,
                             "hit_percent":100.0*actual.cached_input as f64/actual.input as f64})
                     });
                     usage.push(json!({"usage":actual,
