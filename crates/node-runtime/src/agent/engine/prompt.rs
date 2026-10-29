@@ -150,6 +150,7 @@ impl Preparer {
         )
         .await?;
         crate::agent::media::screenshots::omit(conversation.messages_mut(), &self.images);
+        crate::agent::output::project(conversation.messages_mut());
         Ok(())
     }
 }

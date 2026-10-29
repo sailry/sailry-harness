@@ -19,12 +19,9 @@ async fn projected(server: &Server) -> (Value, OutputReference) {
                             .and_then(|text| serde_json::from_str::<Value>(text).ok())
                             .filter(|value| value["sailry_command"]["id"].is_string())
                             .map(|value| {
-                                let output = OutputReference {
-                                    call: message["tool_call_id"].as_str().unwrap().into(),
-                                    revision: blake3::hash(value.to_string().as_bytes())
-                                        .to_hex()
-                                        .to_string(),
-                                };
+                                let output: OutputReference =
+                                    serde_json::from_value(value["output"].clone()).unwrap();
+                                assert_eq!(output.call, message["tool_call_id"].as_str().unwrap());
                                 (value, output)
                             })
                     })
@@ -73,12 +70,32 @@ async fn reads_large_failure_tail_at_original_offsets() {
         };
         let (projected, reference) = projected(&server).await;
         let total = prefix_bytes + failure.len();
-        let preview = &projected["sailry_command"]["stdout"];
+        let page = history(&fixture.client, fixture.session.id).await;
+        let original = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .find(|(tool, _)| tool == &name("run_command"))
+            .unwrap()
+            .1
+            .result
+            .unwrap();
+        let preview = &original["sailry_command"]["stdout"];
         assert_eq!(preview["total_bytes"], total);
         let tail = preview["tail"].as_str().unwrap();
         assert!(tail.ends_with("last failure\n"));
         assert!(failure.ends_with(tail));
         assert_eq!(preview["tail_offset"], total - tail.len());
+        let stream = &projected["data"]["stdout"];
+        assert_eq!(stream["total_bytes"], total);
+        assert_eq!(stream["tail_offset"], preview["tail_offset"]);
+        assert!(stream["text"].as_str().unwrap().ends_with(tail));
+        assert!(projected.to_string().len() < 36 * 1024);
+        assert_eq!(
+            reference.revision,
+            blake3::hash(original.to_string().as_bytes())
+                .to_hex()
+                .to_string()
+        );
         let mut offset = prefix_bytes;
         let mut text = String::new();
         loop {
@@ -260,18 +277,10 @@ async fn retains_foreground_streams_and_canonical_results() {
         };
         let turn = turn.id;
         let (projected, reference) = projected(&server).await;
-        assert!(
-            projected["sailry_command"]["stdout"]["tail"]
-                .as_str()
-                .unwrap()
-                .ends_with("last failure\n")
-        );
-        assert!(
-            projected["data"]["stdout"]["text"]
-                .as_str()
-                .unwrap()
-                .contains('\u{1b}')
-        );
+        let preview = projected["data"]["stdout"]["text"].as_str().unwrap();
+        assert!(preview.starts_with("head\n") && preview.ends_with("last failure\n"));
+        assert!(!preview.contains('\u{1b}'));
+        assert!(projected.to_string().len() < 36 * 1024);
         let mut text = String::new();
         let mut offset = 0;
         loop {
@@ -296,7 +305,17 @@ async fn retains_foreground_streams_and_canonical_results() {
             offset = next;
         }
         let original: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(original, projected);
+        assert_ne!(original, projected);
+        let page = history(&fixture.client, fixture.session.id).await;
+        let detailed = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .find(|(tool, _)| tool == &name("run_command"))
+            .unwrap()
+            .1
+            .result
+            .unwrap();
+        assert_eq!(detailed, original);
         assert_eq!(
             reference.revision,
             blake3::hash(text.as_bytes()).to_hex().to_string()

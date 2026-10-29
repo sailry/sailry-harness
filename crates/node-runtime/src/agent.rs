@@ -16,6 +16,7 @@ pub(crate) use mcp::check::run as check_mcp;
 pub(crate) mod media;
 pub(crate) mod model;
 pub(crate) mod observation;
+mod output;
 pub(crate) use model::plugin::{
     discover as discover_plugin_models, discover_authorized as discover_authorized_models,
 };
