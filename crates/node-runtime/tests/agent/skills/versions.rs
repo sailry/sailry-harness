@@ -61,7 +61,7 @@ async fn retains_admitted_versions() {
             },
         )
         .await;
-        for (turn, version) in [(&old, "1.0.0"), (&new, "2.0.0")] {
+        for (index, (turn, version)) in [(&old, "1.0.0"), (&new, "2.0.0")].into_iter().enumerate() {
             execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
             let page = finished(&client, session.id, turn.id).await;
             assert_eq!(
@@ -76,6 +76,31 @@ async fn retains_admitted_versions() {
                     .status,
                 Status::Completed
             );
+            let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(requests.len(), (index + 1) * 2);
+            let request = requests.last().unwrap();
+            let content = format!("Guide {version} 中文 🙂");
+            input::assert_content(request, &[&content]);
+            let receipt = input::receipt(request, "call-fixture-0");
+            let original = input::original(&client, turn.id, &receipt).await;
+            assert_eq!(original["content"], content);
+            assert_eq!(input::owner(request, "references/guide.md"), original);
+            assert_eq!(receipt["directory"], original["directory"]);
+            if index == 1 {
+                let previous = request["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|message| message["role"] == "tool")
+                    .find_map(|message| {
+                        let result: Value =
+                            serde_json::from_str(message["content"].as_str()?).ok()?;
+                        (result["content"] == "Guide 1.0.0 中文 🙂").then_some(result)
+                    })
+                    .unwrap();
+                assert_ne!(previous["directory"], receipt["directory"]);
+                assert!(previous.get("output").is_none());
+            }
         }
         let Output::Session(branch) = execute(
             &client,

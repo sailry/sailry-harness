@@ -215,6 +215,7 @@ async fn loads_complete_resources() {
             ),
             ("load_skill".into(), json!({"skill": "missing:analysis"})),
             ("load_skill".into(), json!({"skill": "analysis"})),
+            ("load_skill".into(), json!({"skill": "example:analysis"})),
         ];
         let server = Server::tools(calls.clone()).await;
         let (directory, node, controller, client, session) = fixture(remote, &server).await;
@@ -257,12 +258,13 @@ async fn loads_complete_resources() {
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         super::super::evaluation::trajectory(&client, &page, &calls).await;
         let output = results(&client, &page).await;
-        assert_eq!(output.len(), 5);
+        assert_eq!(output.len(), 6);
         assert_eq!(output[0]["content"], body);
         assert_eq!(output[1]["content"], "Guide 1.0.0 中文 🙂");
         assert!(output[2].get("error").is_some());
         assert_eq!(output[3]["error"]["code"], "invalid_request");
         assert_eq!(output[4]["error"]["code"], "invalid_request");
+        assert_eq!(output[5]["content"], body);
         let presentations: Vec<_> = page
             .entries
             .iter()
@@ -306,14 +308,30 @@ async fn loads_complete_resources() {
         let initial = requests[0]["messages"].to_string();
         assert!(initial.contains("example:analysis"));
         assert!(!initial.contains("Complete end"));
-        let tool = requests.last().unwrap()["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|message| message["role"] == "tool")
-            .unwrap();
-        let result: Value = serde_json::from_str(tool["content"].as_str().unwrap()).unwrap();
-        assert_eq!(result["content"], body);
+        for request in &requests[1..] {
+            input::assert_content(request, &["Complete end"]);
+        }
+        input::assert_content(requests.last().unwrap(), &["Guide 1.0.0 中文 🙂"]);
+        assert_eq!(
+            input::owner(requests.last().unwrap(), "SKILL.md"),
+            output[5]
+        );
+        assert_eq!(
+            input::owner(requests.last().unwrap(), "references/guide.md"),
+            output[1]
+        );
+        for (id, index) in [
+            ("call-fixture-0", 0),
+            ("call-fixture-1", 1),
+            ("call-fixture-5", 5),
+        ] {
+            let receipt = input::receipt(requests.last().unwrap(), id);
+            assert_eq!(receipt["directory"], output[index]["directory"]);
+            assert_eq!(
+                input::original(&client, turn.id, &receipt).await,
+                output[index]
+            );
+        }
         drop(client);
         node.shutdown().await.unwrap();
         let node = Node::start_empty(directory.path().join("node"))
@@ -330,6 +348,30 @@ async fn loads_complete_resources() {
             Output::QueuedTurn(turn)
         );
         assert_eq!(server.requests.lock().unwrap().len(), calls.len() + 1);
+        let Output::QueuedTurn(next) = execute(
+            &client,
+            Command::SubmitTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "Continue after restoring the loaded skill".into(),
+            },
+        )
+        .await
+        else {
+            panic!("turn expected")
+        };
+        let restored = finished(&client, session.id, next.id).await;
+        assert_eq!(restored.runs.last().unwrap().status, Status::Completed);
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), calls.len() + 2);
+        input::assert_content(
+            requests.last().unwrap(),
+            &["Complete end", "Guide 1.0.0 中文 🙂"],
+        );
+        assert_eq!(
+            input::owner(requests.last().unwrap(), "SKILL.md"),
+            output[5]
+        );
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
