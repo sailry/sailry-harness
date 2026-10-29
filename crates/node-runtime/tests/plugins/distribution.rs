@@ -7,8 +7,31 @@ mod history;
 #[path = "distribution/refresh.rs"]
 mod refresh;
 
+async fn view(client: &Client, installed: &Info, expected: &plugin::Extension) {
+    let Output::PluginView(bundle) = execute(
+        client,
+        Command::ReadPluginView {
+            surface: plugin::desktop::Surface::Workspace,
+            package: installed.summary.reference(),
+        },
+    )
+    .await
+    else {
+        panic!("plugin view expected");
+    };
+    assert!(bundle.valid());
+    assert_eq!(bundle.package, installed.summary.reference());
+    let desktop = expected.desktop.as_ref().unwrap();
+    assert_eq!(&bundle.entry, desktop.entry.as_ref().unwrap());
+    assert_eq!(
+        bundle.files.len() + bundle.images.len(),
+        desktop.resources.len()
+    );
+    assert!(bundle.files.contains_key(&bundle.entry));
+}
+
 #[tokio::test]
-async fn loads_large_bundled_manifests() {
+async fn loads_bundled_manifests() {
     for remote in [false, true] {
         let (_directory, node, controller, client, _) = fixture(remote).await;
         for (name, bytes) in [
@@ -21,10 +44,6 @@ async fn loads_large_bundled_manifests() {
                 include_bytes!("../../../../plugins/git/plugin.json").as_slice(),
             ),
         ] {
-            assert!(
-                bytes.len() > 64 * 1024,
-                "regression requires a large manifest"
-            );
             let manifest: serde_json::Value = serde_json::from_slice(bytes).unwrap();
             let expected: plugin::Extension =
                 serde_json::from_value(manifest["extensions"][plugin::NAMESPACE].clone()).unwrap();
@@ -49,27 +68,67 @@ async fn loads_large_bundled_manifests() {
                 panic!("catalog details expected");
             };
             assert_eq!(details.extension.as_ref(), Some(&expected));
-            let Output::PluginView(bundle) = execute(
-                &client,
-                Command::ReadPluginView {
-                    surface: plugin::desktop::Surface::Workspace,
-                    package: installed.summary.reference(),
-                },
-            )
-            .await
-            else {
-                panic!("plugin view expected");
-            };
-            assert!(bundle.valid());
-            assert_eq!(bundle.package, installed.summary.reference());
-            let desktop = expected.desktop.unwrap();
-            assert_eq!(bundle.entry, desktop.entry.unwrap());
-            assert_eq!(
-                bundle.files.len() + bundle.images.len(),
-                desktop.resources.len()
-            );
-            assert!(bundle.files.contains_key(&bundle.entry));
+            view(&client, &installed, &expected).await;
         }
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn loads_large_manifests() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let root = directory.path().join("source/package");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
+        let entry = "dev.sailry.platform/main.js";
+        let metadata = "Synthetic tool metadata. ".repeat(64);
+        let tools: Vec<_> = (0..64)
+            .map(|index| {
+                serde_json::json!({
+                    "name":format!("read_metadata_{index}"), "operation":"storage.get",
+                    "description":format!("Read entry {index}. {metadata}")
+                })
+            })
+            .collect();
+        manifest["extensions"] = serde_json::json!({"dev.sailry.platform":{
+            "api_version":"v1", "scope":"desktop", "actions":["storage.read"],
+            "tools":tools, "desktop":{"entry":entry, "resources":[entry]}
+        }});
+        let bytes = serde_json::to_vec(&manifest).unwrap();
+        assert!(
+            bytes.len() > 64 * 1024,
+            "regression requires a large manifest"
+        );
+        assert!(bytes.len() < 256 * 1024);
+        let expected: plugin::Extension =
+            serde_json::from_value(manifest["extensions"][plugin::NAMESPACE].clone()).unwrap();
+        fs::write(root.join("plugin.json"), bytes).unwrap();
+        fs::write(root.join(entry), "export default class Example {}\n").unwrap();
+
+        let installed = info(execute(&client, install(worktree, 0)).await);
+        assert_eq!(
+            installed.origin,
+            Some(plugin::Origin::Worktree {
+                worktree,
+                path: "package".into()
+            })
+        );
+        assert!(installed.issues.is_empty(), "{:?}", installed.issues);
+        assert_eq!(installed.extension.as_ref(), Some(&expected));
+        package(&root, "2.0.0");
+        for command in [
+            Command::ReadPlugin {
+                name: "example".into(),
+            },
+            Command::ReadPluginVersion {
+                package: installed.summary.reference(),
+            },
+        ] {
+            assert_eq!(info(execute(&client, command).await), installed);
+        }
+        view(&client, &installed, &expected).await;
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

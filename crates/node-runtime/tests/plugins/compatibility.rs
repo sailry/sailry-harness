@@ -26,10 +26,12 @@ async fn rejects_worktree_and_uploaded_packages() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let bytes = serde_json::to_vec(&manifest("99.0.0")).unwrap();
-        for minimum in ["0.1.0-alpha.5", "0.1.0", "99.0.0"] {
+        let current = semver::Version::parse(sailry_link::PRODUCT_VERSION).unwrap();
+        let next = format!("{}.{}.{}", current.major, current.minor, current.patch + 1);
+        for minimum in [format!("{next}-alpha.1"), next, "99.0.0".into()] {
             fs::write(
                 directory.path().join("source/package/plugin.json"),
-                manifest(minimum).to_string(),
+                manifest(&minimum).to_string(),
             )
             .unwrap();
             let error = client
@@ -39,9 +41,7 @@ async fn rejects_worktree_and_uploaded_packages() {
             assert_eq!(error.code, ErrorCode::NotConfigured);
             assert_eq!(
                 error.details,
-                Some(FaultDetails::PluginRequiresNewer {
-                    required: minimum.into()
-                })
+                Some(FaultDetails::PluginRequiresNewer { required: minimum })
             );
         }
         for source in [
