@@ -81,7 +81,7 @@ async fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Requ
     let authorization = crate::agent::canonical::ToolIdentity {
         name: crate::plugins::tools::alias("files", name),
         id: Some(RequestId::new().to_string()),
-        arguments: arguments,
+        arguments,
     };
     let mut event = message(
         "assistant",

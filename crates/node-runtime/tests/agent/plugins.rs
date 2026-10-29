@@ -183,7 +183,7 @@ async fn scopes_tool_switches_to_the_execution_node() {
             let searched = details
                 .iter()
                 .filter(|(name, _)| name == "tool_search")
-                .last()
+                .next_back()
                 .unwrap()
                 .1
                 .result

@@ -173,7 +173,7 @@ async fn protects_current_kickoff_and_batches_old_pairs() {
     );
     assert_eq!(history, original);
     assert_eq!(effects.len(), 4 * BATCH);
-    for (index, group) in effects.chunks_exact(4).enumerate() {
+    for (index, group) in effects.as_chunks::<4>().0.iter().enumerate() {
         for (effect, source) in group[..2].iter().zip(&history.messages()[1 + index * 2..]) {
             let Effect::Conversation(ConversationEffect::SetMessageVisibility {
                 message_id,
