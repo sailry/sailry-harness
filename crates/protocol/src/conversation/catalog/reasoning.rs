@@ -89,4 +89,51 @@ mod tests {
             vec![Effort::High, Effort::Max]
         );
     }
+
+    #[test]
+    fn filters_unsupported_gemini_choices() {
+        let model = Model {
+            id: "fixture".into(),
+            name: "Gemini".into(),
+            context: None,
+            output: Some(8192),
+            inputs: vec![],
+            outputs: vec![],
+            tools: None,
+            reasoning: Some(true),
+            options: vec![
+                Reasoning::Effort {
+                    values: vec![
+                        Some("minimal".into()),
+                        Some("low".into()),
+                        Some("high".into()),
+                    ],
+                },
+                Reasoning::BudgetTokens {
+                    min: Some(-1),
+                    max: Some(8192),
+                },
+                Reasoning::BudgetTokens {
+                    min: Some(2048),
+                    max: Some(8192),
+                },
+            ],
+        };
+        assert_eq!(
+            model.efforts(ModelApi::Gemini, 8192),
+            vec![Effort::Low, Effort::High, Effort::Budget(2048)]
+        );
+        for api in [ModelApi::Plugin, ModelApi::OpenCodeZen] {
+            assert_eq!(
+                model.efforts(api, 8192),
+                vec![
+                    Effort::Minimal,
+                    Effort::Low,
+                    Effort::High,
+                    Effort::Budget(-1),
+                    Effort::Budget(2048)
+                ]
+            );
+        }
+    }
 }

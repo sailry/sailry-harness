@@ -41,8 +41,8 @@ impl Effort {
             (ModelApi::Anthropic, Self::Budget(tokens)) => {
                 tokens >= 1024 && (tokens as u32) < output
             }
-            (ModelApi::Gemini, Self::Disabled | Self::Minimal) => true,
-            (ModelApi::Gemini, Self::Budget(tokens)) => tokens == -1 || tokens > 0,
+            (ModelApi::Gemini, Self::Disabled) => true,
+            (ModelApi::Gemini, Self::Budget(tokens)) => tokens > 0,
             _ => false,
         };
         if supported {

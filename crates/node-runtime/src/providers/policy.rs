@@ -28,18 +28,6 @@ pub(crate) fn body(provider: &Provider, model: &str) -> Vec<Map<String, Value>> 
 }
 
 pub(crate) fn reasoning(provider: &Provider, model: &str, effort: Effort) -> Map<String, Value> {
-    if provider.api == ModelApi::Gemini {
-        let level = match effort {
-            Effort::Minimal => "minimal",
-            Effort::Low => "low",
-            Effort::Medium => "medium",
-            Effort::High => "high",
-            _ => return Map::new(),
-        };
-        return [("thinking_level".into(), level.into())]
-            .into_iter()
-            .collect();
-    }
     if !matches!(
         provider.api,
         ModelApi::Responses

@@ -125,7 +125,7 @@ async fn completes_before_socket_eof() {
                 let sent = server.requests.lock().unwrap()[0].clone();
                 assert_eq!(sent["thinking"]["type"], "enabled");
                 assert_eq!(sent["reasoning_effort"], "high");
-                assert!(sent["max_tokens"].is_null());
+                assert_eq!(sent["max_tokens"], 4096);
                 let Output::Providers(providers) = execute(&client, Command::ListProviders).await
                 else {
                     panic!("providers expected")
@@ -189,12 +189,16 @@ async fn completes_before_socket_eof() {
                         prompt: "Truncate the response".into(),
                     })
                     .with_plugin(request.plugin.unwrap());
-                let fault = tokio::time::timeout(Duration::from_secs(5), client.execute(truncated))
-                    .await
-                    .expect("incomplete events must terminate promptly")
-                    .unwrap_err();
-                assert_eq!(fault.code, ErrorCode::Unavailable);
-                assert_eq!(fault.message, "OpenAI Responses generation is incomplete");
+                let output =
+                    tokio::time::timeout(Duration::from_secs(5), client.execute(truncated))
+                        .await
+                        .expect("incomplete events must terminate promptly")
+                        .unwrap();
+                let Output::PluginText(text) = output else {
+                    panic!("plugin text expected")
+                };
+                assert_eq!(text.text, "{\"move\":1}");
+                assert_eq!(text.tokens, 16);
                 assert_eq!(server.requests.lock().unwrap().len(), 2);
             }
             drop(client);
@@ -358,7 +362,7 @@ async fn rejects_invalid_requests() {
 #[tokio::test]
 async fn preserves_failed_attempt() {
     for remote in [false, true] {
-        let server = model_fixture::Server::http(1, 503).await;
+        let server = model_fixture::Server::http(1, 401).await;
         let (directory, node, controller, client, worktree) =
             crate::plugins::support::empty(remote).await;
         let context = actions::install_actions(
@@ -370,23 +374,6 @@ async fn preserves_failed_attempt() {
         )
         .await;
         let model = configure_empty(&client, server.endpoint.clone()).await;
-        let Output::Providers(providers) = execute(&client, Command::ListProviders).await else {
-            panic!("providers expected")
-        };
-        let mut provider = providers
-            .into_iter()
-            .find(|provider| model == format!("{}/{}", provider.id, provider.default_model))
-            .unwrap();
-        provider.request_max_retries = Some(0);
-        provider.stream_max_retries = Some(0);
-        execute(
-            &client,
-            Command::PutProvider {
-                expected_revision: provider.revision,
-                provider,
-            },
-        )
-        .await;
         let request = client
             .prepare(Command::GeneratePluginText {
                 effort: None,
@@ -398,8 +385,8 @@ async fn preserves_failed_attempt() {
         assert_eq!(result.code, ErrorCode::Unavailable);
         assert_eq!(
             result.details,
-            Some(FaultDetails::ModelRecovery {
-                reason: conversation::recovery::Stop::AttemptsExhausted,
+            Some(FaultDetails::ModelRequest {
+                reason: ModelFailure::Unauthorized,
             })
         );
         assert_eq!(client.execute(request.clone()).await.unwrap_err(), result);

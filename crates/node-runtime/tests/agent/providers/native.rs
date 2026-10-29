@@ -339,10 +339,7 @@ async fn restores_authenticated_history() {
                             );
                             assert_eq!(request.headers.get("x-goog-api-key").unwrap(), server::KEY);
                             assert_eq!(request.body["generationConfig"]["maxOutputTokens"], 512);
-                            assert_eq!(
-                                request.body["generationConfig"]["thinkingConfig"],
-                                serde_json::json!({"thinkingLevel":"high","includeThoughts":true})
-                            );
+                            assert!(request.body["generationConfig"]["thinkingConfig"].is_null());
                         }
                         _ => unreachable!(),
                     }

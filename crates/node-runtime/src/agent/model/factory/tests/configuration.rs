@@ -101,14 +101,50 @@ fn preserves_native_effort_levels() {
     );
 
     provider.api = ModelApi::Gemini;
-    let selected = session(&provider, "gemini-3-flash-preview", Effort::Minimal);
-    let config = super::config(&provider, &selected, SessionId::new());
-    let payload =
-        goose_provider_types::formats::google::create_request(&config, "", &[], &[]).unwrap();
-    assert_eq!(
-        payload["generationConfig"]["thinkingConfig"]["thinkingLevel"],
-        "minimal"
-    );
+    for (model, effort, expected) in [
+        (
+            "gemini-3-flash-preview",
+            Effort::Low,
+            json!({"thinkingLevel":"low","includeThoughts":true}),
+        ),
+        (
+            "gemini-3-flash-preview",
+            Effort::Medium,
+            json!({"thinkingLevel":"medium","includeThoughts":true}),
+        ),
+        (
+            "gemini-3-pro-preview",
+            Effort::Medium,
+            json!({"thinkingLevel":"low","includeThoughts":true}),
+        ),
+        (
+            "gemini-3-flash-preview",
+            Effort::High,
+            json!({"thinkingLevel":"high","includeThoughts":true}),
+        ),
+        (
+            "gemini-2.5-flash",
+            Effort::Budget(2048),
+            json!({"thinkingBudget":2048,"includeThoughts":true}),
+        ),
+        (
+            "gemini-2.5-flash",
+            Effort::Disabled,
+            json!({"thinkingBudget":0,"includeThoughts":false}),
+        ),
+        ("custom-gemini", Effort::Budget(2048), Value::Null),
+    ] {
+        provider.models = vec![metadata(model)];
+        let selected = session(&provider, model, effort);
+        let config = super::config(&provider, &selected, SessionId::new());
+        assert!(config.request_param::<Value>("thinking_level").is_none());
+        let payload =
+            goose_provider_types::formats::google::create_request(&config, "", &[], &[]).unwrap();
+        assert_eq!(
+            payload["generationConfig"]["thinkingConfig"], expected,
+            "{model}, {effort:?}"
+        );
+    }
 }
 
 #[test]

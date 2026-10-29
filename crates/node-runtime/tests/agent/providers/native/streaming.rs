@@ -4,7 +4,7 @@ use sailry_link::CancellationToken;
 use serde_json::json;
 
 #[tokio::test]
-async fn rejects_truncation_without_replay() {
+async fn distinguishes_eof_from_transport_failure() {
     for remote in [false, true] {
         for api in [
             ModelApi::ChatCompletions,
@@ -44,12 +44,24 @@ async fn rejects_truncation_without_replay() {
                 let fixture = Fixture::empty(remote, api, &server.endpoint).await;
                 let turn = fixture.submit("Keep partial output on interruption").await;
                 let page = finished(&fixture.client, fixture.session.id, turn).await;
+                let run = page.runs.last().unwrap();
+                let (status, outcome) = if broken_transport {
+                    (
+                        Status::Failed,
+                        sailry_protocol::conversation::observation::Outcome::Failed,
+                    )
+                } else {
+                    (
+                        Status::Completed,
+                        sailry_protocol::conversation::observation::Outcome::Succeeded,
+                    )
+                };
                 assert_eq!(
-                    page.runs.last().unwrap().status,
-                    Status::Failed,
+                    run.status, status,
                     "{api:?}, remote={remote}, transport={broken_transport}: {:?}",
                     page.runs
                 );
+                assert_eq!(run.error.is_some(), broken_transport);
                 assert!(
                     completion::response(&page).contains("Partial answer"),
                     "{api:?}: {:?}",
@@ -68,8 +80,8 @@ async fn rejects_truncation_without_replay() {
                     .iter()
                     .find(|request| request.turn == turn)
                     .unwrap();
-                assert!(request.attempts.iter().all(|attempt| attempt.outcome
-                    == sailry_protocol::conversation::observation::Outcome::Failed));
+                assert_eq!(request.attempts.len(), 1);
+                assert_eq!(request.attempts[0].outcome, outcome);
                 fixture.controller.close().await.unwrap();
                 fixture.node.shutdown().await.unwrap();
             }

@@ -271,39 +271,76 @@ async fn preserves_openai_effort() {
 
 #[tokio::test]
 async fn restores_native_choices() {
-    for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
+    for (api, model, default, choices) in [
+        (
+            ModelApi::Anthropic,
+            "fixture-a",
+            Effort::High,
+            vec![
+                Effort::Default,
+                Effort::Low,
+                Effort::Medium,
+                Effort::High,
+                Effort::XHigh,
+                Effort::Max,
+                Effort::Budget(1024),
+                Effort::Budget(4096),
+            ],
+        ),
+        (
+            ModelApi::Gemini,
+            "gemini-3-flash-preview",
+            Effort::High,
+            vec![
+                Effort::Default,
+                Effort::Disabled,
+                Effort::Low,
+                Effort::Medium,
+                Effort::High,
+            ],
+        ),
+        (
+            ModelApi::Gemini,
+            "gemini-2.5-flash",
+            Effort::Budget(2048),
+            vec![
+                Effort::Default,
+                Effort::Disabled,
+                Effort::Budget(2048),
+                Effort::Budget(4096),
+            ],
+        ),
+        (
+            ModelApi::DeepSeek,
+            "fixture-a",
+            Effort::High,
+            vec![Effort::Default, Effort::Disabled, Effort::High, Effort::Max],
+        ),
+    ] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Text).await;
             let mut fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let choices = match api {
-                ModelApi::Anthropic => vec![
-                    Effort::Default,
-                    Effort::Low,
-                    Effort::Medium,
-                    Effort::High,
-                    Effort::XHigh,
-                    Effort::Max,
-                    Effort::Budget(1024),
-                    Effort::Budget(4096),
-                ],
-                ModelApi::Gemini => vec![
-                    Effort::Default,
-                    Effort::Disabled,
-                    Effort::Minimal,
-                    Effort::Low,
-                    Effort::Medium,
-                    Effort::High,
-                    Effort::Budget(-1),
-                    Effort::Budget(2048),
-                ],
-                ModelApi::DeepSeek => {
-                    vec![Effort::Default, Effort::Disabled, Effort::High, Effort::Max]
-                }
-                _ => unreachable!(),
-            };
+            fixture.provider.models[0].id = model.into();
+            fixture.provider.default_model = model.into();
             fixture.provider.models[0].context = 16384;
             fixture.provider.models[0].output = 8192;
             fixture.provider.models[0].efforts = choices.clone();
+            fixture.provider.models[0].default_effort = default;
+            if api == ModelApi::Gemini {
+                for effort in [Effort::Minimal, Effort::Budget(-1)] {
+                    let mut unsupported = fixture.provider.clone();
+                    unsupported.models[0].efforts = vec![effort];
+                    unsupported.models[0].default_effort = effort;
+                    let request = fixture.client.prepare(Command::PutProvider {
+                        expected_revision: unsupported.revision,
+                        provider: unsupported,
+                    });
+                    assert_eq!(
+                        fixture.client.execute(request).await.unwrap_err().code,
+                        ErrorCode::InvalidRequest
+                    );
+                }
+            }
             let Output::Provider(provider) = execute(
                 &fixture.client,
                 Command::PutProvider {
@@ -318,6 +355,7 @@ async fn restores_native_choices() {
             let mut turns = Vec::new();
             for &effort in &choices {
                 let mut config = fixture.session.config.clone();
+                config.model = model.into();
                 config.effort = effort;
                 let Output::Session(session) = execute(
                     &fixture.client,
@@ -410,7 +448,7 @@ async fn restores_native_choices() {
             }
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), choices.len());
-            for (request, effort) in requests.iter().zip(choices) {
+            for (request, &effort) in requests.iter().zip(&choices) {
                 let effort = if effort == Effort::Default {
                     fixture.provider.models[0].default_effort
                 } else {
@@ -433,19 +471,37 @@ async fn restores_native_choices() {
                         assert!(body.get("output_config").is_none());
                     }
                     ModelApi::Gemini => {
+                        assert_eq!(
+                            request.path,
+                            format!("/v1beta/models/{model}:streamGenerateContent?alt=sse")
+                        );
                         assert_eq!(body["generationConfig"]["maxOutputTokens"], 8192);
-                        let thinking = &body["generationConfig"]["thinkingConfig"];
-                        match effort {
-                            Effort::Disabled => assert!(thinking.is_null()),
-                            Effort::Budget(tokens) => {
-                                assert_eq!(thinking["thinkingBudget"], tokens)
+                        let expected = if model.starts_with("gemini-2.5") {
+                            let (budget, include) = match effort {
+                                Effort::Disabled => (0, false),
+                                Effort::Budget(tokens) => (tokens, true),
+                                _ => unreachable!(),
+                            };
+                            serde_json::json!({"thinkingBudget":budget,"includeThoughts":include})
+                        } else {
+                            match effort {
+                                Effort::Disabled => serde_json::Value::Null,
+                                Effort::Low => {
+                                    serde_json::json!({"thinkingLevel":"low","includeThoughts":true})
+                                }
+                                Effort::Medium => {
+                                    serde_json::json!({"thinkingLevel":"medium","includeThoughts":true})
+                                }
+                                Effort::High => {
+                                    serde_json::json!({"thinkingLevel":"high","includeThoughts":true})
+                                }
+                                _ => unreachable!(),
                             }
-                            Effort::Minimal => assert_eq!(thinking["thinkingLevel"], "minimal"),
-                            Effort::Low => assert_eq!(thinking["thinkingLevel"], "low"),
-                            Effort::Medium => assert_eq!(thinking["thinkingLevel"], "medium"),
-                            Effort::High => assert_eq!(thinking["thinkingLevel"], "high"),
-                            _ => unreachable!(),
-                        }
+                        };
+                        assert_eq!(
+                            body["generationConfig"]["thinkingConfig"], expected,
+                            "{model}, {effort:?}"
+                        );
                     }
                     ModelApi::DeepSeek => {
                         assert_eq!(body["max_tokens"], 8192);

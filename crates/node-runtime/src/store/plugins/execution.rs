@@ -88,6 +88,7 @@ pub(in crate::store) async fn prepare(
     if let Some(effort) = effort {
         config.effort = *effort;
     }
+    super::super::agent::providers::selection(&provider, &config)?;
     super::super::commands::validate_config(&db.connection, db.node, &config).await?;
     Ok(Input::Text {
         provider,

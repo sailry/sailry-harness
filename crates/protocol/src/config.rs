@@ -18,7 +18,7 @@ pub enum Effort {
     #[serde(rename = "xhigh")]
     XHigh,
     Max,
-    /// Native token budget; -1 requests Gemini's dynamic budget.
+    /// Token budget; sentinel values depend on the selected API.
     Budget(i32),
 }
 
