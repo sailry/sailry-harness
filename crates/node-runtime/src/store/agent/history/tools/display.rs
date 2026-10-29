@@ -77,10 +77,8 @@ pub(super) fn resolve(
             let mut unique = std::collections::BTreeSet::new();
             if let Some(source) = &output.paths {
                 for path in source.read(arguments, result) {
-                    if unique.insert(path) {
-                        if full || paths.len() < 32 {
-                            paths.push(path.to_owned());
-                        }
+                    if unique.insert(path) && (full || paths.len() < 32) {
+                        paths.push(path.to_owned());
                     }
                 }
             }

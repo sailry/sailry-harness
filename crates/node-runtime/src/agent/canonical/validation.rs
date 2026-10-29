@@ -28,13 +28,10 @@ pub(crate) fn validate(record: &Record) -> Result<(), Fault> {
             if !slots.insert(block.index) {
                 return Err(Fault::invalid("conversation content slots are duplicated"));
             }
-            match &block.kind {
-                BlockKind::ToolResponse(response) => {
-                    if response.revision.len() != 64 {
-                        return Err(Fault::invalid("tool response is invalid"));
-                    }
-                }
-                _ => {}
+            if let BlockKind::ToolResponse(response) = &block.kind
+                && response.revision.len() != 64
+            {
+                return Err(Fault::invalid("tool response is invalid"));
             }
         }
     }

@@ -552,7 +552,7 @@ pub(super) async fn effects(
             Effect::Usage(usage) => Some(usage.clone()),
             _ => None,
         })
-        .last();
+        .next_back();
     let last=effects.iter().rposition(|effect|matches!(effect,Effect::Conversation(ConversationEffect::AppendMessage(message)) if message.role==rmcp::model::Role::Assistant && message.error_kind().is_none()));
     for (index, effect) in effects.into_iter().enumerate() {
         match effect {
@@ -578,11 +578,13 @@ pub(super) async fn effects(
                     database,
                     session,
                     turn,
-                    message,
-                    (last == Some(index)).then(|| usage.clone()).flatten(),
-                    calls.clone(),
-                    presentation.clone(),
-                    timeline.clone(),
+                    history::Message {
+                        message,
+                        usage: (last == Some(index)).then(|| usage.clone()).flatten(),
+                        calls: calls.clone(),
+                        presentation: presentation.clone(),
+                        timeline: timeline.clone(),
+                    },
                     events,
                 )
                 .await?;
@@ -591,7 +593,7 @@ pub(super) async fn effects(
                 summary,
                 usage,
                 files,
-            } => save_summary(database, session, turn, summary, usage, files, events).await?,
+            } => save_summary(database, session, turn, *summary, usage, files, events).await?,
             Effect::Conversation(ConversationEffect::ReplaceConversation(_)) => {
                 return Err(Fault::invalid(
                     "conversation replacement requires a compaction checkpoint",
@@ -690,15 +692,17 @@ async fn save_summary(
         database,
         session,
         turn,
-        summary,
-        usage,
-        boundary.id.clone(),
-        current
-            .records
-            .first()
-            .map_or(boundary.created, |record| record.created),
-        boundary.created,
-        files,
+        history::Summary {
+            message: summary,
+            usage,
+            boundary: boundary.id.clone(),
+            start: current
+                .records
+                .first()
+                .map_or(boundary.created, |record| record.created),
+            end: boundary.created,
+            files,
+        },
         events,
     )
     .await

@@ -113,13 +113,15 @@ async fn run(
     let mut completion_review = None;
     let mut result = execute(
         ingress,
-        tasks,
         &invocation,
         runner,
-        hooks.clone(),
-        &diagnostics,
+        Execution {
+            tasks,
+            hooks: hooks.clone(),
+            diagnostics: &diagnostics,
+            children: &children,
+        },
         &mut completion_review,
-        &children,
     )
     .await;
     if owner.as_ref().is_some_and(CancellationToken::is_cancelled) {
@@ -267,27 +269,29 @@ fn merge_failure(result: &mut Result<Option<String>, Fault>, error: Fault) {
     }
 }
 
+struct Execution<'a> {
+    tasks: &'a Tasks,
+    hooks: Option<Arc<crate::hooks::Binding>>,
+    diagnostics: &'a Diagnostics,
+    children: &'a engine::Children,
+}
+
 async fn execute(
     ingress: &Arc<Ingress>,
-    tasks: &Tasks,
     invocation: &Arc<Invocation>,
     stop: CancellationToken,
-    hooks: Option<Arc<crate::hooks::Binding>>,
-    diagnostics: &Diagnostics,
+    execution: Execution<'_>,
     completion_review: &mut Option<canonical::Record>,
-    children: &engine::Children,
 ) -> Result<Option<String>, Fault> {
+    let diagnostics = execution.diagnostics;
     let session = invocation.turn.session;
     let mut connections = ingress.agents.mcp.take(session);
     let mut result = execute_with(
         ingress,
-        tasks,
         invocation,
         stop.clone(),
         &mut connections,
-        hooks,
-        diagnostics,
-        children,
+        execution,
     )
     .await
     .map(|outcome| {
@@ -343,14 +347,17 @@ struct Outcome {
 
 async fn execute_with(
     ingress: &Arc<Ingress>,
-    tasks: &Tasks,
     invocation: &Arc<Invocation>,
     stop: CancellationToken,
     connections: &mut mcp::Connections,
-    hooks: Option<Arc<crate::hooks::Binding>>,
-    diagnostics: &Diagnostics,
-    children: &engine::Children,
+    execution: Execution<'_>,
 ) -> Result<Outcome, Fault> {
+    let Execution {
+        tasks,
+        hooks,
+        diagnostics,
+        children,
+    } = execution;
     if stop.is_cancelled() {
         return Ok(Outcome::default());
     }
@@ -425,14 +432,14 @@ async fn execute_with(
     let mut extensions = plugins::bind(
         ingress,
         tasks,
-        &invocation,
+        invocation,
         prompt_session.loaded(),
         &stop,
         resources.clone(),
         connections,
     )
     .await?;
-    let environment = prompt::environment(ingress, &invocation, &stop).await;
+    let environment = prompt::environment(ingress, invocation, &stop).await;
     for captured in &invocation.instructions {
         if tool_capable
             && captured
@@ -543,23 +550,23 @@ async fn execute_with(
         .collect();
     let summary = model::provider(ingress, invocation, &stop, model::Purpose::Compaction).await?;
     let _runner = diagnostics.span(Phase::Runner, None);
-    let output = engine::run(
+    let output = engine::run(engine::Run {
         ingress,
         invocation,
-        stop.clone(),
-        model,
+        stop: stop.clone(),
+        binding: model,
         summary,
         instruction,
         catalog,
         callbacks,
-        extensions.images,
+        images: extensions.images,
         required,
         bindings,
         deferred,
         resources,
-        capability_tools,
-        children.clone(),
-    )
+        capabilities: capability_tools,
+        children: children.clone(),
+    })
     .await?;
     let review = if reviewing && !stop.is_cancelled() {
         let session = ingress

@@ -237,13 +237,7 @@ impl Delegate {
                 .spawn_child(&self.ingress.agents.stopped, async move {
                     let _active = active;
                     let invocation = ingress
-                        .delegate(
-                            turn,
-                            request.into(),
-                            arguments,
-                            message,
-                            parent_stop.child_token(),
-                        )
+                        .delegate(turn, request, arguments, message, parent_stop.child_token())
                         .await?;
                     let session = invocation.turn.session;
                     let turn = invocation.turn.id;
@@ -284,7 +278,7 @@ impl Delegate {
         let result = self.tasks.spawn_child(&self.ingress.agents.stopped, async move {
             let _cancel = stop.clone().drop_guard();
             let mut token = stop.child_token();
-            let mut invocation = ingress.delegate(turn, request.into(), arguments, message, token.clone()).await?;
+            let mut invocation = ingress.delegate(turn, request, arguments, message, token.clone()).await?;
             ingress.agents.register_child(parent, invocation.turn.session, invocation.turn.id, stop.clone());
             let _child = Child { ingress:ingress.clone(),parent,child:invocation.turn.session,turn:invocation.turn.id };
             if parent_stop.is_cancelled() {stop.cancel();}

@@ -97,7 +97,7 @@ impl Catalog {
     pub fn groupings(&self) -> BTreeMap<String, sailry_protocol::tool::Grouping> {
         self.entries
             .iter()
-            .map(|(name, entry)| (name.clone(), entry.grouping.clone()))
+            .map(|(name, entry)| (name.clone(), entry.grouping))
             .collect()
     }
     pub fn displays(&self) -> BTreeMap<String, sailry_protocol::tool::Display> {
@@ -109,7 +109,7 @@ impl Catalog {
     pub fn presentations(&self) -> BTreeMap<String, Presentation> {
         self.entries
             .iter()
-            .map(|(name, entry)| (name.clone(), entry.presentation.clone()))
+            .map(|(name, entry)| (name.clone(), entry.presentation))
             .collect()
     }
 }

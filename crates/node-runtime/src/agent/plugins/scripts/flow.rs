@@ -192,7 +192,7 @@ impl Script {
                                     self.context.turn.ok_or_else(|| {
                                         Fault::invalid("command flow requires a turn")
                                     })?,
-                                    context.request_with(arguments.clone()).into(),
+                                    context.request_with(arguments.clone()),
                                 )
                                 .await?;
                         }
@@ -207,7 +207,7 @@ impl Script {
                                     self.context.turn.ok_or_else(|| {
                                         Fault::invalid("connection flow requires a turn")
                                     })?,
-                                    context.request_with(arguments.clone()).into(),
+                                    context.request_with(arguments.clone()),
                                     request.command.clone(),
                                 )
                                 .await?;

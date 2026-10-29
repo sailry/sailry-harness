@@ -118,12 +118,14 @@ impl GdkProvider for Model {
             system,
             messages,
             tools,
-            &self.provider.endpoint,
-            &self.session.to_string(),
-            self.config.effort,
-            self.config.features.clone(),
-            &self.declaration.capabilities,
-            self.declaration.schema_dialect,
+            request::Context {
+                endpoint: &self.provider.endpoint,
+                session: &self.session.to_string(),
+                effort: self.config.effort,
+                features: self.config.features.clone(),
+                capabilities: &self.declaration.capabilities,
+                dialect: self.declaration.schema_dialect,
+            },
         )
         .map_err(response::fault)?;
         let stop = self.stop.child_token();

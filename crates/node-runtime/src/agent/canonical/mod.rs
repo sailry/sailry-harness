@@ -179,7 +179,7 @@ pub(crate) struct Configuration {
 #[serde(tag = "notice", rename_all = "snake_case")]
 pub(crate) enum Notice {
     Elicitation {
-        parent: ToolIdentity,
+        parent: Box<ToolIdentity>,
         request: Value,
         spec: question::Spec,
         schema: Value,

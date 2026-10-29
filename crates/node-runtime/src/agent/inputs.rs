@@ -58,18 +58,18 @@ impl Batch {
                 capability: None,
             });
         }
-        if let Some(entry) = entries.first_mut() {
-            if invocation.notice_input.is_some() {
-                entry.record.metadata.input = Some(canonical::Input {
-                    notice_part: Some(0),
-                    notice_ids: invocation
-                        .notices
-                        .iter()
-                        .map(|notice| notice.id.clone())
-                        .collect(),
-                    ..Default::default()
-                });
-            }
+        if let Some(entry) = entries.first_mut()
+            && invocation.notice_input.is_some()
+        {
+            entry.record.metadata.input = Some(canonical::Input {
+                notice_part: Some(0),
+                notice_ids: invocation
+                    .notices
+                    .iter()
+                    .map(|notice| notice.id.clone())
+                    .collect(),
+                ..Default::default()
+            });
         }
         Ok(Self { entries })
     }

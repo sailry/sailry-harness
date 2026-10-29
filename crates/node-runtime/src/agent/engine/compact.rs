@@ -150,7 +150,7 @@ impl Compaction {
         };
         let mut effects = vec![
             Effect::Compaction {
-                summary,
+                summary: Box::new(summary),
                 usage,
                 files: std::mem::take(&mut *model.files.lock().unwrap()),
             },

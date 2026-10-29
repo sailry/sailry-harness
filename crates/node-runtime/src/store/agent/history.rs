@@ -64,7 +64,7 @@ pub(super) async fn append_with_context(
         database,
         session,
         turn,
-        Input::Record(event),
+        Input::Record(Box::new(event)),
         context,
         events,
     )
@@ -73,41 +73,42 @@ pub(super) async fn append_with_context(
 
 #[derive(Clone)]
 enum Input {
-    Record(Record),
-    Summary(
-        goose_provider_types::conversation::message::Message,
-        goose_provider_types::conversation::token_usage::ProviderUsage,
-        String,
-        chrono::DateTime<chrono::Utc>,
-        chrono::DateTime<chrono::Utc>,
-        Vec<records::CompactedFile>,
-    ),
-    Message(
-        goose_provider_types::conversation::message::Message,
-        Option<goose_provider_types::conversation::token_usage::ProviderUsage>,
-        BTreeMap<String, String>,
-        records::Presentation,
-        Option<Arc<crate::agent::observation::Timeline>>,
-    ),
+    Record(Box<Record>),
+    Summary(Summary),
+    Message(Message),
+}
+
+#[derive(Clone)]
+pub(super) struct Summary {
+    pub message: goose_provider_types::conversation::message::Message,
+    pub usage: goose_provider_types::conversation::token_usage::ProviderUsage,
+    pub boundary: String,
+    pub start: chrono::DateTime<chrono::Utc>,
+    pub end: chrono::DateTime<chrono::Utc>,
+    pub files: Vec<records::CompactedFile>,
+}
+
+#[derive(Clone)]
+pub(super) struct Message {
+    pub message: goose_provider_types::conversation::message::Message,
+    pub usage: Option<goose_provider_types::conversation::token_usage::ProviderUsage>,
+    pub calls: BTreeMap<String, String>,
+    pub presentation: records::Presentation,
+    pub timeline: Option<Arc<crate::agent::observation::Timeline>>,
 }
 
 pub(super) async fn append_summary(
     database: &mut Database,
     session: SessionId,
     turn: TurnId,
-    message: goose_provider_types::conversation::message::Message,
-    usage: goose_provider_types::conversation::token_usage::ProviderUsage,
-    boundary: String,
-    start: chrono::DateTime<chrono::Utc>,
-    end: chrono::DateTime<chrono::Utc>,
-    files: Vec<records::CompactedFile>,
+    summary: Summary,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     write(
         database,
         session,
         turn,
-        Input::Summary(message, usage, boundary, start, end, files),
+        Input::Summary(summary),
         None,
         events,
     )
@@ -118,18 +119,14 @@ pub(super) async fn append_message(
     database: &mut Database,
     session: SessionId,
     turn: TurnId,
-    message: goose_provider_types::conversation::message::Message,
-    usage: Option<goose_provider_types::conversation::token_usage::ProviderUsage>,
-    calls: BTreeMap<String, String>,
-    presentation: records::Presentation,
-    timeline: Option<Arc<crate::agent::observation::Timeline>>,
+    message: Message,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     write(
         database,
         session,
         turn,
-        Input::Message(message, usage, calls, presentation, timeline),
+        Input::Message(message),
         None,
         events,
     )
@@ -172,20 +169,34 @@ async fn write(
                     None
                 };
                 let event = match event {
-                    Input::Record(record) => record,
-                    Input::Summary(message,usage,boundary,start,end,files)=>{
-                        let mut record=crate::agent::engine::history::capture(&transaction,turn,&message,&BTreeMap::new()).await?;
-                        capture_usage(&mut record,&usage)?;
-                        let records::Kind::Message(summary)=record.kind else{unreachable!()};
-                        record.kind=records::Kind::Compaction(records::Compaction{boundary,summary,start,end,files});
-                        record.provenance.author="system".into();
+                    Input::Record(record) => *record,
+                    Input::Summary(Summary {
+                        message, usage, boundary, start, end, files,
+                    }) => {
+                        let mut record = crate::agent::engine::history::capture(
+                            &transaction, turn, &message, &BTreeMap::new(),
+                        ).await?;
+                        capture_usage(&mut record, &usage)?;
+                        let records::Kind::Message(summary) = record.kind else {
+                            unreachable!()
+                        };
+                        record.kind = records::Kind::Compaction(records::Compaction {
+                            boundary, summary, start, end, files,
+                        });
+                        record.provenance.author = "system".into();
                         record
                     },
-                    Input::Message(message, usage, calls, presentation, timeline) => {
-                        let mut record = crate::agent::engine::history::capture(&transaction, turn, &message, &calls).await?;
-                        if let Some(usage)=usage {capture_usage(&mut record,&usage)?;}
-                        super::presentation::capture_failures(&mut record,timeline.as_deref());
-                        super::presentation::stamp(&mut record,&presentation);
+                    Input::Message(Message {
+                        message, usage, calls, presentation, timeline,
+                    }) => {
+                        let mut record = crate::agent::engine::history::capture(
+                            &transaction, turn, &message, &calls,
+                        ).await?;
+                        if let Some(usage) = usage {
+                            capture_usage(&mut record, &usage)?;
+                        }
+                        super::presentation::capture_failures(&mut record, timeline.as_deref());
+                        super::presentation::stamp(&mut record, &presentation);
                         record
                     }
                 };

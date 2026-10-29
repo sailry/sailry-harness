@@ -316,7 +316,7 @@ impl HostOperation {
         prepared: Option<Command>,
     ) -> Result<sailry_protocol::RequestId, Fault> {
         self.ingress
-            .authorize(self.turn, context.request_with(arguments).into(), prepared)
+            .authorize(self.turn, context.request_with(arguments), prepared)
             .await
     }
 
@@ -456,7 +456,7 @@ impl HostOperation {
                     .ingress
                     .approved_command_access(
                         self.turn,
-                        context.request_with(authorized_arguments.clone()).into(),
+                        context.request_with(authorized_arguments.clone()),
                     )
                     .await?;
             }
@@ -471,7 +471,7 @@ impl HostOperation {
                 let decision = tokio::select! {
                     biased;
                     _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled,"connection approval was cancelled")),
-                    decision = self.ingress.confirm_connection(self.turn, context.request_with(authorized_arguments.clone()).into(), crate::store::agent::ApprovalBinding { owner: self.context.package.clone(), tool: self.name.clone(), operation: Some(self.operation) }, request.command.clone(), trust.clone()) => decision?,
+                    decision = self.ingress.confirm_connection(self.turn, context.request_with(authorized_arguments.clone()), crate::store::agent::ApprovalBinding { owner: self.context.package.clone(), tool: self.name.clone(), operation: Some(self.operation) }, request.command.clone(), trust.clone()) => decision?,
                 };
                 if !matches!(
                     decision,
@@ -493,7 +493,7 @@ impl HostOperation {
                     self.ingress
                         .confirm(
                             self.turn,
-                            context.request_with(authorized_arguments.clone()).into(),
+                            context.request_with(authorized_arguments.clone()),
                             Some(crate::store::agent::ApprovalBinding {
                                 owner: self.context.package.clone(),
                                 tool: self.name.clone(),

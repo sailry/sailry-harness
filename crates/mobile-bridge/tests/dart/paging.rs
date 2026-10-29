@@ -6,7 +6,7 @@ use sailry_protocol::{
     *,
 };
 use serde_json::json;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub(super) async fn submit(client: &Client, session: SessionId, message: &str) -> TurnId {
     submit_stage(client, session, message, "history", Duration::from_secs(10)).await
@@ -31,14 +31,19 @@ async fn submit_stage(
         panic!("turn expected")
     };
     let mut last = None;
+    let started = Instant::now();
+    let mut phase = "subscribe";
+    let mut returned_runs = Vec::new();
     let result = tokio::time::timeout(budget, async {
         let mut updates = client.subscribe_conversation(session).await.unwrap();
         let mut projection =
             sailry_client::conversation::Projection::new(client.target(), session, 0);
         loop {
+            phase = "subscription update";
             if projection.apply(0, updates.next().await.unwrap()).unwrap()
                 == sailry_client::Apply::Recover
             {
+                phase = "resubscribe";
                 updates = client.subscribe_conversation(session).await.unwrap();
                 projection =
                     sailry_client::conversation::Projection::new(client.target(), session, 0);
@@ -62,6 +67,13 @@ async fn submit_stage(
             ) {
                 continue;
             }
+            phase = "read conversation";
+            let reading = Instant::now();
+            eprintln!(
+                "FFI paging setup: {stage}, turn={}, phase=read start, elapsed_ms={}",
+                turn.id,
+                started.elapsed().as_millis(),
+            );
             let Output::Conversation(history) = client
                 .execute(client.prepare(Command::ReadConversation {
                     session,
@@ -73,6 +85,19 @@ async fn submit_stage(
             else {
                 panic!("history expected")
             };
+            returned_runs = history
+                .page
+                .runs
+                .iter()
+                .map(|run| (run.turn, run.status))
+                .collect();
+            eprintln!(
+                "FFI paging setup: {stage}, turn={}, phase=read returned, read_ms={}, elapsed_ms={}, entries={}, runs={returned_runs:?}",
+                turn.id,
+                reading.elapsed().as_millis(),
+                started.elapsed().as_millis(),
+                history.page.entries.len(),
+            );
             if let Some(run) = history.page.runs.iter().find(|run| run.turn == turn.id)
                 && !matches!(
                     run.status,
@@ -87,8 +112,9 @@ async fn submit_stage(
     .await;
     result.unwrap_or_else(|_| {
         panic!(
-            "FFI paging setup deadline: {stage}, session={session}, turn={}; last (status, entries, missing, calls): {last:?}",
+            "FFI paging setup deadline: {stage}, session={session}, turn={}, phase={phase}, elapsed_ms={}, returned_runs={returned_runs:?}; last (status, entries, missing, calls): {last:?}",
             turn.id,
+            started.elapsed().as_millis(),
         )
     });
     turn.id
@@ -192,7 +218,7 @@ fn loads_during_streaming() {
                 sessions[0],
                 "History 中文 🙂",
                 &format!("recent turn {index}"),
-                Duration::from_secs(10),
+                Duration::from_secs(if index == 1 { 60 } else { 10 }),
             )
             .await;
         }

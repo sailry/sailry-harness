@@ -165,13 +165,13 @@ impl SubagentRunner<RuntimeSession> for Children {
                     }
                     Err(error) => SubagentOutcome::Failed(error.message),
                 };
-                if let Ok(session) = id.parse() {
-                    if let Ok(state) = this.ingress.child_state(this.turn, session).await {
-                        let _ = this
-                            .ingress
-                            .collect_child(this.turn, session, state.run.turn)
-                            .await;
-                    }
+                if let Ok(session) = id.parse()
+                    && let Ok(state) = this.ingress.child_state(this.turn, session).await
+                {
+                    let _ = this
+                        .ingress
+                        .collect_child(this.turn, session, state.run.turn)
+                        .await;
                 }
                 outcome
             })

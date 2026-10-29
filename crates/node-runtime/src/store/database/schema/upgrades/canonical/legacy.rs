@@ -128,11 +128,11 @@ fn notice(event: &Event) -> Result<Option<Notice>, Fault> {
         let parent: wire::ToolIdentity =
             serde_json::from_value(value["parent"].clone()).map_err(storage_error)?;
         return Ok(Some(Notice::Elicitation {
-            parent: ToolIdentity {
+            parent: Box::new(ToolIdentity {
                 id: parent.function_call_id,
                 name: parent.tool_name,
                 arguments: parent.args,
-            },
+            }),
             request: value["request"].clone(),
             spec: serde_json::from_value(value["spec"].clone()).map_err(storage_error)?,
             schema: value["schema"].clone(),

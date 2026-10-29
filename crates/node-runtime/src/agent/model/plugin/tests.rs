@@ -65,12 +65,14 @@ fn retains_neutral_messages_and_schemas() {
             "instructions",
             &messages,
             &tools,
-            "http://localhost",
-            "session",
-            Effort::High,
-            Default::default(),
-            &capabilities(),
-            dialect,
+            request::Context {
+                endpoint: "http://localhost",
+                session: "session",
+                effort: Effort::High,
+                features: Default::default(),
+                capabilities: &capabilities(),
+                dialect,
+            },
         )
         .unwrap();
         assert_eq!(input.model, "captured");
