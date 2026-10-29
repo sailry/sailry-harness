@@ -7,6 +7,7 @@ mod operations;
 pub(crate) mod prompt;
 mod steer;
 pub(crate) mod tokens;
+mod tool_pairs;
 use crate::{
     agent::{catalog, model},
     store::{
@@ -97,6 +98,13 @@ pub(super) async fn run(
         deferred,
         images,
     });
+    let tool_pairs = Arc::new(tool_pairs::ToolPairs::new(
+        summary.provider.clone(),
+        summary.config.clone(),
+        invocation.turn.id,
+        context,
+        threshold,
+    ));
     let compact = Arc::new(compact::Compaction {
         provider: summary.provider,
         config: summary.config,
@@ -147,6 +155,7 @@ pub(super) async fn run(
             drained: Mutex::default(),
         })),
         Step::Operation(compact),
+        Step::Operation(tool_pairs),
         Step::Operation(Arc::new(operations::EmptyResponse)),
         Step::Operation(Arc::new(operations::ExitOnError)),
     ];

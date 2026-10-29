@@ -10,41 +10,6 @@ Future<void> main() async {
   final env = Platform.environment;
   const png =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j3ioAAAAASUVORK5CYII=';
-  var calls = 0;
-  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-  server.listen((request) async {
-    final body = jsonDecode(await utf8.decoder.bind(request).join());
-    check(body['contents'] is List, 'native Gemini request');
-    check(
-      request.headers.value('x-goog-api-key') == 'isolated-image-key',
-      'Node resolves provider credential',
-    );
-    calls++;
-    request.response.headers.contentType = ContentType('text', 'event-stream');
-    request.response.write(
-      'data: ${jsonEncode({
-        'candidates': [
-          {
-            'content': {
-              'role': 'model',
-              'parts': [
-                {'text': 'Before the image'},
-                {
-                  'inlineData': {'mimeType': 'image/png', 'data': png},
-                },
-                {'text': 'After the image'},
-              ],
-            },
-            'finishReason': 'STOP',
-            'index': 0,
-          },
-        ],
-        'usageMetadata': {'promptTokenCount': 8, 'candidatesTokenCount': 4, 'totalTokenCount': 12},
-        'modelVersion': 'ffi-image',
-      })}\n\n',
-    );
-    await request.response.close();
-  });
   await RustLib.init(
     externalLibrary: ExternalLibrary.open(env['SAILRY_BRIDGE_LIBRARY']!),
   );
@@ -56,18 +21,17 @@ Future<void> main() async {
   );
   final address = await controller.pair(ticket: env['SAILRY_INVITATION']!);
   var connection = await controller.connect(address: address);
-  final project = (await execute(connection, 'register_project', {
-    'name': 'FFI images',
-    'path': env['SAILRY_PROJECT_PATH'],
-  }))['data'];
+  final sessions = jsonDecode(env['SAILRY_SESSIONS']!) as List;
+  final session = sessions[0] as String;
+  final other = sessions[1] as String;
   final snapshot = (await execute(connection, 'snapshot', null))['data'];
-  final tree = (snapshot['worktrees'] as List).firstWhere(
-    (tree) => tree['project'] == project['id'],
-  );
+  final worktree = (snapshot['sessions'] as List).singleWhere(
+    (value) => value['id'] == session,
+  )['worktree'];
   final imageFile = File('${env['SAILRY_PROJECT_PATH']}/generated.png');
   await imageFile.writeAsBytes(base64Decode(png));
   final fileDescriptor = (await execute(connection, 'download_file', {
-    'worktree': tree['id'],
+    'worktree': worktree,
     'path': 'generated.png',
   }))['data'];
   final fileDownload = await connection.downloadFile(
@@ -85,70 +49,12 @@ Future<void> main() async {
     fileDownload.dispose();
   }
   check(base64Encode(fileBytes) == png, 'worktree image bytes cross FFI');
-  final provider = (await execute(connection, 'save_provider', {
-    'provider': {
-      'id': '00000000-0000-4000-8000-000000000079',
-      'revision': 0,
-      'name': 'FFI image fixture',
-      'api': 'gemini',
-      'authentication': 'api_key',
-      'endpoint': 'http://127.0.0.1:${server.port}/v1beta',
-      'enabled': true,
-      'default_model': 'ffi-image',
-      'models': [
-        {
-          'id': 'ffi-image',
-          'context': 4096,
-          'output': 128,
-          'vision': true,
-          'tools': false,
-          'reasoning': false,
-          'web_search': false,
-          'generates': [],
-          'efforts': [],
-          'custom_efforts': false,
-          'default_effort': 'default',
-        },
-      ],
-    },
-    'expected_revision': 0,
-    'secret': 'isolated-image-key',
-  }))['data'];
-  final creation = {
-    'project': project['id'],
-    'worktree': null,
-    'config': {
-      'provider': provider['id'],
-      'model': 'ffi-image',
-      'effort': 'default',
-      'mode': 'code',
-      'permission': 'ask',
-      'credential': provider['credential'],
-    },
-  };
-  final session = (await execute(
-    connection,
-    'create_session',
-    creation,
-  ))['data'];
-  final other = (await execute(connection, 'create_session', creation))['data'];
-  final updates = await connection.watchConversation(session: session['id']);
-  await until(updates, (_) => true);
-  await execute(connection, 'submit_turn', {
-    'session': session['id'],
-    'expected_revision': session['revision'],
-    'message': {'text': 'Return text and an image', 'attachments': []},
-  });
-  final view = await until(
-    updates,
-    (snapshot) => (snapshot['page']['runs'] as List).any(
-      (run) => run['status'] == 'completed' || run['status'] == 'failed',
-    ),
-  );
+  final updates = await connection.watchConversation(session: session);
+  final view = await until(updates, (_) => true);
   final page = view['snapshot']['page'];
   check(
     page['runs'].single['status'] == 'completed',
-    'native image response completed: ${page['runs']}',
+    'canonical image response completed: ${page['runs']}',
   );
   final parts = (page['entries'] as List)
       .where((entry) => entry['author'] != 'user')
@@ -169,7 +75,7 @@ Future<void> main() async {
     'history contains image metadata only',
   );
   final descriptor = (await execute(connection, 'download_image', {
-    'session': session['id'],
+    'session': session,
     'image': image,
   }))['data'];
   final bytes = await downloadAttachment(connection, descriptor);
@@ -181,7 +87,7 @@ Future<void> main() async {
   final forged = await connection.prepare(
     command: jsonEncode({
       'kind': 'download_image',
-      'data': {'session': other['id'], 'image': image},
+      'data': {'session': other, 'image': image},
     }),
   );
   check(
@@ -197,7 +103,7 @@ Future<void> main() async {
   controller = await Controller.open(path: path, internet: false, relays: []);
   connection = await controller.connect(address: address);
   final restored = (await execute(connection, 'read_conversation', {
-    'session': session['id'],
+    'session': session,
     'before': null,
     'limit': 100,
   }))['data']['page'];
@@ -206,19 +112,17 @@ Future<void> main() async {
     'image history survives reconnect',
   );
   final recovered = (await execute(connection, 'download_image', {
-    'session': session['id'],
+    'session': session,
     'image': image,
   }))['data'];
   check(
     base64Encode(await downloadAttachment(connection, recovered)) == png,
     'image transfer survives reconnect',
   );
-  check(calls == 1, 'history and download do not replay the provider');
   await connection.close();
   connection.dispose();
   await controller.close();
   controller.dispose();
-  await server.close(force: true);
   RustLib.dispose();
   print(
     'Dart FFI ordered text/image, authenticated download and reconnect passed',

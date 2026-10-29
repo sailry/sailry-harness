@@ -16,7 +16,7 @@
 
 - Maintain the new product in this repository. Do not depend on a separately maintained Sailry Platform repository.
 - Official theme packages and their generated catalog belong in the independent `sailry-themes` repository pinned by `themes/`; follow its `AGENTS.md`. Keep reusable theme loading, validation, installation and rendering in the application. Commit package changes separately and publish referenced theme commits before parent Gitlinks.
-- Desktop uses `gpui-kit`; Agent execution stays on ADK-Rust. Do not introduce another desktop stack or Agent engine without an explicitly authorized architecture change.
+- Desktop uses `gpui-kit`; Agent execution uses Goose GDK. Do not introduce another desktop stack or Agent engine without an explicitly authorized architecture change.
 - Host is a long-running headless service that Desktop and Mobile connect to, not an interactive CLI Agent. Its command-line entry starts/configures the service; conversations, Agent tasks, and development tools are controlled through the shared protocol, without a separate prompt loop or TUI.
 - Preview data must be clearly identified and must not trigger models, tools, network pairing, terminals, or user-data mutations.
 - Mobile is a Flutter controller. Preserve its Rust dependency boundary; a desktop-only Rust client test is not mobile acceptance. Do not expand an authorized desktop task into Mobile product work.
@@ -48,13 +48,13 @@
 - Follow the mandatory GPUI Kit reuse rules below; product layout requirements do not authorize replacing framework controls or its design system.
 - Use GPUI Kit's re-exported GPUI; do not independently select a conflicting GPUI revision.
 - Keep presentation code out of Protocol, Link, Client, and Node Runtime. Client owns UI-independent event reduction, ordering, deduplication, and snapshot recovery; GPUI and Flutter own layout, focus, drafts, selection, and expansion. Do not implement separate conversation state machines in each UI.
-- Desktop and Host use the same Node bootstrap and shutdown implementation. One data profile has one running Node owner and one Link identity/endpoint; local Client access reuses them rather than starting a second runtime. Mobile carries only Client/Link and a thin FFI adapter, not Node, ADK, PTY, Git execution, database-tool drivers, or GPUI. Client-side identity and cache storage are allowed; they are not another business database.
+- Desktop and Host use the same Node bootstrap and shutdown implementation. One data profile has one running Node owner and one Link identity/endpoint; local Client access reuses them rather than starting a second runtime. Mobile carries only Client/Link and a thin FFI adapter, not Node, GDK, PTY, Git execution, database-tool drivers, or GPUI. Client-side identity and cache storage are allowed; they are not another business database.
 - The execution Node owns effective session configuration and immutable sent-turn revisions. Another client resumes that configuration; controller defaults apply to new sessions, and changing an existing session requires an explicit revision-checked command. Store configuration and credentials directly as plaintext in the execution Node's existing configuration storage. Do not introduce encrypted vaults or OS keychain storage unless the user explicitly requests them. Keep credentials out of public events, logs, UI caches and committed source.
-- ADK is the Agent execution engine. Node integrates its persistence through one authoritative session history path; UI projections are rebuildable derivatives, not another runner or history writer.
+- Goose GDK is the Agent execution engine. Node assembles its state machine and integrates effects through one authoritative canonical history writer; session loading and UI projections are read-only derivatives, not another runner or history writer.
 - A durable command must reach durable Node admission before Link acknowledges safe receipt. Keep transport receipt distinct from business completion; reuse stable request IDs and report uncertain side effects without automatic replay. Do not add a second durable inbox by default.
 - Desktop does not use Flutter Rust Bridge. The Mobile bridge only adapts shared Rust client contracts, handles and async subscriptions; it must not copy business rules or become another persistence layer.
 - Keep feature modules inside their owning crate. Create another crate only for a demonstrated dependency, binary, platform, or testing boundary.
-- Pin external dependencies and commit applicable lockfiles. ADK dependency selection belongs in the root Cargo workspace, not absolute developer-machine paths.
+- Pin external dependencies and commit applicable lockfiles. GDK dependency selection belongs in the root Cargo workspace with its resolved Git revision in Cargo.lock, not absolute developer-machine paths.
 - Do not add a JavaScript runtime merely because the UI framework offers scripting. The application Shell layout is unrelated to enabling `gpui-shell`.
 
 ## File organization and design

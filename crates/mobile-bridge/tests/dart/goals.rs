@@ -44,6 +44,11 @@ fn restores_goal_revisions() {
     let invitation = node.link().invite().unwrap();
     let child = super::command("goals.dart", directory.path(), invitation.ticket())
         .env("SAILRY_SESSION", sessions[0].to_string())
+        .env("SAILRY_GET_GOAL", support::plugin_tool("goals", "get_goal"))
+        .env(
+            "SAILRY_UPDATE_GOAL",
+            support::plugin_tool("goals", "update_goal"),
+        )
         .spawn()
         .unwrap();
     let status = super::wait(child);

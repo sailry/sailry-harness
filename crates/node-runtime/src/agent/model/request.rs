@@ -68,6 +68,9 @@ impl GdkProvider for Model {
     fn get_name(&self) -> &str {
         self.inner.get_name()
     }
+    fn manages_own_context(&self) -> bool {
+        self.inner.manages_own_context()
+    }
     async fn get_context_limit(&self, model: &str, limit: Option<usize>) -> usize {
         self.inner.get_context_limit(model, limit).await
     }

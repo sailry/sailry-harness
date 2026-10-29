@@ -25,6 +25,10 @@ impl Provider for Protected {
         self.inner.get_name()
     }
 
+    fn manages_own_context(&self) -> bool {
+        self.inner.manages_own_context()
+    }
+
     async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
         self.inner.get_context_limit(model, override_limit).await
     }

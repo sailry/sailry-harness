@@ -69,8 +69,8 @@ Future<void> main() async {
   final read = await detail(updates, calls[0]);
   final output = read['result']['structuredContent'];
   check(
-    jsonEncode(read['result']['content']) ==
-        jsonEncode([
+    canonicalJson(read['result']['content']) ==
+        canonicalJson([
           {'type': 'text', 'text': 'Complete MCP result 中文 🙂'},
         ]),
     'original MCP text content remains beside the structured result',
@@ -231,8 +231,8 @@ Future<void> main() async {
     cancelled['calls'][1]['state'] == 'returned' &&
         cancelled['calls'][1]['approval']['state'] == 'cancelled' &&
         interrupted['isError'] == true &&
-        jsonEncode(interrupted['content']) ==
-            jsonEncode([
+        canonicalJson(interrupted['content']) ==
+            canonicalJson([
               {
                 'type': 'text',
                 'text': 'Tool call was interrupted before completing',

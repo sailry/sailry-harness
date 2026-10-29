@@ -3,8 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
-import 'approvals.dart' show part;
+import 'conversation.dart' show check, detail, execute, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -56,8 +55,22 @@ Future<void> main() async {
     calls.length == 3,
     'the model reads the goal, verifies evidence and completes it',
   );
-  final originalGoal = part(first, calls.first['response'])['result']['goal'];
-  final goal = part(first, calls.last['response'])['result']['goal'];
+  final reader = calls.singleWhere(
+    (call) => call['name'] == env['SAILRY_GET_GOAL'],
+  );
+  final writer = calls.singleWhere(
+    (call) => call['name'] == env['SAILRY_UPDATE_GOAL'],
+  );
+  check(
+    calls.singleWhere(
+          (call) => call['name'] == env['SAILRY_READ_TOOL'],
+        )['id'] !=
+        null,
+    'the evidence read retains its call identity',
+  );
+  final originalGoal = (await detail(updates, reader))['result']['goal'];
+  final output = await detail(updates, writer);
+  final goal = output['result']['goal'];
   check(
     originalGoal['state'] == 'active' &&
         originalGoal['revision'] == '1' &&
@@ -71,9 +84,9 @@ Future<void> main() async {
     'original intent is preserved',
   );
   check(
-    calls.last['resolved']['label']['label'] == 'Update goal' &&
-        calls.last['content']['blocks'][0]['kind'] == 'notice' &&
-        calls.last['content']['blocks'][1]['path'] == '/goal/description',
+    output['resolved']['label']['label'] == 'Update goal' &&
+        output['content']['blocks'][0]['kind'] == 'notice' &&
+        output['content']['blocks'][1]['path'] == '/goal/description',
     'the native message projection preserves goal status and description',
   );
   Future<void> close() async {
@@ -114,10 +127,12 @@ Future<void> main() async {
           run['status'] == 'completed',
     ),
   );
-  final completed = part(
-    finished,
-    (finished['calls'] as List).last['response'],
-  )['result']['goal'];
+  final replacement = (finished['calls'] as List).singleWhere(
+    (call) =>
+        call['name'] == env['SAILRY_UPDATE_GOAL'] &&
+        call['turn'] == completion['data']['id'],
+  );
+  final completed = (await detail(updates, replacement))['result']['goal'];
   check(
     completed['id'] != goal['id'] &&
         completed['revision'] == '4' &&

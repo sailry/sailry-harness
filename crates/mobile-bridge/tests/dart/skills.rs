@@ -116,11 +116,23 @@ fn controls_host_skills() {
     });
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 9);
-    let results: Vec<serde_json::Value> = requests[5]["messages"]
+    let returned: Vec<_> = requests[5]["messages"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|message| message["role"] == "tool")
+        .collect();
+    assert_eq!(
+        returned
+            .iter()
+            .map(|message| message["tool_call_id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        (0..5)
+            .map(|index| format!("call-fixture-{index}"))
+            .collect::<Vec<_>>()
+    );
+    let results: Vec<serde_json::Value> = returned[..4]
+        .iter()
         .map(|message| serde_json::from_str(message["content"].as_str().unwrap()).unwrap())
         .collect();
     assert_eq!(results[0]["content"], body);
@@ -130,7 +142,7 @@ fn controls_host_skills() {
         results[3]["data"]["stdout"]["text"],
         "script output 中文 🙂"
     );
-    assert!(results[4].get("error").is_some());
+    assert_eq!(returned[4]["content"], "Tool execution was denied.");
     assert!(idle.requests.lock().unwrap().is_empty());
     assert!(server.authorization.lock().unwrap().iter().all(|header| header.as_deref() == Some("Bearer isolated-ffi-configuration-credential")));
 }

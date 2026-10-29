@@ -240,9 +240,20 @@ impl Operation<Session, Effect> for Compaction {
         if reactive && let Some(last) = input.messages_mut().last_mut() {
             last.metadata.agent_visible = false;
         }
-        match self.compact(&input,false).await {
-            Ok(effects)=>applied(effects),
-            Err(error)=>yielded_with([emit.message(Message::assistant().with_error(error.downcast_ref::<ProviderError>().map(MessageErrorKind::from).unwrap_or(MessageErrorKind::Other),format!("Ran into this error trying to compact: {error}.\n\nPlease try again or create a new session"))).into()]),
+        match self.compact(&input, false).await {
+            Ok(effects) => applied(effects),
+            Err(error) => yielded_with([
+                emit.message(Message::assistant().with_error(
+                    error
+                        .downcast_ref::<ProviderError>()
+                        .map(MessageErrorKind::from)
+                        .unwrap_or(MessageErrorKind::Other),
+                    format!(
+                        "Ran into this error trying to compact: {error}.\n\nPlease try again or create a new session"
+                    ),
+                ))
+                .into(),
+            ]),
         }
     }
 }

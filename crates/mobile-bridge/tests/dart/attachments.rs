@@ -1,3 +1,6 @@
+#[path = "attachments/images.rs"]
+mod images;
+
 #[test]
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
 fn transfers_and_reconnects() {
@@ -7,7 +10,7 @@ fn transfers_and_reconnects() {
 #[test]
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
 fn downloads_message_images() {
-    contract("images.dart");
+    images::contract();
 }
 
 fn contract(script: &str) {

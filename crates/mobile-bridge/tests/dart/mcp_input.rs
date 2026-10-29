@@ -62,6 +62,7 @@ const ORIGIN: &str = "https://mcp.example.com";
 fn forms(sse: bool, oauth: bool, input: Input) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let task = matches!(input, Input::Task);
     let url = !matches!(input, Input::Form);
     let peer = runtime.block_on(async {
         match input {
@@ -138,6 +139,7 @@ fn forms(sse: bool, oauth: bool, input: Input) {
         .env("SAILRY_SESSIONS", serde_json::to_string(&sessions).unwrap())
         .env("SAILRY_MCP_OAUTH", if oauth { "1" } else { "0" })
         .env("SAILRY_MCP_URL", if url { "1" } else { "0" })
+        .env("SAILRY_MCP_TASK", if task { "1" } else { "0" })
         .spawn()
         .unwrap();
     let status = super::wait(child);

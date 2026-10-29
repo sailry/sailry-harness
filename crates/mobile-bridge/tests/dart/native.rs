@@ -11,9 +11,9 @@ pub(super) mod server;
 #[test]
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
 fn resumes_without_source() {
-    for (name, api) in [
-        ("anthropic", ModelApi::Anthropic),
-        ("gemini", ModelApi::Gemini),
+    for (name, api, model) in [
+        ("anthropic", ModelApi::Anthropic, "fixture-a"),
+        ("gemini", ModelApi::Gemini, "gemini-2.5-flash"),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -29,7 +29,7 @@ fn resumes_without_source() {
                 .unwrap();
             let origin = Client::new(source.local());
             let destination = Client::new(target.local());
-            let mut selected = provider(&origin, &server.endpoint, "fixture-a").await;
+            let mut selected = provider(&origin, &server.endpoint, model).await;
             selected.api = api;
             selected.models[0].tools = true;
             selected.models[0].vision = true;
@@ -116,35 +116,35 @@ fn resumes_without_source() {
         let encoded = base64::engine::general_purpose::STANDARD
             .encode(include_bytes!("../../../../tests/fixtures/document.pdf"));
         for request in requests.iter() {
-            for (mime, bytes) in [
+            for (name, mime, bytes) in [
                 (
+                    "audio.wav.bin",
                     "audio/wav",
                     include_bytes!("../../../../tests/fixtures/audio.wav").as_slice(),
                 ),
                 (
+                    "video.mp4.bin",
                     "video/mp4",
                     include_bytes!("../../../../tests/fixtures/video.mp4").as_slice(),
                 ),
             ] {
                 let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
                 if api == ModelApi::Gemini {
-                    let part = request.body["contents"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .flat_map(|message| message["parts"].as_array().unwrap())
-                        .find(|part| part["inlineData"]["mimeType"] == mime)
-                        .expect("native media expected");
-                    assert_eq!(part["inlineData"]["data"], encoded);
-                } else {
-                    assert!(!request.body.to_string().contains(&encoded));
                     assert!(
-                        request
-                            .body
-                            .to_string()
-                            .contains(r#"Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files"#)
+                        request.body["contents"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .flat_map(|message| message["parts"].as_array().unwrap())
+                            .all(|part| part["inline_data"]["mime_type"] != mime)
                     );
                 }
+                let serialized = request.body.to_string();
+                assert!(!serialized.contains(&encoded));
+                assert!(serialized.contains(name));
+                assert!(
+                    serialized.contains(r#"Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files"#)
+                );
             }
             let messages = if api == ModelApi::Anthropic {
                 "messages"
@@ -164,25 +164,31 @@ fn resumes_without_source() {
                 .flatten()
                 .find(|part| {
                     part["type"] == "document"
-                        || part["inlineData"]["mimeType"] == "application/pdf"
+                        || part["inline_data"]["mime_type"] == "application/pdf"
                 })
                 .expect("native PDF input expected");
             if api == ModelApi::Anthropic {
+                assert_eq!(request.body["model"], model);
+                assert_eq!(request.body["max_tokens"], 4096);
                 assert_eq!(pdf["source"]["type"], "base64");
                 assert_eq!(pdf["source"]["media_type"], "application/pdf");
                 assert_eq!(pdf["source"]["data"], encoded);
-                assert_eq!(request.body["thinking"]["budget_tokens"], 1024);
+                assert_eq!(
+                    request.body["thinking"],
+                    serde_json::json!({"type":"enabled","budget_tokens":1024})
+                );
                 assert!(request.body.get("output_config").is_none());
             } else {
-                assert_eq!(pdf["inlineData"]["data"], encoded);
-                assert_eq!(
-                    request.body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
-                    1024
-                );
                 assert!(
-                    request.body["generationConfig"]["thinkingConfig"]
-                        .get("thinkingLevel")
-                        .is_none()
+                    request
+                        .path
+                        .contains(&format!("/models/{model}:streamGenerateContent"))
+                );
+                assert_eq!(request.body["generationConfig"]["maxOutputTokens"], 4096);
+                assert_eq!(pdf["inline_data"]["data"], encoded);
+                assert_eq!(
+                    request.body["generationConfig"]["thinkingConfig"],
+                    serde_json::json!({"thinkingBudget":1024,"includeThoughts":true})
                 );
             }
         }
