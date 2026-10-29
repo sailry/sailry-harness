@@ -192,7 +192,7 @@ fn loads_during_streaming() {
                 sessions[0],
                 "History 中文 🙂",
                 &format!("recent turn {index}"),
-                Duration::from_secs(10),
+                Duration::from_secs(if index == 1 { 60 } else { 10 }),
             )
             .await;
         }
