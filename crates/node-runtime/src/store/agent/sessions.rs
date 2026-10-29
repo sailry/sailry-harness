@@ -21,6 +21,8 @@ use goose_provider_types::{
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 mod presentation;
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone)]
 pub(crate) struct Query {
@@ -382,7 +384,22 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
             }
         }
         if let Some(message) = conversion::project(db, record).await? {
-            messages.push(message);
+            if let Some(after) = record
+                .metadata
+                .runtime
+                .as_ref()
+                .and_then(|runtime| runtime.after.as_ref())
+            {
+                // A bounded read may omit the source; never turn its summary into new input.
+                if let Some(position) = messages
+                    .iter()
+                    .position(|message| message.id.as_ref() == Some(after))
+                {
+                    messages.insert(position + 1, message);
+                }
+            } else {
+                messages.push(message);
+            }
         }
         if let Kind::Operation(operation) = &record.kind {
             apply_operation(&mut messages, operation);
@@ -527,40 +544,48 @@ pub(super) async fn effects(
             calls.insert(request.id.clone(), call.name.to_string());
         }
     }
-    // Goose associates request usage with the last non-error assistant message.
-    for index in 0..effects.len() {
-        let Effect::Usage(usage) = &effects[index] else {
-            continue;
-        };
-        let usage = usage.clone();
-        if let Some(message) = effects.iter_mut().rev().find_map(|effect| match effect {
-            Effect::Conversation(ConversationEffect::AppendMessage(message))
-                if message.role == rmcp::model::Role::Assistant
-                    && message.error_kind().is_none() =>
-            {
-                Some(message)
-            }
-            _ => None,
-        }) {
-            message.metadata.usage =
-                Some(Box::new(MessageUsage::from_provider_usage(&usage, false)));
-        }
+    // Prefer normal output, but retain billed usage when inference only returned an error.
+    let usage = effects.iter().rev().find_map(|effect| match effect {
+        Effect::Usage(usage) => Some(usage.clone()),
+        _ => None,
+    });
+    let last = effects.iter().rposition(|effect| matches!(effect,
+        Effect::Conversation(ConversationEffect::AppendMessage(message))
+            if message.role == rmcp::model::Role::Assistant && message.error_kind().is_none()
+    )).or_else(|| effects.iter().rposition(|effect| matches!(effect,
+        Effect::Conversation(ConversationEffect::AppendMessage(message))
+            if message.role == rmcp::model::Role::Assistant
+    )));
+    if let Some(usage) = &usage
+        && let Some(index) = last
+        && let Effect::Conversation(ConversationEffect::AppendMessage(message)) =
+            &mut effects[index]
+    {
+        message.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(usage, false)));
     }
-    let usage = effects
-        .iter()
-        .filter_map(|effect| match effect {
-            Effect::Usage(usage) => Some(usage.clone()),
-            _ => None,
-        })
-        .next_back();
-    let last=effects.iter().rposition(|effect|matches!(effect,Effect::Conversation(ConversationEffect::AppendMessage(message)) if message.role==rmcp::model::Role::Assistant && message.error_kind().is_none()));
+    let mut pending = Vec::new();
+    if last.is_none()
+        && let Some(usage) = &usage
+    {
+        let mut message = GdkMessage::assistant()
+            .with_generated_id()
+            .with_visibility(false, false);
+        message.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(usage, false)));
+        pending.push(history::Input::Message(history::Message {
+            message,
+            usage: Some(usage.clone()),
+            calls: calls.clone(),
+            presentation: presentation.clone(),
+            timeline: timeline.clone(),
+        }));
+    }
     for (index, effect) in effects.into_iter().enumerate() {
         match effect {
             Effect::Usage(_) => {}
             Effect::Records(records) => {
                 for mut record in records {
                     record.metadata.presentation = Some(presentation.clone());
-                    history::append(database, session, record.turn, record, events).await?;
+                    pending.push(history::Input::Record(Box::new(record)));
                 }
             }
             Effect::Approval { .. } => {
@@ -574,26 +599,21 @@ pub(super) async fn effects(
                         calls.insert(request.id.clone(), call.name.to_string());
                     }
                 }
-                history::append_message(
-                    database,
-                    session,
-                    turn,
-                    history::Message {
-                        message,
-                        usage: (last == Some(index)).then(|| usage.clone()).flatten(),
-                        calls: calls.clone(),
-                        presentation: presentation.clone(),
-                        timeline: timeline.clone(),
-                    },
-                    events,
-                )
-                .await?;
+                pending.push(history::Input::Message(history::Message {
+                    message,
+                    usage: (last == Some(index)).then(|| usage.clone()).flatten(),
+                    calls: calls.clone(),
+                    presentation: presentation.clone(),
+                    timeline: timeline.clone(),
+                }));
             }
             Effect::Compaction {
                 summary,
                 usage,
                 files,
-            } => save_summary(database, session, turn, *summary, usage, files, events).await?,
+            } => pending.push(history::Input::Summary(summary_input(
+                &current, *summary, usage, files,
+            )?)),
             Effect::Conversation(ConversationEffect::ReplaceConversation(_)) => {
                 return Err(Fault::invalid(
                     "conversation replacement requires a compaction checkpoint",
@@ -653,32 +673,19 @@ pub(super) async fn effects(
                     agent_visible: false,
                     ..Runtime::default()
                 });
-                history::append(database, session, turn, record, events).await?;
+                pending.push(history::Input::Record(Box::new(record)));
             }
         }
     }
-    Ok(())
+    history::append_batch(database, session, turn, pending, events).await
 }
 
-async fn save_summary(
-    database: &mut Database,
-    session: SessionId,
-    turn: TurnId,
+fn summary_input(
+    current: &Session,
     mut summary: GdkMessage,
     usage: ProviderUsage,
     files: Vec<CompactedFile>,
-    events: &broadcast::Sender<EventEnvelope>,
-) -> Result<(), Fault> {
-    let current = get(
-        &database.connection,
-        turn,
-        Query {
-            session,
-            recent: None,
-            after: None,
-        },
-    )
-    .await?;
+) -> Result<history::Summary, Fault> {
     let Some(boundary) = current
         .records
         .iter()
@@ -688,22 +695,15 @@ async fn save_summary(
         return Err(Fault::invalid("compaction history is empty"));
     };
     summary.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(&usage, true)));
-    history::append_summary(
-        database,
-        session,
-        turn,
-        history::Summary {
-            message: summary,
-            usage,
-            boundary: boundary.id.clone(),
-            start: current
-                .records
-                .first()
-                .map_or(boundary.created, |record| record.created),
-            end: boundary.created,
-            files,
-        },
-        events,
-    )
-    .await
+    Ok(history::Summary {
+        message: summary,
+        usage,
+        boundary: boundary.id.clone(),
+        start: current
+            .records
+            .first()
+            .map_or(boundary.created, |record| record.created),
+        end: boundary.created,
+        files,
+    })
 }

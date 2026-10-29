@@ -79,7 +79,16 @@ impl Drop for Owner {
 }
 #[async_trait]
 impl SubagentRunner<RuntimeSession> for Children {
-    fn requested_subagent_session_ids(&self, _: &RuntimeSession, message: &Message) -> Vec<String> {
+    fn requested_subagent_session_ids(
+        &self,
+        session: &RuntimeSession,
+        message: &Message,
+    ) -> Vec<String> {
+        if !session.records.iter().any(|record| {
+            record.turn == self.turn && message.id.as_deref() == Some(record.id.as_str())
+        }) {
+            return Vec::new();
+        }
         message
             .content
             .iter()

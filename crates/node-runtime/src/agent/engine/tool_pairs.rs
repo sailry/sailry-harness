@@ -85,6 +85,15 @@ impl ToolPairs {
         summary.role = rmcp::model::Role::User;
         summary.created = pair.last().unwrap().created;
         summary.metadata = MessageMetadata::agent_only();
+        let after = pair
+            .last()
+            .and_then(|message| message.id.as_deref())
+            .ok_or_else(|| anyhow::anyhow!("tool summary source has no identity"))?;
+        summary.metadata.set_operation_note(
+            "tool_pair_compaction",
+            "after",
+            serde_json::json!(after),
+        );
         // The summary keeps the source time; the billable request belongs to now.
         let mut charge = canonical::Record::new(
             self.turn,

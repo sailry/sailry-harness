@@ -7,8 +7,7 @@ pub(in crate::store::agent) async fn retain(
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     for draft in database.feeds.seal(run.session, run.turn) {
-        let part_count = draft.parts.len();
-        let content: Vec<_> = draft
+        let mut content: Vec<_> = draft
             .parts
             .into_iter()
             .enumerate()
@@ -31,6 +30,10 @@ pub(in crate::store::agent) async fn retain(
                 Some(records::Block { index, kind })
             })
             .collect();
+        for (index, block) in content.iter_mut().enumerate() {
+            block.index = index;
+        }
+        let part_count = content.len();
         if content.is_empty() {
             continue;
         }

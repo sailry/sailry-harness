@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn capture(source: &gdk::MessageMetadata) -> Metadata {
+pub(super) fn capture(source: &gdk::MessageMetadata, created: i64) -> Metadata {
     let inference = source.inference.as_ref().map(|inference| Inference {
         provider: inference.provider.clone(),
         requested_model: inference.requested_model.clone(),
@@ -29,6 +29,11 @@ pub(super) fn capture(source: &gdk::MessageMetadata) -> Metadata {
     };
     Metadata {
         runtime: Some(Runtime {
+            created: Some(created),
+            after: source
+                .operation_note("tool_pair_compaction", "after")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             user_visible: source.user_visible,
             agent_visible: source.agent_visible,
             output_limit_reached: source.output_token_limit_reached,
@@ -70,6 +75,9 @@ pub(super) fn usage(source: &gdk::MessageUsage) -> Usage {
 pub(super) fn project(record: &Record) -> gdk::MessageMetadata {
     let mut output = gdk::MessageMetadata::default();
     if let Some(runtime) = &record.metadata.runtime {
+        if let Some(after) = &runtime.after {
+            output.set_operation_note("tool_pair_compaction", "after", json!(after));
+        }
         output.user_visible = runtime.user_visible;
         output.agent_visible = runtime.agent_visible;
         output.output_token_limit_reached = runtime.output_limit_reached;

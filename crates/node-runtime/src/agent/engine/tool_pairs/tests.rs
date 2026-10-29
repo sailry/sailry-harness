@@ -196,6 +196,12 @@ async fn protects_current_kickoff_and_batches_old_pairs() {
         assert!(!summary.is_user_visible());
         assert!(summary.is_agent_visible());
         assert!(summary.id.is_some());
+        assert_eq!(
+            summary
+                .metadata
+                .operation_note("tool_pair_compaction", "after"),
+            Some(&serde_json::json!(history.messages()[2 + index * 2].id)),
+        );
         assert!(summary.metadata.usage.is_none());
         let Effect::Records(records) = &group[3] else {
             panic!("usage record expected")
@@ -341,7 +347,7 @@ async fn excludes_provider_managed_context() {
 async fn respects_nested_content_audiences() {
     let provider = Arc::new(Fixture::default());
     let operation = operation(provider.clone());
-    let mut response = Message::user().with_tool_response(
+    let mut response = Message::user().with_generated_id().with_tool_response(
         "call",
         Ok(CallToolResult::success(vec![
             ContentBlock::text("Visible result"),
@@ -351,8 +357,9 @@ async fn respects_nested_content_audiences() {
             ),
         ])),
     );
-    let request =
-        Message::assistant().with_tool_request("call", Ok(CallToolRequestParams::new("read_file")));
+    let request = Message::assistant()
+        .with_generated_id()
+        .with_tool_request("call", Ok(CallToolRequestParams::new("read_file")));
     operation
         .summarize(
             &Conversation::new_unvalidated([request.clone(), response.clone()]),

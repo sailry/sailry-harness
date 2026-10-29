@@ -6,6 +6,8 @@ pub(crate) mod history;
 mod operations;
 pub(crate) mod prompt;
 mod steer;
+#[cfg(test)]
+mod tests;
 pub(crate) mod tokens;
 mod tool_pairs;
 use crate::{
@@ -257,7 +259,11 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         failure.details = Some(FaultDetails::ModelRequest { reason });
         return Err(failure);
     }
-    Ok(session
+    Ok(output(&session, invocation.turn.id))
+}
+
+fn output(session: &Session, turn: sailry_protocol::TurnId) -> Option<String> {
+    session
         .conversation
         .messages()
         .iter()
@@ -266,8 +272,11 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
             message.role == rmcp::model::Role::Assistant
                 && message.is_user_visible()
                 && !message.as_concat_text().is_empty()
+                && session.records.iter().any(|record| {
+                    record.turn == turn && message.id.as_deref() == Some(record.id.as_str())
+                })
         })
-        .map(|message| message.as_concat_text()))
+        .map(|message| message.as_concat_text())
 }
 
 pub(super) fn fault(error: anyhow::Error) -> Fault {

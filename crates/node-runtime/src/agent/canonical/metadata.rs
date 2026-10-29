@@ -212,6 +212,12 @@ pub(crate) struct Maintenance {
 /// Only execution state used by the GDK pipeline is stored here.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Runtime {
+    /// The execution engine's original timestamp remains in seconds at its boundary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<i64>,
+    /// Model-only maintenance messages retain their source position in the conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
     pub user_visible: bool,
     pub agent_visible: bool,
     pub output_limit_reached: bool,
@@ -228,6 +234,8 @@ pub(crate) struct Runtime {
 impl Default for Runtime {
     fn default() -> Self {
         Self {
+            created: None,
+            after: None,
             user_visible: true,
             agent_visible: true,
             output_limit_reached: false,

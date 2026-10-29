@@ -310,6 +310,53 @@ async fn retains_interrupted_commentary_phase() {
 }
 
 #[tokio::test]
+async fn omits_interrupted_nontext_parts() {
+    let mut fixture = Fixture::new().await;
+    let turn = running(&mut fixture).await;
+    let session = fixture.session;
+    fixture
+        .database
+        .feeds
+        .delta(
+            fixture.database.node,
+            session,
+            Draft {
+                id: "interrupted-parts".into(),
+                turn,
+                author: "assistant".into(),
+                branch: String::new(),
+                parts: vec![
+                    Part::Resource(serde_json::json!({"type":"transient"})),
+                    Part::Thinking("Checking".into()),
+                    Part::Text("Reading the source".into()),
+                    Part::Resource(serde_json::json!({"type":"transient"})),
+                ],
+                commentary: [(2, "progress-message".into())].into(),
+            },
+        )
+        .unwrap();
+    let run = runs::get(&fixture.database.connection, turn).await.unwrap();
+    retain(&mut fixture.database, &run, &fixture.events)
+        .await
+        .unwrap();
+    let history = fixture.read(None, 100).await;
+    let entry = history
+        .page
+        .entries
+        .iter()
+        .find(|entry| entry.id == "interrupted-parts")
+        .unwrap();
+    assert_eq!(
+        entry.parts,
+        vec![
+            Part::Thinking("Checking".into()),
+            Part::Text("Reading the source".into())
+        ]
+    );
+    assert_eq!(entry.commentary, [(1, "progress-message".into())].into());
+}
+
+#[tokio::test]
 async fn publishes_only_settled_batches() {
     let mut fixture = Fixture::new().await;
     let turn = running(&mut fixture).await;

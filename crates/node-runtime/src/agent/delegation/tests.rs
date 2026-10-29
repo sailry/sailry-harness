@@ -253,3 +253,50 @@ async fn completes_handoff_after_caller_drop() {
     supervisor.shutdown(Duration::from_secs(5)).await.unwrap();
     fixture.store.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn ignores_previous_turn_child_requests() {
+    use goose_agent::subagent::SubagentRunner;
+    use goose_provider_types::conversation::message::Message as GdkMessage;
+    let fixture = Box::pin(Fixture::new()).await;
+    let supervisor = Supervisor::start(1);
+    let ingress = &fixture.store.ingress;
+    let turn = fixture.invocation.turn.id;
+    let children = Children::new(
+        ingress.clone(),
+        supervisor.tasks.clone(),
+        &fixture.invocation,
+    );
+    let mut session = ingress
+        .sessions(turn)
+        .get(SessionQuery {
+            session: fixture.invocation.turn.session,
+            recent: None,
+            after: None,
+        })
+        .await
+        .unwrap();
+    let mut result = rmcp::model::CallToolResult::structured(json!({"session_id":"child"}));
+    result.meta = Some(
+        serde_json::from_value(json!({"foreground_subagent":true,"subagent_session_id":"child"}))
+            .unwrap(),
+    );
+    let message = GdkMessage::user()
+        .with_generated_id()
+        .with_tool_response("call-child", Ok(result));
+    let mut record = Record::new(turn, Kind::Message(Message::default()));
+    record.id = message.id.clone().unwrap();
+    session.records.push(record);
+    assert_eq!(
+        children.requested_subagent_session_ids(&session, &message),
+        vec!["child"]
+    );
+    session.records.last_mut().unwrap().turn = TurnId::new();
+    assert!(
+        children
+            .requested_subagent_session_ids(&session, &message)
+            .is_empty()
+    );
+    supervisor.shutdown(Duration::from_secs(5)).await.unwrap();
+    fixture.store.shutdown().await.unwrap();
+}

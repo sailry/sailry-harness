@@ -64,7 +64,7 @@ pub(super) async fn append_with_context(
         database,
         session,
         turn,
-        Input::Record(Box::new(event)),
+        vec![Input::Record(Box::new(event))],
         context,
         events,
     )
@@ -72,7 +72,7 @@ pub(super) async fn append_with_context(
 }
 
 #[derive(Clone)]
-enum Input {
+pub(super) enum Input {
     Record(Box<Record>),
     Summary(Summary),
     Message(Message),
@@ -97,66 +97,35 @@ pub(super) struct Message {
     pub timeline: Option<Arc<crate::agent::observation::Timeline>>,
 }
 
-pub(super) async fn append_summary(
+pub(super) async fn append_batch(
     database: &mut Database,
     session: SessionId,
     turn: TurnId,
-    summary: Summary,
+    inputs: Vec<Input>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    write(
-        database,
-        session,
-        turn,
-        Input::Summary(summary),
-        None,
-        events,
-    )
-    .await
-}
-
-pub(super) async fn append_message(
-    database: &mut Database,
-    session: SessionId,
-    turn: TurnId,
-    message: Message,
-    events: &broadcast::Sender<EventEnvelope>,
-) -> Result<(), Fault> {
-    write(
-        database,
-        session,
-        turn,
-        Input::Message(message),
-        None,
-        events,
-    )
-    .await
+    if inputs.is_empty() {
+        return Ok(());
+    }
+    write(database, session, turn, inputs, None, events).await
 }
 
 async fn write(
     database: &mut Database,
     session: SessionId,
     turn: TurnId,
-    event: Input,
+    inputs: Vec<Input>,
     context: Option<(TurnId, Record)>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     let permit = database.write().await?;
     for attempt in 0..=crate::store::database::conflict::RETRIES {
-        let event = event.clone();
+        let inputs = inputs.clone();
         let context = context.clone();
         let write = async || -> Result<(), Fault> {
             let publication = database.publication.clone();
             let transaction = crate::store::database::conflict::begin(&database.connection).await?;
             let prepared: Result<_, Fault> = async {
-                if matches!(&event, Input::Record(record) if record.context().is_some_and(|context| context.captured))
-                    && runs::get(&transaction, turn).await?.status != Status::Running
-                {
-                    return Err(Fault::new(
-                        ErrorCode::Conflict,
-                        "context recipient is no longer running",
-                    ));
-                }
                 let context = if let Some((owner, event)) = context {
                     if runs::get(&transaction, owner).await?.status != Status::Running {
                         return Err(Fault::new(
@@ -168,169 +137,189 @@ async fn write(
                 } else {
                     None
                 };
-                let event = match event {
-                    Input::Record(record) => *record,
-                    Input::Summary(Summary {
-                        message, usage, boundary, start, end, files,
-                    }) => {
-                        let mut record = crate::agent::engine::history::capture(
-                            &transaction, turn, &message, &BTreeMap::new(),
-                        ).await?;
-                        capture_usage(&mut record, &usage)?;
-                        let records::Kind::Message(summary) = record.kind else {
-                            unreachable!()
-                        };
-                        record.kind = records::Kind::Compaction(records::Compaction {
-                            boundary, summary, start, end, files,
-                        });
-                        record.provenance.author = "system".into();
-                        record
-                    },
-                    Input::Message(Message {
-                        message, usage, calls, presentation, timeline,
-                    }) => {
-                        let mut record = crate::agent::engine::history::capture(
-                            &transaction, turn, &message, &calls,
-                        ).await?;
-                        if let Some(usage) = usage {
+                let mut batches = Vec::new();
+                for event in inputs {
+                    let turn = match &event {
+                        Input::Record(record) => record.turn,
+                        _ => turn,
+                    };
+                    if matches!(&event, Input::Record(record) if record.context().is_some_and(|context| context.captured))
+                        && runs::get(&transaction, turn).await?.status != Status::Running
+                    {
+                        return Err(Fault::new(
+                            ErrorCode::Conflict,
+                            "context recipient is no longer running",
+                        ));
+                    }
+                    let generated = !matches!(&event, Input::Record(_));
+                    let mut event = match event {
+                        Input::Record(record) => *record,
+                        Input::Summary(Summary {
+                            message, usage, boundary, start, end, files,
+                        }) => {
+                            let mut record = crate::agent::engine::history::capture(
+                                &transaction, turn, &message, &BTreeMap::new(),
+                            ).await?;
                             capture_usage(&mut record, &usage)?;
+                            let records::Kind::Message(summary) = record.kind else {
+                                unreachable!()
+                            };
+                            record.kind = records::Kind::Compaction(records::Compaction {
+                                boundary, summary, start, end, files,
+                            });
+                            record.provenance.author = "system".into();
+                            record
+                        },
+                        Input::Message(Message {
+                            message, usage, calls, presentation, timeline,
+                        }) => {
+                            let mut record = crate::agent::engine::history::capture(
+                                &transaction, turn, &message, &calls,
+                            ).await?;
+                            if let Some(usage) = usage {
+                                capture_usage(&mut record, &usage)?;
+                            }
+                            super::presentation::capture_failures(&mut record, timeline.as_deref());
+                            super::presentation::stamp(&mut record, &presentation);
+                            record
                         }
-                        super::presentation::capture_failures(&mut record, timeline.as_deref());
-                        super::presentation::stamp(&mut record, &presentation);
-                        record
+                    };
+                    if generated {
+                        capture_time(&transaction, session, &mut event).await?;
                     }
-                };
-                let previous_visibility = match &event.kind {
-                    Kind::Operation(records::Operation::Visibility { message, .. }) => {
-                        visibility(&transaction, session, message).await?
-                    }
-                    _ => None,
-                };
-                let Some(entry) = insert(&transaction, session, turn, event).await? else {
-                    return Ok(None);
-                };
-                let visible: bool = {
-                    let mut statement = transaction
-                        .prepare(&format!(
-                            "SELECT {VISIBLE_EVENT} FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE e.sequence=?1 AND h.session=?2"
-                        ))
-                        .await
-                        .map_err(storage_error)?;
-                    let row = statement
-                        .query_row(params![i64::try_from(entry.sequence).map_err(storage_error)?,session.to_string()])
-                        .await
-                        .map_err(storage_error)?;
-                    let mapped: turso::Result<_> = row.get(0);
-                    mapped.map_err(storage_error)?
-                };
-                let (revealed, reset) = if let Some((target, before)) = previous_visibility {
-                    let (_, after) = visibility(&transaction, session, &target.id).await?
-                        .ok_or_else(|| Fault::invalid("visibility target is missing"))?;
-                    if before == after {
-                        (None, false)
-                    } else if after {
-                        let mut query = transaction.prepare(&format!(
-                            "SELECT max(e.sequence) FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-                             WHERE h.session=?1 AND e.sequence!=?2 AND {VISIBLE_EVENT}"
-                        )).await.map_err(storage_error)?;
-                        let row=query.query_row(params![session.to_string(),target.sequence as i64]).await.map_err(storage_error)?;
-                        let latest:Option<i64>=row.get(0).map_err(storage_error)?;
-                        if latest.is_none_or(|sequence|sequence < target.sequence as i64) {
-                            (Some(target), false)
+                    let previous_visibility = match &event.kind {
+                        Kind::Operation(records::Operation::Visibility { message, .. }) => {
+                            visibility(&transaction, session, message).await?
+                        }
+                        _ => None,
+                    };
+                    let Some(entry) = insert(&transaction, session, turn, event).await? else {
+                        continue;
+                    };
+                    let visible: bool = {
+                        let mut statement = transaction
+                            .prepare(&format!(
+                                "SELECT {VISIBLE_EVENT} FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE e.sequence=?1 AND h.session=?2"
+                            ))
+                            .await
+                            .map_err(storage_error)?;
+                        let row = statement
+                            .query_row(params![i64::try_from(entry.sequence).map_err(storage_error)?,session.to_string()])
+                            .await
+                            .map_err(storage_error)?;
+                        let mapped: turso::Result<_> = row.get(0);
+                        mapped.map_err(storage_error)?
+                    };
+                    let (revealed, reset) = if let Some((target, before)) = previous_visibility {
+                        let (_, after) = visibility(&transaction, session, &target.id).await?
+                            .ok_or_else(|| Fault::invalid("visibility target is missing"))?;
+                        if before == after {
+                            (None, false)
+                        } else if after {
+                            let mut query = transaction.prepare(&format!(
+                                "SELECT max(e.sequence) FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+                                 WHERE h.session=?1 AND e.sequence!=?2 AND {VISIBLE_EVENT}"
+                            )).await.map_err(storage_error)?;
+                            let row=query.query_row(params![session.to_string(),target.sequence as i64]).await.map_err(storage_error)?;
+                            let latest:Option<i64>=row.get(0).map_err(storage_error)?;
+                            if latest.is_none_or(|sequence|sequence < target.sequence as i64) {
+                                (Some(target), false)
+                            } else {
+                                (None, true)
+                            }
                         } else {
                             (None, true)
                         }
                     } else {
-                        (None, true)
+                        (None, false)
+                    };
+                    let notice =
+                        super::super::notifications::system::compaction(&transaction, session, &entry)
+                            .await?;
+                    let background = super::background::list(&transaction, session).await?;
+                    let statistics = super::statistics::read(&transaction, session).await?;
+                    let parents = {
+                        let mut selected = Vec::new();
+                        for value in super::statistics::parents(&transaction, turn)
+                            .await?
+                            .into_iter()
+                        {
+                            selected.push(
+                                async {
+                                    let parent = value;
+                                    super::statistics::read(&transaction, parent)
+                                        .await
+                                        .map(|statistics| (parent, statistics))
+                                }
+                                .await?,
+                            );
+                        }
+                        Ok::<_, Fault>(selected)
+                    }?;
+                    let envelope = changed(&transaction, database.node, session).await?;
+                    let mut changes: Vec<_> = notice.into_iter().collect();
+                    if settled::completed(&transaction, turn, &entry).await? {
+                        changes.push(Event::ToolsCompleted { session });
                     }
-                } else {
-                    (None, false)
-                };
-                let notice =
-                    super::super::notifications::system::compaction(&transaction, session, &entry)
-                        .await?;
-                let background = super::background::list(&transaction, session).await?;
-                let statistics = super::statistics::read(&transaction, session).await?;
-                let parents = {
-                    let mut selected = Vec::new();
-                    for value in super::statistics::parents(&transaction, turn)
-                        .await?
-                        .into_iter()
-                    {
-                        selected.push(
-                            async {
-                                let parent = value;
-                                super::statistics::read(&transaction, parent)
-                                    .await
-                                    .map(|statistics| (parent, statistics))
-                            }
-                            .await?,
-                        );
-                    }
-                    Ok::<_, Fault>(selected)
-                }?;
-                let envelope = changed(&transaction, database.node, session).await?;
-                let mut changes: Vec<_> = notice.into_iter().collect();
-                if settled::completed(&transaction, turn, &entry).await? {
-                    changes.push(Event::ToolsCompleted { session });
+                    let notices =
+                        super::super::database::record(&transaction, database.node, changes).await?;
+                    batches.push((
+                        entry, visible, revealed, reset, background, statistics, parents, envelope, notices,
+                    ));
                 }
-                let notices =
-                    super::super::database::record(&transaction, database.node, changes).await?;
-                Ok(Some((
-                    entry, visible, revealed, reset, context, background, statistics, parents, envelope, notices,
-                )))
+                Ok((context, batches))
             }
             .await;
-            let Some((
+            let (context, batches) = prepared?;
+            let publication = publication.lock().await;
+            crate::store::database::conflict::commit(transaction).await?;
+            let mut context = context;
+            for (
                 entry,
                 visible,
                 revealed,
                 reset,
-                context,
                 background,
                 statistics,
                 parents,
                 envelope,
                 notices,
-            )) = prepared?
-            else {
-                return Ok(());
-            };
-            let publication = publication.lock().await;
-            crate::store::database::conflict::commit(transaction).await?;
-            publication.send(events, envelope);
-            for notice in notices {
-                publication.send(events, notice);
-            }
-            if let Some(context) = context {
-                database
-                    .feeds
-                    .publish(database.node, session, Change::Entry(context));
-            }
-            if visible {
-                database
-                    .feeds
-                    .publish(database.node, session, Change::Entry(entry));
-            }
-            if reset {
-                database.feeds.reset(session);
-            } else if let Some(entry) = revealed {
-                database
-                    .feeds
-                    .publish(database.node, session, Change::Entry(entry));
-            }
-            database.feeds.publish(
-                database.node,
-                session,
-                Change::Statistics(Box::new(statistics)),
-            );
-            super::background::publish(database, background).await;
-            for (parent, statistics) in parents {
+            ) in batches
+            {
+                publication.send(events, envelope);
+                for notice in notices {
+                    publication.send(events, notice);
+                }
+                if let Some(context) = context.take() {
+                    database
+                        .feeds
+                        .publish(database.node, session, Change::Entry(context));
+                }
+                if visible {
+                    database
+                        .feeds
+                        .publish(database.node, session, Change::Entry(entry));
+                }
+                if reset {
+                    database.feeds.reset(session);
+                } else if let Some(entry) = revealed {
+                    database
+                        .feeds
+                        .publish(database.node, session, Change::Entry(entry));
+                }
                 database.feeds.publish(
                     database.node,
-                    parent,
+                    session,
                     Change::Statistics(Box::new(statistics)),
                 );
+                super::background::publish(database, background).await;
+                for (parent, statistics) in parents {
+                    database.feeds.publish(
+                        database.node,
+                        parent,
+                        Change::Statistics(Box::new(statistics)),
+                    );
+                }
             }
             Ok(())
         };
@@ -356,6 +345,42 @@ fn capture_usage(
     message.model = Some(usage.model.clone());
     message.usage = Some(crate::agent::engine::history::provider_usage(usage)?);
     Ok(())
+}
+
+async fn capture_time(
+    db: &Connection,
+    session: SessionId,
+    record: &mut Record,
+) -> Result<(), Fault> {
+    let after = record
+        .metadata
+        .runtime
+        .as_ref()
+        .and_then(|runtime| runtime.after.as_deref());
+    let id = after.unwrap_or(&record.id);
+    let mut query = db
+        .prepare(
+            "SELECT json_extract(e.body,'$.created') FROM conversation_events h
+         JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.id=?2",
+        )
+        .await
+        .map_err(storage_error)?;
+    match query.query_row(params![session.to_string(), id]).await {
+        Ok(row) => {
+            // Retries keep the first receipt time; maintenance keeps its source time.
+            record.created = row
+                .get::<String>(0)
+                .map_err(storage_error)?
+                .parse()
+                .map_err(storage_error)?;
+            Ok(())
+        }
+        Err(turso::Error::QueryReturnedNoRows) if after.is_none() => Ok(()),
+        Err(turso::Error::QueryReturnedNoRows) => {
+            Err(Fault::invalid("tool summary source is missing"))
+        }
+        Err(error) => Err(storage_error(error)),
+    }
 }
 
 async fn visibility(
