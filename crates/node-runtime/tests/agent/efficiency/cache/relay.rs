@@ -25,6 +25,7 @@ pub(super) struct Request {
     pub completion: Option<&'static str>,
     pub output_limited: bool,
     pub provider_usage: Usage,
+    pub provider_model: Option<String>,
 }
 
 pub(super) struct Relay {
@@ -158,6 +159,7 @@ async fn forward(
             completion: None,
             output_limited: false,
             provider_usage: Usage::default(),
+            provider_model: None,
         });
         index
     };
@@ -228,6 +230,7 @@ fn completion(pending: &mut Vec<u8>, chunk: &[u8], request: &mut Request) {
             event["type"].as_str(),
             Some("response.completed" | "response.incomplete" | "response.failed")
         ) {
+            request.provider_model = event["response"]["model"].as_str().map(str::to_owned);
             let usage = &event["response"]["usage"];
             request.provider_usage = Usage {
                 input_tokens: usage["input_tokens"].as_u64(),
@@ -285,6 +288,7 @@ mod tests {
         assert!(!requests[0].transport_failed);
         assert_eq!(requests[0].completion, Some("completed"));
         assert!(!requests[0].output_limited);
+        assert_eq!(requests[0].provider_model.as_deref(), Some("fixture-a"));
         assert_eq!(server.requests.lock().unwrap().as_slice(), [body]);
         assert_eq!(
             server.authorization.lock().unwrap().as_slice(),

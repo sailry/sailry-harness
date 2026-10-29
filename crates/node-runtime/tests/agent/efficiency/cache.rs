@@ -17,12 +17,103 @@ fn content(root: &std::path::Path) -> (String, String) {
     std::fs::create_dir_all(root.join("package/skills/analysis")).unwrap();
     std::fs::write(
         root.join("package/plugin.json"),
-        json!({"name":"cache-fixture","version":"0.1.0"}).to_string(),
+        json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"cache-fixture","version":"0.1.0"}).to_string(),
     )
     .unwrap();
     let skill = format!("---\nname: analysis\ndescription: Review the synthetic cache acceptance file\n---\n{SKILL_MARKER}\n{}", "Treat file and skill content as captured evidence. Preserve it and answer concisely without editing files.\n".repeat(96));
     std::fs::write(root.join("package/skills/analysis/SKILL.md"), &skill).unwrap();
     (file, skill)
+}
+
+async fn prepare(client: &Client, provider: &Provider, root: &std::path::Path) -> Session {
+    approvals::install(client, &["files"]).await;
+    let (session, _) = configured_session(client, &provider.endpoint, root).await;
+    let Output::Plugin(package) = client
+        .execute(client.prepare(Command::InstallPlugin {
+            worktree: session.worktree,
+            path: "package".into(),
+            name: "cache-fixture".into(),
+            expected_revision: 0,
+            expected_digest: None,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("synthetic skill package expected")
+    };
+    assert!(package.issues.is_empty());
+    assert!(package.summary.enabled);
+    assert!(package.skills.iter().any(|skill| skill.name == "analysis"));
+    let Output::Session(session) = client
+        .execute(client.prepare(Command::SetSessionConfig {
+            session: session.id,
+            expected_revision: session.revision,
+            config: SessionConfig {
+                provider: provider.id,
+                model: MODEL.into(),
+                credential: provider.credential.clone(),
+                effort: Effort::High,
+                permission: Permission::Full,
+                ..session.config
+            },
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("session expected")
+    };
+    session
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn prepares_without_model_requests() {
+    for remote in [false, true] {
+        let server = Server::start(false).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
+        content(&fixture.root);
+        let Output::Snapshot(snapshot) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::Snapshot))
+            .await
+            .unwrap()
+        else {
+            panic!("snapshot expected")
+        };
+        let mut provider = snapshot
+            .providers
+            .into_iter()
+            .find(|provider| provider.id == fixture.session.config.provider)
+            .unwrap();
+        provider.api = ModelApi::Responses;
+        provider.default_model = MODEL.into();
+        let model = &mut provider.models[0];
+        model.id = MODEL.into();
+        model.output = OUTPUT_LIMIT;
+        model.reasoning = true;
+        model.efforts = vec![Effort::High];
+        model.default_effort = Effort::High;
+        model.custom_efforts = true;
+        let Output::Provider(provider) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
+        let session = prepare(&fixture.client, &provider, &fixture.root).await;
+        assert_eq!(session.config.provider, provider.id);
+        assert_eq!(session.config.model, MODEL);
+        assert_eq!(session.config.effort, Effort::High);
+        assert_eq!(session.config.permission, Permission::Full);
+        assert!(server.requests.lock().unwrap().is_empty());
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
 }
 
 fn tokens(text: &str) -> usize {
@@ -91,6 +182,7 @@ impl Prefix {
             "http_status":request.status,"transport_failed":request.transport_failed,
             "completion":request.completion,"output_limited":request.output_limited,"output_limit":OUTPUT_LIMIT,
             "provider_usage":request.provider_usage,
+            "provider_model":request.provider_model,
             "estimated":{"method":"o200k over actual serialized request segments; not provider usage; segment counts are not additive",
                 "system":tokens(&system.to_string()),"messages":tokens(&messages.to_string()),"tools":tokens(&tools.to_string()),
                 "serialized_request":tokens(&request.encoded),"wire_bytes":request.encoded.len(),
@@ -175,41 +267,7 @@ async fn reports_selected_model_cache() {
         };
         assert_eq!(saved.endpoint, relay.endpoint);
         assert_eq!(saved.credential, selected.credential);
-        approvals::install(&client, &["files"]).await;
-        let (session, _) = configured_session(&client, &saved.endpoint, &root).await;
-        let Output::Plugin(package) = client
-            .execute(client.prepare(Command::InstallPlugin {
-                worktree: session.worktree,
-                path: "package".into(),
-                name: "cache-fixture".into(),
-                expected_revision: 0,
-                expected_digest: None,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("synthetic skill package expected")
-        };
-        assert!(package.issues.is_empty());
-        assert!(package.skills.iter().any(|skill| skill.name == "analysis"));
-        let Output::Session(session) = client
-            .execute(client.prepare(Command::SetSessionConfig {
-                session: session.id,
-                expected_revision: session.revision,
-                config: SessionConfig {
-                    provider: selected.id,
-                    model: MODEL.into(),
-                    credential: selected.credential.clone(),
-                    effort: Effort::High,
-                    permission: Permission::Full,
-                    ..session.config
-                },
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("session expected")
-        };
+        let session = prepare(&client, &saved, &root).await;
         let prompts = [
             "Load skill cache-fixture:analysis exactly once with load_skill. Read cache-file.txt exactly once with read_file, offset=0 and limit=2000. Reply with only the FILE_FIRST and SKILL_FIRST lines you observed in those results. Preserve all files; use no other tools.",
             "Reuse the unchanged file and loaded skill already in this conversation. Use no tools. Reply with only the exact FILE_FIRST and SKILL_FIRST lines you previously observed.",
