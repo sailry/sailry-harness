@@ -196,14 +196,13 @@ impl Editor {
             window,
             cx,
         );
-        let directory = owner
-            .read(cx)
-            .provider_link
-            .as_ref()
-            .filter(|live| live.directory.loaded)
-            .map_or_else(super::presets::bundled, |live| {
-                live.directory.entries.clone()
-            });
+        let directory = super::presets::available(
+            owner
+                .read(cx)
+                .provider_link
+                .as_ref()
+                .map(|live| live.directory.entries.as_slice()),
+        );
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(tr("provider_search")));
         cx.observe(&search, |_, _, cx| cx.notify()).detach();
         let selected_ref = provider

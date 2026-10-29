@@ -24,6 +24,7 @@ impl Shell {
             return;
         }
         let shell = cx.entity().downgrade();
+        let entries = self.live.as_ref().map(|_| Vec::new());
         let client = self
             .live
             .as_ref()
@@ -33,7 +34,7 @@ impl Shell {
             let mut guide = Guide {
                 shell: shell.clone(),
                 scroll: ScrollHandle::new(),
-                entries: None,
+                entries,
                 task: None,
             };
             guide.load(client, cx);

@@ -104,19 +104,18 @@ impl Workspace {
             .iter()
             .map(|channel| selection(channel, providers.get(&channel.id)))
             .collect::<Vec<_>>();
-        let bundled = presets::bundled();
-        let entries = self
-            .provider_link
-            .as_ref()
-            .filter(|live| live.directory.loaded)
-            .map_or(bundled.as_slice(), |live| live.directory.entries.as_slice());
+        let entries = presets::available(
+            self.provider_link
+                .as_ref()
+                .map(|live| live.directory.entries.as_slice()),
+        );
         let known = self
             .providers
             .channels
             .iter()
             .filter_map(|channel| channel.directory.clone())
             .collect::<Vec<_>>();
-        let choices = choices(entries, &saved, &self.providers.category, &known);
+        let choices = choices(&entries, &saved, &self.providers.category, &known);
         let selected = choices
             .iter()
             .position(|choice| choice.selection == self.providers.category)

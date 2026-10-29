@@ -15,7 +15,6 @@ use sailry_protocol::{
 pub(super) struct State {
     pub plugins: Option<Vec<Summary>>,
     pub entries: Vec<Entry>,
-    pub loaded: bool,
     read: Option<Read>,
 }
 
@@ -75,7 +74,6 @@ impl Workspace {
                     live.directory.read = None;
                     if let Ok(Some(Ok(Output::ChannelPresets(listing)))) = result {
                         live.directory.entries = super::presets::presentation(listing.entries);
-                        live.directory.loaded = true;
                         apply(
                             &mut owner.providers.channels,
                             &live.providers,

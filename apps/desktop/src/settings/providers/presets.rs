@@ -38,6 +38,11 @@ pub(super) fn bundled() -> Vec<Entry> {
     )
 }
 
+/// An empty Node snapshot stays empty; only an unbound preview uses bundled entries.
+pub(super) fn available(entries: Option<&[Entry]>) -> Vec<Entry> {
+    entries.map_or_else(bundled, |entries| presentation(entries.to_vec()))
+}
+
 /// Resolve group presentation from the same directory snapshot as its methods.
 pub(super) fn presentation(mut entries: Vec<Entry>) -> Vec<Entry> {
     let displays = entries

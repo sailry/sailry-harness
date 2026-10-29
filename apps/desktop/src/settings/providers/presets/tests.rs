@@ -2,6 +2,28 @@ use super::*;
 use core::prelude::v1::test;
 
 #[test]
+fn bound_directory_never_uses_local_choices() {
+    let local = available(None);
+    assert!(!groups(&local).is_empty());
+    let mut received = Vec::new();
+    // A bound Node has no choices before its first directory response.
+    assert!(available(Some(&received)).is_empty());
+    let mut entry = local[0].clone();
+    entry.source = Source::Partner;
+    entry.preset.id = "node-only".into();
+    entry.preset.brand = None;
+    entry.preset.brand_display = None;
+    entry.preset.name = "Execution Node method".into();
+    entry.preset.routes.truncate(1);
+    entry.preset.routes[0].endpoint = "https://node.example/v1".into();
+    received.push(entry);
+    assert_eq!(available(Some(&received)), received);
+    // A successful empty response must not restore local choices either.
+    received.clear();
+    assert!(available(Some(&received)).is_empty());
+}
+
+#[test]
 fn preserves_builtin_icons_and_methods() {
     let entries = bundled();
     let groups = groups(&entries);
