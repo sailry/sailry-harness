@@ -171,8 +171,11 @@ async fn survives_without_projects() {
                     })
             );
             assert!(!instructions.contains("Write the requested file"));
+            let task = crate::agent_support::task_request(request);
             assert_eq!(
-                messages
+                task["messages"]
+                    .as_array()
+                    .unwrap()
                     .iter()
                     .filter(|message| message["role"] == "user")
                     .filter(

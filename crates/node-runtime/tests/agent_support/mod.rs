@@ -911,9 +911,17 @@ async fn respond(
             .iter()
             .any(|tool| tool["function"]["name"] == "spawn_agent")
     });
+    let delegated = body["messages"].as_array().is_some_and(|messages| {
+        messages
+            .iter()
+            .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
+            .filter_map(|message| message["content"].as_str())
+            .any(|text| text.contains("\nYou are a delegated child."))
+    });
     let discover = matches!(&reply, Reply::Parallel(_) | Reply::TurnParallel(_))
         && completed == 0
         && !spawn_available
+        && !delegated
         && body["tools"].as_array().is_some_and(|tools| {
             tools
                 .iter()
@@ -1113,13 +1121,16 @@ pub fn exposed(name: &str) -> &str {
 }
 
 fn offered<'a>(request: &Value, name: &'a str) -> &'a str {
-    if request["tools"].as_array().is_some_and(|tools| {
-        tools
-            .iter()
-            .any(|tool| tool["function"]["name"] == name || tool["name"] == name)
-    }) {
-        name
-    } else {
+    let declared = |name: &str| {
+        request["tools"].as_array().is_some_and(|tools| {
+            tools
+                .iter()
+                .any(|tool| tool["function"]["name"] == name || tool["name"] == name)
+        })
+    };
+    if !declared(name) && declared(exposed(name)) {
         exposed(name)
+    } else {
+        name
     }
 }

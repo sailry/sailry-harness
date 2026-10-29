@@ -59,7 +59,7 @@ async fn reads_bound_worktree() {
             ("worktrees", "remove_worktree"),
             ("worktrees", "list_worktrees"),
             ("git", "git_log"),
-            ("files", "read_office"),
+            ("git", "list_git_changes"),
         ]
         .into_iter()
         .map(|(package, name)| plugin_tool(package, name))
@@ -277,7 +277,7 @@ async fn reads_bound_worktree() {
             1
         );
         for name in [
-            "read_office",
+            "list_git_changes",
             "load_skill",
             "read_skill_resource",
             "set_session_title",
@@ -292,6 +292,11 @@ async fn reads_bound_worktree() {
                     .any(|tool| tool["function"]["name"] == name)
             );
         }
+        assert!(
+            discovered
+                .iter()
+                .all(|tool| tool["function"]["name"] != "read_office")
+        );
         assert!(
             catalog
                 .iter()
