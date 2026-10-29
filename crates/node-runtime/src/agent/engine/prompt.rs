@@ -18,6 +18,7 @@ mod owners;
 pub(super) struct Prompt {
     pub instruction: String,
 }
+
 #[async_trait]
 impl Operation<Session, Effect> for Prompt {
     fn name(&self) -> &'static str {
@@ -52,6 +53,9 @@ impl Operation<Session, Effect> for Prompt {
         Ok(parts)
     }
 }
+
+#[cfg(test)]
+pub(crate) mod input_evidence;
 
 pub(super) struct Preparer {
     pub ingress: Arc<Ingress>,

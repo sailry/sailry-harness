@@ -15,6 +15,8 @@ use sailry_protocol::{
 };
 use serde_json::json;
 
+mod input_evidence;
+
 fn capabilities() -> Capabilities {
     Capabilities {
         vision: true,
