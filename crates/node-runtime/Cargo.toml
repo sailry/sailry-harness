@@ -186,6 +186,7 @@ objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtili
 
 [dev-dependencies]
 proptest.workspace = true
+rmcp = { workspace = true, features = ["server"] }
 rusqlite = { workspace = true, features = ["hooks", "backup"] }
 tokio-tungstenite.workspace = true
 iroh-relay = { workspace = true, features = ["server", "test-utils"] }

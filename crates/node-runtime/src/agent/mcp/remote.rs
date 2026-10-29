@@ -84,7 +84,7 @@ impl Remote {
             .map_err(failed)?;
         let cancel = Cancel {
             peer: Some(handle.peer.clone()),
-            id: handle.id.clone(),
+            target: Target::Request(handle.id.clone()),
         };
         let result = handle.await_response().await;
         cancel.disarm();
@@ -104,6 +104,10 @@ impl Remote {
             return Err(invalid("MCP task identity is invalid"));
         }
         self.tasks.lock().await.insert(id.clone());
+        let cancel = Cancel {
+            peer: Some(self.service.peer().clone()),
+            target: Target::Task(id.clone()),
+        };
         if !self
             .service
             .peer_info()
@@ -129,6 +133,7 @@ impl Remote {
             interval = detailed.task.poll_interval_ms.unwrap_or(interval).max(1);
             if detailed.task.status.is_terminal() {
                 self.tasks.lock().await.remove(&id);
+                cancel.disarm();
                 return match detailed.payload {
                     TaskPayload::Completed { result } => {
                         serde_json::from_value(Value::Object(result)).map_err(failed)
@@ -299,8 +304,15 @@ fn finished(error: &rmcp::ServiceError) -> bool {
 
 struct Cancel {
     peer: Option<Peer<RoleClient>>,
-    id: rmcp::model::RequestId,
+    target: Target,
 }
+
+#[derive(Clone)]
+enum Target {
+    Request(rmcp::model::RequestId),
+    Task(String),
+}
+
 impl Cancel {
     fn disarm(mut self) {
         self.peer = None;
@@ -314,16 +326,29 @@ impl Drop for Cancel {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
         };
-        let notification = CancelledNotification::new(CancelledNotificationParam::new(
-            Some(self.id.clone()),
-            Some("the client stopped waiting for this tools/call".into()),
-        ));
+        let target = self.target.clone();
         runtime.spawn(async move {
-            let _ = tokio::time::timeout(
-                Duration::from_secs(2),
-                peer.send_notification(notification.into()),
-            )
+            let _ = tokio::time::timeout(Duration::from_secs(2), async move {
+                match target {
+                    Target::Request(id) => {
+                        let notification =
+                            CancelledNotification::new(CancelledNotificationParam::new(
+                                Some(id),
+                                Some("the client stopped waiting for this tools/call".into()),
+                            ));
+                        let _ = peer.send_notification(notification.into()).await;
+                    }
+                    Target::Task(id) => {
+                        // An acknowledgement does not prove termination; turn cleanup
+                        // retains the task identity until its terminal status is read.
+                        let _ = peer.cancel_task(CancelTaskParams::new(id)).await;
+                    }
+                }
+            })
             .await;
         });
     }
 }
+
+#[cfg(test)]
+mod tests;
