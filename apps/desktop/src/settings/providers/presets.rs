@@ -238,6 +238,15 @@ pub(super) fn kind(entry: &Entry, route: &Route) -> Kind {
             ("gemini", Protocol::Gemini) => return Kind::Gemini,
             _ => {}
         }
+        if let Some(vendor) = super::vendors::Vendor::FIRST_PARTY
+            .into_iter()
+            .find(|vendor| {
+                vendor.id() == entry.preset.id
+                    && Kind::Hosted(*vendor).api() == route.protocol.api()
+            })
+        {
+            return Kind::Hosted(vendor);
+        }
     }
     api_kind(route.protocol)
 }

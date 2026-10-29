@@ -56,6 +56,13 @@ impl Vendor {
         Self::Cohere,
     ];
 
+    /// Stable preset identity for the retained picker presentation.
+    pub fn id(self) -> &'static str {
+        self.key()
+            .strip_prefix("provider_")
+            .expect("vendor display keys include the preset ID")
+    }
+
     pub fn logo(self) -> &'static str {
         match self {
             Self::Xai => "xai",

@@ -99,6 +99,63 @@ fn routes_outweigh_brand_glyphs() {
 }
 
 #[test]
+fn preserves_existing_vendor_categories() {
+    use super::super::{data::Category, vendors::Vendor};
+    let entries = bundled();
+    // Existing picker categories from Sailry 3ae18182; route data remains declarative.
+    for vendor in Vendor::ALL {
+        let entry = entries
+            .iter()
+            .find(|entry| entry.preset.id == vendor.id())
+            .unwrap();
+        let expected = if Vendor::FIRST_PARTY.contains(&vendor) {
+            Category::Vendor(vendor)
+        } else {
+            Category::OpenAi
+        };
+        for route in &entry.preset.routes {
+            assert_eq!(kind(entry, route).category(), expected, "{}", vendor.id());
+            assert_eq!(kind(entry, route).api(), route.protocol.api());
+        }
+    }
+}
+
+#[test]
+fn known_identity_never_overrides_protocols() {
+    use super::super::vendors::Vendor;
+    let entries = bundled();
+    for vendor in Vendor::FIRST_PARTY {
+        let mut entry = entries
+            .iter()
+            .find(|entry| entry.preset.id == vendor.id())
+            .unwrap()
+            .clone();
+        entry.preset.logo = None;
+        let mut route = entry.preset.routes[0].clone();
+        for (protocol, expected) in [
+            (Protocol::OpenAiResponses, Kind::CompatibleResponses),
+            (Protocol::Anthropic, Kind::CompatibleAnthropic),
+            (Protocol::Gemini, Kind::CompatibleGemini),
+        ] {
+            route.protocol = protocol;
+            assert_eq!(kind(&entry, &route), expected, "{}", vendor.id());
+            assert_eq!(kind(&entry, &route).api(), route.protocol.api());
+        }
+        route.protocol = Protocol::OpenAiChatCompletions;
+        if vendor == Vendor::DeepSeek {
+            assert_eq!(kind(&entry, &route), Kind::CompatibleChat);
+            route.protocol = Protocol::DeepSeek;
+        }
+        assert_eq!(kind(&entry, &route), Kind::Hosted(vendor));
+        route.protocol = Protocol::OpenAiChatCompletions;
+        entry.source = Source::Package {
+            name: "fixture".into(),
+        };
+        assert_eq!(kind(&entry, &route), Kind::CompatibleChat);
+    }
+}
+
+#[test]
 fn native_identity_requires_matching_protocol() {
     let mut entry = bundled().remove(0);
     assert_eq!(entry.preset.id, "openai");
