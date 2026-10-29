@@ -67,9 +67,13 @@ fn synthetic() -> (Vec<canonical::Record>, Vec<Message>) {
                 if page == 0 && number == 1 { FILE_MARKER } else { "fixture body" })})
             })
             .collect();
+        let body = lines
+            .iter()
+            .map(|line| line["text"].as_str().unwrap())
+            .collect::<String>();
         let value = json!({"kind":"file_lines","data":{
-            "path":format!("src/fixture-{page}.rs"),"lines":lines,"size":24000,
-            "revision":"captured-file-revision","offset":0,"next_offset":null
+            "path":format!("src/fixture-{page}.rs"),"lines":lines,"size":body.len(),
+            "revision":blake3::hash(body.as_bytes()).to_hex().to_string(),"offset":0,"next_offset":null
         }});
         let id = format!("file-{page}");
         messages.push(
