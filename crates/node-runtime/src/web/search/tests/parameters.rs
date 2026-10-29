@@ -40,6 +40,20 @@ async fn maps_time_and_domain_filters() {
             let url = url::Url::parse(&format!("http://fixture{path}")).unwrap();
             let parameters = url.query_pairs().collect::<BTreeMap<_, _>>();
             match driver {
+                Driver::Tinyfish => {
+                    assert_eq!(
+                        parameters["include_domains"],
+                        input.include_domains.join(",")
+                    );
+                    assert_eq!(
+                        parameters["exclude_domains"],
+                        input.exclude_domains.join(",")
+                    );
+                    assert_eq!(
+                        parameters["recency_minutes"],
+                        [60, 1440, 10080, 44640, 525600][index].to_string()
+                    );
+                }
                 Driver::Exa => {
                     assert_eq!(body["includeDomains"], json!(input.include_domains));
                     assert_eq!(body["excludeDomains"], json!(input.exclude_domains));

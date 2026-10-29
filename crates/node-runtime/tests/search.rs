@@ -11,6 +11,8 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 mod filters;
 #[path = "support/search.rs"]
 mod server;
+#[path = "search/tinyfish.rs"]
+mod tinyfish;
 use server::{Reply, Server};
 
 async fn controller(node: &Node, path: &std::path::Path) -> (Link, Arc<dyn Transport>) {

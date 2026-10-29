@@ -141,6 +141,7 @@ impl Server {
             self.endpoint,
             match driver {
                 Driver::Exa => "exa",
+                Driver::Tinyfish => "tinyfish",
                 Driver::Tavily => "tavily",
                 Driver::Brave => "brave",
                 Driver::Searxng => "searxng",
@@ -182,7 +183,7 @@ impl Drop for Server {
 }
 
 pub fn mapping(path: &str) -> Value {
-    let common = json!({"title":"Public source","url":"https://example.com/source","text":"Untrusted content","content":"Untrusted content","description":"Untrusted content","snippet":"Untrusted content","name":"Public source","publishedDate":"2026-10-09","published_date":"2026-10-09","page_age":"2026-10-09","datePublished":"2026-10-09"});
+    let common = json!({"title":"Public source","url":"https://example.com/source","text":"Untrusted content","content":"Untrusted content","description":"Untrusted content","snippet":"Untrusted content","name":"Public source","publishedDate":"2026-10-09","published_date":"2026-10-09","page_age":"2026-10-09","datePublished":"2026-10-09","date":"2026-10-09"});
     match path {
         "/brave" => json!({"web":{"results":[common]}}),
         "/bocha" => json!({"code":200,"data":{"webPages":{"value":[common]}}}),

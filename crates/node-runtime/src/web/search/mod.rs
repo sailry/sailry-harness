@@ -20,6 +20,7 @@ mod searxng;
 mod tavily;
 #[cfg(test)]
 mod tests;
+mod tinyfish;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -141,6 +142,7 @@ impl Searcher {
                 Driver::Bocha => input.limit.min(50),
                 Driver::Exa => input.limit.min(100),
                 Driver::Searxng => input.limit,
+                Driver::Tinyfish => input.limit,
             };
             let input = &page_input;
             let attempt = if driver == Driver::Exa {
@@ -156,6 +158,7 @@ impl Searcher {
                             Driver::Brave => brave::search(&endpoint, &auth, input).await,
                             Driver::Searxng => searxng::search(&endpoint, &auth, input).await,
                             Driver::Bocha => bocha::search(&endpoint, &auth, input).await,
+                            Driver::Tinyfish => tinyfish::search(&endpoint, &auth, input).await,
                         }
                     }) => result.unwrap_or_else(|_| Err(Failure::unavailable("search service deadline exceeded"))),
                 }
@@ -175,7 +178,12 @@ impl Searcher {
                     });
                 }
                 Err(error) => {
-                    if let Some(deadline) = error.retry_at {
+                    let deadline = error.retry_at.or_else(|| {
+                        (driver == Driver::Tinyfish
+                            && error.fault.code == ErrorCode::PermissionDenied)
+                            .then(|| SystemTime::now() + Duration::from_secs(60))
+                    });
+                    if let Some(deadline) = deadline {
                         self.cool(driver, plan.settings.revision, deadline);
                     }
                     if !error.temporary || !plan.settings.fallback {
@@ -237,6 +245,7 @@ impl Searcher {
                 .and_then(|config| config.endpoint.clone())
                 .unwrap_or_default(),
             Driver::Bocha => "https://api.bochaai.com/v1/web-search".into(),
+            Driver::Tinyfish => "https://api.search.tinyfish.ai".into(),
         }
     }
 

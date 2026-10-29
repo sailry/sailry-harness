@@ -46,7 +46,11 @@ pub(super) async fn needed(connection: &Connection) -> Result<bool, Error> {
             return Ok(true);
         }
     }
-    Ok(crate::store::roles::needs_refresh(connection).await? || tools_pending(connection).await?)
+    Ok(crate::store::roles::needs_refresh(connection).await?
+        || tools_pending(connection).await?
+        || crate::store::search::pending_defaults(connection)
+            .await
+            .map_err(|error| Error::Worker(error.message))?)
 }
 
 pub(super) async fn apply(connection: &Connection) -> Result<(), Error> {
@@ -59,6 +63,9 @@ pub(super) async fn apply(connection: &Connection) -> Result<(), Error> {
         ).await?;
     }
     crate::store::roles::refresh(connection).await?;
+    crate::store::search::apply_defaults(connection)
+        .await
+        .map_err(|error| Error::Worker(error.message))?;
     if tools_pending(connection).await? {
         // Existing arrays may contain discoveries alone; union historical calls once.
         for (session, names) in crate::store::agent::history::missing_tools(connection)

@@ -3,6 +3,7 @@ use super::*;
 mod server;
 use server::{Reply, Server};
 mod parameters;
+mod tinyfish;
 
 impl Server {
     fn stall(&self, method: &str) {
@@ -63,7 +64,7 @@ async fn search(owner: &Arc<Searcher>, plan: Plan) -> Result<search::Page, Fault
 }
 
 #[tokio::test]
-async fn maps_five_driver_responses_and_requests() {
+async fn maps_provider_requests_and_results() {
     let server = Server::start().await;
     let owner = Arc::new(Searcher::default());
     for driver in Driver::ALL {
@@ -81,7 +82,10 @@ async fn maps_five_driver_responses_and_requests() {
     let requests = server.requests.lock().unwrap();
     for (header, body) in requests.iter() {
         let lower = header.to_ascii_lowercase();
-        if header.starts_with("GET /brave") {
+        if header.starts_with("GET /tinyfish") {
+            assert!(lower.contains("x-api-key: fixture-key"));
+            assert!(!lower.contains("authorization:"));
+        } else if header.starts_with("GET /brave") {
             assert!(lower.contains("x-subscription-token: fixture-key"));
             assert!(header.contains("count=5"));
         } else if header.starts_with("GET /searxng") {
@@ -509,7 +513,7 @@ async fn requests_each_provider_page_without_requerying() {
         assert!(page.fetch_hint.contains(&format!("up to {limit} results")));
     }
     let requests = server.requests.lock().unwrap();
-    assert_eq!(requests.len(), 5);
+    assert_eq!(requests.len(), Driver::ALL.len());
     for (header, body) in requests.iter() {
         if header.starts_with("GET /brave") {
             assert!(header.contains("count=20"));

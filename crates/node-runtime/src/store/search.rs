@@ -14,6 +14,9 @@ use sailry_protocol::{
 use std::collections::BTreeMap;
 use turso::Connection;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::store) struct Stored {
@@ -21,7 +24,7 @@ pub(in crate::store) struct Stored {
     credentials: BTreeMap<Driver, Auth>,
 }
 
-async fn load(db: &Connection) -> Result<Stored, Fault> {
+async fn stored(db: &Connection) -> Result<Stored, Fault> {
     let body: Option<Vec<u8>> = {
         let mut statement = db
             .prepare("SELECT body FROM search_settings WHERE singleton=1")
@@ -36,12 +39,49 @@ async fn load(db: &Connection) -> Result<Stored, Fault> {
             Err(error) => return Err(storage_error(error)),
         }
     };
-    let stored = body
+    Ok(body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?
-        .unwrap_or_default();
+        .unwrap_or_default())
+}
+
+async fn load(db: &Connection) -> Result<Stored, Fault> {
+    let stored = stored(db).await?;
     validate(&stored)?;
     Ok(stored)
+}
+
+pub(in crate::store) async fn pending_defaults(db: &Connection) -> Result<bool, Fault> {
+    let exists = db
+        .prepare("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='search_settings')")
+        .await.map_err(storage_error)?
+        .query_row(()).await.map_err(storage_error)?
+        .get::<bool>(0).map_err(storage_error)?;
+    if !exists {
+        return Ok(false);
+    }
+    let stored = stored(db).await?;
+    Ok(Driver::ALL
+        .iter()
+        .any(|driver| !stored.settings.providers.contains_key(driver)))
+}
+
+pub(in crate::store) async fn apply_defaults(db: &Connection) -> Result<(), Fault> {
+    if !pending_defaults(db).await? {
+        return Ok(());
+    }
+    let mut stored = stored(db).await?;
+    for (driver, config) in search::Settings::default().providers {
+        stored.settings.providers.entry(driver).or_insert(config);
+    }
+    validate(&stored)?;
+    db.execute(
+        "UPDATE search_settings SET body=?1 WHERE singleton=1",
+        [encode(&stored)?],
+    )
+    .await
+    .map_err(storage_error)?;
+    Ok(())
 }
 
 pub(super) async fn read(db: &Connection) -> Result<search::Settings, Fault> {

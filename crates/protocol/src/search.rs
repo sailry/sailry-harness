@@ -11,6 +11,7 @@ pub const MAX_DOMAINS: usize = 20;
 #[serde(rename_all = "snake_case")]
 pub enum Driver {
     Exa,
+    Tinyfish,
     Tavily,
     Brave,
     Searxng,
@@ -18,8 +19,9 @@ pub enum Driver {
 }
 
 impl Driver {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Exa,
+        Self::Tinyfish,
         Self::Tavily,
         Self::Brave,
         Self::Searxng,
@@ -27,7 +29,10 @@ impl Driver {
     ];
 
     pub fn key_required(self) -> bool {
-        matches!(self, Self::Tavily | Self::Brave | Self::Bocha)
+        matches!(
+            self,
+            Self::Tinyfish | Self::Tavily | Self::Brave | Self::Bocha
+        )
     }
 }
 
