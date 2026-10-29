@@ -70,7 +70,7 @@ impl Relay {
             connections.shutdown().await;
         });
         Self {
-            endpoint: local.into(),
+            endpoint: local.as_str().trim_end_matches('/').into(),
             requests,
             stop,
         }

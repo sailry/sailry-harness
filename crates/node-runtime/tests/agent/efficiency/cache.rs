@@ -176,7 +176,7 @@ async fn reports_selected_model_cache() {
         assert_eq!(saved.endpoint, relay.endpoint);
         assert_eq!(saved.credential, selected.credential);
         approvals::install(&client, &["files"]).await;
-        let (session, _) = configured_session(&client, &relay.endpoint, &root).await;
+        let (session, _) = configured_session(&client, &saved.endpoint, &root).await;
         let Output::Plugin(package) = client
             .execute(client.prepare(Command::InstallPlugin {
                 worktree: session.worktree,
