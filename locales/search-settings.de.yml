@@ -1,7 +1,6 @@
 settings_search: "Suche"
 settings_search_description: "Suchdienste auf dem ausgewählten Host"
 search_settings: "Suche"
-search_prefer_native: "Modellsuche bevorzugen"
 search_default_driver: "Standarddienst"
 search_fallback: "Ausweichdienste verwenden"
 search_providers: "Dienste"

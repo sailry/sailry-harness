@@ -14,7 +14,6 @@ pub mod http;
 pub mod mcp;
 pub mod model_adapter;
 pub mod model_auth;
-pub mod model_tools;
 pub mod models;
 pub mod modes;
 pub mod schema;
@@ -158,9 +157,6 @@ pub struct Extension {
     /// Output presentation for tools provided by this package.
     #[serde(default)]
     pub tools: Vec<crate::tool::Declaration>,
-    /// Provider-executed capabilities; these are not local function handlers.
-    #[serde(default)]
-    pub model_tools: Vec<model_tools::Declaration>,
     /// Channel declarations supplied by this package.
     #[serde(default)]
     pub model_providers: Vec<crate::conversation::presets::Preset>,

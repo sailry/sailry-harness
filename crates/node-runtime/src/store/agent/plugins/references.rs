@@ -64,9 +64,10 @@ pub(in crate::store) async fn capture(db: &Connection) -> Result<Vec<plugin::Ref
         // a session must not capture unrelated pages or callback packages.
         if info.skills.is_empty()
             && info.mcp.is_empty()
-            && info.extension.as_ref().is_none_or(|extension| {
-                extension.tools.is_empty() && extension.model_tools.is_empty()
-            })
+            && info
+                .extension
+                .as_ref()
+                .is_none_or(|extension| extension.tools.is_empty())
         {
             continue;
         }

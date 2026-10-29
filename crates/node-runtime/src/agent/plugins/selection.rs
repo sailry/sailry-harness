@@ -44,13 +44,6 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         let Some(extension) = &package.extension else {
             return false;
         };
-        if extension
-            .model_tools
-            .iter()
-            .any(|tool| model_tools::names(tool.capability).contains(&entry.tool.name.as_ref()))
-        {
-            return true;
-        }
         extension.tools.iter().any(|tool| {
             operations::alias(&package.summary.name, &tool.name) == entry.tool.name.as_ref()
                 && standard(tool)
@@ -89,14 +82,9 @@ fn initial(invocation: &Invocation, selected: Option<&str>, entry: &ToolRegistra
         .find(|package| package.summary.name == owner)
         .and_then(|package| package.extension.as_ref())
         .is_some_and(|extension| {
-            extension
-                .model_tools
-                .iter()
-                .any(|tool| model_tools::names(tool.capability).contains(&entry.tool.name.as_ref()))
-                || extension.tools.iter().any(|tool| {
-                    operations::alias(owner, &tool.name) == entry.tool.name.as_ref()
-                        && standard(tool)
-                })
+            extension.tools.iter().any(|tool| {
+                operations::alias(owner, &tool.name) == entry.tool.name.as_ref() && standard(tool)
+            })
         })
 }
 
@@ -118,9 +106,6 @@ fn matches(invocation: &Invocation, selection: &Selection, entry: &ToolRegistrat
                             })
                         })
                 })
-        }
-        Selection::Model { capability } => {
-            model_tools::names(*capability).contains(&entry.tool.name.as_ref())
         }
         Selection::Plugin { .. } => false,
     }

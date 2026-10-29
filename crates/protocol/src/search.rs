@@ -51,7 +51,6 @@ pub struct Config {
 pub struct Settings {
     pub revision: u64,
     pub driver: Option<Selection>,
-    pub prefer_native: bool,
     pub fallback: bool,
     pub providers: BTreeMap<Driver, Config>,
 }
@@ -61,7 +60,6 @@ impl Default for Settings {
         Self {
             revision: 0,
             driver: Some(Selection::Auto),
-            prefer_native: true,
             fallback: true,
             providers: Driver::ALL
                 .into_iter()
@@ -150,7 +148,7 @@ mod tests {
     fn defaults_select_auto_and_bound_results() {
         let settings = Settings::default();
         assert_eq!(settings.driver, Some(Selection::Auto));
-        assert!(settings.prefer_native && settings.fallback);
+        assert!(settings.fallback);
         assert!(settings.providers[&Driver::Exa].enabled);
         assert!(
             settings

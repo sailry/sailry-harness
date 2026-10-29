@@ -460,7 +460,6 @@ async fn removed_default(name: &str, enabled: bool) {
             assert_eq!(extension.enabled_service, Some(plugin::Service::CodeIndex));
             assert!(installed.skills.is_empty());
             assert!(installed.mcp.is_empty());
-            assert!(extension.model_tools.is_empty());
             assert_eq!(
                 extension.actions,
                 [plugin::Action::ReadCodeIndex, plugin::Action::ReadFiles]
@@ -525,11 +524,6 @@ async fn removed_default(name: &str, enabled: bool) {
         } else if name == "web-search" {
             use sailry_protocol::tool::Operation;
             let extension = installed.extension.as_ref().unwrap();
-            assert_eq!(extension.model_tools.len(), 1);
-            assert_eq!(
-                extension.model_tools[0].capability,
-                plugin::model_tools::Capability::WebSearch
-            );
             assert_eq!(extension.actions, [plugin::Action::ReadWeb]);
             assert_eq!(
                 extension
@@ -561,12 +555,9 @@ async fn removed_default(name: &str, enabled: bool) {
                         _ => false,
                     })
             );
-        } else if installed.skills.is_empty() && installed.mcp.is_empty() {
-            assert_eq!(installed.extension.as_ref().unwrap().model_tools.len(), 1);
         } else {
             assert!(!installed.skills.is_empty());
             let extension = installed.extension.as_ref().unwrap();
-            assert!(extension.model_tools.is_empty());
             assert!(extension.tools.iter().all(|tool| {
                 tool.handler.is_none()
                     && tool.server.as_ref().is_some_and(|server| {

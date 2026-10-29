@@ -152,7 +152,7 @@ async fn preserves_private_credentials_and_revisions() {
         projection.apply(0, initial).unwrap();
         let mut changed = expected.clone();
         changed.driver = Some(Selection::Auto);
-        changed.prefer_native = !changed.prefer_native;
+        changed.fallback = !changed.fallback;
         changed.providers.get_mut(&Driver::Tavily).unwrap().enabled = true;
         changed
             .providers

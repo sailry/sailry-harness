@@ -1,7 +1,6 @@
 settings_search: "搜索"
 settings_search_description: "当前主机的搜索服务"
 search_settings: "搜索"
-search_prefer_native: "优先使用模型搜索"
 search_default_driver: "默认服务"
 search_fallback: "使用备用服务"
 search_providers: "服务"

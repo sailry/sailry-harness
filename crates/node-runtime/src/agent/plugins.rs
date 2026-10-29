@@ -6,7 +6,6 @@ pub(super) use failures::public as public_failure;
 use std::{collections::BTreeSet, sync::atomic::AtomicBool};
 mod assistants;
 mod management;
-mod model_tools;
 mod operations;
 mod scripts;
 mod search;

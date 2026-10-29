@@ -25,9 +25,6 @@ pub enum Resource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Tool {
-    Model {
-        capability: super::model_tools::Capability,
-    },
     Builtin {
         name: String,
     },
@@ -89,7 +86,6 @@ impl Tool {
             !value.trim().is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
         }
         match self {
-            Self::Model { .. } => true,
             Self::Builtin { name: value } => name(value),
             Self::Plugin {
                 name: value,

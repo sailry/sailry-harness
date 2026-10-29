@@ -1,7 +1,6 @@
 settings_search: "搜尋"
 settings_search_description: "目前主機的搜尋服務"
 search_settings: "搜尋"
-search_prefer_native: "優先使用模型搜尋"
 search_default_driver: "預設服務"
 search_fallback: "使用備用服務"
 search_providers: "服務"

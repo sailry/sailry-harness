@@ -29,13 +29,12 @@ async fn setup(remote: bool, api: ModelApi, endpoint: &str, allow_search: bool) 
             "extensions":{"dev.sailry.platform":{
                 "api_version":"v1", "scope":"host",
                 "actions":["conversation.read", "conversation.control"],
-                "model_tools":[{"capability":"web_search", "display":{"label":"Assistant search"}}],
                 "desktop":{
                     "entry":"dev.sailry.platform/main.js", "resources":["dev.sailry.platform/main.js"],
                     "conversations":[{
                         "id":"search", "resource":"workspace", "context":"Find sources",
                         "tools": if allow_search { json!([
-                            {"kind":"model", "capability":"web_search"}
+                            {"kind":"package", "package":"web-search", "name":"web_search"}
                         ]) } else { json!([]) }
                     }]
                 }

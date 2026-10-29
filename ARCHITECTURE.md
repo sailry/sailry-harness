@@ -669,9 +669,9 @@ answers remain rejected, and each redirect is rechecked. Proxy failures do not
 fall back to direct access. Other HTTP clients retain their existing proxy
 configuration. Reads retain bounded paged snapshots and supply untrusted content
 without browser authentication. Search settings
-and credentials belong to that Node. A turn uses provider-native search when
-available and preferred, otherwise one configured search tool; transient
-failures can try each configured driver once and respect rate-limit cooldowns.
+and credentials belong to that Node. A turn uses the configured Node search tool;
+transient failures can try each configured driver once and respect rate-limit
+cooldowns.
 Search keys and manually supplied GitHub credentials are stored as plaintext in
 the Node configuration database. Connecting an existing `gh` login stores its
 account identity, then reads the current token transiently for MCP requests;

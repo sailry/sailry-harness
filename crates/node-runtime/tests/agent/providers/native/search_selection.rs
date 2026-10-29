@@ -2,7 +2,7 @@ use super::*;
 use sailry_protocol::search::{Selection, Update};
 
 #[tokio::test]
-async fn selects_fallback_tool() {
+async fn selects_configured_tool() {
     for remote in [false, true] {
         let server = crate::agent_support::Server::start(false).await;
         let mut fixture = Fixture::packages(
@@ -12,13 +12,13 @@ async fn selects_fallback_tool() {
             &["web-search"],
         )
         .await;
-        for (metadata, summary, prefer_native, enabled, native, fallback) in [
-            (Some(true), false, true, true, false, true),
-            (Some(false), true, true, true, false, true),
-            (None, false, true, true, false, true),
-            (Some(true), true, false, true, false, true),
-            (Some(false), false, true, false, false, false),
-            (Some(true), false, true, false, false, false),
+        for (metadata, summary, enabled) in [
+            (Some(true), false, true),
+            (Some(false), true, true),
+            (None, false, true),
+            (Some(true), true, true),
+            (Some(false), false, false),
+            (Some(true), false, false),
         ] {
             fixture.provider.models[0].web_search = summary;
             fixture.provider.models[0]
@@ -42,7 +42,6 @@ async fn selects_fallback_tool() {
             else {
                 panic!("search settings expected");
             };
-            settings.prefer_native = prefer_native;
             if !enabled {
                 settings.driver = None;
             } else {
@@ -73,7 +72,7 @@ async fn selects_fallback_tool() {
                     .iter()
                     .filter(|tool| tool["type"] == "web_search")
                     .count(),
-                usize::from(native)
+                0
             );
             assert_eq!(
                 tools
@@ -81,10 +80,10 @@ async fn selects_fallback_tool() {
                     .filter(|tool| tool["type"] == "function"
                         && tool["name"] == plugin_tool("web-search", "web_search"))
                     .count(),
-                usize::from(fallback)
+                usize::from(enabled)
             );
             assert_eq!(
-                usize::from(native) + usize::from(fallback),
+                usize::from(enabled),
                 tools
                     .iter()
                     .filter(|tool| {

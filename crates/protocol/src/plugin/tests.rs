@@ -81,7 +81,6 @@ mod extension {
             serde_json::from_value(json!({"api_version": API_VERSION})).unwrap();
         assert!(extension.actions.is_empty());
         assert!(extension.tools.is_empty());
-        assert!(extension.model_tools.is_empty());
         assert!(extension.ui.is_empty());
         assert!(extension.host.is_none());
         assert!(extension.desktop.is_none());

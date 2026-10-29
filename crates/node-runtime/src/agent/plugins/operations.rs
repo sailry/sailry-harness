@@ -147,9 +147,7 @@ pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: O
         Operation::WriteArtifact => invocation.child.is_none(),
         operation if !operation.current() => false,
         operation if code::handles(operation) => ingress.code_index.enabled(),
-        Operation::SearchWeb => {
-            ingress.search.available() && !super::model_tools::preferred(ingress, invocation)
-        }
+        Operation::SearchWeb => ingress.search.available(),
         Operation::DelegateAgent | Operation::GuideAgent | Operation::WaitAgent => {
             invocation.child.is_none() && invocation.connections.bound.is_none()
         }

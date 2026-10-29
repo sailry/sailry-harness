@@ -529,12 +529,6 @@
       },
       "type": "object"
     },
-    "Capability": {
-      "enum": [
-        "web_search"
-      ],
-      "type": "string"
-    },
     "CardBrowserMode": {
       "enum": [
         "embedded",
@@ -1360,22 +1354,6 @@
     "Declaration4": {
       "additionalProperties": false,
       "properties": {
-        "capability": {
-          "$ref": "#/$defs/Capability"
-        },
-        "display": {
-          "$ref": "#/$defs/Navigation"
-        }
-      },
-      "required": [
-        "capability",
-        "display"
-      ],
-      "type": "object"
-    },
-    "Declaration5": {
-      "additionalProperties": false,
-      "properties": {
         "authentication": {
           "anyOf": [
             {
@@ -1474,7 +1452,7 @@
       ],
       "type": "object"
     },
-    "Declaration6": {
+    "Declaration5": {
       "additionalProperties": false,
       "properties": {
         "capabilities": {
@@ -3657,23 +3635,6 @@
         {
           "additionalProperties": false,
           "properties": {
-            "capability": {
-              "$ref": "#/$defs/Capability"
-            },
-            "kind": {
-              "const": "model",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind",
-            "capability"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
             "kind": {
               "const": "builtin",
               "type": "string"
@@ -3971,14 +3932,14 @@
     "model_adapters": {
       "default": [],
       "items": {
-        "$ref": "#/$defs/Declaration6"
+        "$ref": "#/$defs/Declaration5"
       },
       "type": "array"
     },
     "model_auth": {
       "default": [],
       "items": {
-        "$ref": "#/$defs/Declaration5"
+        "$ref": "#/$defs/Declaration4"
       },
       "type": "array"
     },
@@ -3994,14 +3955,6 @@
       "description": "Named read-only resources for native provider accounts.",
       "items": {
         "$ref": "#/$defs/Resource2"
-      },
-      "type": "array"
-    },
-    "model_tools": {
-      "default": [],
-      "description": "Provider-executed capabilities; these are not local function handlers.",
-      "items": {
-        "$ref": "#/$defs/Declaration4"
       },
       "type": "array"
     },

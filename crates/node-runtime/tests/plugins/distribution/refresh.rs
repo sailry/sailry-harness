@@ -399,7 +399,6 @@ async fn settings(client: &Client) -> (code_index::Settings, search::Settings) {
     else {
         panic!("search settings expected");
     };
-    search.prefer_native = false;
     search.fallback = false;
     search.driver = Some(search::Selection::Driver(search::Driver::Brave));
     search

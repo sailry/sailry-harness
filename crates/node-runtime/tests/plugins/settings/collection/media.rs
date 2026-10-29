@@ -76,7 +76,6 @@ async fn retains_frozen_fallbacks_after_updates() {
         assert!(installed.mcp.is_empty());
         let extension = installed.extension.as_ref().unwrap();
         assert!(extension.tools.is_empty());
-        assert!(extension.model_tools.is_empty());
         let first = save(
             &client,
             &installed.summary.reference(),

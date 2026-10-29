@@ -1,7 +1,6 @@
 settings_search: "Search"
 settings_search_description: "Search services on the selected host"
 search_settings: "Search"
-search_prefer_native: "Prefer model search"
 search_default_driver: "Default service"
 search_fallback: "Use fallback services"
 search_providers: "Services"

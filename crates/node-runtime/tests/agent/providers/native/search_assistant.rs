@@ -33,11 +33,10 @@ async fn setup(remote: bool, endpoint: &str) -> Fixture {
         "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":OWNER,"version":"0.1.0",
         "extensions":{"dev.sailry.platform":{
             "api_version":"v1","scope":"host","actions":["conversation.read","conversation.control","web.read"],
-            "model_tools":[{"capability":"web_search","display":{"label":"Assistant search"}}],
             "tools":[{"name":TOOL,"operation":"web.search"},{"name":"hidden_fetch","operation":"web.fetch"}],
             "desktop":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],
                 "conversations":[{"id":"search","resource":"workspace","context":"Find sources",
-                    "tools":[{"kind":"model","capability":"web_search"}]}]}
+                    "tools":[{"kind":"plugin","name":TOOL}]}]}
         }}
     }).to_string()).unwrap();
     let Output::Plugin(info) = execute(
@@ -77,7 +76,7 @@ async fn setup(remote: bool, endpoint: &str) -> Fixture {
 }
 
 #[tokio::test]
-async fn executes_declared_fallback() {
+async fn executes_selected_search() {
     for remote in [false, true] {
         let name = plugin_tool(OWNER, TOOL);
         let model =
@@ -125,7 +124,7 @@ async fn executes_declared_fallback() {
             .await
             .into_iter()
             .find_map(|(tool, detail)| (tool == name).then_some(detail.result.unwrap()))
-            .expect("fallback result expected");
+            .expect("search result expected");
         assert_eq!(output["driver"], "exa", "{output}");
         assert_eq!(output["untrusted"], true);
         assert_eq!(output["results"][0]["url"], "https://example.com/source");

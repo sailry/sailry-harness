@@ -1,7 +1,6 @@
 settings_search: "Búsqueda"
 settings_search_description: "Servicios de búsqueda del equipo seleccionado"
 search_settings: "Búsqueda"
-search_prefer_native: "Preferir búsqueda del modelo"
 search_default_driver: "Servicio predeterminado"
 search_fallback: "Usar servicios alternativos"
 search_providers: "Servicios"

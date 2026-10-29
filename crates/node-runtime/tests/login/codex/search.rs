@@ -23,7 +23,6 @@ async fn offers_fallback_with_saved_choices() {
             settings.driver = Some(sailry_protocol::search::Selection::Driver(
                 sailry_protocol::search::Driver::Exa,
             ));
-            settings.prefer_native = true;
             fixture
                 .client
                 .execute(fixture.client.prepare(Command::SaveSearchSettings(

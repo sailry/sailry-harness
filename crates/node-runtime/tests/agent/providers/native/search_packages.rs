@@ -40,8 +40,6 @@ fn source(fixture: &Fixture, name: &str, label: &str) {
     .unwrap();
     manifest["name"] = serde_json::json!(name);
     manifest["version"] = serde_json::json!("0.2.0");
-    manifest["extensions"]["dev.sailry.platform"]["model_tools"][0]["display"]["label"] =
-        serde_json::json!(label);
     let tool = manifest["extensions"]["dev.sailry.platform"]["tools"]
         .as_array_mut()
         .unwrap()

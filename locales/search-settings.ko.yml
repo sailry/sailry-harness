@@ -1,7 +1,6 @@
 settings_search: "검색"
 settings_search_description: "선택한 호스트의 검색 서비스"
 search_settings: "검색"
-search_prefer_native: "모델 검색 우선"
 search_default_driver: "기본 서비스"
 search_fallback: "대체 서비스 사용"
 search_providers: "서비스"

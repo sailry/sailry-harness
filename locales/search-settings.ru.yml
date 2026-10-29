@@ -1,7 +1,6 @@
 settings_search: "Поиск"
 settings_search_description: "Сервисы поиска на выбранном хосте"
 search_settings: "Поиск"
-search_prefer_native: "Предпочитать поиск модели"
 search_default_driver: "Сервис по умолчанию"
 search_fallback: "Использовать резервные сервисы"
 search_providers: "Сервисы"

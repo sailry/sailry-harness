@@ -1,7 +1,6 @@
 settings_search: "検索"
 settings_search_description: "選択したホストの検索サービス"
 search_settings: "検索"
-search_prefer_native: "モデルの検索を優先"
 search_default_driver: "既定のサービス"
 search_fallback: "代替サービスを使用"
 search_providers: "サービス"

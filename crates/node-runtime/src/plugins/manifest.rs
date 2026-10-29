@@ -124,7 +124,6 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             })
                             && super::options::schema(&parsed).is_ok()
                             && super::modes::valid(&parsed)
-                            && sailry_protocol::plugin::model_tools::valid(&parsed.model_tools)
                             && parsed.host.as_ref().is_none_or(|host| host.valid())
                             && sailry_protocol::permissions::valid(&parsed)
                             && parsed.artifact_view.as_ref().is_none_or(|view| view.valid() && parsed.actions.contains(&sailry_protocol::plugin::Action::ReadArtifacts) && parsed.actions.contains(&sailry_protocol::plugin::Action::WriteArtifacts))
