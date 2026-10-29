@@ -206,9 +206,9 @@ fn keeps_context_after_tool_pairs() {
                 ),
                 Message::user().with_tool_response(
                     "pair-call",
-                    Ok(CallToolResult::success(vec![rmcp::model::Content::text(
-                        "PAIR_RESULT_MARKER",
-                    )])),
+                    Ok(CallToolResult::success(vec![
+                        rmcp::model::ContentBlock::text("PAIR_RESULT_MARKER"),
+                    ])),
                 ),
             ]);
         }

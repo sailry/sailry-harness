@@ -69,7 +69,7 @@ async fn restores_selection(name: &str, arguments: Value) {
             &second["messages"].as_array().unwrap()[..prefix.len() - 1],
             &prefix[..prefix.len() - 1]
         );
-        let context = turn_context(first).expect("initial request context expected");
+        let context = turn_context(first);
         assert_eq!(
             message_text(&prefix.last().unwrap()["content"])
                 .strip_suffix(context)
@@ -77,7 +77,7 @@ async fn restores_selection(name: &str, arguments: Value) {
                 .trim_end_matches('\n'),
             message_text(&second["messages"][prefix.len() - 1]["content"])
         );
-        assert!(turn_context(second).is_some());
+        assert!(!turn_context(second).is_empty());
 
         let node = fixture.node.id();
         fixture.node.shutdown().await.unwrap();

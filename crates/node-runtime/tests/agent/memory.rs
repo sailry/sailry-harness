@@ -431,7 +431,7 @@ async fn applies_tool_settings() {
                         assert!(tools.iter().all(|tool| tool["function"]["name"] != name
                             && tool["function"]["name"] != plugin_tool("memory", name)));
                     }
-                    let context = turn_context(request).expect("request context expected");
+                    let context = turn_context(request);
                     assert_eq!(
                         context.matches(&id.to_string()).count(),
                         usize::from(enabled)

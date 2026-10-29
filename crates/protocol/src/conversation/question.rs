@@ -91,7 +91,7 @@ pub enum State {
 }
 
 /// The prompt and input specification remain in the canonical history entry.
-/// An accepted answer does not imply that ADK consumed it before interruption.
+/// An accepted answer does not imply that the Agent consumed it before interruption.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Question {
     pub id: QuestionId,

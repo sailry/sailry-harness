@@ -39,7 +39,7 @@ fn row(number: usize, line: impl Into<String>) -> SearchMatch {
         path: "src/文件🙂.rs".into(),
         line_number: number,
         line: line.into(),
-        matched: number % 2 == 0,
+        matched: number.is_multiple_of(2),
         truncated: false,
     }
 }
