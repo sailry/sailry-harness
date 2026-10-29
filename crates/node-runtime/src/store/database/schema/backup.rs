@@ -108,6 +108,18 @@ pub(in crate::store) fn save(path: &Path) -> Result<PathBuf, Error> {
     Ok(target.join(path.file_name().ok_or_else(unavailable)?))
 }
 
+/// Remove only a closed Node database family after its complete backup is saved.
+pub(in crate::store) fn clear(path: &Path) -> Result<(), Error> {
+    for file in crate::profile::database_files(path) {
+        match std::fs::remove_file(file) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
 fn unavailable() -> Error {
     Error::Worker("database snapshot requires private regular files".into())
 }

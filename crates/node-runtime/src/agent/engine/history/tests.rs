@@ -64,7 +64,14 @@ async fn preserves_call_metadata() {
     let BlockKind::ToolRequest(call) = &stored.message().unwrap().content[0].kind else {
         unreachable!()
     };
-    assert_eq!(call.id.as_deref(), Some("call-1"));
+    assert_eq!(call.id.as_str(), "call-1");
+    assert_eq!(
+        call.provider,
+        message.content[0].as_tool_request().unwrap().metadata
+    );
+    let value = serde_json::to_value(call).unwrap();
+    assert!(value.get("signature").is_none());
+    assert_eq!(value["provider"]["thoughtSignature"], "signed");
 }
 
 #[tokio::test]
@@ -76,9 +83,14 @@ async fn preserves_structured_output() {
         serde_json::from_value(json!({"foreground_subagent":true,"subagent_session_id":"child"}))
             .unwrap(),
     );
-    let message = gdk::Message::user()
+    let mut message = gdk::Message::user()
         .with_generated_id()
         .with_tool_response("call", Ok(result));
+    let MessageContent::ToolResponse(response) = &mut message.content[0] else {
+        panic!("tool response expected")
+    };
+    response.metadata =
+        Some(serde_json::from_value(json!({"opaque":{"retained":[1,true]}})).unwrap());
     let record = capture(
         &db,
         TurnId::new(),
@@ -119,9 +131,7 @@ async fn preserves_mcp_blocks() {
     };
     assert_eq!(response.format, ToolFormat::Mcp);
     assert_eq!(response.attachments.len(), 1);
-    let Attachment::Inline { asset } = &response.attachments[0] else {
-        panic!("inline image expected")
-    };
+    let Attachment::Inline { asset } = &response.attachments[0];
     assert_eq!(asset.digest, response.result.assets[0].asset.digest);
     assert_eq!(blobs::get(&db, &asset.digest).await.unwrap(), [1, 2, 3]);
     assert_eq!(project(&db, &record).await.unwrap().unwrap(), message);
@@ -229,4 +239,40 @@ async fn projects_declared_tool_media() {
     };
     assert_eq!(image.data, "AQID");
     assert_eq!(image.mime_type, "image/png");
+}
+
+#[tokio::test]
+async fn preserves_media_metadata() {
+    let (_database, db) = database().await;
+    let mut message = gdk::Message::user().with_generated_id();
+    message.content.push(MessageContent::Image(
+        serde_json::from_value(json!({
+            "type":"image", "data":"AQID", "mimeType":"image/png",
+            "annotations":{"audience":["user"], "priority":0.8}
+        }))
+        .unwrap(),
+    ));
+    message
+        .content
+        .push(MessageContent::Document(gdk::DocumentContent {
+            data: "BAU=".into(),
+            mime_type: "application/pdf".into(),
+            name: Some("report.pdf".into()),
+        }));
+    let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
+        .await
+        .unwrap();
+    let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+    let BlockKind::Image { asset } = &stored.message().unwrap().content[0].kind else {
+        panic!("image expected")
+    };
+    assert_eq!(
+        asset.annotations.as_ref().unwrap()["audience"],
+        json!(["user"])
+    );
+    let BlockKind::Document { asset } = &stored.message().unwrap().content[1].kind else {
+        panic!("document expected")
+    };
+    assert_eq!(asset.uri.as_deref(), Some("report.pdf"));
+    assert_eq!(project(&db, &stored).await.unwrap().unwrap(), message);
 }

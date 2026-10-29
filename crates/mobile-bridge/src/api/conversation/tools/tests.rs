@@ -57,7 +57,6 @@ fn fixture(mode: Presentation, result: Value) -> (View, Arc<Detail>) {
         parts: vec![part],
         citations: vec![],
         search_suggestions: None,
-        commentary: Default::default(),
         usage: None,
     };
     let page = Page {

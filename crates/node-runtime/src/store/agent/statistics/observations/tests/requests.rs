@@ -51,7 +51,7 @@ fn averages_valid_samples() {
             ..base.clone()
         },
         Attempt {
-            transport: "web_socket".into(),
+            transport: "http".into(),
             headers_us: Some(999),
             response_us: Some(2),
             first_text_us: Some(6),
@@ -59,7 +59,7 @@ fn averages_valid_samples() {
             ..base.clone()
         },
         Attempt {
-            transport: "web_socket".into(),
+            transport: "http".into(),
             headers_us: Some(3),
             response_us: None,
             first_text_us: Some(8),

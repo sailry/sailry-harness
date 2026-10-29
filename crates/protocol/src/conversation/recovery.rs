@@ -6,7 +6,6 @@ use serde_json::Value;
 #[serde(rename_all = "snake_case")]
 pub enum Transport {
     Http,
-    WebSocket,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

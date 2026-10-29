@@ -94,25 +94,8 @@ async fn body(db: &turso::Connection, id: &str) -> Vec<u8> {
         .unwrap()
 }
 
-async fn legacy(db: &turso::Connection, records: &[(TurnId, String, Vec<u8>)]) {
-    for (turn, id, body) in records {
-        db.execute(
-            "UPDATE agent_events SET body=?1 WHERE turn=?2 AND id=?3",
-            params![body.as_slice(), turn.to_string(), id.as_str()],
-        )
-        .await
-        .unwrap();
-    }
-    db.execute_batch("DROP INDEX agent_usage; DROP INDEX agent_usage_time; DROP TABLE agent_blobs")
-        .await
-        .unwrap();
-    db.execute_batch(include_str!("../../database/schema/upgrades/usage.sql"))
-        .await
-        .unwrap();
-}
-
 #[tokio::test]
-async fn upgrades_history_with_private_backup() {
+async fn restores_current_history() {
     let mut fixture = fixture::Fixture::new().await;
     fixture::files(&fixture.database, fixture._root.path()).await;
     let mut answer = message(
@@ -129,8 +112,7 @@ async fn upgrades_history_with_private_backup() {
         total: Some(14),
         ..Default::default()
     });
-    let answer_body=serde_json::to_vec_pretty(&json!({"id":answer.id,"timestamp":answer.created,"author":"assistant","branch":"recorded-scope","turn_complete":false,"interrupted":false,"content":{"role":"model","parts":[{"text":"Recorded answer"}]},"usage_metadata":{"prompt_token_count":11,"candidates_token_count":3,"total_token_count":14},"actions":{"state_delta":{},"artifact_delta":{}}})).unwrap();
-    let first = fixture.append([answer.clone()]).await;
+    fixture.append([answer.clone()]).await;
     let mut call = message(
         "assistant",
         Role::Assistant,
@@ -139,7 +121,7 @@ async fn upgrades_history_with_private_backup() {
                 text: "Before the call".into(),
             },
             BlockKind::ToolRequest(request(
-                Some("recorded-call"),
+                "recorded-call",
                 "read_file",
                 json!({"path":"recorded.txt"}),
             )),
@@ -147,14 +129,12 @@ async fn upgrades_history_with_private_backup() {
     );
     call.provenance.branch = "recorded-scope".into();
     if let BlockKind::ToolRequest(request) = &mut call.message_mut().unwrap().content[1].kind {
-        request.signature = Some("recorded-signature".into());
         request.provider =
             Some(serde_json::from_value(json!({"thoughtSignature":"recorded-signature"})).unwrap());
     }
-    let call_body=serde_json::to_vec_pretty(&json!({"id":call.id,"timestamp":call.created,"author":"assistant","branch":"recorded-scope","turn_complete":false,"interrupted":false,"content":{"role":"model","parts":[{"text":"Before the call"},{"id":"recorded-call","name":"read_file","args":{"path":"recorded.txt"},"thought_signature":"recorded-signature"}]},"actions":{"state_delta":{},"artifact_delta":{}}})).unwrap();
     let original = json!({"content":"Recorded tool result","image":{"mimeType":"image/png","data":"AAEC/f7/"}});
     let bytes = vec![0, 1, 2, 253, 254, 255];
-    let mut output = response(Some("recorded-call"), "read_file", original.clone());
+    let mut output = response("recorded-call", "read_file", original.clone());
     let transaction = fixture
         .database
         .connection
@@ -185,8 +165,7 @@ async fn upgrades_history_with_private_backup() {
         personal: Some("Keep the captured policy".into()),
         ..Default::default()
     });
-    let result_body=serde_json::to_vec_pretty(&json!({"id":result.id,"timestamp":result.created,"author":"tool","branch":"recorded-scope","turn_complete":false,"interrupted":false,"content":{"role":"user","parts":[{"text":"Before the result"},{"id":"recorded-call","functionResponse":{"name":"read_file","response":original,"inline_data":[{"mime_type":"image/png","data":bytes}]}}]},"actions":{"state_delta":{"sailry.context.personal":"Keep the captured policy"},"artifact_delta":{}}})).unwrap();
-    let exchange = fixture.append([call.clone(), result.clone()]).await;
+    fixture.append([call.clone(), result.clone()]).await;
     let summary = record(
         "system",
         Kind::Compaction(records::Compaction {
@@ -208,13 +187,10 @@ async fn upgrades_history_with_private_backup() {
         }),
     );
     let compacted = fixture.append([summary.clone()]).await;
-    let summary_body=serde_json::to_vec_pretty(&json!({"id":summary.id,"timestamp":summary.created,"author":"system","branch":"","turn_complete":false,"interrupted":false,"event_metadata":{"sailry.context.end_event":result.id},"actions":{"state_delta":{},"artifact_delta":{},"compaction":{"start_timestamp":call.created,"end_timestamp":result.created,"compacted_content":{"role":"model","parts":[{"text":"Recorded summary"}]}}}})).unwrap();
-    let originals = vec![
-        (first, answer.id.clone(), answer_body),
-        (exchange, call.id.clone(), call_body),
-        (exchange, result.id.clone(), result_body),
-        (compacted, summary.id.clone(), summary_body),
-    ];
+    let mut originals = Vec::new();
+    for id in [&answer.id, &call.id, &result.id, &summary.id] {
+        originals.push((id.clone(), body(&fixture.database.connection, id).await));
+    }
     let queue = queue::read(&fixture.database.connection, fixture.session)
         .await
         .unwrap();
@@ -255,7 +231,6 @@ async fn upgrades_history_with_private_backup() {
             .to_string(),
     };
     let detail_revision = detail.revision.clone();
-    legacy(&fixture.database.connection, &originals).await;
     let path = fixture.database.path.clone();
     let fixture::Fixture {
         database,
@@ -324,28 +299,10 @@ async fn upgrades_history_with_private_backup() {
     assert!(
         matches!(&entry.parts[1], Part::ToolResult { summary, .. } if summary.revision == detail_revision)
     );
-    let backups: Vec<_> = std::fs::read_dir(fixture._root.path().join("backups"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path().join("node.turso"))
-        .collect();
-    assert_eq!(backups.len(), 1);
-    let backup = crate::store::database::engine(&backups[0]).await.unwrap();
-    let connection = crate::store::database::connect(&backup).await.unwrap();
-    for (_, id, original) in &originals {
-        assert_eq!(body(&connection, id).await, *original);
+    for (id, original) in &originals {
+        assert_eq!(body(&fixture.database.connection, id).await, *original);
     }
-    let has_assets: bool = connection
-        .prepare("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='agent_blobs')")
-        .await
-        .unwrap()
-        .query_row(())
-        .await
-        .unwrap()
-        .get(0)
-        .unwrap();
-    assert!(!has_assets);
-    drop(connection);
-    drop(backup);
+    assert!(!fixture._root.path().join("backups").exists());
     fixture.database.close().await.unwrap();
     let database = Database::open(&path, NodeId([33; 32]), None).await.unwrap();
     let fixture = fixture::Fixture {
@@ -353,69 +310,5 @@ async fn upgrades_history_with_private_backup() {
         ..fixture
     };
     assert_eq!(fixture.read(None, 100).await, projected);
-    assert_eq!(
-        std::fs::read_dir(fixture._root.path().join("backups"))
-            .unwrap()
-            .count(),
-        1
-    );
-}
-
-#[tokio::test]
-async fn rejects_invalid_history_without_writes() {
-    let mut fixture = fixture::Fixture::new().await;
-    let transaction = fixture
-        .database
-        .connection
-        .unchecked_transaction()
-        .await
-        .unwrap();
-    let asset = super::super::blobs::put(&transaction, "image/png", &[1, 2, 3])
-        .await
-        .unwrap();
-    transaction.commit().await.unwrap();
-    let first = message(
-        "assistant",
-        Role::Assistant,
-        vec![BlockKind::Image { asset }],
-    );
-    let second = message(
-        "assistant",
-        Role::Assistant,
-        vec![BlockKind::Text {
-            text: "Later record".into(),
-        }],
-    );
-    let turn = fixture.append([first.clone(), second.clone()]).await;
-    let first_body=serde_json::to_vec_pretty(&json!({"id":first.id,"timestamp":first.created,"author":"assistant","branch":"","turn_complete":false,"interrupted":false,"content":{"role":"model","parts":[{"mime_type":"image/png","data":[1,2,3]}]},"actions":{"state_delta":{},"artifact_delta":{}}})).unwrap();
-    let invalid = br#"{"id":"second","partial":true}"#.to_vec();
-    let originals = vec![
-        (turn, first.id.clone(), first_body),
-        (turn, second.id.clone(), invalid),
-    ];
-    legacy(&fixture.database.connection, &originals).await;
-    let path = fixture.database.path.clone();
-    let root = fixture._root.path().to_owned();
-    fixture.database.close().await.unwrap();
-    let error = match Database::open(&path, NodeId([33; 32]), None).await {
-        Ok(_) => panic!("invalid history was accepted"),
-        Err(error) => error.to_string(),
-    };
-    assert!(error.contains("cannot be upgraded (conversion:"), "{error}");
-    assert!(!root.join("backups").exists());
-    let handle = crate::store::database::engine(&path).await.unwrap();
-    let connection = crate::store::database::connect(&handle).await.unwrap();
-    for (_, id, original) in &originals {
-        assert_eq!(body(&connection, id).await, *original);
-    }
-    let assets: bool = connection
-        .prepare("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='agent_blobs')")
-        .await
-        .unwrap()
-        .query_row(())
-        .await
-        .unwrap()
-        .get(0)
-        .unwrap();
-    assert!(!assets);
+    assert!(!fixture._root.path().join("backups").exists());
 }

@@ -97,7 +97,7 @@ pub(super) async fn result(
             let BlockKind::ToolResponse(response) = &block.kind else {
                 continue;
             };
-            if response.id.as_deref() != Some(reference.call.as_str()) {
+            if response.id != reference.call {
                 continue;
             }
             found = true;

@@ -96,7 +96,6 @@ fn ignores_drafts_and_older_pages() {
             turn: run.turn,
             author: "assistant".into(),
             branch: String::new(),
-            commentary: Default::default(),
             parts: vec![Part::Text("Partial text".into())],
         });
     assert!(!changed(&before, &next, run.worktree));

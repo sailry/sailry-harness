@@ -10,7 +10,7 @@ fn source(name: &str, id: &str, directory: &str, content: &str) -> (Record, Mess
         "directory":directory,"python":"/fixture/python",
     });
     let response = ToolResponse {
-        id: Some(id.into()),
+        id: id.into(),
         name: name.into(),
         status: ToolStatus::Success,
         result: value.clone().into(),
@@ -18,7 +18,6 @@ fn source(name: &str, id: &str, directory: &str, content: &str) -> (Record, Mess
             .to_hex()
             .to_string(),
         attachments: Vec::new(),
-        annotations: None,
         provider: None,
         format: ToolFormat::Json,
         meta: None,

@@ -31,7 +31,7 @@ fn source(name: &str, id: &str, value: Value) -> (canonical::Record, Message) {
             content: vec![canonical::Block {
                 index: 0,
                 kind: canonical::BlockKind::ToolResponse(canonical::ToolResponse {
-                    id: Some(id.into()),
+                    id: id.into(),
                     name: name.into(),
                     status: canonical::ToolStatus::Success,
                     result: value.clone().into(),
@@ -39,7 +39,6 @@ fn source(name: &str, id: &str, value: Value) -> (canonical::Record, Message) {
                         .to_hex()
                         .to_string(),
                     attachments: vec![],
-                    annotations: None,
                     provider: None,
                     format: canonical::ToolFormat::Json,
                     meta: None,
@@ -333,7 +332,7 @@ fn file_totals(records: &[canonical::Record]) -> Value {
     {
         let value = &response.result.value;
         let page: FileLines = serde_json::from_value(value["data"].clone()).unwrap();
-        let id = response.id.as_deref().expect("file result call ID");
+        let id = response.id.as_str();
         let mut messages = [
             Message::user().with_tool_response(id, Ok(CallToolResult::structured(value.clone())))
         ];
@@ -413,7 +412,7 @@ fn measures_private_records() {
             })
         {
             let mut message = Message::user().with_tool_response(
-                response.id.as_deref().expect("skill call ID"),
+                response.id.as_str(),
                 Ok(CallToolResult::structured(response.result.value.clone())),
             );
             message.id = Some(record.id.clone());

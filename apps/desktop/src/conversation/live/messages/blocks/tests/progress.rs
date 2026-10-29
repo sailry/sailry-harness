@@ -22,7 +22,6 @@ fn updates_preserve_failures() {
             usage: None,
             citations: vec![],
             search_suggestions: None,
-            commentary: Default::default(),
             parts: vec![
                 Part::ToolCall {
                     presentation: sailry_protocol::tool::Presentation::Progress,

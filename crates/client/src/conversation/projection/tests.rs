@@ -58,7 +58,6 @@ fn fixture() -> (Projection, Snapshot, Run, Draft) {
         turn: run.turn,
         author: "assistant".into(),
         branch: String::new(),
-        commentary: Default::default(),
         parts: vec![Part::Text("Hello ".into())],
     };
     (Projection::new(node, session, 1), snapshot, run, draft)
@@ -118,7 +117,6 @@ fn commits_canonical_output() {
         parts: vec![Part::Text("committed content".into())],
         citations: vec![],
         search_suggestions: None,
-        commentary: Default::default(),
         usage: None,
     };
     projection
@@ -132,37 +130,6 @@ fn commits_canonical_output() {
         .apply(1, frame(&snapshot, 14, Change::Run(run.clone())))
         .unwrap();
     assert_eq!(projection.snapshot().unwrap().page.runs, vec![run]);
-}
-
-#[test]
-fn separates_commentary_from_answers() {
-    let (mut projection, snapshot, _, mut draft) = fixture();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    draft.parts = vec![Part::Text("Checking the file.".into())];
-    draft.commentary.insert(0, "msg-progress".into());
-    projection
-        .apply(1, frame(&snapshot, 11, Change::Delta(draft.clone())))
-        .unwrap();
-    draft.parts = vec![Part::Text("Here is ".into())];
-    draft.commentary.clear();
-    projection
-        .apply(1, frame(&snapshot, 12, Change::Delta(draft.clone())))
-        .unwrap();
-    draft.parts = vec![Part::Text("the answer".into())];
-    projection
-        .apply(1, frame(&snapshot, 13, Change::Delta(draft)))
-        .unwrap();
-    let current = &projection.snapshot().unwrap().drafts[0];
-    assert_eq!(
-        current.parts,
-        [
-            Part::Text("Checking the file.".into()),
-            Part::Text("Here is the answer".into()),
-        ]
-    );
-    assert_eq!(current.commentary, [(0, "msg-progress".into())].into());
 }
 
 #[test]

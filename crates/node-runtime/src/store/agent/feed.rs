@@ -147,14 +147,7 @@ impl Feeds {
         feed.bytes = feed
             .drafts
             .iter()
-            .map(|draft| {
-                draft.parts.iter().map(part_bytes).sum::<usize>()
-                    + draft
-                        .commentary
-                        .iter()
-                        .map(|(index, identity)| commentary_bytes(*index, identity))
-                        .sum::<usize>()
-            })
+            .map(|draft| draft.parts.iter().map(part_bytes).sum::<usize>())
             .sum();
         feed.send(node, session, change);
     }
@@ -185,30 +178,16 @@ impl Feeds {
             .iter()
             .find(|current| current.id == draft.id && current.turn == draft.turn);
         let mut previous = current.and_then(|current| current.parts.last());
-        let mut previous_commentary = current.and_then(|current| {
-            current
-                .commentary
-                .get(&current.parts.len().saturating_sub(1))
-        });
-        let mut retained = current.map_or(0, |current| current.parts.len());
         let mut bytes = 0;
-        for (index, part) in draft.parts.iter().enumerate() {
-            let commentary = draft.commentary.get(&index);
+        for part in &draft.parts {
             let merged = matches!(
                 (previous, part),
                 (Some(Part::Text(_)), Part::Text(_)) | (Some(Part::Thinking(_)), Part::Thinking(_))
-            ) && previous_commentary == commentary;
+            );
             // Adjacent chunks share one retained Part and one pair of JSON quotes.
             // Escaped text payload remains additive when the strings are joined.
             bytes += part_bytes(part) - if merged { PART_OVERHEAD } else { 0 };
-            if !merged {
-                if let Some(identity) = commentary {
-                    bytes += commentary_bytes(retained, identity);
-                }
-                retained += 1;
-            }
             previous = Some(part);
-            previous_commentary = commentary;
         }
         let Some(total) = feed
             .bytes
@@ -228,30 +207,15 @@ impl Feeds {
         } else {
             let mut retained = draft.clone();
             retained.parts.clear();
-            retained.commentary.clear();
             feed.drafts.push(retained);
             feed.drafts.len() - 1
         };
         let current = &mut feed.drafts[index];
-        for (index, part) in draft.parts.iter().enumerate() {
-            let commentary = draft.commentary.get(&index);
-            let same_phase = current
-                .commentary
-                .get(&current.parts.len().saturating_sub(1))
-                == commentary;
-            match (current.parts.last_mut(), part, same_phase) {
-                (Some(Part::Text(current)), Part::Text(text), true)
-                | (Some(Part::Thinking(current)), Part::Thinking(text), true) => {
-                    current.push_str(text)
-                }
-                _ => {
-                    if let Some(identity) = commentary {
-                        current
-                            .commentary
-                            .insert(current.parts.len(), identity.clone());
-                    }
-                    current.parts.push(part.clone());
-                }
+        for part in &draft.parts {
+            match (current.parts.last_mut(), part) {
+                (Some(Part::Text(current)), Part::Text(text))
+                | (Some(Part::Thinking(current)), Part::Thinking(text)) => current.push_str(text),
+                _ => current.parts.push(part.clone()),
             }
         }
         feed.bytes = total;
@@ -347,16 +311,6 @@ fn part_bytes(part: &Part) -> usize {
         }
         _ => 0,
     }
-}
-
-fn commentary_bytes(index: usize, identity: &str) -> usize {
-    // Include the map entry and its field/key overhead without serializing
-    // the accumulated text on every streamed chunk.
-    serde_json::to_vec(identity)
-        .expect("message identity is serializable")
-        .len()
-        + index.to_string().len()
-        + 32
 }
 
 impl Feed {

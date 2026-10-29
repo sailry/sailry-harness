@@ -49,7 +49,7 @@ async fn retains_called_and_discovered_tools() {
         "assistant",
         Role::Assistant,
         ["first", "second"]
-            .map(|name| BlockKind::ToolRequest(request(Some(name), name, serde_json::json!({}))))
+            .map(|name| BlockKind::ToolRequest(request(name, name, serde_json::json!({}))))
             .to_vec(),
     );
     let discovered = record(
@@ -85,7 +85,7 @@ fn captured(turn: TurnId) -> Record {
         "tool",
         Role::User,
         vec![BlockKind::ToolResponse(response(
-            Some("completed-write"),
+            "completed-write",
             "write_file",
             serde_json::json!({"path":"saved.txt","content":"Captured tool result"}),
         ))],
@@ -237,98 +237,6 @@ async fn hides_canonical_runtime_context() {
 }
 
 #[tokio::test]
-async fn preserves_commentary_part_indices() {
-    let fixture = Fixture::new().await;
-    let event = message("", Role::Assistant, vec![
-        BlockKind::ServerCall { value: serde_json::json!({
-            "type":"message","phase":"commentary",
-            "content":[{"type":"output_text","text":"Reading "},{"type":"output_text","text":"the source"}]
-        }).into() },
-        BlockKind::ToolRequest(request(Some("call"), "read_file", serde_json::json!({"path":"source.rs"}))),
-    ]);
-    let entry = project(&fixture.database.connection, 1, event.turn, &event)
-        .await
-        .unwrap();
-    assert_eq!(entry.parts.len(), 2);
-    assert_eq!(entry.parts[0], Part::Text("Reading the source".into()));
-    assert_eq!(entry.commentary, [(0, event.id.clone())].into());
-    assert!(matches!(&entry.parts[1],Part::ToolCall {id:Some(id),..} if id == "call"));
-}
-
-#[test]
-fn projects_commentary_deltas() {
-    let value = serde_json::json!({
-        "type":"message","phase":"commentary","content":[{"type":"output_text","text":"Inspecting"}]
-    });
-    assert_eq!(
-        commentary(&value).map(Part::Text),
-        Some(Part::Text("Inspecting".into()))
-    );
-    assert!(commentary(&serde_json::json!({
-        "type":"message","phase":"final_answer","content":[{"type":"output_text","text":"Answer"}]
-    })).is_none());
-}
-
-#[tokio::test]
-async fn retains_interrupted_commentary_phase() {
-    let mut fixture = Fixture::new().await;
-    let turn = running(&mut fixture).await;
-    let session = fixture.session;
-    fixture
-        .database
-        .feeds
-        .delta(
-            fixture.database.node,
-            session,
-            Draft {
-                id: "progress".into(),
-                turn,
-                author: "assistant".into(),
-                branch: String::new(),
-                parts: vec![Part::Text("Checking the file".into())],
-                commentary: [(0, "msg-progress".into())].into(),
-            },
-        )
-        .unwrap();
-    let run = runs::get(&fixture.database.connection, turn).await.unwrap();
-    retain(&mut fixture.database, &run, &fixture.events)
-        .await
-        .unwrap();
-    let body: Vec<u8> = fixture
-        .database
-        .connection
-        .prepare("SELECT body FROM agent_events WHERE session=?1 AND id='progress'")
-        .await
-        .unwrap()
-        .query_row([session.to_string()])
-        .await
-        .unwrap()
-        .get(0)
-        .unwrap();
-    let event: Record = serde_json::from_slice(&body).unwrap();
-    assert_eq!(
-        event.message().unwrap().finish,
-        Some(records::Finish::Interrupted)
-    );
-    let BlockKind::ServerCall { value } = &event.message().unwrap().content[0].kind else {
-        panic!("commentary message expected")
-    };
-    let server_tool_call = &value.value;
-    assert_eq!(server_tool_call["phase"], "commentary");
-    assert_eq!(server_tool_call["id"], "msg-progress");
-    assert_eq!(server_tool_call["status"], "incomplete");
-    assert_eq!(
-        commentary(server_tool_call).as_deref(),
-        Some("Checking the file")
-    );
-    let entry = project(&fixture.database.connection, 1, turn, &event)
-        .await
-        .unwrap();
-    assert_eq!(entry.commentary, [(0, "msg-progress".into())].into());
-    assert_eq!(entry.parts, vec![Part::Text("Checking the file".into())]);
-}
-
-#[tokio::test]
 async fn omits_interrupted_nontext_parts() {
     let mut fixture = Fixture::new().await;
     let turn = running(&mut fixture).await;
@@ -350,7 +258,6 @@ async fn omits_interrupted_nontext_parts() {
                     Part::Text("Reading the source".into()),
                     Part::Resource(serde_json::json!({"type":"transient"})),
                 ],
-                commentary: [(2, "progress-message".into())].into(),
             },
         )
         .unwrap();
@@ -372,7 +279,30 @@ async fn omits_interrupted_nontext_parts() {
             Part::Text("Reading the source".into())
         ]
     );
-    assert_eq!(entry.commentary, [(1, "progress-message".into())].into());
+    let body: Vec<u8> = fixture
+        .database
+        .connection
+        .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id='interrupted-parts'")
+        .await
+        .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    let record: Record = serde_json::from_slice(&body).unwrap();
+    let message = record.message().unwrap();
+    assert_eq!(record.turn, turn);
+    assert_eq!(message.finish, Some(records::Finish::Interrupted));
+    assert_eq!(message.part_count, 2);
+    assert_eq!(
+        message
+            .content
+            .iter()
+            .map(|block| block.index)
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
 }
 
 #[tokio::test]
@@ -383,14 +313,14 @@ async fn publishes_only_settled_batches() {
     let mut changes = fixture.events.subscribe();
     let call = |id: &str| {
         BlockKind::ToolRequest(request(
-            Some(id),
+            id,
             "read_file",
             serde_json::json!({"path":"source.rs"}),
         ))
     };
     let result = |id: &str| {
         BlockKind::ToolResponse(response(
-            Some(id),
+            id,
             "read_file",
             serde_json::json!({"text":"source"}),
         ))
@@ -613,39 +543,51 @@ async fn bounds_conflicts_without_partial_history() {
 }
 
 #[tokio::test]
-async fn retains_slots_around_native_search() {
+async fn retains_slots_around_provider_context() {
     let fixture = Fixture::new().await;
     let turn = TurnId::new();
-    let mut signed = request(
-        Some("read"),
-        "read_file",
-        serde_json::json!({"path":"source.rs"}),
+    let mut signed = request("read", "read_file", serde_json::json!({"path":"source.rs"}));
+    signed.provider = Some(
+        serde_json::from_value(
+            serde_json::json!({"thoughtSignature":"signature","opaque":{"retained":true}}),
+        )
+        .unwrap(),
     );
-    signed.signature = Some("signature".into());
-    let mut record = message("assistant", Role::Assistant, vec![
-        BlockKind::ServerCall { value: serde_json::json!({"type":"web_search_call","id":"search","status":"completed","action":{"query":"source"}}).into() },
-        BlockKind::Text { text: "Engine slot".into() },
-        BlockKind::ToolRequest(signed),
-    ]);
+    let mut record = message(
+        "assistant",
+        Role::Assistant,
+        vec![
+            BlockKind::Text {
+                text: "Before the call".into(),
+            },
+            BlockKind::Text {
+                text: "Engine slot".into(),
+            },
+            BlockKind::ToolRequest(signed),
+        ],
+    );
     record.turn = turn;
-    record.provenance.branch = "search-branch".into();
+    record.provenance.branch = "provider-branch".into();
     let db = &fixture.database.connection;
     record.message_mut().unwrap().content.remove(1);
     let entry = project(db, 1, turn, &record).await.unwrap();
     assert_eq!(entry.author, "assistant");
-    assert_eq!(entry.branch, "search-branch");
+    assert_eq!(entry.branch, "provider-branch");
     assert_eq!(entry.timestamp_ms, record.created.timestamp_millis());
-    assert_eq!(entry.parts.len(), 4);
+    assert_eq!(entry.parts.len(), 3);
+    assert_eq!(entry.parts[0], Part::Text("Before the call".into()));
     assert_eq!(
         entry.parts[1],
         Part::Resource(serde_json::json!({"type":"provider_context"}))
     );
     assert!(matches!(&entry.parts[2], Part::ToolCall { id:Some(id), .. } if id == "read"));
-    assert!(matches!(&entry.parts[3], Part::ToolResult { id:Some(id), .. } if id == "search"));
     let BlockKind::ToolRequest(request) = &record.message().unwrap().content[1].kind else {
         panic!("tool request expected")
     };
-    assert_eq!(request.signature.as_deref(), Some("signature"));
+    assert_eq!(
+        request.provider.as_ref().unwrap()["thoughtSignature"],
+        "signature"
+    );
     assert_eq!(record.message().unwrap().content[1].index, 2);
     assert_eq!(
         tools::raw(db, turn, 1, &record, 2)
@@ -655,14 +597,5 @@ async fn retains_slots_around_native_search() {
             .id
             .as_deref(),
         Some("read")
-    );
-    assert_eq!(
-        tools::raw(db, turn, 1, &record, 3)
-            .await
-            .unwrap()
-            .unwrap()
-            .id
-            .as_deref(),
-        Some("search")
     );
 }

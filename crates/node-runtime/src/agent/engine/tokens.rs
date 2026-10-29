@@ -48,12 +48,9 @@ pub(crate) fn records(records: &[crate::agent::canonical::Record]) -> u64 {
             for block in &message.content {
                 tokens += match &block.kind {
                     BlockKind::Text { text: value } => text(value),
-                    BlockKind::ToolRequest(call) => text(&format!(
-                        "{}:{}:{:?}",
-                        call.id.as_deref().unwrap_or_default(),
-                        call.name,
-                        call.arguments
-                    )),
+                    BlockKind::ToolRequest(call) => {
+                        text(&format!("{}:{}:{:?}", call.id, call.name, call.arguments))
+                    }
                     BlockKind::ToolResponse(result) => text(&result.result.value.to_string()),
                     _ => 0,
                 };

@@ -159,12 +159,12 @@ async fn preserves_tools_before_empty_completion() {
         let server = crate::agent_support::Server::empty_after_tool().await;
         let fixture =
             Fixture::packages(remote, ModelApi::Responses, &server.endpoint, &["files"]).await;
-        std::fs::write(fixture.root.join("phase.txt"), "fixture").unwrap();
-        let turn = fixture.submit("Read phase.txt and answer").await;
+        std::fs::write(fixture.root.join("progress.txt"), "fixture").unwrap();
+        let turn = fixture.submit("Read progress.txt and answer").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert!(page.runs.last().unwrap().error.is_none());
-        assert_eq!(response(&page), crate::agent_support::phases::COMMENTARY);
+        assert_eq!(response(&page), crate::agent_support::progress::PROGRESS);
         let parts = page
             .entries
             .iter()
@@ -175,14 +175,8 @@ async fn preserves_tools_before_empty_completion() {
             page.entries
                 .iter()
                 .filter(|entry| entry.turn == turn && entry.author != "user")
-                .flat_map(|entry| {
-                    entry.parts.iter().enumerate().map(|(index, part)| {
-                        sailry_client::conversation::reply::is_work(
-                            part,
-                            entry.commentary.contains_key(&index),
-                        )
-                    })
-                }),
+                .flat_map(|entry| &entry.parts)
+                .map(sailry_client::conversation::reply::is_work),
         );
         assert!(
             parts[boundary..]
@@ -207,7 +201,7 @@ async fn preserves_tools_before_empty_completion() {
         );
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         assert_eq!(
-            std::fs::read_to_string(fixture.root.join("phase.txt")).unwrap(),
+            std::fs::read_to_string(fixture.root.join("progress.txt")).unwrap(),
             "fixture"
         );
         fixture.controller.close().await.unwrap();

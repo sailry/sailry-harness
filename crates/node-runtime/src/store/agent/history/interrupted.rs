@@ -7,32 +7,23 @@ pub(in crate::store::agent) async fn retain(
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     for draft in database.feeds.seal(run.session, run.turn) {
-        let mut content: Vec<_> = draft
+        let content: Vec<_> = draft
             .parts
             .into_iter()
-            .enumerate()
-            .filter_map(|(index, part)| {
+            .filter_map(|part| {
                 let kind = match part {
-                    Part::Text(text) if draft.commentary.contains_key(&index) => {
-                        BlockKind::ServerCall {
-                            value: serde_json::json!({
-                                "type": "message", "role": "assistant",
-                                "id": draft.commentary[&index], "phase": "commentary",
-                                "status": "incomplete",
-                                "content": [{"type": "output_text", "text": text, "annotations": []}],
-                            }).into(),
-                        }
-                    }
                     Part::Text(text) => BlockKind::Text { text },
-                    Part::Thinking(text) => BlockKind::Thinking { text, signature: None },
+                    Part::Thinking(text) => BlockKind::Thinking {
+                        text,
+                        signature: None,
+                    },
                     _ => return None,
                 };
-                Some(records::Block { index, kind })
+                Some(kind)
             })
+            .enumerate()
+            .map(|(index, kind)| records::Block { index, kind })
             .collect();
-        for (index, block) in content.iter_mut().enumerate() {
-            block.index = index;
-        }
         let part_count = content.len();
         if content.is_empty() {
             continue;

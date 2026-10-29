@@ -1,6 +1,6 @@
 use super::*;
 
-pub const COMMENTARY: &str = "**Creating JSON fixture**\n\n**";
+pub const PROGRESS: &str = "**Creating JSON fixture**\n\n**";
 pub const ANSWER: &str = "The file was read";
 
 pub(super) async fn respond(
@@ -26,15 +26,11 @@ async fn reply(
             .iter()
             .any(|item| item["type"] == "function_call_output")
     });
-    let (phase, text) = if returned {
-        ("final_answer", ANSWER)
-    } else {
-        ("commentary", COMMENTARY)
-    };
-    let response_id = format!("phase-{}", uuid::Uuid::new_v4());
+    let text = if returned { ANSWER } else { PROGRESS };
+    let response_id = format!("progress-{}", uuid::Uuid::new_v4());
     let message_id = format!("message-{response_id}");
     let message = json!({"type":"message", "id":message_id, "role":"assistant",
-        "status":"completed", "phase":phase,
+        "status":"completed",
         "content":[{"type":"output_text", "text":text, "annotations":[]}]});
     let mut output = if empty && returned {
         vec![]
@@ -45,11 +41,11 @@ async fn reply(
         let (name, arguments) = tool.unwrap_or_else(|| {
             (
                 plugin_tool("files", "read_file"),
-                json!({"path":"phase.txt"}),
+                json!({"path":"progress.txt"}),
             )
         });
         output.push(
-            json!({"type":"function_call", "id":"read-item", "call_id":"read-phase",
+            json!({"type":"function_call", "id":"read-item", "call_id":"read-progress",
             "name":name, "arguments":arguments.to_string(), "status":"completed"}),
         );
     }

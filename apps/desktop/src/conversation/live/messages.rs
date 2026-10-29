@@ -373,7 +373,7 @@ impl View {
             .into_iter()
             .enumerate()
             .map(|(index, block)| match block {
-                Block::Text(key, text) | Block::Commentary(key, text) => div()
+                Block::Text(key, text) => div()
                     .w_full()
                     .min_w_0()
                     .debug_selector(move || format!("live-turn-text-{turn}"))

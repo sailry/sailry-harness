@@ -72,6 +72,18 @@ pub fn current_file() -> std::io::Result<Option<PathBuf>> {
     latest_file(directory)
 }
 
+/// The rebuild owner emits this only after saving the complete private database family.
+pub(crate) fn database_rebuild(node: sailry_protocol::NodeId, backup: &Path) {
+    tracing::info!(
+        target: "sailry",
+        area = "node",
+        phase = "begin",
+        operation = "database_rebuild",
+        node = node.to_string().as_str(),
+        backup_path = backup.to_string_lossy().as_ref(),
+    );
+}
+
 fn latest_file(directory: &Path) -> std::io::Result<Option<PathBuf>> {
     let current = directory.join(rolling::CURRENT);
     if current

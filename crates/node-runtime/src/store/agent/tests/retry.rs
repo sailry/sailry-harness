@@ -70,10 +70,10 @@ async fn retains_persistent_and_fallback_records() {
             fallback: true,
             limit: Some(5),
             delay_ms: Some(0),
-            transport: Some(Transport::WebSocket),
+            transport: Some(Transport::Http),
             status: None,
             code: Some("network".into()),
-            error: Some("socket closed".into()),
+            error: Some("connection closed".into()),
         },
     ];
     fixture

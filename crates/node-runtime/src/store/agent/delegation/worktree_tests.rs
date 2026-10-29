@@ -22,7 +22,7 @@ async fn request(fixture: &mut Fixture, worktree: Option<WorktreeId>) -> (TurnId
         "assistant",
         MessageRole::Assistant,
         vec![BlockKind::ToolRequest(tool_request(
-            request.id.as_deref(),
+            request.id.as_deref().expect("call identity"),
             &request.name,
             request.arguments.clone(),
         ))],

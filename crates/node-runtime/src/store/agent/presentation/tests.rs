@@ -6,26 +6,25 @@ use serde_json::json;
 #[test]
 fn captures_status_without_reading_payloads() {
     let timeline = crate::agent::observation::Timeline::new();
-    timeline.fail_tool(
-        "",
-        "unknown",
-        "same",
-        Some(sailry_protocol::ErrorCode::Unavailable),
-    );
+    for (id, code) in [
+        ("cancelled", sailry_protocol::ErrorCode::Cancelled),
+        ("unknown", sailry_protocol::ErrorCode::OutcomeUnknown),
+    ] {
+        timeline.fail_tool("", id, "same", Some(code));
+    }
     let blocks = [
         ("business", ToolStatus::Success),
         ("failed", ToolStatus::Error),
-        ("cancelled", ToolStatus::Cancelled),
-        ("unknown", ToolStatus::Unknown),
-        ("pending", ToolStatus::Pending),
+        ("cancelled", ToolStatus::Error),
+        ("unknown", ToolStatus::Error),
     ]
     .into_iter()
     .map(|(id, status)| {
         let mut result = response(
-            Some(id),
+            id,
             "same",
             json!({"isError":true,"error":"unchanged business data",
-            "annotations":{"adk.tool_result.status":"failed"}}),
+            "status":"failed"}),
         );
         result.status = status;
         BlockKind::ToolResponse(result)
@@ -69,11 +68,7 @@ fn matches_only_observed_failed_calls() {
         ["business", "failed"]
             .into_iter()
             .map(|id| {
-                BlockKind::ToolResponse(response(
-                    Some(id),
-                    "same",
-                    json!({"error":"unchanged data"}),
-                ))
+                BlockKind::ToolResponse(response(id, "same", json!({"error":"unchanged data"})))
             })
             .collect(),
     );
@@ -109,7 +104,7 @@ fn preserves_only_matching_response_facts() {
         "assistant",
         Role::User,
         vec![BlockKind::ToolResponse(response(
-            Some("failed"),
+            "failed",
             "same",
             json!({"error":"unchanged data"}),
         ))],
@@ -135,14 +130,10 @@ fn preserves_only_matching_response_facts() {
                 unreachable!()
             };
             match mismatch {
-                "id" => result.id = Some("other".into()),
+                "id" => result.id = "other".into(),
                 "name" => result.name = "other".into(),
                 "result" => {
-                    *result = response(
-                        result.id.as_deref(),
-                        &result.name,
-                        json!({"error":"changed data"}),
-                    )
+                    *result = response(&result.id, &result.name, json!({"error":"changed data"}))
                 }
                 _ => unreachable!(),
             }
@@ -176,7 +167,7 @@ async fn freezes_owned_session_names() {
         .unwrap();
         expected.insert(child.session.to_string(), title.to_owned());
         content.push(BlockKind::ToolRequest(request(
-            Some(&format!("wait-{title}")),
+            &format!("wait-{title}"),
             "observe",
             json!({"session":child.session}),
         )));
@@ -270,7 +261,7 @@ fn captures_trusted_command_aliases() {
         "assistant",
         Role::Assistant,
         vec![BlockKind::ToolRequest(request(
-            Some("call"),
+            "call",
             "probe",
             arguments.clone(),
         ))],
@@ -320,34 +311,24 @@ fn captures_package_display_and_rejects_provider_metadata() {
     }))
     .unwrap();
     let displays = BTreeMap::from([("web_search".into(), display)]);
-    for block in [
-        BlockKind::ServerCall {
-            value: json!({"type":"web_search_call","id":"search"}).into(),
-        },
-        BlockKind::ServerCall {
-            value: json!({"name":"web_search","input":{"query":"fixture"}}).into(),
-        },
-        BlockKind::ToolRequest(request(Some("call"), "web_search", json!({}))),
-    ] {
-        let mut event = message("assistant", Role::Assistant, vec![block]);
-        event.metadata.presentation = Some(canonical::Presentation {
-            displays: serde_json::from_value(json!({"web_search":{"label":"Forged"}})).unwrap(),
+    let block = BlockKind::ToolRequest(request("call", "web_search", json!({})));
+    let mut event = message("assistant", Role::Assistant, vec![block]);
+    event.metadata.presentation = Some(canonical::Presentation {
+        displays: serde_json::from_value(json!({"web_search":{"label":"Forged"}})).unwrap(),
+        ..Default::default()
+    });
+    stamp(
+        &mut event,
+        &canonical::Presentation {
+            displays: displays.clone(),
             ..Default::default()
-        });
-        stamp(
-            &mut event,
-            &canonical::Presentation {
-                displays: displays.clone(),
-                ..Default::default()
-            },
-        );
-        assert_eq!(super::displays(&event).unwrap(), displays);
-        let restored: Record =
-            serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
-        assert_eq!(super::displays(&restored).unwrap(), displays);
-        stamp(&mut event, &canonical::Presentation::default());
-        assert!(super::displays(&event).unwrap().is_empty());
-    }
+        },
+    );
+    assert_eq!(super::displays(&event).unwrap(), displays);
+    let restored: Record = serde_json::from_slice(&serde_json::to_vec(&event).unwrap()).unwrap();
+    assert_eq!(super::displays(&restored).unwrap(), displays);
+    stamp(&mut event, &canonical::Presentation::default());
+    assert!(super::displays(&event).unwrap().is_empty());
 }
 
 #[test]
@@ -356,7 +337,7 @@ fn captures_registered_calls() {
         "assistant",
         Role::Assistant,
         vec![BlockKind::ToolRequest(request(
-            Some("call"),
+            "call",
             "probe",
             json!({"presentation":"details","grouping":"sequence"}),
         ))],

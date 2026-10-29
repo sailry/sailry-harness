@@ -67,7 +67,7 @@ fn tool(text: &str) -> canonical::Record {
         canonical::Role::User,
         vec![canonical::BlockKind::ToolResponse(
             crate::store::agent::tests::fixture::response(
-                Some("read"),
+                "read",
                 "read_file",
                 serde_json::json!({"content":text}),
             ),

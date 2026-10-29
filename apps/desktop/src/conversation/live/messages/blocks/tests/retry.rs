@@ -41,8 +41,8 @@ fn latest_attempt_replaces_details() {
 fn separates_counter_and_transport_resets() {
     let turn = TurnId::new();
     let parts = [
-        json!({"type":"model_retry","attempt":1,"limit":5,"transport":"web_socket","error":"First"}),
-        json!({"type":"model_retry","attempt":2,"limit":5,"transport":"web_socket","error":"Second"}),
+        json!({"type":"model_retry","attempt":1,"limit":5,"transport":"http","error":"First"}),
+        json!({"type":"model_retry","attempt":2,"limit":5,"transport":"http","error":"Second"}),
         json!({"type":"model_retry","attempt":0,"fallback":true,"limit":5,"transport":"http","error":"Fallback"}),
         json!({"type":"model_retry","attempt":1,"limit":5,"transport":"http","error":"HTTP failure"}),
         json!({"type":"model_retry","attempt":1,"transport":"http","delay_ms":5000,"error":"Disconnected"}),
@@ -110,7 +110,6 @@ fn history(turn: TurnId, parts: Vec<Part>) -> View {
                     usage: None,
                     citations: vec![],
                     search_suggestions: None,
-                    commentary: Default::default(),
                 }],
             }),
         })),

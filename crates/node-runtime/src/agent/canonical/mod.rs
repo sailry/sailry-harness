@@ -101,24 +101,10 @@ pub(crate) struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio_input: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio_output: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub byok: Option<bool>,
     /// Provider-owned usage is retained without inventing normalized counters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<Value>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub builtins: Vec<BuiltinUsage>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct BuiltinUsage {
-    pub name: String,
-    pub count: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

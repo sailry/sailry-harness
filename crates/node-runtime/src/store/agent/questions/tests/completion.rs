@@ -158,7 +158,7 @@ async fn requires_completed_planning_source() {
             source.message_mut().unwrap().content = vec![Block {
                 index: 0,
                 kind: BlockKind::ToolRequest(tool_request(
-                    Some("incomplete-call"),
+                    "incomplete-call",
                     "read_file",
                     serde_json::json!({}),
                 )),

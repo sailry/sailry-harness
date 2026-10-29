@@ -68,7 +68,7 @@ pub(super) fn queued<'a>(
             "assistant",
             MessageRole::Assistant,
             vec![BlockKind::ToolRequest(tool_request(
-                request.id.as_deref(),
+                request.id.as_deref().unwrap(),
                 &request.name,
                 request.arguments.clone(),
             ))],

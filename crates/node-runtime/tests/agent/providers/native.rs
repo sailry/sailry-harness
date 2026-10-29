@@ -14,8 +14,8 @@ mod errors;
 mod gemini;
 #[path = "hosted.rs"]
 mod hosted;
-#[path = "native/phases.rs"]
-mod phases;
+#[path = "native/progress.rs"]
+mod progress;
 #[path = "native/prompt.rs"]
 mod prompt;
 #[path = "native/reasoning.rs"]

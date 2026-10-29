@@ -17,18 +17,11 @@ pub(super) fn capture_failures(
             let BlockKind::ToolResponse(response) = &block.kind else {
                 return None;
             };
-            let id = response.id.as_ref()?;
+            let id = &response.id;
             let observed = timeline.and_then(|timeline| {
                 timeline.tool_failure(&event.provenance.branch, id, &response.name)
             });
             let failure = match response.status {
-                ToolStatus::Pending => return None,
-                ToolStatus::Cancelled => sailry_protocol::tool::Failure {
-                    code: Some(sailry_protocol::ErrorCode::Cancelled),
-                },
-                ToolStatus::Unknown => sailry_protocol::tool::Failure {
-                    code: Some(sailry_protocol::ErrorCode::OutcomeUnknown),
-                },
                 ToolStatus::Error => {
                     let encoded = (response.format == ToolFormat::McpError)
                         .then(|| response.result.value.get("data"))
@@ -92,7 +85,7 @@ pub(super) fn preserve_failures(
         if let (Some(old), Some(current)) = (
             response(&previous, failure.index),
             response(event, failure.index),
-        ) && old.id.as_deref() == Some(failure.id.as_str())
+        ) && old.id == failure.id
             && current.id == old.id
             && old.name == failure.name
             && current.name == failure.name
@@ -130,13 +123,6 @@ pub(super) fn stamp(event: &mut Record, catalog: &crate::agent::canonical::Prese
         .flat_map(|message| &message.content)
         .filter_map(|block| match &block.kind {
             BlockKind::ToolRequest(request) => Some(request.name.as_str()),
-            BlockKind::ServerCall { value } => {
-                if value.value["type"] == "web_search_call" {
-                    Some("web_search")
-                } else {
-                    value.value["name"].as_str()
-                }
-            }
             _ => None,
         })
         .collect();

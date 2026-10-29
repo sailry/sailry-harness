@@ -411,7 +411,6 @@ impl Ingress {
                     author: "sailry".into(),
                     branch: String::new(),
                     parts,
-                    commentary: Default::default(),
                 },
             )
         })

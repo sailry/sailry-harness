@@ -84,11 +84,7 @@ async fn checks_visible_history_and_invocation_owner() {
         message(
             "",
             Role::User,
-            vec![BlockKind::ToolResponse(response(
-                Some(call),
-                "read_file",
-                value,
-            ))],
+            vec![BlockKind::ToolResponse(response(call, "read_file", value))],
         )
     };
     let value = serde_json::json!({"text": "Visible result"});
@@ -181,7 +177,7 @@ async fn hydrates_original_tool_json() {
         .unchecked_transaction()
         .await
         .unwrap();
-    let mut result = response(Some("binary-call"), "capture", value.clone());
+    let mut result = response("binary-call", "capture", value.clone());
     result.result = blobs::capture(&transaction, value.clone()).await.unwrap();
     transaction.commit().await.unwrap();
     let event = message("", Role::User, vec![BlockKind::ToolResponse(result)]);

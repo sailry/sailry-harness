@@ -16,7 +16,7 @@ async fn publish(fixture: &Fixture, items: &mut Vec<Target>, results: Vec<serde_
         Role::Assistant,
         results
             .into_iter()
-            .map(|value| BlockKind::ToolResponse(response(None, "document_export", value)))
+            .map(|value| BlockKind::ToolResponse(response("export", "document_export", value)))
             .collect(),
     );
     extract::publications(&fixture.database.connection, items, &record)
@@ -386,7 +386,7 @@ async fn indexes_valid_plugin_files() {
         ),
     ] {
         let mut items = extract::items(&entry, Some("/project"));
-        let mut output = response(None, "document_export", result.clone());
+        let mut output = response("export", "document_export", result.clone());
         output.format = format;
         let record = message(
             "assistant",
@@ -468,7 +468,7 @@ async fn pages_document_receipts_with_fork_scope() {
             "assistant",
             Role::User,
             vec![BlockKind::ToolResponse(response(
-                Some("document-write"),
+                "document-write",
                 "document_write",
                 serde_json::json!({"sailry_content":receipt}),
             ))],

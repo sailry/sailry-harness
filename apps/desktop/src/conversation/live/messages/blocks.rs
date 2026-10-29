@@ -7,7 +7,6 @@ use std::{borrow::Cow, collections::BTreeMap};
 
 pub(super) enum Block<'a> {
     Text(String, Cow<'a, str>),
-    Commentary(String, Cow<'a, str>),
     Search(&'a Entry),
     Images(Vec<&'a sailry_protocol::conversation::Image>),
     Thinking(String, Cow<'a, str>),
@@ -59,8 +58,7 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
         }
         let part = row.part;
         let continuation = row.continuation;
-        if !row.commentary
-            && matches!(part, Part::Text(_))
+        if matches!(part, Part::Text(_))
             && let Some(entry) = row.entry.filter(|entry| entry.search_suggestions.is_some())
         {
             if searches.insert(entry.id.as_str()) {
@@ -72,7 +70,7 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
             Part::Text(original) => {
                 let text = row.text.unwrap_or_else(|| original.clone());
                 let text = match row.entry {
-                    Some(entry) if !row.commentary => Cow::Owned(
+                    Some(entry) => Cow::Owned(
                         super::citations::text(
                             &text,
                             row.text_offset,
@@ -83,9 +81,7 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                     ),
                     _ => Cow::Owned(text),
                 };
-                if row.commentary {
-                    blocks.push(Block::Commentary(key, text));
-                } else if continuation && let Some(Block::Text(_, previous)) = blocks.last_mut() {
+                if continuation && let Some(Block::Text(_, previous)) = blocks.last_mut() {
                     previous.to_mut().push_str(&text);
                 } else {
                     blocks.push(Block::Text(key, text));
@@ -166,7 +162,7 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
     }
     // Keep whitespace while joining streamed chunks, but do not render a
     // standalone blank response as a paragraph between tool rows.
-    blocks.retain(|block| !matches!(block, Block::Text(_, text) | Block::Commentary(_, text) if text.trim().is_empty()));
+    blocks.retain(|block| !matches!(block, Block::Text(_, text) if text.trim().is_empty()));
     // Empty streamed messages do not divide an otherwise consecutive activity sequence.
     join(blocks)
 }

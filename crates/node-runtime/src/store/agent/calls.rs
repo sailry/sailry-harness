@@ -28,7 +28,7 @@ pub(super) fn id(request: &ToolIdentity) -> Result<&str, Fault> {
 
 pub(super) fn matches(part: &crate::agent::canonical::BlockKind, request: &ToolIdentity) -> bool {
     matches!(part, crate::agent::canonical::BlockKind::ToolRequest(call)
-        if call.id == request.id && call.name == request.name && call.arguments == request.arguments)
+        if request.id.as_deref() == Some(call.id.as_str()) && call.name == request.name && call.arguments == request.arguments)
 }
 
 pub(super) async fn locate(
@@ -63,7 +63,7 @@ pub(super) async fn locate(
             .flat_map(|message| &message.content)
         {
             if let crate::agent::canonical::BlockKind::ToolRequest(call) = &block.kind
-                && call.id == request.id
+                && request.id.as_deref() == Some(call.id.as_str())
             {
                 if !matches(&block.kind, request) || found.is_some() {
                     return Err(sailry_protocol::Fault::invalid(

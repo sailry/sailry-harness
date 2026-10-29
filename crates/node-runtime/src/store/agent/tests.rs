@@ -69,8 +69,8 @@ mod credentials {
             "assistant",
             Role::Assistant,
             vec![
-                BlockKind::ToolRequest(request(Some("trusted"), &name, args.clone())),
-                BlockKind::ToolRequest(request(Some("unknown"), "user_literal", args.clone())),
+                BlockKind::ToolRequest(request("trusted", &name, args.clone())),
+                BlockKind::ToolRequest(request("unknown", "user_literal", args.clone())),
                 BlockKind::Text {
                     text: "User literal private-marker".into(),
                 },

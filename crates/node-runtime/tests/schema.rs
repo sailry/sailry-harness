@@ -9,6 +9,9 @@ use std::{
 };
 use turso::{Connection, Database, Value};
 
+#[path = "schema/legacy.rs"]
+mod legacy;
+
 #[tokio::test]
 async fn preserves_current_resources_on_both_paths() {
     for remote in [false, true] {

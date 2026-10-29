@@ -55,6 +55,7 @@ const FIELDS: &[&str] = &[
     "revision",
     "command",
     "operation",
+    "backup_path",
     "stage",
     "source_kind",
     "reason",
@@ -123,7 +124,9 @@ impl Fields {
             match value {
                 Value::String(value)
                     if !value.chars().any(|character| {
-                        character.is_whitespace() || matches!(character, '"' | '\\' | '=')
+                        character.is_whitespace()
+                            || character.is_control()
+                            || matches!(character, '"' | '\\' | '=')
                     }) && serde_json::from_str::<Value>(value).is_err() =>
                 {
                     text.push_str(value);
@@ -137,6 +140,10 @@ impl Fields {
 impl Visit for Fields {
     fn record_debug(&mut self, _: &Field, _: &dyn fmt::Debug) {}
     fn record_str(&mut self, field: &Field, value: &str) {
+        if field.name() == "backup_path" {
+            self.set(field, Value::String(value.into()));
+            return;
+        }
         let value: String = value
             .chars()
             .filter(|character| !character.is_control())

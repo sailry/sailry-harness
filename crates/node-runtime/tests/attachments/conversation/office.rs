@@ -28,7 +28,7 @@ async fn keeps_compatible_pdf_turns_usable() {
             let tool = server::plugin_tool("files", "read_office");
             let arguments = json!({"source":{"kind":"attachment","value":pdf.id}});
             let server = if api == ModelApi::Responses {
-                server::Server::phases_with_tool(&tool, arguments).await
+                server::Server::progress_with_tool(&tool, arguments).await
             } else {
                 server::Server::tools(vec![(tool.clone(), arguments)]).await
             };

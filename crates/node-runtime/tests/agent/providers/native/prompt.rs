@@ -283,7 +283,7 @@ async fn loads_rules_at_openai_tool_boundary() {
             let name = crate::agent_support::plugin_tool("files", "read_file");
             let arguments = json!({"path":"nested/native.txt"});
             let server = if api == ModelApi::Responses {
-                crate::agent_support::Server::phases_with_tool(&name, arguments).await
+                crate::agent_support::Server::progress_with_tool(&name, arguments).await
             } else {
                 crate::agent_support::Server::tools(vec![(name, arguments)]).await
             };

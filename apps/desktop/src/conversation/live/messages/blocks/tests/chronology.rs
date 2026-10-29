@@ -30,7 +30,6 @@ fn history() -> (TurnId, View) {
             usage: None,
             citations: vec![],
             search_suggestions: None,
-            commentary: Default::default(),
             parts: vec![
                 Part::ToolCall {
                     presentation: Default::default(),

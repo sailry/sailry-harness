@@ -107,9 +107,8 @@ fn assets(response: &ToolResponse) -> impl Iterator<Item = &AssetRef> {
     let attachments = response
         .attachments
         .iter()
-        .filter_map(|attachment| match attachment {
-            Attachment::Inline { asset } => Some(asset),
-            Attachment::File { .. } => None,
+        .map(|attachment| match attachment {
+            Attachment::Inline { asset } => asset,
         });
     let (envelope, prefix) = if response.result.value["kind"] == "computer" {
         (&response.result.value["data"], "/data/inline_data")

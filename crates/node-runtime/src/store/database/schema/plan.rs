@@ -112,10 +112,6 @@ impl Plan {
             match actual.get(&(kind.clone(), name.clone())) {
                 None => statements.push(wanted.clone()),
                 Some(stored) if normalize(stored) == normalize(wanted) => {}
-                Some(stored) if kind == "index" && upgrades::replaces_index(name, stored) => {
-                    statements.push(format!("DROP INDEX {}", quote(name)));
-                    statements.push(wanted.clone());
-                }
                 Some(stored) if kind == "index" && refreshable(stored, wanted, definitions) => {
                     // The search owner rebuilds its declared corpus in the same update transaction.
                     refresh = true;

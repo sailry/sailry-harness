@@ -294,7 +294,6 @@ fn run_projection_skips_content_permission_reads() {
                         turn,
                         author: "model".into(),
                         branch: String::new(),
-                        commentary: Default::default(),
                         parts: vec![Part::Text(format!("delta {index}"))],
                     }];
                 });

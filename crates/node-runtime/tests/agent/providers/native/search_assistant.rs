@@ -80,7 +80,8 @@ async fn executes_selected_search() {
     for remote in [false, true] {
         let name = plugin_tool(OWNER, TOOL);
         let model =
-            SearchServer::phases_with_tool(&name, json!({"query":"Public source","limit":1})).await;
+            SearchServer::progress_with_tool(&name, json!({"query":"Public source","limit":1}))
+                .await;
         let http = http::Server::start().await;
         let fixture = setup(remote, &model.endpoint).await;
         fixture.node.set_search_fixture(

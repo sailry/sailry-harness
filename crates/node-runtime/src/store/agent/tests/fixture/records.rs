@@ -31,29 +31,20 @@ pub(in crate::store::agent) fn message(
     )
 }
 
-pub(in crate::store::agent) fn request(
-    id: Option<&str>,
-    name: &str,
-    arguments: Value,
-) -> ToolRequest {
+pub(in crate::store::agent) fn request(id: &str, name: &str, arguments: Value) -> ToolRequest {
     ToolRequest {
-        id: id.map(str::to_owned),
+        id: id.into(),
         name: name.into(),
         arguments,
-        signature: None,
         provider: None,
         tool_meta: None,
         error: None,
     }
 }
 
-pub(in crate::store::agent) fn response(
-    id: Option<&str>,
-    name: &str,
-    value: Value,
-) -> ToolResponse {
+pub(in crate::store::agent) fn response(id: &str, name: &str, value: Value) -> ToolResponse {
     ToolResponse {
-        id: id.map(str::to_owned),
+        id: id.into(),
         name: name.into(),
         status: ToolStatus::Success,
         revision: blake3::hash(value.to_string().as_bytes())
@@ -61,7 +52,6 @@ pub(in crate::store::agent) fn response(
             .to_string(),
         result: value.into(),
         attachments: Vec::new(),
-        annotations: None,
         provider: None,
         format: ToolFormat::Json,
         meta: None,

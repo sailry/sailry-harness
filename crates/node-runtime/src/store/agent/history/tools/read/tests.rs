@@ -12,12 +12,12 @@ fn event(branch: &str, name: &str, path: Option<&str>) -> Record {
         Some(path) => (
             "assistant",
             Role::Assistant,
-            BlockKind::ToolRequest(request(Some("reused"), name, json!({"path":path}))),
+            BlockKind::ToolRequest(request("reused", name, json!({"path":path}))),
         ),
         None => (
             "tool",
             Role::User,
-            BlockKind::ToolResponse(response(Some("reused"), name, json!({"text":"result"}))),
+            BlockKind::ToolResponse(response("reused", name, json!({"text":"result"}))),
         ),
     };
     let mut event = message(author, role, vec![part]);
@@ -29,11 +29,8 @@ fn event(branch: &str, name: &str, path: Option<&str>) -> Record {
 async fn single_page_reads_skip_full_leases() {
     let mut fixture = Fixture::new().await;
     let mut result = event("main", "read", None);
-    result.message_mut().unwrap().content[0].kind = BlockKind::ToolResponse(response(
-        Some("reused"),
-        "read",
-        json!({"text":"s".repeat(1024)}),
-    ));
+    result.message_mut().unwrap().content[0].kind =
+        BlockKind::ToolResponse(response("reused", "read", json!({"text":"s".repeat(1024)})));
     let entry = result.id.clone();
     let turn = fixture
         .append([event("main", "read", Some("source.rs")), result])
@@ -171,87 +168,5 @@ async fn preserves_order_branch_and_ambiguity() {
             .unwrap()
             .arguments,
         json!({"path":"first"})
-    );
-}
-
-#[tokio::test]
-async fn skips_unrequested_call_projection() {
-    let mut fixture = Fixture::new().await;
-    let mut unrelated = [
-        event("main", "other", Some("other name")),
-        event("main", "read", Some("other id")),
-    ];
-    if let BlockKind::ToolRequest(request) =
-        &mut unrelated[1].message_mut().unwrap().content[0].kind
-    {
-        request.id = Some("unrequested".into());
-    }
-    let result = event("main", "read", None);
-    let turn = fixture
-        .append(
-            unrelated
-                .clone()
-                .into_iter()
-                .chain([event("main", "read", Some("requested")), result.clone()]),
-        )
-        .await;
-    let db = &fixture.database.connection;
-    // Unrequested native calls must not hydrate unrelated binary assets.
-    for mut record in unrelated {
-        record.turn = turn;
-        let id = record.message().unwrap().content[0].kind.clone();
-        let BlockKind::ToolRequest(request) = id else {
-            unreachable!()
-        };
-        record.message_mut().unwrap().content[0].kind = BlockKind::ServerCall {
-            value: crate::agent::canonical::Payload {
-                value: json!({"type":"web_search_call","id":request.id,"opaque":null}),
-                assets: vec![crate::agent::canonical::BinarySlot {
-                    pointer: "/opaque".into(),
-                    asset: crate::agent::canonical::AssetRef {
-                        digest: "0".repeat(64),
-                        mime: "image/png".into(),
-                        size: 1,
-                        uri: None,
-                        annotations: None,
-                    },
-                    encoding: crate::agent::canonical::BinaryEncoding::Bytes,
-                }],
-            },
-        };
-        assert_eq!(
-            db.execute(
-                "UPDATE agent_events SET body=?1 WHERE turn=?2 AND id=?3",
-                params![
-                    serde_json::to_vec(&record).unwrap(),
-                    turn.to_string(),
-                    record.id
-                ]
-            )
-            .await
-            .unwrap(),
-            1
-        );
-    }
-    let sequence = db
-        .prepare("SELECT sequence FROM agent_events WHERE turn=?1 AND json_extract(body,'$.id')=?2")
-        .await
-        .unwrap()
-        .query_row(params![turn.to_string(), result.id.clone()])
-        .await
-        .unwrap()
-        .get::<i64>(0)
-        .unwrap() as u64;
-    let result = Record { turn, ..result };
-    let sources = Sources::new(db, &[(sequence, turn, result.clone())])
-        .await
-        .unwrap();
-    assert_eq!(
-        with_sources(db, turn, sequence, &result, 0, Some(&sources))
-            .await
-            .unwrap()
-            .unwrap()
-            .arguments,
-        json!({"path":"requested"})
     );
 }

@@ -58,21 +58,19 @@ fn keeps_missing_counts_unpriced() {
 }
 
 #[test]
-fn prices_disjoint_audio_tokens() {
-    let cost = json!({"input":2,"output":8,"input_audio":20,"output_audio":40});
-    let mut usage = StoredUsage {
+fn leaves_audio_rates_unpriced() {
+    let usage = StoredUsage {
         input: Some(100),
         output: Some(50),
-        audio_input: Some(20),
-        audio_output: Some(10),
         ..Default::default()
     };
-    assert_eq!(estimate(&cost, &usage), Some(priced(560, 720, 0, 0)));
-    let mut unknown = usage.clone();
-    unknown.audio_input = None;
-    assert_eq!(estimate(&cost, &unknown), None);
-    usage.cache_read = Some(10);
-    assert_eq!(estimate(&cost, &usage), None);
+    for cost in [
+        json!({"input":2,"output":8,"input_audio":20}),
+        json!({"input":2,"output":8,"output_audio":40}),
+        json!({"input":2,"output":8,"tiers":[{"tier":{"type":"context","size":50},"input":2,"output":8,"input_audio":20}]}),
+    ] {
+        assert_eq!(estimate(&cost, &usage), None);
+    }
 }
 
 #[test]

@@ -1,9 +1,9 @@
 use crate::{
-    agent::canonical::{Attachment, BlockKind, Record, Role},
-    store::agent::{
-        blobs,
-        tests::fixture::{message, request, response},
+    agent::{
+        canonical::{BlockKind, Record, Role},
+        engine::history as conversion,
     },
+    store::agent::tests::fixture::message,
 };
 use sailry_client::Client;
 use sailry_link::{CancellationToken, Identity, Link, Local, NetworkScope};
@@ -13,7 +13,6 @@ use sailry_protocol::{
     tool::{OutputPage, OutputReference},
 };
 use std::{path::Path, sync::Arc};
-use turso::params;
 
 struct Fixture {
     profile: crate::profile::Profile,
@@ -212,30 +211,34 @@ async fn image(client: &Client, session: SessionId, image: &Image) -> Vec<u8> {
 }
 
 #[tokio::test]
-async fn preserves_upgraded_reads() {
+async fn preserves_captured_reads() {
     let directory = tempfile::tempdir().unwrap();
     let fixture = Fixture::open(directory.path()).await;
     let session = fixture.session(directory.path()).await;
     let turn = fixture.start(&fixture.local, &session).await;
-    let mut signed = request(
-        Some("saved-call"),
-        "read_file",
-        serde_json::json!({"path":"saved.txt"}),
+    use goose_provider_types::conversation::message::{Message, MessageContent};
+    use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
+    use std::collections::BTreeMap;
+
+    let mut source = Message::assistant()
+        .with_text("Before the call")
+        .with_tool_request(
+            "saved-call",
+            Ok(CallToolRequestParams::new("read_file").with_arguments(
+                serde_json::from_value(serde_json::json!({"path":"saved.txt"})).unwrap(),
+            )),
+        );
+    source.id = Some("saved-call-entry".into());
+    let MessageContent::ToolRequest(request) = &mut source.content[1] else {
+        panic!("tool request expected")
+    };
+    request.metadata = Some(
+        serde_json::from_value(serde_json::json!({
+            "thoughtSignature":"saved-signature", "opaque":{"retained":[true,2]}
+        }))
+        .unwrap(),
     );
-    signed.signature = Some("saved-signature".into());
-    let mut call = message(
-        "assistant",
-        Role::Assistant,
-        vec![
-            BlockKind::Text {
-                text: "Before the call".into(),
-            },
-            BlockKind::ToolRequest(signed),
-        ],
-    );
-    call.turn = turn;
-    call.id = "saved-call-entry".into();
-    call.provenance.branch = "saved-branch".into();
+    request.tool_meta = Some(serde_json::json!({"title":"Read saved file"}));
     let original = serde_json::json!({
         "text":"Saved result",
         "image":{"mimeType":"image/png","data":"AAEC/f7/"},
@@ -253,64 +256,42 @@ async fn preserves_upgraded_reads() {
         .await
         .unwrap();
     let transaction = db.unchecked_transaction().await.unwrap();
-    let mut payload = response(Some("saved-call"), "read_file", original.clone());
-    payload.result = blobs::capture(&transaction, original.clone())
+    let mut call = conversion::capture(&transaction, turn, &source, &BTreeMap::new())
         .await
         .unwrap();
-    payload.attachments = vec![
-        Attachment::Inline {
-            asset: blobs::put(&transaction, "audio/wav", &[4, 5])
-                .await
-                .unwrap(),
-        },
-        Attachment::Inline {
-            asset: blobs::put(&transaction, "image/png", &bytes).await.unwrap(),
-        },
-    ];
-    transaction.commit().await.unwrap();
-    drop(db);
-    let mut result = message(
-        "tool",
-        Role::User,
-        vec![
-            BlockKind::Text {
-                text: "Before the result".into(),
-            },
-            BlockKind::ToolResponse(payload),
-        ],
-    );
-    result.turn = turn;
-    result.id = "saved-result-entry".into();
+    call.provenance.branch = "saved-branch".into();
+    let mut tool_result = CallToolResult::structured(original.clone());
+    tool_result
+        .content
+        .push(ContentBlock::audio("BAU=", "audio/wav"));
+    tool_result
+        .content
+        .push(ContentBlock::image("AAEC/f7/", "image/png"));
+    let encoded = serde_json::to_value(&tool_result).unwrap();
+    let mut result_source = Message::user()
+        .with_text("Before the result")
+        .with_tool_response("saved-call", Ok(tool_result));
+    result_source.id = Some("saved-result-entry".into());
+    let mut result = conversion::capture(
+        &transaction,
+        turn,
+        &result_source,
+        &BTreeMap::from([("saved-call".into(), "read_file".into())]),
+    )
+    .await
+    .unwrap();
     result.provenance.branch = call.provenance.branch.clone();
-    // Only these stopped-profile bytes use the former persisted format.
-    let legacy = [
-        serde_json::json!({
-            "id":call.id,"timestamp":call.created,"invocation_id":turn.to_string(),
-            "author":"assistant","branch":"saved-branch",
-            "content":{"role":"model","parts":[
-                {"text":"Before the call"},
-                {"name":"read_file","args":{"path":"saved.txt"},"id":"saved-call","thought_signature":"saved-signature"}
-            ]},
-            "partial":false,"turn_complete":false,"interrupted":false,
-            "actions":{"state_delta":{},"artifact_delta":{},"skip_summarization":false,"escalate":false}
-        }),
-        serde_json::json!({
-            "id":result.id,"timestamp":result.created,"invocation_id":turn.to_string(),
-            "author":"tool","branch":"saved-branch",
-            "content":{"role":"user","parts":[
-                {"text":"Before the result"},
-                {"id":"saved-call","functionResponse":{
-                    "name":"read_file","response":original,
-                    "inline_data":[
-                        {"mime_type":"audio/wav","data":[4,5]},
-                        {"mime_type":"image/png","data":bytes}
-                    ]
-                }}
-            ]},
-            "partial":false,"turn_complete":false,"interrupted":false,
-            "actions":{"state_delta":{},"artifact_delta":{},"skip_summarization":false,"escalate":false}
-        }),
-    ].map(|value| (value["id"].as_str().unwrap().to_owned(), serde_json::to_vec_pretty(&value).unwrap()));
+    transaction.commit().await.unwrap();
+    let stored: Record = serde_json::from_slice(&serde_json::to_vec(&call).unwrap()).unwrap();
+    assert_eq!(
+        conversion::project(&db, &stored).await.unwrap().unwrap(),
+        source
+    );
+    assert_eq!(
+        conversion::project(&db, &result).await.unwrap().unwrap(),
+        result_source
+    );
+    drop(db);
     let sessions = fixture.store.ingress.sessions(turn);
     for event in [call, result] {
         sessions
@@ -321,12 +302,12 @@ async fn preserves_upgraded_reads() {
     drop(sessions);
     let reference = OutputReference {
         call: "saved-call".into(),
-        revision: blake3::hash(original.to_string().as_bytes())
+        revision: blake3::hash(encoded.to_string().as_bytes())
             .to_hex()
             .to_string(),
     };
     let expected_output = output(&fixture.local, turn, &reference).await;
-    assert_eq!(expected_output.text, original.to_string());
+    assert_eq!(expected_output.text, encoded.to_string());
     assert_eq!(expected_output.turn, turn);
     fixture.finish(turn).await;
     let expected = history(&fixture.local, session.id).await;
@@ -340,7 +321,7 @@ async fn preserves_upgraded_reads() {
         .iter()
         .find(|entry| entry.id == "saved-result-entry")
         .unwrap();
-    assert_eq!(entry.author, "tool");
+    assert_eq!(entry.author, "assistant");
     assert_eq!(entry.branch, "saved-branch");
     let Part::ToolResult { id, images, .. } = &entry.parts[1] else {
         panic!("tool result expected at its original slot")
@@ -349,37 +330,9 @@ async fn preserves_upgraded_reads() {
     let saved_image = images.first().unwrap().clone();
     assert_eq!(saved_image.entry, "saved-result-entry");
     assert_eq!(saved_image.part, 1);
-    assert_eq!(saved_image.index, 1);
+    assert_eq!(saved_image.index, 0);
     assert_eq!(image(&fixture.local, session.id, &saved_image).await, bytes);
     fixture.close().await;
-
-    // Only the isolated, stopped profile is changed into the old persisted format.
-    {
-        let database =
-            crate::store::database::engine(&directory.path().join("node/storage/node.turso"))
-                .await
-                .unwrap();
-        let db = crate::store::database::connect(&database).await.unwrap();
-        for (id, body) in legacy {
-            assert_eq!(
-                db.execute(
-                    "UPDATE agent_events SET body=?1 WHERE turn=?2 AND id=?3",
-                    params![body.as_slice(), turn.to_string(), id],
-                )
-                .await
-                .unwrap(),
-                1
-            );
-        }
-        db.execute_batch(
-            "DROP INDEX agent_usage; DROP INDEX agent_usage_time; DROP TABLE agent_blobs",
-        )
-        .await
-        .unwrap();
-        db.execute_batch(include_str!("../../../database/schema/upgrades/usage.sql"))
-            .await
-            .unwrap();
-    }
 
     let fixture = Fixture::open(directory.path()).await;
     for client in [&fixture.local, &fixture.remote] {
@@ -387,7 +340,7 @@ async fn preserves_upgraded_reads() {
         assert_eq!(image(client, session.id, &saved_image).await, bytes);
     }
     for client in [&fixture.local, &fixture.remote] {
-        // Output reads belong to the active caller's invocation, even for old results.
+        // Output reads belong to the active caller's invocation after restart.
         let consumer = fixture.start(client, &session).await;
         assert_eq!(output(client, consumer, &reference).await, expected_output);
         fixture.finish(consumer).await;

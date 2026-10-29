@@ -18,7 +18,7 @@ mod delegation;
 pub mod details;
 mod goals;
 mod memory;
-pub mod phases;
+pub mod progress;
 pub mod streaming;
 mod terminal;
 pub mod web_search;
@@ -77,7 +77,7 @@ enum Reply {
         delegation: bool,
     },
     WebSearch(Option<Arc<tokio::sync::Notify>>),
-    Phases(Option<(String, Value)>),
+    Progress(Option<(String, Value)>),
     EmptyAfterTool,
     EmptyResponse,
     Text {
@@ -124,12 +124,12 @@ impl Server {
     pub async fn terminal() -> Self {
         Self::serve(Reply::Terminal).await
     }
-    pub async fn phases_with_tool(name: &str, arguments: Value) -> Self {
-        Self::serve(Reply::Phases(Some((name.into(), arguments)))).await
+    pub async fn progress_with_tool(name: &str, arguments: Value) -> Self {
+        Self::serve(Reply::Progress(Some((name.into(), arguments)))).await
     }
 
-    pub async fn phases() -> Self {
-        Self::serve(Reply::Phases(None)).await
+    pub async fn progress() -> Self {
+        Self::serve(Reply::Progress(None)).await
     }
 
     pub async fn empty_after_tool() -> Self {
@@ -743,11 +743,11 @@ async fn respond(
         }
         if matches!(reply, Reply::EmptyAfterTool) {
             records.lock().unwrap().push(body.clone());
-            return phases::respond_empty(stream, &body).await;
+            return progress::respond_empty(stream, &body).await;
         }
-        if let Reply::Phases(tool) = reply {
+        if let Reply::Progress(tool) = reply {
             records.lock().unwrap().push(body.clone());
-            return phases::respond(stream, &body, tool).await;
+            return progress::respond(stream, &body, tool).await;
         }
         if let Reply::WebSearch(finish) = reply {
             records.lock().unwrap().push(body.clone());

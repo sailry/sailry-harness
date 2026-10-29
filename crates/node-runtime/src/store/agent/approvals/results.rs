@@ -41,10 +41,9 @@ pub(crate) fn enrich(content: &mut crate::agent::canonical::Message, denials: &[
     for part in &mut content.content {
         if let BlockKind::ToolResponse(response) = &mut part.kind
             && response.format == ToolFormat::Json
-            && let Some(id) = &response.id
             && let Some(denial) = denials
                 .iter()
-                .find(|denial| &denial.call == id && denial.tool == response.name)
+                .find(|denial| denial.call == response.id && denial.tool == response.name)
         {
             let value = serde_json::json!({"error":format!("Tool execution was denied. Reason: {}",denial.reason)});
             response.revision = blake3::hash(value.to_string().as_bytes())
@@ -94,7 +93,7 @@ mod tests {
                 .map(|(index, (id, tool))| Block {
                     index,
                     kind: BlockKind::ToolResponse(response(
-                        Some(id),
+                        id,
                         tool,
                         serde_json::json!({"error":"denied"}),
                     )),

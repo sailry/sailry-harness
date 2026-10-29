@@ -77,21 +77,11 @@ fn estimate(cost: &Value, usage: &StoredUsage) -> Option<Cost> {
     let read = usage.cache_read.unwrap_or(0);
     let write = usage.cache_write.unwrap_or(0);
     let reasoning = usage.reasoning.unwrap_or(0);
-    let audio_input = usage.audio_input.unwrap_or(0);
-    let audio_output = usage.audio_output.unwrap_or(0);
-    // Audio and cached counts may overlap; the normalized aggregate cannot price that split.
-    if audio_input > 0 && (read > 0 || write > 0) {
-        return None;
-    }
-    let plain_input = input
-        .checked_sub(read)?
-        .checked_sub(write)?
-        .checked_sub(audio_input)?;
-    let plain_output = output.checked_sub(reasoning)?.checked_sub(audio_output)?;
+    let plain_input = input.checked_sub(read)?.checked_sub(write)?;
+    let plain_output = output.checked_sub(reasoning)?;
     let cost = tier(cost, input)?;
-    if (cost.get("input_audio").is_some() && usage.audio_input.is_none())
-        || (cost.get("output_audio").is_some() && usage.audio_output.is_none())
-    {
+    // Provider counters do not expose an audio/text split for these catalog rates.
+    if cost.get("input_audio").is_some() || cost.get("output_audio").is_some() {
         return None;
     }
     micros(cost.get("input")?.as_f64()?)?;
@@ -103,8 +93,6 @@ fn estimate(cost: &Value, usage: &StoredUsage) -> Option<Cost> {
         (read, "cache_read", None, 2),
         (write, "cache_write", None, 3),
         (reasoning, "reasoning", Some("output"), 1),
-        (audio_input, "input_audio", None, 0),
-        (audio_output, "output_audio", None, 1),
     ] {
         if count == 0 {
             continue;

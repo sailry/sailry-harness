@@ -5,10 +5,7 @@ pub fn terminal_interaction(name: &str) -> bool {
     matches!(name, "ask_user" | "plan_review" | "mcp_elicitation")
 }
 
-pub fn is_work(part: &Part, commentary: bool) -> bool {
-    if commentary {
-        return true;
-    }
+pub fn is_work(part: &Part) -> bool {
     match part {
         Part::Text(_) | Part::Image(_) | Part::Attachment(_) | Part::Reference(_) => false,
         Part::ToolCall { name, .. } | Part::ToolResult { name, .. } => !terminal_interaction(name),
@@ -56,11 +53,8 @@ mod tests {
                 },
                 Part::Resource(json!({"type":"provider_context"})),
             ];
-            assert_eq!(boundary(parts.iter().map(|part| is_work(part, false))), 1);
-            assert_eq!(
-                boundary(parts[1..].iter().map(|part| is_work(part, false))),
-                0
-            );
+            assert_eq!(boundary(parts.iter().map(is_work)), 1);
+            assert_eq!(boundary(parts[1..].iter().map(is_work)), 0);
         }
     }
 
@@ -76,6 +70,6 @@ mod tests {
             },
             Part::Text("Final answer".into()),
         ];
-        assert_eq!(boundary(parts.iter().map(|part| is_work(part, false))), 2);
+        assert_eq!(boundary(parts.iter().map(is_work)), 2);
     }
 }

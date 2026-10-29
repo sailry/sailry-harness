@@ -88,9 +88,8 @@ pub(crate) async fn validate(db: &Connection, record: &Record) -> Result<(), Fau
             BlockKind::Image { asset } | BlockKind::Document { asset } => check(db, asset).await?,
             BlockKind::ToolResponse(response) => {
                 for attachment in &response.attachments {
-                    if let Attachment::Inline { asset } = attachment {
-                        check(db, asset).await?;
-                    }
+                    let Attachment::Inline { asset } = attachment;
+                    check(db, asset).await?;
                 }
                 check_payload(db, &response.result).await?;
                 let original = hydrate(db, &response.result).await?;
@@ -101,11 +100,6 @@ pub(crate) async fn validate(db: &Connection, record: &Record) -> Result<(), Fau
                 {
                     return Err(Fault::invalid("tool output revision is invalid"));
                 }
-            }
-            BlockKind::ServerCall { value }
-            | BlockKind::ServerResponse { value }
-            | BlockKind::Resource { value } => {
-                check_payload(db, value).await?;
             }
             _ => {}
         }

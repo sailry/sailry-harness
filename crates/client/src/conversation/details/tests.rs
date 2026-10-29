@@ -111,7 +111,6 @@ impl Backend {
                 usage: None,
                 citations: vec![],
                 search_suggestions: None,
-                commentary: Default::default(),
                 parts: vec![Part::ToolResult {
                     id: self.reference.call.clone(),
                     name: "fixture".into(),

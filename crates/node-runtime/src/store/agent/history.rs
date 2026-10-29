@@ -22,25 +22,9 @@ pub(super) const VISIBLE_EVENT: &str = "CASE WHEN json_extract(e.body,'$.kind')=
        json_extract(e.body,'$.metadata.runtime.user_visible'),1) END";
 #[cfg(test)]
 mod tests;
-mod web_search;
 const APPLICATION_STATE: &str = "app:";
 const USER_STATE: &str = "user:";
 const TEMP_STATE: &str = "temp:";
-
-pub(super) fn commentary(value: &Value) -> Option<String> {
-    if value["type"] != "message" || value["phase"] != "commentary" {
-        return None;
-    }
-    Some(
-        value["content"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|part| part["type"] == "output_text")
-            .filter_map(|part| part["text"].as_str())
-            .collect(),
-    )
-}
 
 pub(super) async fn append(
     database: &mut Database,
@@ -941,7 +925,6 @@ async fn project_with_sources(
     sources: Option<&tools::Sources>,
 ) -> Result<Entry, Fault> {
     let references = super::references::project(event)?;
-    let displays = super::presentation::displays(event)?;
     let failures = super::presentation::failures(event)?;
     let input = event.metadata.input.as_ref();
     let skipped = usize::from(!references.is_empty())
@@ -949,7 +932,6 @@ async fn project_with_sources(
     let hidden = event.provenance.author == "system"
         && event.context().is_some_and(|context| context.captured);
     let capability_part = input.and_then(|input| input.capability_part);
-    let mut commentary = BTreeMap::new();
     let mut parts = Vec::new();
     if !hidden {
         if let Some(message) = event.message() {
@@ -990,33 +972,12 @@ async fn project_with_sources(
                         }
                         Part::Attachment(attachment)
                     }
-                    BlockKind::File { file } => {
-                        let mut value =
-                            serde_json::json!({"file_uri":file.uri,"mime_type":file.mime});
-                        if let Some(annotations) = &file.annotations {
-                            value["annotations"] = annotations.clone();
-                        }
-                        Part::Resource(value)
-                    }
+                    BlockKind::File { file } => Part::Resource(
+                        serde_json::json!({"file_uri":file.uri,"mime_type":file.mime}),
+                    ),
                     BlockKind::Thinking { text, .. } => Part::Thinking(text.clone()),
                     BlockKind::RedactedThinking { .. } => {
                         Part::Resource(serde_json::json!({"type":"provider_context"}))
-                    }
-                    BlockKind::ServerCall { value } => {
-                        let value = super::blobs::hydrate(db, value).await?;
-                        if let Some(text) = self::commentary(&value) {
-                            commentary.insert(
-                                index - skipped,
-                                value["id"].as_str().unwrap_or(&event.id).to_owned(),
-                            );
-                            Part::Text(text)
-                        } else {
-                            web_search::call(&value, displays.get("web_search"))
-                                .map(tools::Raw::part)
-                                .unwrap_or_else(|| {
-                                    Part::Resource(serde_json::json!({"server_tool_call":value}))
-                                })
-                        }
                     }
                     BlockKind::ToolRequest(_) => {
                         tools::with_sources(db, turn, sequence, event, index, sources)
@@ -1030,34 +991,8 @@ async fn project_with_sources(
                             .ok_or_else(|| Fault::invalid("tool result projection is missing"))?
                             .part()
                     }
-                    BlockKind::ServerResponse { value } => {
-                        let value = super::blobs::hydrate(db, value).await?;
-                        if value["type"] == "anthropic_message" {
-                            Part::Resource(serde_json::json!({"type":"provider_context"}))
-                        } else {
-                            tools::with_sources(db, turn, sequence, event, index, sources)
-                                .await?
-                                .map(tools::Raw::part)
-                                .unwrap_or_else(|| {
-                                    Part::Resource(
-                                        serde_json::json!({"server_tool_response":value}),
-                                    )
-                                })
-                        }
-                    }
-                    BlockKind::Resource { value } => Part::Resource(
-                        serde_json::json!({"resource":super::blobs::hydrate(db, value).await?}),
-                    ),
                 };
                 parts.push(part);
-            }
-            for block in &message.content {
-                if let BlockKind::ServerCall { value } = &block.kind {
-                    let value = super::blobs::hydrate(db, value).await?;
-                    if let Some(raw) = web_search::result(&value, displays.get("web_search")) {
-                        parts.push(raw.part());
-                    }
-                }
             }
         }
         if let Kind::Compaction(summary) = &event.kind {
@@ -1126,7 +1061,6 @@ async fn project_with_sources(
         author: event.provenance.author.clone(),
         branch: event.provenance.branch.clone(),
         timestamp_ms: event.created.timestamp_millis(),
-        commentary,
         citations: event.message().map(citations::project).unwrap_or_default(),
         search_suggestions: event
             .message()

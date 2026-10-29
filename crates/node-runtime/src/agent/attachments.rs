@@ -68,7 +68,6 @@ pub(super) async fn message(
             file: FileRef {
                 uri: format!("{PREFIX}{id}"),
                 mime: Some(attachment.spec.media_type),
-                annotations: None,
             },
         });
     }

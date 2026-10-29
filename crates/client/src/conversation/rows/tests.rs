@@ -69,50 +69,7 @@ fn snapshot(turn: TurnId, parts: Vec<Part>) -> Snapshot {
                 usage: None,
                 citations: vec![],
                 search_suggestions: Some("Search suggestion markup".into()),
-                commentary: Default::default(),
             }],
         }),
     }
-}
-
-#[test]
-fn keeps_phase_boundaries_after_rebuild() {
-    let turn = TurnId::new();
-    let mut snapshot = snapshot(
-        turn,
-        vec![
-            Part::Text("Checking ".into()),
-            Part::Text("the file.".into()),
-            Part::Text("Here is the answer".into()),
-        ],
-    );
-    Arc::make_mut(&mut snapshot.page).entries[0].commentary =
-        [(0, "msg-progress".into()), (1, "msg-progress".into())].into();
-    let text = |snapshot: &Snapshot| {
-        collect(snapshot, &[], turn)
-            .into_iter()
-            .map(|row| row.text.unwrap())
-            .collect::<Vec<_>>()
-    };
-    let rows = collect(&snapshot, &[], turn);
-    assert!(rows[0].commentary);
-    assert!(!rows[1].commentary);
-    let serialized = serde_json::to_value(&rows).unwrap();
-    assert_eq!(serialized[0]["work"], true);
-    assert_eq!(serialized[1]["work"], false);
-    assert!(!rows[0].text_last);
-    assert_eq!(rows[1].text_offset, 0);
-    assert!(rows[1].text_last);
-    let committed = text(&snapshot);
-    assert_eq!(committed, ["Checking the file.", "Here is the answer"]);
-    let entry = Arc::make_mut(&mut snapshot.page).entries.pop().unwrap();
-    snapshot.drafts.push(sailry_protocol::conversation::Draft {
-        id: entry.id,
-        turn,
-        author: entry.author,
-        branch: entry.branch,
-        parts: entry.parts,
-        commentary: entry.commentary,
-    });
-    assert_eq!(text(&snapshot), committed);
 }

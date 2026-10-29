@@ -20,7 +20,7 @@ pub struct Summary {
     pub compactions: u64,
     pub tools: BTreeMap<String, u64>,
     pub children: u64,
-    /// Unknown when older canonical responses did not retain cache metadata.
+    /// Unknown when the provider does not report cache metadata.
     pub cache_read: Option<u64>,
     pub reasoning: Option<u64>,
     /// Sum of recorded model intervals, including failed attempts but not backoff.
@@ -65,9 +65,9 @@ pub struct Attempt {
     pub index: u64,
     pub transport: String,
     pub reused: Option<bool>,
-    /// Actual response headers, including a WebSocket's initial upgrade only.
+    /// Actual HTTP response headers, when exposed by the provider.
     pub headers_us: Option<u64>,
-    /// HTTP response headers or the first WebSocket response frame, not success.
+    /// The first HTTP response, regardless of its status.
     #[serde(default)]
     pub response_us: Option<u64>,
     pub first_text_us: Option<u64>,
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn defaults_unrecorded_response_time() {
         let wire = serde_json::json!({
-            "index": 1, "transport": "web_socket", "reused": true,
+            "index": 1, "transport": "http", "reused": false,
             "headers_us": null, "first_text_us": 40, "elapsed_us": 50,
             "status": null, "outcome": "succeeded", "categories": [],
             "complete_context": true, "usage": null,

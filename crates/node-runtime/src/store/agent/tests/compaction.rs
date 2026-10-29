@@ -242,7 +242,7 @@ async fn retains_canonical_owner_sources() {
             "skill":"fixture:review","path":"reference.md","content":"Exact loaded resource"
         })),
     ].into_iter().map(|(id, name, value)| {
-        BlockKind::ToolResponse(response(Some(id), name, value))
+        BlockKind::ToolResponse(response(id, name, value))
     }).collect());
     let selected = capability("Exact selected skill workflow");
     let anchor = event("Completed source evidence");
@@ -560,7 +560,7 @@ async fn retains_capabilities_around_the_boundary() {
         "assistant",
         Role::Assistant,
         vec![BlockKind::ToolRequest(request(
-            Some("boundary-read"),
+            "boundary-read",
             "read_file",
             json!({"path":"fixture.txt"}),
         ))],
@@ -569,7 +569,7 @@ async fn retains_capabilities_around_the_boundary() {
         "tool",
         Role::User,
         vec![BlockKind::ToolResponse(response(
-            Some("boundary-read"),
+            "boundary-read",
             "read_file",
             json!({"content":"Earlier completed evidence"}),
         ))],
@@ -829,7 +829,7 @@ async fn retains_tool_batches() {
         "assistant",
         Role::Assistant,
         ["first", "second"]
-            .map(|id| BlockKind::ToolRequest(request(Some(id), "read_file", json!({"path":id}))))
+            .map(|id| BlockKind::ToolRequest(request(id, "read_file", json!({"path":id}))))
             .to_vec(),
     );
     call.turn = turn;
@@ -838,7 +838,7 @@ async fn retains_tool_batches() {
             "tool",
             Role::User,
             vec![BlockKind::ToolResponse(response(
-                Some(id),
+                id,
                 "read_file",
                 json!({"content":id}),
             ))],

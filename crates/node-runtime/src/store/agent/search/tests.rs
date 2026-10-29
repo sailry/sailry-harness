@@ -82,7 +82,7 @@ async fn matches_literal_unicode() {
         canonical::Role::Assistant,
         vec![
             BlockKind::ToolRequest(fixture::request(
-                Some("search-call"),
+                "search-call",
                 "hidden-marker",
                 json!({"text":"hidden-marker"}),
             )),

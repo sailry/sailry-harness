@@ -26,14 +26,8 @@ impl Sources {
                 .flat_map(|message| &message.content)
             {
                 let identity = match &block.kind {
-                    BlockKind::ToolResponse(response) => response
-                        .id
-                        .as_ref()
-                        .map(|id| (id.clone(), response.name.clone())),
-                    BlockKind::ServerResponse { value } => {
-                        let value = super::super::super::blobs::hydrate(db, value).await?;
-                        super::super::web_search::response(&value)
-                            .and_then(|raw| raw.id.map(|id| (id, raw.name)))
+                    BlockKind::ToolResponse(response) => {
+                        Some((response.id.clone(), response.name.clone()))
                     }
                     _ => None,
                 };
@@ -61,7 +55,7 @@ impl Sources {
              JOIN json_each(?1) bound ON e.turn=json_extract(bound.value,'$.turn')
                 AND e.sequence<=json_extract(bound.value,'$.sequence')
              WHERE EXISTS(SELECT 1 FROM json_each(e.body,'$.content') part
-                WHERE json_extract(part.value,'$.type') IN ('tool_request','server_call'))
+                WHERE json_extract(part.value,'$.type')='tool_request')
              ORDER BY e.sequence",
             )
             .await
@@ -86,18 +80,8 @@ impl Sources {
                 .flat_map(|message| &message.content)
             {
                 let identity = match &block.kind {
-                    BlockKind::ToolRequest(request) => request
-                        .id
-                        .as_ref()
-                        .map(|id| (id.clone(), request.name.clone())),
-                    BlockKind::ServerCall { value }
-                        if value.value["type"] == "web_search_call"
-                            || value.value["name"] == "web_search"
-                                && value.value.get("input").is_some() =>
-                    {
-                        value.value["id"]
-                            .as_str()
-                            .map(|id| (id.to_owned(), "web_search".into()))
+                    BlockKind::ToolRequest(request) => {
+                        Some((request.id.clone(), request.name.clone()))
                     }
                     _ => None,
                 };
@@ -122,12 +106,12 @@ impl Sources {
         turn: TurnId,
         sequence: u64,
         branch: &str,
-        id: Option<&str>,
+        id: &str,
         name: &str,
     ) -> Option<Raw> {
         let mut calls = self
             .calls
-            .get(&(turn, branch.to_owned(), id?.to_owned(), name.to_owned()))?
+            .get(&(turn, branch.to_owned(), id.to_owned(), name.to_owned()))?
             .iter()
             .filter(|raw| raw.source.is_some_and(|source| source <= sequence));
         let source = calls.next()?;
@@ -272,23 +256,8 @@ pub(in crate::store::agent) async fn with_sources(
         let Some(derived_index) = index.checked_sub(part_count) else {
             return Ok(None);
         };
-        let displays = super::super::super::presentation::displays(event)?;
-        let mut web = Vec::new();
-        for block in parts {
-            if let BlockKind::ServerCall { value } = &block.kind {
-                let value = super::super::super::blobs::hydrate(db, value).await?;
-                if let Some(raw) =
-                    super::super::web_search::result(&value, displays.get("web_search"))
-                {
-                    web.push(raw);
-                }
-            }
-        }
-        if derived_index < web.len() {
-            return Ok(web.into_iter().nth(derived_index));
-        }
-        let Some(derived_index) = derived_index
-            .checked_sub(web.len() + usize::from(matches!(&event.kind, Kind::Compaction(_))))
+        let Some(derived_index) =
+            derived_index.checked_sub(usize::from(matches!(&event.kind, Kind::Compaction(_))))
         else {
             return Ok(None);
         };
@@ -307,50 +276,19 @@ pub(in crate::store::agent) async fn with_sources(
             response.format,
             super::super::super::images::project(db, turn, event, index, response).await?,
         ),
-        BlockKind::ServerResponse { value } => {
-            let value = super::super::super::blobs::hydrate(db, value).await?;
-            let Some(raw) = super::super::web_search::response(&value) else {
-                return Ok(None);
-            };
-            (
-                raw.id,
-                raw.name,
-                raw.result.unwrap_or(Value::Null),
-                raw.format,
-                Vec::new(),
-            )
-        }
         _ => return Ok(None),
     };
     let mut raw = match sources {
-        Some(sources) => sources.source(
-            turn,
-            sequence,
-            &event.provenance.branch,
-            id.as_deref(),
-            &name,
-        ),
-        None => {
-            source(
-                db,
-                turn,
-                sequence,
-                &event.provenance.branch,
-                id.as_deref(),
-                &name,
-            )
-            .await?
-        }
+        Some(sources) => sources.source(turn, sequence, &event.provenance.branch, &id, &name),
+        None => source(db, turn, sequence, &event.provenance.branch, &id, &name).await?,
     }
-    .unwrap_or_else(|| Raw::new(id.clone(), name.clone(), Value::Null));
+    .unwrap_or_else(|| Raw::new(Some(id.clone()), name.clone(), Value::Null));
     raw.result = Some(result);
     raw.format = format;
     raw.images = images;
     raw.failure = super::super::super::presentation::failures(event)?
         .into_iter()
-        .find(|failure| {
-            failure.index == index && Some(&failure.id) == id.as_ref() && failure.name == name
-        })
+        .find(|failure| failure.index == index && failure.id == id && failure.name == name)
         .map(|failure| failure.failure);
     Ok(Some(raw))
 }
@@ -365,20 +303,12 @@ async fn call(
     let mut raw = match &block.kind {
         BlockKind::ToolRequest(request) => {
             let mut raw = Raw::new(
-                request.id.clone(),
+                Some(request.id.clone()),
                 request.name.clone(),
                 super::super::credentials::project(db, turn, &request.name, &request.arguments)
                     .await?,
             );
             raw.display = displays.get(&request.name).cloned();
-            raw
-        }
-        BlockKind::ServerCall { value } => {
-            let value = super::super::super::blobs::hydrate(db, value).await?;
-            let Some(raw) = super::super::web_search::call(&value, displays.get("web_search"))
-            else {
-                return Ok(None);
-            };
             raw
         }
         _ => return Ok(None),
@@ -399,18 +329,14 @@ async fn source(
     turn: TurnId,
     sequence: u64,
     branch: &str,
-    id: Option<&str>,
+    id: &str,
     name: &str,
 ) -> Result<Option<Raw>, Fault> {
-    let Some(id) = id else {
-        return Ok(None);
-    };
     let mut statement = db.prepare(
         "SELECT sequence,body FROM agent_events WHERE turn=?1 AND sequence<=?2
          AND json_extract(body,'$.provenance.branch')=?3 AND EXISTS(
             SELECT 1 FROM json_each(body,'$.content') part
-            WHERE (json_extract(part.value,'$.type')='tool_request' AND json_extract(part.value,'$.id')=?4 AND json_extract(part.value,'$.name')=?5)
-               OR (json_extract(part.value,'$.type')='server_call' AND json_extract(part.value,'$.value.value.id')=?4))
+            WHERE json_extract(part.value,'$.type')='tool_request' AND json_extract(part.value,'$.id')=?4 AND json_extract(part.value,'$.name')=?5)
          ORDER BY sequence DESC"
     ).await.map_err(storage_error)?;
     let mut rows = statement

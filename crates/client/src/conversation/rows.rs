@@ -17,7 +17,6 @@ pub struct Row<'a> {
     pub text_offset: usize,
     pub text_last: bool,
     pub continuation: bool,
-    pub commentary: bool,
     pub entry: Option<&'a Entry>,
 }
 
@@ -29,7 +28,7 @@ impl Serialize for Row<'_> {
             (_, Some(text), Part::Thinking(_)) => Cow::Owned(Part::Thinking(text.clone())),
             _ => Cow::Borrowed(self.part),
         };
-        let mut row = serializer.serialize_struct("Row", 9)?;
+        let mut row = serializer.serialize_struct("Row", 8)?;
         row.serialize_field("source", &self.source)?;
         row.serialize_field("draft", &self.draft)?;
         row.serialize_field("end", &self.end)?;
@@ -37,11 +36,7 @@ impl Serialize for Row<'_> {
         row.serialize_field("text_offset", &self.text_offset)?;
         row.serialize_field("text_last", &self.text_last)?;
         row.serialize_field("continuation", &self.continuation)?;
-        row.serialize_field("commentary", &self.commentary)?;
-        row.serialize_field(
-            "work",
-            &super::reply::is_work(part.as_ref(), self.commentary),
-        )?;
+        row.serialize_field("work", &super::reply::is_work(part.as_ref()))?;
         row.end()
     }
 }
@@ -57,35 +52,19 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
         .entries
         .iter()
         .filter(|entry| entry.turn == turn && entry.author != "user")
-        .map(|entry| {
-            (
-                entry.id.as_str(),
-                entry.parts.as_slice(),
-                &entry.commentary,
-                Some(entry),
-            )
-        })
+        .map(|entry| (entry.id.as_str(), entry.parts.as_slice(), Some(entry)))
         .chain(
             snapshot
                 .drafts
                 .iter()
                 .filter(|draft| draft.turn == turn && draft.author != "user")
-                .map(|draft| {
-                    (
-                        draft.id.as_str(),
-                        draft.parts.as_slice(),
-                        &draft.commentary,
-                        None,
-                    )
-                }),
+                .map(|draft| (draft.id.as_str(), draft.parts.as_slice(), None)),
         );
     let mut rows: Vec<Row<'a>> = Vec::new();
-    for (id, parts, commentary, entry) in entries {
+    for (id, parts, entry) in entries {
         let mut index = 0;
         let mut offset = 0;
-        let last = parts.iter().enumerate().rposition(|(index, part)| {
-            matches!(part, Part::Text(_)) && !commentary.contains_key(&index)
-        });
+        let last = parts.iter().rposition(|part| matches!(part, Part::Text(_)));
         while index < parts.len() {
             let start = index;
             let part = &parts[index];
@@ -97,7 +76,6 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
                     index: start,
                 },
                 draft: entry.is_none(),
-                commentary: commentary.contains_key(&start),
                 end: index,
                 part,
                 image: None,
@@ -112,9 +90,6 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
             if let Part::Text(text) | Part::Thinking(text) = part {
                 let mut joined = text.clone();
                 while index < parts.len() {
-                    if commentary.get(&start) != commentary.get(&index) {
-                        break;
-                    }
                     match (part, &parts[index]) {
                         (Part::Text(_), Part::Text(next))
                         | (Part::Thinking(_), Part::Thinking(next)) => joined.push_str(next),
@@ -123,12 +98,9 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
                     index += 1;
                 }
                 row.end = index;
-                row.text_last = !commentary.contains_key(&start)
-                    && last.is_some_and(|last| last >= start && last < index);
+                row.text_last = last.is_some_and(|last| last >= start && last < index);
                 if matches!(part, Part::Text(_)) {
-                    if !commentary.contains_key(&start) {
-                        offset += joined.chars().count();
-                    }
+                    offset += joined.chars().count();
                     if joined.trim().is_empty() {
                         continue;
                     }
@@ -140,7 +112,6 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
                     rows.push(Row {
                         source: row.source.clone(),
                         draft: row.draft,
-                        commentary: row.commentary,
                         end: row.end,
                         part,
                         image: Some(image),

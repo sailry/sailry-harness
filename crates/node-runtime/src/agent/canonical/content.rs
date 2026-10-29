@@ -36,27 +36,13 @@ pub(crate) enum BlockKind {
         #[serde(default)]
         before: Vec<Option<usize>>,
     },
-    /// Public native tool records remain readable after their transport is retired.
-    ServerCall {
-        value: Payload,
-    },
-    ServerResponse {
-        value: Payload,
-    },
-    Resource {
-        value: Payload,
-    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ToolRequest {
-    /// Old nullable call identities remain displayable; new engine calls require an id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: String,
     pub name: String,
     pub arguments: Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
     /// GDK's provider-owned ToolRequest.metadata must round-trip unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<Map<String, Value>>,
@@ -76,8 +62,7 @@ pub(crate) struct ToolError {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ToolResponse {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: String,
     pub name: String,
     pub status: ToolStatus,
     /// Original JSON is stored once; known binary slots are externalized below.
@@ -86,8 +71,6 @@ pub(crate) struct ToolResponse {
     pub revision: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Attachment>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub annotations: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<Map<String, Value>>,
     #[serde(default, skip_serializing_if = "ToolFormat::is_json")]
@@ -117,16 +100,12 @@ impl ToolFormat {
 pub(crate) enum ToolStatus {
     Success,
     Error,
-    Pending,
-    Cancelled,
-    Unknown,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum Attachment {
     Inline { asset: AssetRef },
-    File { file: FileRef },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,8 +124,6 @@ pub(crate) struct FileRef {
     pub uri: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mime: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub annotations: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

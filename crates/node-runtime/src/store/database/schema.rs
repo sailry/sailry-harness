@@ -1,6 +1,7 @@
 //! Synchronize the current native schema without importing another database format.
 pub(in crate::store) mod backup;
 mod definition;
+mod legacy;
 mod plan;
 #[cfg(test)]
 mod tests;
@@ -60,11 +61,16 @@ enum State {
     Fresh,
     Current,
     Update(plan::Plan),
+    Legacy,
 }
 
 impl Schema {
     pub(super) fn needs_update(&self) -> bool {
         matches!(self.state, State::Update(_))
+    }
+
+    pub(super) fn needs_rebuild(&self) -> bool {
+        matches!(self.state, State::Legacy)
     }
 
     /// The bootstrap owner supplies the transaction and owns rehearsal and backup.
@@ -76,6 +82,11 @@ impl Schema {
                 upgrades::apply(connection).await?;
             }
             State::Current => {}
+            State::Legacy => {
+                return Err(Error::Worker(
+                    "legacy Node storage requires a private backup and an empty database".into(),
+                ));
+            }
         }
         if matches!(&self.state, State::Update(plan) if plan.adds("database_profiles", "password_target"))
         {
@@ -137,6 +148,13 @@ pub(super) async fn prepare(
     let fresh = ownership(connection, path).await?;
     if !fresh {
         identity(connection, path, node).await?;
+        if legacy::detected(connection).await? {
+            return Ok(Schema {
+                state: State::Legacy,
+                expected: Objects::new(),
+                path: path.to_owned(),
+            });
+        }
     }
     let values = if fresh {
         None

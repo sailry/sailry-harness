@@ -704,7 +704,7 @@ pub(in crate::store) async fn request(
     };
     Ok(ToolIdentity {
         name: call.name.clone(),
-        id: call.id.clone(),
+        id: Some(call.id.clone()),
         arguments: call.arguments.clone(),
     })
 }

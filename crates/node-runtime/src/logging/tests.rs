@@ -55,6 +55,34 @@ fn filters_payloads_and_upstream_events() {
 }
 
 #[test]
+fn records_private_rebuild_location() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
+    let node = sailry_protocol::NodeId([47; 32]);
+    let backup = PathBuf::from(format!(
+        "/private/工作\n{}/backups/node-before-upgrade-fixture/node.turso",
+        "x".repeat(300)
+    ));
+    tracing::dispatcher::with_default(&dispatch, || {
+        database_rebuild(node, &backup);
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["area"], "node");
+    assert_eq!(records[0]["operation"], "database_rebuild");
+    assert_eq!(records[0]["node"], node.to_string());
+    assert_eq!(records[0]["backup_path"], backup.to_str().unwrap());
+}
+
+#[test]
 fn records_typed_artifact_metadata() {
     let directory = tempfile::tempdir().unwrap();
     let (writer, worker) = writer(

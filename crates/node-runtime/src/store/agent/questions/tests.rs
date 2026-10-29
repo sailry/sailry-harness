@@ -127,7 +127,7 @@ impl Fixture {
             "assistant",
             MessageRole::Assistant,
             vec![BlockKind::ToolRequest(tool_request(
-                self.request.id.as_deref(),
+                self.request.id.as_deref().expect("call identity"),
                 &self.request.name,
                 self.request.arguments.clone(),
             ))],

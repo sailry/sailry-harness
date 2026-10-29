@@ -62,7 +62,7 @@ async fn retains_empty_completion_and_hook_failure() {
             },
         )
         .await;
-        std::fs::write(fixture.root.join("phase.txt"), "canonical file result").unwrap();
+        std::fs::write(fixture.root.join("progress.txt"), "canonical file result").unwrap();
         enable_end(&fixture, "completed").await;
 
         let (request, turn) = submit(&fixture).await;

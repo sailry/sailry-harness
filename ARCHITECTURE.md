@@ -355,13 +355,14 @@ digest. Record references retain MIME type, size and original position. Structur
 tool JSON stores references for declared binary fields and hydrates the exact JSON
 for public output pages, immutable revisions and artifact receipts. Records and
 their blobs commit in the existing history transaction; exported asset indexes and
-UI rows remain rebuildable projections. Startup alone converts former ADK event
-bytes into this format using a finite Sailry decoder, an isolated validation and
-private backup, and the existing transactional upgrade. Runtime readers accept
-only canonical records.
-Streaming drafts and canonical entries preserve commentary message identities;
-interruption retains their native phase rather than converting progress into a
-final answer.
+UI rows remain rebuildable projections. Startup recognizes pre-GDK Node storage
+only through known event, search-setting, role-tool or usage-index definitions.
+It validates an empty replacement in isolation, saves the complete closed database
+family in a private backup, logs that location and creates an empty current Node
+database. It does not convert those records. Other invalid definitions fail without
+resetting storage. Runtime readers accept only current canonical records.
+Streaming drafts and canonical entries retain ordinary text, thinking and tool
+parts. Interruption preserves those parts without a separate commentary phase.
 Context observations pair provider-reported input and output tokens with the
 admitted model's frozen context limit; a later model change does not relabel an
 old observation. Unknown counts remain unknown. Automatic compaction follows

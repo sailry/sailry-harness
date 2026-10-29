@@ -87,7 +87,7 @@ async fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Requ
         "assistant",
         MessageRole::Assistant,
         vec![BlockKind::ToolRequest(tool_request(
-            authorization.id.as_deref(),
+            authorization.id.as_deref().expect("call identity"),
             &authorization.name,
             authorization.arguments.clone(),
         ))],

@@ -42,7 +42,7 @@ async fn fixture() -> (Fixture, Binding, database::Profile) {
         "assistant",
         MessageRole::Assistant,
         vec![BlockKind::ToolRequest(tool_request(
-            fixture.request.id.as_deref(),
+            fixture.request.id.as_deref().expect("call identity"),
             &fixture.request.name,
             fixture.request.arguments.clone(),
         ))],

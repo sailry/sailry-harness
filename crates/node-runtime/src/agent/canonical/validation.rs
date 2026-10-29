@@ -28,6 +28,14 @@ pub(crate) fn validate(record: &Record) -> Result<(), Fault> {
             if !slots.insert(block.index) {
                 return Err(Fault::invalid("conversation content slots are duplicated"));
             }
+            let call = match &block.kind {
+                BlockKind::ToolRequest(request) => Some(request.id.as_str()),
+                BlockKind::ToolResponse(response) => Some(response.id.as_str()),
+                _ => None,
+            };
+            if call.is_some_and(str::is_empty) {
+                return Err(Fault::invalid("tool call identifier is required"));
+            }
             if let BlockKind::ToolResponse(response) = &block.kind
                 && response.revision.len() != 64
             {
@@ -71,5 +79,26 @@ mod tests {
     fn rejects_out_of_bounds_slots() {
         assert!(validate(&record(0, 0)).is_err());
         assert!(validate(&record(2, 2)).is_err());
+    }
+
+    #[test]
+    fn requires_tool_identities() {
+        for kind in ["tool_request", "tool_response"] {
+            let mut value = serde_json::json!({
+                "index":0, "type":kind, "name":"read_file", "arguments":{},
+                "status":"success", "result":{"value":{}}, "revision":"0".repeat(64)
+            });
+            assert!(serde_json::from_value::<Block>(value.clone()).is_err());
+            value["id"] = Value::Null;
+            assert!(serde_json::from_value::<Block>(value.clone()).is_err());
+            value["id"] = "call".into();
+            let mut record = record(0, 1);
+            record.message_mut().unwrap().content[0] =
+                serde_json::from_value(value.clone()).unwrap();
+            assert!(validate(&record).is_ok());
+            value["id"] = "".into();
+            record.message_mut().unwrap().content[0] = serde_json::from_value(value).unwrap();
+            assert!(validate(&record).is_err());
+        }
     }
 }

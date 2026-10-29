@@ -36,6 +36,40 @@ fn copies_only_the_closed_family() {
 }
 
 #[test]
+fn rebuild_preserves_backup_and_neighbors() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("node.turso");
+    let bodies = ["database", "logical log", "write log", "shared memory"];
+    for (path, body) in crate::profile::database_files(&source)
+        .into_iter()
+        .zip(bodies)
+    {
+        std::fs::write(path, body).unwrap();
+    }
+    let neighbor = directory.path().join("knowledge.turso");
+    std::fs::write(&neighbor, "unrelated database").unwrap();
+    let saved = save(&source).unwrap();
+    clear(&source).unwrap();
+    assert!(
+        crate::profile::database_files(&source)
+            .iter()
+            .all(|path| !path.exists())
+    );
+    assert_eq!(
+        std::fs::read_to_string(&neighbor).unwrap(),
+        "unrelated database"
+    );
+    std::fs::write(&source, "partial replacement").unwrap();
+    clear(&source).unwrap();
+    copy(&saved, &source).unwrap();
+    for path in [&source, &saved] {
+        for (member, body) in crate::profile::database_files(path).into_iter().zip(bodies) {
+            assert_eq!(std::fs::read_to_string(member).unwrap(), body);
+        }
+    }
+}
+
+#[test]
 fn maps_each_destination_member() {
     let directory = tempfile::tempdir().unwrap();
     let source = directory.path().join("node.turso");

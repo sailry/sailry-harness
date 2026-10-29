@@ -19,7 +19,7 @@ async fn preserves_large_images() {
     let asset = blobs::put(&transaction, "image/png", &bytes).await.unwrap();
     transaction.commit().await.unwrap();
     let mut result = response(
-        Some("capture"),
+        "capture",
         "capture",
         serde_json::json!({"image_width":5120}),
     );
@@ -45,9 +45,7 @@ async fn preserves_large_images() {
     let BlockKind::ToolResponse(response) = &restored.message().unwrap().content[0].kind else {
         panic!("capture result expected")
     };
-    let StoredAttachment::Inline { asset } = &response.attachments[0] else {
-        panic!("inline asset expected")
-    };
+    let StoredAttachment::Inline { asset } = &response.attachments[0];
     assert_eq!(
         super::super::blobs::get(&fixture.database.connection, &asset.digest)
             .await
@@ -217,7 +215,7 @@ async fn validates_source_metadata() {
         .await
         .unwrap();
     let mut result = response(
-        Some("image-tool"),
+        "image-tool",
         "any_image_tool",
         serde_json::json!({"ok":true}),
     );
@@ -358,7 +356,7 @@ async fn resolves_visible_history() {
         .await
         .unwrap();
     transaction.commit().await.unwrap();
-    let mut result = response(Some("capture"), "capture", serde_json::json!({}));
+    let mut result = response("capture", "capture", serde_json::json!({}));
     result.attachments.push(StoredAttachment::Inline { asset });
     let event = message("", Role::User, vec![BlockKind::ToolResponse(result)]);
     let head = fixture.append([event]).await;

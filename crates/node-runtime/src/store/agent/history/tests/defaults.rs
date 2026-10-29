@@ -7,7 +7,7 @@ async fn older(partial: bool) -> Fixture {
         "assistant",
         Role::Assistant,
         vec![BlockKind::ToolRequest(request(
-            Some("called-tool"),
+            "called-tool",
             "called_tool",
             serde_json::json!({}),
         ))],
@@ -68,7 +68,7 @@ async fn missing_tools_deduplicate_per_session() {
             .enumerate()
             .map(|(index, name)| {
                 BlockKind::ToolRequest(request(
-                    Some(&format!("called-{index}")),
+                    &format!("called-{index}"),
                     name,
                     serde_json::json!({}),
                 ))

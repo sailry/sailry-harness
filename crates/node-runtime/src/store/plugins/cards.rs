@@ -72,17 +72,15 @@ pub(in crate::store) async fn captured(
                 .flat_map(|message| &message.content)
             {
                 match &block.kind {
-                    crate::agent::canonical::BlockKind::ToolRequest(call) if call.id.is_some() => {
+                    crate::agent::canonical::BlockKind::ToolRequest(call) => {
                         calls.insert((
                             event.provenance.branch.clone(),
-                            call.id.clone().unwrap(),
+                            call.id.clone(),
                             call.name.clone(),
                         ));
                     }
-                    crate::agent::canonical::BlockKind::ToolResponse(result)
-                        if result.id.is_some() =>
-                    {
-                        let id = result.id.as_ref().unwrap();
+                    crate::agent::canonical::BlockKind::ToolResponse(result) => {
+                        let id = &result.id;
                         let name = &result.name;
                         if !calls.contains(&(
                             event.provenance.branch.clone(),

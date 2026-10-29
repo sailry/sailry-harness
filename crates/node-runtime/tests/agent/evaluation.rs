@@ -160,7 +160,6 @@ fn preserves_word_boundaries() {
             .collect(),
         citations: vec![],
         search_suggestions: None,
-        commentary: Default::default(),
         usage: None,
     };
     entry

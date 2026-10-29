@@ -57,10 +57,6 @@ pub(super) async fn project(
                 asset.uri.as_deref(),
                 asset.annotations.as_ref(),
             )?,
-            Attachment::File { file } => ContentBlock::text(format!(
-                "Attachment reference: {}",
-                serde_json::to_string(file).map_err(storage_error)?
-            )),
         });
     }
     Ok(result)

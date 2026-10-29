@@ -148,7 +148,6 @@ fn notice_input_is_not_user_editable() {
         parts: vec![Part::Text("Node context".into())],
         citations: vec![],
         search_suggestions: None,
-        commentary: Default::default(),
         usage: None,
     });
     assert!(super::super::super::turns::input(page, run.turn).is_none());

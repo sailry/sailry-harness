@@ -133,10 +133,9 @@ impl Fixture {
                 content: vec![Block {
                     index: 0,
                     kind: BlockKind::ToolRequest(ToolRequest {
-                        id: Some("call-child".into()),
+                        id: "call-child".into(),
                         name: name.clone(),
                         arguments: arguments.clone(),
-                        signature: None,
                         provider: None,
                         tool_meta: None,
                         error: None,

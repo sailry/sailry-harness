@@ -15,7 +15,6 @@ fn entry(run: &Run, sequence: u64) -> Entry {
         parts: vec![Part::Text("fixture".into())],
         citations: vec![],
         search_suggestions: None,
-        commentary: Default::default(),
         usage: None,
     }
 }

@@ -70,27 +70,23 @@ impl View {
 }
 
 fn label(retry: &Retry, active: bool) -> String {
-    if retry.fallback {
-        tr("chat_model_http_fallback").to_string()
-    } else {
-        match retry.limit {
-            Some(limit) => rust_i18n::t!(
-                if active {
-                    "chat_model_reconnecting"
-                } else {
-                    "chat_model_retried"
-                },
-                attempt = retry.attempt,
-                limit = limit
-            )
-            .to_string(),
-            None => tr(if active {
-                "chat_model_reconnecting_continuously"
+    match retry.limit {
+        Some(limit) => rust_i18n::t!(
+            if active {
+                "chat_model_reconnecting"
             } else {
-                "chat_model_connection_retried"
-            })
-            .to_string(),
-        }
+                "chat_model_retried"
+            },
+            attempt = retry.attempt,
+            limit = limit
+        )
+        .to_string(),
+        None => tr(if active {
+            "chat_model_reconnecting_continuously"
+        } else {
+            "chat_model_connection_retried"
+        })
+        .to_string(),
     }
 }
 
@@ -121,9 +117,7 @@ pub(super) fn recovered(blocks: &[Block<'_>]) -> BTreeSet<String> {
             Block::Retry(key, _) if output => {
                 recovered.insert(key.clone());
             }
-            Block::Text(_, text) | Block::Commentary(_, text) | Block::Thinking(_, text)
-                if !text.trim().is_empty() =>
-            {
+            Block::Text(_, text) | Block::Thinking(_, text) if !text.trim().is_empty() => {
                 output = true;
             }
             Block::Search(entry)
@@ -176,7 +170,7 @@ mod tests {
                 fallback,
                 limit,
                 delay_ms: None,
-                transport: Some(Transport::WebSocket),
+                transport: Some(Transport::Http),
                 status: Some(503),
                 code: Some("connection_lost".into()),
                 error: Some("Connection closed".into()),
@@ -198,15 +192,15 @@ mod tests {
             fallback: false,
             limit: Some(5),
             delay_ms: Some(1723),
-            transport: Some(Transport::WebSocket),
-            status: Some(426),
-            code: Some("model.openai_responses.ws_handshake".into()),
+            transport: Some(Transport::Http),
+            status: Some(503),
+            code: Some("model.request_unavailable".into()),
             error: None,
         };
         assert_eq!(body(&retry), None);
         for error in [
-            "Responses WebSocket closed before completion",
-            "WebSocket handshake rejected with HTTP 426",
+            "HTTP response ended before completion",
+            "Provider rejected the request with HTTP 503",
             r#"{"error":{"message":"Provider explanation"}}"#,
             "  Original detail\n\n[redacted]  ",
         ] {
@@ -217,7 +211,7 @@ mod tests {
             retry.error = Some(error.into());
             assert_eq!(body(&retry), None);
         }
-        retry.error = Some("Responses WebSocket closed before completion".into());
+        retry.error = Some("HTTP response ended before completion".into());
         retry.fallback = true;
         retry.attempt = 3;
         assert_eq!(body(&retry), None);
@@ -227,7 +221,7 @@ mod tests {
     fn collapses_after_model_output() {
         let retry = Retry::from_resource(&serde_json::json!({
             "type":"model_retry", "attempt":4, "limit":5,
-            "error":"Responses WebSocket closed before completion"
+            "error":"HTTP response ended before completion"
         }))
         .unwrap();
         let mut blocks = vec![

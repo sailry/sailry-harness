@@ -89,15 +89,9 @@ pub(crate) async fn capture(
                     }
                 };
                 BlockKind::ToolRequest(ToolRequest {
-                    id: Some(request.id.clone()),
+                    id: request.id.clone(),
                     name,
                     arguments,
-                    signature: request
-                        .metadata
-                        .as_ref()
-                        .and_then(|metadata| metadata.get("thoughtSignature"))
-                        .and_then(Value::as_str)
-                        .map(str::to_owned),
                     provider: request.metadata.clone(),
                     tool_meta: request.tool_meta.clone(),
                     error,
@@ -183,13 +177,12 @@ pub(crate) async fn capture(
                     }
                 }
                 BlockKind::ToolResponse(ToolResponse {
-                    id: Some(response.id.clone()),
+                    id: response.id.clone(),
                     name,
                     status,
                     result: payload,
                     revision,
                     attachments,
-                    annotations: None,
                     provider: response.metadata.clone(),
                     format,
                     meta,
@@ -337,9 +330,7 @@ pub(crate) async fn project(
                 })
             }
             BlockKind::ToolRequest(request) => {
-                let Some(id) = request.id.as_ref().filter(|id| !id.is_empty()) else {
-                    continue;
-                };
+                let id = &request.id;
                 let tool_call = match &request.error {
                     Some(error) => Err(serde_json::from_value::<ErrorData>(
                         serde_json::to_value(error).map_err(storage_error)?,
@@ -351,24 +342,15 @@ pub(crate) async fn project(
                         ),
                     ),
                 };
-                let mut provider = request.provider.clone();
-                if let Some(signature) = &request.signature {
-                    provider
-                        .get_or_insert_with(Default::default)
-                        .entry("thoughtSignature")
-                        .or_insert_with(|| json!(signature));
-                }
                 MessageContent::ToolRequest(gdk::ToolRequest {
                     id: id.clone(),
                     tool_call,
-                    metadata: provider,
+                    metadata: request.provider.clone(),
                     tool_meta: request.tool_meta.clone(),
                 })
             }
             BlockKind::ToolResponse(response) => {
-                let Some(id) = response.id.as_ref().filter(|id| !id.is_empty()) else {
-                    continue;
-                };
+                let id = &response.id;
                 let value = blobs::hydrate(db, &response.result).await?;
                 let tool_result = match response.format {
                     ToolFormat::McpError => {
@@ -390,11 +372,7 @@ pub(crate) async fn project(
                     metadata: response.provider.clone(),
                 })
             }
-            // Retired native search remains in public history, never opaque provider replay.
-            BlockKind::ServerCall { .. }
-            | BlockKind::ServerResponse { .. }
-            | BlockKind::Resource { .. }
-            | BlockKind::RedactedThinking { .. } => continue,
+            BlockKind::RedactedThinking { .. } => continue,
         };
         output.content.push(content);
     }

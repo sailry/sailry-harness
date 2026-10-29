@@ -20,7 +20,6 @@ fn setup() -> (Projection, Snapshot, Child) {
         usage: None,
         citations: vec![],
         search_suggestions: None,
-        commentary: Default::default(),
         parts: vec![Part::ToolCall {
             presentation: Default::default(),
             grouping: Default::default(),

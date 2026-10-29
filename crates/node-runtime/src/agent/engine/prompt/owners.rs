@@ -33,10 +33,8 @@ pub(super) fn collect(records: &[Record]) -> Owners<'_> {
                 continue;
             };
             owners.entries.insert(key, response);
-            if skill(response)
-                && let Some(id) = response.id.as_deref()
-            {
-                owners.sources.insert((&record.id, id), response);
+            if skill(response) {
+                owners.sources.insert((&record.id, &response.id), response);
             }
         }
     }
