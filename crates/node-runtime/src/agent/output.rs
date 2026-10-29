@@ -1,9 +1,10 @@
-//! Command previews restored from Sailry fb70fdc1, only in outgoing GDK messages.
+//! Tool previews restored from Sailry fb70fdc1, only in outgoing GDK messages.
 use goose_provider_types::conversation::message::{Message, MessageContentBlock};
 use rmcp::model::ContentBlock;
 use serde_json::{Value, json};
 
 mod commands;
+mod files;
 mod terminal;
 
 pub(in crate::agent) fn project(messages: &mut [Message]) {
@@ -19,7 +20,7 @@ pub(in crate::agent) fn project(messages: &mut [Message]) {
         };
         if !matches!(
             original["kind"].as_str(),
-            Some("command_result" | "command_output")
+            Some("command_result" | "command_output" | "file_lines")
         ) || original["output"]["call"] == response.id
         {
             continue;
@@ -29,6 +30,29 @@ pub(in crate::agent) fn project(messages: &mut [Message]) {
             "call":response.id,
             "revision":blake3::hash(encoded.as_bytes()).to_hex().to_string(),
         });
+        if original["kind"] == "file_lines" {
+            let Some(projected) = files::project(original, &source) else {
+                continue;
+            };
+            let mut mirrored = false;
+            for content in &mut result.content {
+                if let ContentBlock::Text(text) = content
+                    && (text.text == encoded
+                        || serde_json::from_str::<Value>(&text.text)
+                            .is_ok_and(|value| &value == original))
+                {
+                    text.text.clone_from(&projected);
+                    mirrored = true;
+                }
+            }
+            if !mirrored {
+                result.content.push(ContentBlock::text(projected));
+            }
+            // Plugin adapters serialize the whole result. Keep its numbered text
+            // once, with the exact original JSON available through the reference.
+            result.structured_content = None;
+            continue;
+        }
         let Some(projected) = commands::project(original, &source) else {
             continue;
         };

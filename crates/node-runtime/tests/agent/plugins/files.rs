@@ -9,6 +9,8 @@ mod edits;
 mod mutations;
 #[path = "files/notebooks.rs"]
 mod notebooks;
+#[path = "files/output.rs"]
+mod output;
 #[path = "files/search.rs"]
 mod search;
 

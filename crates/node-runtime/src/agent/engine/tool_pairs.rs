@@ -66,7 +66,8 @@ impl ToolPairs {
         conversation: &Conversation,
         id: &str,
     ) -> anyhow::Result<(Message, canonical::Record)> {
-        let pair = visible_pair(conversation, id)?;
+        let mut pair = visible_pair(conversation, id)?;
+        crate::agent::output::project(&mut pair);
         let formatted = pair
             .iter()
             .map(format_message_for_compacting)

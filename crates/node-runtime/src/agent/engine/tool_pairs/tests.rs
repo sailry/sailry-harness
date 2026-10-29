@@ -242,6 +242,56 @@ async fn protects_current_kickoff_and_batches_old_pairs() {
 }
 
 #[tokio::test]
+async fn formats_file_text_before_summarizing() {
+    let provider = Arc::new(Fixture::default());
+    let operation = operation(provider.clone());
+    let body = format!("head marker {}UNSHOWN_LINE_TAIL\r\n", "中".repeat(3000));
+    let raw = serde_json::json!({"kind":"file_lines","data":sailry_protocol::FileLines {
+        path:"src/fixture.rs".into(),
+        lines:vec![
+            sailry_protocol::FileLine {number:1,text:body.clone()},
+            sailry_protocol::FileLine {number:2,text:"last line".into()},
+        ],
+        size:(body.len()+"last line".len()) as u64,
+        revision:"current-file-revision".into(),offset:0,next_offset:None,
+    }});
+    let request = Message::assistant()
+        .with_id("source-request")
+        .with_tool_request("file", Ok(CallToolRequestParams::new("read_file")));
+    let mut response = Message::user()
+        .with_id("source-response")
+        .with_tool_response("file", Ok(CallToolResult::structured(raw.clone())));
+    response.created = 42;
+    let history = Conversation::new_unvalidated([request, response]);
+    let original = history.clone();
+    let (summary, _) = operation.summarize(&history, "file").await.unwrap();
+    assert_eq!(history, original);
+    assert_eq!(summary.created, 42);
+    assert_eq!(
+        summary
+            .metadata
+            .operation_note("tool_pair_compaction", "after"),
+        Some(&serde_json::json!("source-response"))
+    );
+    let requests = provider.requests.lock().unwrap();
+    let input = &requests[0].1;
+    assert!(input.contains("src/fixture.rs\nLines 1–2;"));
+    assert!(input.contains("head marker"));
+    assert!(input.contains("content bytes omitted from this line"));
+    assert!(input.contains("last line [no trailing newline]"));
+    assert!(input.contains("read_tool_output"));
+    assert!(
+        input.contains(
+            &blake3::hash(raw.to_string().as_bytes())
+                .to_hex()
+                .to_string()
+        )
+    );
+    assert!(!input.contains("UNSHOWN_LINE_TAIL"));
+    assert!(!input.contains("\"lines\":["));
+}
+
+#[tokio::test]
 async fn summarizes_parallel_siblings_once() {
     let provider = Arc::new(Fixture::default());
     let operation = operation(provider.clone());

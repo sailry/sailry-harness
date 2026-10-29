@@ -12,7 +12,7 @@ async fn pages_prior_results_without_command_tools() {
         .await;
         let fixture = process::Fixture::files(remote, &server).await;
         let text = format!(
-            "First marker {}\nLast marker\n",
+            "\n  trailing spaces  \r\nFirst marker {}\r\n\t中文🙂\r\nLast marker",
             "neutral data ".repeat(240)
         );
         std::fs::write(fixture.root.join("source.txt"), &text).unwrap();
@@ -49,15 +49,20 @@ async fn pages_prior_results_without_command_tools() {
                 .flat_map(|request| request["messages"].as_array().unwrap())
                 .filter(|message| message["role"] == "tool")
                 .find_map(|message| {
-                    let result: serde_json::Value =
-                        serde_json::from_str(message["content"].as_str()?).ok()?;
-                    let serialized = result.to_string();
-                    (serialized == original).then(|| OutputReference {
-                        call: message["tool_call_id"].as_str().unwrap().into(),
-                        revision: blake3::hash(serialized.as_bytes()).to_hex().to_string(),
-                    })
+                    let text = message["content"].as_str()?;
+                    let metadata: serde_json::Value =
+                        serde_json::from_str(text.lines().last()?).ok()?;
+                    let output: OutputReference =
+                        serde_json::from_value(metadata["output"].clone()).ok()?;
+                    assert_eq!(output.call, message["tool_call_id"].as_str().unwrap());
+                    assert!(text.contains("Lines 1–5;"));
+                    assert!(text.contains("    2\t  trailing spaces  \r\n"));
+                    assert!(text.contains("    4\t\t中文🙂\r\n"));
+                    assert!(text.contains("    5\tLast marker [no trailing newline]"));
+                    assert_ne!(text, original);
+                    Some(output)
                 })
-                .expect("original file result and call identity")
+                .expect("numbered file preview and original output reference")
         };
         assert!(
             page.entries
