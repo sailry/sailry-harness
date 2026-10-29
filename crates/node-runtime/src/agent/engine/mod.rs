@@ -66,6 +66,7 @@ pub(super) struct Run<'a> {
     pub binding: model::Binding,
     pub summary: model::Binding,
     pub instruction: String,
+    pub context: String,
     pub catalog: catalog::Catalog,
     pub callbacks: Vec<Arc<dyn goose_agent::operation::Operation<Session, Effect>>>,
     pub images: Vec<(Vec<String>, usize)>,
@@ -85,6 +86,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         binding,
         summary,
         instruction,
+        context: turn_context,
         catalog,
         callbacks,
         images,
@@ -152,7 +154,10 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         let mut steps = vec![
             Step::Operation(Arc::new(operations::PlanReview)),
             Step::Operation(Arc::new(operations::Approval { required, bindings })),
-            Step::Operation(Arc::new(prompt::Prompt { instruction })),
+            Step::Operation(Arc::new(prompt::Prompt {
+                instruction,
+                context: turn_context,
+            })),
             Step::Operation(Arc::new(
                 ToolOperation::new().with_provider(Arc::new(catalog)),
             )),

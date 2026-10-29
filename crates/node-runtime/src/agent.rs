@@ -460,14 +460,16 @@ async fn execute_with(
     }
     instruction.push_str("\n\n");
     instruction.push_str(prompt::recipient(invocation.child.is_some()));
-    if let Some(title) = title::instruction(
+    // Turn-scoped state stays out of the cached system prompt.
+    let context = title::instruction(
         invocation.title.as_deref(),
         tool_capable,
         invocation.child.is_some(),
-    ) {
-        policy.push_str("\n\n");
-        policy.push_str(&title);
-    }
+    )
+    .into_iter()
+    .chain(Some(extensions.context.trim().to_owned()).filter(|text| !text.is_empty()))
+    .collect::<Vec<_>>()
+    .join("\n\n");
     if tool_capable && invocation.child.is_none() {
         extensions.tools.push(title::bind(
             invocation.turn.session.to_string(),
@@ -560,6 +562,7 @@ async fn execute_with(
         binding: model,
         summary,
         instruction,
+        context,
         catalog,
         callbacks,
         images: extensions.images,

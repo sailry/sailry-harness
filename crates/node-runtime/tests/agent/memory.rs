@@ -691,7 +691,7 @@ async fn leaves_tool_use_optional() {
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 1);
-            let prompt = requests[0]["messages"].to_string();
+            let prompt = requests[0].to_string();
             assert!(prompt.contains("Memory is optional"));
             assert!(!prompt.contains("Before answering"));
         }

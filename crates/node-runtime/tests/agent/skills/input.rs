@@ -10,7 +10,12 @@ pub(super) fn assert_content(request: &Value, markers: &[&str]) {
         .collect::<Vec<_>>()
         .join("\n");
     for marker in markers {
-        assert_eq!(system.matches(marker).count(), 1, "owner: {marker}");
+        assert_eq!(system.matches(marker).count(), 0, "system: {marker}");
+        assert_eq!(
+            turn_context(request).matches(marker).count(),
+            1,
+            "owner: {marker}"
+        );
         assert_eq!(
             request["messages"].to_string().matches(marker).count(),
             1,
@@ -31,12 +36,8 @@ pub(super) fn receipt(request: &Value, id: &str) -> Value {
 }
 
 pub(super) fn owner(request: &Value, path: &str) -> Value {
-    request["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
-        .flat_map(|message| message["content"].as_str().unwrap().lines())
+    turn_context(request)
+        .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .find(|value| value["skill"] == "example:analysis" && value["path"] == path)
         .unwrap()
@@ -166,6 +167,8 @@ async fn restores_loaded_content_after_compaction() {
         let requests = compact.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 1);
         assert!(agent_support::compaction::is_summary(&requests[0]));
+        assert!(!requests[0].to_string().contains("<turn-context>"));
+        observations::assert_context_absent(&node, session.id).await;
         assert_eq!(
             requests[0]["messages"]
                 .to_string()
@@ -224,6 +227,7 @@ async fn restores_loaded_content_after_compaction() {
         gate.notify_one();
         let after = finished(&client, session.id, next.id).await;
         assert_eq!(after.runs.last().unwrap().status, Status::Completed);
+        observations::assert_context_absent(&node, session.id).await;
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

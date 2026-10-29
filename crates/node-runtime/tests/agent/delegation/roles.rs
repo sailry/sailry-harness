@@ -195,7 +195,7 @@ async fn inherits_parent_model() {
                     json!("string")
                 );
                 assert!(
-                    requests[0]["messages"]
+                    requests[0]
                         .to_string()
                         .contains("review (Review): Inherited role instruction")
                 );
@@ -221,6 +221,9 @@ async fn inherits_parent_model() {
             assert!(identity.contains("Do not ask the user for input"));
             assert!(!identity.contains("Finish with an answer to the user's request"));
             assert!(!identity.contains("renders a file card"));
+            for absent in ["```chart", "ask_user", "To resume earlier work"] {
+                assert!(!identity.contains(absent), "{absent}");
+            }
             for name in ["ask_user", "set_session_title"] {
                 assert!(
                     child["tools"]
@@ -232,6 +235,12 @@ async fn inherits_parent_model() {
             }
 
             assert!(prompt(child).contains("Shared default instructions"));
+            assert_eq!(
+                prompt(child)
+                    .matches("Project instructions\nThese guides")
+                    .count(),
+                1
+            );
             assert!(child["messages"].to_string().contains("第一轮：读取并总结"));
             assert!(
                 !child["messages"]

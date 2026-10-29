@@ -295,7 +295,10 @@ async fn loads_complete_resources() {
         assert!(page.approvals.is_empty());
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), calls.len() + 1);
-        for name in ["load_skill", "read_skill_resource"] {
+        for (name, keys) in [
+            ("load_skill", json!(["example:analysis"])),
+            ("read_skill_resource", Value::Null),
+        ] {
             let tool = requests[0]["tools"]
                 .as_array()
                 .unwrap()
@@ -304,7 +307,7 @@ async fn loads_complete_resources() {
                 .unwrap();
             assert_eq!(
                 tool["function"]["parameters"]["properties"]["skill"]["enum"],
-                json!(["example:analysis"])
+                keys
             );
         }
         let initial = requests[0]["messages"].to_string();

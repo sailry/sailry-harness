@@ -74,7 +74,11 @@ async fn binds_captured_resources_without_plugin_identity() {
         let schema = serde_json::Value::Object((*entry.tool.input_schema).clone());
         assert_eq!(
             schema["properties"]["skill"]["enum"],
-            json!(["example:analysis"])
+            if entry.tool.name.as_ref() == NAMES[1] {
+                serde_json::Value::Null
+            } else {
+                json!(["example:analysis"])
+            }
         );
         let (name, display) = entry.display.as_ref().unwrap();
         assert_eq!(name, entry.tool.name.as_ref());

@@ -13,6 +13,25 @@ pub(super) async fn statistics(client: &Client, session: SessionId) -> Statistic
     }
 }
 
+pub(super) async fn assert_context_absent(node: &Node, session: SessionId) {
+    let count = node
+        .with_storage(move |db| {
+            Box::pin(async move {
+                db.prepare("SELECT count(*) FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND json_extract(e.body,'$.kind')='message' AND instr(CAST(e.body AS TEXT),'<turn-context>')>0")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row([session.to_string()])
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get::<i64>(0)
+                    .map_err(crate::database_fixture::fault)
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "request context became canonical history");
+}
+
 #[tokio::test]
 async fn finalizes_terminal_and_cancelled_streams() {
     for remote in [false, true] {
@@ -68,6 +87,21 @@ async fn finalizes_terminal_and_cancelled_streams() {
                 .unwrap();
             }
             let page = finished(&client, session.id, turn.id).await;
+            assert_context_absent(&node, session.id).await;
+            {
+                let requests = server.requests.lock().unwrap();
+                let request = requests.last().unwrap();
+                assert!(request.get("turn_context").is_none());
+                let context = turn_context(request);
+                assert!(context.contains("Session environment"));
+                assert_eq!(
+                    request["messages"]
+                        .to_string()
+                        .matches("<turn-context>\\n")
+                        .count(),
+                    1
+                );
+            }
             assert_eq!(
                 page.runs.last().unwrap().status,
                 if cancel {

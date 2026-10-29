@@ -160,13 +160,9 @@ impl Prefix {
         let messages = json!(messages);
         let tools = &body["tools"];
         let cache_key = &body["prompt_cache_key"];
-        let skill = system
-            .as_array()
-            .unwrap()
-            .iter()
-            .flat_map(|item| item["content"].as_array().into_iter().flatten())
-            .filter_map(|part| part["text"].as_str())
-            .flat_map(str::lines)
+        let context = agent_support::turn_context(body).expect("terminal request context expected");
+        let skill = context
+            .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .filter(|value| value["skill"] == "cache-fixture:analysis")
             .filter_map(|value| value["content"].as_str().map(str::to_owned))
@@ -182,11 +178,12 @@ impl Prefix {
             "completion":request.completion,"output_limited":request.output_limited,"output_limit":OUTPUT_LIMIT,
             "provider_usage":request.provider_usage,
             "provider_model":request.provider_model,
-            "estimated":{"method":"o200k over actual serialized request segments; not provider usage; segment counts are not additive",
+            "estimated":{"method":"o200k_base over actual serialized request segments; not provider usage; segment counts are not additive",
                 "system":tokens(&system.to_string()),"messages":tokens(&messages.to_string()),"tools":tokens(&tools.to_string()),
                 "serialized_request":tokens(&request.encoded),"wire_bytes":request.encoded.len(),
                 "overlapping_subsets":{"file_results":file.iter().map(|text|tokens(text)).sum::<usize>(),
-                    "retained_skill_system":skill.iter().map(|text|tokens(text)).sum::<usize>()}},
+                    "retained_skill_context":skill.iter().map(|text|tokens(text)).sum::<usize>(),
+                    "request_context":tokens(context)}},
             "prefix":{"system_digest":digest(&system),"tools_digest":digest(tools),"cache_key_digest":digest(cache_key),
                 "cache_key_present":cache_key.is_string(),
                 "system_vs_previous":self.system.as_ref().map(|previous|common(&previous.to_string(),&system.to_string())),
@@ -194,7 +191,7 @@ impl Prefix {
                 "cache_key_unchanged":self.cache_key.as_ref().map(|previous|previous==cache_key)},
             "file_marker_occurrences":request.encoded.matches(FILE_MARKER).count(),
             "skill_marker_occurrences":request.encoded.matches(SKILL_MARKER).count(),
-            "retained_skill_body_copies":system.to_string().matches(SKILL_MARKER).count(),
+            "retained_skill_body_copies":context.matches(SKILL_MARKER).count(),
         });
         self.system = Some(system);
         self.tools = Some(tools.clone());

@@ -155,10 +155,21 @@ async fn appends_only_changed_runtime_context() {
     assert!(delta.personal.is_none());
     assert!(delta.guides.is_empty());
     assert!(!changed.state.contains_key("sailry.context.declarations"));
-    let prompt = engine::prompt::prepared(&changed).await.system_prompt;
+    let request = engine::prompt::prepared(&changed).await;
+    let prompt = request.system_prompt;
     assert!(prompt.contains("This is a planning turn"));
-    assert_eq!(prompt.matches("Environment fixture").count(), 1);
+    assert!(!prompt.contains("Environment fixture"));
     assert_eq!(prompt.matches("Personal fixture").count(), 1);
+    let [context] = request.additional_messages.as_slice() else {
+        panic!("one turn context expected")
+    };
+    assert_eq!(
+        context
+            .as_concat_text()
+            .matches("Environment fixture")
+            .count(),
+        1
+    );
     fixture.close().await;
 }
 

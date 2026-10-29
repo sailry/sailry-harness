@@ -8,7 +8,8 @@ use std::{
 };
 
 const FILENAMES: [&str; 3] = ["AGENTS.md", "CLAUDE.md", "GEMINI.md"];
-const PREAMBLE: &str = "Project instructions\nThese guides are already loaded; do not reread them with a shell. They apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative. Project guides do not set delegation policy; the work mode alone decides when to use subagents.";
+/// One header precedes all captured guides in the system prompt.
+pub(in crate::agent) const PREAMBLE: &str = "Project instructions\nThese guides are already loaded; do not reread them with a shell. They apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative. Project guides do not set delegation policy; the work mode alone decides when to use subagents.";
 
 pub(in crate::agent) struct Guide {
     pub path: String,
@@ -24,7 +25,7 @@ impl Guide {
     pub fn render(&self) -> String {
         let scope = self.path.rsplit_once('/').map_or(".", |(parent, _)| parent);
         format!(
-            "{PREAMBLE}\n\nGuide: {}\nScope: {scope}\nRevision: {}\n{}",
+            "Guide: {}\nScope: {scope}\nRevision: {}\n{}",
             self.path, self.revision, self.text
         )
     }
@@ -115,12 +116,15 @@ async fn load_from(
     directories: Vec<String>,
     stop: &CancellationToken,
 ) -> Result<String, Fault> {
-    Ok(collect(files, root, worktree, directories, stop)
-        .await?
-        .iter()
-        .map(Guide::render)
-        .collect::<Vec<_>>()
-        .join("\n\n"))
+    let guides = collect(files, root, worktree, directories, stop).await?;
+    Ok(if guides.is_empty() {
+        String::new()
+    } else {
+        std::iter::once(PREAMBLE.to_owned())
+            .chain(guides.iter().map(Guide::render))
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    })
 }
 
 pub(super) async fn read(

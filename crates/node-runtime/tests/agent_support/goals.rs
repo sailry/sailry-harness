@@ -8,9 +8,9 @@ pub(super) async fn respond_loop(
 ) -> std::io::Result<()> {
     let messages = body["messages"].as_array().unwrap();
     assert!(
-        messages.iter().any(|message| message["content"]
+        body["turn_context"]
             .as_str()
-            .is_some_and(|text| text.contains("Active goal: "))),
+            .is_some_and(|text| text.contains("Active goal: ")),
         "goal instructions must come from the package"
     );
     let start = messages
@@ -100,14 +100,9 @@ pub(super) async fn respond_reasoning(
 ) -> std::io::Result<()> {
     use std::sync::atomic::Ordering;
     let messages = body["messages"].as_array().unwrap();
-    let policy = messages
-        .iter()
-        .rev()
-        .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
-        .filter_map(|message| message["content"].as_str())
-        .find(|text| text.contains("\n\nWork mode\n"))
-        .expect("current goal policy expected");
-    let active = policy.contains("Active goal: ");
+    let active = body["turn_context"]
+        .as_str()
+        .is_some_and(|text| text.contains("Active goal: "));
     let start = messages
         .iter()
         .rposition(|message| message["role"] == "user")

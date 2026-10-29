@@ -2,7 +2,10 @@
 use super::owners;
 use crate::agent::{canonical, engine::tokens, output};
 use goose_provider_types::{
-    conversation::message::{Message, MessageContentBlock},
+    conversation::{
+        Conversation, fix_conversation, merge_consecutive_messages_for_request,
+        message::{Message, MessageContentBlock},
+    },
     formats::{anthropic, google, openai, openai_responses},
     images::ImageFormat,
     model::ModelConfig,
@@ -13,7 +16,7 @@ use serde_json::{Value, json};
 
 const FILE_MARKER: &str = "FILE_BODY_SENTINEL";
 const SKILL_MARKER: &str = "SKILL_BODY_SENTINEL";
-const NOTE: &str = "Offline o200k estimates, not provider usage. File and skill history are message subsets; retained owner is a system subset. Independently tokenized segments do not add to the serialized request count.";
+const NOTE: &str = "Offline o200k_base estimates, not provider usage. File history, skill history and retained request context are overlapping message subsets. Independently tokenized segments do not add to the serialized request count.";
 
 pub(crate) struct Input {
     pub(crate) system: String,
@@ -118,13 +121,21 @@ fn synthetic() -> (Vec<canonical::Record>, Vec<Message>) {
 }
 
 pub(crate) fn inputs() -> (Input, Input) {
-    let (records, messages) = synthetic();
+    let (records, mut messages) = synthetic();
     let original = serde_json::to_value(&records).unwrap();
     let owners = owners::collect(&records);
-    let system = std::iter::once("Fixed fixture system instructions".to_owned())
-        .chain(owners.parts().into_iter().map(|(_, part)| part))
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let system = "Fixed fixture system instructions".to_owned();
+    let mut context = super::context(
+        &owners
+            .parts()
+            .into_iter()
+            .map(|(_, part)| part)
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    context.id = Some("fixture-turn-context".into());
+    context.created = 0;
+    messages.push(context);
     let tools: Vec<_> = ["read_file", "load_skill", "read_skill_resource"].map(|name| Tool::new(
         name,"Read captured fixture data",
         serde_json::from_value::<serde_json::Map<String, Value>>(json!({"type":"object","properties":{"path":{"type":"string"}},"additionalProperties":false})).unwrap()
@@ -183,6 +194,79 @@ fn payloads(input: &Input) -> [(&'static str, Value); 4] {
     ]
 }
 
+#[test]
+fn keeps_context_after_tool_pairs() {
+    for paired in [false, true] {
+        let mut messages = vec![Message::user().with_text("INITIAL_TASK")];
+        if paired {
+            messages.extend([
+                Message::assistant().with_tool_request(
+                    "pair-call",
+                    Ok(CallToolRequestParams::new("fixture_probe")),
+                ),
+                Message::user().with_tool_response(
+                    "pair-call",
+                    Ok(CallToolResult::success(vec![rmcp::model::Content::text(
+                        "PAIR_RESULT_MARKER",
+                    )])),
+                ),
+            ]);
+        }
+        let tail = super::context(&["CURRENT_CONTEXT_MARKER 中文 🙂".into()]).unwrap();
+        let expected = tail.as_concat_text();
+        messages.push(tail);
+        for (index, message) in messages.iter_mut().enumerate() {
+            message.created = 0;
+            message.id = Some(format!("fixture-order-{index}"));
+        }
+        let original = serde_json::to_value(&messages).unwrap();
+        // Match the pinned inference path, including consecutive-user merging.
+        let (fixed, issues) = fix_conversation(Conversation::new_unvalidated(messages.clone()));
+        assert!(issues.is_empty(), "{issues:?}");
+        let input = Input {
+            system: "Fixed fixture system instructions".into(),
+            messages: merge_consecutive_messages_for_request(fixed.messages().clone()),
+            tools: Vec::new(),
+        };
+        if !paired {
+            assert_eq!(input.messages.len(), 1);
+        }
+        for (name, body) in payloads(&input) {
+            let field = match name {
+                "responses" => "input",
+                "google" => "contents",
+                _ => "messages",
+            };
+            let sequence = body[field].to_string();
+            assert_eq!(
+                sequence.matches("CURRENT_CONTEXT_MARKER").count(),
+                1,
+                "{name}"
+            );
+            let last = body[field].as_array().unwrap().last().unwrap();
+            assert_eq!(last["role"], "user", "{name}");
+            let content = last.get("content").or_else(|| last.get("parts")).unwrap();
+            let text = content
+                .as_str()
+                .or_else(|| content.as_array()?.last()?.get("text")?.as_str())
+                .unwrap();
+            assert!(text.ends_with(&expected), "{name}: {text}");
+            if paired {
+                let call = sequence.find("fixture_probe").unwrap();
+                let result = sequence.find("PAIR_RESULT_MARKER").unwrap();
+                let context = sequence.find("CURRENT_CONTEXT_MARKER").unwrap();
+                assert!(call < result && result < context, "{name}: {sequence}");
+            } else {
+                assert!(
+                    sequence.find("INITIAL_TASK").unwrap()
+                        < sequence.find("CURRENT_CONTEXT_MARKER").unwrap()
+                );
+            }
+        }
+        assert_eq!(serde_json::to_value(&messages).unwrap(), original);
+    }
+}
+
 pub(crate) fn counts(wire: &Value, system: &Value, messages: &Value) -> Value {
     json!({
         "system_segment":tokens::text(&system.to_string()),
@@ -224,6 +308,28 @@ fn history_tokens(messages: &[Message], prefix: &str) -> usize {
         .sum()
 }
 
+fn skill_body_tokens(input: &Input) -> usize {
+    input
+        .messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .filter_map(|content| {
+            let response = content.as_tool_response()?;
+            response
+                .id
+                .starts_with("skill-")
+                .then_some(response)?
+                .tool_result
+                .as_ref()
+                .ok()?
+                .structured_content
+                .as_ref()?["content"]
+                .as_str()
+        })
+        .map(tokens::text)
+        .sum()
+}
+
 #[test]
 fn compares_native_requests() {
     let (before, after) = inputs();
@@ -258,13 +364,20 @@ fn compares_native_requests() {
         println!(
             "{}",
             json!({"scope":"synthetic_fixed_catalog","protocol":name,"note":NOTE,
+            "scope_note":"Fixed system instructions and three tools isolate file/skill projection; prompt instruction trimming and deferred-tool savings are not measured",
             "before":segments(name,&original),"after":segments(name,&projected),"files":files,
             "overlapping_subsets":{
+                "file_body_full":files["full_plain_body_tokens"],
+                "skill_body_history_before":skill_body_tokens(&before),
+                "skill_body_history_after":skill_body_tokens(&after),
+                "retained_skill_body":after.messages.last().unwrap().as_concat_text().lines()
+                    .filter_map(|line|serde_json::from_str::<Value>(line).ok())
+                    .filter_map(|value|value["content"].as_str().map(tokens::text)).sum::<usize>(),
                 "file_history_before":history_tokens(&before.messages,"file-"),
                 "file_history_after":history_tokens(&after.messages,"file-"),
                 "skill_history_before":history_tokens(&before.messages,"skill-"),
                 "skill_history_after":history_tokens(&after.messages,"skill-"),
-                "retained_owner_system":tokens::text(before.system.split_once("\n\n").unwrap().1),
+                "retained_owner_context":tokens::text(&after.messages.last().unwrap().as_concat_text()),
             }})
         );
     }
@@ -436,6 +549,6 @@ fn measures_private_records() {
         json!({"scope":"private_recoverable_subsets","note":NOTE,
         "final_request":"Unavailable: captured system and tool catalog are absent; historical provider usage is unchanged",
         "files":file_totals(&records),"skills":{"results":messages.len(),"raw_history_tokens":before,
-            "projected_history_tokens":after,"retained_owner_system_tokens":owners.parts().iter().filter(|(key,_)|key.starts_with("skill:")).map(|(_,text)|tokens::text(text)).sum::<usize>()}})
+            "projected_history_tokens":after,"retained_owner_context_tokens":owners.parts().iter().filter(|(key,_)|key.starts_with("skill:")).map(|(_,text)|tokens::text(text)).sum::<usize>()}})
     );
 }

@@ -88,20 +88,23 @@ impl Skills {
         true
     }
     fn parameters_schema(&self) -> Option<Value> {
-        let keys: Vec<_> = self
-            .resources
-            .skills()
-            .into_iter()
-            .map(|(key, _)| key)
-            .collect();
-        let skill = json!({
-            "type": "string",
-            "description": "Exact package:skill key from this turn's available skill catalog",
-            "enum": keys
-        });
         Some(if self.resource {
-            json!({"type": "object", "additionalProperties": false, "required": ["skill", "path"], "properties": {"skill": skill, "path": {"type": "string"}}})
+            // load_skill already declares the catalog; the read validates the key.
+            json!({"type": "object", "additionalProperties": false, "required": ["skill", "path"], "properties": {
+                "skill": {"type": "string", "description": "package:skill key"}, "path": {"type": "string"}
+            }})
         } else {
+            let keys: Vec<_> = self
+                .resources
+                .skills()
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect();
+            let skill = json!({
+                "type": "string",
+                "description": "Exact package:skill key from this turn's available skill catalog",
+                "enum": keys
+            });
             json!({"type": "object", "additionalProperties": false, "required": ["skill"], "properties": {"skill": skill}})
         })
     }

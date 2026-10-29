@@ -160,10 +160,6 @@ mod tests {
                 )
             );
             assert!(!prompt.contains("This is a planning turn"));
-            assert!(
-                prompt.contains("subsequent commands in every session use unrestricted access")
-            );
-            assert!(prompt.contains("normal environment"));
             if permission == Permission::Full {
                 assert!(prompt.contains("network or files outside the worktree"));
                 assert!(prompt.contains("commands run without individual approval"));
@@ -192,6 +188,12 @@ mod tests {
             "find_files and search_files",
             "Use the browser for interaction",
             "affected files, implementation steps",
+            "ask_user",
+            "list_sessions",
+            "```chart",
+            "$$ delimiters",
+            "already loaded",
+            "introduce each batch of tool calls",
         ] {
             assert!(!prompt.contains(absent), "{absent}");
         }
@@ -208,15 +210,13 @@ mod tests {
             "Prior user authorization and preferences persist across follow-ups",
             "prepare a concrete reviewable result and make approval the last step",
             "Explain why confirmation is required and cite its source",
-            "Prefer a few concise options and bundle related questions",
-            "Continue independent work while waiting",
             "Treat a new user message as steering the current goal",
             "explore with dedicated read-only tools and combine related checks",
             "Finish the cohesive authorized changes before starting costly builds or tests",
             "Run checks directly relevant to changed behavior",
             "broaden only for a concrete risk, failure or uncovered requirement",
             "do not add tests that merely mirror a low-impact implementation",
-            "code_symbols, code_definition and code_references",
+            "code_search, code_outline and code_context",
             "Use rg through a command tool only as a supplement to dedicated search tools",
             "Use git --no-pager",
             "Avoid interactive prompts or editors",
@@ -224,8 +224,8 @@ mod tests {
             "backticks and $() in command text execute substitutions",
             "JSON encoding is not shell escaping",
             "Avoid a blocking wait longer than 60 seconds",
-            "Project guides shown in this turn are already loaded",
-            "Do not reread them with a shell",
+            "The latest <turn-context> message carries current session state",
+            "don't narrate routine tool calls",
             "verify changing or uncertain facts with current sources",
             "Plan substantial multi-step work before acting",
             "A plan does not grant execution authority",
@@ -252,24 +252,20 @@ mod tests {
         assert!(recipient(false).contains("Finish with an answer to the user's request"));
         assert!(recipient(false).contains("at most six bullets"));
         for rule in [
-            "1. Create or update the real file with available tools and verify the result",
-            "A session-owned artifact is not a saved worktree file",
-            "If the user requests a specific worktree path, create and verify that real file",
-            "do not substitute an artifact or claim the file exists when writing is unavailable",
-            "2. Put EACH deliverable's Markdown link alone in its own paragraph",
-            "blank lines before and after it",
+            "Prefer a few concise options and bundle related questions",
+            "Continue independent work while waiting",
+            "locate it with list_sessions or read_session",
+            "Use only the path as link text",
+            "after creating and verifying the real file",
+            "a session-owned artifact is not a saved worktree file",
+            "Put each deliverable's Markdown link alone in its own paragraph",
             "[output/report.docx](output/report.docx)",
-            "Do not add a prefix, suffix, list marker, code fence or blockquote",
-            "3. Put explanations in separate paragraphs",
+            "never invent a file path",
             "A tool-returned artifact card already delivers that artifact",
-            "Do not add a duplicate Markdown file link unless the user separately requests a file copy",
-            "that file has actually been created and verified",
-            "Preserve exact returned paths and filenames; never invent a file path",
-            "Ordinary source references may remain inline links",
-            "Ordinary links within prose remain links and are not added to outputs",
-            "No display or publish tool is needed; do not print internal content JSON",
-            "with a local copy prepared first for remote files",
-            "Unsupported formats open in the system's default application",
+            "within 2 MiB",
+            "```chart",
+            "sankey",
+            "$$ delimiters",
         ] {
             assert!(recipient(false).contains(rule), "{rule}");
             assert!(!child.contains(rule), "{rule}");

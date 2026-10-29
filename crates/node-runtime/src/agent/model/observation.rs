@@ -9,6 +9,8 @@ use std::{
 };
 
 mod categories;
+mod context;
+pub(in crate::agent) use context::Context;
 #[cfg(test)]
 mod tests;
 
@@ -22,18 +24,34 @@ pub(in crate::agent) struct Source {
 
 /// This belongs to a turn's wrapper, never the cached provider or HTTP client.
 #[derive(Clone, Default)]
-pub(in crate::agent) struct Sources(Arc<Mutex<Option<Vec<Source>>>>);
+pub(in crate::agent) struct Sources(Arc<Mutex<Option<Inventory>>>);
+
+#[derive(Clone)]
+struct Inventory {
+    system: Vec<Source>,
+    context: Option<Context>,
+}
 
 impl Sources {
     pub(in crate::agent) fn replace(&self, sources: Vec<Source>) {
+        self.replace_with_context(sources, None);
+    }
+
+    pub(in crate::agent) fn replace_with_context(
+        &self,
+        sources: Vec<Source>,
+        context: Option<Context>,
+    ) {
         let mut unique = std::collections::BTreeMap::new();
         for source in sources {
             if !source.text.is_empty() {
                 unique.insert((source.kind, source.text.clone()), source);
             }
         }
-        *self.0.lock().unwrap_or_else(|error| error.into_inner()) =
-            Some(unique.into_values().collect());
+        *self.0.lock().unwrap_or_else(|error| error.into_inner()) = Some(Inventory {
+            system: unique.into_values().collect(),
+            context,
+        });
     }
 
     pub(super) fn capture(&self, system: &str, started: Instant) -> Payload {
@@ -44,7 +62,7 @@ impl Sources {
                 .unwrap_or_else(|error| error.into_inner())
                 .clone(),
             system: blake3::hash(system.as_bytes()),
-            categories: categories::estimate(&serde_json::Value::Null, None),
+            categories: categories::estimate(&serde_json::Value::Null, None, None),
             complete: false,
             started,
             http: None,
@@ -56,7 +74,7 @@ impl Sources {
 pub(super) struct Payload(Arc<Mutex<State>>);
 
 struct State {
-    sources: Option<Vec<Source>>,
+    sources: Option<Inventory>,
     system: blake3::Hash,
     categories: Vec<Category>,
     complete: bool,
@@ -89,11 +107,15 @@ impl Payload {
         // A later prepared request must not inherit a previous retry's receipt.
         state.http = None;
         let sources = if categories::retains_system(body, state.system) {
-            state.sources.as_deref()
+            state.sources.as_ref()
         } else {
             None
         };
-        let categories = categories::estimate(body, sources);
+        let categories = categories::estimate(
+            body,
+            sources.map(|inventory| inventory.system.as_slice()),
+            sources.and_then(|inventory| inventory.context.as_ref()),
+        );
         state.complete = categories.iter().any(|category| category.tokens.is_some())
             && body
                 .get("previous_response_id")

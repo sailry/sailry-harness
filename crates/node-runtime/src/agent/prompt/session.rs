@@ -65,11 +65,6 @@ impl Session {
         } else {
             Vec::new()
         };
-        let personal = if personal.is_empty() {
-            "Personal instructions\nNo personal instructions are configured".into()
-        } else {
-            personal
-        };
         let mut delta = Context {
             captured: true,
             ..Context::default()

@@ -303,7 +303,9 @@ impl EffectHandler<Session, Effect> for Sessions {
                         pending.push(Effect::from(message));
                     }
                 }
-            } else {
+            } else if !matches!(effect, Effect::Conversation(ConversationEffect::AppendMessage(message)) if message.is_turn_context())
+            {
+                // Request-only turn context is rebuilt for every inference.
                 pending.push(effect.clone());
             }
         }

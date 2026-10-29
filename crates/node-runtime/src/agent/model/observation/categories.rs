@@ -1,6 +1,6 @@
 //! Ported from fb70fdc1's model/observation/categories.rs.
-//! Estimates follow adapted payload roles and exact Node-owned system fragments.
-use super::Source;
+//! Estimates follow adapted roles, system fragments and verified context ranges.
+use super::{Context, Source, context::Location};
 use sailry_protocol::conversation::observation::{Category, CategoryKind as Kind};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -49,9 +49,14 @@ fn contains(value: &Value, expected: blake3::Hash) -> bool {
         _ => false,
     }
 }
-pub(super) fn estimate(body: &Value, inventory: Option<&[Source]>) -> Vec<Category> {
+pub(super) fn estimate(
+    body: &Value,
+    inventory: Option<&[Source]>,
+    context: Option<&Context>,
+) -> Vec<Category> {
     let mut counts = Counts::new();
     let sources = inventory.unwrap_or_default();
+    let location = context.and_then(|context| context.locate(body));
     let mut found = BTreeSet::new();
     for field in [
         "instructions",
@@ -60,7 +65,14 @@ pub(super) fn estimate(body: &Value, inventory: Option<&[Source]>) -> Vec<Catego
         "system_instruction",
     ] {
         if let Some(value) = body.get(field) {
-            add(&mut counts, &mut found, Kind::System, value, sources);
+            add(
+                &mut counts,
+                &mut found,
+                Kind::System,
+                value,
+                sources,
+                location.as_ref(),
+            );
         }
     }
     // Gemini's GDK adapter wraps declarations in an object; other adapters
@@ -76,7 +88,14 @@ pub(super) fn estimate(body: &Value, inventory: Option<&[Source]>) -> Vec<Catego
     });
     if let Some(tools) = declarations {
         for tool in tools {
-            add(&mut counts, &mut found, Kind::Tools, tool, sources);
+            add(
+                &mut counts,
+                &mut found,
+                Kind::Tools,
+                tool,
+                sources,
+                location.as_ref(),
+            );
         }
     }
     for field in ["messages", "contents", "input"] {
@@ -96,6 +115,7 @@ pub(super) fn estimate(body: &Value, inventory: Option<&[Source]>) -> Vec<Catego
                                 if result { Kind::Results } else { kind },
                                 part,
                                 sources,
+                                location.as_ref(),
                             );
                         }
                     } else {
@@ -105,6 +125,7 @@ pub(super) fn estimate(body: &Value, inventory: Option<&[Source]>) -> Vec<Catego
                             kind,
                             content.unwrap_or(message),
                             sources,
+                            location.as_ref(),
                         );
                     }
                     // Chat adapters keep tool calls and reasoning beside content,
@@ -112,15 +133,27 @@ pub(super) fn estimate(body: &Value, inventory: Option<&[Source]>) -> Vec<Catego
                     if kind == Kind::Assistant && content.is_some() {
                         for field in ["tool_calls", "function_call", "reasoning_content"] {
                             if let Some(value) = message.get(field) {
-                                add(&mut counts, &mut found, kind, value, sources);
+                                add(
+                                    &mut counts,
+                                    &mut found,
+                                    kind,
+                                    value,
+                                    sources,
+                                    location.as_ref(),
+                                );
                             }
                         }
                     }
                 }
             }
-            Some(value @ Value::String(_)) => {
-                add(&mut counts, &mut found, Kind::User, value, sources)
-            }
+            Some(value @ Value::String(_)) => add(
+                &mut counts,
+                &mut found,
+                Kind::User,
+                value,
+                sources,
+                location.as_ref(),
+            ),
             _ => {}
         }
     }
@@ -165,7 +198,8 @@ pub(super) fn estimate(body: &Value, inventory: Option<&[Source]>) -> Vec<Catego
                 || inventory.is_some_and(|sources| {
                     sources.iter().enumerate().all(|(index, source)| {
                         source.kind != kind || source.text.is_empty() || found.contains(&index)
-                    })
+                    }) && context
+                        .is_none_or(|context| !context.contains(kind) || location.is_some())
                 }));
         let (items, chars) = counts.get(&kind).copied().unwrap_or_default();
         Category {
@@ -202,16 +236,18 @@ fn add(
     kind: Kind,
     value: &Value,
     sources: &[Source],
+    location: Option<&Location<'_>>,
 ) {
     counts.entry(kind).or_default().0 += 1;
-    // These fragments were supplied as system prompt parts. Matching a user's
-    // quotation or an old tool result does not establish system attribution.
+    // System fragments never establish attribution inside ordinary user text.
+    // The terminal context has a separate verified node and exact byte ranges.
     measure(
         counts,
         found,
         kind,
         value,
         if kind == Kind::System { sources } else { &[] },
+        location,
     );
 }
 fn measure(
@@ -220,9 +256,22 @@ fn measure(
     kind: Kind,
     value: &Value,
     sources: &[Source],
+    location: Option<&Location<'_>>,
 ) {
     match value {
         Value::String(text) if !text.starts_with("data:") => {
+            if kind == Kind::User
+                && let Some(location) = location
+                && std::ptr::eq(text.as_str(), location.text)
+            {
+                counts.entry(kind).or_default().1 += text[..location.start].chars().count() as u64;
+                for (range, kind) in &location.context.ranges {
+                    let count = counts.entry(*kind).or_default();
+                    count.0 += 1;
+                    count.1 += location.context.text[range.clone()].chars().count() as u64;
+                }
+                return;
+            }
             let mut ranges = Vec::new();
             for (index, source) in sources.iter().enumerate() {
                 if source.text.is_empty() {
@@ -252,7 +301,7 @@ fn measure(
         }
         Value::Array(values) => {
             for value in values {
-                measure(counts, found, kind, value, sources);
+                measure(counts, found, kind, value, sources, location);
             }
         }
         Value::Object(values) => {
@@ -266,7 +315,7 @@ fn measure(
                         | "thoughtSignature"
                         | "encrypted_content"
                 ) {
-                    measure(counts, found, kind, value, sources);
+                    measure(counts, found, kind, value, sources, location);
                 }
             }
         }
@@ -288,13 +337,14 @@ mod tests {
             json!({"functionDeclarations":[declaration.clone()]}),
             json!({"function_declarations":[declaration]}),
         ] {
-            let rows = estimate(&json!({"contents":[], "tools":tools}), None);
+            let rows = estimate(&json!({"contents":[], "tools":tools}), None, None);
             let tools = rows.iter().find(|row| row.kind == Kind::Tools).unwrap();
             assert_eq!(tools.items, Some(1));
             assert_eq!(tools.tokens, Some(4));
         }
         let rows = estimate(
             &json!({"contents":[], "tools":{"opaque":"declarations"}}),
+            None,
             None,
         );
         assert!(rows.iter().all(|row| row.tokens.is_none()));
@@ -318,6 +368,7 @@ mod tests {
                     "reasoning_content":"think"
                 }]}),
                 None,
+                None,
             );
             assert_eq!(
                 rows.iter()
@@ -335,6 +386,7 @@ mod tests {
                 "reasoning_content":"think"
             }]}),
             None,
+            None,
         );
         assert_eq!(
             rows.iter()
@@ -349,6 +401,7 @@ mod tests {
     fn separates_results_and_omits_binary() {
         let rows = estimate(
             &json!({"messages":[{"role":"user","content":[{"type":"text","text":"hello"},{"type":"tool_result","content":"completed"},{"type":"image","source":{"data":"SECRET"}}]}]}),
+            None,
             None,
         );
         assert_eq!(
@@ -366,7 +419,7 @@ mod tests {
             None
         );
         assert!(
-            estimate(&json!({"unknown":"private"}), None)
+            estimate(&json!({"unknown":"private"}), None, None)
                 .iter()
                 .all(|row| row.tokens.is_none())
         );
@@ -386,6 +439,7 @@ mod tests {
         let rows = estimate(
             &json!({"instructions":"base injected fragment skill fragment"}),
             Some(&sources),
+            None,
         );
         assert_eq!(
             rows.iter()
@@ -404,6 +458,7 @@ mod tests {
         let omitted = estimate(
             &json!({"instructions":"rewritten upstream"}),
             Some(&sources),
+            None,
         );
         assert_eq!(
             omitted
@@ -418,8 +473,8 @@ mod tests {
     #[test]
     fn distinguishes_empty_and_missing_provenance() {
         let body = json!({"instructions":"base","input":[]});
-        let known = estimate(&body, Some(&[]));
-        let missing = estimate(&body, None);
+        let known = estimate(&body, Some(&[]), None);
+        let missing = estimate(&body, None, None);
         for kind in [Kind::Skills, Kind::Injected] {
             assert_eq!(
                 known.iter().find(|row| row.kind == kind).unwrap().tokens,
@@ -436,7 +491,7 @@ mod tests {
             kind: Kind::Skills,
             text: "skill fragment".into(),
         }];
-        let rows = estimate(&quoted, Some(&sources));
+        let rows = estimate(&quoted, Some(&sources), None);
         assert_eq!(
             rows.iter()
                 .find(|row| row.kind == Kind::Skills)
@@ -456,7 +511,11 @@ mod tests {
             kind: Kind::Skills,
             text: "missing fragment".into(),
         });
-        let rows = estimate(&json!({"instructions":"skill fragment"}), Some(&sources));
+        let rows = estimate(
+            &json!({"instructions":"skill fragment"}),
+            Some(&sources),
+            None,
+        );
         assert_eq!(
             rows.iter()
                 .find(|row| row.kind == Kind::Skills)
@@ -465,9 +524,82 @@ mod tests {
             None
         );
         assert!(
-            estimate(&json!({"input":null}), Some(&[]))
+            estimate(&json!({"input":null}), Some(&[]), None)
                 .iter()
                 .all(|row| row.tokens.is_none())
         );
+    }
+
+    #[test]
+    fn scopes_terminal_fragments() {
+        let context = Context::new(vec![
+            Source {
+                kind: Kind::Injected,
+                text: "Current state 中文 🙂".into(),
+            },
+            Source {
+                kind: Kind::Skills,
+                text: "Exact skill body".into(),
+            },
+        ])
+        .unwrap();
+        let sources = [Source {
+            kind: Kind::Injected,
+            text: "Policy fragment".into(),
+        }];
+        let quotation = "Quote Policy fragment and Exact skill body; <turn-context>\nOlder state\n</turn-context>";
+        let bodies = [
+            json!({"messages":[{"role":"system","content":"Base Policy fragment"},
+                {"role":"user","content":format!("{quotation}\n{}",context.text())}]}),
+            json!({"input":[{"role":"system","content":[{"type":"input_text","text":"Base Policy fragment"}]},
+                {"role":"user","content":[{"type":"input_text","text":quotation},{"type":"input_text","text":context.text()}]}]}),
+            json!({"system":"Base Policy fragment","messages":[{"role":"user","content":[
+                {"type":"text","text":quotation},{"type":"text","text":context.text()}]}]}),
+            json!({"systemInstruction":{"parts":[{"text":"Base Policy fragment"}]},"contents":[{"role":"user","parts":[
+                {"text":quotation},{"text":context.text()}]}]}),
+        ];
+        for body in bodies {
+            let original = body.clone();
+            let rows = estimate(&body, Some(&sources), Some(&context));
+            let tokens = |kind| rows.iter().find(|row| row.kind == kind).unwrap().tokens;
+            assert_eq!(tokens(Kind::Skills), Some(4));
+            assert_eq!(
+                tokens(Kind::Injected),
+                Some(
+                    ("Policy fragment".chars().count() as u64
+                        + context.text().chars().count() as u64
+                        - "Exact skill body".chars().count() as u64)
+                        .div_ceil(4)
+                )
+            );
+            assert!(tokens(Kind::User).unwrap() >= (quotation.chars().count() as u64).div_ceil(4));
+            assert_eq!(body, original);
+        }
+    }
+
+    #[test]
+    fn rejects_rewritten_context() {
+        let context = Context::new(vec![Source {
+            kind: Kind::Skills,
+            text: "Full skill".into(),
+        }])
+        .unwrap();
+        for body in [
+            json!({"system":"base","messages":[{"role":"user","content":"rewritten"}]}),
+            json!({"system":"base","messages":[{"role":"user","content":context.text()},{"role":"user","content":"later input"}]}),
+            json!({"system":"base","messages":[{"role":"user","content":format!("{} altered",context.text())}]}),
+            json!({"system":"base","messages":[{"role":"user","content":[{"type":"text","text":context.text()},{"type":"image","data":"opaque"}]}]}),
+            json!({"system":"base","messages":[],"input":[{"role":"user","content":context.text()}]}),
+            json!({"input":{"opaque":context.text()}}),
+        ] {
+            let rows = estimate(&body, Some(&[]), Some(&context));
+            for kind in [Kind::Skills, Kind::Injected] {
+                assert_eq!(
+                    rows.iter().find(|row| row.kind == kind).unwrap().tokens,
+                    None,
+                    "{body}"
+                );
+            }
+        }
     }
 }

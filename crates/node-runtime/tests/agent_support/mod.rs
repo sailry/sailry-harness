@@ -550,7 +550,10 @@ async fn respond(
         }
         request.extend_from_slice(&buffer[..count]);
     }
-    let body: Value = serde_json::from_slice(&request[header_end..header_end + length]).unwrap();
+    let raw_body: Value =
+        serde_json::from_slice(&request[header_end..header_end + length]).unwrap();
+    let mut body = raw_body.clone();
+    split_context(&mut body);
     let vision = matches!(reply, Reply::Tools(_) | Reply::Held(..))
         && body["stream"] != true
         && body["messages"].as_array().is_some_and(|messages| {
@@ -561,7 +564,7 @@ async fn respond(
             })
         });
     if media || vision {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         let body = if vision {
             r#"{"error":{"code":"unsupported_capability","message":"Fixture model does not accept image inputs"}}"#
         } else {
@@ -572,13 +575,13 @@ async fn respond(
     }
     let model = body["model"].as_str().unwrap().to_owned();
     if compaction::is_tool_pair(&body) {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         return compaction::respond_pair(stream, &body).await;
     }
     if let Reply::Http { failures, status } = reply {
         let count = records.lock().unwrap().len();
         if count < failures {
-            records.lock().unwrap().push(body.clone());
+            records.lock().unwrap().push(raw_body.clone());
             let body = r#"{"error":{"message":"fixture unavailable","type":"server_error","code":"fixture"}}"#;
             stream.write_all(format!("HTTP/1.1 {status} Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await?;
             return Ok(());
@@ -586,15 +589,15 @@ async fn respond(
     }
 
     if let Reply::Workload = reply {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         return workload::respond(stream, &body).await;
     }
     if let Reply::Goals(description) = reply {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         return goals::respond(stream, &body, &description).await;
     }
     if let Reply::GoalLoop(turns) = reply {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         return goals::respond_loop(stream, &body, turns).await;
     }
     if let Reply::GoalReasoning {
@@ -603,7 +606,7 @@ async fn respond(
         count,
     } = reply
     {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         return goals::respond_reasoning(stream, &body, turns, state, &count).await;
     }
     if let Reply::Compaction {
@@ -620,7 +623,7 @@ async fn respond(
                 .filter(|request| !compaction::is_summary(request))
                 .count();
             let summaries = records.len() - index;
-            records.push(body.clone());
+            records.push(raw_body.clone());
             (index, summaries)
         };
         let failure_status = failure_status.filter(|_| summaries < failure_count);
@@ -638,7 +641,7 @@ async fn respond(
                 .iter()
                 .filter(|request| compaction::is_summary(request))
                 .count();
-            records.push(body.clone());
+            records.push(raw_body.clone());
             summaries
         };
         let task = body["messages"]
@@ -679,7 +682,7 @@ async fn respond(
         let index = {
             let mut records = records.lock().unwrap();
             let index = records.len();
-            records.push(body.clone());
+            records.push(raw_body.clone());
             index
         };
         return compaction::respond_plain(
@@ -698,7 +701,7 @@ async fn respond(
         text,
     } = reply
     {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         if pending_summary && compaction::is_summary(&body) {
             return std::future::pending().await;
         }
@@ -706,20 +709,20 @@ async fn respond(
             .await;
     }
     if let Reply::ExchangeCompaction { delegation } = reply {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         return compaction::respond_exchange(stream, &body, delegation).await;
     }
     if let Reply::Anthropic(reply) = reply {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         return anthropic::respond(stream, &body, reply).await;
     }
     if matches!(reply, Reply::Terminal) {
-        records.lock().unwrap().push(body.clone());
+        records.lock().unwrap().push(raw_body.clone());
         return terminal::respond(stream, &body, responses).await;
     }
     if responses {
         if matches!(reply, Reply::ResponsesParse) {
-            records.lock().unwrap().push(body);
+            records.lock().unwrap().push(raw_body);
             stream
                 .write_all(
                     b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
@@ -738,22 +741,22 @@ async fn respond(
             return stream.shutdown().await;
         }
         if let Reply::ResponsesStaged(reply) = reply {
-            records.lock().unwrap().push(body.clone());
+            records.lock().unwrap().push(raw_body.clone());
             return streaming::respond(stream, &body, reply).await;
         }
         if matches!(reply, Reply::EmptyAfterTool) {
-            records.lock().unwrap().push(body.clone());
+            records.lock().unwrap().push(raw_body.clone());
             return progress::respond_empty(stream, &body).await;
         }
         if let Reply::Progress(tool) = reply {
-            records.lock().unwrap().push(body.clone());
+            records.lock().unwrap().push(raw_body.clone());
             return progress::respond(stream, &body, tool).await;
         }
         if let Reply::WebSearch(finish) = reply {
-            records.lock().unwrap().push(body.clone());
+            records.lock().unwrap().push(raw_body.clone());
             return web_search::respond(stream, &body, finish).await;
         }
-        records.lock().unwrap().push(body);
+        records.lock().unwrap().push(raw_body);
         stream
             .write_all(
                 b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
@@ -941,7 +944,7 @@ async fn respond(
             json!({"role": "assistant", "content": if matches!(reply, Reply::Text { slow: true }) { "partial-fixture".to_owned() } else { format!("answer-{model}") }})
         }
     };
-    records.lock().unwrap().push(body);
+    records.lock().unwrap().push(raw_body);
     if let Reply::HeldTools(_, release) = &reply
         && completed > 0
     {
@@ -1014,4 +1017,72 @@ async fn respond(
 pub fn plugin_tool(package: &str, tool: &str) -> String {
     let digest = blake3::hash(package.as_bytes()).to_hex();
     format!("plugin_{}_{}", &digest[..16], tool)
+}
+
+/// Read request context from its terminal wire position without changing evidence.
+pub fn turn_context(body: &Value) -> Option<&str> {
+    for field in ["messages", "input", "contents"] {
+        let Some(last) = body[field].as_array().and_then(|messages| messages.last()) else {
+            continue;
+        };
+        if last["role"] != "user" {
+            continue;
+        }
+        let content = last.get("content").or_else(|| last.get("parts"))?;
+        let text = content
+            .as_str()
+            .or_else(|| content.as_array()?.last()?.get("text")?.as_str())?;
+        if !text.ends_with("\n</turn-context>") {
+            continue;
+        }
+        let start = text.rfind("<turn-context>\n")?;
+        if start == 0 || text[..start].ends_with('\n') {
+            return Some(&text[start..]);
+        }
+    }
+    None
+}
+
+/// Only the responder's private view omits request context from its task input.
+fn split_context(body: &mut Value) {
+    let Some(context) = turn_context(body).map(str::to_owned) else {
+        return;
+    };
+    for field in ["messages", "input", "contents"] {
+        let Some(messages) = body[field].as_array_mut() else {
+            continue;
+        };
+        let Some(last) = messages.last_mut().filter(|last| last["role"] == "user") else {
+            continue;
+        };
+        let key = if last.get("content").is_some() {
+            "content"
+        } else {
+            "parts"
+        };
+        let removed = match &mut last[key] {
+            Value::String(text) if text.ends_with(&context) => {
+                text.truncate(text.len() - context.len());
+                text.truncate(text.trim_end_matches('\n').len());
+                true
+            }
+            Value::Array(parts) if parts.last().is_some_and(|part| part["text"] == context) => {
+                parts.pop();
+                true
+            }
+            _ => false,
+        };
+        if !removed {
+            continue;
+        }
+        if match &last[key] {
+            Value::String(text) => text.is_empty(),
+            Value::Array(parts) => parts.is_empty(),
+            _ => false,
+        } {
+            messages.pop();
+        }
+        body["turn_context"] = Value::String(context);
+        return;
+    }
 }

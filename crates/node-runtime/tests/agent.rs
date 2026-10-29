@@ -156,6 +156,10 @@ fn node_context(request: &serde_json::Value, section: &str) -> String {
         .expect("captured Node context expected")
 }
 
+fn turn_context(request: &serde_json::Value) -> &str {
+    agent_support::turn_context(request).expect("request-only turn context expected")
+}
+
 fn planning_denial(page: &Page, turn: TurnId) {
     let run = page.runs.iter().find(|run| run.turn == turn).unwrap();
     assert_eq!(run.status, Status::Failed, "{run:?}");

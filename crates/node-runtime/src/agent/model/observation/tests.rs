@@ -97,6 +97,44 @@ async fn covers_creation_and_lazy_polling() {
 }
 
 #[tokio::test]
+async fn freezes_context_inventory() {
+    let sources = Sources::default();
+    let context = Context::new(vec![Source {
+        kind: Kind::Skills,
+        text: "First captured skill".into(),
+    }])
+    .unwrap();
+    sources.replace_with_context(Vec::new(), Some(context.clone()));
+    let first = sources.capture("base", Instant::now());
+    sources.replace_with_context(
+        Vec::new(),
+        Context::new(vec![Source {
+            kind: Kind::Skills,
+            text: "Later skill".into(),
+        }]),
+    );
+    let second = sources.capture("base", Instant::now());
+    let body =
+        json!({"system":"base","messages":[{"role":"user","content":context.text()}]}).to_string();
+    let (mut first_handle, mut second_handle) = tokio::join!(
+        first.scope(async { Logger.start().unwrap() }),
+        second.scope(async { Logger.start().unwrap() }),
+    );
+    let envelope =
+        json!({"input":serde_json::from_str::<serde_json::Value>(&body).unwrap()}).to_string();
+    second
+        .scope(async { first_handle.write(&envelope).unwrap() })
+        .await;
+    first
+        .scope(async { second_handle.write(&envelope).unwrap() })
+        .await;
+    assert_eq!(tokens(&first, Kind::Skills), Some(5));
+    assert!(tokens(&first, Kind::Injected).unwrap() > 0);
+    assert_eq!(tokens(&second, Kind::Skills), None);
+    assert_eq!(tokens(&second, Kind::Injected), None);
+}
+
+#[tokio::test]
 async fn cancellation_leaves_no_current_request() {
     let payload = Sources::default().capture("", Instant::now());
     let captured = payload.clone();
@@ -183,6 +221,39 @@ async fn classifies_only_prepared_plugin_body() {
         payload.scope(async { prepared(body) }).await;
         assert!(payload.snapshot().0.iter().all(|row| row.tokens.is_none()));
         assert!(!payload.snapshot().1);
+    }
+}
+
+#[tokio::test]
+async fn keeps_plugin_rewrites_unknown() {
+    let sources = Sources::default();
+    let context = Context::new(vec![Source {
+        kind: Kind::Skills,
+        text: "captured skill".into(),
+    }])
+    .unwrap();
+    sources.replace_with_context(Vec::new(), Some(context.clone()));
+    for (text, expected) in [
+        (context.text(), Some(4)),
+        ("plugin changed captured skill", None),
+    ] {
+        let payload = sources.capture("adapted", Instant::now());
+        payload
+            .scope(async {
+                prepared(Some(
+                    &json!({"system":"adapted","messages":[{
+                        "role":"user","content":text
+                    }]})
+                    .to_string(),
+                ));
+            })
+            .await;
+        assert_eq!(tokens(&payload, Kind::Skills), expected);
+        assert_eq!(
+            tokens(&payload, Kind::Injected).is_some(),
+            expected.is_some()
+        );
+        assert!(payload.snapshot().1);
     }
 }
 

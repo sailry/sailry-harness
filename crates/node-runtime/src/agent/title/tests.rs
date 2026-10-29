@@ -4,13 +4,13 @@ use super::*;
 fn names_an_unassigned_session() {
     let instruction = instruction(None, true, false).unwrap();
     assert!(
-        instruction.contains("You must call set_session_title as soon as the user's task is clear")
+        instruction.contains("Set a short title with set_session_title once the task is clear")
     );
-    assert!(instruction.contains("before your first substantive reply or any other task tool"));
-    assert!(instruction.contains("Do not ask the user for a title or permission"));
-    assert!(instruction.contains("do not wait for the task to finish"));
-    assert!(instruction.contains("short, recognizable title in the user's language"));
-    assert!(instruction.contains("rename it again only when the user explicitly requests it"));
+    assert!(instruction.contains("it may be called alongside other tools"));
+    assert!(instruction.contains("Do not ask the user for a title"));
+    assert!(instruction.contains("Use the user's language"));
+    assert!(instruction.contains("rename it later only when the user explicitly requests it"));
+    assert!(!instruction.contains("before your first substantive reply"));
     let tool = SetTitle {
         session: "fixture".into(),
         stop: CancellationToken::new(),
@@ -19,8 +19,8 @@ fn names_an_unassigned_session() {
     assert!(description.contains("short, recognizable title for this conversation"));
     assert!(description.contains("only changes this session's display title"));
     // Calling rules stay in the state-specific instruction, not the static description.
-    assert!(!description.contains("before your first substantive reply"));
-    assert!(!description.contains("Do not ask the user for a title or permission"));
+    assert!(!description.contains("once the task is clear"));
+    assert!(!description.contains("Do not ask the user for a title"));
 }
 
 #[test]
@@ -36,8 +36,7 @@ fn preserves_assigned_titles_as_data() {
                 .contains("Preserve this title across follow-up messages and context compaction")
         );
         assert!(instruction.contains("only when the user explicitly requests a rename"));
-        assert!(!instruction.contains("Do not wait for the task to finish"));
-        assert!(!instruction.contains("before your first substantive reply"));
+        assert!(!instruction.contains("once the task is clear"));
     }
 }
 

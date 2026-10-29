@@ -88,6 +88,11 @@ async fn retains_authentication_failures() {
             assert!(serialized.contains("[redacted]"));
             assert!(!serialized.contains(server::KEY));
             assert_eq!(server.requests.lock().unwrap().len(), 1);
+            crate::observations::assert_context_absent(&fixture.node, fixture.session.id).await;
+            assert!(
+                crate::agent_support::turn_context(&server.requests.lock().unwrap()[0].body)
+                    .is_some()
+            );
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }

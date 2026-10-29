@@ -74,6 +74,7 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
             .flat_map(|entry| &entry.parts)
             .any(|part| matches!(part, Part::ToolResult { .. }))
     );
+    crate::observations::assert_context_absent(&fixture.node, fixture.session.id).await;
     let original = page.entries;
     let Output::QueuedTurn(queued) = execute(
         &fixture.client,
@@ -122,6 +123,7 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
     assert!(page.entries.iter().all(|entry| entry.parts.iter().all(|part| {
         !matches!(part, Part::Text(text) if ["Session environment", ROOT_RULE, NESTED_RULE, PERSONAL_FIRST, PERSONAL_NEXT].iter().any(|context| text.contains(*context)))
     })));
+    crate::observations::assert_context_absent(&node, fixture.session.id).await;
     fixture.controller.close().await.unwrap();
     node.shutdown().await.unwrap();
 }
@@ -178,8 +180,21 @@ fn users(api: ModelApi, body: &Value) -> Vec<String> {
 }
 
 fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
+    assert!(
+        body.get("turn_context").is_none(),
+        "{api:?}: raw wire was changed"
+    );
+    assert!(
+        crate::agent_support::turn_context(body).is_some(),
+        "{api:?}: terminal context missing"
+    );
     let system = instruction(api, body);
     assert_eq!(system.matches(BASE.trim()).count(), 1, "{api:?}");
+    assert_eq!(
+        system.matches("Project instructions\nThese guides").count(),
+        1,
+        "{api:?}"
+    );
     for (context, expected) in [
         (ROOT_RULE, 1),
         (NESTED_RULE, usize::from(nested)),
@@ -188,7 +203,7 @@ fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
         (CONTROLLER_RULE, 0),
         ("This turn uses Ask permission", 1),
         ("Work mode\n", 1),
-        ("Session environment", 1),
+        ("Session environment", 0),
     ] {
         assert_eq!(
             system.matches(context).count(),
@@ -220,13 +235,35 @@ fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
         CONTROLLER_RULE,
         "This turn uses Ask permission",
         "Work mode\n",
-        "Session environment",
     ] {
         assert!(
             users.iter().all(|text| !text.contains(context)),
             "{api:?}: {context} became user input"
         );
     }
+    // Volatile session state is request-only context after the history.
+    assert!(
+        users.last().is_some_and(
+            |text| text.contains("<turn-context>") && text.contains("Session environment")
+        ),
+        "{api:?}: turn context must end the request"
+    );
+    assert_eq!(
+        users
+            .iter()
+            .map(|text| text.matches("Session environment").count())
+            .sum::<usize>(),
+        1,
+        "{api:?}: turn context"
+    );
+    assert_eq!(
+        users
+            .iter()
+            .map(|text| text.matches("<turn-context>\n").count())
+            .sum::<usize>(),
+        1,
+        "{api:?}: stale context accumulated"
+    );
     for (task, expected) in [(FIRST, 1), (SECOND, usize::from(resumed))] {
         assert!(!system.contains(task), "{api:?}: user task became policy");
         assert_eq!(

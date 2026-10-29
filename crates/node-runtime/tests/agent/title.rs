@@ -4,7 +4,8 @@ use serde_json::{Value, json};
 
 fn policy(request: &Value, title: Option<&str>) {
     assert_eq!(request["messages"][0]["role"], "system");
-    let instruction = node_context(request, "Work mode");
+    assert!(!node_context(request, "Work mode").contains("set_session_title"));
+    let instruction = turn_context(request);
     match title {
         Some(title) => {
             let assigned = format!(
@@ -13,15 +14,15 @@ fn policy(request: &Value, title: Option<&str>) {
             );
             assert!(instruction.contains(&assigned));
             assert!(instruction.contains("only when the user explicitly requests a rename"));
-            assert!(!instruction.contains("before your first substantive reply"));
+            assert!(!instruction.contains("once the task is clear"));
         }
         None => {
-            assert!(instruction.contains("You must call set_session_title as soon as"));
             assert!(
-                instruction.contains("before your first substantive reply or any other task tool")
+                instruction
+                    .contains("Set a short title with set_session_title once the task is clear")
             );
-            assert!(instruction.contains("Do not ask the user for a title or permission"));
-            assert!(instruction.contains("do not wait for the task to finish"));
+            assert!(instruction.contains("it may be called alongside other tools"));
+            assert!(instruction.contains("Do not ask the user for a title"));
         }
     }
     let tool = request["tools"]

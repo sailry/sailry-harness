@@ -103,6 +103,22 @@ async fn incorporates_previous_summaries() {
             );
         }
         let requests = server.requests.lock().unwrap().clone();
+        for request in &requests {
+            if agent_support::compaction::is_summary(request) {
+                assert!(!request.to_string().contains("<turn-context>"));
+            } else {
+                assert!(request.get("turn_context").is_none());
+                assert!(agent_support::turn_context(request).is_some());
+                assert_eq!(
+                    request["messages"]
+                        .to_string()
+                        .matches("<turn-context>\\n")
+                        .count(),
+                    1
+                );
+            }
+        }
+        observations::assert_context_absent(&fixture.node, fixture.session.id).await;
         let summaries: Vec<_> = requests
             .iter()
             .filter(|request| agent_support::compaction::is_summary(request))

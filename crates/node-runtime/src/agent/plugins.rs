@@ -15,6 +15,8 @@ mod selection;
 pub(super) struct Contribution {
     pub tools: Vec<ToolRegistration>,
     pub instruction: String,
+    /// Per-turn plugin script text, delivered as request-only turn context.
+    pub context: String,
     pub callbacks: Vec<(
         i16,
         Arc<
@@ -174,7 +176,7 @@ pub(super) async fn bind(
                 && tool.plugin.as_deref() == Some(package.summary.name.as_str())
         });
         if let Some(instructions) = bound.instructions.get(&package.summary.name) {
-            bound.instruction.push_str(instructions);
+            bound.context.push_str(instructions);
         }
         if mounted
             && let Some(instructions) = package

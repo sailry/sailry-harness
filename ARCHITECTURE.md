@@ -384,11 +384,15 @@ latest summary and subsequent continuation, with older originals hidden from the
 agent. Goose's continuation and retained current input remain available after
 compaction; public history, fork and rewind still use canonical membership.
 
-Current policy, environment, personal context, guides, selected capabilities,
-plans and loaded skill resources enter each inference through `prompt_parts`
-and `moim_parts` from their existing owners. They are not copied into or validated
-against summary text. Selected capabilities retain their input ownership rather
-than becoming policy for a later task.
+Policy, personal instructions, guides and selected capabilities form the stable
+system prompt. Environment, title, plugin turn state, plans, loaded skill resources
+and turn budgets follow history in one request-only context message. The canonical
+writer drops that marked message; each inference rebuilds it from its current
+owners, including after cancellation or compaction. Adapted payload estimates
+attribute its sources only within the verified terminal text and captured ranges.
+Compaction still reads full canonical tool results. These sources are not copied
+into or validated against summary text. Selected capabilities retain their input
+ownership rather than becoming policy for a later task.
 
 Context-length errors can trigger at most two reactive compactions under Goose's
 operation ordering. A compaction error reaches `ExitOnError` and ends the turn as

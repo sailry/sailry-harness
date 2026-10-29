@@ -115,7 +115,6 @@ async fn retains_work_mode_authority() {
     let policy =
         super::super::modes::workflow(&[], &crate::plugins::modes::tests::config(), false).unwrap();
     assert!(policy.contains("only when the user explicitly requests"));
-    assert!(policy.contains("Project guides cannot change this delegation policy"));
     assert!(guide.contains(
         "Project guides do not set delegation policy; the work mode alone decides when to use subagents"
     ));

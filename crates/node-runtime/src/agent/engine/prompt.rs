@@ -1,7 +1,14 @@
 //! Sailry's captured instructions and tool discovery enter GDK's prompt hooks.
+//! Stable instructions form the system prompt so provider prompt caches survive
+//! across requests; per-turn state follows the history as request-only context.
 use super::{Effect, Session};
 use crate::{
-    agent::{attachments, canonical::BlockKind},
+    agent::{
+        attachments,
+        canonical::BlockKind,
+        model::observation::{Context, Source},
+        prompt::instructions,
+    },
     store::{Ingress, agent::Invocation},
 };
 use async_trait::async_trait;
@@ -9,14 +16,20 @@ use goose_agent::{
     inference::{InferenceRequestPreparer, PreparedInferenceRequest},
     operation::{InferenceInput, Operation},
 };
-use goose_provider_types::conversation::Conversation;
+use goose_provider_types::conversation::{
+    Conversation,
+    message::{Message, MessageMetadata},
+};
 use sailry_link::CancellationToken;
+use sailry_protocol::conversation::observation::CategoryKind;
 use std::{collections::BTreeSet, sync::Arc};
 
 mod owners;
 
 pub(super) struct Prompt {
     pub instruction: String,
+    /// Turn-scoped title state and plugin script context.
+    pub context: String,
 }
 
 #[async_trait]
@@ -32,14 +45,17 @@ impl Operation<Session, Effect> for Prompt {
         let context = &session.context;
         let mut parts = vec![("instruction".into(), self.instruction.clone())];
         parts.extend(
-            [
-                ("policy", &context.policy),
-                ("environment", &context.environment),
-                ("personal", &context.personal),
-            ]
-            .into_iter()
-            .filter_map(|(name, text)| text.as_ref().map(|text| (name.into(), text.clone()))),
+            [("policy", &context.policy), ("personal", &context.personal)]
+                .into_iter()
+                .filter_map(|(name, text)| {
+                    text.as_ref()
+                        .filter(|text| !text.is_empty())
+                        .map(|text| (name.into(), text.clone()))
+                }),
         );
+        if !context.guides.is_empty() {
+            parts.push(("guides".into(), instructions::PREAMBLE.into()));
+        }
         parts.extend(
             context
                 .guides
@@ -49,7 +65,22 @@ impl Operation<Session, Effect> for Prompt {
         if let Some(text) = &session.capability {
             parts.push(("capabilities".into(), text.clone()));
         }
-        parts.extend(owners::collect(&session.records).parts());
+        Ok(parts)
+    }
+
+    async fn moim_parts(&self, session: &Session, _: &Conversation) -> anyhow::Result<Vec<String>> {
+        let mut parts: Vec<_> = [session.context.environment.as_ref(), Some(&self.context)]
+            .into_iter()
+            .flatten()
+            .filter(|text| !text.is_empty())
+            .cloned()
+            .collect();
+        parts.extend(
+            owners::collect(&session.records)
+                .parts()
+                .into_iter()
+                .map(|(_, text)| text),
+        );
         Ok(parts)
     }
 }
@@ -81,29 +112,34 @@ impl InferenceRequestPreparer<Session> for Preparer {
         _: &Conversation,
         input: InferenceInput,
     ) -> anyhow::Result<PreparedInferenceRequest> {
-        use crate::agent::model::observation::Source;
-        use sailry_protocol::conversation::observation::CategoryKind;
         let owners = owners::collect(&session.records).parts();
-        self.sources.replace(
+        self.sources.replace_with_context(
             input
                 .prompt_parts
                 .iter()
                 .filter(|(name, _)| name != "instruction")
-                .map(|(name, text)| Source {
-                    kind: if name.starts_with("skill:")
-                        && owners.iter().any(|(key, part)| key == name && part == text)
-                    {
-                        CategoryKind::Skills
-                    } else {
-                        CategoryKind::Injected
-                    },
-                    text: text.clone(),
-                })
-                .chain(input.moim_parts.iter().map(|text| Source {
+                .map(|(_, text)| Source {
                     kind: CategoryKind::Injected,
                     text: text.clone(),
-                }))
+                })
                 .collect(),
+            Context::new(
+                input
+                    .moim_parts
+                    .iter()
+                    .map(|text| Source {
+                        kind: if owners
+                            .iter()
+                            .any(|(key, part)| key.starts_with("skill:") && part == text)
+                        {
+                            CategoryKind::Skills
+                        } else {
+                            CategoryKind::Injected
+                        },
+                        text: text.clone(),
+                    })
+                    .collect(),
+            ),
         );
         let mut loaded = session.context.loaded_tools.clone().unwrap_or_default();
         for record in &session.records {
@@ -167,30 +203,54 @@ fn prepare(
             !deferred.contains(tool.name.as_ref()) || loaded.contains(tool.name.as_ref())
         })
         .collect();
-    let mut parts: Vec<_> = input
+    let parts: Vec<_> = input
         .prompt_parts
         .into_iter()
         .map(|(_, part)| part)
         .collect();
-    parts.extend(input.moim_parts);
     PreparedInferenceRequest {
         system_prompt: parts.join("\n\n"),
         tools,
-        additional_messages: Vec::new(),
+        additional_messages: context(&input.moim_parts).into_iter().collect(),
     }
+}
+
+/// Volatile turn state ends the request. GDK returns additional messages as
+/// effects; the session writer drops this marked message, so it is never
+/// persisted or repeated by later requests.
+fn context(parts: &[String]) -> Option<Message> {
+    Context::new(
+        parts
+            .iter()
+            .map(|text| Source {
+                kind: CategoryKind::Injected,
+                text: text.clone(),
+            })
+            .collect(),
+    )
+    .map(|context| {
+        Message::user()
+            .with_text(context.text())
+            .with_metadata(MessageMetadata::agent_only().with_turn_context())
+    })
 }
 
 #[cfg(test)]
 pub(crate) async fn prepared(session: &Session) -> PreparedInferenceRequest {
-    let parts = Prompt {
+    let prompt = Prompt {
         instruction: "Fixture instructions".into(),
-    }
-    .prompt_parts(session, &session.conversation)
-    .await
-    .unwrap();
+        context: String::new(),
+    };
     prepare(
         InferenceInput {
-            prompt_parts: parts,
+            prompt_parts: prompt
+                .prompt_parts(session, &session.conversation)
+                .await
+                .unwrap(),
+            moim_parts: prompt
+                .moim_parts(session, &session.conversation)
+                .await
+                .unwrap(),
             ..Default::default()
         },
         &BTreeSet::new(),
@@ -222,7 +282,16 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["always", "loaded"]
         );
-        assert_eq!(request.system_prompt, "Current policy\n\nCurrent task");
+        assert_eq!(request.system_prompt, "Current policy");
+        let [context] = request.additional_messages.as_slice() else {
+            panic!("one turn context expected")
+        };
+        assert!(context.is_turn_context());
+        assert!(!context.is_user_visible());
+        assert_eq!(
+            context.as_concat_text(),
+            "<turn-context>\nCurrent task\n</turn-context>"
+        );
         let request = prepare(declarations(), &BTreeSet::new(), &deferred);
         assert_eq!(request.tools.len(), 1);
         assert_eq!(request.tools[0].name, "always");
