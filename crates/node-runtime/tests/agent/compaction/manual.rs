@@ -510,6 +510,25 @@ async fn restores_branch_history() {
         let (_, first, before) =
             submit(&fixture.client, fixture.session.id, original.clone()).await;
         assert_eq!(summaries(&before), 0);
+        let outputs = results(&fixture.client, &before).await;
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0]["kind"], "file_lines");
+        let reference = sailry_protocol::tool::OutputReference {
+            call: "evidence-call".into(),
+            revision: blake3::hash(outputs[0].to_string().as_bytes())
+                .to_hex()
+                .to_string(),
+        };
+        assert!(
+            before
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::ToolCall { id: Some(id), name, .. }
+                if id == &reference.call && name == &plugin_tool("files", "read_file"))
+                })
+        );
         let measured = super::budget::statistics(&fixture).await;
         let (request, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -526,7 +545,14 @@ async fn restores_branch_history() {
         let transcript = prompt(summary);
         assert!(transcript.contains("Exact tool evidence 中文 🙂"));
         assert!(transcript.contains(&plugin_tool("files", "read_file")));
-        assert!(!transcript.contains("evidence-call"));
+        // Source references are transcript data, not replayed tool-call fields.
+        let references = transcript
+            .lines()
+            .filter(|line| line.contains("evidence-call"))
+            .collect::<Vec<_>>();
+        assert_eq!(references.len(), 1);
+        let footer: Value = serde_json::from_str(references[0]).unwrap();
+        assert_eq!(footer, json!({"output":reference,"next_offset":null}));
         let mut stream = fixture
             .client
             .subscribe_conversation(fixture.session.id)
@@ -623,6 +649,17 @@ async fn restores_branch_history() {
         assert!(messages(&current).contains("Context summary fixture"));
         assert!(!messages(&current).contains("Original manual constraint"));
         assert!(!messages(&current).contains("evidence-call"));
+        assert!(
+            current["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|message| {
+                    message["role"] != "tool"
+                        && message.get("tool_calls").is_none()
+                        && message.get("tool_call_id").is_none()
+                })
+        );
         assert_eq!(server.requests.lock().unwrap().len(), 6);
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
