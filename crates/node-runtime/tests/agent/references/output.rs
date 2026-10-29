@@ -51,11 +51,10 @@ async fn pages_prior_results_without_command_tools() {
                 .find_map(|message| {
                     let result: serde_json::Value =
                         serde_json::from_str(message["content"].as_str()?).ok()?;
-                    (result.to_string() == original).then(|| OutputReference {
+                    let serialized = result.to_string();
+                    (serialized == original).then(|| OutputReference {
                         call: message["tool_call_id"].as_str().unwrap().into(),
-                        revision: blake3::hash(result.to_string().as_bytes())
-                            .to_hex()
-                            .to_string(),
+                        revision: blake3::hash(serialized.as_bytes()).to_hex().to_string(),
                     })
                 })
                 .expect("original file result and call identity")

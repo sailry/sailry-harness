@@ -103,7 +103,7 @@ pub(super) async fn upload(
         name: name.into(),
         media_type: media_type.into(),
         size: bytes.len() as u64,
-        revision: blake3::hash(&bytes).to_hex().to_string(),
+        revision: blake3::hash(bytes).to_hex().to_string(),
     };
     let Output::AttachmentUpload(upload) = fixture
         .client
