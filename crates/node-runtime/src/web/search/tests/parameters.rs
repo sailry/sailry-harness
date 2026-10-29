@@ -153,3 +153,98 @@ async fn scopes_keyless_exa_queries() {
             .is_none()
     );
 }
+
+#[tokio::test]
+async fn bounds_brave_queries_without_losing_filters() {
+    let server = Server::start().await;
+    let owner = Arc::new(Searcher::default());
+    let plan = plan(&[Driver::Brave]);
+    owner.configure(plan.settings.clone());
+    owner.fixture(Driver::Brave, &server.url(Driver::Brave));
+    let mut included = vec!["example.com".into()];
+    included.extend((0..19).map(|index| {
+        format!(
+            "host-{index}.{}.{}.example.org",
+            "a".repeat(60),
+            "b".repeat(60)
+        )
+    }));
+    let cases = [
+        search::Request {
+            query: "source".into(),
+            include_domains: included,
+            exclude_domains: vec!["private.example.com".into()],
+            ..Default::default()
+        },
+        search::Request {
+            query: std::iter::repeat_n("a", 74).collect::<Vec<_>>().join(" "),
+            include_domains: vec!["example.com".into()],
+            exclude_domains: vec!["private.example.com".into()],
+            ..Default::default()
+        },
+    ];
+    assert!(filters::query(&cases[0]).chars().count() > 600);
+    assert!(filters::query(&cases[1]).chars().count() < 600);
+    assert!(filters::query(&cases[1]).split_whitespace().count() > 75);
+    for (index, input) in cases.into_iter().enumerate() {
+        input.validate().unwrap();
+        server.respond(
+            "/brave",
+            vec![Reply::Json(json!({"web":{"results":[
+                {"title":"Allowed","url":"https://example.com/source","description":"Excerpt"},
+                {"title":"Excluded","url":"https://private.example.com/source","description":"Excerpt"},
+                {"title":"Outside","url":"https://unrelated.example/source","description":"Excerpt"}
+            ]}}))],
+        );
+        let page = owner
+            .search(
+                NodeId([1; 32]),
+                RequestId::new(),
+                plan.clone(),
+                &input,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.results.len(), 1);
+        assert_eq!(page.results[0].url, "https://example.com/source");
+        assert_eq!(server.count("/brave"), index + 1);
+        let (header, _) = server.requests.lock().unwrap().last().unwrap().clone();
+        let path = header.split_whitespace().nth(1).unwrap();
+        let url = url::Url::parse(&format!("http://fixture{path}")).unwrap();
+        let parameters = url.query_pairs().collect::<BTreeMap<_, _>>();
+        assert_eq!(parameters["q"], input.query);
+    }
+}
+
+#[tokio::test]
+async fn rejects_brave_queries_before_sending() {
+    let server = Server::start().await;
+    let owner = Arc::new(Searcher::default());
+    let plan = plan(&[Driver::Brave]);
+    owner.configure(plan.settings.clone());
+    owner.fixture(Driver::Brave, &server.url(Driver::Brave));
+    for query in [
+        "a".repeat(601),
+        std::iter::repeat_n("a", 76).collect::<Vec<_>>().join(" "),
+    ] {
+        let input = search::Request {
+            query,
+            ..Default::default()
+        };
+        input.validate().unwrap();
+        let error = owner
+            .search(
+                NodeId([1; 32]),
+                RequestId::new(),
+                plan.clone(),
+                &input,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert_eq!(error.message, "search query exceeds the service limit");
+    }
+    assert_eq!(server.count("/brave"), 0);
+}

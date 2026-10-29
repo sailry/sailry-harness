@@ -5,10 +5,7 @@ pub(super) async fn search(
     auth: &Auth,
     input: &search::Request,
 ) -> Result<Vec<search::Result>, Failure> {
-    let mut parameters = vec![
-        ("q", filters::query(input)),
-        ("count", input.limit.to_string()),
-    ];
+    let mut parameters = vec![("q", query(input)?), ("count", input.limit.to_string())];
     if let Some(freshness) = input.freshness {
         parameters.push((
             "freshness",
@@ -29,6 +26,19 @@ pub(super) async fn search(
     )
     .await?;
     parse(&response)
+}
+
+fn query(input: &search::Request) -> Result<String, Failure> {
+    let fits = |query: &str| query.chars().count() <= 600 && query.split_whitespace().count() <= 75;
+    if !fits(&input.query) {
+        return Err(Failure::invalid("search query exceeds the service limit"));
+    }
+    let filtered = filters::query(input);
+    Ok(if fits(&filtered) {
+        filtered
+    } else {
+        input.query.clone()
+    })
 }
 
 pub(super) fn parse(value: &serde_json::Value) -> Result<Vec<search::Result>, Failure> {
