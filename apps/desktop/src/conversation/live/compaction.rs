@@ -65,21 +65,6 @@ pub(super) fn focus(text: &str) -> Option<String> {
     (name == "compact" && !arguments.trim().is_empty()).then(|| arguments.trim().to_owned())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[core::prelude::v1::test]
-    fn retains_manual_focus() {
-        assert_eq!(
-            focus(" /compact Keep pending questions\nand exact paths "),
-            Some("Keep pending questions\nand exact paths".into())
-        );
-        assert_eq!(focus("/compact"), None);
-        assert_eq!(focus("/compaction Keep exact paths"), None);
-    }
-}
-
 pub(super) fn status(run: &Run, page: &Page) -> &'static str {
     match run.status {
         Status::Queued => "chat_compact_queued",
@@ -102,5 +87,20 @@ pub(super) fn status(run: &Run, page: &Page) -> &'static str {
         Status::Continued => "turn_continued",
         Status::Interrupted => "chat_compact_interrupted",
         Status::Failed => "chat_compact_failed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[core::prelude::v1::test]
+    fn retains_manual_focus() {
+        assert_eq!(
+            focus(" /compact Keep pending questions\nand exact paths "),
+            Some("Keep pending questions\nand exact paths".into())
+        );
+        assert_eq!(focus("/compact"), None);
+        assert_eq!(focus("/compaction Keep exact paths"), None);
     }
 }
