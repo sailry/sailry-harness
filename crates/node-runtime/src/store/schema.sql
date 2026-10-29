@@ -292,6 +292,9 @@ CREATE TABLE IF NOT EXISTS agent_pending (
 );
 CREATE INDEX IF NOT EXISTS agent_events_id ON agent_events(id);
 CREATE INDEX IF NOT EXISTS agent_events_turn ON agent_events(turn,sequence);
+CREATE INDEX IF NOT EXISTS agent_visibility ON agent_events(
+    json_extract(body,'$.message'),sequence DESC
+) WHERE json_extract(body,'$.kind')='operation' AND json_extract(body,'$.operation')='visibility';
 CREATE INDEX IF NOT EXISTS agent_usage ON agent_events(
     turn,
     max(0,coalesce(json_extract(body,'$.usage.input'),json_extract(body,'$.summary.usage.input'))),
