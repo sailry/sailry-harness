@@ -16,7 +16,10 @@ pub(in crate::agent) async fn finish(
         session,
         status,
         error,
-        Pending::Running { owner, review },
+        Pending::Running {
+            owner,
+            review: review.map(Box::new),
+        },
     )
     .await
 }
@@ -34,7 +37,7 @@ pub(in crate::agent) async fn queued(
 enum Pending {
     Running {
         owner: Option<CancellationToken>,
-        review: Option<canonical::Record>,
+        review: Option<Box<canonical::Record>>,
     },
     Queued,
 }
@@ -52,7 +55,13 @@ async fn settle(
         let result = match &pending {
             Pending::Running { owner, review } => {
                 ingress
-                    .finish_run_with(turn, status, error.clone(), owner.clone(), review.clone())
+                    .finish_run_with(
+                        turn,
+                        status,
+                        error.clone(),
+                        owner.clone(),
+                        review.as_deref().cloned(),
+                    )
                     .await
             }
             Pending::Queued => {

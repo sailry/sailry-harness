@@ -19,7 +19,7 @@ pub(crate) fn event(turn: TurnId, input: &Input) -> Record {
     let mut event = Record::new(
         turn,
         Kind::Notice(Notice::Elicitation {
-            parent: input.parent.clone(),
+            parent: Box::new(input.parent.clone()),
             request: input.request.clone(),
             spec: input.spec.clone(),
             schema: input.schema.clone(),

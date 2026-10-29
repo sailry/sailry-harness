@@ -57,23 +57,42 @@ pub(crate) fn budget(
     })
 }
 
-pub(super) async fn run(
-    ingress: &Arc<Ingress>,
-    invocation: &Arc<Invocation>,
-    stop: CancellationToken,
-    binding: model::Binding,
-    summary: model::Binding,
-    instruction: String,
-    catalog: catalog::Catalog,
-    callbacks: Vec<Arc<dyn goose_agent::operation::Operation<Session, Effect>>>,
-    images: Vec<(Vec<String>, usize)>,
-    required: BTreeSet<String>,
-    bindings: BTreeMap<String, crate::store::agent::ApprovalBinding>,
-    deferred: BTreeSet<String>,
-    resources: Arc<crate::plugins::resources::Resources>,
-    capabilities: BTreeMap<String, Vec<String>>,
-    children: Children,
-) -> Result<Option<String>, Fault> {
+pub(super) struct Run<'a> {
+    pub ingress: &'a Arc<Ingress>,
+    pub invocation: &'a Arc<Invocation>,
+    pub stop: CancellationToken,
+    pub binding: model::Binding,
+    pub summary: model::Binding,
+    pub instruction: String,
+    pub catalog: catalog::Catalog,
+    pub callbacks: Vec<Arc<dyn goose_agent::operation::Operation<Session, Effect>>>,
+    pub images: Vec<(Vec<String>, usize)>,
+    pub required: BTreeSet<String>,
+    pub bindings: BTreeMap<String, crate::store::agent::ApprovalBinding>,
+    pub deferred: BTreeSet<String>,
+    pub resources: Arc<crate::plugins::resources::Resources>,
+    pub capabilities: BTreeMap<String, Vec<String>>,
+    pub children: Children,
+}
+
+pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
+    let Run {
+        ingress,
+        invocation,
+        stop,
+        binding,
+        summary,
+        instruction,
+        catalog,
+        callbacks,
+        images,
+        required,
+        bindings,
+        deferred,
+        resources,
+        capabilities,
+        children,
+    } = run;
     let context = binding
         .provider
         .get_context_limit(&binding.config.model_name, binding.config.context_limit)
@@ -176,7 +195,7 @@ pub(super) async fn run(
     let machine = StateMachine::new(steps, stop.clone());
     let result = {
         let execution = async {
-            let result = loop {
+            loop {
                 let session = sessions.load(&id).await?;
                 let mut result = machine.step(&session, &emit).await?;
                 machine
@@ -188,14 +207,16 @@ pub(super) async fn run(
                     continue;
                 }
                 break Ok::<_, anyhow::Error>(result.status);
-            };
-            result
+            }
         };
         tokio::pin!(execution);
         loop {
             tokio::select! {
                 result=&mut execution=>break result,
-                event=events.recv()=>if let Some(AgentEvent::Message(message))=event{if let Err(error)=ingress.partial(invocation.turn.session,invocation.turn.id,message).await {break Err(anyhow::Error::new(error));}},
+                event=events.recv()=>if let Some(AgentEvent::Message(message))=event
+                    && let Err(error)=ingress.partial(invocation.turn.session,invocation.turn.id,message).await {
+                        break Err(anyhow::Error::new(error));
+                    },
             }
         }
     };

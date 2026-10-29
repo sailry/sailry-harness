@@ -8,7 +8,7 @@ pub(crate) enum Effect {
     Conversation(ConversationEffect),
     Usage(ProviderUsage),
     Compaction {
-        summary: Message,
+        summary: Box<Message>,
         usage: ProviderUsage,
         files: Vec<crate::agent::canonical::CompactedFile>,
     },
@@ -94,7 +94,7 @@ impl MachineEffect for Effect {
             Self::Conversation(effect) => effect.ensure_message_ids(),
             Self::Compaction { summary, .. } => {
                 if summary.id.is_none() {
-                    *summary = summary.clone().with_generated_id();
+                    *summary = Box::new(summary.as_ref().clone().with_generated_id());
                 }
             }
             Self::Usage(_) | Self::Records(_) | Self::Approval { .. } => {}
