@@ -43,18 +43,28 @@ fn text(result: &CallToolResult) -> &str {
 #[test]
 fn numbers_text_and_preserves_line_endings() {
     let raw = "\n  trailing spaces  \r\n\t中文🙂\r\nlast line";
-    let value = original(raw, 7);
+    let mut value = original(raw, 7);
+    value["data"]["path"] = json!("src/with space/文件🙂.txt");
+    let file_revision = value["data"]["revision"].as_str().unwrap();
     let canonical = vec![response(value.clone())];
     let mut outgoing = canonical.clone();
     super::super::project(&mut outgoing);
     let result = result(&outgoing[0]);
     let projected = text(result);
-    assert!(projected.contains("Lines 8–11;"));
+    assert!(projected.starts_with(&format!(
+        "src/with space/文件🙂.txt\nLines 8–11; {} bytes; revision {file_revision}\n",
+        raw.len()
+    )));
+    assert_eq!(
+        file_revision,
+        blake3::hash(raw.as_bytes()).to_hex().as_str()
+    );
     assert!(projected.contains("    8\t\n    9\t  trailing spaces  \r\n"));
     assert!(projected.contains("   10\t\t中文🙂\r\n"));
     assert!(projected.contains("   11\tlast line [no trailing newline]\n"));
     assert!(result.structured_content.is_none());
     assert_eq!(metadata(projected)["output"], source(&value));
+    assert_ne!(metadata(projected)["output"]["revision"], file_revision);
     assert!(metadata(projected)["next_offset"].is_null());
     assert_eq!(self::result(&canonical[0]).structured_content, Some(value));
     let prepared = outgoing.clone();
