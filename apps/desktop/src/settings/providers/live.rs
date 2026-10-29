@@ -213,6 +213,7 @@ impl Workspace {
         live.credentials = credentials.to_vec();
         live.connected = view.connected;
         if !view.connected {
+            live.directory.invalidate();
             self.extensions.clear_resources();
         }
         let directory_plugins = view

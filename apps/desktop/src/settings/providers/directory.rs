@@ -18,6 +18,13 @@ pub(super) struct State {
     read: Option<Read>,
 }
 
+impl State {
+    pub(super) fn invalidate(&mut self) {
+        self.plugins = None;
+        self.read = None;
+    }
+}
+
 struct Read {
     stop: CancellationToken,
     _task: Task<()>,
@@ -114,6 +121,20 @@ fn apply(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    fn invalidation_preserves_received_entries() {
+        let entries = super::super::presets::bundled();
+        let mut state = State {
+            plugins: Some(Vec::new()),
+            entries: entries.clone(),
+            ..Default::default()
+        };
+        state.invalidate();
+        assert!(state.plugins.is_none());
+        assert_eq!(state.entries, entries);
+    }
+
     #[test]
     fn matches_source_and_stable_identity() {
         let mut entry = super::super::presets::bundled().remove(0);
