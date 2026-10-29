@@ -23,7 +23,7 @@ use goose_agent::{
     events::AgentEvent,
     inference::InferenceRunner,
     machine::{SessionLoader, StateMachine, Step},
-    operation::{Emitter, MachineEffect, RunStatus},
+    operation::{Emitter, RunStatus},
     subagent::SubagentOperation,
     tool::ToolOperation,
 };
@@ -127,12 +127,14 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         context,
         threshold,
     ));
+    let manual = invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction;
     let compact = Arc::new(compact::Compaction {
         provider: summary.provider,
         config: summary.config,
         context,
         threshold,
         preparer: preparer.clone(),
+        manual,
     });
     let sessions = Sessions::new(ingress.clone(), invocation.turn.id)
         .with_invocation(invocation.clone())
@@ -144,57 +146,46 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
     let id = invocation.turn.session.to_string();
     let (tx, mut events) = tokio::sync::mpsc::unbounded_channel();
     let emit = Emitter::new(tx, stop.clone());
-    if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
-        let session = sessions.load(&id).await.map_err(fault)?;
-        let mut effects = tokio::select! {biased;_=stop.cancelled()=>return Ok(None),effects=compact.compact(&session.conversation,true)=>effects.map_err(fault)?};
-        for effect in &mut effects {
-            effect.ensure_message_ids();
+    let steps: Vec<Step<'_, Session, Effect>> = if manual {
+        vec![Step::Operation(compact)]
+    } else {
+        let mut steps = vec![
+            Step::Operation(Arc::new(operations::PlanReview)),
+            Step::Operation(Arc::new(operations::Approval { required, bindings })),
+            Step::Operation(Arc::new(prompt::Prompt { instruction })),
+            Step::Operation(Arc::new(
+                ToolOperation::new().with_provider(Arc::new(catalog)),
+            )),
+            Step::Operation(Arc::new(operations::Remaining)),
+            Step::Operation(Arc::new(SubagentOperation::new(Arc::new(children.clone())))),
+            Step::Operation(Arc::new(steer::Steer {
+                ingress: ingress.clone(),
+                invocation: invocation.clone(),
+                resources,
+                tools: capabilities,
+                drained: Mutex::default(),
+            })),
+            Step::Operation(compact),
+            Step::Operation(tool_pairs),
+            Step::Operation(Arc::new(operations::EmptyResponse)),
+            Step::Operation(Arc::new(operations::ExitOnError)),
+        ];
+        if let Some(limit) = invocation
+            .child
+            .as_ref()
+            .and_then(|child| child.role.as_ref())
+            .and_then(|role| role.max_turns)
+        {
+            steps.push(Step::Operation(Arc::new(operations::MaxTurns(limit))));
         }
-        goose_agent::machine::EffectHandler::apply_effects(
-            &sessions,
-            &session,
-            &mut effects,
-            &emit,
-        )
-        .await
-        .map_err(fault)?;
-        return Ok(None);
-    }
-    let mut steps: Vec<Step<'_, Session, Effect>> = vec![
-        Step::Operation(Arc::new(operations::PlanReview)),
-        Step::Operation(Arc::new(operations::Approval { required, bindings })),
-        Step::Operation(Arc::new(prompt::Prompt { instruction })),
-        Step::Operation(Arc::new(
-            ToolOperation::new().with_provider(Arc::new(catalog)),
-        )),
-        Step::Operation(Arc::new(operations::Remaining)),
-        Step::Operation(Arc::new(SubagentOperation::new(Arc::new(children.clone())))),
-        Step::Operation(Arc::new(steer::Steer {
-            ingress: ingress.clone(),
-            invocation: invocation.clone(),
-            resources,
-            tools: capabilities,
-            drained: Mutex::default(),
-        })),
-        Step::Operation(compact),
-        Step::Operation(tool_pairs),
-        Step::Operation(Arc::new(operations::EmptyResponse)),
-        Step::Operation(Arc::new(operations::ExitOnError)),
-    ];
-    if let Some(limit) = invocation
-        .child
-        .as_ref()
-        .and_then(|child| child.role.as_ref())
-        .and_then(|role| role.max_turns)
-    {
-        steps.push(Step::Operation(Arc::new(operations::MaxTurns(limit))));
-    }
-    for callback in callbacks {
-        steps.push(Step::Operation(callback));
-    }
-    steps.push(Step::Inference(Arc::new(
-        InferenceRunner::new(binding.provider, binding.config).with_request_preparer(preparer),
-    )));
+        for callback in callbacks {
+            steps.push(Step::Operation(callback));
+        }
+        steps.push(Step::Inference(Arc::new(
+            InferenceRunner::new(binding.provider, binding.config).with_request_preparer(preparer),
+        )));
+        steps
+    };
     let machine = StateMachine::new(steps, stop.clone());
     let result = {
         let execution = async {
@@ -231,11 +222,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
     result.map_err(fault)?;
     finalized.map_err(fault)?;
     let session = sessions.load(&id).await.map_err(fault)?;
-    if let Some(message) = session
-        .conversation
-        .last()
-        .filter(|message| message.error_kind().is_some())
-    {
+    if let Some(message) = last_error(&session, invocation.turn.id) {
         if let Some(provider) = &invocation.provider
             && let Some(failure) = ingress
                 .authorization_failure(provider, &invocation.turn.config)
@@ -261,6 +248,18 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         return Err(failure);
     }
     Ok(output(&session, invocation.turn.id))
+}
+
+fn last_error(
+    session: &Session,
+    turn: sailry_protocol::TurnId,
+) -> Option<&goose_provider_types::conversation::message::Message> {
+    session.conversation.last().filter(|message| {
+        message.error_kind().is_some()
+            && session.records.iter().any(|record| {
+                record.turn == turn && message.id.as_deref() == Some(record.id.as_str())
+            })
+    })
 }
 
 fn output(session: &Session, turn: sailry_protocol::TurnId) -> Option<String> {

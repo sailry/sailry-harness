@@ -275,36 +275,45 @@ impl Delegate {
         let parent = self.parent;
         let stop = self.ingress.agents.stopped.child_token();
         let (admitted, admission) = tokio::sync::oneshot::channel();
-        let result = self.tasks.spawn_child(&self.ingress.agents.stopped, async move {
-            let _cancel = stop.clone().drop_guard();
-            let mut token = stop.child_token();
-            let mut invocation = ingress.delegate(turn, request, arguments, message, token.clone()).await?;
-            ingress.agents.register_child(parent, invocation.turn.session, invocation.turn.id, stop.clone());
-            let _child = Child { ingress:ingress.clone(),parent,child:invocation.turn.session,turn:invocation.turn.id };
-            if parent_stop.is_cancelled() {stop.cancel();}
-            drop(active);
-            let _ = admitted.send((invocation.turn.session,invocation.turn.id));
-            loop {
-                let session = invocation.turn.session;
-                let turn = invocation.turn.id;
-                let mut result = scheduler::run(&ingress,&tasks,invocation,token,stop.clone()).await;
-                let next_token = stop.child_token();
-                let next = if result.is_err() || stop.is_cancelled() || ingress.agents.stopped.is_cancelled() {
-                    ingress.retain_guidance(turn).await?;
-                    None
-                } else {
-                    match ingress.claim_guidance(turn,next_token.clone()).await {
-                        Ok(next) => next,
-                        Err(error) => {ingress.retain_guidance(turn).await?;result=Err(error);None}
-                    }
+        let result = self
+            .tasks
+            .spawn_child(&self.ingress.agents.stopped, async move {
+                let _cancel = stop.clone().drop_guard();
+                let token = stop.child_token();
+                let invocation = ingress
+                    .delegate(turn, request, arguments, message, token.clone())
+                    .await?;
+                ingress.agents.register_child(
+                    parent,
+                    invocation.turn.session,
+                    invocation.turn.id,
+                    stop.clone(),
+                );
+                let _child = Child {
+                    ingress: ingress.clone(),
+                    parent,
+                    child: invocation.turn.session,
+                    turn: invocation.turn.id,
                 };
-                if let Some(next) = next {invocation=next;token=next_token;continue;}
-                return Ok::<_,Fault>(match result {
-                    Ok((status,response))=>json!({"session":session,"turn":turn,"status":status,"response":response}),
-                    Err(error)=>json!({"isError":true,"session":session,"turn":turn,"error":error}),
-                });
-            }
-        }).await.map_err(|_|Fault::invalid("child supervisor is unavailable"))?;
+                if parent_stop.is_cancelled() {
+                    stop.cancel();
+                }
+                drop(active);
+                let _ = admitted.send((invocation.turn.session, invocation.turn.id));
+                let session = invocation.turn.session;
+                let (turn, result) =
+                    scheduler::resume(&ingress, &tasks, invocation, token, stop.clone()).await;
+                Ok::<_, Fault>(match result {
+                    Ok((status, response)) => {
+                        json!({"session":session,"turn":turn,"status":status,"response":response})
+                    }
+                    Err(error) => {
+                        json!({"isError":true,"session":session,"turn":turn,"error":error})
+                    }
+                })
+            })
+            .await
+            .map_err(|_| Fault::invalid("child supervisor is unavailable"))?;
         match admission.await {
             Ok((session, turn)) => crate::agent::catalog::json(
                 json!({"admitted":true,"pending":true,"session":session,"turn":turn,"status":"queued"}),

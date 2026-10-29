@@ -19,12 +19,16 @@ use goose_provider_types::{
 };
 use std::sync::{Arc, Mutex};
 
+#[cfg(test)]
+mod tests;
+
 pub(super) struct Compaction {
     pub provider: Arc<dyn Provider>,
     pub config: ModelConfig,
     pub context: usize,
     pub threshold: f64,
     pub preparer: Arc<super::prompt::Preparer>,
+    pub manual: bool,
 }
 struct Model {
     inner: ProviderModel,
@@ -81,11 +85,7 @@ impl CompactionOutput for Output {
     }
 }
 impl Compaction {
-    pub(super) async fn compact(
-        &self,
-        conversation: &Conversation,
-        manual: bool,
-    ) -> anyhow::Result<Vec<Effect>> {
+    async fn compact(&self, conversation: &Conversation) -> anyhow::Result<Vec<Effect>> {
         let model = Model {
             inner: ProviderModel::new(self.provider.clone(), self.config.clone()),
             files: Mutex::default(),
@@ -115,7 +115,7 @@ impl Compaction {
         let usage = output
             .usage
             .ok_or_else(|| anyhow::anyhow!("compaction returned no usage"))?;
-        let preserved = if manual {
+        let preserved = if self.manual {
             None
         } else {
             conversation.messages().iter().rev().find(|message| {
@@ -141,7 +141,7 @@ impl Compaction {
                 .and_then(|last| last.id.as_ref())
                 == message.id.as_ref()
         });
-        let continuation = if manual {
+        let continuation = if self.manual {
             "Your context was compacted at the user's request. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nJust continue the conversation naturally based on the summarized context."
         } else if is_latest {
             "Your context was compacted. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nJust continue the conversation naturally based on the summarized context."
@@ -209,38 +209,41 @@ impl Operation<Session, Effect> for Compaction {
         if self.provider.manages_own_context() {
             return not_applicable();
         }
-        let messages = messages_since_kickoff(conversation)?;
-        let reactive =
-            trailing_error(conversation) == Some(MessageErrorKind::ContextLengthExceeded);
-        if reactive {
-            let count = messages
-                .iter()
-                .filter(|message| {
-                    message.error_kind() == Some(MessageErrorKind::ContextLengthExceeded)
-                        && !message.is_agent_visible()
-                })
-                .count();
-            if count > 2 {
-                return not_applicable();
-            }
-        } else {
-            if last_effective_role(messages)? == EffectiveRole::Assistant {
-                return not_applicable();
-            }
-            let tokens = self.context_tokens(conversation);
-            if tokens == 0
-                || self.threshold <= 0.0
-                || self.threshold >= 1.0
-                || tokens as f64 / self.context as f64 <= self.threshold
-            {
-                return not_applicable();
+        let reactive = !self.manual
+            && trailing_error(conversation) == Some(MessageErrorKind::ContextLengthExceeded);
+        if !self.manual {
+            let messages = messages_since_kickoff(conversation)?;
+            if reactive {
+                let count = messages
+                    .iter()
+                    .filter(|message| {
+                        message.error_kind() == Some(MessageErrorKind::ContextLengthExceeded)
+                            && !message.is_agent_visible()
+                    })
+                    .count();
+                if count > 2 {
+                    return not_applicable();
+                }
+            } else {
+                if last_effective_role(messages)? == EffectiveRole::Assistant {
+                    return not_applicable();
+                }
+                let tokens = self.context_tokens(conversation);
+                if tokens == 0
+                    || self.threshold <= 0.0
+                    || self.threshold >= 1.0
+                    || tokens as f64 / self.context as f64 <= self.threshold
+                {
+                    return not_applicable();
+                }
             }
         }
         let mut input = conversation.clone();
         if reactive && let Some(last) = input.messages_mut().last_mut() {
             last.metadata.agent_visible = false;
         }
-        match self.compact(&input, false).await {
+        match self.compact(&input).await {
+            Ok(effects) if self.manual => yielded_with(effects),
             Ok(effects) => applied(effects),
             Err(error) => yielded_with([
                 emit.message(Message::assistant().with_error(

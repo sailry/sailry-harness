@@ -57,11 +57,10 @@ impl Operation<Session, Effect> for Steer {
         };
         let mut batch =
             inputs::Batch::guidance(&self.ingress, self.invocation.turn.id, &inputs).await?;
-        *self.drained.lock().unwrap() = batch.records("user", true);
         batch
             .select(&self.invocation, &self.resources, &self.tools)
             .await?;
-        *self.drained.lock().unwrap() = batch.records("user", true);
+        let mut records = batch.records("user", true);
         if self.invocation.project.is_some() && self.invocation.connections.bound.is_none() {
             use sailry_protocol::conversation::reference::Target;
             let scopes: Vec<_> = inputs
@@ -104,9 +103,11 @@ impl Operation<Session, Effect> for Steer {
                     Kind::Configuration(Configuration { context }),
                 );
                 record.provenance.author = "system".into();
-                self.drained.lock().unwrap().push(record);
+                records.push(record);
             }
         }
+        // Cancellation may commit only input whose preparation fully succeeded.
+        *self.drained.lock().unwrap() = records;
         applied([Effect::Records(std::mem::take(
             &mut *self.drained.lock().unwrap(),
         ))])

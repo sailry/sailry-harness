@@ -544,11 +544,15 @@ pub(super) async fn effects(
             calls.insert(request.id.clone(), call.name.to_string());
         }
     }
-    // Prefer normal output, but retain billed usage when inference only returned an error.
-    let usage = effects.iter().rev().find_map(|effect| match effect {
-        Effect::Usage(usage) => Some(usage.clone()),
-        _ => None,
-    });
+    // Every inference attempt is billed separately, including empty responses.
+    let mut attempts: Vec<_> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Usage(usage) => Some(usage.clone()),
+            _ => None,
+        })
+        .collect();
+    let usage = attempts.pop();
     let last = effects.iter().rposition(|effect| matches!(effect,
         Effect::Conversation(ConversationEffect::AppendMessage(message))
             if message.role == rmcp::model::Role::Assistant && message.error_kind().is_none()
@@ -564,16 +568,17 @@ pub(super) async fn effects(
         message.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(usage, false)));
     }
     let mut pending = Vec::new();
-    if last.is_none()
-        && let Some(usage) = &usage
-    {
+    if last.is_none() {
+        attempts.extend(usage.iter().cloned());
+    }
+    for usage in attempts {
         let mut message = GdkMessage::assistant()
             .with_generated_id()
             .with_visibility(false, false);
-        message.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(usage, false)));
+        message.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(&usage, false)));
         pending.push(history::Input::Message(history::Message {
             message,
-            usage: Some(usage.clone()),
+            usage: Some(usage),
             calls: calls.clone(),
             presentation: presentation.clone(),
             timeline: timeline.clone(),

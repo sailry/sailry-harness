@@ -126,7 +126,7 @@ impl SubagentRunner<RuntimeSession> for Children {
             .clone()
             .spawn_child(&this.ingress.agents.stopped.clone(), async move {
                 let invocation = this.pending.lock().unwrap().remove(&id);
-                let Some(mut invocation) = invocation else {
+                let Some(invocation) = invocation else {
                     return SubagentOutcome::Failed(
                         "child invocation is unavailable; execution was not replayed".into(),
                     );
@@ -144,26 +144,14 @@ impl SubagentRunner<RuntimeSession> for Children {
                     child: invocation.turn.session,
                     turn: invocation.turn.id,
                 };
-                let result = loop {
-                    let turn = invocation.turn.id;
-                    let result = delegation::scheduler::run(
-                        &this.ingress,
-                        &this.tasks,
-                        invocation,
-                        owner.child_token(),
-                        owner.clone(),
-                    )
-                    .await;
-                    if result.is_err() || owner.is_cancelled() {
-                        let _ = this.ingress.retain_guidance(turn).await;
-                        break result;
-                    }
-                    match this.ingress.claim_guidance(turn, owner.child_token()).await {
-                        Ok(Some(next)) => invocation = next,
-                        Ok(None) => break result,
-                        Err(error) => break Err(error),
-                    }
-                };
+                let (_, result) = delegation::scheduler::resume(
+                    &this.ingress,
+                    &this.tasks,
+                    invocation,
+                    owner.child_token(),
+                    owner.clone(),
+                )
+                .await;
                 let outcome = match result {
                     Ok((Status::Completed, output)) => {
                         SubagentOutcome::Completed(output.unwrap_or_default())

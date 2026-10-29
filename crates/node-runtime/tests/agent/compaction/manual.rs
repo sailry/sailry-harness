@@ -687,7 +687,11 @@ async fn preserves_failed_context() {
                 .unwrap()
                 .contains(agent_support::compaction::PRIVATE_SENTINEL)
         );
-        assert_eq!(page.entries, before.entries);
+        assert_eq!(&page.entries[..before.entries.len()], before.entries);
+        assert_eq!(page.entries.len(), before.entries.len() + 1);
+        let failure = page.entries.last().unwrap();
+        assert_eq!(failure.turn, turn.id);
+        assert_eq!(failure.author, "assistant");
         assert_eq!(summaries(&page), 0);
         let snapshot = super::super::configuration::snapshot(&fixture.client).await;
         assert!(
@@ -717,6 +721,20 @@ async fn preserves_failed_context() {
         drop(stream);
         let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
         assert_eq!(run.status, Status::Failed);
+        assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Unavailable);
+        assert_eq!(
+            run.error.as_ref().unwrap().details,
+            Some(FaultDetails::ModelRequest {
+                reason: ModelFailure::Request
+            })
+        );
+        assert!(
+            run.error
+                .as_ref()
+                .unwrap()
+                .message
+                .starts_with("Ran into this error trying to compact:")
+        );
         assert!(
             run.error
                 .as_ref()

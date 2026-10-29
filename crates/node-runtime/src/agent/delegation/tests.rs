@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     agent::{
-        canonical::{Block, BlockKind, Kind, Message, Record, ToolRequest},
+        canonical::{Block, BlockKind, Kind, Message, Record, ToolIdentity, ToolRequest},
         catalog::{Catalog, Registration},
         engine::Children,
     },
@@ -33,16 +33,16 @@ impl Handoff {
     }
 }
 
-struct Fixture {
+pub(super) struct Fixture {
     _directory: tempfile::TempDir,
     _profile: crate::Profile,
-    store: Store,
-    invocation: Invocation,
+    pub(super) store: Store,
+    pub(super) invocation: Invocation,
     call: rmcp::model::CallToolRequestParams,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let directory = tempfile::tempdir().unwrap();
         let profile = crate::Profile::acquire(&directory.path().join("node")).unwrap();
@@ -160,6 +160,25 @@ impl Fixture {
             invocation,
             call,
         }
+    }
+
+    pub(super) async fn child(&self, token: CancellationToken) -> Invocation {
+        let arguments = Value::Object(self.call.arguments.clone().unwrap());
+        self.store
+            .ingress
+            .delegate(
+                self.invocation.turn.id,
+                ToolIdentity {
+                    id: Some("call-child".into()),
+                    name: self.call.name.to_string(),
+                    arguments: arguments.clone(),
+                },
+                arguments,
+                None,
+                token,
+            )
+            .await
+            .unwrap()
     }
 }
 

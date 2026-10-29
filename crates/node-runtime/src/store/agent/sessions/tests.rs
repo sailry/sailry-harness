@@ -351,6 +351,69 @@ async fn retains_error_only_usage() {
 }
 
 #[tokio::test]
+async fn retains_each_attempt() {
+    for failed in [false, true] {
+        let (mut fixture, turn) = running().await;
+        let answer = GdkMessage::assistant().with_generated_id();
+        let answer = if failed {
+            answer.with_error(MessageErrorKind::Other, "Stream failed")
+        } else {
+            answer.with_text("Final answer")
+        };
+        let id = answer.id.clone().unwrap();
+        let completed =
+            ProviderUsage::new("fixture".into(), GdkUsage::new(Some(20), Some(5), Some(25)));
+        apply(
+            &mut fixture,
+            turn,
+            vec![
+                Effect::Usage(usage()),
+                Effect::Usage(usage()),
+                answer.into(),
+                Effect::Usage(completed),
+            ],
+        )
+        .await
+        .unwrap();
+        let session = load(&fixture, turn).await;
+        let records: Vec<_> = session
+            .records
+            .iter()
+            .filter(|record| record.usage().is_some())
+            .collect();
+        assert_eq!(records.len(), 3);
+        assert_ne!(records[0].id, records[1].id);
+        for record in &records[..2] {
+            let runtime = record.metadata.runtime.as_ref().unwrap();
+            assert!(!runtime.user_visible);
+            assert!(!runtime.agent_visible);
+            let usage = record.usage().unwrap();
+            assert_eq!((usage.input, usage.output), (Some(12), Some(3)));
+            assert_eq!(usage.reasoning, Some(2));
+        }
+        assert_eq!(records[2].id, id);
+        let usage = records[2].usage().unwrap();
+        assert_eq!((usage.input, usage.output), (Some(20), Some(5)));
+        assert_eq!(session.conversation.messages().len(), 1);
+        let projected = session.conversation.last().unwrap();
+        assert_eq!(projected.id.as_deref(), Some(id.as_str()));
+        assert_eq!(projected.error_kind().is_some(), failed);
+        let usage = projected.metadata.usage.as_deref().unwrap();
+        assert_eq!(
+            (usage.input_tokens, usage.output_tokens),
+            (Some(20), Some(5))
+        );
+        let statistics =
+            crate::store::agent::statistics::read(&fixture.database.connection, fixture.session)
+                .await
+                .unwrap();
+        assert_eq!(statistics.responses, 3);
+        let usage = statistics.usage.unwrap();
+        assert_eq!((usage.input, usage.output, usage.reasoning), (44, 11, 4));
+    }
+}
+
+#[tokio::test]
 async fn retains_usage_without_output() {
     let (mut fixture, turn) = running().await;
     let input = GdkMessage::user()
@@ -358,33 +421,32 @@ async fn retains_usage_without_output() {
         .with_text("Current task");
     let id = input.id.clone().unwrap();
     apply(&mut fixture, turn, vec![input.into()]).await.unwrap();
-    apply(&mut fixture, turn, vec![Effect::Usage(usage())])
-        .await
-        .unwrap();
+    apply(
+        &mut fixture,
+        turn,
+        vec![Effect::Usage(usage()), Effect::Usage(usage())],
+    )
+    .await
+    .unwrap();
     let session = load(&fixture, turn).await;
     assert_eq!(
         session.conversation.last().unwrap().id.as_deref(),
         Some(id.as_str())
     );
-    assert_eq!(
-        session.records.last().unwrap().usage().unwrap().total,
-        Some(15)
-    );
-    assert_eq!(
-        session.records.last().unwrap().usage().unwrap().reasoning,
-        Some(2)
-    );
-    assert!(
-        !session
-            .records
-            .last()
-            .unwrap()
-            .metadata
-            .runtime
-            .as_ref()
-            .unwrap()
-            .user_visible
-    );
+    let records: Vec<_> = session
+        .records
+        .iter()
+        .filter(|record| record.usage().is_some())
+        .collect();
+    assert_eq!(records.len(), 2);
+    assert_ne!(records[0].id, records[1].id);
+    for record in records {
+        assert_eq!(record.usage().unwrap().total, Some(15));
+        assert_eq!(record.usage().unwrap().reasoning, Some(2));
+        let runtime = record.metadata.runtime.as_ref().unwrap();
+        assert!(!runtime.user_visible);
+        assert!(!runtime.agent_visible);
+    }
 }
 
 #[tokio::test]

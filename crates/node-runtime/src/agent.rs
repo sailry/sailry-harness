@@ -128,7 +128,7 @@ async fn run(
     if owner.as_ref().is_some_and(CancellationToken::is_cancelled) {
         // Owner Stop retains pending input before publishing the terminal child run.
         if let Err(error) = ingress.retain_guidance(turn).await {
-            result = Err(error);
+            merge_failure(&mut result, error);
         }
     }
     if main && (token.is_cancelled() || result.is_err()) {
@@ -257,7 +257,7 @@ async fn settle_children(ingress: &Ingress, session: SessionId) {
     }
 }
 
-fn merge_failure(result: &mut Result<Option<String>, Fault>, error: Fault) {
+fn merge_failure<T>(result: &mut Result<T, Fault>, error: Fault) {
     match result {
         Ok(_) => *result = Err(error),
         Err(original) => {
@@ -386,7 +386,9 @@ async fn execute_with(
         stop.clone(),
     ));
     let planning = invocation.turn.config.mode == sailry_protocol::WorkMode::Plan;
-    let reviewing = planning && invocation.child.is_none();
+    let reviewing = planning
+        && invocation.child.is_none()
+        && invocation.turn.kind == sailry_protocol::conversation::RunKind::Task;
     let metadata = invocation.provider.as_ref().and_then(|provider| {
         provider
             .models
@@ -578,18 +580,23 @@ async fn execute_with(
                 after: None,
             })
             .await?;
-        let requested = session
+        let messages: Vec<_> = session
             .conversation
             .messages()
             .iter()
-            .any(review::requested);
+            .filter(|message| {
+                session.records.iter().any(|record| {
+                    record.turn == invocation.turn.id
+                        && message.id.as_deref() == Some(record.id.as_str())
+                })
+            })
+            .collect();
+        let requested = messages.iter().any(|message| review::requested(message));
         if requested {
             None
         } else {
-            session
-                .conversation
-                .messages()
-                .iter()
+            messages
+                .into_iter()
                 .rev()
                 .find(|message| {
                     message.role == rmcp::model::Role::Assistant

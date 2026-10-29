@@ -339,6 +339,99 @@ async fn retains_unreadable_guidance_attachments() {
 }
 
 #[tokio::test]
+async fn retains_input_after_preparation_failure() {
+    for remote in [false, true] {
+        let release = CancellationToken::new();
+        let server = Server::markdown_held("Natural answer".into(), release.clone()).await;
+        let mut fixture = Fixture::with_server(remote, server).await;
+        tools(&mut fixture).await;
+        let nested = fixture.directory.path().join("project/nested");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::write(nested.join("context.txt"), "Referenced context").unwrap();
+        let active = fixture.push("Initial task").await;
+        fixture.server.wait_count(1).await;
+        let input = Input {
+            text: "Keep this guidance 中文 🙂".into(),
+            attachments: vec![],
+            references: vec![reference::Reference {
+                label: "context.txt".into(),
+                target: reference::Target::File("nested/context.txt".into()),
+            }],
+        };
+        let selected = held(&fixture, input.clone()).await;
+        fixture
+            .client
+            .execute(guide(&fixture, selected.id, active.id, 1))
+            .await
+            .unwrap();
+        // The guide becomes unreadable after admission, at the next model boundary.
+        std::fs::write(nested.join("AGENTS.md"), [255]).unwrap();
+        release.cancel();
+        let page = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&page, active.id), Status::Failed);
+        let error = page
+            .runs
+            .iter()
+            .find(|run| run.turn == active.id)
+            .unwrap()
+            .error
+            .as_ref()
+            .unwrap();
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert!(error.message.contains("nested/AGENTS.md"));
+        assert_eq!(status(&page, selected.id), Status::Queued);
+        assert!(page.queue.paused);
+        assert_eq!(page.queue.items.len(), 1);
+        assert_eq!(page.queue.items[0].turn, selected.id);
+        assert_eq!(page.queue.items[0].guidance, None);
+        assert!(!page.queue.items[0].ready);
+        assert!(!page.entries.iter().any(|entry| entry.turn == selected.id));
+        let retained = read(&fixture.client, selected.id).await;
+        assert_eq!(retained.message, input);
+        assert_eq!(retained.turn, selected);
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        let fixture = fixture.restart().await;
+        let restored = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(restored, page);
+        assert_eq!(read(&fixture.client, selected.id).await, retained);
+        std::fs::write(nested.join("AGENTS.md"), "Use the recovered project guide").unwrap();
+        let request = fixture
+            .client
+            .prepare(Command::StartQueuedTurn { turn: selected.id });
+        let accepted = fixture.client.execute(request.clone()).await.unwrap();
+        fixture.pause(false).await;
+        let completed = finished(&fixture.client, fixture.session.id, selected.id).await;
+        assert_eq!(status(&completed, active.id), Status::Failed);
+        assert_eq!(status(&completed, selected.id), Status::Completed);
+        assert!(completed.queue.items.is_empty());
+        assert_eq!(
+            completed
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == selected.id && entry.author == "user")
+                .flat_map(|entry| &entry.parts)
+                .filter(|part| matches!(part, Part::Text(text) if text == &input.text))
+                .count(),
+            1
+        );
+        assert_eq!(fixture.client.execute(request).await.unwrap(), accepted);
+        assert_eq!(
+            history(&fixture.client, fixture.session.id).await,
+            completed
+        );
+        let requests = fixture.server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1]["messages"].to_string().contains(&input.text));
+        assert!(
+            requests[1]["messages"]
+                .to_string()
+                .contains("Use the recovered project guide")
+        );
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn keeps_turn_through_repeated_guidance() {
     for remote in [false, true] {
         let question_args = |prompt: &str| json!({"prompt":prompt,"input":{"kind":"text","multiline":true,"max_bytes":1024}});

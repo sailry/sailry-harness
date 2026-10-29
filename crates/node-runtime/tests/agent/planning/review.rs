@@ -291,9 +291,32 @@ async fn preserves_feedback_and_finishes() {
         assert_eq!(page.questions.len(), 1);
         assert_eq!(page.runs.len(), 1);
         assert_eq!(page.runs[0].status, Status::Completed);
-        assert_eq!(page.questions[0].state, State::Answered(answer));
+        assert_eq!(page.questions[0].state, State::Answered(answer.clone()));
         assert!(page.approvals.is_empty());
         assert_eq!(server.requests.lock().unwrap().len(), 1);
+        let next = submit(&fixture).await;
+        let page = finished(&fixture.client, session, next.id).await;
+        assert_eq!(page.runs.len(), 2);
+        assert!(page.runs.iter().all(|run| run.status == Status::Completed));
+        assert_eq!(page.questions.len(), 2);
+        assert_eq!(
+            page.questions
+                .iter()
+                .find(|retained| retained.id == question.id)
+                .unwrap()
+                .state,
+            State::Answered(answer)
+        );
+        let review = page
+            .questions
+            .iter()
+            .find(|review| review.turn == next.id)
+            .expect("the next planning turn must retain its own review");
+        assert_eq!(review.state, State::Pending);
+        assert!(page.entries.iter().any(|entry| {
+            entry.id == review.entry && entry.turn == next.id && entry.author == "plan_review"
+        }));
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

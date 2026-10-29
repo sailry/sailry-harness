@@ -2,7 +2,7 @@ use super::*;
 
 const PACKAGE: &str = "explore-output";
 
-fn result(server: &Server, name: &str) -> Value {
+fn result(server: &Server, name: &str, id: &str) -> String {
     server
         .requests
         .lock()
@@ -18,11 +18,10 @@ fn result(server: &Server, name: &str) -> Value {
                     called.insert(call["id"].as_str()?, call["function"]["name"].as_str()?);
                 }
                 if message["role"] == "tool"
+                    && message["tool_call_id"] == id
                     && called.get(message["tool_call_id"].as_str()?) == Some(&name)
                 {
-                    result = message["content"]
-                        .as_str()
-                        .and_then(|text| serde_json::from_str(text).ok());
+                    result = message["content"].as_str().map(str::to_owned);
                 }
             }
             result
@@ -40,7 +39,7 @@ async fn follows_raw_output_with_read_authority() {
         .await;
         let child = Server::scripted_tools(vec![(
             plugin_tool("files", "read_file"),
-            json!({"path":"source.txt"}),
+            json!({"path":"source.txt","limit":120}),
         )])
         .await;
         let mut fixture = Fixture::start(remote, parent, child).await;
@@ -108,7 +107,7 @@ async fn follows_raw_output_with_read_authority() {
         let text = (0..120)
             .map(|line| format!("Retained exploration evidence {line}\n"))
             .collect::<String>();
-        std::fs::write(fixture.root().join("source.txt"), text).unwrap();
+        std::fs::write(fixture.root().join("source.txt"), &text).unwrap();
         let first = fixture.push("Inspect the source").await;
         let page = finished(&fixture.client, fixture.session.id, first.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
@@ -142,8 +141,24 @@ async fn follows_raw_output_with_read_authority() {
             .result
             .unwrap();
         let output = json!({"call":call,"revision":blake3::hash(retained.to_string().as_bytes()).to_hex().to_string()});
-        let projected = result(&fixture.child, &plugin_tool("files", "read_file"));
-        assert_eq!(projected, retained);
+        let projected = result(&fixture.child, &plugin_tool("files", "read_file"), call);
+        let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
+        assert_eq!(retained["kind"], "file_lines");
+        assert_eq!(retained["data"]["path"], "source.txt");
+        assert_eq!(retained["data"]["revision"], revision);
+        let numbered = text
+            .split_inclusive('\n')
+            .enumerate()
+            .map(|(index, line)| format!("{}\t{line}", index + 1))
+            .collect::<String>();
+        assert_eq!(
+            projected,
+            format!(
+                "source.txt\nLines 1–120; {} bytes; revision {revision}\n{numbered}{}",
+                text.len(),
+                json!({"output":output,"next_offset":null}),
+            ),
+        );
         fixture.child.replace_tools(vec![(
             plugin_tool(PACKAGE, "read"),
             json!({"output":output,"offset":0,"limit":32768}),
@@ -155,7 +170,24 @@ async fn follows_raw_output_with_read_authority() {
         let next = fixture.push("Read the original evidence").await;
         let page = finished(&fixture.client, fixture.session.id, next.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let raw = result(&fixture.child, &plugin_tool(PACKAGE, "read"));
+        let child_page = history(&fixture.client, child.id).await;
+        let raw_call = child_page
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| match part {
+                Part::ToolResult {
+                    id: Some(id), name, ..
+                } if name == &plugin_tool(PACKAGE, "read") => Some(id),
+                _ => None,
+            })
+            .unwrap();
+        let raw: Value = serde_json::from_str(&result(
+            &fixture.child,
+            &plugin_tool(PACKAGE, "read"),
+            raw_call,
+        ))
+        .unwrap();
         assert_eq!(raw["turn"], json!(owner));
         assert_eq!(raw["output"], output);
         assert_eq!(raw["offset"], 0);

@@ -3,7 +3,7 @@ use crate::agent::canonical::{Kind, Message as StoredMessage, Record};
 use goose_provider_types::conversation::{Conversation, message::Message};
 use sailry_protocol::TurnId;
 
-fn session(messages: Vec<(TurnId, Message)>) -> Session {
+pub(super) fn session(messages: Vec<(TurnId, Message)>) -> Session {
     let records = messages
         .iter()
         .map(|(turn, message)| {
@@ -82,4 +82,18 @@ fn returns_current_visible_answer() {
         ),
     ]);
     assert_eq!(output(&session, turn).as_deref(), Some("Current answer"));
+}
+
+#[test]
+fn returns_only_current_error() {
+    let turn = TurnId::new();
+    let session = session(vec![(
+        turn,
+        Message::assistant().with_generated_id().with_error(
+            goose_provider_types::conversation::message::MessageErrorKind::Authentication,
+            "Current request failed",
+        ),
+    )]);
+    assert!(last_error(&session, turn).is_some());
+    assert!(last_error(&session, TurnId::new()).is_none());
 }

@@ -165,13 +165,20 @@ async fn preserves_context_on_failure() {
             panic!("turn expected")
         };
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
+        assert_eq!(run.status, Status::Failed);
+        let error = run.error.as_ref().unwrap();
+        assert_eq!(error.code, ErrorCode::Unavailable);
         assert_eq!(
-            page.runs
-                .iter()
-                .find(|run| run.turn == turn.id)
-                .unwrap()
-                .status,
-            Status::Failed
+            error.details,
+            Some(FaultDetails::ModelRequest {
+                reason: ModelFailure::Request
+            })
+        );
+        assert!(
+            error
+                .message
+                .starts_with("Ran into this error trying to compact:")
         );
         assert!(!page.queue.paused);
         assert!(

@@ -23,6 +23,110 @@ async fn submit(fixture: &Fixture) -> QueuedTurn {
 }
 
 #[tokio::test]
+async fn compacts_without_reviewing_history() {
+    for remote in [false, true] {
+        for fail in [false, true] {
+            let server = Server::compaction(fail).await;
+            let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
+            std::fs::write(
+                fixture.root.join("source.txt"),
+                "Retained planning evidence",
+            )
+            .unwrap();
+            configure(&mut fixture, WorkMode::Plan).await;
+            let plan = submit(&fixture).await;
+            let session = fixture.session.id;
+            let before = finished(&fixture.client, session, plan.id).await;
+            assert_eq!(before.runs[0].status, Status::Completed);
+            assert_eq!(before.questions.len(), 1);
+            assert_eq!(before.questions[0].turn, plan.id);
+            assert_eq!(before.questions[0].state, State::Pending);
+            assert!(before.entries.iter().any(|entry| {
+                entry.author == "assistant"
+                    && entry
+                        .parts
+                        .contains(&Part::Text("Verified response".into()))
+            }));
+            assert_eq!(server.requests.lock().unwrap().len(), 2);
+            let Output::QueuedTurn(compact) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::CompactContext {
+                    focus: None,
+                    session,
+                    expected_revision: fixture.session.revision,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("compaction turn expected")
+            };
+            assert_eq!(compact.kind, RunKind::Compaction);
+            assert_eq!(compact.config.mode, WorkMode::Plan);
+            let after = finished(&fixture.client, session, compact.id).await;
+            let run = after
+                .runs
+                .iter()
+                .find(|run| run.turn == compact.id)
+                .unwrap();
+            assert_eq!(
+                run.status,
+                if fail {
+                    Status::Failed
+                } else {
+                    Status::Completed
+                }
+            );
+            assert_eq!(&after.entries[..before.entries.len()], before.entries);
+            assert_eq!(after.questions, before.questions);
+            assert!(
+                after
+                    .entries
+                    .iter()
+                    .all(|entry| { entry.turn != compact.id || entry.author != "plan_review" })
+            );
+            assert_eq!(
+                after
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .filter(|part| matches!(part, Part::Compaction(_)))
+                    .count(),
+                usize::from(!fail)
+            );
+            if fail {
+                let error = run
+                    .error
+                    .as_ref()
+                    .expect("failed compaction must retain its error");
+                assert_eq!(error.code, ErrorCode::Unavailable);
+                assert!(error.message.contains("Summary service unavailable"));
+            } else {
+                assert!(run.error.is_none());
+            }
+            {
+                let requests = server.requests.lock().unwrap();
+                let attempts = if fail {
+                    goose_provider_types::retry::RetryConfig::default().max_retries + 1
+                } else {
+                    1
+                };
+                assert_eq!(requests.len(), 2 + attempts);
+                for request in &requests[2..] {
+                    assert!(agent_support::compaction::is_summary(request));
+                    assert!(
+                        request["messages"]
+                            .to_string()
+                            .contains("Verified response")
+                    );
+                }
+            }
+            fixture.node.shutdown().await.unwrap();
+            fixture.controller.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn completes_before_choice_and_recovers() {
     for remote in [false, true] {
         for execute in [false, true] {

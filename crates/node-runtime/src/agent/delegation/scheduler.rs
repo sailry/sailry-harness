@@ -2,7 +2,39 @@ use super::*;
 use futures::FutureExt;
 use std::panic::AssertUnwindSafe;
 
-pub(in crate::agent) async fn run(
+#[cfg(test)]
+mod tests;
+
+pub(in crate::agent) async fn resume(
+    ingress: &Arc<Ingress>,
+    tasks: &Tasks,
+    mut invocation: Invocation,
+    mut token: CancellationToken,
+    owner: CancellationToken,
+) -> (TurnId, Result<(Status, Option<String>), Fault>) {
+    loop {
+        let turn = invocation.turn.id;
+        let mut result = run(ingress, tasks, invocation, token, owner.clone()).await;
+        if result.is_ok() && !owner.is_cancelled() && !ingress.agents.stopped.is_cancelled() {
+            let next_token = owner.child_token();
+            match ingress.claim_guidance(turn, next_token.clone()).await {
+                Ok(Some(next)) => {
+                    invocation = next;
+                    token = next_token;
+                    continue;
+                }
+                Ok(None) => return (turn, result),
+                Err(error) => result = Err(error),
+            }
+        }
+        if let Err(error) = ingress.retain_guidance(turn).await {
+            super::super::merge_failure(&mut result, error);
+        }
+        return (turn, result);
+    }
+}
+
+async fn run(
     ingress: &Arc<Ingress>,
     tasks: &Tasks,
     invocation: Invocation,
