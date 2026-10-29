@@ -28,23 +28,13 @@ pub fn package_alias(package: &str, server: &str, name: &str) -> String {
 
 pub fn config(test: &str, mode: &str) -> Value {
     let executable = std::env::current_exe().unwrap();
-    let mut server = json!({"type": "stdio", "command": executable.file_name().unwrap().to_str().unwrap(),
+    json!({"type": "stdio", "command": executable.file_name().unwrap().to_str().unwrap(),
     "args": ["--exact", test, "--ignored", "--nocapture", "--test-threads=1", "--skip=${PLUGIN_ROOT}/unused"],
     "cwd": "${PLUGIN_DATA}", "env": {
         "PATH": executable.parent().unwrap().to_str().unwrap(),
         "SAILRY_MCP_FIXTURE": "1", "SAILRY_MCP_MODE": mode,
         "SAILRY_MCP_TEXT": "${PLUGIN_ROOT}|${PLUGIN_DATA}|${HOME}|中文 🙂"
-    }});
-    // Cargo supplies shared-library locations for this filtered test executable.
-    // Ordinary Node process inputs intentionally omit ambient loader variables.
-    if cfg!(target_os = "macos") {
-        for name in ["DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
-            if let Ok(path) = std::env::var(name) {
-                server["env"][name] = path.into();
-            }
-        }
-    }
-    server
+    }})
 }
 
 pub fn descriptor(name: &str) -> Value {
