@@ -2,6 +2,7 @@
 use super::*;
 use serde_json::json;
 
+#[path = "efficiency/cache.rs"]
 mod cache;
 
 const CALL_LIMIT: usize = 8;

@@ -3,6 +3,7 @@ use super::*;
 use sailry_protocol::conversation::observation::Outcome;
 use serde_json::Value;
 
+#[path = "cache/relay.rs"]
 mod relay;
 
 const MODEL: &str = "gpt-6-luna";
