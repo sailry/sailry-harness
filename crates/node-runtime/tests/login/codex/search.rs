@@ -89,12 +89,10 @@ fn reply(request: &discovery_support::Request) -> Reply {
             .count(),
         0
     );
-    let digest = blake3::hash(b"web-search").to_hex();
-    let fallback = format!("plugin_{}_web_search", &digest[..16]);
     assert_eq!(
         tools
             .iter()
-            .filter(|tool| tool["type"] == "function" && tool["name"] == fallback)
+            .filter(|tool| tool["type"] == "function" && tool["name"] == "web_search")
             .count(),
         1
     );

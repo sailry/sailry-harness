@@ -526,7 +526,7 @@ async fn confines_arguments_and_preserves_large_office_results() {
             (name("read_file"), json!({"path":"note.txt"})),
             (
                 name("search_files"),
-                json!({"query":"needle","globs":["*.txt"]}),
+                json!({"query":"needle","mode":"content","globs":["*.txt"]}),
             ),
             (name("read_file"), json!({"path":"../outside.txt"})),
             (

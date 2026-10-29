@@ -146,7 +146,8 @@ pub(super) fn generation(request: &discovery_support::Request, access: &str, too
             .sum::<usize>(),
         0
     );
-    let continuation = body["messages"]
+    let task = crate::agent_support::task_request(&body);
+    let continuation = task["messages"]
         .as_array()
         .unwrap()
         .last()

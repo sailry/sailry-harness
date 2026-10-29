@@ -5,8 +5,6 @@ mod activity;
 mod agent_fixture;
 #[cfg(target_os = "macos")]
 mod app_menu;
-#[cfg(test)]
-use agent_fixture as agent_support;
 mod application;
 mod assets;
 mod backend;

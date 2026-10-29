@@ -237,7 +237,8 @@ pub(super) fn generation(
     access: &str,
 ) -> Reply {
     let body = input(request, options, access);
-    let continuation = body["input"]
+    let task = crate::agent_support::task_request(&body);
+    let continuation = task["input"]
         .as_array()
         .unwrap()
         .iter()
@@ -253,8 +254,7 @@ pub(super) fn generation(
             true,
         )
     } else {
-        let digest = blake3::hash(b"files").to_hex();
-        let tool = format!("plugin_{}_read_file", &digest[..16]);
+        let tool = "read_file";
         assert!(
             body["tools"]
                 .as_array()
