@@ -83,8 +83,7 @@ async fn pages_after_reload_and_formats_compaction() {
             let raw = tool_details(&fixture.client, &page)
                 .await
                 .into_iter()
-                .filter(|(tool, _)| tool == &name("read_file"))
-                .next_back()
+                .rfind(|(tool, _)| tool == &name("read_file"))
                 .unwrap()
                 .1
                 .result
