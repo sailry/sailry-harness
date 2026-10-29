@@ -1,0 +1,59 @@
+{
+  "id": "fixture-brand",
+  "name": "Fixture provider",
+  "locales": {
+    "zh-CN": "示例厂牌"
+  },
+  "logo": "icons/providers/openai.svg",
+  "brand": "fixture-brand",
+  "routes": [
+    {
+      "protocol": "openai-chat-completions",
+      "endpoint": "https://model.example.test/v1",
+      "region": "china",
+      "product": "metered"
+    },
+    {
+      "protocol": "anthropic",
+      "endpoint": "https://model.example.test/anthropic",
+      "region": "global",
+      "product": "coding"
+    },
+    {
+      "protocol": "openai-chat-completions",
+      "endpoint": "https://model.example.test/coding/v1",
+      "region": "global",
+      "product": "coding"
+    }
+  ],
+  "models": {
+    "kind": "static",
+    "data": {
+      "ids": ["fixture-a"]
+    }
+  },
+  "products": [
+    {
+      "kind": "coding",
+      "display": {
+        "label": "Fixture Coding Plan",
+        "locales": {
+          "zh-CN": "示例套餐"
+        }
+      },
+      "default_model": "fixture-a",
+      "discover": false
+    }
+  ],
+  "policies": [
+    {
+      "models": ["fixture-a"],
+      "reasoning_replay": "reasoning_content",
+      "body": {
+        "thinking": {
+          "clear_thinking": false
+        }
+      }
+    }
+  ]
+}

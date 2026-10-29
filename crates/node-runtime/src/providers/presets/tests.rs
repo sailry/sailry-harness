@@ -206,6 +206,28 @@ fn permits_distinct_routes_and_local_endpoints() {
 }
 
 #[test]
+fn accepts_ordinary_brand_declarations() {
+    let preset: sailry_protocol::conversation::presets::Preset =
+        serde_json::from_slice(include_bytes!("../../../tests/fixtures/model-vendor.json"))
+            .unwrap();
+    validate(&preset, true, false).unwrap();
+    validate(&preset, false, false).unwrap();
+    assert_eq!(preset.brand.as_deref(), Some("fixture-brand"));
+    assert_eq!(
+        preset
+            .routes
+            .iter()
+            .map(|route| route.protocol.api())
+            .collect::<Vec<_>>(),
+        [
+            sailry_protocol::conversation::ModelApi::ChatCompletions,
+            sailry_protocol::conversation::ModelApi::Anthropic,
+            sailry_protocol::conversation::ModelApi::ChatCompletions
+        ]
+    );
+}
+
+#[test]
 fn separates_sources_and_protected_fields() {
     let mut preset = bundled()
         .builtin

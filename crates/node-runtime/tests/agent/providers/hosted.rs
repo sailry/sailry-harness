@@ -4,6 +4,9 @@ use sailry_protocol::{
     usage::{Dimension, Query},
 };
 
+#[path = "hosted/catalog.rs"]
+mod catalog;
+
 async fn select(fixture: &mut Fixture, model: &str, product: Product) {
     fixture.provider.models[0].id = model.into();
     fixture.provider.models[0].context = 65536;
