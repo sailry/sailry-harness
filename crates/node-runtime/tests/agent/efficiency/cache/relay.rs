@@ -35,6 +35,7 @@ pub(super) struct Relay {
 
 impl Relay {
     pub async fn start(endpoint: &str) -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let origin = reqwest::Url::parse(endpoint).expect("valid captured endpoint");
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
