@@ -22,9 +22,7 @@ impl Family {
             Self::Gemini => Category::Gemini,
             Self::OpenCodeGo => Category::OpenCodeGo,
             Self::OpenCodeZen => Category::OpenCodeZen,
-            Self::Hosted(vendor) if Vendor::FIRST_PARTY.contains(&vendor) => {
-                Category::Vendor(vendor)
-            }
+            Self::Hosted(vendor) => Category::Vendor(vendor),
             _ => Category::Other,
         }
     }
@@ -41,7 +39,7 @@ impl Family {
             Self::Other,
         ]
         .into_iter()
-        .chain(Vendor::ALL.map(Self::Hosted))
+        .chain(Vendor::FIRST_PARTY.map(Self::Hosted))
     }
 
     pub fn key(self) -> &'static str {
@@ -193,7 +191,9 @@ impl Preset {
 
     #[cfg(test)]
     pub fn all() -> impl Iterator<Item = Self> {
-        Self::CORE.into_iter().chain(Vendor::ALL.map(Self::Hosted))
+        Self::CORE
+            .into_iter()
+            .chain(Vendor::FIRST_PARTY.map(Self::Hosted))
     }
 
     pub fn family(self) -> Family {

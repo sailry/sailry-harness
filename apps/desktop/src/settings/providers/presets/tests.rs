@@ -38,14 +38,23 @@ fn preserves_builtin_icons_and_methods() {
             .iter()
             .any(|entry| entry.preset.id == "compatible-responses")
     );
-    for entry in entries.iter().filter(|entry| entry.preset.offered) {
-        assert!(
-            entry
-                .preset
-                .logo
-                .as_ref()
-                .is_some_and(|path| path.starts_with("icons/providers/"))
+    for entry in &entries {
+        assert_eq!(
+            groups
+                .iter()
+                .flat_map(|(_, entries)| entries)
+                .any(|choice| choice.preset.id == entry.preset.id),
+            entry.preset.offered
         );
+        if entry.preset.offered {
+            assert!(
+                entry
+                    .preset
+                    .logo
+                    .as_ref()
+                    .is_some_and(|path| path.starts_with("icons/providers/"))
+            );
+        }
         assert!(!entry.preset.routes.is_empty());
         for route in &entry.preset.routes {
             assert_eq!(kind(entry, route).api(), route.protocol.api());
@@ -125,18 +134,35 @@ fn preserves_existing_vendor_categories() {
     use super::super::{data::Category, vendors::Vendor};
     let entries = bundled();
     // Existing picker categories from Sailry 3ae18182; route data remains declarative.
-    for vendor in Vendor::ALL {
+    for vendor in Vendor::FIRST_PARTY {
         let entry = entries
             .iter()
             .find(|entry| entry.preset.id == vendor.id())
             .unwrap();
-        let expected = if Vendor::FIRST_PARTY.contains(&vendor) {
-            Category::Vendor(vendor)
-        } else {
-            Category::OpenAi
-        };
         for route in &entry.preset.routes {
-            assert_eq!(kind(entry, route).category(), expected, "{}", vendor.id());
+            assert_eq!(
+                kind(entry, route).category(),
+                Category::Vendor(vendor),
+                "{}",
+                vendor.id()
+            );
+            assert_eq!(kind(entry, route).api(), route.protocol.api());
+        }
+    }
+    for id in [
+        "groq",
+        "openrouter",
+        "fireworks",
+        "together",
+        "perplexity",
+        "cerebras",
+        "sambanova",
+    ] {
+        let entry = entries.iter().find(|entry| entry.preset.id == id).unwrap();
+        assert!(!entry.preset.offered, "{id}");
+        for route in &entry.preset.routes {
+            assert_eq!(kind(entry, route), Kind::CompatibleChat, "{id}");
+            assert_eq!(kind(entry, route).category(), Category::OpenAi, "{id}");
             assert_eq!(kind(entry, route).api(), route.protocol.api());
         }
     }

@@ -7,14 +7,7 @@ pub enum Vendor {
     Moonshot,
     Xai,
     DeepSeek,
-    Groq,
-    OpenRouter,
-    Fireworks,
-    Together,
     Mistral,
-    Perplexity,
-    Cerebras,
-    SambaNova,
     MiniMax,
     Doubao,
     Zhipu,
@@ -23,26 +16,6 @@ pub enum Vendor {
 }
 
 impl Vendor {
-    pub const ALL: [Self; 17] = [
-        Self::Qwen,
-        Self::Moonshot,
-        Self::Xai,
-        Self::DeepSeek,
-        Self::Groq,
-        Self::OpenRouter,
-        Self::Fireworks,
-        Self::Together,
-        Self::Mistral,
-        Self::Perplexity,
-        Self::Cerebras,
-        Self::SambaNova,
-        Self::MiniMax,
-        Self::Doubao,
-        Self::Zhipu,
-        Self::Baidu,
-        Self::Cohere,
-    ];
-
     pub const FIRST_PARTY: [Self; 10] = [
         Self::Xai,
         Self::DeepSeek,
@@ -75,7 +48,6 @@ impl Vendor {
             Self::Zhipu => "zai",
             Self::Baidu => "wenxin",
             Self::Cohere => "cohere",
-            _ => "",
         }
     }
 
@@ -85,14 +57,7 @@ impl Vendor {
             Self::Moonshot => "provider_moonshot",
             Self::Xai => "provider_xai",
             Self::DeepSeek => "provider_deepseek",
-            Self::Groq => "provider_groq",
-            Self::OpenRouter => "provider_openrouter",
-            Self::Fireworks => "provider_fireworks",
-            Self::Together => "provider_together",
             Self::Mistral => "provider_mistral",
-            Self::Perplexity => "provider_perplexity",
-            Self::Cerebras => "provider_cerebras",
-            Self::SambaNova => "provider_sambanova",
             Self::MiniMax => "provider_minimax",
             Self::Doubao => "provider_doubao",
             Self::Zhipu => "provider_zhipu",
