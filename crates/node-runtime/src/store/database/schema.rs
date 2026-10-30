@@ -95,6 +95,9 @@ impl Schema {
                 .map_err(|error| Error::Worker(error.message))?;
         }
         if !matches!(self.state, State::Current) {
+            crate::store::telemetry::initialize(connection)
+                .await
+                .map_err(|error| Error::Worker(error.message))?;
             if matches!(self.state, State::Fresh)
                 || matches!(&self.state, State::Update(plan) if plan.creates("roles"))
             {

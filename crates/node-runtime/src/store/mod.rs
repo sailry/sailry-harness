@@ -44,6 +44,7 @@ mod sandbox;
 mod search;
 mod sessions;
 mod ssh;
+mod telemetry;
 mod terminals;
 mod transfers;
 mod web;
@@ -629,6 +630,15 @@ impl Store {
                 Err(error) => {
                     let _ = ready.send(Err(crate::Error::from(error)));
                     return Ok(());
+                }
+            }
+            if let Some(profile) = profile.as_deref() {
+                match telemetry::read(&database.connection).await {
+                    Ok(settings) => crate::telemetry::configure(profile, &settings),
+                    Err(error) => {
+                        let _ = ready.send(Err(crate::Error::from(error)));
+                        return database.close().await;
+                    }
                 }
             }
             if let Err(error) = database.configure(feeds, model_clients, environment.clone()) {

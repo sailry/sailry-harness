@@ -38,6 +38,7 @@ pub(crate) mod extensions;
 mod power;
 mod shortcuts;
 mod skills;
+mod telemetry;
 mod terminal;
 pub(super) mod upload;
 
@@ -234,6 +235,7 @@ pub struct Workspace {
     provider_contributions: Option<providers::contributions::State>,
     terminal: terminal::State,
     power: power::State,
+    telemetry: Option<Entity<telemetry::Panel>>,
     models: models::State,
     runtime: runtime::State,
     backup: backup::State,
@@ -352,6 +354,7 @@ impl Workspace {
             provider_contributions: None,
             terminal,
             power: power::State::default(),
+            telemetry: None,
             models: models::State::default(),
             runtime: runtime::State::default(),
             backup: backup::State::default(),

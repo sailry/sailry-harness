@@ -6,6 +6,7 @@ pub(crate) struct Options {
     pub(crate) network: sailry_node_runtime::NetworkScope,
     pub(crate) internet: bool,
     pub(crate) bootstrap: bool,
+    pub(crate) telemetry: Option<bool>,
     pub(crate) pairing: Option<sailry_link::rendezvous::Relay>,
 }
 
@@ -20,7 +21,7 @@ pub(crate) fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Optio
             return Err("--help cannot be combined with other options".into());
         }
         println!(
-            "Usage: sailry-host [--data-dir <absolute private directory>] [--bind <IP:port> | --internet | --relay <HTTPS URL> ...] [--pairing-service <HTTPS origin> | --bootstrap]\n       sailry-host --version\n       sailry-host share [--data-dir <profile>] [--pairing-service <HTTPS origin>]\n       sailry-host submit --help\n       sailry-host wait --help\nDefaults to ~/.sailry and loopback. No interactive Agent.\nPairing is opt-in: prints a private PIN, refreshes every 60 seconds until paired or stopped."
+            "Usage: sailry-host [--data-dir <absolute private directory>] [--bind <IP:port> | --internet | --relay <HTTPS URL> ...] [--pairing-service <HTTPS origin> | --bootstrap] [--telemetry on|off]\n       sailry-host --version\n       sailry-host share [--data-dir <profile>] [--pairing-service <HTTPS origin>]\n       sailry-host submit --help\n       sailry-host wait --help\nDefaults to ~/.sailry and loopback. No interactive Agent.\nPairing is opt-in: prints a private PIN, refreshes every 60 seconds until paired or stopped."
         );
         return Ok(None);
     }
@@ -30,7 +31,25 @@ pub(crate) fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Optio
     let mut relays = Vec::new();
     let mut pairing = None;
     let mut bootstrap = false;
+    let mut telemetry = None;
     while let Some(argument) = args.next() {
+        if argument == "--telemetry" {
+            if telemetry.is_some() {
+                return Err("--telemetry must be specified only once".into());
+            }
+            telemetry = Some(
+                match args
+                    .next()
+                    .and_then(|value| value.into_string().ok())
+                    .as_deref()
+                {
+                    Some("on") => true,
+                    Some("off") => false,
+                    _ => return Err("--telemetry requires on or off".into()),
+                },
+            );
+            continue;
+        }
         if argument == "--bootstrap" && !bootstrap {
             bootstrap = true;
             continue;
@@ -107,6 +126,7 @@ pub(crate) fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Optio
         internet: use_relay,
         pairing,
         bootstrap,
+        telemetry,
     }))
 }
 
@@ -122,6 +142,7 @@ mod tests {
             sailry_node_runtime::default_data_dir().unwrap()
         );
         assert!(!options.internet);
+        assert!(options.telemetry.is_none());
         assert!(options.pairing.is_none());
     }
 
@@ -153,6 +174,26 @@ mod tests {
             .unwrap();
         assert_eq!(options.data_dir, path);
         assert!(options.pairing.is_none());
+    }
+
+    #[test]
+    fn checks_telemetry_override() {
+        for (value, enabled) in [("on", true), ("off", false)] {
+            assert_eq!(
+                parse(["--telemetry", value].into_iter().map(Into::into))
+                    .unwrap()
+                    .unwrap()
+                    .telemetry,
+                Some(enabled)
+            );
+        }
+        for values in [
+            vec!["--telemetry"],
+            vec!["--telemetry", "false"],
+            vec!["--telemetry", "off", "--telemetry", "on"],
+        ] {
+            assert!(parse(values.into_iter().map(Into::into)).is_err());
+        }
     }
 
     #[test]

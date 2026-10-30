@@ -167,6 +167,9 @@ impl Ingress {
                 super::routing::Route::ReadNetwork => {
                     return defer(move || self.read_network(request)).await;
                 }
+                super::routing::Route::Diagnostics => {
+                    return defer(move || self.send_diagnostics(request)).await;
+                }
                 super::routing::Route::ListChannelPresets => {
                     return defer(move || self.list_channel_presets(caller, request)).await;
                 }

@@ -95,6 +95,10 @@ CREATE TABLE IF NOT EXISTS media_settings (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     body BLOB NOT NULL
 );
+CREATE TABLE telemetry_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
 CREATE TABLE knowledge_collections (
     id TEXT PRIMARY KEY,
     revision INTEGER NOT NULL CHECK(revision>0),

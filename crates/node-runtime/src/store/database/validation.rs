@@ -32,6 +32,10 @@ const LIVE_TURNS: &str = "SELECT turn FROM agent_pending
     UNION SELECT delivery FROM agent_background WHERE state='pending' AND delivery IS NOT NULL";
 
 async fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
+    if db.prepare("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='telemetry_settings')").await?.query_row(()).await?.get::<bool>(0)? {
+        records::<sailry_protocol::telemetry::Settings>(db, "telemetry_settings.body", "SELECT body FROM telemetry_settings").await?;
+        crate::store::telemetry::pending_defaults(db).await.map_err(|_| Error::Worker("incompatible stored telemetry settings".into()))?;
+    }
     if db.prepare("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='power_settings')").await?.query_row(()).await?.get::<bool>(0)? {
         records::<sailry_protocol::power::Settings>(
             db,

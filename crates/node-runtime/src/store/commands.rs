@@ -254,6 +254,27 @@ pub(super) fn execute<'a>(
         Command::ReadPowerSettings => defer(move || async move {
             Ok((Output::PowerSettings(super::power::read(db).await?), None))
         }),
+        Command::ReadTelemetrySettings => defer(move || async move {
+            super::telemetry::controller(request)?;
+            Ok((
+                Output::TelemetrySettings(super::telemetry::read(db).await?),
+                None,
+            ))
+        }),
+        Command::SaveTelemetrySettings(update) => {
+            defer(move || async move { super::telemetry::save(db, request, update).await })
+        }
+        Command::ResetTelemetryIdentity { expected_revision } => {
+            defer(
+                move || async move { super::telemetry::reset(db, request, *expected_revision).await },
+            )
+        }
+        Command::SendDiagnostics => defer(move || async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "diagnostics must run outside the database",
+            ))
+        }),
         Command::SavePowerSettings(settings) => {
             defer(move || async move { super::power::save(db, settings).await })
         }

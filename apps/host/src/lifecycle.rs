@@ -101,6 +101,7 @@ mod tests {
     use super::*;
     fn options(path: &std::path::Path) -> Options {
         Options {
+            telemetry: None,
             data_dir: path.into(),
             network: Default::default(),
             internet: false,

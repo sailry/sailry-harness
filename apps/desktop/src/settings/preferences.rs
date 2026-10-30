@@ -94,6 +94,7 @@ impl Workspace {
                             .description("settings_toast_description"),
                         ),
                 )
+                .child(self.telemetry(window, cx))
                 .into_any_element(),
             _ => unreachable!(),
         }

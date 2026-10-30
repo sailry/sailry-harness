@@ -7,6 +7,7 @@ pub(super) enum Route {
     Read,
     Store,
     ReadNetwork,
+    Diagnostics,
     ReadInstallations,
     DismissInstallation,
     ReadBackup,
@@ -54,6 +55,7 @@ pub(super) fn route(command: &Command) -> Route {
     match command {
         Command::CompleteBrowser { .. } => Route::Browser,
         Command::ReadNetworkSettings => Route::ReadNetwork,
+        Command::SendDiagnostics => Route::Diagnostics,
         Command::ReadInstallations { .. } => Route::ReadInstallations,
         Command::DismissInstallation { .. } => Route::DismissInstallation,
         Command::ListBackups => Route::ReadBackup,
@@ -209,6 +211,7 @@ fn read(command: &Command) -> bool {
             | Command::ReadHooks { .. }
             | Command::ReadCodeIndexSettings
             | Command::ReadPowerSettings
+            | Command::ReadTelemetrySettings
             | Command::ReadTerminalSettings
             | Command::ReadSandboxSettings
             | Command::ReadSearchSettings

@@ -182,6 +182,7 @@ impl Projection {
                     Event::LocalModelsChanged { .. }
                     | Event::LocalModelSettingsChanged { .. }
                     | Event::BackupSettingsChanged { .. }
+                    | Event::TelemetrySettingsChanged { .. }
                     | Event::PythonSettingsChanged { .. }
                     | Event::KnowledgeCollectionsChanged => {}
                     Event::PluginRemoved { name } => {

@@ -63,6 +63,16 @@ impl Ingress {
             } else {
                 (reply, None)
             };
+            let (reply, telemetry_completion) = if matches!(
+                request.command,
+                sailry_protocol::Command::SaveTelemetrySettings(_)
+                    | sailry_protocol::Command::ResetTelemetryIdentity { .. }
+            ) {
+                let (complete, response) = oneshot::channel();
+                (complete, Some((reply, response)))
+            } else {
+                (reply, None)
+            };
             let code_settings = code_index::configures(&request.command);
             let (reply, code_completion) = if code_settings {
                 let (complete, response) = oneshot::channel();
@@ -126,6 +136,19 @@ impl Ingress {
                     // Durable replay may contain an old saved value. Apply only current storage.
                     match power::read(&database.connection).await {
                         Ok(settings) => power.apply_settings(settings),
+                        Err(error) => result = Err(error),
+                    }
+                }
+                let _ = reply.send(result);
+            }
+            if let Some((reply, completion)) = telemetry_completion {
+                let mut result = completion.await.unwrap_or_else(|_| Err(unavailable()));
+                if result.is_ok()
+                    && let Some(profile) = self.profile.as_deref()
+                {
+                    // Durable replay acknowledges its original result, not an old consent policy.
+                    match telemetry::read(&database.connection).await {
+                        Ok(settings) => crate::telemetry::configure(profile, &settings),
                         Err(error) => result = Err(error),
                     }
                 }

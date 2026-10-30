@@ -56,6 +56,9 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
     let Some(options) = options::parse(arguments.into_iter())? else {
         return Ok(0);
     };
+    if let Some(enabled) = options.telemetry {
+        sailry_node_runtime::telemetry::override_enabled(enabled);
+    }
     let _logging = match sailry_node_runtime::logging::install(
         &options.data_dir,
         sailry_node_runtime::logging::Application::Host,

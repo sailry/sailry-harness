@@ -52,3 +52,5 @@ mod backup;
 
 #[path = "../power.rs"]
 mod power;
+#[path = "../telemetry.rs"]
+mod telemetry;

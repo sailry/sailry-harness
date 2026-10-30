@@ -10,7 +10,7 @@ use crate::{
 };
 use gpui_kit::{
     component::{
-        button::ButtonVariants,
+        button::{Button, ButtonVariants},
         dialog::{DialogClose, DialogDescription, DialogTitle},
         scroll::ScrollableElement,
         *,
@@ -207,6 +207,32 @@ impl Render for Guide {
                             }
                         },
                     )),
+            )
+            .child(
+                v_flex()
+                    .px_9()
+                    .pb_6()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        DialogDescription::new()
+                            .text_center()
+                            .child(tr("telemetry_welcome")),
+                    )
+                    .child(
+                        Button::new("welcome-privacy-settings")
+                            .ghost()
+                            .small()
+                            .label(tr("settings"))
+                            .on_click(|_, window, cx| {
+                                preferences::mark_welcome_seen(cx);
+                                window.close_dialog(cx);
+                                window.dispatch_action(
+                                    Box::new(crate::settings::OpenSection(Section::General)),
+                                    cx,
+                                );
+                            }),
+                    ),
             )
             .vertical_scrollbar(&self.scroll)
     }

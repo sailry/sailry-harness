@@ -117,6 +117,7 @@ fn resource_changes_advance_shared_cursor() {
     for (index, event) in [
         Event::LocalModelsChanged { models: vec![] },
         Event::LocalModelSettingsChanged { revision: 3 },
+        Event::TelemetrySettingsChanged { revision: 3 },
         Event::KnowledgeCollectionsChanged,
     ]
     .into_iter()

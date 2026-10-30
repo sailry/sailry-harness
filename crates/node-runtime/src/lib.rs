@@ -33,6 +33,7 @@ mod python;
 mod ssh;
 mod store;
 mod tasks;
+pub mod telemetry;
 mod terminal;
 mod web;
 mod workspaces;

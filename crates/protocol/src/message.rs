@@ -912,6 +912,12 @@ pub enum Command {
     },
     ReadTerminalSettings,
     ReadPowerSettings,
+    ReadTelemetrySettings,
+    SaveTelemetrySettings(crate::telemetry::Update),
+    ResetTelemetryIdentity {
+        expected_revision: u64,
+    },
+    SendDiagnostics,
     ReadNetworkSettings,
     SaveNetworkSettings {
         expected_revision: u64,
@@ -1651,6 +1657,8 @@ impl Command {
                 | Self::ReadToolOutput { .. }
                 | Self::ReadTerminalSettings
                 | Self::ReadPowerSettings
+                | Self::ReadTelemetrySettings
+                | Self::SendDiagnostics
                 | Self::ReadNetworkSettings
                 | Self::ReadSandboxSettings
                 | Self::ReadSearchSettings
@@ -1968,6 +1976,8 @@ pub enum Output {
     Terminal(crate::terminal::Info),
     TerminalSettings(crate::terminal::Settings),
     PowerSettings(crate::power::Settings),
+    TelemetrySettings(crate::telemetry::Settings),
+    DiagnosticsSent,
     NetworkSettings(crate::network::Settings),
     SandboxSettings(crate::sandbox::Settings),
     SearchSettings(crate::search::Settings),
@@ -2137,6 +2147,9 @@ pub enum Event {
     },
     MediaSettingsChanged(crate::media::Settings),
     PowerSettingsChanged {
+        revision: u64,
+    },
+    TelemetrySettingsChanged {
         revision: u64,
     },
     TerminalSettingsChanged {

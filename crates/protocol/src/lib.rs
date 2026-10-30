@@ -40,6 +40,7 @@ pub mod role;
 pub mod sandbox;
 pub mod search;
 pub mod ssh;
+pub mod telemetry;
 pub mod terminal;
 pub mod tool;
 pub mod usage;

@@ -50,6 +50,9 @@ pub(super) async fn needed(connection: &Connection) -> Result<bool, Error> {
         || tools_pending(connection).await?
         || crate::store::search::pending_defaults(connection)
             .await
+            .map_err(|error| Error::Worker(error.message))?
+        || crate::store::telemetry::pending_defaults(connection)
+            .await
             .map_err(|error| Error::Worker(error.message))?)
 }
 
