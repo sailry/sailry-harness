@@ -533,6 +533,7 @@ async fn execute_with(
         stop.clone(),
         ingress.agents.timeline(invocation.turn.id),
     )
+    .with_metrics(ingress.profile(), invocation)
     .with_children(children.clone())
     .with_hooks(hooks);
     let bindings = approval::bindings(invocation, &extensions.tools)?;

@@ -301,6 +301,13 @@ async fn execute(
 
 async fn send(client: &Client, prepared: &Prepared, run: &Run<'_>) -> Result<Value, Failure> {
     let api = run.provider.api;
+    let mut metric = run.context.and_then(|context| {
+        crate::telemetry::metrics::Request::direct(
+            context.ingress.profile(),
+            run.provider,
+            run.model,
+        )
+    });
     let operation = async {
         let response = client
             .post(prepared.endpoint.clone())
@@ -336,15 +343,47 @@ async fn send(client: &Client, prepared: &Prepared, run: &Run<'_>) -> Result<Val
                     )
                 }
             })?;
+        if let Some(metric) = &mut metric {
+            metric.status(response.status().as_u16());
+        }
         network::read(response, api).await
     };
-    let value = tokio::select! {
+    let result = tokio::select! {
         biased;
-        _ = run.stop.cancelled() => return Err(Failure::cancelled()),
+        _ = run.stop.cancelled() => Err(Failure::cancelled()),
         result = tokio::time::timeout_at(run.deadline, operation) => result.unwrap_or_else(|_| Err(request_fault(
             ErrorCode::Unavailable, ModelFailure::Timeout, "model search deadline exceeded", true,
-        )))?,
+        ))),
     };
+    if let Some(mut metric) = metric {
+        use crate::telemetry::metrics::{RequestResult, Tokens};
+        if let Ok(value) = &result {
+            let usage = match api {
+                ModelApi::Responses => responses::usage(value),
+                ModelApi::Anthropic => anthropic::usage(value),
+                ModelApi::Gemini => gemini::usage(value),
+                _ => None,
+            };
+            if let Some(usage) = usage {
+                metric.tokens(Tokens {
+                    input: usage.input.unwrap_or_default(),
+                    output: usage.output.unwrap_or_default(),
+                    cache_read: usage.cache_read.unwrap_or_default(),
+                    cache_write: usage.cache_write.unwrap_or_default(),
+                });
+            }
+        }
+        let error = result.as_ref().err().map(|error| error.fault.code);
+        metric.finish(
+            match error {
+                Some(ErrorCode::Cancelled) => RequestResult::Cancelled,
+                Some(_) => RequestResult::Error,
+                None => RequestResult::Success,
+            },
+            error,
+        );
+    }
+    let value = result?;
     run.record(&value).await?;
     Ok(value)
 }

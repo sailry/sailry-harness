@@ -65,6 +65,7 @@ struct State {
 }
 
 pub(crate) struct Searcher {
+    profile: Option<std::path::PathBuf>,
     state: Mutex<State>,
     active: Mutex<BTreeMap<(NodeId, RequestId), CancellationToken>>,
     #[cfg(any(test, feature = "test-support"))]
@@ -74,6 +75,7 @@ pub(crate) struct Searcher {
 impl Default for Searcher {
     fn default() -> Self {
         Self {
+            profile: None,
             state: Mutex::new(State {
                 settings: Default::default(),
                 cooldowns: Default::default(),
@@ -87,6 +89,11 @@ impl Default for Searcher {
 }
 
 impl Searcher {
+    pub(crate) fn with_profile(mut self, profile: Option<&std::path::Path>) -> Self {
+        self.profile = profile.map(std::path::Path::to_owned);
+        self
+    }
+
     pub fn configure(&self, settings: search::Settings) {
         let mut state = self.state.lock().expect("search state lock is healthy");
         if state.settings != settings {
@@ -151,61 +158,70 @@ impl Searcher {
         stop: &CancellationToken,
         options: Options<'_>,
     ) -> Result<search::Page, Fault> {
-        input.validate()?;
-        let input = input.normalized();
-        let request = {
-            let mut active = self.active.lock().expect("search requests lock is healthy");
-            if active.contains_key(&(caller, id)) {
-                return Err(Fault::new(
-                    ErrorCode::Busy,
-                    "web search request is already running",
-                ));
-            }
-            let stop = stop.child_token();
-            active.insert((caller, id), stop.clone());
-            Query {
-                owner: self.clone(),
-                key: (caller, id),
-                stop,
-            }
-        };
-        if request.stop.is_cancelled() {
-            return Err(Failure::cancelled().fault);
-        }
-        let key = cache::Key::new(plan.settings.driver, input.clone());
-        if !options.fresh {
-            let cached = {
-                let mut state = self.state.lock().expect("search state lock is healthy");
-                if state.settings == plan.settings {
-                    state.cache.get(&key, std::time::Instant::now())
-                } else {
-                    None
+        let metric =
+            crate::telemetry::metrics::Search::new(self.profile.as_deref(), plan.settings.driver);
+        let result = async {
+            input.validate()?;
+            let input = input.normalized();
+            let request = {
+                let mut active = self.active.lock().expect("search requests lock is healthy");
+                if active.contains_key(&(caller, id)) {
+                    return Err(Fault::new(
+                        ErrorCode::Busy,
+                        "web search request is already running",
+                    ));
+                }
+                let stop = stop.child_token();
+                active.insert((caller, id), stop.clone());
+                Query {
+                    owner: self.clone(),
+                    key: (caller, id),
+                    stop,
                 }
             };
-            if let Some(page) = cached {
-                return if request.stop.is_cancelled() {
-                    Err(Failure::cancelled().fault)
-                } else {
-                    Ok(page)
+            if request.stop.is_cancelled() {
+                return Err(Failure::cancelled().fault);
+            }
+            let key = cache::Key::new(plan.settings.driver, input.clone());
+            if !options.fresh {
+                let cached = {
+                    let mut state = self.state.lock().expect("search state lock is healthy");
+                    if state.settings == plan.settings {
+                        state.cache.get(&key, std::time::Instant::now())
+                    } else {
+                        None
+                    }
                 };
+                if let Some(page) = cached {
+                    return if request.stop.is_cancelled() {
+                        Err(Failure::cancelled().fault)
+                    } else {
+                        Ok(page)
+                    };
+                }
             }
-        }
-        let settings = plan.settings.clone();
-        let page = self
-            .execute(plan, &input, id, &request.stop, options.context.as_ref())
-            .await?;
-        if request.stop.is_cancelled() {
-            return Err(Failure::cancelled().fault);
-        }
-        if !options.fresh {
-            let mut state = self.state.lock().expect("search state lock is healthy");
-            if state.settings == settings {
-                state
-                    .cache
-                    .insert(key, page.clone(), std::time::Instant::now());
+            let settings = plan.settings.clone();
+            let page = self
+                .execute(plan, &input, id, &request.stop, options.context.as_ref())
+                .await?;
+            if request.stop.is_cancelled() {
+                return Err(Failure::cancelled().fault);
             }
+            if !options.fresh {
+                let mut state = self.state.lock().expect("search state lock is healthy");
+                if state.settings == settings {
+                    state
+                        .cache
+                        .insert(key, page.clone(), std::time::Instant::now());
+                }
+            }
+            Ok(page)
         }
-        Ok(page)
+        .await;
+        if let Some(metric) = metric {
+            metric.finish(&result);
+        }
+        result
     }
 
     async fn execute(

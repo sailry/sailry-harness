@@ -107,6 +107,9 @@ mod search;
 mod search_fixture;
 #[path = "agent/skills/mod.rs"]
 mod skills;
+#[cfg(feature = "test-support")]
+#[path = "agent/telemetry.rs"]
+mod telemetry;
 #[cfg(unix)]
 #[path = "agent/title.rs"]
 mod title;

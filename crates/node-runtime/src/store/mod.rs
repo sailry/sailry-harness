@@ -510,7 +510,7 @@ impl Store {
             git,
             code_queries: Arc::new(crate::code_index::Queries::default()),
             web: Arc::default(),
-            search: Arc::default(),
+            search: Arc::new(crate::web::Searcher::default().with_profile(profile.as_deref())),
             code_index: crate::code_index::Service::new(
                 profile.clone(),
                 node,

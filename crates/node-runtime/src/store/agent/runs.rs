@@ -717,6 +717,11 @@ pub(super) async fn finish_with(
     let envelope = changed(&transaction, database.node, run.session).await?;
     let child = super::children::get(&transaction, &run).await?;
     let status = run.status;
+    let metric = if crate::telemetry::metrics_enabled(database.profile.as_deref()) {
+        super::telemetry::turn(&transaction, &run, child.is_some()).await
+    } else {
+        None
+    };
     let background = super::background::child_finished(&transaction, &run).await?;
     let released = super::background::release(&transaction, turn, run.notice).await?;
     let mut owners: std::collections::BTreeSet<_> =
@@ -739,6 +744,9 @@ pub(super) async fn finish_with(
     }
     let publication = publication.lock().await;
     crate::store::database::conflict::commit(transaction).await?;
+    if let Some(metric) = metric {
+        crate::telemetry::record(database.profile.as_deref(), metric);
+    }
     let mut diagnostic = crate::logging::Entry::new(
         crate::logging::Area::Run,
         match status {

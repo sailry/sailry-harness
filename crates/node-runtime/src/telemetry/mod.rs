@@ -10,6 +10,10 @@ use std::{
 };
 use tokio::sync::Notify;
 
+pub(crate) mod metrics;
+#[cfg(any(test, feature = "test-support"))]
+pub use metrics::fixture::Collector;
+
 static PROCESS: OnceLock<Process> = OnceLock::new();
 static OVERRIDE: AtomicBool = AtomicBool::new(true);
 const READY: u8 = 1;
@@ -19,7 +23,9 @@ const METRICS: u8 = 4;
 struct Process {
     profile: PathBuf,
     control: Arc<Control>,
+    metrics: metrics::Metrics,
     report: OnceLock<Arc<crate::logging::report::Report>>,
+    configured: AtomicBool,
     closing: AtomicBool,
 }
 
@@ -225,13 +231,20 @@ pub fn override_enabled(enabled: bool) {
 }
 
 pub(crate) fn start(profile: &Path, application: crate::logging::Application) -> Arc<Control> {
-    let process = PROCESS.get_or_init(|| Process {
-        profile: profile
-            .canonicalize()
-            .unwrap_or_else(|_| profile.to_owned()),
-        control: Arc::new(Control::new(application, &Configuration::read())),
-        report: OnceLock::new(),
-        closing: AtomicBool::new(false),
+    let process = PROCESS.get_or_init(|| {
+        let configuration = Configuration::read();
+        let control = Arc::new(Control::new(application, &configuration));
+        let key = configuration.allowed.then_some(configuration.key).flatten();
+        Process {
+            profile: profile
+                .canonicalize()
+                .unwrap_or_else(|_| profile.to_owned()),
+            metrics: metrics::Metrics::new(control.clone(), key),
+            control,
+            report: OnceLock::new(),
+            configured: AtomicBool::new(false),
+            closing: AtomicBool::new(false),
+        }
     });
     process.control.clone()
 }
@@ -242,15 +255,97 @@ pub(crate) fn dsn() -> Option<String> {
 }
 
 pub(crate) fn configure(profile: &Path, settings: &Settings) {
+    #[cfg(any(test, feature = "test-support"))]
+    metrics::fixture::configure(profile, settings);
     let Some(process) = PROCESS.get() else { return };
     if profile.canonicalize().ok().as_deref() == Some(process.profile.as_path()) {
-        process.control.configure(settings);
+        if process.control.configure(settings) {
+            process.metrics.clear();
+        }
+        if !process.configured.swap(true, Ordering::AcqRel) {
+            process.metrics.record(metrics::Observation::Launch);
+        }
     }
 }
 
 pub(crate) fn attach_report(report: Arc<crate::logging::report::Report>) {
     if let Some(process) = PROCESS.get() {
         let _ = process.report.set(report);
+    }
+}
+
+pub(crate) fn metrics_enabled(profile: Option<&Path>) -> bool {
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(enabled) = metrics::fixture::enabled(profile) {
+        return enabled;
+    }
+    PROCESS.get().is_some_and(|process| {
+        !process.closing.load(Ordering::Acquire)
+            && process.control.metrics()
+            && profile == Some(process.profile.as_path())
+    })
+}
+
+/// Consent and identity are captured before an operation starts.
+pub(crate) struct Capture {
+    profile: PathBuf,
+    control: Arc<Control>,
+    epoch: u64,
+}
+
+impl Capture {
+    fn new(profile: &Path, control: Arc<Control>) -> Option<Self> {
+        let epoch = control.epoch();
+        control.metrics().then(|| Self {
+            profile: profile.to_owned(),
+            control,
+            epoch,
+        })
+    }
+
+    pub(crate) fn record(&self, observation: metrics::Observation) {
+        #[cfg(any(test, feature = "test-support"))]
+        let observation = match metrics::fixture::record_at(
+            Some(&self.profile),
+            &self.control,
+            self.epoch,
+            observation,
+        ) {
+            Ok(()) => return,
+            Err(observation) => observation,
+        };
+        if let Some(process) = PROCESS.get()
+            && self.profile == process.profile
+            && Arc::ptr_eq(&self.control, &process.control)
+            && !process.closing.load(Ordering::Acquire)
+        {
+            process.metrics.record_at(self.epoch, observation);
+        }
+    }
+}
+
+pub(crate) fn capture(profile: Option<&Path>) -> Option<Capture> {
+    let profile = profile?;
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(control) = metrics::fixture::control(Some(profile)) {
+        return Capture::new(profile, control);
+    }
+    let process = PROCESS.get()?;
+    (profile == process.profile.as_path() && !process.closing.load(Ordering::Acquire))
+        .then(|| Capture::new(profile, process.control.clone()))
+        .flatten()
+}
+
+pub(crate) fn record(profile: Option<&Path>, observation: metrics::Observation) {
+    #[cfg(any(test, feature = "test-support"))]
+    let observation = match metrics::fixture::record(profile, observation) {
+        Ok(()) => return,
+        Err(observation) => observation,
+    };
+    if metrics_enabled(profile)
+        && let Some(process) = PROCESS.get()
+    {
+        process.metrics.record(observation);
     }
 }
 
@@ -278,6 +373,16 @@ pub(crate) fn shutdown(timeout: std::time::Duration) {
     let _ = std::thread::Builder::new()
         .name("sailry-report-shutdown".into())
         .spawn(move || {
+            if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                runtime.block_on(
+                    process
+                        .metrics
+                        .shutdown(tokio::time::Instant::from_std(deadline)),
+                );
+            }
             if let Some(report) = process.report.get() {
                 let _ = report.close(deadline.saturating_duration_since(std::time::Instant::now()));
             }

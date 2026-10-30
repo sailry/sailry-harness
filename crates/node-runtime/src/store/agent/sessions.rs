@@ -298,6 +298,25 @@ impl EffectHandler<Session, Effect> for Sessions {
                         }))
                     }
                     Decision::Deny | Decision::DenyWithReason(_) => {
+                        // Denied calls never enter Catalog's execution guard.
+                        if crate::telemetry::metrics_enabled(self.ingress.profile())
+                            && let Some(tool) = self.invocation.as_ref().and_then(|invocation| {
+                                crate::telemetry::metrics::Tool::capture(
+                                    &request.name,
+                                    &invocation.plugins,
+                                )
+                            })
+                        {
+                            crate::telemetry::record(
+                                self.ingress.profile(),
+                                crate::telemetry::metrics::Observation::Tool {
+                                    tool,
+                                    result: crate::telemetry::metrics::ToolResult::Denied,
+                                    error: Some(ErrorCode::PermissionDenied),
+                                    elapsed: std::time::Duration::ZERO,
+                                },
+                            );
+                        }
                         let reason = match decision {
                             Decision::DenyWithReason(reason) => {
                                 format!("Tool execution was denied. Reason: {reason}")

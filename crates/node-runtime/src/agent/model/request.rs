@@ -31,6 +31,7 @@ pub(super) struct Model {
     identity: crate::logging::Context,
     sources: observation::Sources,
     names: names::Registry,
+    metric: Option<crate::telemetry::metrics::Model>,
 }
 
 impl Model {
@@ -53,6 +54,16 @@ impl Model {
             stop: stop.clone(),
             sources,
             names,
+            metric: invocation
+                .provider
+                .as_ref()
+                .filter(|_| crate::telemetry::metrics_enabled(ingress.profile()))
+                .map(|provider| {
+                    crate::telemetry::metrics::Model::capture(
+                        provider,
+                        &invocation.turn.config.model,
+                    )
+                }),
             identity: crate::logging::Context {
                 node: Some(ingress.node),
                 turn: Some(invocation.turn.id),
@@ -152,6 +163,8 @@ struct State {
     started: Instant,
     first_text: Option<u64>,
     usage: Option<Usage>,
+    tokens: crate::telemetry::metrics::Tokens,
+    metric: Option<(crate::telemetry::Capture, crate::telemetry::metrics::Model)>,
     cache_reported: bool,
     reasoning_reported: bool,
     payload: observation::Payload,
@@ -217,6 +230,11 @@ impl Capture {
                 started,
                 first_text: None,
                 usage: None,
+                tokens: Default::default(),
+                metric: model.metric.clone().and_then(|metric| {
+                    crate::telemetry::capture(model.ingress.profile())
+                        .map(|capture| (capture, metric))
+                }),
                 cache_reported: false,
                 reasoning_reported: false,
                 payload: model
@@ -247,6 +265,12 @@ impl Capture {
             }
             state.cache_reported = usage.usage.cache_read_input_tokens.is_some();
             if let Ok(usage) = crate::agent::engine::history::provider_usage(usage) {
+                state.tokens = crate::telemetry::metrics::Tokens {
+                    input: usage.input.unwrap_or_default(),
+                    output: usage.output.unwrap_or_default(),
+                    cache_read: usage.cache_read.unwrap_or_default(),
+                    cache_write: usage.cache_write.unwrap_or_default(),
+                };
                 state.reasoning_reported = usage.reasoning.is_some();
                 state.usage = counts(&usage);
             }
@@ -336,6 +360,22 @@ impl State {
         } else {
             error.map(|error| super::errors::fault(error.clone()).code)
         };
+        if let Some((capture, model)) = self.metric.take() {
+            use crate::telemetry::metrics::{Observation, RequestResult, StatusClass};
+            capture.record(Observation::Model {
+                model,
+                result: match outcome {
+                    Outcome::Succeeded => RequestResult::Success,
+                    Outcome::Failed => RequestResult::Error,
+                    Outcome::Cancelled => RequestResult::Cancelled,
+                },
+                status: StatusClass::from(http.map(|receipt| receipt.status)),
+                error: code,
+                // GDK does not expose its private HTTP retry count.
+                retries: None,
+                tokens: self.tokens,
+            });
+        }
         self.span.finish(
             match outcome {
                 Outcome::Succeeded => crate::logging::Phase::Completed,

@@ -62,6 +62,7 @@ pub(super) struct Catalog {
     entries: BTreeMap<String, Registration>,
     children: Option<super::engine::Children>,
     hooks: Option<Arc<crate::hooks::Binding>>,
+    metrics: Option<(std::path::PathBuf, Arc<crate::store::agent::Invocation>)>,
 }
 impl Catalog {
     pub fn new(
@@ -76,6 +77,7 @@ impl Catalog {
             entries: BTreeMap::new(),
             children: None,
             hooks: None,
+            metrics: None,
         }
     }
     pub fn with_children(mut self, children: super::engine::Children) -> Self {
@@ -84,6 +86,14 @@ impl Catalog {
     }
     pub fn with_hooks(mut self, hooks: Option<Arc<crate::hooks::Binding>>) -> Self {
         self.hooks = hooks;
+        self
+    }
+    pub fn with_metrics(
+        mut self,
+        profile: Option<&std::path::Path>,
+        invocation: &Arc<crate::store::agent::Invocation>,
+    ) -> Self {
+        self.metrics = profile.map(|profile| (profile.to_owned(), invocation.clone()));
         self
     }
     pub fn register(&mut self, registration: Registration) -> Result<(), Fault> {
@@ -152,11 +162,33 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
         )?;
         context.children = self.children.clone();
         let name = entry.tool.name.as_ref();
+        let metric = self.metrics.as_ref().and_then(|(profile, invocation)| {
+            if !crate::telemetry::metrics_enabled(Some(profile)) {
+                return None;
+            }
+            crate::telemetry::metrics::Call::new(
+                Some(profile),
+                crate::telemetry::metrics::Tool::capture(name, &invocation.plugins),
+                &self.stop,
+            )
+        });
         if let Some(timeline) = &self.timeline {
             timeline.forget_failure(context.branch(), id, name);
         }
-        if let Some(hooks) = &self.hooks {
-            hooks.before(name).await.map_err(fault)?;
+        if let Some(hooks) = &self.hooks
+            && let Err(error) = hooks.before(name).await
+        {
+            if let Some(metric) = metric {
+                metric.finish(
+                    if error.code == sailry_protocol::ErrorCode::PermissionDenied {
+                        crate::telemetry::metrics::ToolResult::Denied
+                    } else {
+                        crate::telemetry::metrics::ToolResult::Error
+                    },
+                    Some(error.code),
+                );
+            }
+            return Err(fault(error));
         }
         let work = entry.provider.call(&context, id, call, emit);
         let result = match &self.timeline {
@@ -173,6 +205,14 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
                 .map(|fault| fault.code);
             timeline.fail_tool(context.branch(), id, name, code);
         }
+        if let Some(metric) = metric {
+            let failure = self
+                .timeline
+                .as_ref()
+                .and_then(|timeline| timeline.tool_failure(context.branch(), id, name));
+            let (outcome, code) = classify(&result, failure.as_ref());
+            metric.finish(outcome, code);
+        }
         if let Some(hooks) = &self.hooks {
             let success = result
                 .as_ref()
@@ -181,6 +221,37 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
         }
         result
     }
+}
+
+fn classify(
+    result: &Result<CallToolResult, ErrorData>,
+    failure: Option<&sailry_protocol::tool::Failure>,
+) -> (
+    crate::telemetry::metrics::ToolResult,
+    Option<sailry_protocol::ErrorCode>,
+) {
+    use crate::telemetry::metrics::ToolResult;
+    let code = failure.and_then(|failure| failure.code).or_else(|| {
+        result.as_ref().err().and_then(|error| {
+            error
+                .data
+                .as_ref()
+                .and_then(|data| serde_json::from_value::<Fault>(data.clone()).ok())
+                .map(|fault| fault.code)
+        })
+    });
+    let outcome = if code == Some(sailry_protocol::ErrorCode::PermissionDenied) {
+        ToolResult::Denied
+    } else if failure.is_none()
+        && result
+            .as_ref()
+            .is_ok_and(|result| result.is_error != Some(true))
+    {
+        ToolResult::Success
+    } else {
+        ToolResult::Error
+    };
+    (outcome, code)
 }
 
 pub(in crate::agent) fn json(mut value: Value) -> Result<CallToolResult, Fault> {

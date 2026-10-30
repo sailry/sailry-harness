@@ -35,3 +35,53 @@ fn rejects_anonymous_calls() {
         .is_err()
     );
 }
+
+#[test]
+fn classifies_authoritative_tool_failures() {
+    use crate::telemetry::metrics::ToolResult;
+    use sailry_protocol::{ErrorCode, tool::Failure};
+    let mut output = CallToolResult::structured(json!({"error":"PRIVATE_BUSINESS_DATA"}));
+    let result = Ok(output.clone());
+    assert_eq!(classify(&result, None), (ToolResult::Success, None));
+    assert_eq!(
+        classify(
+            &result,
+            Some(&Failure {
+                code: Some(ErrorCode::NotFound)
+            })
+        ),
+        (ToolResult::Error, Some(ErrorCode::NotFound))
+    );
+    assert_eq!(
+        classify(&result, Some(&Failure { code: None })),
+        (ToolResult::Error, None)
+    );
+    assert_eq!(
+        classify(
+            &result,
+            Some(&Failure {
+                code: Some(ErrorCode::PermissionDenied)
+            })
+        ),
+        (ToolResult::Denied, Some(ErrorCode::PermissionDenied))
+    );
+    output.is_error = Some(true);
+    assert_eq!(classify(&Ok(output), None), (ToolResult::Error, None));
+    assert_eq!(
+        classify(
+            &Err(fault(Fault::new(ErrorCode::NotFound, "PRIVATE_DIAGNOSTIC"))),
+            None
+        ),
+        (ToolResult::Error, Some(ErrorCode::NotFound))
+    );
+    assert_eq!(
+        classify(
+            &Err(ErrorData::internal_error(
+                "PRIVATE_DIAGNOSTIC",
+                Some(json!({"code":"PRIVATE_CODE"}))
+            )),
+            None
+        ),
+        (ToolResult::Error, None)
+    );
+}

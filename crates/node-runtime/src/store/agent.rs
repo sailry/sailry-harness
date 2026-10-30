@@ -28,6 +28,7 @@ pub(in crate::store) mod runs;
 mod search;
 mod sessions;
 pub(super) mod statistics;
+mod telemetry;
 #[cfg(test)]
 mod tests;
 mod worktrees;
