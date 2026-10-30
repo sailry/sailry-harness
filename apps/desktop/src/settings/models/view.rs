@@ -4,7 +4,6 @@ use crate::{
     tr,
 };
 use gpui_kit::component::{
-    button::Button,
     select::Select,
     switch::Switch,
     tab::{Tab, TabBar},
@@ -122,15 +121,6 @@ impl Panel {
             None => Group::new("local_models")
                 .heading(false)
                 .empty(IconName::Cpu, "local_models_empty")
-                .empty_action(
-                    Button::new(SharedString::from(format!("local-model-{slug}-browse")))
-                        .outline()
-                        .small()
-                        .label(tr("local_models_browse"))
-                        .on_click(cx.listener(move |panel, _, window, cx| {
-                            panel.show(kind, AVAILABLE, window, cx)
-                        })),
-                )
                 .children(model_library::model_rows(
                     model_library::Target::Node(cx.entity(), kind),
                     entries
