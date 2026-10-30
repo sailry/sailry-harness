@@ -65,7 +65,7 @@ LINT_PACKAGES = {
     "host": ("sailry-host",),
     "mobile": ("sailry-mobile-bridge",),
 }
-# GitHub runners keep their measured test concurrency; local runs scale with the machine.
+# Fresh-Node suites contend on full-sync storage; higher concurrency exceeds Link receipt deadlines.
 CI_TEST_THREADS = "4"
 # Node is also exercised by Desktop and Mobile's real-Node contract fixtures.
 DEPENDENTS = (
@@ -177,10 +177,6 @@ def lint(selection, jobs=None):
     command = lint_command(selection, jobs)
     environment = parser_environment(ROOT, None, libraries=False)
     return subprocess.run(command, env=environment, check=False).returncode
-
-
-def local_test_threads():
-    return str(max(4, (os.cpu_count() or 1) // 2))
 
 
 def tested_products(selected, system):
@@ -397,7 +393,7 @@ def local(arguments):
     parser.add_argument("--event", choices=("push", "pull_request"), default="push")
     parser.add_argument("--all", action="store_true", dest="full")
     parser.add_argument("--jobs")
-    parser.add_argument("--test-threads", default=local_test_threads())
+    parser.add_argument("--test-threads")
     parser.add_argument("--target-dir", type=Path)
     parser.add_argument("--plan", action="store_true")
     args = parser.parse_args(arguments)
