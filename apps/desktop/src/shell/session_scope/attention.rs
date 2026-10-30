@@ -19,7 +19,7 @@ impl Shell {
             && self.current_session_is_visible(node, id, window)
         {
             // Session dots and notification inboxes have separate read state.
-            self.set_session_read(node, id, true, window, cx);
+            self.request_session_read(node, id, true, true, window, cx);
         }
     }
 
@@ -60,6 +60,20 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.request_session_read(node, id, read, false, window, cx);
+    }
+
+    /// Automatic acknowledgements skip revision conflicts: the session changed
+    /// concurrently, and the newer attention state stays visible.
+    fn request_session_read(
+        &mut self,
+        node: NodeId,
+        id: sailry_protocol::SessionId,
+        read: bool,
+        automatic: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(attention) = self.session_attention(node, id) else {
             return;
         };
@@ -83,7 +97,9 @@ impl Shell {
         cx.spawn_in(window, async move |shell, cx| {
             let result = job.await;
             let _ = shell.update_in(cx, |_, window, cx| {
-                if !matches!(result, Ok(Ok(_))) {
+                let conflict = matches!(&result, Ok(Err(error))
+                    if error.code == sailry_protocol::ErrorCode::RevisionConflict);
+                if !matches!(result, Ok(Ok(_))) && !(automatic && conflict) {
                     crate::feedback::toast(
                         window,
                         tr("live_request_failed"),
