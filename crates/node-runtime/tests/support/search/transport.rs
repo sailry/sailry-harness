@@ -63,6 +63,7 @@ pub async fn respond(
     retry: Option<&str>,
     body: &str,
     session: Option<&str>,
+    content_type: &str,
 ) {
     let retry = retry
         .map(|value| format!("Retry-After: {value}\r\n"))
@@ -71,7 +72,7 @@ pub async fn respond(
         .map(|value| format!("Mcp-Session-Id: {value}\r\n"))
         .unwrap_or_default();
     let response = format!(
-        "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{retry}{session}Connection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{retry}{session}Connection: close\r\n\r\n{body}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;

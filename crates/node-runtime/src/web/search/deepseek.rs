@@ -19,7 +19,7 @@ pub(super) async fn search(
 
 fn body(input: &search::Request) -> Result<Value, Failure> {
     if input.query.chars().count() > 128 {
-        return Err(Failure::invalid("search query exceeds the service limit"));
+        return Err(Failure::service_limit());
     }
     let mut query = filters::query(input);
     if query.chars().count() > 128 {

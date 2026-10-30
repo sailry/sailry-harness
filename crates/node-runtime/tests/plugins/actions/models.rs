@@ -77,6 +77,7 @@ async fn requires_explicit_models() {
             .find(|model| model.id == selected)
             .unwrap();
         assert_eq!(choice.api, Some(ModelApi::Responses));
+        assert_eq!(choice.authentication, Authentication::ApiKey);
         let public = serde_json::to_string(choice).unwrap();
         assert!(!public.contains("isolated-model-key"));
         assert!(!public.contains(&provider.endpoint));

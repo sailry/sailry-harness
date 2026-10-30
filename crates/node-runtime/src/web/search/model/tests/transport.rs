@@ -19,10 +19,24 @@ async fn sends_native_requests_across_logins() {
     let client = client();
     for (authentication, api) in combinations() {
         let streaming = authentication == Authentication::ChatGptOAuth;
-        let value = response(api);
+        let mut value = response(api);
         let body = if streaming {
+            let items = value["output"].take();
+            value["output"] = json!([]);
+            let items = items
+                .as_array()
+                .unwrap()
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    format!(
+                        "data: {}\r\n\r\n",
+                        json!({"type":"response.output_item.done","output_index":index,"item":item})
+                    )
+                })
+                .collect::<String>();
             format!(
-                "event: response.completed\r\ndata: {}\r\n\r\n",
+                "{items}event: response.completed\r\ndata: {}\r\n\r\n",
                 json!({"type":"response.completed","response":value})
             )
         } else {
@@ -70,6 +84,32 @@ async fn sends_native_requests_across_logins() {
         assert_eq!(captured.route, format!("POST {path} HTTP/1.1"));
         assert_eq!(captured.body, expected(api, authentication));
         assert_headers(&captured, authentication, api);
+    }
+}
+
+#[tokio::test]
+async fn reads_responses_without_content_type() {
+    let client = client();
+    let value = response(ModelApi::Responses);
+    for body in [
+        value.to_string(),
+        format!(
+            ": heartbeat\n\ndata: {}\n\n",
+            json!({"type":"response.completed","response":value})
+        ),
+    ] {
+        let server = fixture::Server::start(200, "", &body).await;
+        let response = client
+            .post(&server.endpoint)
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            network::read(response, ModelApi::Responses).await.unwrap(),
+            value
+        );
+        let _ = server.captured().await;
     }
 }
 

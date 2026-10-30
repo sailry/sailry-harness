@@ -80,8 +80,10 @@ Reports contain the application version and source revision, release channel,
 Desktop or Host type, OS and CPU architecture, and random installation ID.
 Error reports contain error codes and sanitized application stack frames.
 Anonymous usage contains aggregated launch, turn, tool, model and search counts,
-outcomes, timings and token totals. Built-in model names and declared plugin tool
-identifiers may be included; custom model names and MCP tools use generic labels.
+outcomes, timings and token totals. Built-in model names and tools from bundled
+or official plugins may be included; custom models, third-party plugin tools and
+MCP tools use generic labels. Error reports and diagnostics include plugin names
+and versions only when the exact shipped package identity is verified.
 Usage is aggregated in memory and sent about every 15 minutes, with a bounded
 attempt during shutdown.
 

@@ -5,7 +5,8 @@ use chrono::Utc;
 use reqwest::Client;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
-    ErrorCode, Fault, FaultDetails, ModelFailure, NodeId, RequestId, Secret, SessionId, TurnId,
+    Authentication, ErrorCode, Fault, FaultDetails, ModelFailure, NodeId, RequestId, Secret,
+    SessionId, TurnId,
     conversation::{ModelApi, Provider},
 };
 use serde_json::Value;
@@ -81,10 +82,12 @@ pub(super) async fn configured(
                 "search model is unavailable",
             ))
         })?;
-    if !matches!(
-        provider.api,
-        ModelApi::Responses | ModelApi::Anthropic | ModelApi::Gemini
-    ) {
+    if provider.authentication == Authentication::Copilot
+        || !matches!(
+            provider.api,
+            ModelApi::Responses | ModelApi::Anthropic | ModelApi::Gemini
+        )
+    {
         return Err(unsupported());
     }
     search(

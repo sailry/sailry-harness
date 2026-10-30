@@ -148,6 +148,7 @@ enum Source {
         version: String,
         name: String,
     },
+    ThirdParty,
     Mcp,
 }
 
@@ -196,23 +197,36 @@ impl Tool {
         package: &sailry_protocol::plugin::Info,
         declaration: &sailry_protocol::tool::Declaration,
     ) -> Option<Self> {
-        let version = package.summary.version.as_deref()?;
-        if package.summary.name.len() > 128 || version.len() > 64 || declaration.name.len() > 128 {
-            return None;
-        }
-        package
+        if !package
             .extension
             .as_ref()?
             .tools
             .iter()
             .any(|tool| tool.name == declaration.name)
-            .then(|| {
-                Self(Source::Package {
-                    package: package.summary.name.clone(),
-                    version: version.into(),
-                    name: declaration.name.clone(),
-                })
-            })
+        {
+            return None;
+        }
+        // Immutable turn packages omit installation provenance.
+        let public = crate::plugins::catalog::official::owns(package)
+            || package.summary.version.as_deref().is_some_and(|version| {
+                crate::plugins::Host::bundled_identity(
+                    &package.summary.name,
+                    version,
+                    &package.summary.digest,
+                )
+            });
+        if !public {
+            return Some(Self(Source::ThirdParty));
+        }
+        let version = package.summary.version.as_deref()?;
+        if package.summary.name.len() > 128 || version.len() > 64 || declaration.name.len() > 128 {
+            return None;
+        }
+        Some(Self(Source::Package {
+            package: package.summary.name.clone(),
+            version: version.into(),
+            name: declaration.name.clone(),
+        }))
     }
 }
 

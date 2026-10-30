@@ -33,7 +33,6 @@ pub(super) trait Sink: Send + Sync {
 enum Disclosure {
     Local,
     Public,
-    Package,
     Version,
 }
 const FIELDS: &[(&str, Disclosure)] = &[
@@ -43,7 +42,7 @@ const FIELDS: &[(&str, Disclosure)] = &[
     ("caller", Disclosure::Local),
     ("request", Disclosure::Local),
     ("incident", Disclosure::Local),
-    ("plugin_version", Disclosure::Version),
+    ("plugin_version", Disclosure::Local),
     ("app_version", Disclosure::Version),
     ("platform", Disclosure::Local),
     ("exception", Disclosure::Local),
@@ -53,7 +52,7 @@ const FIELDS: &[(&str, Disclosure)] = &[
     ("provider", Disclosure::Local),
     ("provider_name", Disclosure::Local),
     ("model", Disclosure::Local),
-    ("package", Disclosure::Package),
+    ("package", Disclosure::Local),
     ("digest", Disclosure::Local),
     ("settings_revision", Disclosure::Local),
     ("handler", Disclosure::Local),
@@ -107,7 +106,7 @@ const FIELDS: &[(&str, Disclosure)] = &[
 ];
 
 pub(super) fn remote(fields: &Map<String, Value>) -> Map<String, Value> {
-    FIELDS
+    let mut safe: Map<String, Value> = FIELDS
         .iter()
         .filter(|(_, disclosure)| !matches!(disclosure, Disclosure::Local))
         .filter_map(|(key, disclosure)| {
@@ -115,7 +114,6 @@ pub(super) fn remote(fields: &Map<String, Value>) -> Map<String, Value> {
             match value {
                 Value::String(value)
                     if match disclosure {
-                        Disclosure::Package => crate::plugins::validate_name(value).is_ok(),
                         Disclosure::Version => {
                             value.len() <= 64 && semver::Version::parse(value).is_ok()
                         }
@@ -136,7 +134,26 @@ pub(super) fn remote(fields: &Map<String, Value>) -> Map<String, Value> {
                 _ => None,
             }
         })
-        .collect()
+        .collect();
+    if let Some(name) = fields.get("package").and_then(Value::as_str)
+        && !name.is_empty()
+    {
+        let version = fields.get("plugin_version").and_then(Value::as_str);
+        let public = version.is_some_and(|version| {
+            fields
+                .get("digest")
+                .and_then(Value::as_str)
+                .is_some_and(|digest| crate::plugins::Host::bundled_identity(name, version, digest))
+        });
+        safe.insert(
+            "package".into(),
+            if public { name } else { "third_party" }.into(),
+        );
+        if public {
+            safe.insert("plugin_version".into(), version.unwrap().into());
+        }
+    }
+    safe
 }
 
 fn token(value: &str) -> bool {

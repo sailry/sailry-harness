@@ -7,6 +7,52 @@ use tracing_subscriber::prelude::*;
 mod server;
 
 #[tokio::test]
+async fn skips_disabled_event_conversion() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Counted<'a>(&'a AtomicUsize);
+    impl std::fmt::Debug for Counted<'_> {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            formatter.write_str("PRIVATE_VALUE")
+        }
+    }
+    let mut server = server::Server::new().await;
+    let control = Control::fixture(false, true);
+    let report = Report::create(control.clone(), Some(&server.dsn)).unwrap();
+    let hub = Arc::new(Hub::new(
+        Some(report.client.clone()),
+        Arc::new(Default::default()),
+    ));
+    let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(report.layer()));
+    let visits = AtomicUsize::new(0);
+    Hub::run(hub.clone(), || {
+        tracing::dispatcher::with_default(&dispatch, || {
+            let emit = || {
+                tracing::error!(target: "sailry", area = "node", phase = "failed", private = ?Counted(&visits));
+            };
+            emit();
+            assert_eq!(visits.load(Ordering::Relaxed), 0);
+            control.fixture_set(true, false);
+            emit();
+            assert_eq!(visits.load(Ordering::Relaxed), 0);
+            control.fixture_set(true, true);
+            emit();
+            assert_eq!(visits.load(Ordering::Relaxed), 1);
+        })
+    });
+    assert!(!server.next().await.to_string().contains("PRIVATE_"));
+    control.fixture_set(false, true);
+    Hub::run(hub, || {
+        tracing::dispatcher::with_default(&dispatch, || {
+            tracing::error!(target: "sailry", area = "node", phase = "failed", private = ?Counted(&visits));
+        })
+    });
+    assert_eq!(visits.load(Ordering::Relaxed), 1);
+    assert!(report.close(Duration::from_secs(1)));
+    assert!(server.empty());
+}
+
+#[tokio::test]
 async fn captures_existing_and_new_threads() {
     let mut server = server::Server::new().await;
     let main = Hub::main();
@@ -236,6 +282,9 @@ async fn retains_verified_plugin_metadata() {
     ));
     let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(report.layer()));
     let node = NodeId([2; 32]);
+    let version = crate::plugins::Host::bundled_version("web-search")
+        .unwrap()
+        .unwrap();
     let mut request = Request::new(
         node,
         Command::CallPlugin {
@@ -246,7 +295,7 @@ async fn retains_verified_plugin_metadata() {
     request.plugin = Some(plugin::Context {
         package: plugin::Reference {
             name: "web-search".into(),
-            digest: "PRIVATE_DIGEST".into(),
+            digest: crate::plugins::Host::bundled_digest("web-search").unwrap(),
             settings_revision: 4,
         },
         invocation: None,
@@ -260,7 +309,7 @@ async fn retains_verified_plugin_metadata() {
         SystemDiagnostic::new(RequestId::new(), SystemSource::PluginCallback, fault.code);
     diagnostic.plugin = Some(DiagnosticPlugin {
         name: "web-search".into(),
-        version: "0.1.9".into(),
+        version: version.clone(),
     });
     fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(diagnostic)));
     Hub::run(hub, || {
@@ -271,7 +320,7 @@ async fn retains_verified_plugin_metadata() {
     });
     let envelope = server.next().await;
     assert_eq!(envelope["event"]["extra"]["package"], "web-search");
-    assert_eq!(envelope["event"]["extra"]["plugin_version"], "0.1.9");
+    assert_eq!(envelope["event"]["extra"]["plugin_version"], version);
     assert_eq!(envelope["event"]["extra"]["code"], "invalid_request");
     assert!(!envelope.to_string().contains("PRIVATE_"));
     assert!(!envelope.to_string().contains(&node.to_string()));
@@ -282,14 +331,24 @@ async fn retains_verified_plugin_metadata() {
         }))
         .unwrap(),
     );
-    assert!(safe.is_empty());
+    assert_eq!(
+        safe,
+        json!({"package":"third_party"})
+            .as_object()
+            .unwrap()
+            .clone()
+    );
 }
 
 #[test]
 fn restricts_shared_business_fields() {
+    let version = crate::plugins::Host::bundled_version("web-search")
+        .unwrap()
+        .unwrap();
+    let digest = crate::plugins::Host::bundled_digest("web-search").unwrap();
     let fields = serde_json::from_value(json!({
         "area":"plugin", "phase":"failed", "operation":"callback", "code":"internal",
-        "cause_code":"cancelled", "package":"web-search", "plugin_version":"0.1.9",
+        "cause_code":"cancelled", "package":"web-search", "plugin_version":version,
         "app_version":"0.1.0", "duration_us":12, "elapsed_us":13, "count":2,
         "settings_revision":3, "revision":4, "generation":5, "sequence":6,
         "transport":"remote", "parse_field":"private_field", "parse_event":"private_event",
@@ -297,7 +356,7 @@ fn restricts_shared_business_fields() {
         "stage":"private_stage", "source_kind":"private_source", "platform":"private_platform",
         "wait_ms":9, "end_to_end_us":10, "rtt_ms":11, "first_token_us":14,
         "last_content_us":15, "provider_name":"private_provider", "model":"private_model",
-        "handler":"private_handler", "invocation":"private_invocation", "digest":"private_digest",
+        "handler":"private_handler", "invocation":"private_invocation", "digest":digest,
     }))
     .unwrap();
     let safe = super::super::format::remote(&fields);
@@ -318,6 +377,78 @@ fn restricts_shared_business_fields() {
             "count",
         ])
     );
+    assert_eq!(safe["package"], "web-search");
+    assert_eq!(safe["plugin_version"], version);
+}
+
+#[test]
+fn requires_exact_public_package_identity() {
+    let version = crate::plugins::Host::bundled_version("web-search")
+        .unwrap()
+        .unwrap();
+    let digest = crate::plugins::Host::bundled_digest("web-search").unwrap();
+    let fields = json!({
+        "package":"web-search", "plugin_version":version, "digest":digest,
+    });
+    assert_eq!(
+        super::super::format::remote(fields.as_object().unwrap()),
+        json!({"package":"web-search", "plugin_version":version})
+            .as_object()
+            .unwrap()
+            .clone()
+    );
+    for (key, value) in [
+        ("package", "private-project-tools"),
+        ("plugin_version", "0.1.0+PRIVATE_VERSION"),
+        ("digest", "PRIVATE_DIGEST"),
+    ] {
+        let mut fields = fields.clone();
+        fields[key] = value.into();
+        let safe = super::super::format::remote(fields.as_object().unwrap());
+        assert_eq!(safe["package"], "third_party");
+        assert!(!safe.contains_key("plugin_version"));
+        assert!(!safe.contains_key("digest"));
+        assert!(!serde_json::to_string(&safe).unwrap().contains(value));
+    }
+    let newer = super::super::format::remote(
+        json!({"package":"web-search", "plugin_version":"99.0.0", "digest":"unknown"})
+            .as_object()
+            .unwrap(),
+    );
+    assert_eq!(newer["package"], "third_party");
+    assert!(!newer.contains_key("plugin_version"));
+}
+
+#[tokio::test]
+async fn groups_private_plugin_failures() {
+    let mut server = server::Server::new().await;
+    let report = Report::create(Control::fixture(true, true), Some(&server.dsn)).unwrap();
+    let hub = Arc::new(Hub::new(
+        Some(report.client.clone()),
+        Arc::new(Default::default()),
+    ));
+    let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(report.layer()));
+    Hub::run(hub, || {
+        tracing::dispatcher::with_default(&dispatch, || {
+            for package in ["PRIVATE_PACKAGE", "web-search"] {
+                tracing::error!(target: "sailry", area = "plugin", phase = "failed", operation = "callback", code = "internal", package, plugin_version = "0.1.0+PRIVATE_VERSION", digest = "PRIVATE_DIGEST");
+            }
+        })
+    });
+    let first = server.next().await;
+    let second = server.next().await;
+    for envelope in [&first, &second] {
+        assert_eq!(envelope["event"]["extra"]["package"], "third_party");
+        assert!(envelope["event"]["extra"].get("plugin_version").is_none());
+        assert!(!envelope.to_string().contains("PRIVATE_"));
+        assert!(!envelope.to_string().contains("web-search"));
+    }
+    assert_eq!(
+        first["event"]["fingerprint"],
+        second["event"]["fingerprint"]
+    );
+    assert!(report.close(Duration::from_secs(1)));
+    assert!(server.empty());
 }
 
 #[tokio::test]
@@ -329,7 +460,7 @@ async fn diagnostics_bypasses_only_error_preference() {
     let path = directory.path().join("current.log");
     let mut lines = String::from("2026-10-30T00:00:00Z ERROR host reason=discarded\n");
     for count in 0..500 {
-        lines.push_str(&format!("2026-10-30T00:00:00Z ERROR host area=model phase=failed count={count} reason=\"PRIVATE_REASON\" request=PRIVATE_REQUEST provider_name=PRIVATE_PROVIDER body=PRIVATE_BODY\n"));
+        lines.push_str(&format!("2026-10-30T00:00:00Z ERROR host area=model phase=failed count={count} reason=\"PRIVATE_REASON\" request=PRIVATE_REQUEST provider_name=PRIVATE_PROVIDER body=PRIVATE_BODY package=PRIVATE_PACKAGE plugin_version=0.1.0+PRIVATE_VERSION digest=PRIVATE_DIGEST\n"));
     }
     std::fs::write(&path, lines).unwrap();
     report.diagnostics_from(Some(path)).await.unwrap();
@@ -338,6 +469,9 @@ async fn diagnostics_bypasses_only_error_preference() {
     let attachment = envelope["attachment"].as_str().unwrap();
     assert_eq!(attachment.lines().count(), 500);
     assert!(!attachment.contains("discarded"));
+    let first: Value = serde_json::from_str(attachment.lines().next().unwrap()).unwrap();
+    assert_eq!(first["package"], "third_party");
+    assert!(first.get("plugin_version").is_none());
     assert_eq!(
         serde_json::from_str::<Value>(attachment.lines().last().unwrap()).unwrap()["count"],
         499

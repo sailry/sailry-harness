@@ -117,8 +117,9 @@ if (!result.Err || result.Err.code !== "outcome_unknown") forgetRequest(id);
 Use `errorCode(error.message)` for model and configuration failures. It accounts for the native bridge's diagnostic prefix and returns a stable code for plugin localization.
 
 `listModels()` includes an optional `api` field on each configured provider model
-(`responses`, `anthropic`, `gemini`, or another model protocol). Packages can filter
-choices by protocol without receiving provider endpoints or credentials.
+(`responses`, `anthropic`, `gemini`, or another model protocol) and its
+`authentication` method. Packages can filter choices by protocol and login method
+without receiving provider endpoints or credentials.
 
 Pure host exports may be listed in `host.read_only`, a unique subset of
 `host.handlers`. Invoke them with `prepareRequest({kind: "read_plugin_callback",

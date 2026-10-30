@@ -111,3 +111,114 @@ async fn falls_back_from_bocha_to_volcengine() {
         controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn skips_query_limits_without_cooling_drivers() {
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let (controller, transport) = controller(&node, directory.path()).await;
+        let client = Client::new(if remote { transport } else { node.local() });
+        let http = Server::start().await;
+        let mut settings = read(&client).await;
+        let cases = [
+            (Driver::Volcengine, Selection::Auto, "新闻".repeat(51)),
+            (
+                Driver::Deepseek,
+                Selection::Driver(Driver::Deepseek),
+                "字".repeat(129),
+            ),
+            (
+                Driver::Brave,
+                Selection::Driver(Driver::Brave),
+                "a".repeat(601),
+            ),
+            (
+                Driver::Brave,
+                Selection::Driver(Driver::Brave),
+                std::iter::repeat_n("word", 76)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
+        ];
+        for (index, (driver, selection, query)) in cases.into_iter().enumerate() {
+            for (configured, value) in &mut settings.providers {
+                value.enabled = *configured == driver || *configured == Driver::Tavily;
+            }
+            for configured in [driver, Driver::Tavily] {
+                node.set_search_fixture(configured, &http.url(configured));
+            }
+            settings.driver = Some(selection);
+            settings.fallback = true;
+            settings = save(
+                &client,
+                settings,
+                [driver, Driver::Tavily]
+                    .into_iter()
+                    .map(|configured| {
+                        (
+                            configured,
+                            search::Credentials {
+                                key: SecretUpdate::Replace(Secret::new("query-limit-key".into())),
+                                ..Default::default()
+                            },
+                        )
+                    })
+                    .collect(),
+            )
+            .await;
+            let path = match driver {
+                Driver::Volcengine => "/volcengine",
+                Driver::Deepseek => "/deepseek",
+                Driver::Brave => "/brave",
+                _ => unreachable!(),
+            };
+            let previous = http.count(path);
+            let input = search::Request {
+                query,
+                ..Default::default()
+            };
+            let Output::SearchPage(page) = client
+                .execute(client.prepare(Command::SearchWeb(input.clone())))
+                .await
+                .unwrap()
+            else {
+                panic!("fallback search page expected")
+            };
+            assert_eq!(page.driver, Driver::Tavily);
+            assert_eq!(http.count(path), previous);
+            assert_eq!(http.count("/tavily"), index + 1);
+            assert_eq!(
+                http.requests.lock().unwrap().last().unwrap().1["query"],
+                input.query
+            );
+
+            settings.fallback = false;
+            settings = save(&client, settings, Default::default()).await;
+            let error = client
+                .execute(client.prepare(Command::SearchWeb(input)))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+            assert_eq!(http.count(path), previous);
+            assert_eq!(http.count("/tavily"), index + 1);
+
+            let Output::SearchPage(page) = client
+                .execute(client.prepare(Command::SearchWeb(search::Request {
+                    query: "今天新闻".into(),
+                    ..Default::default()
+                })))
+                .await
+                .unwrap()
+            else {
+                panic!("short search page expected")
+            };
+            assert_eq!(page.driver, driver);
+            assert_eq!(http.count(path), previous + 1);
+        }
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

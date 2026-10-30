@@ -15,6 +15,11 @@ pub(crate) mod transport;
 pub enum Reply {
     Status(u16, Option<String>),
     Json(Value),
+    #[allow(
+        dead_code,
+        reason = "Streaming replies are exercised by integration suites"
+    )]
+    Events(String),
 }
 
 pub struct Server {
@@ -98,6 +103,11 @@ impl Server {
                         .unwrap()
                         .get_mut(&path)
                         .and_then(VecDeque::pop_front);
+                    let content_type = if matches!(override_reply, Some(Reply::Events(_))) {
+                        "text/event-stream"
+                    } else {
+                        "application/json"
+                    };
                     let (status, retry, body) = match (release, override_reply) {
                         (Some(release), _) => {
                             held.cancel();
@@ -114,6 +124,7 @@ impl Server {
                             json!({"error":"private-response"}).to_string(),
                         ),
                         (None, Some(Reply::Json(body))) => (200, None, body.to_string()),
+                        (None, Some(Reply::Events(body))) => (200, None, body),
                         (None, None) if path == "/mcp" => {
                             let (status, body) = formatted::response(&method, &body, false);
                             (status, None, body)
@@ -126,7 +137,15 @@ impl Server {
                     };
                     let session =
                         (stage == Some("initialize") && status == 200).then_some("search-fixture");
-                    transport::respond(&mut stream, status, retry.as_deref(), &body, session).await;
+                    transport::respond(
+                        &mut stream,
+                        status,
+                        retry.as_deref(),
+                        &body,
+                        session,
+                        content_type,
+                    )
+                    .await;
                 });
             }
             connections.abort_all();

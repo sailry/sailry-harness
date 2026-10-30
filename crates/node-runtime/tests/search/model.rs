@@ -4,6 +4,67 @@ use sailry_protocol::{Fault, FaultDetails, ModelFailure};
 #[path = "../support/search/model.rs"]
 mod native;
 
+#[tokio::test]
+async fn rejects_copilot_before_authorization() {
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let (controller, transport) = controller(&node, directory.path()).await;
+        let client = Client::new(if remote { transport } else { node.local() });
+        let provider = serde_json::from_value(serde_json::json!({
+            "id":sailry_protocol::ProviderId::new(), "revision":0,
+            "name":"Unsupported search account", "api":"responses", "authentication":"copilot",
+            "endpoint":"https://api.githubcopilot.com", "enabled":true,
+            "default_model":native::MODEL, "credential":null,
+            "models":[{"id":native::MODEL,"context":8192,"output":512,"tools":true}]
+        }))
+        .unwrap();
+        let Output::Provider(provider) = client
+            .execute(client.prepare(Command::PutProvider {
+                provider,
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
+        native::select(&client, &provider, false).await;
+        for command in [
+            Command::SearchWeb(search::Request {
+                query: native::QUERY.into(),
+                ..Default::default()
+            }),
+            Command::TestSearchDriver {
+                driver: Driver::Model,
+            },
+        ] {
+            let error = client.execute(client.prepare(command)).await.unwrap_err();
+            assert_eq!(error.details, Some(FaultDetails::SearchUnsupported));
+        }
+        let Output::PluginModels(catalog) = client
+            .execute(client.prepare(Command::ListPluginModels))
+            .await
+            .unwrap()
+        else {
+            panic!("model catalog expected")
+        };
+        let choice = catalog
+            .models
+            .iter()
+            .find(|choice| choice.id == format!("{}/{}", provider.id, native::MODEL))
+            .unwrap();
+        assert_eq!(
+            choice.authentication,
+            sailry_protocol::Authentication::Copilot
+        );
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
 async fn page(client: &Client, query: &str) -> Result<search::Page, Fault> {
     match client
         .execute(client.prepare(Command::SearchWeb(search::Request {
@@ -34,7 +95,7 @@ async fn returns_citations_and_checks_the_service() {
         http.respond(
             "/v1/responses",
             vec![
-                native::response(&url),
+                native::streamed(&url),
                 native::response(&url),
                 native::response(&url),
             ],

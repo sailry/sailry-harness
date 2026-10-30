@@ -164,18 +164,22 @@ async fn retains_direct_content_when_rendering_fails() {
         node.set_web_fixture(origin::HOST, source.address);
         node.set_search_fixture(Driver::Tinyfish, &format!("{}/render", renderer.endpoint));
         configure(&client, true).await;
-        let url = format!("{}/html", source.origin);
-        renderer.respond("/render", vec![
-            Reply::Json(serde_json::json!({"results":[],"errors":[{"url":url,"error":"timeout","message":"render-fixture-key"}]})),
-            rendered(&url, &url),
-        ]);
-        let direct = page(&client, &url, 0).await;
-        assert_eq!(direct.status, 200);
-        assert!(!direct.content.contains("render-fixture-key"));
-        let cached = page(&client, &url, 0).await;
-        assert_eq!(cached.content, direct.content);
-        assert_eq!(source.requests.lock().unwrap().len(), 1);
-        assert_eq!(renderer.requests.lock().unwrap().len(), 1);
+        for (index, status) in [None, Some(401), Some(403)].into_iter().enumerate() {
+            let url = format!("{}/html?failure={index}", source.origin);
+            let failure = status.map_or_else(
+                || Reply::Json(serde_json::json!({"results":[],"errors":[{"url":url,"error":"timeout","message":"render-fixture-key"}]})),
+                |status| Reply::Status(status, None),
+            );
+            renderer.respond("/render", vec![failure, rendered(&url, &url)]);
+            let direct = page(&client, &url, 0).await;
+            assert_eq!(direct.status, 200);
+            assert_eq!(direct.content, origin::TEXT);
+            assert!(!direct.content.contains("render-fixture-key"));
+            let cached = page(&client, &url, 0).await;
+            assert_eq!(cached.content, direct.content);
+            assert_eq!(source.requests.lock().unwrap().len(), index + 1);
+            assert_eq!(renderer.requests.lock().unwrap().len(), index + 1);
+        }
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

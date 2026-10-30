@@ -529,6 +529,13 @@ impl Failure {
             retry_at: None,
         }
     }
+    fn service_limit() -> Self {
+        Self {
+            fault: Fault::invalid("search query exceeds the service limit"),
+            temporary: true,
+            retry_at: None,
+        }
+    }
     fn unauthorized() -> Self {
         Self {
             fault: Fault::new(

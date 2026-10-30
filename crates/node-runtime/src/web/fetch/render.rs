@@ -44,7 +44,15 @@ impl Renderer {
                 "urls":[direct.url], "format":"markdown", "ttl":0,
                 "per_url_timeout_ms":remaining.as_millis().clamp(1,110_000) as u64,
             }));
-        let response = search::json_request(request, web::MAX_BODY_BYTES).await?;
+        let response = search::json_request(request, web::MAX_BODY_BYTES)
+            .await
+            .map_err(|error| {
+                if error.code == ErrorCode::PermissionDenied {
+                    unavailable("web rendering authentication failed")
+                } else {
+                    error
+                }
+            })?;
         let rendered = parse(&response, direct)?;
         network::validate(owner, &policy::url(&rendered.url)?).await?;
         Ok(rendered)

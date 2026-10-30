@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import tarfile
@@ -210,7 +211,12 @@ class Workflow(unittest.TestCase):
         formal = (ROOT / ".github/workflows/release-desktop-formal.yml").read_text()
         signing = formal.split("\n  sign:\n")[1].split("\n  publish:\n")[0]
         self.assertIn(build.COMMAND, native)
-        self.assertNotIn("secrets.", native)
+        compile_step = native.split("      - name: Build native Desktop\n", 1)[1].split("\n      - name:", 1)[0]
+        self.assertEqual(set(re.findall(r"secrets\.([A-Za-z_][A-Za-z_0-9]*)", compile_step)),
+                         {"SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY"})
+        before_preservation = native.split("      - name: Preserve native Desktop\n", 1)[0]
+        self.assertNotIn("secrets.", before_preservation.replace(compile_step, ""))
+        self.assertLess(native.index("name: Preserve native Desktop"), native.index("name: Upload Desktop debug symbols"))
         self.assertLess(native.index("name: Build native Desktop"), native.index("name: Preserve native Desktop"))
         self.assertIn("retention-days: 14", native)
         self.assertIn("needs: [version, build]", initial)

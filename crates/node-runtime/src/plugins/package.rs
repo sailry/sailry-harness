@@ -63,7 +63,6 @@ pub(super) fn write_embedded(target: &Dir, files: &[(&str, &[u8])]) -> Result<Tr
     Ok(tree)
 }
 
-#[cfg(test)]
 pub(super) fn digest(files: &[(&str, &[u8])]) -> String {
     let mut entries = std::collections::BTreeMap::new();
     for &(path, bytes) in files {

@@ -85,7 +85,7 @@ async fn bills_requests_once_in_the_calling_turn() {
             .node
             .set_web_fixture(native::origin::HOST, source.address);
         let url = format!("{}/html", source.origin);
-        http.respond("/v1/responses", vec![native::response(&url)]);
+        http.respond("/v1/responses", vec![native::streamed(&url)]);
         let provider = native::provider(&fixture.client, &format!("{}/v1", http.endpoint)).await;
         assert_ne!(provider.id, fixture.provider.id);
         native::select(&fixture.client, &provider, true).await;

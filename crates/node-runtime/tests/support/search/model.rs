@@ -102,6 +102,31 @@ pub fn response(url: &str) -> http::Reply {
     }))
 }
 
+pub fn streamed(url: &str) -> http::Reply {
+    let http::Reply::Json(mut value) = response(url) else {
+        unreachable!()
+    };
+    let items = value["output"].take();
+    value["output"] = json!([]);
+    let mut body = items
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            format!(
+                "data: {}\n\n",
+                json!({"type":"response.output_item.done","output_index":index,"item":item})
+            )
+        })
+        .collect::<String>();
+    body.push_str(&format!(
+        "data: {}\n\n",
+        json!({"type":"response.completed","response":value})
+    ));
+    http::Reply::Events(body)
+}
+
 pub fn request(header: &str, body: &Value, query: &str) {
     assert!(header.starts_with("POST /v1/responses "));
     let header = header.to_ascii_lowercase();

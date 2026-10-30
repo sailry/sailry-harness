@@ -15,6 +15,7 @@ pub struct Model {
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api: Option<crate::conversation::ModelApi>,
+    pub authentication: crate::Authentication,
     /// The provider's configured default model.
     pub default: bool,
     pub reasoning: bool,

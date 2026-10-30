@@ -397,20 +397,97 @@ fn excludes_dynamic_builtin_names() {
 
 #[test]
 fn uses_captured_package_tool_identifiers() {
-    let package:sailry_protocol::plugin::Info=serde_json::from_value(json!({
+    let mut package:sailry_protocol::plugin::Info=serde_json::from_value(json!({
         "summary":{"name":"fixture-tools","revision":1,"digest":"synthetic","settings_revision":0,"enabled":true,"version":"0.1.0","description":"PRIVATE_DESCRIPTION"},
         "extension":{"api_version":"v1","instructions":"PRIVATE_INSTRUCTIONS","tools":[{"name":"lookup","operation":"web.search","description":"PRIVATE_TOOL_DESCRIPTION"}]}
     })).unwrap();
     let alias = crate::plugins::tools::alias("fixture-tools", "lookup");
-    let identity = Tool::capture(&alias, std::slice::from_ref(&package)).unwrap();
-    assert_eq!(
-        serde_json::to_value(identity).unwrap(),
-        json!({"source":"package","package":"fixture-tools","version":"0.1.0","name":"lookup"})
-    );
+    for origin in [
+        sailry_protocol::plugin::Origin::Bundled,
+        serde_json::from_value(json!({
+            "kind":"online", "path":"fixture-tools",
+            "source":{"repository":"https://github.com/sailry/sailry-plugins.git", "git_ref":"main", "commit":"0".repeat(40)}
+        })).unwrap(),
+    ] {
+        package.origin = Some(origin);
+        let identity = Tool::capture(&alias, std::slice::from_ref(&package)).unwrap();
+        assert_eq!(
+            serde_json::to_value(identity).unwrap(),
+            json!({"source":"package","package":"fixture-tools","version":"0.1.0","name":"lookup"})
+        );
+    }
     assert!(Tool::capture("PRIVATE_UNREGISTERED_TOOL", &[package]).is_none());
     assert_eq!(
         serde_json::to_value(Tool::capture("mcp_PRIVATE_SERVER_PRIVATE_TOOL", &[]).unwrap())
             .unwrap(),
         json!({"source":"mcp"})
     );
+}
+
+#[test]
+fn recognizes_frozen_bundled_tools() {
+    let package = crate::plugins::Host::new(None)
+        .inspect_bundled("files", sailry_link::CancellationToken::new())
+        .unwrap();
+    assert!(package.origin.is_none());
+    let alias = crate::plugins::tools::alias("files", "read_file");
+    assert_eq!(
+        serde_json::to_value(Tool::capture(&alias, std::slice::from_ref(&package)).unwrap())
+            .unwrap(),
+        json!({"source":"package", "package":"files", "version":package.summary.version, "name":"read_file"})
+    );
+    let mut changed = package;
+    changed.summary.digest = "PRIVATE_DIGEST".into();
+    assert_eq!(
+        serde_json::to_value(Tool::capture(&alias, &[changed]).unwrap()).unwrap(),
+        json!({"source":"third_party"})
+    );
+}
+
+#[test]
+fn groups_private_package_tools() {
+    let mut window = window();
+    for origin in [
+        Value::Null,
+        json!({"kind":"directory"}),
+        json!({"kind":"archive"}),
+        json!({
+            "kind":"online", "path":"web-search",
+            "source":{"repository":"https://github.com/private/plugins.git", "git_ref":"main", "commit":"0".repeat(40)}
+        }),
+        json!({
+            "kind":"online", "path":"web-search",
+            "source":{"repository":"https://github.com/sailry/sailry-plugins.git", "git_ref":"private", "commit":"0".repeat(40)}
+        }),
+    ] {
+        // Even an official package name is private without public provenance.
+        let package: sailry_protocol::plugin::Info = serde_json::from_value(json!({
+            "origin":origin,
+            "summary":{"name":"web-search", "revision":1, "digest":"PRIVATE_DIGEST", "settings_revision":0, "enabled":true, "version":"0.1.0+PRIVATE_VERSION"},
+            "extension":{"api_version":"v1", "tools":[{"name":"private_lookup", "operation":"web.search", "description":"PRIVATE_DESCRIPTION"}]}
+        })).unwrap();
+        let alias = crate::plugins::tools::alias("web-search", "private_lookup");
+        window.add(Observation::Tool {
+            tool: Tool::capture(&alias, &[package]).unwrap(),
+            result: ToolResult::Success,
+            error: None,
+            elapsed: Duration::ZERO,
+        });
+    }
+    let batches = serde_json::to_value(window.finish(Utc::now())).unwrap();
+    assert_eq!(batches[0]["data"].as_array().unwrap().len(), 1);
+    assert_eq!(batches[0]["data"][0]["count"], 5);
+    assert_eq!(
+        batches[0]["data"][0]["tool"],
+        json!({"source":"third_party"})
+    );
+    let encoded = batches.to_string();
+    for private in [
+        "PRIVATE_",
+        "web-search",
+        "private_lookup",
+        "private/plugins",
+    ] {
+        assert!(!encoded.contains(private));
+    }
 }

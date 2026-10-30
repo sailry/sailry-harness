@@ -97,6 +97,7 @@ impl Report {
     {
         Events {
             client: self.client.clone(),
+            control: self.control.clone(),
         }
         .with_filter(filter_fn(|metadata| {
             metadata.target() == "sailry" && matches!(*metadata.level(), Level::ERROR | Level::WARN)
@@ -140,6 +141,7 @@ impl Report {
 
 struct Events {
     client: Arc<Client>,
+    control: Arc<Control>,
 }
 
 impl<S> Layer<S> for Events
@@ -147,7 +149,7 @@ where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
     fn on_event(&self, event: &tracing::Event<'_>, context: Context<'_, S>) {
-        if event.metadata().target() != "sailry" {
+        if !self.control.errors() || event.metadata().target() != "sailry" {
             return;
         }
         let level = *event.metadata().level();

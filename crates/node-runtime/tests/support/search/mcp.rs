@@ -40,7 +40,8 @@ impl Server {
                         .lock()
                         .unwrap()
                         .push((request.header, request.body));
-                    transport::respond(&mut stream, status, None, &body, None).await;
+                    transport::respond(&mut stream, status, None, &body, None, "application/json")
+                        .await;
                 });
             }
             connections.abort_all();

@@ -17,10 +17,55 @@ async fn parses_fragmented_completed_events() {
 }
 
 #[tokio::test]
+async fn collects_items_for_empty_completion() {
+    let first = json!({"type":"web_search_call","status":"completed"});
+    let second = json!({"type":"message","content":[{"type":"output_text","text":"Cited answer"}]});
+    for mut response in [
+        json!({"status":"completed","output":[]}),
+        json!({"status":"completed"}),
+        json!({"status":"completed","output":null}),
+    ] {
+        response["usage"] = json!({"input_tokens":31,"output_tokens":9});
+        let content = [
+            json!({"type":"response.output_item.done","output_index":1,"item":second}),
+            json!({"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning"}}),
+            json!({"type":"response.output_item.done","output_index":0,"item":first}),
+            json!({"type":"response.completed","response":response}),
+        ]
+        .into_iter()
+        .map(|value| format!("data: {value}\n\n"))
+        .collect::<String>();
+        response["output"] = json!([first, second]);
+        let chunks = content
+            .as_bytes()
+            .chunks(3)
+            .map(|chunk| Ok::<_, ()>(chunk.to_vec()));
+        assert_eq!(events(stream::iter(chunks)).await.unwrap(), response);
+    }
+}
+
+#[tokio::test]
+async fn prefers_authoritative_completed_output() {
+    let response = json!({"status":"completed","output":[{"type":"message","content":[]}]});
+    let content = format!(
+        "data: {}\n\ndata: {}\n\n",
+        json!({"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning"}}),
+        json!({"type":"response.completed","response":response}),
+    );
+    assert_eq!(
+        events(stream::iter([Ok::<_, ()>(content.as_bytes())]))
+            .await
+            .unwrap(),
+        response
+    );
+}
+
+#[tokio::test]
 async fn rejects_incomplete_or_failed_streams() {
     for content in [
         "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",
         "data: [DONE]\n\n",
+        "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"web_search_call\",\"status\":\"completed\"}}\n\ndata: [DONE]\n\n",
         "data: {\"type\":\"response.incomplete\",\"response\":{}}\n\n",
         "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"private-access\"}}}\n\n",
         "data: {\"type\":\"error\",\"message\":\"private-access\"}\n\n",

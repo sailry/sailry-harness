@@ -16,6 +16,7 @@ pub(super) async fn catalog(db: &Connection) -> Result<Catalog, Fault> {
                 provider: provider.name.clone(),
                 model: model.id.clone(),
                 api: Some(provider.api),
+                authentication: provider.authentication,
                 default: provider.default_model == model.id,
                 reasoning: model.reasoning,
                 efforts: if model.reasoning {

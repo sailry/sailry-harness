@@ -7,7 +7,7 @@ pub(super) async fn search(
     input: &search::Request,
 ) -> Result<Vec<search::Result>, Failure> {
     if input.query.chars().count() > 100 {
-        return Err(Failure::invalid("search query exceeds the service limit"));
+        return Err(Failure::service_limit());
     }
     let response = network::json(
         network::client()?

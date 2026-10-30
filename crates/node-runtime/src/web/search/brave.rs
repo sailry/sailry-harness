@@ -31,7 +31,7 @@ pub(super) async fn search(
 fn query(input: &search::Request) -> Result<String, Failure> {
     let fits = |query: &str| query.chars().count() <= 600 && query.split_whitespace().count() <= 75;
     if !fits(&input.query) {
-        return Err(Failure::invalid("search query exceeds the service limit"));
+        return Err(Failure::service_limit());
     }
     let filtered = filters::query(input);
     Ok(if fits(&filtered) {

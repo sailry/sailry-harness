@@ -68,8 +68,13 @@ impl Server {
 }
 
 fn response(status: u16, content_type: &str, body: &str) -> String {
+    let content_type = if content_type.is_empty() {
+        String::new()
+    } else {
+        format!("Content-Type: {content_type}\r\n")
+    };
     format!(
-        "HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status} Fixture\r\n{content_type}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )
 }

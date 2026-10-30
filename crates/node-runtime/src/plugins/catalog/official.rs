@@ -8,7 +8,7 @@ use history::{hydrate, package};
 pub(super) const REPOSITORY: &str = "https://github.com/sailry/sailry-plugins";
 const INDEX: &str = "https://raw.githubusercontent.com/sailry/sailry-plugins/main/catalog.json";
 
-pub(in crate::plugins) fn owns(info: &Info) -> bool {
+pub(crate) fn owns(info: &Info) -> bool {
     match &info.origin {
         Some(sailry_protocol::plugin::Origin::Bundled) => true,
         Some(sailry_protocol::plugin::Origin::Online { source, path }) => {

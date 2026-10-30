@@ -3,11 +3,12 @@ use super::*;
 use eventsource_stream::Eventsource;
 use futures::{Stream, StreamExt};
 use reqwest::{Response, StatusCode, header::CONTENT_TYPE};
-use std::time::SystemTime;
+use std::{collections::BTreeMap, time::SystemTime};
 
 pub(super) async fn read(response: Response, api: ModelApi) -> Result<Value, Failure> {
     let status = response.status();
     let retry = super::super::cooldown::retry(response.headers(), SystemTime::now());
+    let untyped = response.headers().get(CONTENT_TYPE).is_none();
     let streaming = response
         .headers()
         .get(CONTENT_TYPE)
@@ -34,6 +35,22 @@ pub(super) async fn read(response: Response, api: ModelApi) -> Result<Value, Fai
             return Err(invalid("model search response is too large"));
         }
         bytes.extend_from_slice(&chunk);
+        // Some Codex responses omit Content-Type while still sending SSE.
+        if status.is_success()
+            && api == ModelApi::Responses
+            && untyped
+            && bytes
+                .iter()
+                .copied()
+                .find(|byte| !byte.is_ascii_whitespace())
+                .is_some_and(|byte| matches!(byte, b'd' | b'e' | b':'))
+        {
+            let prefix =
+                futures::stream::once(
+                    async move { Ok::<_, reqwest::Error>(bytes::Bytes::from(bytes)) },
+                );
+            return events(prefix.chain(response.bytes_stream())).await;
+        }
     }
     let value = serde_json::from_slice::<Value>(&bytes);
     if !status.is_success() {
@@ -61,6 +78,7 @@ where
     });
     let stream = chunks.eventsource();
     futures::pin_mut!(stream);
+    let mut output = BTreeMap::new();
     while let Some(event) = stream.next().await {
         let event = event.map_err(|_| interrupted())?;
         if event.data == "[DONE]" {
@@ -73,11 +91,32 @@ where
             .and_then(Value::as_str)
             .unwrap_or(&event.event)
         {
+            "response.output_item.done" => {
+                let index = value
+                    .get("output_index")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| invalid("model search output index is missing"))?;
+                let item = value
+                    .get("item")
+                    .filter(|item| item.is_object())
+                    .ok_or_else(|| invalid("model search output item is missing"))?;
+                output.insert(index, item.clone());
+            }
             "response.completed" => {
-                return value
+                let mut response = value
                     .get("response")
+                    .filter(|response| response.is_object())
                     .cloned()
-                    .ok_or_else(|| invalid("model search stream has no completed response"));
+                    .ok_or_else(|| invalid("model search stream has no completed response"))?;
+                // Codex may leave completed.output empty after publishing individual items.
+                if !output.is_empty()
+                    && response.get("output").is_none_or(|items| {
+                        items.is_null() || items.as_array().is_some_and(Vec::is_empty)
+                    })
+                {
+                    response["output"] = Value::Array(output.into_values().collect());
+                }
+                return Ok(response);
             }
             "response.failed" => {
                 return Err(upstream(

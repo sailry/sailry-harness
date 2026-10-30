@@ -355,6 +355,69 @@ async fn aggregates_five_tables_and_honors_consent() {
 }
 
 #[tokio::test]
+async fn anonymizes_private_plugin_tools() {
+    const PACKAGE: &str = "private-project-tools";
+    const TOOL: &str = "private_lookup";
+    const VERSION: &str = "0.1.0+private-version";
+    for remote in [false, true] {
+        let server = Server::scripted_tools(vec![(plugin_tool(PACKAGE, TOOL), json!({}))]).await;
+        let fixture = Fixture::new(remote, &server).await;
+        let root = fixture.root.join("package");
+        std::fs::create_dir_all(root.join("dev.sailry.platform/host")).unwrap();
+        std::fs::write(
+            root.join("dev.sailry.platform/host/main.js"),
+            "export function lookup() { return {ok: true}; }",
+        )
+        .unwrap();
+        std::fs::write(root.join("plugin.json"), json!({
+            "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+            "name":PACKAGE, "version":VERSION,
+            "extensions":{"dev.sailry.platform":{
+                "api_version":"v1", "actions":[],
+                "host":{"entry":"dev.sailry.platform/host/main.js", "resources":["dev.sailry.platform/host/main.js"], "handlers":["lookup"]},
+                "tools":[{"name":TOOL, "description":"Inspect private state", "handler":{
+                    "name":"lookup", "parameters":{"type":"object", "properties":{}, "required":[], "additionalProperties":false}
+                }}]
+            }}
+        }).to_string()).unwrap();
+        let Output::Plugin(package) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::InstallPlugin {
+                worktree: fixture.session.worktree,
+                path: "package".into(),
+                name: PACKAGE.into(),
+                expected_revision: 0,
+                expected_digest: None,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("plugin expected")
+        };
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
+        let page = fixture.complete().await;
+        assert!(
+            tool_details(&fixture.client, &page)
+                .await
+                .iter()
+                .any(|(name, detail)| {
+                    name == &plugin_tool(PACKAGE, TOOL)
+                        && detail
+                            .result
+                            .as_ref()
+                            .is_some_and(|result| result["ok"] == true)
+                })
+        );
+        let payloads = fixture.collector.payloads();
+        assert!(rows(&payloads, "tool_calls").iter().any(|row| {
+            row["result"] == "success" && row["tool"] == json!({"source":"third_party"})
+        }));
+        fixture.private(&payloads, &[&server.endpoint, PACKAGE, TOOL, VERSION]);
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn classifies_failed_denied_and_cancelled_exits() {
     for remote in [false, true] {
         let server = Server::scripted_tools(vec![]).await;

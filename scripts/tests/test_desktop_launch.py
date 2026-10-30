@@ -63,7 +63,7 @@ class NativeAssets(unittest.TestCase):
         self.target = self.root / "build output"
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        for name in ("run-desktop.sh", "python.sh", "package/onnx-runtime.py",
+        for name in ("run-desktop.sh", "python.sh", "telemetry-env.py", "package/onnx-runtime.py",
                      "package/python-runtime.py", "package/python.entitlements.plist", "package/llama-runtime.py"):
             destination = self.project / "scripts" / name
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -187,6 +187,11 @@ printf '%s' 'signature fixture' >> "$task_target"
                                 env=environment, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 73, result.stderr)
         calls = self.arguments(self.calls)
+        telemetry = [arguments for arguments in calls
+                     if arguments[0] == str(self.project / "scripts/telemetry-env.py")]
+        self.assertEqual(telemetry, [[str(self.project / "scripts/telemetry-env.py"),
+                                      "cargo", "build", "--locked", "-p", "sailry-desktop"]])
+        calls = [arguments for arguments in calls if arguments not in telemetry]
         native = self.target / "onnx-native/aarch64-apple-darwin"
         debug = self.target / "debug"
         app = debug / "Sailry.app"
@@ -198,7 +203,7 @@ printf '%s' 'signature fixture' >> "$task_target"
                   ("python-runtime.py", app / "Contents/MacOS"), ("onnx-runtime.py", app / "Contents/MacOS"),
                   ("onnx-runtime.py", app / "Contents/MacOS"), ("llama-runtime.py", app / "Contents/MacOS"),
                   ("ocu-helper.py", app / "Contents/Helpers")]
-        self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * len(stages))
+        self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * (len(stages) + 1))
         self.assertEqual(len(calls), len(stages))
         for arguments, (script, output) in zip(calls, stages):
             self.assertEqual(arguments[0], str(self.project / "scripts/package" / script))
@@ -292,7 +297,10 @@ printf '%s' 'signature fixture' >> "$task_target"
         result = subprocess.run(["/bin/bash", str(self.project / "scripts/run-desktop.sh")],
                                 env=environment, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
-        helper = self.arguments(self.calls)[-1]
+        calls = self.arguments(self.calls)
+        self.assertEqual(calls[-1], [str(self.project / "scripts/telemetry-env.py"),
+                                     "cargo", "run", "--locked", "-p", "sailry-desktop", "--"])
+        helper = calls[-2]
         self.assertEqual(helper[0], str(self.project / "scripts/package/ocu-helper.py"))
         self.assertEqual(helper[helper.index("--target") + 1], target)
         self.assertEqual(helper[helper.index("--output") + 1], str(self.target / "debug/helpers"))

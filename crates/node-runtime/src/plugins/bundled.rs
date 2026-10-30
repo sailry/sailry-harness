@@ -125,6 +125,30 @@ pub(in crate::plugins) fn document(
 }
 
 impl Host {
+    /// Logs and immutable turn packages have no installation provenance. Only an
+    /// exact shipped identity can retain its name and version without provenance;
+    /// newer official packages are conservatively grouped with third-party packages.
+    pub(crate) fn bundled_identity(name: &str, version: &str, digest: &str) -> bool {
+        static IDENTITIES: std::sync::OnceLock<
+            std::collections::HashMap<&'static str, (String, String)>,
+        > = std::sync::OnceLock::new();
+        let identities = IDENTITIES.get_or_init(|| {
+            PACKAGES
+                .iter()
+                .filter_map(|(name, files)| {
+                    let (_, bytes) = files.iter().find(|(path, _)| *path == "plugin.json")?;
+                    let manifest = manifest::parse(bytes).ok()?;
+                    Some((*name, (manifest.version?, package::digest(files))))
+                })
+                .collect()
+        });
+        identities
+            .get(name)
+            .is_some_and(|(known_version, known_digest)| {
+                known_version == version && known_digest == digest
+            })
+    }
+
     pub(crate) fn bundled_version(name: &str) -> Result<Option<String>, Fault> {
         let (_, files) = PACKAGES
             .iter()

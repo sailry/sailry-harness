@@ -38,6 +38,12 @@ if [[ "$task_target" == *linux-gnu ]]; then
   export "AR_$task_environment=$task_ar"
   export "PKG_CONFIG_SYSROOT_DIR_$task_environment=$task_sysroot"
   export "PKG_CONFIG_LIBDIR_$task_environment=$task_sysroot/usr/lib/$task_triplet/pkgconfig:$task_sysroot/usr/share/pkgconfig"
+  # Zig does not emit the ELF identity needed to match separate Sentry symbols by default.
+  if test -n "${CARGO_ENCODED_RUSTFLAGS+x}"; then
+    export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS}${CARGO_ENCODED_RUSTFLAGS:+$'\x1f'}-C"$'\x1f'"link-arg=-Wl,--build-id"
+  else
+    export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-Wl,--build-id"
+  fi
   bash "$task_root/scripts/python.sh" "$task_root/scripts/telemetry-env.py" "$task_zigbuild" zigbuild --locked -p sailry-host --profile "$task_cargo_profile" \
     --target "$task_target.2.34" --target-dir "$task_build"
   task_binary="$task_build/$task_target/$task_profile/sailry-host"

@@ -172,15 +172,6 @@ jobs:
           path: target/debug-symbols/desktop/${{ matrix.target }}
           if-no-files-found: error
           retention-days: 14
-      - name: Upload Desktop debug symbols
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
-        run: |
-          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
-            --symbols "target/debug-symbols/desktop/$PACKAGE_TARGET"
       - name: Stage native Desktop
         env:
           WORKFLOW_REVISION: ${{ github.workflow_sha }}
@@ -196,6 +187,15 @@ jobs:
           path: ${{ runner.temp }}/native-${{ matrix.target }}.tar.gz
           if-no-files-found: error
           retention-days: 14
+      - name: Upload Desktop debug symbols
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
+            --symbols "target/debug-symbols/desktop/$PACKAGE_TARGET"
       - name: Save native libraries
         if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
         continue-on-error: true

@@ -4,6 +4,7 @@ use sailry_protocol::Authentication;
 use serde_json::json;
 
 mod continuation;
+mod live;
 mod parameters;
 mod transport;
 
