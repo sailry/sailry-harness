@@ -109,9 +109,11 @@ impl View {
                 div()
                     .w_full()
                     .child(content)
-                    .on_prepaint(move |bounds, window, cx| {
-                        if ready {
-                            heights.borrow_mut().insert(reference, bounds.size.height);
+                    .on_children_prepainted(move |bounds, window, cx| {
+                        if ready && let Some(bounds) = bounds.first() {
+                            heights
+                                .borrow_mut()
+                                .insert(reference.clone(), bounds.size.height);
                         }
                         observe(bounds, window, cx);
                     })

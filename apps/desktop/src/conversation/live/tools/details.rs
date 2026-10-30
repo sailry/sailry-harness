@@ -32,17 +32,22 @@ impl View {
         self.prune_tool_texts();
     }
 
+    // Child-bounds listeners keep scroll-layer reuse from skipping selection updates.
     pub(in crate::conversation::live) fn detail_bounds(
         &self,
         references: impl IntoIterator<Item = Reference>,
         published: bool,
-    ) -> impl FnOnce(Bounds<Pixels>, &mut Window, &mut App) + 'static {
+    ) -> impl Fn(Vec<Bounds<Pixels>>, &mut Window, &mut App) + 'static {
         let references = references.into_iter().collect::<Vec<_>>();
         let rows = self.detail_rows.clone();
         move |bounds, _, _| {
+            let Some(bounds) = bounds.into_iter().reduce(|row, child| row.union(&child)) else {
+                return;
+            };
             rows.borrow_mut().extend(
                 references
-                    .into_iter()
+                    .iter()
+                    .cloned()
                     .map(|reference| (reference, bounds, published)),
             );
         }

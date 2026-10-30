@@ -179,7 +179,9 @@ impl View {
             )
             .content(
                 disclosure::body(content, cx)
-                    .on_prepaint(self.detail_bounds(visible, false))
+                    .when(!visible.is_empty(), |body| {
+                        body.on_children_prepainted(self.detail_bounds(visible, false))
+                    })
                     .py_2()
                     .debug_selector(move || content_id.clone()),
             )
@@ -239,7 +241,9 @@ impl View {
                                 .when(open, |body| {
                                     body.child(self.tool(call, page, continuing, cx))
                                 })
-                                .on_prepaint(self.detail_bounds(visible, false)),
+                                .when(!visible.is_empty(), |body| {
+                                    body.on_children_prepainted(self.detail_bounds(visible, false))
+                                }),
                             cx,
                         )
                         .pt_1()
