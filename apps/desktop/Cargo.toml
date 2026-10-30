@@ -109,3 +109,10 @@ gpui-kit = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-app-kit = { workspace = true, features = ["NSRunningApplication", "libc"] }
+
+[lints.rust]
+# The unoptimized macOS binary's __eh_frame exceeds ld64's 16 MB compact unwind
+# offset limit; the linker keeps DWARF unwinding for those frames, so its notice
+# is not actionable. Disabling compact unwind would affect C++ and Objective-C
+# personalities, and changing rustflags would rebuild the shared cache.
+linker_messages = "allow"
