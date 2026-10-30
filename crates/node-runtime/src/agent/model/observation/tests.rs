@@ -104,14 +104,16 @@ async fn freezes_context_inventory() {
         text: "First captured skill".into(),
     }])
     .unwrap();
-    sources.replace_with_context(Vec::new(), Some(context.clone()));
+    sources.replace_with_contexts(Vec::new(), vec![context.clone()]);
     let first = sources.capture("base", Instant::now());
-    sources.replace_with_context(
+    sources.replace_with_contexts(
         Vec::new(),
         Context::new(vec![Source {
             kind: Kind::Skills,
             text: "Later skill".into(),
-        }]),
+        }])
+        .into_iter()
+        .collect(),
     );
     let second = sources.capture("base", Instant::now());
     let body =
@@ -232,7 +234,7 @@ async fn keeps_plugin_rewrites_unknown() {
         text: "captured skill".into(),
     }])
     .unwrap();
-    sources.replace_with_context(Vec::new(), Some(context.clone()));
+    sources.replace_with_contexts(Vec::new(), vec![context.clone()]);
     for (text, expected) in [
         (context.text(), Some(4)),
         ("plugin changed captured skill", None),

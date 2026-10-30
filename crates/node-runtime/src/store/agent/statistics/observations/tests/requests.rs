@@ -147,10 +147,11 @@ fn averages_valid_samples() {
 async fn averages_history_before_limiting_requests() {
     let mut fixture = Fixture::new().await;
     let turn = fixture.queued().await;
-    let events = (0..RECENT_LIMIT + 2)
+    let count = (RECENT_LIMIT + 2) as u64;
+    let events = (0..count)
         .map(|index| {
             let mut sample = attempt(1, Outcome::Succeeded);
-            let scale = if index == 0 { 6600 } else { 0 };
+            let scale = if index == 0 { count * 100 } else { 0 };
             sample.headers_us = Some(scale);
             sample.response_us = Some(scale);
             sample.first_text_us = Some(scale * 2);
@@ -174,7 +175,7 @@ async fn averages_history_before_limiting_requests() {
     let summary = read(&fixture.database.connection, fixture.session)
         .await
         .unwrap();
-    assert_eq!(summary.calls, 66);
+    assert_eq!(summary.calls, count);
     // One round publishes only its latest request.
     assert_eq!(summary.recent.len(), 1);
     assert!(

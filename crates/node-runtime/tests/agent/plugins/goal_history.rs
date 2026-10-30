@@ -336,7 +336,13 @@ async fn requires_explicit_resume_after_restart() {
             assert_eq!(server.requests.lock().unwrap().len(), requests);
             let request = server.requests.lock().unwrap().last().unwrap().clone();
             assert!(!node_context(&request, "Work mode").contains("Active goal: "));
-            assert!(!request.to_string().contains("Active goal: "));
+            assert!(!turn_context(&request).contains("Active goal: "));
+            // Earlier turns retain their captured context without resuming the goal.
+            assert!(
+                agent_support::turn_contexts(&request)
+                    .iter()
+                    .any(|context| context.contains("Active goal: "))
+            );
         }
 
         let before = history(&fixture.client, branch.id).await;

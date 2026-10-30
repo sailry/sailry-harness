@@ -44,8 +44,7 @@ pub(super) fn owner(request: &Value, path: &str) -> Value {
         .iter()
         .flat_map(|context| context.lines())
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|value| value["skill"] == "example:analysis" && value["path"] == path)
-        .last()
+        .rfind(|value| value["skill"] == "example:analysis" && value["path"] == path)
         .unwrap()
 }
 

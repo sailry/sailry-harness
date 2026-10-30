@@ -112,11 +112,19 @@ impl InferenceRequestPreparer<Session> for Preparer {
         conversation: &Conversation,
         input: InferenceInput,
     ) -> anyhow::Result<PreparedInferenceRequest> {
-        let owners = owners::collect(&session.records).parts();
+        let retained = owners::collect(&session.records);
+        let skills = retained.skill_parts();
+        let owners = retained.parts();
         let owned: Vec<_> = owners.iter().map(|(_, part)| part.as_str()).collect();
         let mut input = input;
         input.moim_parts = pending(conversation, &owned, std::mem::take(&mut input.moim_parts));
-        let context = Context::new(
+        let mut contexts: Vec<_> = conversation
+            .messages()
+            .iter()
+            .filter(|message| message.is_turn_context() && message.is_agent_visible())
+            .map(|message| Context::persisted(message.as_concat_text(), &skills))
+            .collect();
+        contexts.extend(Context::new(
             input
                 .moim_parts
                 .iter()
@@ -132,8 +140,8 @@ impl InferenceRequestPreparer<Session> for Preparer {
                     text: text.clone(),
                 })
                 .collect(),
-        );
-        self.sources.replace_with_context(
+        ));
+        self.sources.replace_with_contexts(
             input
                 .prompt_parts
                 .iter()
@@ -143,7 +151,7 @@ impl InferenceRequestPreparer<Session> for Preparer {
                     text: text.clone(),
                 })
                 .collect(),
-            context,
+            contexts,
         );
         let mut loaded = session.context.loaded_tools.clone().unwrap_or_default();
         for record in &session.records {

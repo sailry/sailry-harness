@@ -1,4 +1,4 @@
-//! Provenance of a newly appended turn context is limited to a verified terminal text node.
+//! Verify pending and persisted turn context against exact adapted text nodes.
 use super::Source;
 use sailry_protocol::conversation::observation::CategoryKind;
 use serde_json::Value;
@@ -8,6 +8,7 @@ use std::ops::Range;
 pub(in crate::agent) struct Context {
     pub(super) text: String,
     pub(super) ranges: Vec<(Range<usize>, CategoryKind)>,
+    persisted: bool,
 }
 
 pub(super) struct Location<'a> {
@@ -24,6 +25,7 @@ impl Context {
         let mut context = Self {
             text: String::new(),
             ranges: Vec::new(),
+            persisted: false,
         };
         context.push("<turn-context>\n", CategoryKind::Injected);
         for (index, part) in parts.into_iter().enumerate() {
@@ -34,6 +36,34 @@ impl Context {
         }
         context.push("\n</turn-context>", CategoryKind::Injected);
         Some(context)
+    }
+
+    pub(in crate::agent) fn persisted(text: String, skills: &[String]) -> Self {
+        let mut ranges = skills
+            .iter()
+            .filter(|source| !source.is_empty())
+            .flat_map(|source| {
+                text.match_indices(source)
+                    .map(|(start, value)| start..start + value.len())
+            })
+            .collect::<Vec<_>>();
+        ranges.sort_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
+        let mut context = Self {
+            text: String::new(),
+            ranges: Vec::new(),
+            persisted: true,
+        };
+        let mut end = 0;
+        for range in ranges {
+            if range.start < end {
+                continue;
+            }
+            context.push(&text[end..range.start], CategoryKind::Injected);
+            context.push(&text[range.clone()], CategoryKind::Skills);
+            end = range.end;
+        }
+        context.push(&text[end..], CategoryKind::Injected);
+        context
     }
 
     pub(in crate::agent) fn text(&self) -> &str {
@@ -66,6 +96,43 @@ impl Context {
         let messages = collections.next()?;
         if collections.next().is_some() {
             return None;
+        }
+        if self.persisted {
+            let mut located = None;
+            for message in messages.iter().filter(|message| message["role"] == "user") {
+                let content = message.get("content").or_else(|| message.get("parts"));
+                let texts: Vec<_> = match content {
+                    Some(Value::String(text)) => vec![text.as_str()],
+                    Some(Value::Array(parts)) => parts
+                        .iter()
+                        .filter_map(|part| {
+                            matches!(part["type"].as_str(), None | Some("text" | "input_text"))
+                                .then(|| part["text"].as_str())
+                                .flatten()
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                for text in texts {
+                    for (start, matched) in text.match_indices(&self.text) {
+                        let end = start + matched.len();
+                        if (start == 0 || text[..start].ends_with('\n'))
+                            && (end == text.len() || text[end..].starts_with('\n'))
+                        {
+                            // Identical user-authored copies make attribution ambiguous.
+                            if located.is_some() {
+                                return None;
+                            }
+                            located = Some(Location {
+                                text,
+                                start,
+                                context: self,
+                            });
+                        }
+                    }
+                }
+            }
+            return located;
         }
         let last = messages
             .last()

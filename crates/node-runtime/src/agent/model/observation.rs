@@ -30,18 +30,18 @@ pub(in crate::agent) struct Sources(Arc<Mutex<Option<Inventory>>>);
 #[derive(Clone)]
 struct Inventory {
     system: Vec<Source>,
-    context: Option<Context>,
+    contexts: Vec<Context>,
 }
 
 impl Sources {
     pub(in crate::agent) fn replace(&self, sources: Vec<Source>) {
-        self.replace_with_context(sources, None);
+        self.replace_with_contexts(sources, Vec::new());
     }
 
-    pub(in crate::agent) fn replace_with_context(
+    pub(in crate::agent) fn replace_with_contexts(
         &self,
         sources: Vec<Source>,
-        context: Option<Context>,
+        contexts: Vec<Context>,
     ) {
         let mut unique = std::collections::BTreeMap::new();
         for source in sources {
@@ -51,7 +51,7 @@ impl Sources {
         }
         *self.0.lock().unwrap_or_else(|error| error.into_inner()) = Some(Inventory {
             system: unique.into_values().collect(),
-            context,
+            contexts,
         });
     }
 
@@ -63,7 +63,7 @@ impl Sources {
                 .unwrap_or_else(|error| error.into_inner())
                 .clone(),
             system: blake3::hash(system.as_bytes()),
-            categories: categories::estimate(&serde_json::Value::Null, None, None),
+            categories: categories::estimate(&serde_json::Value::Null, None, &[]),
             complete: false,
             started,
             http: None,
@@ -131,7 +131,7 @@ impl Payload {
         let categories = categories::estimate(
             body,
             sources.map(|inventory| inventory.system.as_slice()),
-            sources.and_then(|inventory| inventory.context.as_ref()),
+            sources.map_or(&[], |inventory| inventory.contexts.as_slice()),
         );
         state.complete = categories.iter().any(|category| category.tokens.is_some())
             && body
