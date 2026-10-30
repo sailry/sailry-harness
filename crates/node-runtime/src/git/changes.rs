@@ -104,16 +104,31 @@ fn page(
         .values()
         .filter(|candidate| after.is_none_or(|path| candidate.entry.path.as_str() > path))
         .collect();
+    // Entries are measured once; only the small envelope is re-encoded per step.
+    let mut body = 0;
     for (position, candidate) in candidates.iter().enumerate() {
         control.check()?;
-        result.entries.push(candidate.entry.clone());
-        result.next = (position + 1 < candidates.len()).then(|| GitChangesCursor {
+        let size = encoded(&candidate.entry)?;
+        let next = (position + 1 < candidates.len()).then(|| GitChangesCursor {
             snapshot: result.snapshot.clone(),
             after_path: Some(candidate.entry.path.clone()),
         });
-        result.exhausted = result.next.is_none() && result.omitted_paths == 0;
-        if encoded(&Output::GitChanges(result.clone()))? > MAX_DIFF_BYTES {
-            result.entries.pop();
+        let envelope = GitChanges {
+            snapshot: result.snapshot.clone(),
+            entries: Vec::new(),
+            exhausted: next.is_none() && result.omitted_paths == 0,
+            next,
+            omitted_paths: result.omitted_paths,
+        };
+        let count = result.entries.len() + 1;
+        if encoded(&Output::GitChanges(envelope.clone()))? + body + size + count - 1
+            <= MAX_DIFF_BYTES
+        {
+            result.entries.push(candidate.entry.clone());
+            result.next = envelope.next;
+            result.exhausted = envelope.exhausted;
+            body += size;
+        } else {
             let Some(last) = result.entries.last() else {
                 return Err(Fault::invalid(
                     "Git change metadata exceeds the page size limit",

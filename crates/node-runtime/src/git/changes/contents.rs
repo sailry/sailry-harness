@@ -87,6 +87,8 @@ pub(super) fn read(
         Some(&mut options),
     )
     .map_err(fault)?;
+    let envelope = Envelope::change(&result)?;
+    let mut body = 0;
     let mut position = 0;
     let mut full = false;
     for hunk in 0..patch.num_hunks() {
@@ -113,24 +115,24 @@ pub(super) fn read(
             };
             // A single oversized line makes the whole file explicitly unreviewable;
             // never pretend a truncated source line is a complete anchor.
-            let mut single = result.clone();
-            single.lines = vec![mapped.clone()];
-            single.next = Some(position + 1);
-            if encoded(&Output::GitChange(single))? > MAX_DIFF_BYTES {
+            let size = encoded(&mapped)?;
+            if envelope.lines(size, 1, position + 1) > MAX_DIFF_BYTES {
                 result.lines.clear();
                 result.next = None;
                 result.skip_reason = Some("line_too_large".into());
                 return Ok(result);
             }
             if position >= offset && !full {
-                result.lines.push(mapped);
-                result.next = Some(position + 1);
-                if result.lines.len() > limit
-                    || encoded(&Output::GitChange(result.clone()))? > MAX_DIFF_BYTES
+                let count = result.lines.len() + 1;
+                if count > limit
+                    || envelope.lines(body + size, count, position + 1) > MAX_DIFF_BYTES
                 {
-                    result.lines.pop();
                     result.next = Some(position);
                     full = true;
+                } else {
+                    result.lines.push(mapped);
+                    body += size;
+                    result.next = Some(position + 1);
                 }
             }
             position += 1;
@@ -149,6 +151,47 @@ pub(super) fn read(
         ));
     }
     Ok(result)
+}
+
+/// Encoded page size without re-encoding accumulated lines. The envelope is
+/// measured once with `next: Some(0)`; compact JSON adds array items and
+/// escaped string fragments additively.
+pub(super) struct Envelope(usize);
+
+impl Envelope {
+    pub(super) fn change(result: &GitChange) -> Result<Self, Fault> {
+        let mut probe = result.clone();
+        probe.lines.clear();
+        probe.next = Some(0);
+        encoded(&Output::GitChange(probe)).map(Self)
+    }
+
+    pub(super) fn context(result: &GitContext) -> Result<Self, Fault> {
+        let mut probe = result.clone();
+        probe.text.clear();
+        probe.next = Some(0);
+        encoded(&Output::GitContext(probe)).map(Self)
+    }
+
+    /// `body` is the sum of each encoded line; items are joined by commas.
+    pub(super) fn lines(&self, body: usize, count: usize, next: usize) -> usize {
+        self.0 + body + count.saturating_sub(1) + digits(next) - 1
+    }
+
+    /// `body` is the sum of escaped fragments without their quotes.
+    pub(super) fn text(&self, body: usize, next: usize) -> usize {
+        self.0 + body + digits(next) - 1
+    }
+}
+
+fn digits(value: usize) -> usize {
+    value
+        .checked_ilog10()
+        .map_or(1, |digits| digits as usize + 1)
+}
+
+pub(super) fn escaped(text: &str) -> Result<usize, Fault> {
+    encoded(&text).map(|size| size - 2)
 }
 
 fn capture(
@@ -242,29 +285,29 @@ pub(super) fn context(
         unreachable!("skipped sources returned above")
     };
     let text = std::str::from_utf8(&bytes).expect("validated UTF-8");
+    let envelope = Envelope::context(&result)?;
+    let mut body = 0;
     let mut position = 0;
     let mut full = false;
     for line in text.split_inclusive('\n') {
         control.check()?;
         if position >= page.offset && !full {
-            let mut single = result.clone();
-            single.text = line.into();
-            single.next = Some(position + 1);
-            if encoded(&Output::GitContext(single))? > MAX_DIFF_BYTES {
+            let size = escaped(line)?;
+            if envelope.text(size, position + 1) > MAX_DIFF_BYTES {
                 result.text.clear();
                 result.next = None;
                 result.skip_reason = Some("line_too_large".into());
                 return Ok(result);
             }
-            let previous = result.text.len();
-            result.text.push_str(line);
-            result.next = Some(position + 1);
             if position - page.offset >= page.limit.min(MAX_GIT_LINES)
-                || encoded(&Output::GitContext(result.clone()))? > MAX_DIFF_BYTES
+                || envelope.text(body + size, position + 1) > MAX_DIFF_BYTES
             {
-                result.text.truncate(previous);
                 result.next = Some(position);
                 full = true;
+            } else {
+                result.text.push_str(line);
+                body += size;
+                result.next = Some(position + 1);
             }
         }
         position += 1;
