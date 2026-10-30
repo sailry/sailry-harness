@@ -176,6 +176,7 @@ pub(super) async fn prepare(
                     ));
                 }
             };
+            crate::providers::login::plugin::workflow::validate_redirect(&redirect, mode)?;
             let (returned, callback) = oneshot::channel();
             (Some(redirect), Some(callback), Some(returned))
         }

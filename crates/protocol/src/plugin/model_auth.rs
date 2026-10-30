@@ -245,6 +245,8 @@ pub enum Presentation {
 #[serde(deny_unknown_fields)]
 pub struct Callback {
     pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
     pub redirect_uri: Option<String>,
     pub manual: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -253,14 +255,29 @@ pub struct Callback {
 
 impl Callback {
     fn valid(&self) -> bool {
-        self.path.starts_with('/')
+        self.port.is_none_or(|port| port > 0)
+            && self.path.starts_with('/')
             && self.path.len() <= 256
             && !self.path.contains(['?', '#', '\\'])
             && !self.path.chars().any(char::is_control)
-            && self
-                .redirect_uri
-                .as_ref()
-                .is_none_or(|value| self.manual && endpoint(value))
+            && self.redirect_uri.as_ref().is_none_or(|value| {
+                self.manual
+                    && match self.port {
+                        None => endpoint(value),
+                        Some(port) => url::Url::parse(value).is_ok_and(|url| {
+                            url.scheme() == "http"
+                                && (url.host_str() == Some("127.0.0.1")
+                                    || self.allow_localhost && url.host_str() == Some("localhost"))
+                                && url.port() == Some(port)
+                                && url.path() == self.path
+                                && url.username().is_empty()
+                                && url.password().is_none()
+                                && url.query().is_none()
+                                && url.fragment().is_none()
+                                && url.as_str() == value
+                        }),
+                    }
+            })
     }
 }
 
@@ -412,6 +429,41 @@ fn pointer(value: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn validates_fixed_callback_address() {
+        let callback: Callback = serde_json::from_value(json!({
+            "path":"/auth/callback", "port":1455,
+            "redirect_uri":"http://localhost:1455/auth/callback",
+            "manual":true, "allow_localhost":true
+        }))
+        .unwrap();
+        assert!(callback.valid());
+        for redirect in [
+            "http://localhost:1456/auth/callback",
+            "http://localhost:1455/other",
+            "http://remote.test:1455/auth/callback",
+            "http://localhost:1455/auth/callback?extra=value",
+            "http://user@localhost:1455/auth/callback",
+        ] {
+            let mut invalid = callback.clone();
+            invalid.redirect_uri = Some(redirect.into());
+            assert!(!invalid.valid());
+        }
+        let mut invalid = callback.clone();
+        invalid.port = Some(0);
+        assert!(!invalid.valid());
+        invalid = callback;
+        invalid.allow_localhost = false;
+        assert!(!invalid.valid());
+        let random: Callback = serde_json::from_value(
+            json!({"path":"/auth/callback", "redirect_uri":null, "manual":false}),
+        )
+        .unwrap();
+        assert!(random.valid());
+        assert_eq!(random.port, None);
+        assert!(serde_json::to_value(random).unwrap().get("port").is_none());
+    }
 
     #[test]
     fn validates_private_script_declarations() {

@@ -204,7 +204,7 @@ async fn switches_accounts_without_rewriting_captures() {
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
                 let stage = active.load(Ordering::SeqCst);
                 let changed = stage != 0;
-                if request.path == "/api/accounts/deviceauth/token" && stage == 1 {
+                if request.path == "/oauth/token" && stage == 1 {
                     return Reply::Hold;
                 }
                 if request.path == "/oauth/token" && changed {
@@ -296,7 +296,7 @@ async fn switches_accounts_without_rewriting_captures() {
                 Output::Credentials(original.clone())
             );
             phase.store(2, Ordering::SeqCst);
-            let (_, attempt) = start(&fixture.client, &provider).await;
+            let (_, attempt) = begin(&fixture.client, &provider).await;
             let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
             let update = terminal(&mut stream).await;
             assert_eq!(update.state, login::State::Connected);
@@ -513,7 +513,7 @@ async fn preserves_unsettled_authorizations_on_relogin() {
         .unwrap();
 
         let fixture = super::super::execution::renewals::restart(fixture, &server, remote).await;
-        let (_, attempt) = start(&fixture.client, &provider).await;
+        let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
         let update = terminal(&mut stream).await;
         assert_eq!(update.state, login::State::Connected);

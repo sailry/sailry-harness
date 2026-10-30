@@ -7,7 +7,6 @@ async fn connects_with_isolated_credentials() {
         for outcome in ["connected", "cancelled", "denied", "expired"] {
             let release = Arc::new(tokio::sync::Notify::new());
             let gate = release.clone();
-            let polls = AtomicUsize::new(0);
             let drift = Arc::new(AtomicUsize::new(0));
             let identity = drift.clone();
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
@@ -15,17 +14,11 @@ async fn connects_with_isolated_credentials() {
                     !request.path.starts_with("/.well-known/"),
                     "Codex authorization does not request OIDC discovery"
                 );
-                if request.path == "/api/accounts/deviceauth/usercode" && outcome == "denied" {
-                    return Reply::Raw("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into());
-                }
-                if request.path == "/api/accounts/deviceauth/token" {
-                    let Reply::Json(value) = server::standard(request, 3600) else {
-                        panic!("device exchange expected")
-                    };
+                if request.path == "/oauth/token" && identity.load(Ordering::SeqCst) == 0 {
                     return match outcome {
-                        "connected" if polls.fetch_add(1, Ordering::SeqCst) == 0 => Reply::Raw("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
-                        "connected" => Reply::Delayed(gate.clone(), value),
+                        "connected" => Reply::Delayed(gate.clone(), server::tokens(request, 3600, ACCESS, REFRESH)),
                         "cancelled" => Reply::Hold,
+                        "denied" => Reply::Raw("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
                         "expired" => Reply::Raw("HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
                         _ => unreachable!(),
                     };
@@ -50,30 +43,13 @@ async fn connects_with_isolated_credentials() {
             }).await;
             let fixture = Fixture::empty(remote, &server).await;
             let provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
-            let (request, attempt) = start(&fixture.client, &provider).await;
+            let (request, attempt) = begin(&fixture.client, &provider).await;
             let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
             if matches!(outcome, "connected" | "cancelled") {
-                loop {
-                    let update = next(&mut stream).await;
-                    no_secrets(&update);
-                    match update.state {
-                        login::State::Starting => {}
-                        login::State::Pending {
-                            verification_url,
-                            user_code,
-                            ..
-                        } => {
-                            assert_eq!(verification_url, "https://auth.openai.com/codex/device");
-                            assert_eq!(user_code, USER_CODE);
-                            break;
-                        }
-                        state => panic!("device prompt expected, got {state:?}"),
-                    }
-                }
                 if outcome == "connected" {
                     release.notify_one();
                 } else {
-                    server.wait_requests(2).await;
+                    server.wait_requests(1).await;
                     let cancel = fixture.client.prepare(Command::CancelProviderLogin {
                         attempt: attempt.id,
                     });
@@ -186,7 +162,7 @@ async fn connects_with_isolated_credentials() {
                 for index in [1, 2] {
                     drift.store(index, Ordering::SeqCst);
                     release.notify_one();
-                    let (_, reconnect) = start(&fixture.client, &current).await;
+                    let (_, reconnect) = begin(&fixture.client, &current).await;
                     let mut stream = fixture.client.subscribe_login(reconnect.id).await.unwrap();
                     let update = terminal(&mut stream).await;
                     assert_eq!(update.state, login::State::Connected);
@@ -251,8 +227,7 @@ async fn connects_with_isolated_credentials() {
                         .lock()
                         .unwrap()
                         .iter()
-                        .any(|request| request.path == "/oauth/token"
-                            || request.path.starts_with("/models"))
+                        .any(|request| request.path.starts_with("/models"))
                 );
                 fixture.close().await;
             }
@@ -263,96 +238,36 @@ async fn connects_with_isolated_credentials() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn preserves_pending_controls() {
     for remote in [false, true] {
-        for outcome in ["connected", "cancelled", "expired", "denied"] {
-            let polls = Arc::new(AtomicUsize::new(0));
-            let count = polls.clone();
-            let server = Server::start_with_request(ModelApi::Anthropic,move |request| {
-                if request.path == "/api/accounts/deviceauth/usercode" {
-                    let Reply::Json(mut value) = server::standard(request,3600) else {panic!("device prompt expected")};
-                    let code = value.as_object_mut().unwrap().remove("user_code").unwrap();
-                    value["usercode"] = code;
-                    if outcome == "expired" {value["expires_in"] = json!(3);}
-                    return Reply::Json(value);
-                }
-                if request.path == "/api/accounts/deviceauth/token" {
-                    let index = count.fetch_add(1,Ordering::SeqCst);
-                    let error = if outcome == "denied" {Some((400,json!({"error":{"code":"access_denied"}})))}
-                        else if outcome == "expired" || index == 1 {Some((429,json!({"error":{"code":"slow_down"}})))}
-                        else if index == 0 {Some((400,json!({"error":"deviceauth_authorization_pending"})))}
-                        else {None};
-                    if let Some((status,body)) = error {
-                        let body = body.to_string();
-                        return Reply::Raw(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()));
-                    }
-                }
-                server::standard(request,3600)
-            }).await;
-            let fixture = Fixture::empty(remote, &server).await;
-            let provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
-            let (_, attempt) = start(&fixture.client, &provider).await;
-            let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
-            if outcome == "cancelled" {
-                server.wait_requests(3).await;
-                let request = fixture.client.prepare(Command::CancelProviderLogin {
+        let server = Server::start_with_request(ModelApi::Anthropic, |_| {
+            panic!("pending browser login must not dispatch HTTP")
+        })
+        .await;
+        let fixture = Fixture::empty(remote, &server).await;
+        let provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
+        let (_, attempt) = start(&fixture.client, &provider).await;
+        let url = super::super::browser(&fixture.client, &attempt).await;
+        let returned = callback(&url);
+        assert!(server.requests.lock().unwrap().is_empty());
+        let request = fixture.client.prepare(Command::CancelProviderLogin {
+            attempt: attempt.id,
+        });
+        let first = fixture.client.execute(request.clone()).await.unwrap();
+        assert_eq!(fixture.client.execute(request).await.unwrap(), first);
+        let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        assert_eq!(terminal(&mut updates).await.state, login::State::Cancelled);
+        assert!(
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::CompleteProviderLogin {
                     attempt: attempt.id,
-                });
-                let first = fixture.client.execute(request.clone()).await.unwrap();
-                assert_eq!(fixture.client.execute(request).await.unwrap(), first);
-            }
-            let update = terminal(&mut updates).await;
-            no_secrets(&update);
-            match outcome {
-                "connected" => {
-                    assert_eq!(update.state, login::State::Connected);
-                    assert_eq!(polls.load(Ordering::SeqCst), 3);
-                }
-                "cancelled" => assert_eq!(update.state, login::State::Cancelled),
-                "expired" => {
-                    let login::State::Failed(error) = update.state else {
-                        panic!("expiry expected")
-                    };
-                    assert_eq!(error.code, ErrorCode::Expired);
-                    assert_eq!(polls.load(Ordering::SeqCst), 1);
-                }
-                "denied" => {
-                    let login::State::Failed(error) = update.state else {
-                        panic!("denial expected")
-                    };
-                    assert_eq!(error.code, ErrorCode::PermissionDenied);
-                    assert_eq!(polls.load(Ordering::SeqCst), 1);
-                }
-                _ => unreachable!(),
-            }
-            if outcome != "connected" {
-                assert!(
-                    saved(&fixture.client, provider.id)
-                        .await
-                        .credential
-                        .is_none()
-                );
-                assert!(
-                    !server
-                        .requests
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .any(|request| request.path == "/oauth/token")
-                );
-            } else {
-                assert_eq!(
-                    server
-                        .requests
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .filter(|request| request.path == "/oauth/token")
-                        .count(),
-                    1
-                );
-            }
-            drop(updates);
-            fixture.close().await;
-        }
+                    callback: returned,
+                }))
+                .await
+                .is_err()
+        );
+        assert_eq!(saved(&fixture.client, provider.id).await, provider);
+        assert!(server.requests.lock().unwrap().is_empty());
+        fixture.close().await;
     }
 }
 
@@ -373,7 +288,7 @@ async fn rejects_invalid_identity_after_token_exchange() {
         .await;
         let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
-        let (_, attempt) = start(&fixture.client, &provider).await;
+        let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
         let update = terminal(&mut stream).await;
         no_secrets(&update);

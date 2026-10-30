@@ -15,24 +15,6 @@ pub(crate) fn standard(request: &discovery_support::Request, expires: u64) -> Re
                     .into(),
             )
         }
-        "/api/accounts/deviceauth/usercode" => {
-            assert_eq!(request.method, "POST");
-            assert_eq!(
-                serde_json::from_str::<Value>(&request.body).unwrap(),
-                json!({"client_id":CLIENT})
-            );
-            Reply::Json(
-                json!({"device_auth_id":DEVICE,"user_code":USER_CODE,"interval":1,"expires_in":900}),
-            )
-        }
-        "/api/accounts/deviceauth/token" => {
-            assert_eq!(request.method, "POST");
-            assert_eq!(
-                serde_json::from_str::<Value>(&request.body).unwrap(),
-                json!({"device_auth_id":DEVICE,"user_code":USER_CODE})
-            );
-            Reply::Json(json!({"authorization_code":CODE,"code_verifier":VERIFIER}))
-        }
         "/oauth/token" => Reply::Json(tokens(request, expires, ACCESS, REFRESH)),
         "/.well-known/openid-configuration" => Reply::Json(
             json!({"issuer":identity::issuer(request),"jwks_uri":format!("{}/.well-known/jwks.json",identity::issuer(request))}),
@@ -85,12 +67,9 @@ pub(crate) fn tokens(
     assert!(!form.contains_key("client_secret"));
     match form["grant_type"].as_str() {
         "authorization_code" => {
-            assert_eq!(
-                form["redirect_uri"],
-                "https://auth.openai.com/deviceauth/callback"
-            );
+            assert_eq!(form["redirect_uri"], "http://localhost:1455/auth/callback");
             assert_eq!(form["code"], CODE);
-            assert_eq!(form["code_verifier"], VERIFIER);
+            assert_eq!(form["code_verifier"].len(), 43);
             assert!(!form.contains_key("scope"));
         }
         "refresh_token" => {

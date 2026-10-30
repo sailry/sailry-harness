@@ -68,14 +68,22 @@ fn manual(presentation: Option<&Presentation>) -> bool {
     ) || matches!(presentation, Some(Presentation::Script { callback: Some(callback) }) if callback.manual)
 }
 
-pub(super) fn listener(presentation: Option<&Presentation>) -> Option<(String, bool)> {
+pub(super) fn listener(
+    presentation: Option<&Presentation>,
+) -> Option<sailry_protocol::plugin::model_auth::Callback> {
     match presentation {
         Some(Presentation::Pkce {
             redirect: Redirect::Loopback,
-        }) => Some(("/callback".into(), true)),
+        }) => Some(sailry_protocol::plugin::model_auth::Callback {
+            path: "/callback".into(),
+            port: None,
+            redirect_uri: None,
+            manual: false,
+            allow_localhost: false,
+        }),
         Some(Presentation::Script {
             callback: Some(callback),
-        }) => Some((callback.path.clone(), !callback.manual)),
+        }) => Some(callback.clone()),
         _ => None,
     }
 }
@@ -84,6 +92,22 @@ pub(super) fn listener(presentation: Option<&Presentation>) -> Option<(String, b
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    fn preserves_fixed_listener_and_manual_fallback() {
+        let callback = sailry_protocol::plugin::model_auth::Callback {
+            path: "/auth/callback".into(),
+            port: Some(1455),
+            redirect_uri: Some("http://localhost:1455/auth/callback".into()),
+            manual: true,
+            allow_localhost: true,
+        };
+        let presentation = Presentation::Script {
+            callback: Some(callback.clone()),
+        };
+        assert_eq!(listener(Some(&presentation)), Some(callback));
+        assert!(manual(Some(&presentation)));
+    }
 
     #[test]
     fn uses_declared_interaction() {
@@ -114,15 +138,15 @@ mod tests {
             let presentation = Presentation::Script {
                 callback: Some(sailry_protocol::plugin::model_auth::Callback {
                     path: path.into(),
+                    port: None,
                     redirect_uri: None,
                     manual: manual_callback,
                     allow_localhost: manual_callback,
                 }),
             };
-            assert_eq!(
-                listener(Some(&presentation)),
-                Some((path.into(), !manual_callback))
-            );
+            let callback = listener(Some(&presentation)).unwrap();
+            assert_eq!(callback.path, path);
+            assert_eq!(callback.manual, manual_callback);
             assert_eq!(manual(Some(&presentation)), manual_callback);
         }
         assert_eq!(listener(None), None);

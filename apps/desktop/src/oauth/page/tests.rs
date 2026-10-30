@@ -19,6 +19,7 @@ fn escapes_localized_copy() {
     let page = Page {
         language: "en\" unsafe".into(),
         titles: std::array::from_fn(|_| "Signed in <safe> & \"quoted\"".into()),
+        descriptions: std::array::from_fn(|_| "Return <safely>".into()),
         return_label: "Return <Sailry>".into(),
         close_label: "Close </script>".into(),
     };
@@ -26,6 +27,7 @@ fn escapes_localized_copy() {
     assert!(html.contains("lang=\"en&quot; unsafe\""));
     assert!(html.contains("Signed in &lt;safe&gt; &amp; &quot;quoted&quot;"));
     assert!(html.contains("Close &lt;/script&gt;"));
+    assert!(html.contains("Return &lt;safely&gt;"));
     assert!(!html.contains("Return <Sailry>"));
     assert!(html.contains("data-outcome=\"failed\""));
 }

@@ -188,10 +188,10 @@ impl Login {
         }
         if self.fresh {
             let callback =
-                if let Some((path, required)) = declaration::listener(self.presentation.as_ref()) {
-                    match Callback::bind(&path) {
+                if let Some(declaration) = declaration::listener(self.presentation.as_ref()) {
+                    match Callback::bind_declared(&declaration) {
                         Ok(callback) => Some(callback),
-                        Err(_) if required => {
+                        Err(_) if !declaration.manual => {
                             self.error = Some("provider_login_failed");
                             cx.notify();
                             return;

@@ -277,9 +277,17 @@ async fn complete(client: &Client, attempt: &login::Attempt, callback: Secret) -
 
 async fn begin(client: &Client, provider: &Provider) -> (Request, login::Attempt) {
     let (request, attempt) = start(client, provider).await;
-    if provider.authentication == Authentication::ChatGpt {
+    if matches!(
+        provider.authentication,
+        Authentication::ChatGpt | Authentication::ChatGptOAuth
+    ) {
         let url = browser(client, &attempt).await;
-        complete(client, &attempt, identity::callback(&url)).await;
+        let callback = if provider.authentication == Authentication::ChatGptOAuth {
+            codex::callback(&url)
+        } else {
+            identity::callback(&url)
+        };
+        complete(client, &attempt, callback).await;
     }
     (request, attempt)
 }
@@ -330,10 +338,8 @@ fn no_secrets(value: &impl serde::Serialize) {
         codex::REFRESHED,
         codex::REFRESH,
         codex::ROTATED,
-        codex::DEVICE,
         codex::ACCOUNT,
         codex::CODE,
-        codex::VERIFIER,
     ] {
         assert!(!body.contains(secret));
     }

@@ -384,7 +384,10 @@ pub(crate) fn validate_redirect(
     value: &str,
     declaration: &model_auth::Callback,
 ) -> Result<(), Fault> {
-    if declaration.manual && declaration.redirect_uri.as_deref() == Some(value) {
+    if declaration.port.is_none()
+        && declaration.manual
+        && declaration.redirect_uri.as_deref() == Some(value)
+    {
         return Ok(());
     }
     let url = Url::parse(value).map_err(|_| invalid())?;
@@ -392,6 +395,14 @@ pub(crate) fn validate_redirect(
         || !(url.host_str() == Some("127.0.0.1")
             || declaration.allow_localhost && url.host_str() == Some("localhost"))
         || url.port().is_none_or(|port| port == 0)
+        || declaration
+            .port
+            .is_some_and(|port| url.port() != Some(port))
+        || declaration.port.is_some()
+            && declaration
+                .redirect_uri
+                .as_deref()
+                .is_some_and(|uri| uri != value)
         || url.path() != declaration.path
         || !url.username().is_empty()
         || url.password().is_some()
@@ -518,6 +529,31 @@ pub(super) fn diagnostic(
 mod tests {
     use super::*;
     #[test]
+    fn enforces_fixed_port_for_manual_callbacks() {
+        let callback = model_auth::Callback {
+            path: "/auth/callback".into(),
+            port: Some(1455),
+            redirect_uri: Some("http://localhost:1455/auth/callback".into()),
+            manual: true,
+            allow_localhost: true,
+        };
+        assert!(validate_redirect(callback.redirect_uri.as_ref().unwrap(), &callback).is_ok());
+        for value in [
+            "http://localhost:1456/auth/callback",
+            "http://127.0.0.1:1455/auth/callback",
+            "http://remote.test:1455/auth/callback",
+            "http://localhost:1455/wrong",
+            "http://localhost:1455/auth/callback?code=value",
+        ] {
+            assert!(validate_redirect(value, &callback).is_err(), "{value}");
+        }
+        let invalid = model_auth::Callback {
+            redirect_uri: Some("http://localhost:1456/auth/callback".into()),
+            ..callback
+        };
+        assert!(validate_redirect(invalid.redirect_uri.as_ref().unwrap(), &invalid).is_err());
+    }
+    #[test]
     fn binds_callbacks_to_proof_and_redirect() {
         let redirect = "http://127.0.0.1:12345/callback";
         let returned = Secret::new(format!(
@@ -589,6 +625,7 @@ mod tests {
     fn validates_declared_loopback_path() {
         let callback = model_auth::Callback {
             path: "/auth/callback".into(),
+            port: None,
             redirect_uri: Some("https://example.test/callback".into()),
             manual: true,
             allow_localhost: true,

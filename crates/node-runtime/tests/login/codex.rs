@@ -1,6 +1,8 @@
 use super::*;
 use sailry_protocol::conversation::{Model, Page, Part, Status, oauth::Options};
 
+#[path = "codex/browser.rs"]
+mod browser;
 #[path = "codex/completion.rs"]
 mod completion;
 #[path = "codex/execution.rs"]
@@ -25,11 +27,21 @@ pub(super) const ACCESS: &str = "isolated-codex-access";
 pub(super) const REFRESHED: &str = "isolated-codex-renewed-access";
 pub(super) const REFRESH: &str = "isolated-codex-refresh";
 pub(super) const ROTATED: &str = "isolated-codex-rotated-refresh";
-pub(super) const DEVICE: &str = "isolated-codex-device";
 pub(super) const ACCOUNT: &str = "isolated-codex-account";
 pub(super) const CODE: &str = "isolated-codex-code";
-pub(super) const VERIFIER: &str = "isolated-codex-verifier";
-const USER_CODE: &str = "CODE-1234";
+
+pub(super) fn callback(authorization: &str) -> Secret {
+    let url = url::Url::parse(authorization).unwrap();
+    let query = url
+        .query_pairs()
+        .into_owned()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(query["redirect_uri"], "http://localhost:1455/auth/callback");
+    Secret::new(format!(
+        "{}?code={CODE}&state={}",
+        query["redirect_uri"], query["state"]
+    ))
+}
 
 fn options(version: &str, suffix: &str) -> Options {
     Options::ChatGptOAuth {

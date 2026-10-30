@@ -20,12 +20,29 @@ pub enum Reply {
 
 impl Callback {
     pub fn bind(path: &str) -> Result<Self, Fault> {
-        if !path.starts_with('/') || path.contains(['?', '#']) {
+        Self::listen(path, None, false)
+    }
+
+    pub fn bind_declared(
+        callback: &sailry_protocol::plugin::model_auth::Callback,
+    ) -> Result<Self, Fault> {
+        Self::listen(
+            &callback.path,
+            callback.port,
+            callback.port.is_some() && callback.allow_localhost,
+        )
+    }
+
+    fn listen(path: &str, port: Option<u16>, localhost: bool) -> Result<Self, Fault> {
+        if port == Some(0) || !path.starts_with('/') || path.contains(['?', '#']) {
             return Err(failed("invalid callback path"));
         }
-        let listener = Listener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).map_err(failed)?;
+        let listener =
+            Listener::bind((std::net::Ipv4Addr::LOCALHOST, port.unwrap_or(0))).map_err(failed)?;
         listener.set_nonblocking(true).map_err(failed)?;
-        let redirect = format!("http://{}{path}", listener.local_addr().map_err(failed)?);
+        let address = listener.local_addr().map_err(failed)?;
+        let host = if localhost { "localhost" } else { "127.0.0.1" };
+        let redirect = format!("http://{host}:{}{path}", address.port());
         Ok(Self { listener, redirect })
     }
 

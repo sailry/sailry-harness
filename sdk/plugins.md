@@ -310,7 +310,12 @@ function; it does not install an SDK, network client or another runtime in the
 transformation sandbox. Declare its immutable `script`, exported `handler`,
 fixed named `requests`, optional OIDC `issuer` and public `callback` metadata.
 A callback declares its exact loopback `path`, optional pasted `redirect_uri`,
-`manual` support and optional `allow_localhost`. `refresh: true` explicitly enables
+`manual` support and optional `allow_localhost`. An optional nonzero `port` fixes
+the Desktop listener port; when combined with `allow_localhost`, its address uses
+`localhost`. A fixed pasted address must match that port and path. If binding
+fails and `manual` is enabled, Desktop continues with the declared pasted address.
+The listener stays on Desktop for both local and remote Nodes; token exchange
+stays on the selected Node. `refresh: true` explicitly enables
 the refresh event. Named requests retain the existing endpoint templates and
 private substitution rules.
 

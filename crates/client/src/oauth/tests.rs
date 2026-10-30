@@ -1,5 +1,39 @@
 use super::*;
 
+#[tokio::test]
+async fn binds_declared_port_and_detects_conflicts() {
+    let reserved = Listener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = reserved.local_addr().unwrap().port();
+    let declaration = sailry_protocol::plugin::model_auth::Callback {
+        path: "/auth/callback".into(),
+        port: Some(port),
+        redirect_uri: Some(format!("http://localhost:{port}/auth/callback")),
+        manual: true,
+        allow_localhost: true,
+    };
+    assert!(Callback::bind_declared(&declaration).is_err());
+    drop(reserved);
+    let listener = Callback::bind_declared(&declaration).unwrap();
+    assert_eq!(Some(&listener.redirect), declaration.redirect_uri.as_ref());
+    let redirect = listener.redirect.clone();
+    let task = tokio::spawn(listener.receive(
+        "https://auth.example/authorize?state=expected".into(),
+        async { Reply::Text("Done".into()) },
+        CancellationToken::new(),
+    ));
+    assert!(
+        send(&redirect, "/auth/callback?state=wrong&code=rejected")
+            .await
+            .starts_with("HTTP/1.1 400")
+    );
+    send(&redirect, "/auth/callback?state=expected&code=accepted").await;
+    assert_eq!(
+        task.await.unwrap().unwrap().expose(),
+        format!("{redirect}?state=expected&code=accepted")
+    );
+    assert!(Callback::bind_declared(&declaration).is_ok());
+}
+
 async fn send(redirect: &str, target: &str) -> String {
     let url = Url::parse(redirect).unwrap();
     let mut stream = TcpStream::connect(("127.0.0.1", url.port().unwrap()))

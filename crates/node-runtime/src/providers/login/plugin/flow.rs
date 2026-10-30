@@ -591,6 +591,7 @@ fn validate_redirect(value: &str, redirect: model_auth::Redirect) -> Result<(), 
             value,
             &model_auth::Callback {
                 path: "/auth/callback".into(),
+                port: None,
                 redirect_uri: None,
                 manual: false,
                 allow_localhost: false,

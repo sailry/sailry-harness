@@ -484,6 +484,15 @@
         "path": {
           "type": "string"
         },
+        "port": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "redirect_uri": {
           "type": [
             "string",

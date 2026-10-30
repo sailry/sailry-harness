@@ -623,6 +623,10 @@ oauth_success_title: 登录成功
 oauth_failed_title: 登录失败
 oauth_cancelled_title: 登录已取消
 oauth_pending_title: 返回 Sailry 完成连接
+oauth_success_description: "账号已连接，可以返回 Sailry 继续使用"
+oauth_failed_description: "请返回 Sailry 重试"
+oauth_cancelled_description: "可以返回 Sailry 重新登录"
+oauth_pending_description: "请返回 Sailry 查看连接状态"
 oauth_return: 返回 Sailry
 oauth_close_page: 您可以关闭此页面
 question_open_url: 打开页面
