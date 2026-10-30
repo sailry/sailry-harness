@@ -343,7 +343,7 @@ fn separates_diagnostics() {
 }
 
 #[test]
-fn shows_file_write_receipts() {
+fn shows_file_write_body() {
     let result = serde_json::to_value(Output::FileWritten(sailry_protocol::FileWritten {
         path: "资料.txt".into(),
         revision: "opaque-revision".into(),
@@ -365,7 +365,7 @@ fn shows_file_write_receipts() {
             .read(&arguments, &result),
         Some(&json!("资料.txt"))
     );
-    assert_eq!(projection.notices(&arguments, &result, "en"), ["Written"]);
+    assert!(projection.notices(&arguments, &result, "en").is_empty());
     let body = preview(None, &result);
     assert!(body.text.is_empty());
     assert_eq!(

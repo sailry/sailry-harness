@@ -244,7 +244,7 @@ fn preserves_captured_connection_and_session_names() {
 }
 
 #[test]
-fn preserves_batch_edits_and_write_receipts() {
+fn preserves_batch_edits() {
     let arguments = json!({"path":"source.txt","edits":[
         {"old_text":"First","new_text":"Updated first"},
         {"old_text":"Second","new_text":"Updated second"}
@@ -257,7 +257,7 @@ fn preserves_batch_edits_and_write_receipts() {
     let output = raw.detail().resolved.unwrap().output.unwrap();
     assert!(output.body.is_none());
     assert_eq!(output.preview, "Updated first\nUpdated second");
-    assert_eq!(output.notices[0].label, "Written");
+    assert!(output.notices.is_empty());
     assert_eq!(raw.detail().arguments, arguments);
     let result = serde_json::to_value(sailry_protocol::Output::DatabaseOutcome(
         sailry_protocol::database::Outcome::Query(sailry_protocol::database::ResultSet {
