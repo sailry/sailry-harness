@@ -1217,10 +1217,11 @@ composer_model_all: 全部供应商
 composer_model_empty: 没有匹配的可用模型
 composer_effort: 推理强度
 composer_model_settings: 模型与强度
-composer_feature_description: "可能消耗更多额度或产生额外费用"
+composer_feature_description: "可能额外计费"
 composer_feature_off: "关闭"
 composer_feature_fast: "快速"
-composer_effort_reset: 恢复默认强度
+composer_feature_fast_unsupported: "当前模型不支持"
+composer_effort_reset: "恢复默认"
 composer_effort_unavailable: 默认
 composer_compression_hint: 上下文压缩进度：暂无运行数据（UI 预览）
 composer_context_usage: "%{used} / %{limit}"

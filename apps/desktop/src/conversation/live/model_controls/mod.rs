@@ -118,6 +118,7 @@ impl View {
                     model,
                     choices,
                     effort,
+                    default: self.default_effort(),
                     features: self.available_features(),
                     selected: self
                         .config
@@ -347,6 +348,7 @@ struct Settings {
     model: SharedString,
     choices: Vec<Effort>,
     effort: Effort,
+    default: Effort,
     features: Vec<sailry_protocol::conversation::features::Feature>,
     selected: std::collections::BTreeMap<String, String>,
     busy: bool,
@@ -545,6 +547,23 @@ impl Render for Panel {
                 })
                 .collect::<Vec<_>>()
         });
+        let locked = settings.busy || !settings.connected;
+        let owner = self.owner.clone();
+        let reset = Button::new("model-controls-reset")
+            .rounded_full()
+            .ghost()
+            .small()
+            .size_6()
+            .icon(IconName::RotateCcw)
+            .accessibility_label(tr("composer_effort_reset"))
+            .tooltip(tr("composer_effort_reset"))
+            .debug_selector(|| "model-controls-reset".into())
+            .disabled(
+                locked || (settings.effort == settings.default && settings.selected.is_empty()),
+            )
+            .on_click(move |_, window, cx| {
+                let _ = owner.update(cx, |view, cx| view.reset_model_settings(window, cx));
+            });
         let controls = v_flex()
             .w_full()
             .flex_shrink_0()
@@ -569,11 +588,18 @@ impl Render for Panel {
                                     .h_6()
                                     .items_center()
                                     .gap_1()
+                                    .when(
+                                        !settings
+                                            .features
+                                            .iter()
+                                            .any(|feature| feature.id == "speed"),
+                                        |row| row.child(features::unsupported()),
+                                    )
                                     .children(settings.features.iter().map(|feature| {
                                         features::control(
                                             feature,
                                             settings.selected.get(&feature.id).map(String::as_str),
-                                            settings.busy || !settings.connected,
+                                            locked,
                                             self.owner.clone(),
                                         )
                                     })),
@@ -597,7 +623,8 @@ impl Render for Panel {
                                     .h_6()
                                     .items_center()
                                     .gap_1()
-                                    .children(contributions),
+                                    .children(contributions)
+                                    .child(reset),
                             ),
                     )
                     .child(

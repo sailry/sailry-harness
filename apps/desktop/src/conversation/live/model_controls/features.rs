@@ -61,6 +61,20 @@ fn label(feature: &Feature, option: &FeatureOption) -> SharedString {
     }
 }
 
+/// Keeps the Fast slot visible for models that do not advertise it.
+pub(super) fn unsupported() -> AnyElement {
+    Button::new("model-feature-speed-unsupported")
+        .rounded_full()
+        .ghost()
+        .small()
+        .size_6()
+        .icon(Icon::new(gpui_kit::assets::IconName::Zap))
+        .accessibility_label(tr("composer_feature_fast"))
+        .tooltip(tr("composer_feature_fast_unsupported"))
+        .disabled(true)
+        .into_any_element()
+}
+
 pub(super) fn control(
     feature: &Feature,
     selected: Option<&str>,
@@ -89,11 +103,7 @@ pub(super) fn control(
         .icon(icon)
         .selected(selected.is_some())
         .accessibility_label(label.clone())
-        .tooltip(format!(
-            "{} · {}",
-            label,
-            tr("composer_feature_description")
-        ))
+        .tooltip(format!("{label} · {}", tr("composer_feature_description")))
         .disabled(disabled);
     if let [option] = feature.options.as_slice() {
         let id = feature.id.clone();

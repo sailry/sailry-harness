@@ -62,6 +62,38 @@ impl View {
             .unwrap_or_default()
     }
 
+    /// Effort a new session starts with for the selected model.
+    pub(super) fn default_effort(&self) -> Effort {
+        self.config
+            .as_ref()
+            .and_then(|config| {
+                self.providers()
+                    .find(|provider| provider.id == config.provider)?
+                    .models
+                    .iter()
+                    .find(|model| model.id == config.model && model.reasoning)
+            })
+            .map_or(Effort::Default, |model| {
+                Effort::initial(&model.efforts, model.default_effort)
+            })
+    }
+
+    /// Restores the model's default effort and turns off every model feature.
+    pub(super) fn reset_model_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.configuration_blocked() || (self.session.is_some() && !self.connected()) {
+            return;
+        }
+        let effort = self.default_effort();
+        if let Some(mut config) = self.config.clone() {
+            if config.effort == effort && config.features.is_empty() {
+                return;
+            }
+            config.effort = effort;
+            config.features.clear();
+            self.configure(config, window, cx);
+        }
+    }
+
     pub(super) fn select_effort(
         &mut self,
         effort: Effort,
