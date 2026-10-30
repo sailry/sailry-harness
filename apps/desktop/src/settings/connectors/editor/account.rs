@@ -3,7 +3,8 @@ use super::*;
 use gpui_kit::component::{avatar::Avatar, radio::Radio};
 
 const ROW_HEIGHT: f32 = 52.;
-const AVATAR_SIZE: f32 = 28.;
+// Kit's standard small avatar; custom pixel sizes do not center its initials.
+const AVATAR_SIZE: f32 = 24.;
 
 pub(super) fn list(identity: Option<&connector::Identity>, cx: &App) -> AnyElement {
     let theme = cx.theme();
@@ -16,11 +17,7 @@ pub(super) fn list(identity: Option<&connector::Identity>, cx: &App) -> AnyEleme
     let row = match identity {
         Some(identity) => row
             .bg(theme.accent)
-            .child(
-                Avatar::new()
-                    .name(identity.name.clone())
-                    .with_size(px(AVATAR_SIZE)),
-            )
+            .child(Avatar::new().name(identity.name.clone()).small())
             .child(
                 v_flex()
                     .flex_1()

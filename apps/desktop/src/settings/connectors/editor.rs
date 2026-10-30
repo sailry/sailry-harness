@@ -515,9 +515,12 @@ impl Editor {
             .child(div().text_lg().font_semibold().child(title));
         let methods = TabBar::new("connector-methods")
             .segmented()
+            .w_full()
             .selected_index(selected)
             .children(kind.declaration.auth.iter().map(|auth| {
                 Tab::new()
+                    .flex_1()
+                    .min_w_0()
                     .label(tr(filter::key(auth.kind())))
                     .disabled(self.editing || self.pending || self.request.is_some())
             }))
