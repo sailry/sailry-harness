@@ -4,11 +4,12 @@ use crate::TurnId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Recent request history is bounded independently of cumulative counters.
-pub const RECENT_LIMIT: usize = 64;
+/// Recent rounds are bounded independently of cumulative counters.
+pub const RECENT_LIMIT: usize = 16;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
+    /// Latest request of each recent round with only its final attempt, as context views plot it.
     pub recent: Vec<Request>,
     /// Per-field means over all recorded attempts, independently of recent history limits.
     #[serde(default)]

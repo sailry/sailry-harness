@@ -175,7 +175,8 @@ async fn averages_history_before_limiting_requests() {
         .await
         .unwrap();
     assert_eq!(summary.calls, 66);
-    assert_eq!(summary.recent.len(), RECENT_LIMIT);
+    // One round publishes only its latest request.
+    assert_eq!(summary.recent.len(), 1);
     assert!(
         summary
             .recent
@@ -324,14 +325,8 @@ async fn merges_recovered_attempts_across_rebuilds() {
     let call = &summary.recent[0];
     assert_eq!(call.id, request.id);
     assert_eq!(call.turn_index, Some(1));
-    assert_eq!(
-        call.attempts,
-        vec![
-            attempt(1, Outcome::Failed),
-            attempt(2, Outcome::Cancelled),
-            attempt(3, Outcome::Succeeded)
-        ]
-    );
+    // Aggregates use every attempt; the published snapshot keeps the final one.
+    assert_eq!(call.attempts, vec![attempt(3, Outcome::Succeeded)]);
     let page = fixture.read(None, 20).await.page;
     assert!(page.entries.iter().any(|entry| {
         entry
@@ -372,7 +367,7 @@ async fn merges_recovered_attempts_across_rebuilds() {
 }
 
 #[tokio::test]
-async fn indexes_visible_rounds_before_limiting_requests() {
+async fn indexes_visible_rounds() {
     let mut fixture = Fixture::new().await;
     let record = |turn| Request {
         id: RequestId::new().to_string(),
@@ -414,7 +409,11 @@ async fn indexes_visible_rounds_before_limiting_requests() {
             .iter()
             .map(|value| value.turn_index)
             .collect::<Vec<_>>(),
-        [Some(1), Some(2), Some(2)]
+        [Some(1), Some(2)]
+    );
+    assert_eq!(
+        expected.observations.recent[1].attempts,
+        vec![attempt(2, Outcome::Succeeded)]
     );
     let fork = fixture.fork(source, second).await;
     history::rebuild(&mut fixture.database.connection)
@@ -455,11 +454,18 @@ async fn indexes_visible_rounds_before_limiting_requests() {
         .await
         .unwrap();
     assert_eq!(bounded.turns, 3);
-    assert_eq!(bounded.observations.recent.len(), RECENT_LIMIT);
-    assert_eq!(bounded.observations.recent.last().unwrap().turn_index, None);
-    assert!(
-        bounded.observations.recent[..RECENT_LIMIT - 1]
+    assert_eq!(
+        bounded
+            .observations
+            .recent
             .iter()
-            .all(|value| value.turn == third && value.turn_index == Some(3))
+            .map(|value| (value.turn, value.turn_index))
+            .collect::<Vec<_>>(),
+        [
+            (first, Some(1)),
+            (second, Some(2)),
+            (third, Some(3)),
+            (maintenance, None)
+        ]
     );
 }

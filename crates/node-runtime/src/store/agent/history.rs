@@ -125,6 +125,7 @@ async fn write(
                     None
                 };
                 let mut batches = Vec::new();
+                let mut turns = std::collections::BTreeSet::new();
                 for event in inputs {
                     let turn = match &event {
                         Input::Record(record) => record.turn,
@@ -183,6 +184,7 @@ async fn write(
                     let Some(entry) = insert(&transaction, session, turn, event).await? else {
                         continue;
                     };
+                    turns.insert(turn);
                     let visible: bool = {
                         let mut statement = transaction
                             .prepare(&format!(
@@ -224,25 +226,6 @@ async fn write(
                         super::super::notifications::system::compaction(&transaction, session, &entry)
                             .await?;
                     let background = super::background::list(&transaction, session).await?;
-                    let statistics = super::statistics::read(&transaction, session).await?;
-                    let parents = {
-                        let mut selected = Vec::new();
-                        for value in super::statistics::parents(&transaction, turn)
-                            .await?
-                            .into_iter()
-                        {
-                            selected.push(
-                                async {
-                                    let parent = value;
-                                    super::statistics::read(&transaction, parent)
-                                        .await
-                                        .map(|statistics| (parent, statistics))
-                                }
-                                .await?,
-                            );
-                        }
-                        Ok::<_, Fault>(selected)
-                    }?;
                     let envelope = changed(&transaction, database.node, session).await?;
                     let mut changes: Vec<_> = notice.into_iter().collect();
                     if settled::completed(&transaction, turn, &entry).await? {
@@ -251,31 +234,34 @@ async fn write(
                     let notices =
                         super::super::database::record(&transaction, database.node, changes).await?;
                     batches.push((
-                        entry, visible, revealed, reset, background, statistics, parents, envelope, notices,
+                        entry, visible, revealed, reset, background, envelope, notices,
                     ));
                 }
-                Ok((context, batches))
+                // Each statistics read supersedes the previous one, so a batch publishes only its final state.
+                let mut statistics = None;
+                let mut parents = Vec::new();
+                if !batches.is_empty() {
+                    statistics = Some(super::statistics::read(&transaction, session).await?);
+                    for turn in turns {
+                        for parent in super::statistics::parents(&transaction, turn).await? {
+                            if !parents.iter().any(|(selected, _)| *selected == parent) {
+                                let value = super::statistics::read(&transaction, parent).await?;
+                                parents.push((parent, value));
+                            }
+                        }
+                    }
+                }
+                Ok((context, batches, statistics, parents))
             }
             .await;
-            let (context, batches) = prepared?;
+            let (context, batches, statistics, parents) = prepared?;
             if batches.is_empty() {
                 return Ok(());
             }
             let publication = publication.lock().await;
             crate::store::database::conflict::commit(transaction).await?;
             let mut context = context;
-            for (
-                entry,
-                visible,
-                revealed,
-                reset,
-                background,
-                statistics,
-                parents,
-                envelope,
-                notices,
-            ) in batches
-            {
+            for (entry, visible, revealed, reset, background, envelope, notices) in batches {
                 publication.send(events, envelope);
                 for notice in notices {
                     publication.send(events, notice);
@@ -297,19 +283,21 @@ async fn write(
                         .feeds
                         .publish(database.node, session, Change::Entry(entry));
                 }
+                super::background::publish(database, background).await;
+            }
+            if let Some(statistics) = statistics {
                 database.feeds.publish(
                     database.node,
                     session,
                     Change::Statistics(Box::new(statistics)),
                 );
-                super::background::publish(database, background).await;
-                for (parent, statistics) in parents {
-                    database.feeds.publish(
-                        database.node,
-                        parent,
-                        Change::Statistics(Box::new(statistics)),
-                    );
-                }
+            }
+            for (parent, statistics) in parents {
+                database.feeds.publish(
+                    database.node,
+                    parent,
+                    Change::Statistics(Box::new(statistics)),
+                );
             }
             Ok(())
         };
@@ -940,7 +928,8 @@ async fn project_with_sources(
                         Part::Image(super::images::inline(db, turn, event, index, asset).await?)
                     }
                     BlockKind::Document { asset } => {
-                        let mut value = serde_json::json!({"mime_type":asset.mime,"data":super::blobs::get(db, &asset.digest).await?});
+                        // Bytes stay in Node storage; history pages carry only display metadata.
+                        let mut value = serde_json::json!({"type":"document","mime_type":asset.mime,"size":asset.size});
                         if let Some(uri) = &asset.uri {
                             value["uri"] = uri.clone().into();
                         }

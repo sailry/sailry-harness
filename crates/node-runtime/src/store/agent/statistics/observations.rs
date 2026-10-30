@@ -279,7 +279,15 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
     }
     result.latency = latency.finish();
     result.composition = composition.into_values().collect();
-    result.recent = calls
+    // Published statistics carry one bounded snapshot per round; aggregates above use every attempt.
+    let mut rounds = BTreeMap::<TurnId, (u64, Request)>::new();
+    for (sequence, mut call) in calls {
+        call.attempts = call.attempts.pop().into_iter().collect();
+        rounds.insert(call.turn, (sequence, call));
+    }
+    let mut rounds = rounds.into_values().collect::<Vec<_>>();
+    rounds.sort_by_key(|(sequence, _)| *sequence);
+    result.recent = rounds
         .into_iter()
         .rev()
         .take(RECENT_LIMIT)

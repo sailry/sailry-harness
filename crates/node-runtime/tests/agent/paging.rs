@@ -54,16 +54,21 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64, summaries:
     assert_eq!(observations.calls, requests);
     assert_eq!(observations.replies, turns);
     assert_eq!(observations.compactions, 0);
-    assert_eq!(
-        observations.recent.len(),
-        (requests as usize).min(conversation::observation::RECENT_LIMIT)
-    );
-    let ids = observations
+    // Published snapshots keep one latest request per round.
+    let rounds = observations
         .recent
         .iter()
-        .map(|request| &request.id)
+        .map(|request| request.turn)
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(ids.len(), observations.recent.len());
+    assert_eq!(rounds.len(), observations.recent.len());
+    assert!(!observations.recent.is_empty());
+    assert!(observations.recent.len() <= conversation::observation::RECENT_LIMIT);
+    assert!(
+        observations
+            .recent
+            .iter()
+            .all(|request| request.attempts.len() == 1)
+    );
     assert!(
         observations
             .recent
