@@ -98,7 +98,7 @@ fn form_popup(
                                 .size_full()
                                 .overflow_y_scrollbar()
                                 .px_6()
-                                .child(DialogContent::new().pt_4().gap_4().children(body)),
+                                .child(DialogContent::new().pt_4().pb_1().gap_4().children(body)),
                         ),
                 ),
         )
