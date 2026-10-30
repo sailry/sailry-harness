@@ -5,6 +5,7 @@ use gpui_kit::component::{
     input::Input,
     list::List,
     select::Select,
+    skeleton::Skeleton,
     spinner::Spinner,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -90,9 +91,9 @@ impl Library {
             .child(
                 div()
                     .debug_selector(|| "model-library-source".into())
-                    .w(px(148.))
+                    .w(px(168.))
                     .flex_shrink_0()
-                    .child(Select::new(&self.hub).w_full().small().disabled(locked)),
+                    .child(Select::new(&self.hub).w_full().disabled(locked)),
             )
             .child(
                 div()
@@ -103,7 +104,6 @@ impl Library {
                         Input::new(&self.query)
                             .id("model-library-query")
                             .w_full()
-                            .small()
                             .prefix(Icon::new(IconName::Search).small())
                             .disabled(locked),
                     ),
@@ -176,7 +176,29 @@ impl Library {
     /// Placeholder or retry content before the first page of results arrives.
     fn pending(&self, results: Group, cx: &mut Context<Self>) -> Group {
         if self.loading && self.items.is_empty() {
-            results.child(div().w_full().h_24())
+            // Placeholder rows follow the result layout until the first page arrives.
+            results.children([180., 140., 210.].map(|width| {
+                h_flex()
+                    .w_full()
+                    .py_3()
+                    .gap_3()
+                    .debug_selector(|| "model-library-placeholder".into())
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_2()
+                            .child(Skeleton::new().w(px(width)).h_4().rounded_sm())
+                            .child(
+                                Skeleton::new()
+                                    .secondary()
+                                    .w(px(width * 1.6))
+                                    .h_3()
+                                    .rounded_sm(),
+                            ),
+                    )
+                    .child(Skeleton::new().secondary().w_12().h_6().rounded_md())
+            }))
         } else if self.searched.is_none() {
             results.child(
                 div().h_24().flex().items_center().justify_center().child(
@@ -198,7 +220,8 @@ impl Library {
             .relative()
             .w_full()
             .child(results)
-            .when(self.loading, |card| {
+            // Placeholder rows already show the first load.
+            .when(self.loading && !self.items.is_empty(), |card| {
                 card.child(
                     div()
                         .id("model-library-loading")

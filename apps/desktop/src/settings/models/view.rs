@@ -94,10 +94,6 @@ impl Panel {
             ));
         }
         let entries = self.model_entries(kind, cx);
-        let installed = entries
-            .iter()
-            .filter(|model| matches!(model.status, ModelStatus::Installed))
-            .count();
         let catalog = self
             .catalogs
             .get(&kind)
@@ -107,13 +103,7 @@ impl Panel {
             .segmented()
             .menu(false)
             .selected_index(tab)
-            .child(
-                Tab::new().label(tr("knowledge_installed")).suffix(
-                    div()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(installed.to_string()),
-                ),
-            )
+            .child(Tab::new().label(tr("knowledge_installed")))
             .child(Tab::new().label(tr("local_models_available")))
             .on_click(
                 cx.listener(move |panel, tab, window, cx| panel.show(kind, *tab, window, cx)),
