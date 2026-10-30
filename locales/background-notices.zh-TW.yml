@@ -1,1 +1,8 @@
 background_notice_title: "背景結果"
+background_outcome_completed: "已完成"
+background_outcome_failed: "失敗"
+background_outcome_cancelled: "已取消"
+background_outcome_stopped: "已停止"
+background_outcome_timed_out: "逾時"
+background_outcome_interrupted: "已中斷"
+background_outcome_unknown: "結果不確定"

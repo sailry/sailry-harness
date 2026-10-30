@@ -1,1 +1,8 @@
 background_notice_title: "백그라운드 결과"
+background_outcome_completed: "완료"
+background_outcome_failed: "실패"
+background_outcome_cancelled: "취소됨"
+background_outcome_stopped: "중지됨"
+background_outcome_timed_out: "시간 초과"
+background_outcome_interrupted: "중단됨"
+background_outcome_unknown: "결과 불확실"

@@ -1,1 +1,8 @@
 background_notice_title: "后台结果"
+background_outcome_completed: "已完成"
+background_outcome_failed: "失败"
+background_outcome_cancelled: "已取消"
+background_outcome_stopped: "已停止"
+background_outcome_timed_out: "超时"
+background_outcome_interrupted: "已中断"
+background_outcome_unknown: "结果不确定"

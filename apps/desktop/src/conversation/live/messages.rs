@@ -22,6 +22,7 @@ mod files;
 mod frame;
 pub(super) use frame::elapsed;
 mod grounding;
+mod notices;
 mod retry;
 mod user;
 mod work;
@@ -292,55 +293,67 @@ impl View {
         if run.kind == sailry_protocol::conversation::RunKind::Compaction {
             return self.compaction_turn(run, &snapshot.page, cx);
         }
-        let users: Vec<_> = sailry_client::conversation::turns::group(&snapshot.page, turn)
+        let grouped = sailry_client::conversation::turns::group(&snapshot.page, turn);
+        let notices = notices::message(&grouped, cx);
+        let users: Vec<_> = notices
             .into_iter()
-            .filter(|run| run.continuation.is_none() && !run.notice)
-            .filter_map(|run| {
-                let turn = run.turn;
-                let sent_ms = snapshot
-                    .page
-                    .entries
-                    .iter()
-                    .find(|entry| entry.turn == turn && entry.author == "user")
-                    .map(|entry| entry.timestamp_ms);
-                let input = sailry_client::conversation::turns::input(&snapshot.page, turn);
-                let mut prompt = input
-                    .as_ref()
-                    .map(|input| input.message.text.clone())
-                    .unwrap_or_default();
-                let mut references = input
-                    .as_ref()
-                    .map(|input| input.message.references.clone())
-                    .unwrap_or_default();
-                let mut attachments: Vec<_> = input
-                    .as_ref()
+            .chain(
+                grouped
                     .into_iter()
-                    .flat_map(|input| &input.attachments)
-                    .map(attachments::images::ImageSource::from)
-                    .collect();
-                // Admission and canonical user content arrive independently.
-                if sent_ms.is_none()
-                    && run.input.is_none()
-                    && let Some(outgoing) = self
-                        .outgoing
-                        .as_ref()
-                        .filter(|outgoing| outgoing.turn == Some(turn))
-                        .or_else(|| self.sent.get(&turn))
-                {
-                    prompt = outgoing.input.text.clone();
-                    references = outgoing.input.references.clone();
-                    attachments = outgoing.attachments.clone();
-                }
-                if prompt.is_empty() && attachments.is_empty() && references.is_empty() {
-                    return None;
-                }
-                Some(
-                    Message::new()
-                        .alignment(MessageAlignment::End)
-                        .footer(self.user_footer(turn, &prompt, sent_ms, cx))
-                        .content(self.user_content(turn, prompt, &references, attachments, cx)),
-                )
-            })
+                    .filter(|run| run.continuation.is_none() && !run.notice)
+                    .filter_map(|run| {
+                        let turn = run.turn;
+                        let sent_ms = snapshot
+                            .page
+                            .entries
+                            .iter()
+                            .find(|entry| entry.turn == turn && entry.author == "user")
+                            .map(|entry| entry.timestamp_ms);
+                        let input = sailry_client::conversation::turns::input(&snapshot.page, turn);
+                        let mut prompt = input
+                            .as_ref()
+                            .map(|input| input.message.text.clone())
+                            .unwrap_or_default();
+                        let mut references = input
+                            .as_ref()
+                            .map(|input| input.message.references.clone())
+                            .unwrap_or_default();
+                        let mut attachments: Vec<_> = input
+                            .as_ref()
+                            .into_iter()
+                            .flat_map(|input| &input.attachments)
+                            .map(attachments::images::ImageSource::from)
+                            .collect();
+                        // Admission and canonical user content arrive independently.
+                        if sent_ms.is_none()
+                            && run.input.is_none()
+                            && let Some(outgoing) = self
+                                .outgoing
+                                .as_ref()
+                                .filter(|outgoing| outgoing.turn == Some(turn))
+                                .or_else(|| self.sent.get(&turn))
+                        {
+                            prompt = outgoing.input.text.clone();
+                            references = outgoing.input.references.clone();
+                            attachments = outgoing.attachments.clone();
+                        }
+                        if prompt.is_empty() && attachments.is_empty() && references.is_empty() {
+                            return None;
+                        }
+                        Some(
+                            Message::new()
+                                .alignment(MessageAlignment::End)
+                                .footer(self.user_footer(turn, &prompt, sent_ms, cx))
+                                .content(self.user_content(
+                                    turn,
+                                    prompt,
+                                    &references,
+                                    attachments,
+                                    cx,
+                                )),
+                        )
+                    }),
+            )
             .collect();
         let blocks = blocks::collect(turn, &self.history);
         let phase = self

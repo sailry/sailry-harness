@@ -1,1 +1,8 @@
 background_notice_title: "Фоновые результаты"
+background_outcome_completed: "Завершено"
+background_outcome_failed: "Ошибка"
+background_outcome_cancelled: "Отменено"
+background_outcome_stopped: "Остановлено"
+background_outcome_timed_out: "Время истекло"
+background_outcome_interrupted: "Прервано"
+background_outcome_unknown: "Результат неизвестен"

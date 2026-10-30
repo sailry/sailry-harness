@@ -1,1 +1,8 @@
 background_notice_title: "Hintergrundergebnisse"
+background_outcome_completed: "Abgeschlossen"
+background_outcome_failed: "Fehlgeschlagen"
+background_outcome_cancelled: "Abgebrochen"
+background_outcome_stopped: "Gestoppt"
+background_outcome_timed_out: "Zeitüberschreitung"
+background_outcome_interrupted: "Unterbrochen"
+background_outcome_unknown: "Ergebnis ungewiss"

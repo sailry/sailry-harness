@@ -1,1 +1,8 @@
 background_notice_title: "Resultados em segundo plano"
+background_outcome_completed: "Concluído"
+background_outcome_failed: "Falhou"
+background_outcome_cancelled: "Cancelado"
+background_outcome_stopped: "Parado"
+background_outcome_timed_out: "Tempo esgotado"
+background_outcome_interrupted: "Interrompido"
+background_outcome_unknown: "Resultado incerto"
