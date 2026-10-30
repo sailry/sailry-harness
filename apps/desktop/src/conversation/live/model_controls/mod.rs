@@ -554,7 +554,7 @@ impl Render for Panel {
             .ghost()
             .small()
             .size_6()
-            .icon(IconName::RotateCcw)
+            .icon(gpui_kit::assets::IconName::RotateCcw)
             .accessibility_label(tr("composer_effort_reset"))
             .tooltip(tr("composer_effort_reset"))
             .debug_selector(|| "model-controls-reset".into())
