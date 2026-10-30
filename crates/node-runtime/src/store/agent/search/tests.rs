@@ -111,6 +111,41 @@ async fn matches_literal_unicode() {
 }
 
 #[tokio::test]
+async fn respects_message_visibility() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["public needle"]).await;
+    let mut hidden = fixture::message(
+        "user",
+        canonical::Role::User,
+        vec![BlockKind::Text {
+            text: "private needle".into(),
+        }],
+    );
+    hidden.metadata.runtime = Some(canonical::Runtime {
+        user_visible: false,
+        ..Default::default()
+    });
+    let id = hidden.id.clone();
+    fixture.append([hidden]).await;
+    assert_eq!(read(&fixture, &options("needle")).await.matches.len(), 1);
+    for (visible, count) in [(true, 2), (false, 1)] {
+        let change = fixture::record(
+            "system",
+            canonical::Kind::Operation(canonical::Operation::Visibility {
+                message: id.clone(),
+                user_visible: visible,
+                agent_visible: true,
+            }),
+        );
+        fixture.append([change]).await;
+        assert_eq!(
+            read(&fixture, &options("needle")).await.matches.len(),
+            count
+        );
+    }
+}
+
+#[tokio::test]
 async fn bounds_sparse_scans() {
     let mut fixture = Fixture::new().await;
     let first = fixture.completed(&["old needle 中文 🙂"]).await;

@@ -64,10 +64,13 @@ pub(in crate::store) async fn search(
         .dfa_size_limit(1 << 20)
         .build()
         .map_err(|_| sailry_protocol::Fault::invalid("conversation search text is invalid"))?;
-    let mut query = db
-        .prepare(history::EVENTS_QUERY)
-        .await
-        .map_err(storage_error)?;
+    let sql = format!(
+        "SELECT e.sequence,e.turn,e.body,t.rowid,{} FROM conversation_events h
+         JOIN agent_events e ON e.sequence=h.sequence JOIN turns t ON t.id=e.turn
+         WHERE h.session=?1 AND h.sequence<?2 ORDER BY h.sequence DESC LIMIT ?3",
+        history::VISIBLE_EVENT
+    );
+    let mut query = db.prepare(&sql).await.map_err(storage_error)?;
     let mut rows = query
         .query(params![
             session.to_string(),
@@ -98,6 +101,9 @@ pub(in crate::store) async fn search(
         bytes += body.len();
         count += 1;
         last = Some(sequence);
+        if !row.get::<bool>(4).map_err(storage_error)? {
+            continue;
+        }
         let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
         if let Some((part, snippet, highlight)) = find(&event, &matcher) {
             let turn: String = row.get(1).map_err(storage_error)?;

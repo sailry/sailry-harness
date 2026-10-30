@@ -2,7 +2,7 @@ use super::{configuration::support, tools};
 use sailry_client::Client;
 use sailry_node_runtime::Node;
 use sailry_protocol::{conversation::Status, *};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::fs;
 
 #[test]
@@ -135,8 +135,25 @@ fn controls_host_skills() {
         .iter()
         .map(|message| serde_json::from_str(message["content"].as_str().unwrap()).unwrap())
         .collect();
-    assert_eq!(results[0]["content"], body);
-    assert_eq!(results[1]["content"], "Guide 1.0.0 中文 🙂");
+    let contexts = support::turn_contexts(&requests[5]);
+    for (index, path, content) in [
+        (0, "SKILL.md", body.as_str()),
+        (1, "references/guide.md", "Guide 1.0.0 中文 🙂"),
+    ] {
+        assert!(results[index].get("content").is_none());
+        assert_eq!(
+            results[index]["context"],
+            "Full content is supplied in retained owner context"
+        );
+        let owners: Vec<Value> = contexts
+            .iter()
+            .flat_map(|context| context.lines())
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|value| value["skill"] == "example:analysis" && value["path"] == path)
+            .collect();
+        assert_eq!(owners.len(), 1);
+        assert_eq!(owners[0]["content"], content);
+    }
     assert_eq!(results[2]["answer"], " 第一行 中文 🙂\nSecond line ");
     assert_eq!(
         results[3]["data"]["stdout"]["text"],

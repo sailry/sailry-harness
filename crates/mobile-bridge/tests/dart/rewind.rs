@@ -83,7 +83,7 @@ fn recovers_without_replay() {
         .filter(|entry| baseline[0].runs.iter().any(|run| run.turn == entry.turn))
         .collect();
     assert_eq!(inherited, baseline[0].entries.iter().collect::<Vec<_>>());
-    let body = server.requests.lock().unwrap().last().unwrap().clone();
+    let body = support::task_request(server.requests.lock().unwrap().last().unwrap());
     let contents: Vec<_> = body["messages"]
         .as_array()
         .unwrap()

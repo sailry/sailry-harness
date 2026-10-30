@@ -21,7 +21,7 @@ export function prepare(input) {
   if (input.system) messages.push({role:'system',content:input.system});
   for(const item of input.messages) {
     if(item.role==='tool') messages.push({role:'tool',tool_call_id:item.call_id,content:JSON.stringify(item.parts)});
-    else if(item.role==='user') messages.push({role:'user',content:item.parts.map(part=>part.text??'').join('')});
+    else if(item.role==='user') messages.push({role:'user',content:item.parts.map(part=>part.text??'').join('\n')});
     else messages.push({role:'assistant',content:item.parts.filter(part=>part.kind==='text').map(part=>part.text).join(''),
       tool_calls:item.parts.filter(part=>part.kind==='tool_call').map(part=>({id:part.id,type:'function',function:{name:part.name,arguments:JSON.stringify(part.arguments)}}))});
   }

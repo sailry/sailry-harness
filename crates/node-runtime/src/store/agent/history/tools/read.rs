@@ -209,7 +209,7 @@ async fn checkpoint(
     detail: &mut Detail,
 ) -> Result<(), Fault> {
     use sailry_protocol::{
-        git::{GitDiff, GitDiffScope, MAX_DIFF_BYTES},
+        GitDiff, GitDiffScope, MAX_DIFF_BYTES,
         tool::{detail::Body, projection::Format},
     };
     let Some(declared) = raw

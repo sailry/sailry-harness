@@ -72,6 +72,14 @@ async fn searches_unloaded_history() {
             .unwrap();
         assert_eq!(found.matches.len(), 1);
         assert_eq!(found.matches[0].turn, first);
+        assert!(
+            client
+                .search_conversation(session.id, query("Session environment"))
+                .await
+                .unwrap()
+                .matches
+                .is_empty()
+        );
         assert_eq!(
             &found.matches[0].snippet[found.matches[0].highlight.clone()],
             "ÄBC 中文 🙂"

@@ -78,6 +78,7 @@ Future<Map<String, dynamic>> observe(
 class Fixture {
   final HttpServer server;
   final readTool = Platform.environment['SAILRY_READ_TOOL']!;
+  static const exposedReadTool = 'read_file';
   final release = Completer<void>();
   int requests = 0;
   late String session;
@@ -102,7 +103,7 @@ class Fixture {
     if (results.isEmpty) {
       check(
         (body['tools'] as List).any(
-          (tool) => tool['function']['name'] == readTool,
+          (tool) => tool['function']['name'] == exposedReadTool,
         ),
         'execution Node advertises read tool',
       );
@@ -132,7 +133,7 @@ class Fixture {
                     'id': 'ffi-call',
                     'type': 'function',
                     'function': {
-                      'name': readTool,
+                      'name': exposedReadTool,
                       'arguments': jsonEncode({'path': 'tool.txt'}),
                     },
                   },
@@ -146,20 +147,24 @@ class Fixture {
       await response.close();
       return;
     }
-    final file = jsonDecode(
-      results.singleWhere(
-        (message) => message['tool_call_id'] == 'ffi-call',
-      )['content'],
-    )['data'];
+    final file =
+        results.singleWhere(
+              (message) => message['tool_call_id'] == 'ffi-call',
+            )['content']
+            as String;
+    final lines = file.split('\n');
+    final source = jsonDecode(lines.last) as Map<String, dynamic>;
     check(
-      file['path'] == 'tool.txt' &&
-          file['offset'] == 0 &&
-          file['next_offset'] == null &&
-          jsonEncode(file['lines']) ==
-              jsonEncode([
-                {'number': 1, 'text': '中文 tool result 🙂'},
-              ]),
-      'tool result returns to actual model context',
+      lines.length == 4 &&
+          lines[0] == 'tool.txt' &&
+          RegExp(
+            r'^Lines 1–1; 23 bytes; revision [a-f0-9]{64}$',
+          ).hasMatch(lines[1]) &&
+          lines[2] == '1\t中文 tool result 🙂 [no trailing newline]' &&
+          source['next_offset'] == null &&
+          source['output']['call'] == 'ffi-call' &&
+          RegExp(r'^[a-f0-9]{64}$').hasMatch(source['output']['revision']),
+      'numbered tool result and original reference return to model context',
     );
     final chunk = {
       'id': 'ffi-completion',

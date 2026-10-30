@@ -98,16 +98,39 @@ Future<void> main() async {
     final output = jsonDecode(result)['Ok'];
     check(
       output?['kind'] == 'provider_login',
-      'device login reaches durable Node admission',
+      'login reaches durable Node admission',
     );
     publicOnly(output);
     final attempt = output['data'];
     var updates = await connection.watchLogin(attempt: jsonEncode(attempt));
-    final pending = await state(updates, (kind) => kind == 'pending');
-    check(
-      pending['state']['data']['user_code'] == 'FFI-1234',
-      'device code crosses FFI',
+    final browser = authentication == 'chat_gpt_oauth';
+    final pending = await state(
+      updates,
+      (kind) => kind == (browser ? 'browser' : 'pending'),
     );
+    Uri? callback;
+    if (browser) {
+      final authorization = Uri.parse(
+        pending['state']['data']['authorization_url'] as String,
+      );
+      final query = authorization.queryParameters;
+      check(
+        authorization.path == '/oauth/authorize' &&
+            query['redirect_uri'] == 'http://localhost:1455/auth/callback' &&
+            query['code_challenge_method'] == 'S256' &&
+            query['code_challenge']!.isNotEmpty &&
+            !query.containsKey('code_verifier'),
+        'browser authorization exposes the challenge without its verifier',
+      );
+      callback = Uri.parse(query['redirect_uri']!).replace(
+        queryParameters: {'code': 'ffi-code-secret', 'state': query['state']!},
+      );
+    } else {
+      check(
+        pending['state']['data']['user_code'] == 'FFI-1234',
+        'device code crosses FFI',
+      );
+    }
     if (index == 0) {
       await execute(connection, 'cancel_provider_login', {
         'attempt': attempt['id'],
@@ -129,6 +152,13 @@ Future<void> main() async {
         connection = await controller.connect(address: address);
       }
       updates = await connection.watchLogin(attempt: jsonEncode(attempt));
+      if (callback != null) {
+        await state(updates, (kind) => kind == 'browser');
+        await execute(connection, 'complete_provider_login', {
+          'attempt': attempt['id'],
+          'callback': callback.toString(),
+        });
+      }
       await state(updates, (kind) => kind == 'connected');
     }
     check(

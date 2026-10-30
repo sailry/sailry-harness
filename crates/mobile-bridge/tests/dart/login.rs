@@ -37,16 +37,6 @@ fn resumes_authorization() {
                         Reply::Json(json!({"data":[{"id":"ffi-login","supported_endpoints":["/responses"],"capabilities":{"type":"chat","limits":{"max_context_window_tokens":8192,"max_output_tokens":512},"supports":{"vision":true,"tool_calls":true,"reasoning_effort":["low","high"]}}}]}))
                     }
                 }
-                "/api/accounts/deviceauth/usercode" => {
-                    assert_eq!(request.method, "POST");
-                    assert_eq!(serde_json::from_str::<Value>(&request.body).unwrap(), json!({"client_id":CLIENT}));
-                    Reply::Json(json!({"device_auth_id":"ffi-device-secret","user_code":"FFI-1234","interval":1,"expires_in":900}))
-                }
-                "/api/accounts/deviceauth/token" => {
-                    assert_eq!(request.method, "POST");
-                    assert_eq!(serde_json::from_str::<Value>(&request.body).unwrap(), json!({"device_auth_id":"ffi-device-secret","user_code":"FFI-1234"}));
-                    Reply::Json(json!({"authorization_code":"ffi-code-secret","code_verifier":"ffi-verifier-secret"}))
-                }
                 "/oauth/token" => Reply::Json(tokens(request)),
                 "/.well-known/openid-configuration" => {
                     let issuer = format!("http://{}", request.headers["host"]);
@@ -108,8 +98,21 @@ fn resumes_authorization() {
                     "/api/accounts/deviceauth/usercode" | "/login/device/code"
                 ))
                 .count(),
-            3
+            if authentication == "chat_gpt_oauth" {
+                0
+            } else {
+                3
+            }
         );
+        if authentication == "chat_gpt_oauth" {
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| request.path == "/oauth/token")
+                    .count(),
+                2
+            );
+        }
         // Two completed logins refresh models, followed by discovery and validation.
         assert_eq!(
             requests
@@ -139,12 +142,9 @@ fn tokens(request: &Request) -> Value {
     );
     assert_eq!(form["grant_type"], "authorization_code");
     assert_eq!(form["client_id"], CLIENT);
-    assert_eq!(
-        form["redirect_uri"],
-        "https://auth.openai.com/deviceauth/callback"
-    );
+    assert_eq!(form["redirect_uri"], "http://localhost:1455/auth/callback");
     assert_eq!(form["code"], "ffi-code-secret");
-    assert_eq!(form["code_verifier"], "ffi-verifier-secret");
+    assert_eq!(form["code_verifier"].len(), 43);
     for field in ["resource", "scope", "client_secret"] {
         assert!(!form.contains_key(field));
     }
