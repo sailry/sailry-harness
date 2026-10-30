@@ -233,7 +233,7 @@ class Lint(unittest.TestCase):
 class Commands(unittest.TestCase):
     def test_uses_cargo_default_locally(self):
         for name in ("backend", "desktop", "host", "desktop-production", "host-production",
-                     "desktop-lifecycle", "host-mac", "databases", "mobile-contract", "lint"):
+                     "desktop-lifecycle", "host-mac", "databases", "mobile-contract", "lint", "tests"):
             with self.subTest(name=name):
                 for command in ci.check_commands(name, selection=ci.outputs(ci.LANES)):
                     self.assertNotIn("--jobs", command["argv"])
@@ -241,7 +241,7 @@ class Commands(unittest.TestCase):
                     self.assertNotIn(None, command["argv"])
 
     def test_preserves_explicit_build_limits(self):
-        for name in ("backend", "desktop", "host", "desktop-production", "host-production", "lint"):
+        for name in ("backend", "desktop", "host", "desktop-production", "host-production", "lint", "tests"):
             with self.subTest(name=name):
                 commands = ci.check_commands(name, "14", selection=ci.outputs(ci.LANES))
                 for command in commands:
@@ -267,7 +267,9 @@ class Commands(unittest.TestCase):
         self.assertEqual(len(commands), 3)
         build = commands[1]["argv"]
         self.assertEqual(build[:3], ["cargo", "build", "--locked"])
-        self.assertEqual(build[build.index("--features") + 1], "test-support")
+        self.assertEqual(build[build.index("--features") + 1], "sailry-node-runtime/test-support")
+        packages = lambda argv: [argv[index + 1] for index, value in enumerate(argv) if value == "-p"]
+        self.assertEqual(packages(build), packages(commands[0]["argv"]))
         self.assertEqual(build[build.index("--example") + 1], "plugin-test-host")
         self.assertEqual(build[build.index("--profile") + 1], "test")
         self.assertEqual(commands[2]["argv"][1:], ["scripts/test-plugins.py", "--runtime-host", "/fixture/lane/aarch64-apple-darwin/debug/examples/plugin-test-host"])
@@ -300,19 +302,42 @@ class Commands(unittest.TestCase):
 
     def test_reports_platform_and_service_boundaries(self):
         plan = ci.local_checks(ci.LANES, "affected", "Darwin")
-        self.assertIn("host-mac", plan["checks"])
-        self.assertNotIn("host", plan["checks"])
+        self.assertIn("tests", plan["checks"])
+        self.assertIn("host-production", plan["checks"])
         self.assertNotIn("databases", plan["checks"])
         self.assertTrue(any("database" in value for value in plan["not_run"]))
         windows = ci.local_checks({"desktop", "host", "android"}, "affected", "Windows")
-        self.assertNotIn("desktop", windows["checks"])
-        self.assertNotIn("host", windows["checks"])
+        self.assertNotIn("tests", windows["checks"])
+        self.assertNotIn("desktop-production", windows["checks"])
         self.assertTrue(any("Android" in value for value in windows["not_run"]))
+
+    def test_builds_local_product_tests_once(self):
+        plan = ci.local_checks(ci.LANES, "affected", "Darwin")
+        for name in ("backend", "desktop", "desktop-lifecycle", "host", "host-mac"):
+            self.assertNotIn(name, plan["checks"])
+        commands = ci.check_commands("tests", selection=ci.outputs(ci.LANES), threads="7", system="Darwin")
+        run, build = commands[0]["argv"], commands[1]["argv"]
+        packages = lambda argv: [argv[index + 1] for index, value in enumerate(argv) if value == "-p"]
+        expected = [*ci.LINT_PACKAGES["shared"], *ci.LINT_PACKAGES["desktop"], *ci.LINT_PACKAGES["host"]]
+        self.assertEqual(packages(run), expected)
+        self.assertEqual(packages(build), expected)
+        self.assertIn("--test-threads=7", run)
+        self.assertIn("binary(lifecycle)", run[run.index("--filterset") + 1])
+        self.assertEqual(commands[2]["argv"][1], "scripts/test-plugins.py")
+        linux = ci.check_commands("tests", selection=ci.outputs({"host"}), system="Linux")
+        self.assertEqual(len(linux), 1)
+        self.assertNotIn("--filterset", linux[0]["argv"])
+        self.assertIn(f"--test-threads={ci.CI_TEST_THREADS}", linux[0]["argv"])
+        with self.assertRaises(ValueError):
+            ci.check_commands("tests", selection=ci.outputs({"desktop"}), system="Linux")
 
     def test_rejects_unknown_checks_and_invalid_jobs(self):
         for name, jobs in [("missing", "1"), ("backend", "0"), ("backend", "1; false")]:
             with self.subTest(name=name, jobs=jobs), self.assertRaises(ValueError):
                 ci.check_commands(name, jobs)
+        for threads in ("0", "4; false"):
+            with self.subTest(threads=threads), self.assertRaises(ValueError):
+                ci.check_commands("backend", threads=threads)
 
 
 if __name__ == "__main__":

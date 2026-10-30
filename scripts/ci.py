@@ -65,6 +65,8 @@ LINT_PACKAGES = {
     "host": ("sailry-host",),
     "mobile": ("sailry-mobile-bridge",),
 }
+# GitHub runners keep their measured test concurrency; local runs scale with the machine.
+CI_TEST_THREADS = "4"
 # Node is also exercised by Desktop and Mobile's real-Node contract fixtures.
 DEPENDENTS = (
     (("scripts/package/code-parsers.",), {"shared", "desktop", "host", "mobile_ffi"}),
@@ -177,10 +179,40 @@ def lint(selection, jobs=None):
     return subprocess.run(command, env=environment, check=False).returncode
 
 
-def check_commands(name, jobs=None, root=ROOT, selection=None, env=None):
+def local_test_threads():
+    return str(max(4, (os.cpu_count() or 1) // 2))
+
+
+def tested_products(selected, system):
+    """Product test groups one local test run covers on this platform."""
+    scope = set()
+    if "shared" in selected:
+        scope.add("shared")
+    if "desktop" in selected and system == "Darwin":
+        scope.add("desktop")
+    if "host" in selected and system in {"Darwin", "Linux"}:
+        # macOS covers the process lifecycle; Linux runs every Host test.
+        scope.add("host-mac" if system == "Darwin" else "host")
+    return scope
+
+
+def tested_packages(scope):
+    """Packages and optional nextest filter for one combined build of the selected tests."""
+    packages = []
+    for group, owner in (("shared", "shared"), ("desktop", "desktop"), ("host", "host"), ("host-mac", "host")):
+        if group in scope:
+            packages.extend(LINT_PACKAGES[owner])
+    expression = "not (package(sailry-host) and not binary(lifecycle))" if "host-mac" in scope else None
+    return packages, expression
+
+
+def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads=None, system=None):
     """The command source for CI phases and explicit local validation."""
     if jobs is not None and not re.fullmatch(r"[1-9][0-9]*", jobs):
         raise ValueError("Invalid build job count")
+    threads = CI_TEST_THREADS if threads is None else threads
+    if not re.fullmatch(r"[1-9][0-9]*", threads):
+        raise ValueError("Invalid test thread count")
     python = sys.executable
     cargo_jobs = ["--jobs", jobs] if jobs else []
     nextest_jobs = ["--build-jobs", jobs] if jobs else []
@@ -194,6 +226,13 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None):
         runtime_host = runtime_host.with_suffix(".exe")
     packages = [part for package in LINT_PACKAGES["shared"] for part in ("-p", package)]
     backend = ["cargo", "nextest", "run", "--locked", *packages]
+
+    def plugin_contracts(selected):
+        # Build the example with the test run's packages so it reuses that dependency graph.
+        return [
+            (["cargo", "build", "--locked", *selected, "--features", "sailry-node-runtime/test-support", "--example", "plugin-test-host", "--profile", "test", *cargo_jobs], "."),
+            ([python, "scripts/test-plugins.py", "--runtime-host", str(runtime_host)], "."),
+        ]
     desktop = ["cargo", "nextest", "run", "--locked", "-p", "sailry-content", "-p", "sailry-desktop"]
     host = ["cargo", "nextest", "run", "--locked", "-p", "sailry-host"]
     commands = {
@@ -202,16 +241,15 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None):
         "workflows": [([os.getenv("ACTIONLINT", "actionlint"), "-shellcheck=", "-pyflakes="], ".")],
         "format": [(["cargo", "fmt", "--all", "--", "--check"], ".")],
         "backend": [
-            (backend + ["--timings", *nextest_jobs, "--profile", "ci", "--test-threads=4"], "."),
-            (["cargo", "build", "--locked", "-p", "sailry-node-runtime", "--features", "test-support", "--example", "plugin-test-host", "--profile", "test", *cargo_jobs], "."),
-            ([python, "scripts/test-plugins.py", "--runtime-host", str(runtime_host)], "."),
+            (backend + ["--timings", *nextest_jobs, "--profile", "ci", f"--test-threads={threads}"], "."),
+            *plugin_contracts(packages),
         ],
         "databases": [(backend + [*nextest_jobs, "--profile", "databases", "--run-ignored", "only", "--filterset", "binary(databases)", "--test-threads=1"], ".")],
         "desktop": [(desktop + ["--lib", "--bin", "sailry-desktop", "--timings", *nextest_jobs, "--profile", "ci"], ".")],
         "desktop-production": [(["cargo", "check", "--locked", "-p", "sailry-desktop", *cargo_jobs], ".")],
         "desktop-lifecycle": [(["cargo", "nextest", "run", "--locked", "-p", "sailry-desktop", "--test", "lifecycle", *nextest_jobs, "--profile", "lifecycle"], ".")],
-        "host": [(host + ["--timings", *nextest_jobs, "--profile", "ci", "--test-threads=4"], ".")],
-        "host-mac": [(host + ["--test", "lifecycle", "--timings", *nextest_jobs, "--profile", "ci", "--test-threads=4"], ".")],
+        "host": [(host + ["--timings", *nextest_jobs, "--profile", "ci", f"--test-threads={threads}"], ".")],
+        "host-mac": [(host + ["--test", "lifecycle", "--timings", *nextest_jobs, "--profile", "ci", f"--test-threads={threads}"], ".")],
         "host-production": [(["cargo", "check", "--locked", "-p", "sailry-host", *cargo_jobs], ".")],
         "desktop-source": [
             ([python, "scripts/ci.py", "fixtures", "desktop"], "."),
@@ -235,6 +273,20 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None):
     }
     if name == "lint":
         return [{"argv": lint_command(selection, jobs), "cwd": "."}]
+    if name == "tests":
+        # One build for every selected product avoids rebuilding the graph per feature set.
+        if not isinstance(selection, dict) or set(selection) != LANES:
+            raise ValueError("Missing test selection")
+        scope = tested_products({lane for lane in LANES if selection[lane] == "true"},
+                           platform.system() if system is None else system)
+        selected, expression = tested_packages(scope)
+        if not selected:
+            raise ValueError("No product tests selected")
+        selected = [part for package in selected for part in ("-p", package)]
+        run = ["cargo", "nextest", "run", "--locked", *selected, "--timings", *nextest_jobs,
+               "--profile", "ci", f"--test-threads={threads}", *(["--filterset", expression] if expression else [])]
+        steps = [(run, ".")] + (plugin_contracts(selected) if "shared" in scope else [])
+        return [{"argv": argv, "cwd": cwd} for argv, cwd in steps]
     if name == "scripts":
         listed = subprocess.run(
             ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.sh"],
@@ -277,9 +329,9 @@ def parser_environment(root, env, libraries):
     return environment
 
 
-def run_check(name, jobs=None, root=ROOT, selection=None, env=None):
-    commands = check_commands(name, jobs, root, selection, env)
-    if name in {"backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
+def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None):
+    commands = check_commands(name, jobs, root, selection, env, threads)
+    if name in {"tests", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
         env = parser_environment(root, env, libraries=True)
     elif name in {"lint", "desktop-production", "host-production"}:
         env = parser_environment(root, env, libraries=False)
@@ -306,17 +358,19 @@ def local_checks(selected, tier, system):
     if tier == "affected":
         if lint_packages(selected):
             checks.append("lint")
+        scope = tested_products(selected, system)
+        if scope:
+            checks.append("tests")
         if "shared" in selected:
-            checks.append("backend")
             remaining.append("Shared database fixtures require configured PostgreSQL and MySQL services")
         if "desktop" in selected:
-            if system == "Darwin":
-                checks.extend(("desktop", "desktop-production", "desktop-lifecycle"))
+            if "desktop" in scope:
+                checks.append("desktop-production")
             else:
                 remaining.append("Desktop CI uses macOS and its pinned Xcode SDK")
         if "host" in selected:
-            if system in {"Darwin", "Linux"}:
-                checks.extend(("host-mac" if system == "Darwin" else "host", "host-production"))
+            if scope & {"host", "host-mac"}:
+                checks.append("host-production")
                 remaining.append("Host CI also validates the other Linux/macOS runner")
             else:
                 remaining.append("Host CI requires Linux or macOS")
@@ -343,6 +397,7 @@ def local(arguments):
     parser.add_argument("--event", choices=("push", "pull_request"), default="push")
     parser.add_argument("--all", action="store_true", dest="full")
     parser.add_argument("--jobs")
+    parser.add_argument("--test-threads", default=local_test_threads())
     parser.add_argument("--target-dir", type=Path)
     parser.add_argument("--plan", action="store_true")
     args = parser.parse_args(arguments)
@@ -355,7 +410,7 @@ def local(arguments):
         selected = {name for name, value in source["selection"].items() if value == "true"}
         plan = local_checks(selected, args.tier, platform.system())
         commands = [{"check": name, **command} for name in plan["checks"]
-                    for command in check_commands(name, args.jobs, ROOT, source["selection"], env)]
+                    for command in check_commands(name, args.jobs, ROOT, source["selection"], env, args.test_threads)]
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.error(str(error))
     environment = {name: os.getenv(name) for name in (
@@ -376,7 +431,7 @@ def local(arguments):
         return 1
     for name in plan["checks"]:
         try:
-            code = run_check(name, args.jobs, ROOT, source["selection"], env)
+            code = run_check(name, args.jobs, ROOT, source["selection"], env, args.test_threads)
         except OSError as error:
             print(f"Check {name} could not run: {error}", file=sys.stderr)
             return 1

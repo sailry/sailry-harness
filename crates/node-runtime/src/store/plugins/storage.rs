@@ -436,19 +436,21 @@ mod tests {
     #[tokio::test]
     async fn deletion_preserves_revisions() {
         let db = database().await;
-        for index in 0..storage::MAX_NAMESPACE_KEYS {
-            write(
-                &db,
-                "game",
-                &index.to_string(),
-                &Value::Null,
-                b"null",
-                0,
-                None,
+        // Seed all but the last key without rescanning the growing namespace for every row.
+        db.execute("BEGIN CONCURRENT", ()).await.unwrap();
+        for index in 0..storage::MAX_NAMESPACE_KEYS - 1 {
+            db.execute(
+                "INSERT INTO plugin_values(name,key,revision,value) VALUES(?1,?2,1,?3)",
+                params!["game", index.to_string(), b"null".as_slice()],
             )
             .await
             .unwrap();
         }
+        db.execute("COMMIT", ()).await.unwrap();
+        let last = (storage::MAX_NAMESPACE_KEYS - 1).to_string();
+        write(&db, "game", &last, &Value::Null, b"null", 0, None)
+            .await
+            .unwrap();
         assert_eq!(
             write(&db, "game", "extra", &Value::Null, b"null", 0, None)
                 .await

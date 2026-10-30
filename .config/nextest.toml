@@ -10,12 +10,18 @@ path = "junit.xml"
 
 [test-groups]
 host-startup = { max-threads = 1 }
+desktop-lifecycle = { max-threads = 1 }
 
 [[profile.ci.overrides]]
 # Fresh Host profiles durably materialize every bundled package. Avoid competing
 # full-sync workloads; concurrency within each lifecycle test remains intact.
 filter = 'package(sailry-host) & binary(lifecycle)'
 test-group = 'host-startup'
+
+[[profile.ci.overrides]]
+# Combined local runs keep Desktop process lifecycle tests serial, as the lifecycle profile does.
+filter = 'package(sailry-desktop) & binary(lifecycle)'
+test-group = 'desktop-lifecycle'
 
 # Keep database results separate from the ordinary backend report.
 [profile.databases]

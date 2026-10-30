@@ -18,7 +18,8 @@ mod tests;
 
 const DAY: i64 = 86_400_000;
 const HALF_HOUR: i64 = 1_800_000;
-const MAX_ROWS: usize = 100_000;
+// Unit tests use a smaller limit so the boundary fixture stays fast.
+const MAX_ROWS: usize = if cfg!(test) { 1_000 } else { 100_000 };
 const MAX_GROUPS: usize = 4096;
 
 pub(in crate::store) async fn read(
