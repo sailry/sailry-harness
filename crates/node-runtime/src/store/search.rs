@@ -4,10 +4,10 @@ use super::{
     database::{encode, storage_error},
     unavailable,
 };
-use crate::web::search::{Auth, Options, Plan};
+use crate::web::search::{Auth, Options, Plan, model};
 use sailry_link::Admission;
 use sailry_protocol::{
-    Command, ErrorCode, Event, Fault, NodeId, Output, Request, Secret,
+    Command, ErrorCode, Event, Fault, NodeId, Output, Request, Secret, SessionId,
     plugin::settings::SecretUpdate,
     search::{self, Driver, Selection},
 };
@@ -16,6 +16,7 @@ use turso::Connection;
 
 #[cfg(test)]
 mod tests;
+mod usage;
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -92,9 +93,19 @@ pub(super) async fn read(db: &Connection) -> Result<search::Settings, Fault> {
 
 pub(super) async fn plan(db: &Connection) -> Result<Plan, Fault> {
     let stored = load(db).await?;
+    let provider = match stored
+        .settings
+        .providers
+        .get(&Driver::Model)
+        .and_then(|config| config.model.as_ref())
+    {
+        Some(binding) => super::agent::providers::get(db, binding.provider).await?,
+        None => None,
+    };
     Ok(Plan {
         settings: stored.settings,
         credentials: stored.credentials,
+        provider,
     })
 }
 
@@ -115,6 +126,21 @@ fn validate(stored: &Stored) -> Result<(), Fault> {
             .get(&driver)
             .ok_or_else(|| Fault::invalid("search driver configuration is missing"))?;
         let auth = stored.credentials.get(&driver).cloned().unwrap_or_default();
+        if driver != Driver::Model && config.model.is_some() {
+            return Err(Fault::invalid(
+                "model binding requires the model search driver",
+            ));
+        }
+        if let Some(binding) = &config.model
+            && (binding.model.trim().is_empty()
+                || binding.model.len() > 256
+                || binding.model.chars().any(char::is_control))
+        {
+            return Err(Fault::invalid("invalid search model"));
+        }
+        if driver == Driver::Model && auth.key.is_some() {
+            return Err(Fault::invalid("model search uses provider credentials"));
+        }
         if config.key_configured != auth.key.is_some()
             || config.basic_configured != auth.basic.is_some()
         {
@@ -254,11 +280,36 @@ impl Ingress {
                 } else {
                     (None, self.closed.clone())
                 };
-                Output::SearchPage(
-                    self.search
-                        .search(caller, request.id, self.search_plan().await?, input, &stop)
-                        .await?,
-                )
+                let plan = self.search_plan().await?;
+                if plan.settings.driver == Some(Selection::Driver(Driver::Model)) {
+                    let session = request.plugin.as_ref().and_then(|context| context.session);
+                    let page = self
+                        .search
+                        .search_with(
+                            caller,
+                            request.id,
+                            plan,
+                            input,
+                            &stop,
+                            Options {
+                                fresh: false,
+                                context: Some(model::Context {
+                                    ingress: self,
+                                    caller,
+                                    session: session.unwrap_or_default(),
+                                    turn: turn.filter(|_| session.is_some()),
+                                }),
+                            },
+                        )
+                        .await?;
+                    Output::SearchPage(page)
+                } else {
+                    Output::SearchPage(
+                        self.search
+                            .search(caller, request.id, plan, input, &stop)
+                            .await?,
+                    )
+                }
             }
             Command::TestSearchDriver { driver } => {
                 if request
@@ -292,7 +343,15 @@ impl Ingress {
                             plan,
                             &input,
                             &self.closed,
-                            Options { fresh: true },
+                            Options {
+                                fresh: true,
+                                context: Some(model::Context {
+                                    ingress: self,
+                                    caller,
+                                    session: SessionId::new(),
+                                    turn: None,
+                                }),
+                            },
                         )
                         .await?,
                 )

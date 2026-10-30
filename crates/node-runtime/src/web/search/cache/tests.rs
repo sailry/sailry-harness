@@ -14,6 +14,7 @@ fn key(query: &str) -> Key {
 
 fn page(title: &str) -> Page {
     Page {
+        summary: None,
         driver: Driver::Tavily,
         results: vec![Result {
             title: title.into(),

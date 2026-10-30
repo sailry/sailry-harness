@@ -101,11 +101,12 @@ async fn falls_back_from_bocha_to_volcengine() {
             panic!("search page expected")
         };
         assert_eq!(page.driver, Driver::Volcengine);
-        let requests = http.requests.lock().unwrap();
-        assert_eq!(requests.len(), 2);
-        assert!(requests[0].0.starts_with("POST /bocha"));
-        assert!(requests[1].0.starts_with("POST /volcengine"));
-        drop(requests);
+        {
+            let requests = http.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert!(requests[0].0.starts_with("POST /bocha"));
+            assert!(requests[1].0.starts_with("POST /volcengine"));
+        }
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

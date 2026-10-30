@@ -53,6 +53,7 @@ pub enum FaultDetails {
     ModelRequest {
         reason: ModelFailure,
     },
+    SearchUnsupported,
     SystemDiagnostic(Box<crate::notification::SystemDiagnostic>),
     VersionMismatch {
         controller: Option<String>,

@@ -105,13 +105,20 @@ impl Fetcher {
             }
             let direct = network::fetch(self, url).await?;
             let loaded = if let Some(renderer) = renderer.filter(|_| render::needed(&direct)) {
-                renderer
+                match renderer
                     .fetch(
                         self,
-                        direct,
+                        &direct,
                         deadline.saturating_duration_since(tokio::time::Instant::now()),
                     )
-                    .await?
+                    .await
+                {
+                    Ok(rendered) => rendered,
+                    Err(error) if error.code == sailry_protocol::ErrorCode::PermissionDenied => {
+                        return Err(error);
+                    }
+                    Err(_) => direct,
+                }
             } else {
                 direct
             };

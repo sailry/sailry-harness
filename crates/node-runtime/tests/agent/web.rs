@@ -1,7 +1,6 @@
 use super::*;
+use crate::web_fixture as server;
 use serde_json::{Value, json};
-#[path = "../support/web.rs"]
-mod server;
 
 async fn client(node: &Node, directory: &std::path::Path, remote: bool) -> (Client, Link) {
     let controller = Link::controller(directory.join("controller"), NetworkScope::default())

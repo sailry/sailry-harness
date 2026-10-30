@@ -1,5 +1,5 @@
 use sailry_protocol::{
-    TurnId,
+    Authentication, ProviderId, TurnId,
     conversation::{compaction, observation, recovery, reference},
     media, tool,
 };
@@ -85,10 +85,22 @@ pub(crate) struct ToolFailure {
     pub failure: tool::Failure,
 }
 
+/// A model used outside the main inference; request credentials are never retained.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct ModelSource {
+    pub id: ProviderId,
+    pub name: String,
+    pub api: sailry_protocol::conversation::ModelApi,
+    pub authentication: Authentication,
+    pub model: String,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Execution {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purpose: Option<Purpose>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<ModelSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media: Option<media::Kind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -110,6 +122,7 @@ pub(crate) struct Execution {
 pub(crate) enum Purpose {
     Main,
     Compaction,
+    Search,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

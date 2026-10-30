@@ -1,8 +1,7 @@
 use super::*;
 use sailry_protocol::web;
 
-#[path = "../support/web.rs"]
-mod origin;
+use crate::web_fixture as origin;
 
 async fn configure(client: &Client, enabled: bool) {
     let mut settings = read(client).await;
@@ -92,24 +91,25 @@ async fn shares_rendered_snapshots_across_service_paths() {
         let repeated = page(&client, &url, 0).await;
         assert_eq!(repeated.content.chars().count(), web::PAGE_CHARS);
         assert_eq!(source.requests.lock().unwrap().len(), 1);
-        let requests = renderer.requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        let (header, request) = &requests[0];
-        assert!(header.starts_with("POST /render "));
-        assert!(
-            header
-                .to_ascii_lowercase()
-                .contains("x-api-key: render-fixture-key")
-        );
-        assert_eq!(request["urls"], serde_json::json!([url]));
-        assert_eq!(request["format"], "markdown");
-        assert_eq!(request["ttl"], 0);
-        assert!(
-            (1..=web::TIMEOUT_SECS * 1000)
-                .contains(&request["per_url_timeout_ms"].as_u64().unwrap())
-        );
-        assert!(!request.to_string().contains("render-fixture-key"));
-        drop(requests);
+        {
+            let requests = renderer.requests.lock().unwrap();
+            assert_eq!(requests.len(), 1);
+            let (header, request) = &requests[0];
+            assert!(header.starts_with("POST /render "));
+            assert!(
+                header
+                    .to_ascii_lowercase()
+                    .contains("x-api-key: render-fixture-key")
+            );
+            assert_eq!(request["urls"], serde_json::json!([url]));
+            assert_eq!(request["format"], "markdown");
+            assert_eq!(request["ttl"], 0);
+            assert!(
+                (1..=web::TIMEOUT_SECS * 1000)
+                    .contains(&request["per_url_timeout_ms"].as_u64().unwrap())
+            );
+            assert!(!request.to_string().contains("render-fixture-key"));
+        }
         for header in source.requests.lock().unwrap().iter() {
             let lower = header.to_ascii_lowercase();
             assert!(!lower.contains("authorization:"));
@@ -151,7 +151,7 @@ async fn skips_non_html_errors_and_sufficient_content() {
 }
 
 #[tokio::test]
-async fn reports_render_errors_without_caching_success() {
+async fn retains_direct_content_when_rendering_fails() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let node = Node::start_empty(directory.path().join("node"))
@@ -169,19 +169,13 @@ async fn reports_render_errors_without_caching_success() {
             Reply::Json(serde_json::json!({"results":[],"errors":[{"url":url,"error":"timeout","message":"render-fixture-key"}]})),
             rendered(&url, &url),
         ]);
-        let error = client
-            .execute(client.prepare(Command::FetchWeb(web::Request {
-                url: url.clone(),
-                offset: 0,
-            })))
-            .await
-            .unwrap_err();
-        assert_eq!(error.code, ErrorCode::Unavailable);
-        assert!(!error.message.contains("render-fixture-key"));
-        let recovered = page(&client, &url, 0).await;
-        assert_eq!(recovered.title.as_deref(), Some("Rendered page"));
-        assert_eq!(source.requests.lock().unwrap().len(), 2);
-        assert_eq!(renderer.requests.lock().unwrap().len(), 2);
+        let direct = page(&client, &url, 0).await;
+        assert_eq!(direct.status, 200);
+        assert!(!direct.content.contains("render-fixture-key"));
+        let cached = page(&client, &url, 0).await;
+        assert_eq!(cached.content, direct.content);
+        assert_eq!(source.requests.lock().unwrap().len(), 1);
+        assert_eq!(renderer.requests.lock().unwrap().len(), 1);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
@@ -237,7 +231,7 @@ async fn cancels_render_requests_with_the_fetch() {
             .await
             .unwrap();
         let (controller, transport) = controller(&node, directory.path()).await;
-        let client = Client::new(if remote { transport } else { node.local() });
+        let client = Arc::new(Client::new(if remote { transport } else { node.local() }));
         let source = origin::Server::start().await;
         let renderer = Server::start().await;
         node.set_web_fixture(origin::HOST, source.address);
@@ -249,7 +243,8 @@ async fn cancels_render_requests_with_the_fetch() {
             offset: 0,
         }));
         let id = request.id;
-        let pending = client.dispatch(request).await.unwrap();
+        let fetch = client.clone();
+        let pending = tokio::spawn(async move { fetch.execute(request).await });
         tokio::time::timeout(Duration::from_secs(5), renderer.held.cancelled())
             .await
             .unwrap();
@@ -257,7 +252,7 @@ async fn cancels_render_requests_with_the_fetch() {
             .execute(client.prepare(Command::CancelWebFetch { request: id }))
             .await
             .unwrap();
-        let error = tokio::time::timeout(Duration::from_secs(5), pending.completion)
+        let error = tokio::time::timeout(Duration::from_secs(5), pending)
             .await
             .unwrap()
             .unwrap()

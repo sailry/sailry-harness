@@ -99,6 +99,12 @@ mod rewind;
 mod sandbox;
 #[path = "agent/search.rs"]
 mod search;
+#[expect(
+    dead_code,
+    reason = "The shared search fixture also supports configuration-only driver scenarios"
+)]
+#[path = "support/search.rs"]
+mod search_fixture;
 #[path = "agent/skills/mod.rs"]
 mod skills;
 #[cfg(unix)]
@@ -113,6 +119,8 @@ mod trash_fixture;
 mod usage;
 #[path = "agent/web.rs"]
 mod web;
+#[path = "support/web.rs"]
+mod web_fixture;
 #[path = "agent/worktrees.rs"]
 mod worktrees;
 

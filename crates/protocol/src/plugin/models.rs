@@ -13,6 +13,8 @@ pub struct Model {
     pub id: String,
     pub provider: String,
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api: Option<crate::conversation::ModelApi>,
     /// The provider's configured default model.
     pub default: bool,
     pub reasoning: bool,

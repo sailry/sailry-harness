@@ -8,7 +8,7 @@ use sailry_protocol::{
     conversation::{ModelApi, Provider, oauth::Options},
 };
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 #[cfg(test)]
 pub(crate) mod fixture;
@@ -29,7 +29,7 @@ pub(crate) struct Resolved {
 
 /// Resolve through the existing Node credential and refresh owners.
 pub(crate) async fn current(
-    ingress: &Arc<Ingress>,
+    ingress: &Ingress,
     provider: &Provider,
     reference: Option<&CredentialRef>,
     stop: &CancellationToken,
@@ -147,7 +147,16 @@ pub(crate) fn headers(provider: &Provider, credentials: &Credentials) -> Result<
         Credentials::Grant { grant, options } => grant.headers(options),
         Credentials::ApiKey(key) => {
             let mut headers = HeaderMap::new();
-            match auth(provider, key.as_ref().map_or("", Secret::expose)) {
+            let auth = auth(provider, key.as_ref().map_or("", Secret::expose));
+            // Google's dedicated GDK provider owns this header separately.
+            let auth = match (provider.api, auth) {
+                (ModelApi::Gemini, KeyAuth::Bearer(value)) => KeyAuth::Header {
+                    name: "x-goog-api-key".into(),
+                    value,
+                },
+                (_, auth) => auth,
+            };
+            match auth {
                 KeyAuth::None => {}
                 KeyAuth::Bearer(value) => {
                     insert_secret(&mut headers, "authorization", &format!("Bearer {value}"))?;
@@ -252,7 +261,7 @@ pub(crate) enum KeyAuth {
     Header { name: String, value: String },
 }
 
-/// Describe key injection without depending on GDK's HTTP client types.
+/// Preserve GDK client key injection without depending on its HTTP client types.
 pub(crate) fn auth(provider: &Provider, key: &str) -> KeyAuth {
     if provider.authentication != Authentication::ApiKey || key.is_empty() {
         return KeyAuth::None;
@@ -270,10 +279,6 @@ pub(crate) fn auth(provider: &Provider, key: &str) -> KeyAuth {
     match provider.api {
         ModelApi::Anthropic => KeyAuth::Header {
             name: "x-api-key".into(),
-            value: key.into(),
-        },
-        ModelApi::Gemini => KeyAuth::Header {
-            name: "x-goog-api-key".into(),
             value: key.into(),
         },
         ModelApi::AzureOpenAi | ModelApi::AzureAi => KeyAuth::Header {

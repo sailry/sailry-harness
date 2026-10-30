@@ -13,7 +13,10 @@ async fn maps_time_and_domain_filters() {
         Freshness::Month,
         Freshness::Year,
     ];
-    for driver in Driver::ALL {
+    for driver in Driver::ALL
+        .into_iter()
+        .filter(|driver| *driver != Driver::Model)
+    {
         let plan = plan(&[driver]);
         owner.configure(plan.settings.clone());
         owner.fixture(driver, &server.url(driver));
@@ -23,7 +26,8 @@ async fn maps_time_and_domain_filters() {
                 include_domains: vec!["example.com".into(), "docs.example.org".into()],
                 exclude_domains: vec!["private.example.com".into()],
                 ..input()
-            };
+            }
+            .normalized();
             owner
                 .search(
                     NodeId([1; 32]),
@@ -40,6 +44,9 @@ async fn maps_time_and_domain_filters() {
             let url = url::Url::parse(&format!("http://fixture{path}")).unwrap();
             let parameters = url.query_pairs().collect::<BTreeMap<_, _>>();
             match driver {
+                Driver::Model => {
+                    unreachable!("native model requests have separate transport fixtures")
+                }
                 Driver::Volcengine => {
                     assert_eq!(
                         body["TimeRange"],
@@ -95,7 +102,7 @@ async fn maps_time_and_domain_filters() {
                         body["freshness"],
                         ["oneDay", "oneDay", "oneWeek", "oneMonth", "oneYear"][index]
                     );
-                    assert_eq!(body["include"], "example.com|docs.example.org");
+                    assert_eq!(body["include"], input.include_domains.join("|"));
                     assert_eq!(body["exclude"], "private.example.com");
                 }
                 Driver::Brave | Driver::Searxng => {

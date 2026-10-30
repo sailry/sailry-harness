@@ -17,6 +17,14 @@ mod discovery_support;
 mod environment_fixture;
 #[path = "../support/retry.rs"]
 mod retry_fixture;
+#[path = "../support/search.rs"]
+mod search_fixture;
+#[expect(
+    dead_code,
+    reason = "The shared web fixture also supports stalled reads"
+)]
+#[path = "../support/web.rs"]
+mod web_fixture;
 
 #[path = "../catalog.rs"]
 mod catalog;

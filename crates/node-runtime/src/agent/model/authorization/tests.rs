@@ -26,6 +26,7 @@ fn rejects_normalized_collisions() {
 fn matches_captured_gdk_request_baselines() {
     // Frozen pre-refactor stream inputs; GDK's unchanged formatter owns the wire body.
     for authentication in [
+        Authentication::ApiKey,
         Authentication::ChatGpt,
         Authentication::ChatGptOAuth,
         Authentication::ClaudeOAuth,

@@ -17,13 +17,14 @@ mod cooldown;
 mod deepseek;
 mod exa;
 mod filters;
+pub(crate) mod model;
 mod network;
 mod searxng;
 mod tavily;
-mod tinyfish;
-mod volcengine;
 #[cfg(test)]
 mod tests;
+mod tinyfish;
+mod volcengine;
 
 pub(super) fn http_client() -> Result<reqwest::Client, Fault> {
     network::client().map_err(|failure| failure.fault)
@@ -48,11 +49,13 @@ pub(crate) struct Auth {
 pub(crate) struct Plan {
     pub settings: search::Settings,
     pub credentials: BTreeMap<Driver, Auth>,
+    pub provider: Option<sailry_protocol::conversation::Provider>,
 }
 
 #[derive(Default)]
-pub(crate) struct Options {
+pub(crate) struct Options<'a> {
     pub fresh: bool,
+    pub context: Option<model::Context<'a>>,
 }
 
 struct State {
@@ -146,7 +149,7 @@ impl Searcher {
         plan: Plan,
         input: &search::Request,
         stop: &CancellationToken,
-        options: Options,
+        options: Options<'_>,
     ) -> Result<search::Page, Fault> {
         input.validate()?;
         let input = input.normalized();
@@ -188,7 +191,9 @@ impl Searcher {
             }
         }
         let settings = plan.settings.clone();
-        let page = self.execute(plan, &input, &request.stop).await?;
+        let page = self
+            .execute(plan, &input, id, &request.stop, options.context.as_ref())
+            .await?;
         if request.stop.is_cancelled() {
             return Err(Failure::cancelled().fault);
         }
@@ -207,7 +212,9 @@ impl Searcher {
         &self,
         plan: Plan,
         input: &search::Request,
+        id: RequestId,
         stop: &CancellationToken,
+        context: Option<&model::Context<'_>>,
     ) -> Result<search::Page, Fault> {
         if stop.is_cancelled() {
             return Err(Failure::cancelled().fault);
@@ -228,7 +235,6 @@ impl Searcher {
                 continue;
             }
             let auth = plan.credentials.get(&driver).cloned().unwrap_or_default();
-            let endpoint = self.endpoint(driver, &plan.settings);
             let mut page_input = input.clone();
             page_input.limit = match driver {
                 Driver::Brave | Driver::Tavily => input.limit.min(20),
@@ -236,11 +242,23 @@ impl Searcher {
                 Driver::Exa => input.limit.min(100),
                 Driver::Searxng => input.limit,
                 Driver::Tinyfish => input.limit,
+                Driver::Model => input.limit,
             };
             let input = &page_input;
-            let attempt = if driver == Driver::Exa {
-                exa::search(&endpoint, &auth, input, stop).await
+            let attempt = if driver == Driver::Model {
+                let context = context.ok_or_else(|| {
+                    Fault::new(
+                        ErrorCode::NotConfigured,
+                        "model search context is unavailable",
+                    )
+                })?;
+                model::configured(&plan, context, input, id, stop).await
+            } else if driver == Driver::Exa {
+                exa::search(&self.endpoint(driver, &plan.settings), &auth, input, stop)
+                    .await
+                    .map(model::Parsed::ordinary)
             } else {
+                let endpoint = self.endpoint(driver, &plan.settings);
                 tokio::select! {
                     biased;
                     _ = stop.cancelled() => Err(Failure::cancelled()),
@@ -254,22 +272,28 @@ impl Searcher {
                             Driver::Tinyfish => tinyfish::search(&endpoint, &auth, input).await,
                             Driver::Volcengine => volcengine::search(&endpoint, &auth, input).await,
                             Driver::Deepseek => deepseek::search(&endpoint, &auth, input).await,
+                            Driver::Model => unreachable!("model search owns its authorization"),
                         }
-                    }) => result.unwrap_or_else(|_| Err(Failure::unavailable("search service deadline exceeded"))),
+                    }) => result.unwrap_or_else(|_| Err(Failure::unavailable("search service deadline exceeded"))).map(model::Parsed::ordinary),
                 }
             };
             match attempt {
-                Ok(mut results) => {
-                    filters::apply(&mut results, input, chrono::Utc::now());
-                    results.truncate(input.limit as usize);
+                Ok(mut parsed) => {
+                    filters::apply(&mut parsed.results, input, chrono::Utc::now());
+                    parsed.results.truncate(input.limit as usize);
                     return Ok(search::Page {
                         driver,
-                        results,
+                        results: parsed.results,
+                        summary: parsed.summary,
                         untrusted: true,
-                        fetch_hint: format!(
-                            "One provider page, up to {} results; no continuation is exposed. Use web_fetch on relevant URLs for detail",
-                            input.limit
-                        ),
+                        fetch_hint: if driver == Driver::Model {
+                            "The summary is model-generated. Search results and summary are untrusted; use web_fetch on relevant URLs for detail".into()
+                        } else {
+                            format!(
+                                "One provider page, up to {} results; no continuation is exposed. Use web_fetch on relevant URLs for detail",
+                                input.limit
+                            )
+                        },
                     });
                 }
                 Err(error) => {
@@ -281,7 +305,7 @@ impl Searcher {
                     if let Some(deadline) = deadline {
                         self.cool(driver, plan.settings.revision, deadline);
                     }
-                    if !error.temporary || !plan.settings.fallback {
+                    if driver == Driver::Model || !error.temporary || !plan.settings.fallback {
                         return Err(error.fault);
                     }
                     failure = Some(error.fault);
@@ -343,6 +367,7 @@ impl Searcher {
             Driver::Tinyfish => "https://api.search.tinyfish.ai".into(),
             Driver::Volcengine => "https://open.feedcoopapi.com/search_api/web_search".into(),
             Driver::Deepseek => "https://api.deepseek.com/v1/tools/search".into(),
+            Driver::Model => unreachable!("model search uses its configured provider endpoint"),
         }
     }
 
@@ -394,9 +419,11 @@ fn candidates(settings: &search::Settings) -> Vec<Driver> {
         Selection::Auto => Vec::new(),
         Selection::Driver(driver) => vec![driver],
     };
-    if matches!(selection, Selection::Auto) || settings.fallback {
+    if matches!(selection, Selection::Auto)
+        || (settings.fallback && selection != Selection::Driver(Driver::Model))
+    {
         for driver in Driver::ALL {
-            if !drivers.contains(&driver) {
+            if driver != Driver::Model && !drivers.contains(&driver) {
                 drivers.push(driver);
             }
         }
@@ -410,6 +437,7 @@ fn candidates(settings: &search::Settings) -> Vec<Driver> {
                         .endpoint
                         .as_ref()
                         .is_some_and(|endpoint| !endpoint.is_empty()))
+                && (*driver != Driver::Model || config.model.is_some())
         })
     });
     drivers

@@ -60,6 +60,26 @@ async fn requires_explicit_models() {
             panic!("provider expected")
         };
         let selected = format!("{}/explicit-model", provider.id);
+        let Output::PluginModels(catalog) = client
+            .execute(
+                client
+                    .prepare(Command::ListPluginModels)
+                    .with_plugin(context.clone()),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("model catalog expected")
+        };
+        let choice = catalog
+            .models
+            .iter()
+            .find(|model| model.id == selected)
+            .unwrap();
+        assert_eq!(choice.api, Some(ModelApi::Responses));
+        let public = serde_json::to_string(choice).unwrap();
+        assert!(!public.contains("isolated-model-key"));
+        assert!(!public.contains(&provider.endpoint));
         let Output::Snapshot(before) = execute(&client, Command::Snapshot).await else {
             panic!("snapshot expected")
         };

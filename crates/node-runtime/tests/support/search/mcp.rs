@@ -3,10 +3,7 @@ use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 
-#[path = "formatted.rs"]
-mod formatted;
-#[path = "transport.rs"]
-mod transport;
+use crate::search_fixture::{formatted, transport};
 
 pub struct Server {
     pub endpoint: String,

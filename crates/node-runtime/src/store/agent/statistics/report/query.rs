@@ -2,12 +2,15 @@ use super::*;
 
 // All event fields match agent_usage_time; joins read frozen configuration, not current defaults.
 pub(super) const ROWS: &str = "WITH responses AS (SELECT e.body,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,e.sequence,e.session,e.turn,s.project,r.worktree,json_extract(r.config,'$.resource') AS resource,json_extract(r.config,'$.assistant') AS assistant,
-    CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
-        THEN json_extract(r.config,'$.provider') ELSE json_extract(m.value,'$.provider.id') END AS provider_id,
-    CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
-        THEN json_extract(r.config,'$.model') ELSE json_extract(m.value,'$.model') END AS model,
-    CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
-        THEN a.provider ELSE json_extract(m.value,'$.provider') END AS provider
+    coalesce(json_extract(e.body,'$.metadata.execution.source.id'),
+        CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
+        THEN json_extract(r.config,'$.provider') ELSE json_extract(m.value,'$.provider.id') END) AS provider_id,
+    coalesce(json_extract(e.body,'$.metadata.execution.source.model'),
+        CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
+        THEN json_extract(r.config,'$.model') ELSE json_extract(m.value,'$.model') END) AS model,
+    coalesce(json_extract(e.body,'$.metadata.execution.source'),
+        CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
+        THEN a.provider ELSE json_extract(m.value,'$.provider') END) AS provider
     FROM agent_events e JOIN turns t ON t.id=e.turn
     JOIN agent_runs a ON a.turn=t.id
     JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision

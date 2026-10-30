@@ -1,0 +1,156 @@
+use super::*;
+use sailry_protocol::{Fault, FaultDetails, ModelFailure};
+
+#[path = "../support/search/model.rs"]
+mod native;
+
+async fn page(client: &Client, query: &str) -> Result<search::Page, Fault> {
+    match client
+        .execute(client.prepare(Command::SearchWeb(search::Request {
+            query: query.into(),
+            limit: 1,
+            ..Default::default()
+        })))
+        .await?
+    {
+        Output::SearchPage(page) => Ok(page),
+        _ => panic!("search page expected"),
+    }
+}
+
+#[tokio::test]
+async fn returns_citations_and_checks_the_service() {
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let (controller, transport) = controller(&node, directory.path()).await;
+        let client = Client::new(if remote { transport } else { node.local() });
+        let http = native::http::Server::start().await;
+        let source = native::origin::Server::start().await;
+        node.set_web_fixture(native::origin::HOST, source.address);
+        let url = format!("{}/html", source.origin);
+        http.respond(
+            "/v1/responses",
+            vec![
+                native::response(&url),
+                native::response(&url),
+                native::response(&url),
+            ],
+        );
+        let provider = native::provider(&client, &format!("{}/v1", http.endpoint)).await;
+        let settings = native::select(&client, &provider, true).await;
+        assert!(
+            !serde_json::to_string(&settings)
+                .unwrap()
+                .contains(native::KEY)
+        );
+        let first = page(&client, native::QUERY).await.unwrap();
+        native::page(&first, &url);
+        assert_eq!(page(&client, native::QUERY).await.unwrap(), first);
+        assert_eq!(http.count("/v1/responses"), 1);
+        for _ in 0..2 {
+            let Output::SearchPage(tested) = client
+                .execute(client.prepare(Command::TestSearchDriver {
+                    driver: Driver::Model,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("search test page expected")
+            };
+            native::page(&tested, &url);
+        }
+        assert_eq!(http.count("/v1/responses"), 3);
+        {
+            let requests = http.requests.lock().unwrap();
+            native::request(&requests[0].0, &requests[0].1, native::QUERY);
+            for (header, body) in &requests[1..] {
+                native::request(header, body, "Sailry");
+            }
+        }
+        {
+            let requests = source.requests.lock().unwrap();
+            assert!(!requests.is_empty());
+            for header in requests.iter() {
+                let header = header.to_ascii_lowercase();
+                assert!(!header.contains("authorization:"));
+                assert!(!header.contains("x-api-key:"));
+                assert!(!header.contains("cookie:"));
+            }
+        }
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn excludes_fallbacks_and_automatic_selection() {
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let (controller, transport) = controller(&node, directory.path()).await;
+        let client = Client::new(if remote { transport } else { node.local() });
+        let http = native::http::Server::start().await;
+        let fallback = native::http::Server::start().await;
+        node.set_search_fixture(Driver::Exa, &fallback.url(Driver::Exa));
+        let unsupported = || {
+            native::http::Reply::Json(serde_json::json!({"error":{
+                "code":"unsupported_tool", "message":format!("web_search is not supported: {}",native::KEY)
+            }}))
+        };
+        http.respond(
+            "/v1/responses",
+            vec![
+                unsupported(),
+                unsupported(),
+                native::http::Reply::Status(401, None),
+            ],
+        );
+        let provider = native::provider(&client, &format!("{}/v1", http.endpoint)).await;
+        let mut settings = native::select(&client, &provider, true).await;
+        let error = page(&client, native::QUERY).await.unwrap_err();
+        assert!(matches!(
+            error.details.as_ref(),
+            Some(FaultDetails::SearchUnsupported)
+        ));
+        assert!(!serde_json::to_string(&error).unwrap().contains(native::KEY));
+        let error = client
+            .execute(client.prepare(Command::TestSearchDriver {
+                driver: Driver::Model,
+            }))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error.details.as_ref(),
+            Some(FaultDetails::SearchUnsupported)
+        ));
+        let error = page(&client, "Check authorization").await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::PermissionDenied);
+        assert!(matches!(
+            error.details.as_ref(),
+            Some(FaultDetails::ModelRequest {
+                reason: ModelFailure::Unauthorized
+            })
+        ));
+        assert!(!serde_json::to_string(&error).unwrap().contains(native::KEY));
+        assert_eq!(http.count("/v1/responses"), 3);
+        assert_eq!(fallback.count("/exa"), 0);
+        settings.driver = Some(Selection::Auto);
+        settings.providers.get_mut(&Driver::Exa).unwrap().enabled = false;
+        settings = save(&client, settings, Default::default()).await;
+        assert!(page(&client, "Automatic search").await.is_err());
+        assert_eq!(http.count("/v1/responses"), 3);
+        settings.providers.get_mut(&Driver::Exa).unwrap().enabled = true;
+        save(&client, settings, Default::default()).await;
+        let automatic = page(&client, "Automatic search").await.unwrap();
+        assert_eq!(automatic.driver, Driver::Exa);
+        assert_eq!(fallback.count("/exa"), 1);
+        assert_eq!(http.count("/v1/responses"), 3);
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

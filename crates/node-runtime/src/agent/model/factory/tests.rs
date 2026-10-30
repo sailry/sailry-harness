@@ -7,6 +7,7 @@ use rmcp::model::{CallToolResult, ContentBlock as Content, Tool};
 use serde_json::{Value, json};
 
 mod configuration;
+mod google;
 mod server;
 use server::Server;
 

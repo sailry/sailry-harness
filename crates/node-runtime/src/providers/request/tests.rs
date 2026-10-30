@@ -90,6 +90,22 @@ fn preserves_key_protocol_headers_and_injection() {
 }
 
 #[test]
+fn separates_google_provider_and_native_headers() {
+    let provider = fixture::provider(Authentication::ApiKey, ModelApi::Gemini);
+    assert!(
+        matches!(auth(&provider, "fixed-access"), KeyAuth::Bearer(key) if key == "fixed-access")
+    );
+    let prepared = prepare(
+        &provider,
+        &fixture::credentials(Authentication::ApiKey),
+        fixture::metadata("fixture-model", "", &[]),
+    )
+    .unwrap();
+    assert_eq!(prepared.headers["x-goog-api-key"], "fixed-access");
+    assert!(!prepared.headers.contains_key("authorization"));
+}
+
+#[test]
 fn scopes_copilot_transient_headers_to_each_request() {
     let provider = fixture::provider(Authentication::Copilot, ModelApi::Responses);
     let credentials = fixture::credentials(Authentication::Copilot);

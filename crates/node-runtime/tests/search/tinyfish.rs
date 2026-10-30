@@ -93,14 +93,13 @@ async fn fills_defaults_when_reopening_a_profile() {
     .await;
     node.shutdown().await.unwrap();
     drop(client);
-    drop(node);
     let database = turso::Builder::new_local(profile.join("storage/node.turso").to_str().unwrap())
         .build()
         .await
         .unwrap();
     let db = database.connect().unwrap();
     db.execute("UPDATE search_settings SET body=CAST(json_remove(body,'$.settings.providers.tinyfish') AS BLOB)",()).await.unwrap();
-    db.close().await.unwrap();
+    drop(db);
     drop(database);
     let node = Node::start_empty(&profile).await.unwrap();
     let (controller, remote) = controller(&node, directory.path()).await;

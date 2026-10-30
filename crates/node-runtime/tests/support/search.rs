@@ -8,9 +8,9 @@ use std::{
 use tokio::{io::AsyncReadExt, net::TcpListener};
 
 #[path = "search/formatted.rs"]
-mod formatted;
+pub(crate) mod formatted;
 #[path = "search/transport.rs"]
-mod transport;
+pub(crate) mod transport;
 
 pub enum Reply {
     Status(u16, Option<String>),
@@ -148,6 +148,7 @@ impl Server {
                 Driver::Bocha => "bocha",
                 Driver::Volcengine => "volcengine",
                 Driver::Deepseek => "deepseek",
+                Driver::Model => panic!("model search uses the configured model provider fixture"),
             }
         )
     }

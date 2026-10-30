@@ -1,5 +1,93 @@
 use super::*;
 
+fn search(input: i32, output: i32) -> canonical::Record {
+    let mut event = event(input, output);
+    event.provenance.author = "system".into();
+    event.message_mut().unwrap().content.clear();
+    event.message_mut().unwrap().part_count = 0;
+    event.metadata.execution = Some(canonical::Execution {
+        purpose: Some(canonical::Purpose::Search),
+        source: Some(canonical::ModelSource {
+            id: ProviderId::new(),
+            name: "Search provider".into(),
+            api: ModelApi::Anthropic,
+            authentication: Authentication::ApiKey,
+            model: "search-model".into(),
+        }),
+        ..Default::default()
+    });
+    event.metadata.runtime = Some(canonical::Runtime {
+        user_visible: false,
+        agent_visible: false,
+        ..Default::default()
+    });
+    event
+}
+
+#[tokio::test]
+async fn ignores_search_context_and_latency() {
+    let mut fixture = Fixture::new().await;
+    fixture.append([timed(100, 20, 125_000)]).await;
+    let mut search = search(800, 40);
+    search.metadata.execution.as_mut().unwrap().timing = Some(canonical::Timing {
+        first_token_us: Some(1000),
+        ..Default::default()
+    });
+    let id = search.id.clone();
+    fixture.append([search.clone()]).await;
+    let statistics = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(statistics.context_tokens, Some(120));
+    assert_eq!(statistics.context_model.as_deref(), Some("fixture"));
+    assert_eq!(statistics.first_token_us, Some(125_000));
+    assert_eq!(statistics.responses, 2);
+    assert_eq!(statistics.usage.as_ref().unwrap().input, 900);
+    assert_eq!(statistics.usage.as_ref().unwrap().output, 60);
+    assert_context(&fixture, fixture.session, 120, &[]).await;
+    assert!(
+        fixture
+            .read(None, 10)
+            .await
+            .page
+            .entries
+            .iter()
+            .all(|entry| entry.id != id)
+    );
+    let message = crate::agent::engine::history::project(&fixture.database.connection, &search)
+        .await
+        .unwrap();
+    assert!(message.is_none());
+}
+
+#[tokio::test]
+async fn keeps_reset_estimates_after_search() {
+    let mut fixture = Fixture::new().await;
+    fixture.append([event(100, 20)]).await;
+    let mut reset = record(
+        "system",
+        canonical::Kind::Message(canonical::Message::default()),
+    );
+    reset.metadata.execution = Some(canonical::Execution {
+        context_tokens: Some(60),
+        ..Default::default()
+    });
+    fixture.append([reset]).await;
+    fixture.append([search(800, 40)]).await;
+    let statistics = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(statistics.context_tokens, None);
+    assert_eq!(statistics.context_estimate, Some(60));
+    assert_eq!(statistics.usage.as_ref().unwrap().input, 900);
+    let context = context_usage(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(context.tokens, 60);
+    assert!(context.pending.is_empty());
+}
+
 #[tokio::test]
 async fn keeps_helper_usage_separate_from_context() {
     let mut fixture = Fixture::new().await;

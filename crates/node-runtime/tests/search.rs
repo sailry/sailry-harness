@@ -13,10 +13,11 @@ mod capabilities;
 mod domestic;
 #[path = "search/filters.rs"]
 mod filters;
+#[path = "search/model.rs"]
+mod model;
 #[path = "search/rendering.rs"]
 mod rendering;
-#[path = "support/search.rs"]
-mod server;
+use crate::search_fixture as server;
 #[path = "search/tinyfish.rs"]
 mod tinyfish;
 use server::{Reply, Server};
@@ -284,7 +285,10 @@ async fn searches_all_saved_drivers_without_task_approval() {
         let http = Server::start().await;
         let mut settings = read(&client).await;
         let mut credentials = BTreeMap::new();
-        for driver in Driver::ALL {
+        for driver in Driver::ALL
+            .into_iter()
+            .filter(|driver| *driver != Driver::Model)
+        {
             node.set_search_fixture(driver, &http.url(driver));
             settings.providers.get_mut(&driver).unwrap().enabled = true;
             if driver.key_required() || driver == Driver::Exa {
@@ -310,7 +314,10 @@ async fn searches_all_saved_drivers_without_task_approval() {
             },
         );
         settings = save(&client, settings, credentials).await;
-        for driver in Driver::ALL {
+        for driver in Driver::ALL
+            .into_iter()
+            .filter(|driver| *driver != Driver::Model)
+        {
             settings.driver = Some(Selection::Driver(driver));
             settings = save(&client, settings, Default::default()).await;
             let request = client.prepare(Command::SearchWeb(search::Request {

@@ -120,7 +120,7 @@ pub(super) async fn context_usage(
          WHERE h.session=?1 AND h.sequence>?2
            AND json_extract(e.body,'$.kind')!='compaction'
            AND json_extract(e.body,'$.metadata.execution.media') IS NULL
-           AND coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='compaction'
+           AND coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'') NOT IN ('compaction','search')
            AND {} ORDER BY h.sequence",
             super::history::VISIBLE_EVENT
         ))
@@ -192,6 +192,7 @@ async fn read_observation(
          LEFT JOIN agent_runs r ON r.turn=e.turn LEFT JOIN turns t ON t.id=e.turn
          LEFT JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
          WHERE h.session=?1 AND json_extract(e.body,'$.metadata.execution.media') IS NULL
+           AND coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='search'
            AND (coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='compaction'
              OR json_extract(e.body,'$.kind')='compaction')
            AND ((json_extract(e.body,'$.role')='assistant' AND json_extract(e.body,'$.part_count')>0)

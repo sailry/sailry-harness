@@ -14,6 +14,8 @@ mod errors;
 mod gemini;
 #[path = "hosted.rs"]
 mod hosted;
+#[path = "native/model_search.rs"]
+mod model_search;
 #[path = "native/progress.rs"]
 mod progress;
 #[path = "native/prompt.rs"]

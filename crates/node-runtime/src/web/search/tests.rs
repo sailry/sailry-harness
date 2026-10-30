@@ -73,7 +73,10 @@ async fn fresh(owner: &Arc<Searcher>, plan: Plan) -> Result<search::Page, Fault>
             plan,
             &input(),
             &CancellationToken::new(),
-            Options { fresh: true },
+            Options {
+                fresh: true,
+                ..Default::default()
+            },
         )
         .await
 }
@@ -82,7 +85,10 @@ async fn fresh(owner: &Arc<Searcher>, plan: Plan) -> Result<search::Page, Fault>
 async fn maps_provider_requests_and_results() {
     let server = Server::start().await;
     let owner = Arc::new(Searcher::default());
-    for driver in Driver::ALL {
+    for driver in Driver::ALL
+        .into_iter()
+        .filter(|driver| *driver != Driver::Model)
+    {
         let plan = plan(&[driver]);
         owner.configure(plan.settings.clone());
         owner.fixture(driver, &server.url(driver));
@@ -505,7 +511,10 @@ async fn keyless_live_smoke() {
 async fn requests_each_provider_page_without_requerying() {
     let server = Server::start().await;
     let owner = Arc::new(Searcher::default());
-    for driver in Driver::ALL {
+    for driver in Driver::ALL
+        .into_iter()
+        .filter(|driver| *driver != Driver::Model)
+    {
         let plan = plan(&[driver]);
         owner.configure(plan.settings.clone());
         owner.fixture(driver, &server.url(driver));
@@ -531,7 +540,7 @@ async fn requests_each_provider_page_without_requerying() {
         assert!(page.fetch_hint.contains(&format!("up to {limit} results")));
     }
     let requests = server.requests.lock().unwrap();
-    assert_eq!(requests.len(), Driver::ALL.len());
+    assert_eq!(requests.len(), Driver::ALL.len() - 1);
     for (header, body) in requests.iter() {
         if header.starts_with("GET /brave") {
             assert!(header.contains("count=20"));

@@ -11,10 +11,12 @@ pub(in crate::store::agent::statistics) const ROWS: &str = "WITH selected AS (
     WHERE h.session=?1 AND NOT EXISTS(
         SELECT 1 FROM conversation_turns own WHERE own.session=?1 AND own.turn=d.turn)
     ), responses AS (SELECT e.body,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,h.delegated,
-    CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
-        THEN json_extract(r.config,'$.model') ELSE json_extract(m.value,'$.model') END AS model,
-    CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
-        THEN a.provider ELSE json_extract(m.value,'$.provider') END AS provider
+    coalesce(json_extract(e.body,'$.metadata.execution.source.model'),
+        CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
+        THEN json_extract(r.config,'$.model') ELSE json_extract(m.value,'$.model') END) AS model,
+    coalesce(json_extract(e.body,'$.metadata.execution.source'),
+        CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
+        THEN a.provider ELSE json_extract(m.value,'$.provider') END) AS provider
     FROM selected h JOIN agent_events e ON e.turn=h.turn
     JOIN turns t ON t.id=e.turn JOIN agent_runs a ON a.turn=t.id
     JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision

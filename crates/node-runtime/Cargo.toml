@@ -67,6 +67,7 @@ path = "examples/plugin-test-host.rs"
 required-features = ["test-support"]
 
 [dependencies]
+eventsource-stream.workspace = true
 anyhow.workspace = true
 httpdate.workspace = true
 goose-agent.workspace = true
@@ -195,7 +196,6 @@ rcgen.workspace = true
 sailry-node-runtime = { workspace = true, features = ["test-support"] }
 hyper.workspace = true
 http-body-util.workspace = true
-eventsource-stream.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 iroh.workspace = true
 sailry-client.workspace = true

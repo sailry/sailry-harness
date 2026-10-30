@@ -18,10 +18,11 @@ pub enum Driver {
     Bocha,
     Volcengine,
     Deepseek,
+    Model,
 }
 
 impl Driver {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Exa,
         Self::Tinyfish,
         Self::Tavily,
@@ -30,6 +31,7 @@ impl Driver {
         Self::Bocha,
         Self::Volcengine,
         Self::Deepseek,
+        Self::Model,
     ];
 
     pub fn key_required(self) -> bool {
@@ -50,7 +52,7 @@ impl Driver {
             quota: match self {
                 Self::Exa if !key_configured => Quota::AnonymousQuota,
                 Self::Searxng => Quota::Keyless,
-                Self::Bocha | Self::Deepseek => Quota::Paid,
+                Self::Bocha | Self::Deepseek | Self::Model => Quota::Paid,
                 _ => Quota::FreeQuota,
             },
         }
@@ -94,6 +96,15 @@ pub struct Config {
     pub endpoint: Option<String>,
     pub key_configured: bool,
     pub basic_configured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelConfig>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelConfig {
+    pub provider: crate::ProviderId,
+    pub model: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -281,6 +292,8 @@ pub struct Result {
 pub struct Page {
     pub driver: Driver,
     pub results: Vec<Result>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     pub untrusted: bool,
     pub fetch_hint: String,
 }
@@ -310,9 +323,10 @@ mod tests {
             assert_eq!(settings.capabilities[&driver].quota, Quota::FreeQuota);
             assert!(settings.capabilities[&driver].key_required);
         }
-        for driver in [Driver::Bocha, Driver::Deepseek] {
+        for driver in [Driver::Bocha, Driver::Deepseek, Driver::Model] {
             assert_eq!(settings.capabilities[&driver].quota, Quota::Paid);
         }
+        assert!(!settings.capabilities[&Driver::Model].key_required);
         settings
             .providers
             .get_mut(&Driver::Exa)
@@ -323,6 +337,28 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<Settings>(serde_json::to_value(&settings).unwrap()).unwrap(),
             settings
+        );
+    }
+
+    #[test]
+    fn defaults_optional_model_fields() {
+        let config: Config = serde_json::from_value(json!({
+            "enabled":false,"endpoint":null,"key_configured":false,"basic_configured":false
+        }))
+        .unwrap();
+        assert_eq!(config.model, None);
+        let page: Page = serde_json::from_value(json!({
+            "driver":"exa","results":[],"untrusted":true,"fetch_hint":"Read source pages"
+        }))
+        .unwrap();
+        assert_eq!(page.summary, None);
+        let binding = ModelConfig {
+            provider: crate::ProviderId::new(),
+            model: "search-model".into(),
+        };
+        assert_eq!(
+            serde_json::from_value::<ModelConfig>(serde_json::to_value(&binding).unwrap()).unwrap(),
+            binding
         );
     }
 

@@ -7,6 +7,7 @@ mod labels;
 mod location;
 mod offsets;
 mod requests;
+mod search;
 
 pub(super) const START: i64 = 1_609_459_200_000;
 

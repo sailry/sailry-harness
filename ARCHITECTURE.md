@@ -692,6 +692,12 @@ cooldowns.
 Successful search pages stay in Node memory for five minutes, with at most 50
 entries keyed by driver selection and normalized request. Settings changes clear
 the cache; driver availability tests always make a fresh request.
+Explicit model search reuses the Node's model credentials and request authorization
+policy, then calls the selected provider's native search API outside the GDK loop.
+It is excluded from automatic selection and fallback. Citation sources and the
+model-generated summary remain untrusted. Search tokens from an active turn use
+the canonical history writer and existing usage statistics, attributed to the
+selected search provider and model; cache hits add no usage.
 Search keys and manually supplied GitHub credentials are stored as plaintext in
 the Node configuration database. Connecting an existing `gh` login stores its
 account identity, then reads the current token transiently for MCP requests;

@@ -30,7 +30,7 @@ impl Renderer {
     pub(super) async fn fetch(
         &self,
         owner: &Fetcher,
-        direct: Document,
+        direct: &Document,
         remaining: Duration,
     ) -> Result<Document, Fault> {
         if remaining.is_zero() {
@@ -45,7 +45,7 @@ impl Renderer {
                 "per_url_timeout_ms":remaining.as_millis().clamp(1,110_000) as u64,
             }));
         let response = search::json_request(request, web::MAX_BODY_BYTES).await?;
-        let rendered = parse(&response, &direct)?;
+        let rendered = parse(&response, direct)?;
         network::validate(owner, &policy::url(&rendered.url)?).await?;
         Ok(rendered)
     }
