@@ -74,6 +74,8 @@ pub(crate) struct Metadata {
     runtime: Arc<tokio::runtime::Runtime>,
     expected: Vec<Summary>,
     pub(crate) entries: BTreeMap<String, Info>,
+    /// Increments whenever `entries` change, so observers compare a number instead of cloning.
+    generation: u64,
     pub(crate) errors: BTreeMap<String, &'static str>,
     pub(crate) diagnostics: BTreeMap<String, sailry_protocol::Fault>,
     operations: RefCell<Option<operations::Cached>>,
@@ -116,6 +118,7 @@ impl Metadata {
             runtime,
             expected: Vec::new(),
             entries: BTreeMap::new(),
+            generation: 0,
             errors: BTreeMap::new(),
             diagnostics: BTreeMap::new(),
             operations: RefCell::new(None),
@@ -163,7 +166,12 @@ impl Metadata {
             // at the current revision instead of relabeling an old origin.
             true
         });
+        self.generation += 1;
         true
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub(crate) fn ready(&self, package: &Reference) -> bool {
@@ -210,6 +218,7 @@ impl Metadata {
             self.errors.remove(&summary.name);
             self.diagnostics.remove(&summary.name);
             if let Some(info) = self.entries.get_mut(&summary.name) {
+                self.generation += 1;
                 let bound = info
                     .mcp
                     .iter()
@@ -273,6 +282,7 @@ impl Metadata {
                     self.errors.remove(&name);
                     *self.operations.get_mut() = None;
                     self.entries.insert(name, info);
+                    self.generation += 1;
                 }
                 Err(error) => {
                     self.errors.insert(name, error);

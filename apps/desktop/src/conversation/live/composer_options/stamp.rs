@@ -16,7 +16,8 @@ struct State {
     provider: Option<(sailry_protocol::ProviderId, u64)>,
     input: SharedString,
     command: Option<crate::plugins::contributions::Key>,
-    declarations: Vec<sailry_protocol::plugin::Summary>,
+    /// Metadata owner and its entry generation.
+    declarations: (gpui_kit::EntityId, u64),
     connected: bool,
     busy: bool,
     configuring: bool,
@@ -70,13 +71,10 @@ impl View {
                 }),
                 input,
                 command,
-                declarations: self
-                    .contribution_metadata
-                    .read(cx)
-                    .entries
-                    .values()
-                    .map(|info| info.summary.clone())
-                    .collect(),
+                declarations: (
+                    self.contribution_metadata.entity_id(),
+                    self.contribution_metadata.read(cx).generation(),
+                ),
                 connected: self.connected(),
                 busy: self.busy(),
                 configuring: self.configuration_blocked(),
@@ -118,7 +116,7 @@ mod tests {
                     },
                     id: "publish".into(),
                 }),
-                declarations: Vec::new(),
+                declarations: (gpui_kit::EntityId::from(1), 0),
                 connected: true,
                 busy: false,
                 configuring: false,
