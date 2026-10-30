@@ -160,7 +160,7 @@ impl Prefix {
         let messages = json!(messages);
         let tools = &body["tools"];
         let cache_key = &body["prompt_cache_key"];
-        let context = agent_support::turn_context(body).expect("terminal request context expected");
+        let context = agent_support::turn_context(body).expect("turn context expected");
         let skill = context
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())

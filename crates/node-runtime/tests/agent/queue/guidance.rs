@@ -532,7 +532,7 @@ async fn keeps_turn_through_repeated_guidance() {
             let context = crate::agent_support::turn_context(&pair[0]).unwrap();
             assert_eq!(crate::agent_support::turn_context(&pair[1]), Some(context));
             // The original wire prefix stays byte-identical up to the
-            // request-only tail, including any coalesced user text.
+            // latest turn context, including any coalesced user text.
             let encoded = serde_json::to_string(&pair[0]["messages"]).unwrap();
             let tail = serde_json::to_string(&format!("\n{context}")).unwrap();
             let boundary = encoded.rfind(&tail[1..tail.len() - 1]).unwrap();

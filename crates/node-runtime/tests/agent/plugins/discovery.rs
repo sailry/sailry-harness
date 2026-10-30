@@ -68,18 +68,12 @@ async fn restores_selection(name: &str, arguments: Value) {
             .filter(|tool| tool["function"]["name"] != "manage_plugins")
             .collect();
         assert_eq!(serde_json::to_value(unchanged).unwrap(), first["tools"]);
+        // Persisted turn context keeps the earlier request as an exact prefix.
         let prefix = first["messages"].as_array().unwrap();
+        assert!(!turn_context(first).is_empty());
         assert_eq!(
-            &second["messages"].as_array().unwrap()[..prefix.len() - 1],
-            &prefix[..prefix.len() - 1]
-        );
-        let context = turn_context(first);
-        assert_eq!(
-            message_text(&prefix.last().unwrap()["content"])
-                .strip_suffix(context)
-                .unwrap()
-                .trim_end_matches('\n'),
-            message_text(&second["messages"][prefix.len() - 1]["content"])
+            &second["messages"].as_array().unwrap()[..prefix.len()],
+            &prefix[..]
         );
         assert!(!turn_context(second).is_empty());
 

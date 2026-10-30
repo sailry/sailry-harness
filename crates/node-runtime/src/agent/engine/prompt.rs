@@ -1,6 +1,6 @@
 //! Sailry's captured instructions and tool discovery enter GDK's prompt hooks.
 //! Stable instructions form the system prompt so provider prompt caches survive
-//! across requests; per-turn state follows the history as request-only context.
+//! across requests; per-turn state is persisted as agent-only turn context.
 use super::{Effect, Session};
 use crate::{
     agent::{
@@ -14,7 +14,7 @@ use crate::{
 use async_trait::async_trait;
 use goose_agent::{
     inference::{InferenceRequestPreparer, PreparedInferenceRequest},
-    operation::{InferenceInput, Operation},
+    operation::{InferenceInput, Operation, messages_since_kickoff},
 };
 use goose_provider_types::conversation::{
     Conversation,
@@ -109,10 +109,30 @@ impl InferenceRequestPreparer<Session> for Preparer {
     async fn prepare(
         &self,
         session: &Session,
-        _: &Conversation,
+        conversation: &Conversation,
         input: InferenceInput,
     ) -> anyhow::Result<PreparedInferenceRequest> {
         let owners = owners::collect(&session.records).parts();
+        let owned: Vec<_> = owners.iter().map(|(_, part)| part.as_str()).collect();
+        let mut input = input;
+        input.moim_parts = pending(conversation, &owned, std::mem::take(&mut input.moim_parts));
+        let context = Context::new(
+            input
+                .moim_parts
+                .iter()
+                .map(|text| Source {
+                    kind: if owners
+                        .iter()
+                        .any(|(key, part)| key.starts_with("skill:") && part == text)
+                    {
+                        CategoryKind::Skills
+                    } else {
+                        CategoryKind::Injected
+                    },
+                    text: text.clone(),
+                })
+                .collect(),
+        );
         self.sources.replace_with_context(
             input
                 .prompt_parts
@@ -123,23 +143,7 @@ impl InferenceRequestPreparer<Session> for Preparer {
                     text: text.clone(),
                 })
                 .collect(),
-            Context::new(
-                input
-                    .moim_parts
-                    .iter()
-                    .map(|text| Source {
-                        kind: if owners
-                            .iter()
-                            .any(|(key, part)| key.starts_with("skill:") && part == text)
-                        {
-                            CategoryKind::Skills
-                        } else {
-                            CategoryKind::Injected
-                        },
-                        text: text.clone(),
-                    })
-                    .collect(),
-            ),
+            context,
         );
         let mut loaded = session.context.loaded_tools.clone().unwrap_or_default();
         for record in &session.records {
@@ -220,9 +224,51 @@ fn prepare(
     }
 }
 
-/// Volatile turn state ends the request. GDK returns additional messages as
-/// effects; the session writer drops this marked message, so it is never
-/// persisted or repeated by later requests.
+/// Parts for a new persisted turn context, or none when history already holds
+/// them. As in Goose, each turn states the session once and repeats it only when
+/// it changes, so each request extends the previous one. Retained owner parts
+/// repeat only after compaction hides their earlier copy.
+fn pending(conversation: &Conversation, owned: &[&str], parts: Vec<String>) -> Vec<String> {
+    let persisted = |message: &&Message| message.is_turn_context() && message.is_agent_visible();
+    let visible: Vec<_> = conversation
+        .messages()
+        .iter()
+        .filter(persisted)
+        .map(Message::as_concat_text)
+        .collect();
+    let last = messages_since_kickoff(conversation)
+        .ok()
+        .and_then(|turn| turn.iter().rev().find(persisted))
+        .map(Message::as_concat_text);
+    let parts: Vec<_> = parts
+        .into_iter()
+        .filter(|part| {
+            !owned.contains(&part.as_str())
+                || !visible.iter().any(|text| text.contains(part.as_str()))
+        })
+        .collect();
+    let Some(candidate) = context(&parts).map(|message| message.as_concat_text()) else {
+        return Vec::new();
+    };
+    let changed = last.is_none_or(|last| state(&last) != state(&candidate));
+    if changed || parts.iter().any(|part| owned.contains(&part.as_str())) {
+        parts
+    } else {
+        Vec::new()
+    }
+}
+
+/// Session state of a context, without its retained owner parts.
+fn state(text: &str) -> &str {
+    let text = text.strip_suffix("\n</turn-context>").unwrap_or(text);
+    let end = text
+        .find(&format!("\n{}", owners::PREFIX))
+        .unwrap_or(text.len());
+    text[..end].trim_end_matches('\n')
+}
+
+/// Turn state as an agent-only message. GDK returns it as an effect and the
+/// canonical writer persists it, so later requests repeat the same bytes.
 fn context(parts: &[String]) -> Option<Message> {
     Context::new(
         parts
@@ -326,5 +372,98 @@ mod tests {
         let request = prepare(declarations(), &[], &deferred);
         assert_eq!(request.tools.len(), 1);
         assert_eq!(request.tools[0].name, "always");
+    }
+
+    mod contexts {
+        use super::*;
+
+        const ENVIRONMENT: &str = "Session environment";
+        const SKILL: &str = "Retained owner context: skill:fixture:SKILL.md\nBody";
+        const PLAN: &str = "Retained owner context: plan\nSteps";
+
+        fn persisted(parts: &[&str]) -> Message {
+            context(
+                &parts
+                    .iter()
+                    .map(|part| (*part).to_owned())
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap()
+        }
+
+        fn select(messages: Vec<Message>, parts: &[&str]) -> Vec<String> {
+            pending(
+                &Conversation::new_unvalidated(messages),
+                &[SKILL, PLAN],
+                parts.iter().map(|part| (*part).to_owned()).collect(),
+            )
+        }
+
+        #[test]
+        fn starts_with_every_part() {
+            assert_eq!(
+                select(
+                    vec![Message::user().with_text("Task")],
+                    &[ENVIRONMENT, SKILL]
+                ),
+                [ENVIRONMENT, SKILL]
+            );
+            assert!(select(vec![Message::user().with_text("Task")], &[]).is_empty());
+        }
+
+        #[test]
+        fn skips_unchanged_turn() {
+            let history = vec![
+                Message::user().with_text("Task"),
+                persisted(&[ENVIRONMENT, SKILL]),
+                Message::assistant().with_text("Working"),
+            ];
+            assert!(select(history.clone(), &[ENVIRONMENT, SKILL]).is_empty());
+            assert_eq!(
+                select(history.clone(), &["Moved environment", SKILL]),
+                ["Moved environment"]
+            );
+            assert_eq!(
+                select(history, &[ENVIRONMENT, SKILL, PLAN]),
+                [ENVIRONMENT, PLAN]
+            );
+        }
+
+        #[test]
+        fn states_each_turn_once() {
+            let history = vec![
+                Message::user().with_text("Task"),
+                persisted(&[ENVIRONMENT, SKILL]),
+                Message::assistant().with_text("Done"),
+                Message::user().with_text("Next task"),
+            ];
+            assert_eq!(select(history, &[ENVIRONMENT, SKILL]), [ENVIRONMENT]);
+        }
+
+        #[test]
+        fn keeps_state_beside_owner_parts() {
+            let history = vec![
+                Message::user().with_text("Task"),
+                persisted(&[ENVIRONMENT, SKILL]),
+                persisted(&[ENVIRONMENT, PLAN]),
+            ];
+            assert!(select(history, &[ENVIRONMENT, SKILL, PLAN]).is_empty());
+            let owners = vec![Message::user().with_text("Task"), persisted(&[SKILL])];
+            assert!(select(owners.clone(), &[SKILL]).is_empty());
+            assert_eq!(select(owners, &[ENVIRONMENT, SKILL]), [ENVIRONMENT]);
+        }
+
+        #[test]
+        fn restores_hidden_owner_parts() {
+            let mut hidden = persisted(&[ENVIRONMENT, SKILL]);
+            hidden.metadata = hidden.metadata.with_agent_invisible();
+            assert_eq!(
+                select(
+                    vec![Message::user().with_text("Task"), hidden],
+                    &[ENVIRONMENT, SKILL]
+                ),
+                [ENVIRONMENT, SKILL]
+            );
+        }
     }
 }

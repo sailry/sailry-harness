@@ -59,3 +59,23 @@ fn removes_terminal_parts() {
         assert_eq!(separate, captured);
     }
 }
+
+#[test]
+fn reads_latest_persisted_context() {
+    let earlier = "<turn-context>\nSession: earlier\n</turn-context>";
+    let body = json!({"input":[
+        {"role":"user", "content":format!("First task\n{earlier}")},
+        {"type":"function_call_output", "call_id":"call", "output":"Result"},
+        {"role":"user", "content":CONTEXT},
+        {"role":"assistant", "content":"Done"},
+    ]});
+    assert_eq!(turn_context(&body), Some(CONTEXT));
+    assert_eq!(
+        task_request(&body),
+        json!({"input":[
+            {"role":"user", "content":"First task"},
+            {"type":"function_call_output", "call_id":"call", "output":"Result"},
+            {"role":"assistant", "content":"Done"},
+        ]})
+    );
+}

@@ -1029,28 +1029,66 @@ pub fn plugin_tool(package: &str, tool: &str) -> String {
     format!("plugin_{}_{}", &digest[..16], tool)
 }
 
-/// Read request context from its terminal wire position without changing evidence.
-pub fn turn_context(body: &Value) -> Option<&str> {
-    for field in ["messages", "input", "contents"] {
-        let Some(last) = body[field].as_array().and_then(|messages| messages.last()) else {
-            continue;
+const OPEN: &str = "<turn-context>\n";
+const CLOSE: &str = "\n</turn-context>";
+
+/// Context blocks within one user text, in order.
+fn blocks<'a>(text: &'a str, contexts: &mut Vec<&'a str>) {
+    let mut offset = 0;
+    while let Some(start) = text[offset..].find(OPEN) {
+        let start = offset + start;
+        let Some(length) = text[start..].find(CLOSE) else {
+            break;
         };
-        if last["role"] != "user" {
-            continue;
-        }
-        let content = last.get("content").or_else(|| last.get("parts"))?;
-        let text = content
-            .as_str()
-            .or_else(|| content.as_array()?.last()?.get("text")?.as_str())?;
-        if !text.ends_with("\n</turn-context>") {
-            continue;
-        }
-        let start = text.rfind("<turn-context>\n")?;
+        let end = start + length + CLOSE.len();
         if start == 0 || text[..start].ends_with('\n') {
-            return Some(&text[start..]);
+            contexts.push(&text[start..end]);
+        }
+        offset = end;
+    }
+}
+
+/// Every persisted request context, oldest first, without changing evidence.
+pub fn turn_contexts(body: &Value) -> Vec<&str> {
+    let mut contexts = Vec::new();
+    for field in ["messages", "input", "contents"] {
+        for message in body[field].as_array().into_iter().flatten() {
+            if message["role"] != "user" {
+                continue;
+            }
+            match message.get("content").or_else(|| message.get("parts")) {
+                Some(Value::String(text)) => blocks(text, &mut contexts),
+                Some(Value::Array(parts)) => {
+                    for text in parts.iter().filter_map(|part| part["text"].as_str()) {
+                        blocks(text, &mut contexts);
+                    }
+                }
+                _ => {}
+            }
         }
     }
-    None
+    contexts
+}
+
+/// The latest persisted request context.
+pub fn turn_context(body: &Value) -> Option<&str> {
+    turn_contexts(body).pop()
+}
+
+/// Text with every context block and its separating newline removed.
+fn without_context(text: &str) -> String {
+    let mut output = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        let Some(length) = rest[start..].find(CLOSE) else {
+            break;
+        };
+        let before = &rest[..start];
+        output.push_str(before.strip_suffix('\n').unwrap_or(before));
+        rest = &rest[start + length + CLOSE.len()..];
+    }
+    output.push_str(rest);
+    output
 }
 
 /// Derive a task-only view without changing captured wire evidence.
@@ -1073,37 +1111,35 @@ fn strip_context(body: &mut Value) -> Option<String> {
         let Some(messages) = body.get_mut(field).and_then(Value::as_array_mut) else {
             continue;
         };
-        let Some(last) = messages.last_mut().filter(|last| last["role"] == "user") else {
-            continue;
-        };
-        let key = if last.get("content").is_some() {
-            "content"
-        } else {
-            "parts"
-        };
-        let Some(content) = last.get_mut(key) else {
-            continue;
-        };
-        let empty = match content {
-            Value::String(text) if text.ends_with(&context) => {
-                text.truncate(text.len() - context.len());
-                if text.ends_with('\n') {
-                    text.pop();
+        messages.retain_mut(|message| {
+            if message["role"] != "user" {
+                return true;
+            }
+            let key = if message.get("content").is_some() {
+                "content"
+            } else {
+                "parts"
+            };
+            match message.get_mut(key) {
+                Some(Value::String(text)) if text.contains(OPEN) => {
+                    *text = without_context(text);
+                    !text.is_empty()
                 }
-                text.is_empty()
+                Some(Value::Array(parts)) => {
+                    parts.retain_mut(|part| match part.get_mut("text") {
+                        Some(Value::String(text)) if text.contains(OPEN) => {
+                            *text = without_context(text);
+                            !text.is_empty()
+                        }
+                        _ => true,
+                    });
+                    !parts.is_empty()
+                }
+                _ => true,
             }
-            Value::Array(parts) if parts.last().is_some_and(|part| part["text"] == context) => {
-                parts.pop();
-                parts.is_empty()
-            }
-            _ => continue,
-        };
-        if empty {
-            messages.pop();
-        }
-        return Some(context);
+        });
     }
-    None
+    Some(context)
 }
 
 /// Expected model-facing spelling for a unique ordinary package tool.

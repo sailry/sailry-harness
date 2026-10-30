@@ -63,7 +63,7 @@ pub(super) fn bind(
 fn contexts(invocation: &Invocation, entry: &ToolRegistration) -> Vec<String> {
     let mut context = Vec::new();
     if let Some(owner) = &entry.plugin {
-        // Per-turn script instructions already live in the request-only tail.
+        // Per-turn script instructions already live in the turn context.
         context.extend(
             invocation
                 .plugins

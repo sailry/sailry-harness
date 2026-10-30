@@ -12,7 +12,10 @@ pub(super) fn assert_content(request: &Value, markers: &[&str]) {
     for marker in markers {
         assert_eq!(system.matches(marker).count(), 0, "system: {marker}");
         assert_eq!(
-            turn_context(request).matches(marker).count(),
+            crate::agent_support::turn_contexts(request)
+                .iter()
+                .map(|context| context.matches(marker).count())
+                .sum::<usize>(),
             1,
             "owner: {marker}"
         );
@@ -36,10 +39,13 @@ pub(super) fn receipt(request: &Value, id: &str) -> Value {
 }
 
 pub(super) fn owner(request: &Value, path: &str) -> Value {
-    turn_context(request)
-        .lines()
+    // Owner parts persist once; a later copy replaces an earlier version.
+    crate::agent_support::turn_contexts(request)
+        .iter()
+        .flat_map(|context| context.lines())
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find(|value| value["skill"] == "example:analysis" && value["path"] == path)
+        .filter(|value| value["skill"] == "example:analysis" && value["path"] == path)
+        .last()
         .unwrap()
 }
 
@@ -168,7 +174,7 @@ async fn restores_loaded_content_after_compaction() {
         assert_eq!(requests.len(), 1);
         assert!(agent_support::compaction::is_summary(&requests[0]));
         assert!(!requests[0].to_string().contains("<turn-context>"));
-        observations::assert_context_absent(&node, session.id).await;
+        observations::assert_context_hidden(&node, session.id).await;
         assert_eq!(
             requests[0]["messages"]
                 .to_string()
@@ -227,7 +233,7 @@ async fn restores_loaded_content_after_compaction() {
         gate.notify_one();
         let after = finished(&client, session.id, next.id).await;
         assert_eq!(after.runs.last().unwrap().status, Status::Completed);
-        observations::assert_context_absent(&node, session.id).await;
+        observations::assert_context_hidden(&node, session.id).await;
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

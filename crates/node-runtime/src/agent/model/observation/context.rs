@@ -1,4 +1,4 @@
-//! Request-only provenance is limited to a verified terminal text node.
+//! Provenance of a newly appended turn context is limited to a verified terminal text node.
 use super::Source;
 use sailry_protocol::conversation::observation::CategoryKind;
 use serde_json::Value;

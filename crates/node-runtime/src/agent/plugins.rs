@@ -15,7 +15,7 @@ mod selection;
 pub(super) struct Contribution {
     pub tools: Vec<ToolRegistration>,
     pub instruction: String,
-    /// Per-turn plugin script text, delivered as request-only turn context.
+    /// Per-turn plugin script text, delivered as turn context.
     pub context: String,
     pub callbacks: Vec<(
         i16,

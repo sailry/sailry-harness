@@ -13,23 +13,29 @@ pub(super) async fn statistics(client: &Client, session: SessionId) -> Statistic
     }
 }
 
-pub(super) async fn assert_context_absent(node: &Node, session: SessionId) {
-    let count = node
+/// Turn context is canonical agent history, never public conversation content.
+/// Returns how many context messages were persisted.
+pub(super) async fn assert_context_hidden(node: &Node, session: SessionId) -> i64 {
+    let (stored, visible) = node
         .with_storage(move |db| {
             Box::pin(async move {
-                db.prepare("SELECT count(*) FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND json_extract(e.body,'$.kind')='message' AND instr(CAST(e.body AS TEXT),'<turn-context>')>0")
+                let mut statement = db.prepare("SELECT count(*), coalesce(sum(coalesce(json_extract(e.body,'$.metadata.runtime.user_visible'),1)),0) FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND json_extract(e.body,'$.kind')='message' AND instr(CAST(e.body AS TEXT),'<turn-context>')>0")
                     .await
-                    .map_err(crate::database_fixture::fault)?
+                    .map_err(crate::database_fixture::fault)?;
+                let row = statement
                     .query_row([session.to_string()])
                     .await
-                    .map_err(crate::database_fixture::fault)?
-                    .get::<i64>(0)
-                    .map_err(crate::database_fixture::fault)
+                    .map_err(crate::database_fixture::fault)?;
+                Ok((
+                    row.get::<i64>(0).map_err(crate::database_fixture::fault)?,
+                    row.get::<i64>(1).map_err(crate::database_fixture::fault)?,
+                ))
             })
         })
         .await
         .unwrap();
-    assert_eq!(count, 0, "request context became canonical history");
+    assert_eq!(visible, 0, "turn context became public history");
+    stored
 }
 
 #[tokio::test]
@@ -87,7 +93,8 @@ async fn finalizes_terminal_and_cancelled_streams() {
                 .unwrap();
             }
             let page = finished(&client, session.id, turn.id).await;
-            assert_context_absent(&node, session.id).await;
+            let stored = assert_context_hidden(&node, session.id).await;
+            assert!(cancel || stored == 1, "one turn context expected");
             {
                 let requests = server.requests.lock().unwrap();
                 let request = requests.last().unwrap();

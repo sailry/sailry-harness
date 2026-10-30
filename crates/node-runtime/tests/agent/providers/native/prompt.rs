@@ -74,7 +74,7 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
             .flat_map(|entry| &entry.parts)
             .any(|part| matches!(part, Part::ToolResult { .. }))
     );
-    crate::observations::assert_context_absent(&fixture.node, fixture.session.id).await;
+    crate::observations::assert_context_hidden(&fixture.node, fixture.session.id).await;
     let original = page.entries;
     let Output::QueuedTurn(queued) = execute(
         &fixture.client,
@@ -123,7 +123,7 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
     assert!(page.entries.iter().all(|entry| entry.parts.iter().all(|part| {
         !matches!(part, Part::Text(text) if ["Session environment", ROOT_RULE, NESTED_RULE, PERSONAL_FIRST, PERSONAL_NEXT].iter().any(|context| text.contains(*context)))
     })));
-    crate::observations::assert_context_absent(&node, fixture.session.id).await;
+    crate::observations::assert_context_hidden(&node, fixture.session.id).await;
     fixture.controller.close().await.unwrap();
     node.shutdown().await.unwrap();
 }
@@ -184,10 +184,6 @@ fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
         body.get("turn_context").is_none(),
         "{api:?}: raw wire was changed"
     );
-    assert!(
-        crate::agent_support::turn_context(body).is_some(),
-        "{api:?}: terminal context missing"
-    );
     let system = instruction(api, body);
     assert_eq!(system.matches(BASE.trim()).count(), 1, "{api:?}");
     assert_eq!(
@@ -241,28 +237,27 @@ fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
             "{api:?}: {context} became user input"
         );
     }
-    // Volatile session state is request-only context after the history.
+    // Each turn persists its session state as context that later requests repeat.
     assert!(
-        users.last().is_some_and(
-            |text| text.contains("<turn-context>") && text.contains("Session environment")
-        ),
-        "{api:?}: turn context must end the request"
+        crate::agent_support::turn_context(body)
+            .is_some_and(|text| text.contains("Session environment")),
+        "{api:?}: latest turn context"
     );
-    assert_eq!(
+    let count = |marker: &str| {
         users
             .iter()
-            .map(|text| text.matches("Session environment").count())
-            .sum::<usize>(),
-        1,
+            .map(|text| text.matches(marker).count())
+            .sum::<usize>()
+    };
+    let contexts = count("<turn-context>\n");
+    assert!(
+        contexts > usize::from(resumed),
+        "{api:?}: earlier turn context was not retained"
+    );
+    assert_eq!(
+        count("Session environment"),
+        contexts,
         "{api:?}: turn context"
-    );
-    assert_eq!(
-        users
-            .iter()
-            .map(|text| text.matches("<turn-context>\n").count())
-            .sum::<usize>(),
-        1,
-        "{api:?}: stale context accumulated"
     );
     for (task, expected) in [(FIRST, 1), (SECOND, usize::from(resumed))] {
         assert!(!system.contains(task), "{api:?}: user task became policy");

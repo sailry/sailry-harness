@@ -168,7 +168,7 @@ fn node_context(request: &serde_json::Value, section: &str) -> String {
 }
 
 fn turn_context(request: &serde_json::Value) -> &str {
-    agent_support::turn_context(request).expect("request-only turn context expected")
+    agent_support::turn_context(request).expect("turn context expected")
 }
 
 async fn planning_denial(client: &Client, page: &Page, turn: TurnId) {

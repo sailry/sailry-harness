@@ -392,10 +392,12 @@ compaction; public history, fork and rewind still use canonical membership.
 
 Policy, personal instructions, guides and selected capabilities form the stable
 system prompt. Environment, title, plugin turn state, plans, loaded skill resources
-and turn budgets follow history in one request-only context message. The canonical
-writer drops that marked message; each inference rebuilds it from its current
-owners, including after cancellation or compaction. Adapted payload estimates
-attribute its sources only within the verified terminal text and captured ranges.
+and turn budgets form an agent-only turn context message. As in Goose, the
+canonical writer persists it and inference appends a new one only when session
+state changes, so each request extends the previous request and provider prompt
+caches cover the history. Retained owner parts are repeated only after compaction
+hides their earlier copy. Adapted payload estimates attribute sources only for a
+newly appended context within the verified terminal text and captured ranges.
 Compaction still reads full canonical tool results. These sources are not copied
 into or validated against summary text. Selected capabilities retain their input
 ownership rather than becoming policy for a later task.

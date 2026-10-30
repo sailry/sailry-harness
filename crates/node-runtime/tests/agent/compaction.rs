@@ -109,16 +109,17 @@ async fn incorporates_previous_summaries() {
             } else {
                 assert!(request.get("turn_context").is_none());
                 assert!(agent_support::turn_context(request).is_some());
-                assert_eq!(
+                // Each retained turn keeps its persisted context.
+                assert!(
                     request["messages"]
                         .to_string()
                         .matches("<turn-context>\\n")
-                        .count(),
-                    1
+                        .count()
+                        >= 1
                 );
             }
         }
-        observations::assert_context_absent(&fixture.node, fixture.session.id).await;
+        observations::assert_context_hidden(&fixture.node, fixture.session.id).await;
         let summaries: Vec<_> = requests
             .iter()
             .filter(|request| agent_support::compaction::is_summary(request))
