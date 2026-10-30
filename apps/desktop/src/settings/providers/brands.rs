@@ -173,46 +173,53 @@ impl RenderOnce for Matrix {
                 .secondary
                 .opacity(alpha + (1. - alpha) * progress);
             let select = self.select.clone();
-            tiles.push(
-                Button::new(SharedString::from(format!("provider-brand-{key}")))
-                    .custom(
-                        ButtonCustomVariant::new(cx)
-                            .color(fill)
-                            .foreground(cx.theme().foreground)
-                            .hover(fill)
-                            .active(cx.theme().list_active),
+            let hover_id = SharedString::from(format!("provider-brand-hover-{key}"));
+            let button = Button::new(SharedString::from(format!("provider-brand-{key}")))
+                .custom(
+                    ButtonCustomVariant::new(cx)
+                        .color(fill)
+                        .foreground(cx.theme().foreground)
+                        .hover(fill)
+                        .active(cx.theme().list_active),
+                )
+                .size(tile)
+                .p_0()
+                .border_1()
+                .border_color(cx.theme().border.opacity(0.7 + 0.3 * edge))
+                .rounded(cx.theme().radius_lg)
+                // The theme has no shadow color token; a black drop shadow sits below the tile.
+                .shadow(vec![
+                    BoxShadow::new(
+                        px(0.),
+                        px(6.),
+                        gpui_kit::black().opacity(0.24 * (0.65 + 0.35 * edge)),
                     )
+                    .blur_radius(px(7.))
+                    .spread_radius(px(-5.)),
+                ])
+                .disabled(self.disabled)
+                .track_focus(handle)
+                .accessibility_label(label.clone())
+                .tooltip(label)
+                .tooltip_placement(Placement::Top)
+                .child(presets::render_icon(
+                    entry,
+                    rems(glyph * (1. + 0.18 * progress)),
+                ))
+                .on_click(move |_, window, cx| select(key.clone(), window, cx));
+            // Kit tooltips own the button's hover listener; animate from its container.
+            tiles.push(
+                div()
+                    .id(hover_id)
                     .size(tile)
-                    .p_0()
-                    .border_1()
-                    .border_color(cx.theme().border.opacity(0.7 + 0.3 * edge))
-                    .rounded(cx.theme().radius_lg)
-                    // The theme has no shadow color token; a black drop shadow sits below the tile.
-                    .shadow(vec![
-                        BoxShadow::new(
-                            px(0.),
-                            px(6.),
-                            gpui_kit::black().opacity(0.24 * (0.65 + 0.35 * edge)),
-                        )
-                        .blur_radius(px(7.))
-                        .spread_radius(px(-5.)),
-                    ])
-                    .disabled(self.disabled)
-                    .track_focus(handle)
-                    .accessibility_label(label.clone())
-                    .tooltip(label)
-                    .tooltip_placement(Placement::Top)
-                    .child(presets::render_icon(
-                        entry,
-                        rems(glyph * (1. + 0.18 * progress)),
-                    ))
+                    .flex_none()
+                    .child(button)
                     .on_hover(move |hovered, _, cx| {
                         hover.update(cx, |hover, cx| {
                             *hover = *hovered;
                             cx.notify();
                         })
-                    })
-                    .on_click(move |_, window, cx| select(key.clone(), window, cx)),
+                    }),
             );
         }
         let mut tiles = tiles.into_iter();
