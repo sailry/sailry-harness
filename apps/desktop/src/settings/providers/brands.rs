@@ -187,16 +187,6 @@ impl RenderOnce for Matrix {
                 .border_1()
                 .border_color(cx.theme().border.opacity(0.7 + 0.3 * edge))
                 .rounded(cx.theme().radius_lg)
-                // The theme has no shadow color token; a black drop shadow sits below the tile.
-                .shadow(vec![
-                    BoxShadow::new(
-                        px(0.),
-                        px(6.),
-                        gpui_kit::black().opacity(0.24 * (0.65 + 0.35 * edge)),
-                    )
-                    .blur_radius(px(7.))
-                    .spread_radius(px(-5.)),
-                ])
                 .disabled(self.disabled)
                 .track_focus(handle)
                 .accessibility_label(label.clone())

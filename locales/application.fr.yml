@@ -781,6 +781,7 @@ provider_login_models_failed: "Connecté, mais les modèles ne sont pas disponib
 provider_login_cancelled: "Annulé"
 provider_login_expired: "Connexion expirée; réessayez"
 provider_login_failed: "La connexion a échoué; essayez à nouveau"
+provider_login_port_busy: "Le port de connexion est utilisé. Fermez l’application qui l’utilise et réessayez"
 provider_login_unknown: "Résultat de connexion non confirmé; réessayez"
 provider_login_cancelling: "Annulation en cours"
 provider_login_cancel_unknown: "Annulation non confirmée; réessayer"

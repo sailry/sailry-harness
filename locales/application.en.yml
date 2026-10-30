@@ -778,6 +778,7 @@ provider_login_models_failed: "Connected, but models are unavailable; retry upda
 provider_login_cancelled: "Cancelled"
 provider_login_expired: "Sign-in expired; try again"
 provider_login_failed: "Sign-in failed; try again"
+provider_login_port_busy: "The sign-in port is in use. Close the app using it and try again"
 provider_login_unknown: "Sign-in result unconfirmed; retry"
 provider_login_cancelling: "Cancelling"
 provider_login_cancel_unknown: "Cancellation unconfirmed; retry"

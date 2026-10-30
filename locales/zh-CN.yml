@@ -876,6 +876,7 @@ provider_login_models_failed: 已连接，但模型暂不可用，请重试更�
 provider_login_cancelled: 已取消
 provider_login_expired: 登录已过期，请重试
 provider_login_failed: 登录失败，请重试
+provider_login_port_busy: "登录端口已被占用，请关闭占用它的应用后重试"
 provider_login_unknown: 登录结果未确认，请重试
 provider_login_cancelling: 正在取消
 provider_login_cancel_unknown: 尚未确认取消，请重试

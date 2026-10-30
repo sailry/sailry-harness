@@ -781,6 +781,7 @@ provider_login_models_failed: "Verbunden, aber Modelle sind nicht verfügbar; ve
 provider_login_cancelled: "Abgebrochen"
 provider_login_expired: "Bitte versuchen Sie es erneut"
 provider_login_failed: "Anmeldung fehlgeschlagen; versuchen Sie es erneut"
+provider_login_port_busy: "Der Anmeldeport wird verwendet. Schließen Sie die App, die ihn nutzt, und versuchen Sie es erneut"
 provider_login_unknown: "Anmeldeergebnis nicht bestätigt; erneut versuchen"
 provider_login_cancelling: "Wird abgebrochen"
 provider_login_cancel_unknown: "Stornierung nicht bestätigt; erneut versuchen"

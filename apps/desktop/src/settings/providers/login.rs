@@ -191,6 +191,12 @@ impl Login {
                 if let Some(declaration) = declaration::listener(self.presentation.as_ref()) {
                     match Callback::bind_declared(&declaration) {
                         Ok(callback) => Some(callback),
+                        // A fixed loopback port has no pasted fallback; another app holds it.
+                        Err(_) if declaration.port.is_some() => {
+                            self.error = Some("provider_login_port_busy");
+                            cx.notify();
+                            return;
+                        }
                         Err(_) if !declaration.manual => {
                             self.error = Some("provider_login_failed");
                             cx.notify();

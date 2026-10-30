@@ -352,22 +352,16 @@ impl RenderOnce for Authorization {
             .code()
             .map(|(code, dim)| Self::render_code(code, dim, cx));
         let status = self.status(window, cx);
-        let (secondary, mut primary) = self.actions();
-        // Browser callbacks keep reopening as a link beside their own Continue action.
-        let links = secondary
-            .into_iter()
-            .chain(
-                matches!(self.flow, Flow::Browser { .. })
-                    .then(|| primary.take())
-                    .flatten(),
-            )
-            .collect::<Vec<_>>();
+        let (secondary, primary) = self.actions();
         let theme = cx.theme();
         let busy = self.busy;
         let cancelling = self.cancelling;
+        let actions = secondary.is_some() || primary.is_some();
+        // Extra content such as a pasted callback carries its own primary action.
+        let emphasized = self.extra.is_none();
         let cancel = Button::new("authorization-cancel")
             .debug_selector(|| "authorization-cancel".into())
-            .flex_1()
+            .w_full()
             .loading(cancelling)
             .disabled(cancelling)
             .label(tr("authorization_cancel"))
@@ -420,43 +414,42 @@ impl RenderOnce for Authorization {
             .when_some(self.extra.take(), |body, extra| {
                 body.child(div().mt_4().w_full().child(extra))
             })
-            .when(!links.is_empty(), |body| {
+            // Flow actions share one full-width row above a full-width Cancel.
+            .when(actions, |body| {
                 body.child(
                     h_flex()
-                        .mt_3()
+                        .mt(px(22.))
+                        .w_full()
                         .gap_2()
-                        .children(
-                            links
-                                .into_iter()
-                                .enumerate()
-                                .map(|(index, (key, handler))| {
-                                    Button::new(("authorization-link", index))
-                                        .ghost()
-                                        .small()
-                                        .label(tr(key))
-                                        .disabled(cancelling)
-                                        .on_click(move |_, window, cx| handler(window, cx))
-                                }),
-                        ),
+                        .when_some(secondary, |row, (key, handler)| {
+                            row.child(
+                                Button::new("authorization-secondary")
+                                    .debug_selector(|| "authorization-secondary".into())
+                                    .flex_1()
+                                    .disabled(cancelling)
+                                    .label(tr(key))
+                                    .on_click(move |_, window, cx| handler(window, cx)),
+                            )
+                        })
+                        .when_some(primary, |row, (key, handler)| {
+                            row.child(
+                                Button::new("authorization-primary")
+                                    .debug_selector(|| "authorization-primary".into())
+                                    .when(emphasized, |button| button.primary())
+                                    .flex_1()
+                                    .disabled(busy || cancelling)
+                                    .label(tr(key))
+                                    .on_click(move |_, window, cx| handler(window, cx)),
+                            )
+                        }),
                 )
             })
             .child(
-                h_flex()
-                    .mt(px(22.))
+                div()
+                    .when(actions, |cancel| cancel.mt_2())
+                    .when(!actions, |cancel| cancel.mt(px(22.)))
                     .w_full()
-                    .gap_2()
-                    .child(cancel)
-                    .when_some(primary, |row, (key, handler)| {
-                        row.child(
-                            Button::new("authorization-primary")
-                                .debug_selector(|| "authorization-primary".into())
-                                .primary()
-                                .flex_1()
-                                .disabled(busy || cancelling)
-                                .label(tr(key))
-                                .on_click(move |_, window, cx| handler(window, cx)),
-                        )
-                    }),
+                    .child(cancel),
             )
     }
 }

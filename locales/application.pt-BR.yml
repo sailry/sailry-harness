@@ -781,6 +781,7 @@ provider_login_models_failed: "Conectado, mas os modelos não estão disponívei
 provider_login_cancelled: "Cancelado"
 provider_login_expired: "O login expirou; tente novamente"
 provider_login_failed: "O login falhou; tente novamente"
+provider_login_port_busy: "A porta de login está em uso. Feche o app que a usa e tente novamente"
 provider_login_unknown: "Resultado de login não confirmado; tente novamente"
 provider_login_cancelling: "Cancelando"
 provider_login_cancel_unknown: "Cancelamento não confirmado; tente novamente"

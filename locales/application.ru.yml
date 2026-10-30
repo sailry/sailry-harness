@@ -781,6 +781,7 @@ provider_login_models_failed: "Подключено, но модели недо�
 provider_login_cancelled: "Отменено"
 provider_login_expired: "Срок действия учетной записи истек; попробуйте еще раз"
 provider_login_failed: "Не удалось войти в систему; попробуйте еще раз"
+provider_login_port_busy: "Порт для входа занят. Закройте приложение, которое его использует, и повторите попытку"
 provider_login_unknown: "Результат входа не подтвержден; повторите попытку"
 provider_login_cancelling: "Отмена"
 provider_login_cancel_unknown: "Отмена не подтверждена; повторите попытку"

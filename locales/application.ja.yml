@@ -781,6 +781,7 @@ provider_login_models_failed: "接続しましたが、モデルは利用でき�
 provider_login_cancelled: "キャンセル済み"
 provider_login_expired: "ログイン時間が切れました。もう一度試してください"
 provider_login_failed: "ログインに失敗しました。もう一度試してください"
+provider_login_port_busy: "サインイン用のポートは使用中です。使用中のアプリを終了してからもう一度お試しください"
 provider_login_unknown: "ログイン結果が確認されていません。やり直します"
 provider_login_cancelling: "キャンセル中"
 provider_login_cancel_unknown: "キャンセルが確認されませんでした。やり直します"

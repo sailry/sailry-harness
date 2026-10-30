@@ -968,6 +968,7 @@ provider_login_models_failed: "已連線，但模型暫不可用，請重試更�
 provider_login_cancelled: "已取消"
 provider_login_expired: "登入已過期，請重試"
 provider_login_failed: "登入失敗，請重試"
+provider_login_port_busy: "登入連接埠已被佔用，請關閉佔用它的應用後重試"
 provider_login_unknown: "登入結果未確認，請重試"
 provider_login_cancelling: "正在取消"
 provider_login_cancel_unknown: "尚未確認取消，請重試"

@@ -65,7 +65,11 @@ fn manual(presentation: Option<&Presentation>) -> bool {
         Some(Presentation::Pkce {
             redirect: Redirect::Paste
         })
-    ) || matches!(presentation, Some(Presentation::Script { callback: Some(callback) }) if callback.manual)
+    ) || matches!(
+        presentation,
+        Some(Presentation::Script { callback: Some(callback) })
+            if callback.manual && callback.port.is_none()
+    )
 }
 
 pub(super) fn listener(
@@ -94,7 +98,7 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn preserves_fixed_listener_and_manual_fallback() {
+    fn keeps_fixed_listener_without_pasting() {
         let callback = sailry_protocol::plugin::model_auth::Callback {
             path: "/auth/callback".into(),
             port: Some(1455),
@@ -106,7 +110,7 @@ mod tests {
             callback: Some(callback.clone()),
         };
         assert_eq!(listener(Some(&presentation)), Some(callback));
-        assert!(manual(Some(&presentation)));
+        assert!(!manual(Some(&presentation)));
     }
 
     #[test]

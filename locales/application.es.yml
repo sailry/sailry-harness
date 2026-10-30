@@ -781,6 +781,7 @@ provider_login_models_failed: "Conectado, pero los modelos no están disponibles
 provider_login_cancelled: "Cancelado"
 provider_login_expired: "El inicio de sesión ha caducado; inténtelo de nuevo"
 provider_login_failed: "El inicio de sesión falló; inténtelo de nuevo"
+provider_login_port_busy: "El puerto de inicio de sesión está en uso. Cierra la aplicación que lo usa e inténtalo de nuevo"
 provider_login_unknown: "Resultado de inicio de sesión no confirmado; vuelva a intentarlo"
 provider_login_cancelling: "Cancelando"
 provider_login_cancel_unknown: "Cancelación no confirmada; vuelva a intentarlo"
