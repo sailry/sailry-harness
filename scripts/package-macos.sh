@@ -66,6 +66,9 @@ if test "$task_signing" != developer-id; then task_parsers+=(--sign -); fi
 if test "$task_desktop" = 1; then
   mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources"
   cp "$task_build/sailry-desktop" "$task_app/Contents/MacOS/sailry-desktop"
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/debug-symbols.py" collect --optional \
+    --binary "$task_build/sailry-desktop" --target "$task_target" \
+    --output "$task_root/target/debug-symbols/desktop/$task_target"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" "${task_parsers[@]}" \
     --output "$task_app/Contents/Resources/code-parsers"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
@@ -89,6 +92,9 @@ fi
 if test "$task_host" = 1; then
   mkdir -p "$task_output/host"
   cp "$task_build/sailry-host" "$task_output/host/sailry-host"
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/debug-symbols.py" collect --optional \
+    --binary "$task_build/sailry-host" --target "$task_target" \
+    --output "$task_root/target/debug-symbols/host/$task_target"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" "${task_parsers[@]}" \
     --output "$task_output/host/code-parsers"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \

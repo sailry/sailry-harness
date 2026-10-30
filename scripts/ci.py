@@ -37,7 +37,7 @@ FIXTURES = {
         "test_ci_local", "test_ci_resources", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
         "test_names", "test_ocu_helper", "test_onnx_runtime", "test_llama_runtime", "test_code_parsers", "test_public_source", "test_publish_packages",
         "test_python_launcher", "test_python_runtime", "test_release_notes",
-        "test_release_versions", "test_suites",
+        "test_release_versions", "test_suites", "test_debug_symbols", "test_telemetry_env",
     },
     "desktop": {
         "test_app_icons", "test_desktop_launch", "test_publish_update_feed",

@@ -196,7 +196,10 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("-p sailry-desktop -p sailry-release", build)
         self.assertNotIn("-p sailry-host", build)
         self.assertIn("name: Preserve native Desktop", build)
-        self.assertNotIn("secrets.", build)
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", build)), {
+            "SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY",
+            "SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT",
+        })
         self.assertIn("needs: [version, build]", packaging)
         self.assertIn("scripts/package-desktop-adhoc.py", packaging)
         self.assertNotIn("secrets.", packaging)

@@ -3,7 +3,7 @@
 use std::{
     path::{Path, PathBuf},
     sync::{
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -15,6 +15,7 @@ pub(crate) mod commands;
 mod format;
 mod native;
 mod records;
+pub(crate) mod report;
 mod rolling;
 pub use records::{Area, Context, Entry, Phase, Span};
 #[cfg(test)]
@@ -24,6 +25,7 @@ const MAX_FILE_BYTES: usize = 1024 * 1024;
 const RETAINED_FILES: usize = 5;
 const QUEUED_LINES: usize = 8192;
 static DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+static INSTALL: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Copy)]
 pub enum Application {
@@ -58,6 +60,8 @@ pub struct Guard {
     counter: ErrorCounter,
     write_errors: Arc<AtomicUsize>,
     _temporary: Option<tempfile::TempDir>,
+    report: Option<Arc<report::Report>>,
+    telemetry: bool,
 }
 
 pub fn directory() -> Option<&'static Path> {
@@ -115,10 +119,31 @@ fn latest_file(directory: &Path) -> std::io::Result<Option<PathBuf>> {
 }
 
 pub fn install(profile: &Path, application: Application) -> Result<Guard, InitError> {
+    install_with(profile, application, true)
+}
+
+fn install_with(
+    profile: &Path,
+    application: Application,
+    telemetry: bool,
+) -> Result<Guard, InitError> {
+    let _install = INSTALL.lock().map_err(|_| InitError)?;
+    if DIRECTORY.get().is_some() {
+        return Err(InitError);
+    }
     crate::profile::private_directory(profile).map_err(|_| InitError)?;
     let directory = profile.join("logs").join(application.name());
-    let (writer, guard) = writer(&directory, MAX_FILE_BYTES, RETAINED_FILES, QUEUED_LINES)?;
-    tracing::subscriber::set_global_default(subscriber(writer, application))
+    let (writer, mut guard) = writer(&directory, MAX_FILE_BYTES, RETAINED_FILES, QUEUED_LINES)?;
+    if telemetry {
+        let control = crate::telemetry::start(profile, application);
+        let dsn = crate::telemetry::dsn();
+        guard.report = report::Report::new(control, dsn.as_deref()).map(Arc::new);
+        if let Some(report) = &guard.report {
+            crate::telemetry::attach_report(report.clone());
+        }
+        guard.telemetry = true;
+    }
+    tracing::subscriber::set_global_default(with_report(writer, application, guard.report.clone()))
         .map_err(|_| InitError)?;
     if tracing_log::LogTracer::builder()
         .with_max_level(tracing::level_filters::LevelFilter::INFO.as_log())
@@ -159,7 +184,11 @@ pub fn preview() -> Result<Guard, InitError> {
         .prefix("sailry-preview-logs-")
         .tempdir()
         .map_err(|_| InitError)?;
-    let mut guard = install(&temporary.path().join("profile"), Application::Desktop)?;
+    let mut guard = install_with(
+        &temporary.path().join("profile"),
+        Application::Desktop,
+        false,
+    )?;
     guard._temporary = Some(temporary);
     Ok(guard)
 }
@@ -184,23 +213,36 @@ fn writer(
             counter,
             write_errors,
             _temporary: None,
+            report: None,
+            telemetry: false,
         },
     ))
 }
 
+#[cfg(test)]
 fn subscriber(
     writer: tracing_appender::non_blocking::NonBlocking,
     application: Application,
 ) -> impl tracing::Subscriber + Send + Sync {
-    tracing_subscriber::registry().with(
-        tracing_subscriber::fmt::layer()
-            .event_format(format::Safe::new(application))
-            .with_writer(writer)
-            .with_ansi(false)
-            .with_filter(filter_fn(|metadata| {
-                metadata.target() == "sailry" && *metadata.level() <= tracing::Level::DEBUG
-            })),
-    )
+    with_report(writer, application, None)
+}
+
+fn with_report(
+    writer: tracing_appender::non_blocking::NonBlocking,
+    application: Application,
+    report: Option<Arc<report::Report>>,
+) -> impl tracing::Subscriber + Send + Sync {
+    tracing_subscriber::registry()
+        .with(report.map(|report| report.layer()))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .event_format(format::Safe::new(application))
+                .with_writer(writer)
+                .with_ansi(false)
+                .with_filter(filter_fn(|metadata| {
+                    metadata.target() == "sailry" && *metadata.level() <= tracing::Level::DEBUG
+                })),
+        )
 }
 
 /// Safe process-wide failure output for isolated integration test binaries.
@@ -243,6 +285,7 @@ pub(crate) fn fault(error: &crate::Error) -> sailry_protocol::ErrorCode {
 
 impl Drop for Guard {
     fn drop(&mut self) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         let dropped = self.counter.dropped_lines();
         if dropped > 0 {
             let mut entry = Entry::new(Area::Logging, Phase::Failed);
@@ -253,6 +296,11 @@ impl Drop for Guard {
             eprintln!("sailry logging dropped at least {dropped} records");
         }
         drop(self.worker.take());
+        if self.telemetry {
+            crate::telemetry::shutdown(
+                deadline.saturating_duration_since(std::time::Instant::now()),
+            );
+        }
         let errors = self.write_errors.load(Ordering::Relaxed);
         if errors > 0 {
             eprintln!("sailry logging encountered {errors} diagnostic I/O failures");

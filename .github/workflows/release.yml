@@ -148,8 +148,39 @@ jobs:
         run: |
           brew install llvm@21 ripgrep
       - name: Build native Desktop
+        env:
+          # Preserve line tables for symbolication without changing development profiles.
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+          CARGO_PROFILE_RELEASE_STRIP: none
+          SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
+          SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
         run: |
           python3 .workflow-tools/scripts/ci-run.py --parsers -- cargo build --locked --release --timings -p sailry-desktop -p sailry-release
+      - name: Collect Desktop debug symbols
+        id: symbols
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py collect \
+            --binary target/release/sailry-desktop --target "$PACKAGE_TARGET" \
+            --output "target/debug-symbols/desktop/$PACKAGE_TARGET"
+      - name: Preserve Desktop debug symbols
+        if: always() && steps.symbols.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-symbols-desktop-${{ matrix.target }}
+          path: target/debug-symbols/desktop/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Desktop debug symbols
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
+            --symbols "target/debug-symbols/desktop/$PACKAGE_TARGET"
       - name: Stage native Desktop
         env:
           WORKFLOW_REVISION: ${{ github.workflow_sha }}

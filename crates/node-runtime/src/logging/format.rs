@@ -27,89 +27,140 @@ pub(super) trait Sink: Send + Sync {
     fn emit(&self, level: tracing::Level, area: &str, line: &str);
 }
 
-// Even an accidental payload field on an application target must not be written.
-const FIELDS: &[&str] = &[
-    "area",
-    "phase",
-    "node",
-    "caller",
-    "request",
-    "incident",
-    "plugin_version",
-    "app_version",
-    "platform",
-    "exception",
-    "session",
-    "turn",
-    "worktree",
-    "provider",
-    "provider_name",
-    "model",
-    "package",
-    "digest",
-    "settings_revision",
-    "handler",
-    "invocation",
-    "call",
-    "artifact_id",
-    "revision",
-    "command",
-    "operation",
-    "stage",
-    "source_kind",
-    "reason",
-    "cause_code",
-    "cause_component",
-    "cause_category",
-    "upstream_status",
-    "websocket_close_code",
-    "attempt",
-    "limit",
-    "request_mode",
-    "transport",
-    "connection_reused",
-    "communication_outcome",
-    "execution_outcome",
-    "recovery_decision",
-    "wait_ms",
-    "end_to_end_us",
-    "rtt_ms",
-    "generation",
-    "sequence",
-    "fallback_reason",
-    "continuation",
-    "stream",
-    "budget",
-    "parse_layer",
-    "parse_category",
-    "parse_cause",
-    "parse_field",
-    "parse_event",
-    "parse_line",
-    "parse_column",
-    "code",
-    "status",
-    "duration_us",
-    "first_token_us",
-    "bytes",
-    "count",
-    "durable",
-    "elapsed_us",
-    "last_content_us",
+// File, native, remote and diagnostic records share this single field policy.
+// Local identifiers remain useful on disk but never leave the process.
+#[derive(Clone, Copy)]
+enum Disclosure {
+    Local,
+    Public,
+    Package,
+    Version,
+}
+const FIELDS: &[(&str, Disclosure)] = &[
+    ("area", Disclosure::Public),
+    ("phase", Disclosure::Public),
+    ("node", Disclosure::Local),
+    ("caller", Disclosure::Local),
+    ("request", Disclosure::Local),
+    ("incident", Disclosure::Local),
+    ("plugin_version", Disclosure::Version),
+    ("app_version", Disclosure::Version),
+    ("platform", Disclosure::Local),
+    ("exception", Disclosure::Local),
+    ("session", Disclosure::Local),
+    ("turn", Disclosure::Local),
+    ("worktree", Disclosure::Local),
+    ("provider", Disclosure::Local),
+    ("provider_name", Disclosure::Local),
+    ("model", Disclosure::Local),
+    ("package", Disclosure::Package),
+    ("digest", Disclosure::Local),
+    ("settings_revision", Disclosure::Local),
+    ("handler", Disclosure::Local),
+    ("invocation", Disclosure::Local),
+    ("call", Disclosure::Local),
+    ("artifact_id", Disclosure::Local),
+    ("revision", Disclosure::Local),
+    ("command", Disclosure::Local),
+    ("operation", Disclosure::Public),
+    ("stage", Disclosure::Local),
+    ("source_kind", Disclosure::Local),
+    ("reason", Disclosure::Local),
+    ("cause_code", Disclosure::Public),
+    ("cause_component", Disclosure::Local),
+    ("cause_category", Disclosure::Local),
+    ("upstream_status", Disclosure::Local),
+    ("websocket_close_code", Disclosure::Local),
+    ("attempt", Disclosure::Local),
+    ("limit", Disclosure::Local),
+    ("request_mode", Disclosure::Local),
+    ("transport", Disclosure::Local),
+    ("connection_reused", Disclosure::Local),
+    ("communication_outcome", Disclosure::Local),
+    ("execution_outcome", Disclosure::Local),
+    ("recovery_decision", Disclosure::Local),
+    ("wait_ms", Disclosure::Local),
+    ("end_to_end_us", Disclosure::Local),
+    ("rtt_ms", Disclosure::Local),
+    ("generation", Disclosure::Local),
+    ("sequence", Disclosure::Local),
+    ("fallback_reason", Disclosure::Local),
+    ("continuation", Disclosure::Local),
+    ("stream", Disclosure::Local),
+    ("budget", Disclosure::Local),
+    ("parse_layer", Disclosure::Local),
+    ("parse_category", Disclosure::Local),
+    ("parse_cause", Disclosure::Local),
+    ("parse_field", Disclosure::Local),
+    ("parse_event", Disclosure::Local),
+    ("parse_line", Disclosure::Local),
+    ("parse_column", Disclosure::Local),
+    ("code", Disclosure::Public),
+    ("status", Disclosure::Local),
+    ("duration_us", Disclosure::Public),
+    ("first_token_us", Disclosure::Local),
+    ("bytes", Disclosure::Local),
+    ("count", Disclosure::Public),
+    ("durable", Disclosure::Local),
+    ("elapsed_us", Disclosure::Public),
+    ("last_content_us", Disclosure::Local),
 ];
+
+pub(super) fn remote(fields: &Map<String, Value>) -> Map<String, Value> {
+    FIELDS
+        .iter()
+        .filter(|(_, disclosure)| !matches!(disclosure, Disclosure::Local))
+        .filter_map(|(key, disclosure)| {
+            let value = fields.get(*key)?;
+            match value {
+                Value::String(value)
+                    if match disclosure {
+                        Disclosure::Package => crate::plugins::validate_name(value).is_ok(),
+                        Disclosure::Version => {
+                            value.len() <= 64 && semver::Version::parse(value).is_ok()
+                        }
+                        _ => token(value),
+                    } =>
+                {
+                    Some(((*key).into(), value.clone().into()))
+                }
+                Value::Number(value)
+                    if matches!(disclosure, Disclosure::Public)
+                        && (value.is_u64() || value.is_i64()) =>
+                {
+                    Some(((*key).into(), value.clone().into()))
+                }
+                Value::Bool(value) if matches!(disclosure, Disclosure::Public) => {
+                    Some(((*key).into(), (*value).into()))
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn token(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value.as_bytes()[0].is_ascii_lowercase()
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'.')
+        })
+        && !value.contains("..")
+}
 
 #[derive(Default)]
 struct Fields(Map<String, Value>);
 impl Fields {
     fn set(&mut self, field: &Field, value: Value) {
-        if FIELDS.contains(&field.name()) {
+        if FIELDS.iter().any(|(name, _)| *name == field.name()) {
             self.0.insert(field.name().into(), value);
         }
     }
 
     fn format(&self, include_area: bool) -> Result<String, fmt::Error> {
         let mut text = String::new();
-        for key in FIELDS {
+        for (key, _) in FIELDS {
             if !include_area && *key == "area" {
                 continue;
             }

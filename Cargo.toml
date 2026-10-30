@@ -12,6 +12,8 @@ tracing = "=0.1.44"
 tracing-log = "=0.2.0"
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "registry", "tracing-log", "json"] }
 tracing-appender = "=0.2.5"
+sentry = { version = "=0.49.5", default-features = false, features = ["panic", "backtrace", "contexts", "debug-images"] }
+sentry-tracing = { version = "=0.49.5", default-features = false, features = ["backtrace"] }
 rolling-file = "=0.2.0"
 # Retains the native subsystem/category strings through the log object's lifetime.
 oslog = { git = "https://github.com/steven-joruk/oslog", rev = "8afad459855d8a77b2c0618fe29016d87674d6a3", default-features = false }

@@ -1,0 +1,15 @@
+{
+  "version": "3.8.2",
+  "assets": {
+    "sentry-cli-Darwin-arm64": "c80d92b6d34eb64fe7402f56cc7968fbb15aab1c763254ad428b55cc98ec7dcf",
+    "sentry-cli-Darwin-universal": "2d1b118fa46960ba5e8e0cca9a6e197366905776a0ddc5a89c7d05a3908b77db",
+    "sentry-cli-Darwin-x86_64": "084591ee1f0a43ba8696ccde30d4a79cd9a70d0fa294c5a10143a340f8f332ff",
+    "sentry-cli-Linux-aarch64": "b6e49fca868a36d20da2ada1832a0ce2f9ac7012c128207518b09d6b6c991f4d",
+    "sentry-cli-Linux-armv7": "10a5c414e298c5ad660eb8dbafde19c28ab1e03d35653cd59dbed35b9e1b05e5",
+    "sentry-cli-Linux-i686": "eebb53cf4a0ebcbb526c269c189909d61f28a91e4de0f139a96e25552dcf9eec",
+    "sentry-cli-Linux-x86_64": "c958865f9d4000183509ea21b1f04925d5390de6d8d87386b9e69f2b305070c3",
+    "sentry-cli-Windows-aarch64.exe": "3c197c61120e2d53a6ecfd9e7812d123bfdc598df1d569700bf5c3b936dfe891",
+    "sentry-cli-Windows-i686.exe": "e8d50ca10a77a1ca10996a1a957cdbaa9bab9f3efcc97de7460e0e0a000b2578",
+    "sentry-cli-Windows-x86_64.exe": "50009f23c49d6e9ff7624204c7035855303b49c5e326708ee783c1fdf783ac83"
+  }
+}

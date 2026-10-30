@@ -19,6 +19,8 @@ const METRICS: u8 = 4;
 struct Process {
     profile: PathBuf,
     control: Arc<Control>,
+    report: OnceLock<Arc<crate::logging::report::Report>>,
+    closing: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -228,6 +230,8 @@ pub(crate) fn start(profile: &Path, application: crate::logging::Application) ->
             .canonicalize()
             .unwrap_or_else(|_| profile.to_owned()),
         control: Arc::new(Control::new(application, &Configuration::read())),
+        report: OnceLock::new(),
+        closing: AtomicBool::new(false),
     });
     process.control.clone()
 }
@@ -244,11 +248,44 @@ pub(crate) fn configure(profile: &Path, settings: &Settings) {
     }
 }
 
+pub(crate) fn attach_report(report: Arc<crate::logging::report::Report>) {
+    if let Some(process) = PROCESS.get() {
+        let _ = process.report.set(report);
+    }
+}
+
 pub(crate) async fn diagnostics() -> Result<(), Fault> {
-    Err(Fault::new(
-        ErrorCode::Unavailable,
-        "diagnostic reporting is unavailable",
-    ))
+    let report = PROCESS
+        .get()
+        .filter(|process| !process.closing.load(Ordering::Acquire))
+        .and_then(|process| process.report.get())
+        .ok_or_else(|| {
+            Fault::new(
+                ErrorCode::Unavailable,
+                "diagnostic reporting is unavailable",
+            )
+        })?;
+    report.diagnostics().await
+}
+
+pub(crate) fn shutdown(timeout: std::time::Duration) {
+    let Some(process) = PROCESS.get() else { return };
+    if process.closing.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let deadline = std::time::Instant::now() + timeout;
+    let (finished, completion) = std::sync::mpsc::sync_channel(1);
+    let _ = std::thread::Builder::new()
+        .name("sailry-report-shutdown".into())
+        .spawn(move || {
+            if let Some(report) = process.report.get() {
+                let _ = report.close(deadline.saturating_duration_since(std::time::Instant::now()));
+            }
+            let _ = finished.try_send(());
+        });
+    let _ = completion.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()));
+    process.control.flags.store(0, Ordering::Release);
+    process.control.advance();
 }
 
 #[cfg(test)]

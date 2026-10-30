@@ -28,7 +28,7 @@ if test "$(uname -s)" != Darwin; then
     bash "$task_root/scripts/python.sh" "$task_root/scripts/package/ocu-helper.py" --target "$task_triple" \
       --output "$task_build/helpers" --cache "$task_target/ocu-helper-cache"
   fi
-  SHERPA_ONNX_LIB_DIR="$task_native" exec cargo run --locked -p sailry-desktop -- "$@"
+  SHERPA_ONNX_LIB_DIR="$task_native" exec bash "$task_root/scripts/python.sh" "$task_root/scripts/telemetry-env.py" cargo run --locked -p sailry-desktop -- "$@"
 fi
 
 # Ad hoc designated requirements bind to one build's cdhash, losing TCC grants
@@ -45,7 +45,7 @@ if test "$task_identity" = -; then
 fi
 
 # UNUserNotificationCenter requires a real application bundle, including in development.
-SHERPA_ONNX_LIB_DIR="$task_native" cargo build --locked -p sailry-desktop
+SHERPA_ONNX_LIB_DIR="$task_native" bash "$task_root/scripts/python.sh" "$task_root/scripts/telemetry-env.py" cargo build --locked -p sailry-desktop
 task_app="$task_build/Sailry.app"
 mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources"
 cp -R "$task_build/code-parsers" "$task_app/Contents/Resources/"

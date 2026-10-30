@@ -29,6 +29,44 @@ fn files(root: &Path, directory: &Path, output: &mut String) {
 }
 
 fn main() {
+    let revision = std::process::Command::new("git")
+        .args(["rev-parse", "--short=12", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| {
+            value.len() >= 7 && value.chars().all(|character| character.is_ascii_hexdigit())
+        })
+        .unwrap_or_else(|| "unknown".into());
+    println!("cargo:rustc-env=SAILRY_GIT_SHA={revision}");
+    let reference = std::process::Command::new("git")
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok());
+    for input in [
+        Some("HEAD"),
+        Some("packed-refs"),
+        reference.as_deref().map(str::trim),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(path) = std::process::Command::new("git")
+            .args(["rev-parse", "--git-path", input])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|value| value.trim().to_owned())
+            .filter(|path| Path::new(path).is_file())
+        {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
     let manifest = Path::new("../../apps/host/Cargo.toml");
     println!("cargo:rerun-if-changed={}", manifest.display());
     let content = fs::read_to_string(manifest).unwrap();

@@ -38,12 +38,12 @@ if [[ "$task_target" == *linux-gnu ]]; then
   export "AR_$task_environment=$task_ar"
   export "PKG_CONFIG_SYSROOT_DIR_$task_environment=$task_sysroot"
   export "PKG_CONFIG_LIBDIR_$task_environment=$task_sysroot/usr/lib/$task_triplet/pkgconfig:$task_sysroot/usr/share/pkgconfig"
-  "$task_zigbuild" zigbuild --locked -p sailry-host --profile "$task_cargo_profile" \
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/telemetry-env.py" "$task_zigbuild" zigbuild --locked -p sailry-host --profile "$task_cargo_profile" \
     --target "$task_target.2.34" --target-dir "$task_build"
   task_binary="$task_build/$task_target/$task_profile/sailry-host"
 else
   test "$task_target" = "$task_native"
-  cargo build --locked -p sailry-host --profile "$task_cargo_profile"
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/telemetry-env.py" cargo build --locked -p sailry-host --profile "$task_cargo_profile"
   task_binary="$task_build/$task_profile/sailry-host"
 fi
 task_output="$task_root/target/host-artifacts/$task_target"

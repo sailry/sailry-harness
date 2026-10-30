@@ -9,6 +9,11 @@ case "$task_target" in x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu) ;; *)
 task_root="$(cd "$(dirname "$0")/.." && pwd)"
 task_version="$(awk -F '"' '/^version = "/ {print $2; exit}' "$task_root/apps/host/Cargo.toml")"
 test -x "$task_root/target/host-artifacts/$task_target/sailry-host"
+task_binary="${CARGO_TARGET_DIR:-$task_root/target}/$task_target/$task_profile/sailry-host"
+if ! test -f "$task_binary"; then task_binary="$task_root/target/host-artifacts/$task_target/sailry-host"; fi
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/debug-symbols.py" collect --optional \
+  --binary "$task_binary" --target "$task_target" \
+  --output "$task_root/target/debug-symbols/host/$task_target"
 mkdir -p "$task_root/dist"
 task_output="$task_root/dist/host-$task_target-$task_profile"
 # Rebuild only this component's fixed packaging stage.

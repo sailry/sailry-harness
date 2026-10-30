@@ -69,7 +69,7 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
     if logging_failed {
         eprintln!("sailry-desktop: logging is unavailable");
     }
-    let _logging = logging.ok().flatten();
+    let mut logging = logging.ok().flatten();
     let backend = match launch {
         startup::Launch::CheckTheme(path) => {
             match theme::check::run(&path) {
@@ -97,6 +97,13 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
         if let Some(backend) = backend {
             backend.install(cx);
         }
+        // Backend's synchronous quit callback drains Node first. Native quit can
+        // terminate the process without returning from the application run loop.
+        cx.on_app_quit(move |_| {
+            drop(logging.take());
+            std::future::ready(())
+        })
+        .detach();
         gpui_kit::init(cx);
         theme::init(cx);
         locale::init(cx);

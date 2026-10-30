@@ -35,7 +35,7 @@ host data_dir="":
     TSLP_SOURCE_BUNDLE_URL="$(bash scripts/python.sh scripts/package/code-parsers.py "${task_parsers[@]}")"
     export TSLP_SOURCE_BUNDLE_URL
     unset TSLP_OFFLINE TSLP_LANGUAGES
-    if test -n {{quote(data_dir)}}; then cargo run --locked -p sailry-host -- --data-dir {{quote(data_dir)}}; else cargo run --locked -p sailry-host; fi
+    if test -n {{quote(data_dir)}}; then bash scripts/python.sh scripts/telemetry-env.py cargo run --locked -p sailry-host -- --data-dir {{quote(data_dir)}}; else bash scripts/python.sh scripts/telemetry-env.py cargo run --locked -p sailry-host; fi
 
 test-backend:
     bash scripts/python.sh scripts/ci.py check backend

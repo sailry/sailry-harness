@@ -128,8 +128,39 @@ jobs:
         run: |
           brew install llvm@21 ripgrep
       - name: Build native Host
+        env:
+          # Preserve line tables before packaging strips its copied executable.
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+          CARGO_PROFILE_RELEASE_STRIP: none
+          SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
+          SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
         run: |
           python3 .workflow-tools/scripts/ci-run.py --parsers -- cargo build --locked --release --timings -p sailry-host
+      - name: Collect Host debug symbols
+        id: symbols
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py collect \
+            --binary target/release/sailry-host --target "$PACKAGE_TARGET" \
+            --output "target/debug-symbols/host/$PACKAGE_TARGET"
+      - name: Preserve Host debug symbols
+        if: always() && steps.symbols.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-symbols-host-${{ matrix.target }}
+          path: target/debug-symbols/host/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Host debug symbols
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
+            --symbols "target/debug-symbols/host/$PACKAGE_TARGET"
       - name: Save native libraries
         if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
         continue-on-error: true
@@ -249,7 +280,38 @@ jobs:
             cargo install cargo-zigbuild --version 0.23.4 --locked --root target/tooling
           fi
       - name: Build one Host architecture
+        env:
+          # Retain line tables in the original binary for separate symbol artifacts.
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+          CARGO_PROFILE_RELEASE_STRIP: none
+          SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
+          SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
         run: python3 .workflow-tools/scripts/ci-run.py -- bash scripts/build-host.sh release '${{ matrix.target }}'
+      - name: Collect Host debug symbols
+        id: symbols
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py collect \
+            --binary "target/$PACKAGE_TARGET/release/sailry-host" --target "$PACKAGE_TARGET" \
+            --output "target/debug-symbols/host/$PACKAGE_TARGET"
+      - name: Preserve Host debug symbols
+        if: always() && steps.symbols.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-symbols-host-${{ matrix.target }}
+          path: target/debug-symbols/host/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Host debug symbols
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
+            --symbols "target/debug-symbols/host/$PACKAGE_TARGET"
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true

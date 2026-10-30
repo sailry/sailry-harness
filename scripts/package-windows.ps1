@@ -90,6 +90,10 @@ New-Item -ItemType Directory -Path $task_output | Out-Null
 $task_app = Join-Path $task_output 'Sailry'
 New-Item -ItemType Directory -Path $task_app | Out-Null
 Copy-Item -LiteralPath $task_executable -Destination (Join-Path $task_app 'sailry-desktop.exe')
+& python (Join-Path $task_root 'scripts/package/debug-symbols.py') collect --optional `
+    --binary $task_executable --target $Target `
+    --output (Join-Path $task_root "target/debug-symbols/desktop/$Target")
+if ($LASTEXITCODE -ne 0) { throw 'Cannot preserve native debug symbols' }
 & python (Join-Path $task_root 'scripts/package/code-parsers.py') --target $Target `
     --output (Join-Path $task_app 'code-parsers') --cache (Join-Path $task_root '.runtime/code-index/resources')
 if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the pinned code parsers' }

@@ -367,14 +367,18 @@ async fn observes_shared_lifecycles_without_payloads() {
     assert_eq!(rate_run.status, Status::Failed);
     let error = rate_run.error.as_ref().unwrap();
     assert_eq!(error.code, ErrorCode::Unavailable);
-    assert!(error.message.contains("HTTP 429") && error.message.contains("fixture unavailable"));
+    assert_eq!(
+        error.message,
+        "Ran into this error: Rate limit exceeded: fixture unavailable.\n\nPlease retry if you think this is a transient or recoverable error."
+    );
     assert!(matches!(
         error.details.as_ref(),
-        Some(FaultDetails::ModelRecovery {
-            reason: recovery::Stop::AttemptsExhausted
+        Some(FaultDetails::ModelRequest {
+            reason: ModelFailure::Request
         })
     ));
-    assert_eq!(rate_model.requests.lock().unwrap().len(), 6);
+    // The pinned GDK default permits three HTTP retries after the first request.
+    assert_eq!(rate_model.requests.lock().unwrap().len(), 4);
     retry_node.shutdown().await.unwrap();
     retry_controller.close().await.unwrap();
 
@@ -419,7 +423,18 @@ async fn observes_shared_lifecycles_without_payloads() {
         panic!("queued turn expected")
     };
     let parse_page = finish(&parse_client, parse_session.id, parse_turn.id).await;
-    assert_eq!(parse_page.runs.last().unwrap().status, Status::Failed);
+    let parse_run = parse_page.runs.last().unwrap();
+    assert_eq!(parse_run.status, Status::Failed);
+    let error = parse_run.error.as_ref().unwrap();
+    assert_eq!(error.code, ErrorCode::Unavailable);
+    assert!(error.message.contains("Stream decode error"));
+    assert!(error.message.contains("missing field `output_index`"));
+    assert!(matches!(
+        error.details.as_ref(),
+        Some(FaultDetails::ModelRequest {
+            reason: ModelFailure::Request
+        })
+    ));
     assert_eq!(parse_model.requests.lock().unwrap().len(), 1);
     parse_node.shutdown().await.unwrap();
     parse_controller.close().await.unwrap();
@@ -523,7 +538,7 @@ async fn observes_shared_lifecycles_without_payloads() {
             .filter(|record| {
                 record["area"] == "model"
                     && record["turn"] == turn
-                    && record["operation"] == "model_request"
+                    && record["operation"] == "generate"
             })
             .collect();
         assert_eq!(model.len(), 2);
@@ -535,11 +550,6 @@ async fn observes_shared_lifecycles_without_payloads() {
             assert!(model.iter().any(|record| record["area"] == "model"
                 && record["phase"] == "completed"
                 && record["first_token_us"].is_u64()));
-            assert!(
-                !records
-                    .iter()
-                    .any(|record| record["turn"] == turn && record["operation"] == "model_retry")
-            );
         } else {
             let terminal = model
                 .iter()
@@ -554,113 +564,74 @@ async fn observes_shared_lifecycles_without_payloads() {
             .iter()
             .any(|record| record["phase"] == "first_token")
     );
-    let recoveries: Vec<_> = records
-        .iter()
-        .filter(|record| {
-            record["turn"] == retry_turn.id.to_string() && record["operation"] == "model_retry"
-        })
-        .collect();
-    assert_eq!(recoveries.len(), 1);
-    assert_eq!(recoveries[0]["attempt"], 1);
-    assert_eq!(recoveries[0]["limit"], 5);
-    assert_eq!(recoveries[0]["wait_ms"], 60_000);
-    let attempts: Vec<_> = records
-        .iter()
-        .filter(|record| {
-            record["turn"] == retry_turn.id.to_string() && record["operation"] == "model_attempt"
-        })
-        .collect();
-    assert_eq!(attempts.len(), 4);
-    let retry = attempts
-        .iter()
-        .find(|record| record["phase"] == "failed")
-        .unwrap();
-    assert_eq!(retry["phase"], "failed");
-    assert_eq!(retry["attempt"], 1);
-    assert_eq!(retry["cause_code"], "model.http.status");
-    assert_eq!(retry["cause_component"], "model");
-    assert_eq!(retry["cause_category"], "unavailable");
-    assert_eq!(retry["upstream_status"], 500);
-    assert!(attempts.iter().any(|record| record["phase"] == "completed"
-        && record["attempt"] == 2
-        && record["upstream_status"] == 200));
-    let failures = records
-        .iter()
-        .filter(|record| {
-            record["turn"] == rate_turn.id.to_string()
-                && record["operation"] == "model_request"
-                && record["phase"] == "failed"
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(failures.len(), 1);
-    assert_eq!(failures[0]["cause_code"], "model.openai_compat.api_error");
-    assert_eq!(failures[0]["cause_category"], "rate_limited");
-    assert_eq!(failures[0]["upstream_status"], 429);
-    let attempts: Vec<_> = records
-        .iter()
-        .filter(|record| {
-            record["turn"] == rate_turn.id.to_string()
-                && record["operation"] == "model_attempt"
-                && record["phase"] == "failed"
-        })
-        .collect();
-    assert_eq!(attempts.len(), 6);
-    for (index, record) in attempts.iter().enumerate() {
-        assert_eq!(record["attempt"], index + 1);
-        assert_eq!(record["upstream_status"], 429);
+    // GDK retries HTTP internally; Sailry observes one provider request lifecycle.
+    for (turn, phase) in [
+        (retry_turn.id, "completed"),
+        (rate_turn.id, "failed"),
+        (parse_turn.id, "failed"),
+    ] {
+        let requests: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                record["area"] == "model"
+                    && record["turn"] == turn.to_string()
+                    && record["operation"] == "generate"
+            })
+            .collect();
+        assert_eq!(requests.len(), 2);
+        let begun = requests
+            .iter()
+            .find(|record| record["phase"] == "begin")
+            .unwrap();
+        let terminal = requests
+            .iter()
+            .find(|record| record["phase"] == phase)
+            .unwrap();
+        assert!(begun["call"].is_string());
+        assert_eq!(begun["call"], terminal["call"]);
+        assert_eq!(terminal["stage"], "provider");
+        assert!(terminal["duration_us"].is_u64());
+        if phase == "failed" {
+            assert_eq!(terminal["code"], "unavailable");
+        } else {
+            assert!(terminal.get("code").is_none());
+            assert!(terminal["first_token_us"].is_u64());
+        }
+        for record in requests {
+            for field in [
+                "upstream_status",
+                "attempt",
+                "limit",
+                "wait_ms",
+                "transport",
+                "cause_code",
+                "cause_component",
+                "cause_category",
+                "parse_layer",
+                "parse_category",
+                "parse_cause",
+                "parse_field",
+                "parse_event",
+                "parse_line",
+                "parse_column",
+            ] {
+                assert!(
+                    record.get(field).is_none(),
+                    "unexpected native metadata: {field}"
+                );
+            }
+        }
     }
-    let recoveries: Vec<_> = records
-        .iter()
-        .filter(|record| {
-            record["turn"] == rate_turn.id.to_string() && record["operation"] == "model_retry"
-        })
-        .collect();
-    assert_eq!(recoveries.len(), 5);
-    for (index, record) in recoveries.iter().enumerate() {
-        assert_eq!(record["attempt"], index + 1);
-        assert_eq!(record["limit"], 5);
-        assert_eq!(record["wait_ms"], 60_000);
-    }
-    let parse: Vec<_> = records
-        .iter()
-        .filter(|record| {
-            record["turn"] == parse_turn.id.to_string() && record["operation"] == "model_request"
-        })
-        .collect();
-    assert_eq!(parse.len(), 2);
-    let failure = parse
-        .iter()
-        .find(|record| record["phase"] == "failed")
-        .unwrap();
-    assert_eq!(failure["cause_code"], "model.openai_responses.parse");
-    assert_eq!(failure["cause_component"], "model");
-    assert_eq!(failure["cause_category"], "internal");
-    assert_eq!(failure["parse_layer"], "stream_event");
-    assert_eq!(failure["parse_category"], "data");
-    assert_eq!(failure["parse_cause"], "missing_field");
-    assert_eq!(failure["parse_field"], "output_index");
-    assert_eq!(failure["parse_event"], "response.output_text.delta");
-    assert!(failure["parse_line"].is_u64());
-    assert!(failure["parse_column"].is_u64());
-    let attempts = records
-        .iter()
-        .filter(|record| {
-            record["turn"] == parse_turn.id.to_string() && record["operation"] == "model_attempt"
-        })
-        .collect::<Vec<_>>();
-    assert!(!attempts.is_empty());
-    assert!(attempts.iter().all(|record| record["transport"] == "http"));
     assert!(!records.iter().any(|record| {
-        record["turn"] == parse_turn.id.to_string() && record["operation"] == "model_retry"
+        matches!(
+            record["operation"].as_str(),
+            Some("model_attempt" | "model_retry")
+        )
     }));
     for (session, mode) in summaries {
         let summary: Vec<_> = records
             .iter()
-            .filter(|record| {
-                record["session"] == session
-                    && record["operation"] == "summary_request"
-                    && record["source_kind"] == mode
-            })
+            .filter(|record| record["session"] == session && record["operation"] == "compaction")
             .collect();
         let begun = summary
             .iter()
@@ -670,12 +641,12 @@ async fn observes_shared_lifecycles_without_payloads() {
             .iter()
             .filter(|record| record["phase"] == "completed")
             .collect();
-        assert!(begun > 0);
+        assert!(begun > 0, "missing {mode} compaction lifecycle");
         assert_eq!(begun, completed.len());
         assert!(
             completed
                 .iter()
-                .all(|record| record["stage"] == "prepared" && record["duration_us"].is_u64())
+                .all(|record| record["stage"] == "provider" && record["duration_us"].is_u64())
         );
     }
     assert!(records.iter().any(|record| record["area"] == "plugin"

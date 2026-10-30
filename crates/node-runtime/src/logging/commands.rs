@@ -114,7 +114,7 @@ pub(crate) fn admitted(mut span: Span, mut admission: Admission) -> Admission {
                         }
                         span.finish(Phase::Completed, None);
                     }
-                    Err(fault) => span.finish(Phase::Failed, Some(fault.code)),
+                    Err(fault) => rejected(&mut span, fault),
                 }
                 let _ = sender.send(result);
             }
@@ -131,5 +131,16 @@ pub(crate) fn admitted(mut span: Span, mut admission: Admission) -> Admission {
 }
 
 pub(crate) fn rejected(span: &mut Span, fault: &Fault) {
+    if let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = &fault.details
+        && let Some(plugin) = &report.plugin
+        && span
+            .entry
+            .context
+            .package
+            .as_ref()
+            .is_some_and(|package| package.name == plugin.name)
+    {
+        span.entry.context.plugin_version = Some(plugin.version.clone());
+    }
     span.finish(Phase::Failed, Some(fault.code));
 }
