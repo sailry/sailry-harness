@@ -73,21 +73,11 @@ async fn closes_background_job_groups_without_stopping_siblings() {
             quoted(&leader),
             quoted(&background),
         );
+        fixture.input(&info, terminal::Input::Paste { text }).await;
         fixture
-            .client
-            .execute(fixture.client.prepare(Command::InputTerminal {
-                terminal: info.id,
-                revision: info.revision,
-                input: terminal::Input::Paste { text },
-            }))
-            .await
-            .unwrap();
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::InputTerminal {
-                terminal: info.id,
-                revision: info.revision,
-                input: terminal::Input::Key {
+            .input(
+                &info,
+                terminal::Input::Key {
                     event: terminal::KeyEvent {
                         key: terminal::Key::Enter,
                         action: terminal::Action::Press,
@@ -96,9 +86,8 @@ async fn closes_background_job_groups_without_stopping_siblings() {
                         unshifted_codepoint: None,
                     },
                 },
-            }))
-            .await
-            .unwrap();
+            )
+            .await;
         let root = recorded(&leader).await;
         let child = recorded(&background).await;
         assert!(alive(root) && alive(child));

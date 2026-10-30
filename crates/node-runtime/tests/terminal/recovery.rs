@@ -169,7 +169,13 @@ async fn restores_malformed_screen_without_replaying_commands() {
         else {
             panic!("terminal expected")
         };
-        command(&client, &info, "printf '%s\\n' '中文边界'").await;
+        // ASCII input keeps line editing independent of the fixture's C locale.
+        command(
+            &client,
+            &info,
+            "printf '\\344\\270\\255\\346\\226\\207\\350\\276\\271\\347\\225\\214\\n'",
+        )
+        .await;
         let mut stream = client.subscribe_terminal(info.id).await.unwrap();
         let mut projection = Projection::new(node.id(), info.id, 1);
         until(&mut *stream, &mut projection, "中文边界").await;

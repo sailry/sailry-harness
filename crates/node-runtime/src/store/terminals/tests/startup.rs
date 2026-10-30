@@ -60,16 +60,13 @@ async fn preserves_access_while_another_terminal_starts() {
             ));
             phase = "input";
             fixture
-                .client
-                .execute(fixture.client.prepare(Command::InputTerminal {
-                    terminal: first.id,
-                    revision: first.revision,
-                    input: terminal::Input::Paste {
+                .input(
+                    &first,
+                    terminal::Input::Paste {
                         text: "printf 'still active'".into(),
                     },
-                }))
-                .await
-                .unwrap();
+                )
+                .await;
             phase = "close";
             fixture
                 .client

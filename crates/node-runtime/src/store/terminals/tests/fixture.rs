@@ -94,6 +94,31 @@ impl Fixture {
         }
     }
 
+    /// Sends input, retrying only a full queue that rejected it before the PTY owner.
+    pub(super) async fn input(&self, info: &terminal::Info, input: terminal::Input) {
+        let request = self.client.prepare(Command::InputTerminal {
+            terminal: info.id,
+            revision: info.revision,
+            input,
+        });
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match self.client.execute(request.clone()).await {
+                    Ok(_) => break,
+                    Err(error)
+                        if error.code == ErrorCode::Busy
+                            && error.message == "terminal command queue is full" =>
+                    {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(error) => panic!("terminal input failed: {error:?}"),
+                }
+            }
+        })
+        .await
+        .expect("terminal input deadline");
+    }
+
     pub(super) async fn close(self) {
         self.controller.close().await.unwrap();
         self.node.shutdown().await.unwrap();
