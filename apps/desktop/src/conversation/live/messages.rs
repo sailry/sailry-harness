@@ -20,7 +20,7 @@ mod compaction;
 mod document;
 mod files;
 mod frame;
-pub(super) use frame::elapsed;
+pub(super) use frame::{duration, elapsed};
 mod grounding;
 mod notices;
 mod retry;

@@ -34,6 +34,7 @@ pub(super) struct Panel {
     watcher: Option<Task<()>>,
     action: Option<Task<()>>,
     error: Option<&'static str>,
+    clock: Option<Task<()>>,
 }
 
 impl Drop for Panel {
@@ -54,6 +55,7 @@ impl Panel {
             watcher: None,
             action: None,
             error: None,
+            clock: None,
         }
     }
 
@@ -206,6 +208,12 @@ impl Panel {
                 .collect::<Vec<_>>()
                 .join(" ")
                 .into(),
+            elapsed: super::messages::duration(
+                (chrono::Utc::now().timestamp_millis().max(0) as u64)
+                    .saturating_sub(info.started_ms)
+                    / 1000,
+            )
+            .into(),
         }
         .into_any_element()
     }
@@ -321,6 +329,9 @@ impl View {
                             move |open, _, cx| {
                                 _ = panel.update(cx, |panel, cx| {
                                     panel.open = *open;
+                                    if !panel.open {
+                                        panel.clock = None;
+                                    }
                                     cx.notify();
                                 });
                             }
@@ -352,7 +363,22 @@ impl View {
 
 impl Render for Panel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut commands = v_flex().w_full().h_auto().flex_shrink_0();
+        // Elapsed labels tick only while the popover shows a running command.
+        if !self.open || !self.state.items.iter().any(|info| active(&info.status)) {
+            self.clock = None;
+        } else if self.clock.is_none() {
+            self.clock = Some(cx.spawn(async move |panel, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(1))
+                        .await;
+                    if panel.update(cx, |_, cx| cx.notify()).is_err() {
+                        break;
+                    }
+                }
+            }));
+        }
+        let mut commands = v_flex().w_full().h_auto().flex_shrink_0().gap_1();
         for info in self.state.items.iter().filter(|info| active(&info.status)) {
             let title = self.row(info, cx);
             let output = self.output_text(info.id);
@@ -363,20 +389,26 @@ impl Render for Panel {
                     .bg(cx.theme().transparent)
                     .when_some(output, |item, text| {
                         item.content(
-                            div().rounded_md().bg(cx.theme().background).child(
-                                crate::conversation::surface::scroll(
+                            div()
+                                .mt_1p5()
+                                .mb_1()
+                                .px_3()
+                                .py_2()
+                                .rounded_md()
+                                .bg(cx.theme().background)
+                                .child(crate::conversation::surface::scroll(
                                     "background-output".into(),
                                     div()
                                         .debug_selector(|| "background-output-content".into())
                                         .font_family(cx.theme().mono_font_family.clone())
-                                        .line_height(px(crate::conversation::surface::LINE_HEIGHT))
+                                        .text_xs()
+                                        .line_height(px(18.))
                                         .text_color(cx.theme().muted_foreground)
                                         .child(gpui_kit::base::SelectableText::new(
                                             format!("background-output-{}", info.id),
                                             text,
                                         )),
-                                ),
-                            ),
+                                )),
                         )
                     }),
             );

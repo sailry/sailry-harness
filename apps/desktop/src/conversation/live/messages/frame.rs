@@ -22,8 +22,12 @@ pub(in crate::conversation::live) fn elapsed(run: &Run, now_ms: i64) -> Option<S
     } else {
         run.finished_ms?
     };
-    let seconds = end.saturating_sub(started).max(0) as u64 / 1000;
-    Some(if seconds < 60 {
+    Some(duration(end.saturating_sub(started).max(0) as u64 / 1000))
+}
+
+/// Compact elapsed time shared by turn headers and background commands.
+pub(in crate::conversation::live) fn duration(seconds: u64) -> String {
+    if seconds < 60 {
         format!("{seconds}s")
     } else if seconds < 3600 {
         format!("{}m{:02}s", seconds / 60, seconds % 60)
@@ -34,7 +38,7 @@ pub(in crate::conversation::live) fn elapsed(run: &Run, now_ms: i64) -> Option<S
             seconds / 60 % 60,
             seconds % 60
         )
-    })
+    }
 }
 
 pub(super) fn phase(run: &Run, page: &Page, blocks: &[Block<'_>]) -> Option<&'static str> {

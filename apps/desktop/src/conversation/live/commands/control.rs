@@ -11,6 +11,7 @@ pub(super) struct Header {
     pub disabled: bool,
     pub status: AnyElement,
     pub command: SharedString,
+    pub elapsed: SharedString,
 }
 
 struct State {
@@ -86,6 +87,13 @@ impl RenderOnce for Header {
                             cx.notify();
                         });
                     }),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(self.elapsed),
             )
             .when(self.running, |row| {
                 row.child(
