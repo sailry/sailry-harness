@@ -83,7 +83,8 @@ pub(crate) struct Picker {
     pub popover: Option<WeakEntity<PopoverState>>,
     family: Option<String>,
     categories: bool,
-    collapsed: BTreeSet<usize>,
+    /// Groups shown open; each reveal starts from the selected model's group.
+    expanded: BTreeSet<usize>,
     scroll: ScrollHandle,
     current_effort: Option<sailry_protocol::Effort>,
     disabled: bool,
@@ -109,7 +110,7 @@ impl Picker {
             popover: None,
             family: None,
             categories: true,
-            collapsed: BTreeSet::new(),
+            expanded: BTreeSet::new(),
             scroll: ScrollHandle::new(),
             current_effort: None,
             disabled: false,
@@ -253,15 +254,35 @@ impl Picker {
     }
 
     pub fn reveal(&mut self, cx: &mut Context<Self>) {
+        self.expanded.clear();
         if let Some(channel) = self.selected.as_ref().and_then(|selection| {
             self.channels
                 .iter()
                 .find(|channel| channel.id == selection.channel && !channel.models.is_empty())
         }) {
             self.family = Some(channel.family.clone());
-            self.collapsed.remove(&channel.id);
+            self.expanded.insert(channel.id);
         }
+        self.open_first();
         cx.notify();
+    }
+
+    /// Opens the first visible group when no visible group is open.
+    fn open_first(&mut self) {
+        let mut visible = self.channels.iter().filter(|channel| {
+            !channel.models.is_empty()
+                && self
+                    .family
+                    .as_ref()
+                    .is_none_or(|family| *family == channel.family)
+        });
+        if !visible
+            .clone()
+            .any(|channel| self.expanded.contains(&channel.id))
+            && let Some(channel) = visible.next()
+        {
+            self.expanded.insert(channel.id);
+        }
     }
 
     fn has_family(&self, family: &str) -> bool {

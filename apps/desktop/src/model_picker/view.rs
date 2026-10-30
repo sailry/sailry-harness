@@ -188,6 +188,7 @@ impl Picker {
                             .rounded_full()
                             .on_click(cx.listener(move |picker, _, _, cx| {
                                 picker.family = family.clone();
+                                picker.open_first();
                                 cx.notify();
                             })),
                     )
@@ -242,7 +243,7 @@ impl Render for Picker {
                         .child(channel.name.clone()),
                 )
                 .bg(transparent_black())
-                .open(!self.collapsed.contains(&id))
+                .open(self.expanded.contains(&id))
                 .title_style(StyleRefinement::default().pl_2().pr_3p5().py_1p5())
                 .content_style(StyleRefinement::default().px_0().pb_0())
                 .child(v_flex().w_full().children(rows))
@@ -281,9 +282,9 @@ impl Render for Picker {
                                 move |this, open: &[usize], _, cx| {
                                     for (index, id) in visible_ids.iter().enumerate() {
                                         if open.contains(&index) {
-                                            this.collapsed.remove(id);
+                                            this.expanded.insert(*id);
                                         } else {
-                                            this.collapsed.insert(*id);
+                                            this.expanded.remove(id);
                                         }
                                     }
                                     cx.notify();
