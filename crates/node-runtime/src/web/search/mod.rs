@@ -322,12 +322,8 @@ impl Searcher {
                     if let Some(deadline) = deadline {
                         self.cool(driver, plan.settings.revision, deadline);
                     }
-                    let recoverable = if driver == Driver::Model {
-                        plan.settings.driver == Some(Selection::Auto) && model::can_fallback(&error)
-                    } else {
-                        error.temporary
-                    };
-                    if !recoverable || !plan.settings.fallback {
+                    let automatic = plan.settings.driver == Some(Selection::Auto);
+                    if !error.recoverable(automatic) || !plan.settings.fallback {
                         return Err(error.fault);
                     }
                     failure = Some(error.fault);
@@ -444,9 +440,21 @@ struct Failure {
     fault: Fault,
     temporary: bool,
     retry_at: Option<SystemTime>,
+    /// External cleanup could not be confirmed, so no other service is tried.
+    uncertain: bool,
 }
 
 impl Failure {
+    /// Automatic search advances past any failed channel in saved order;
+    /// a selected channel falls back only after temporary failures.
+    fn recoverable(&self, automatic: bool) -> bool {
+        if automatic {
+            self.fault.code != ErrorCode::Cancelled && !self.uncertain
+        } else {
+            self.temporary
+        }
+    }
+
     fn cancelled() -> Self {
         Self::cancelled_with_cleanup(true)
     }
@@ -463,6 +471,7 @@ impl Failure {
             ),
             temporary: false,
             retry_at: None,
+            uncertain: !cleaned,
         }
     }
 
@@ -473,6 +482,7 @@ impl Failure {
             "search service deadline exceeded before cleanup completed"
         });
         failure.temporary = cleaned;
+        failure.uncertain = !cleaned;
         failure
     }
 
@@ -484,6 +494,7 @@ impl Failure {
             ),
             temporary: false,
             retry_at: None,
+            uncertain: true,
         }
     }
 
@@ -492,6 +503,7 @@ impl Failure {
             .message
             .push_str("; cleanup could not be confirmed");
         self.temporary = false;
+        self.uncertain = true;
         self
     }
 
@@ -500,6 +512,7 @@ impl Failure {
             fault: Fault::new(ErrorCode::Unavailable, message),
             temporary: true,
             retry_at: None,
+            uncertain: false,
         }
     }
     fn invalid(message: &str) -> Self {
@@ -507,6 +520,7 @@ impl Failure {
             fault: Fault::invalid(message),
             temporary: false,
             retry_at: None,
+            uncertain: false,
         }
     }
     fn service_limit() -> Self {
@@ -514,6 +528,7 @@ impl Failure {
             fault: Fault::invalid("search query exceeds the service limit"),
             temporary: true,
             retry_at: None,
+            uncertain: false,
         }
     }
     fn unauthorized() -> Self {
@@ -524,6 +539,7 @@ impl Failure {
             ),
             temporary: false,
             retry_at: None,
+            uncertain: false,
         }
     }
 }

@@ -251,6 +251,7 @@ fn http_status(status: &HttpStatusError) -> Failure {
             fault: cooldown::pending(deadline),
             temporary: true,
             retry_at: Some(deadline),
+            uncertain: false,
         }
     } else if matches!(status.status, 401 | 403) {
         Failure::unauthorized()

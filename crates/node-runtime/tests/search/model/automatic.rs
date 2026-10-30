@@ -53,7 +53,7 @@ async fn follows_order_and_invalidates_cached_pages() {
 }
 
 #[tokio::test]
-async fn falls_back_on_recoverable_model_failures() {
+async fn falls_back_on_model_failures() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let node = Node::start_empty(directory.path().join("node"))
@@ -102,10 +102,10 @@ async fn falls_back_on_recoverable_model_failures() {
         settings.fallback = true;
         save(&client, settings, Default::default()).await;
         assert_eq!(
-            page(&client, "Invalid response").await.unwrap_err().code,
-            ErrorCode::InvalidRequest
+            page(&client, "Invalid response").await.unwrap().driver,
+            Driver::Exa
         );
-        assert_eq!(fallback.count("/exa"), 3);
+        assert_eq!(fallback.count("/exa"), 4);
         assert_eq!(http.count("/v1/responses"), 5);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();

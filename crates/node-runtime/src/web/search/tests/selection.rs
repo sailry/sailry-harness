@@ -65,16 +65,18 @@ fn preserves_manual_selection() {
 }
 
 #[test]
-fn keeps_permission_and_cancellation_terminal() {
-    assert!(!model::can_fallback(&Failure::cancelled()));
-    assert!(!model::can_fallback(&model::failure(Fault::new(
-        ErrorCode::PermissionDenied,
-        "source address is not allowed",
-    ))));
-    assert!(!model::can_fallback(&model::failure(Fault::invalid(
-        "invalid request"
-    ))));
-    assert!(model::can_fallback(&Failure::unavailable(
-        "service unavailable"
-    )));
+fn automatic_advances_past_failures() {
+    let unsupported = model::failure(Fault::invalid("no web search metadata"));
+    assert!(unsupported.recoverable(true));
+    assert!(!unsupported.recoverable(false));
+    assert!(Failure::unauthorized().recoverable(true));
+    assert!(Failure::unavailable("service unavailable").recoverable(false));
+    assert!(!Failure::cancelled().recoverable(true));
+    assert!(!Failure::cleanup_uncertain().recoverable(true));
+    assert!(!Failure::deadline_with_cleanup(false).recoverable(true));
+    assert!(
+        !Failure::unauthorized()
+            .with_cleanup_uncertain()
+            .recoverable(true)
+    );
 }

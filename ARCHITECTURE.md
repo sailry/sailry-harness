@@ -695,9 +695,11 @@ the cache; driver availability tests always make a fresh request.
 Automatic search tries enabled, configured channels in their saved list order,
 including model search, without changing priority based on query language.
 The search settings page moves channels up or down through revision-checked Node
-settings. Unsupported model search and recoverable service failures can advance
-to the next channel when fallback is enabled; cancellation and access-policy
-failures stop the request. Manual model selection remains explicit.
+settings. With fallback enabled, any failed automatic channel, including
+unsupported or unanswered model search, advances to the next channel;
+cancellation and unconfirmed service cleanup stop the request. A manually
+selected channel falls back only after temporary failures, and manual model
+selection remains explicit.
 Model search reuses the Node's model credentials and request authorization policy,
 then calls the selected provider's native search API outside the GDK loop.
 Citation sources and the

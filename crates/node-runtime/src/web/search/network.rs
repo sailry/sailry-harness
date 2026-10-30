@@ -36,6 +36,7 @@ pub(super) async fn json_with_limit(
             fault: cooldown::pending(deadline),
             temporary: true,
             retry_at: Some(deadline),
+            uncertain: false,
         });
     }
     if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {

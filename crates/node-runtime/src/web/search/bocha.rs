@@ -41,6 +41,7 @@ pub(super) fn parse(value: &Value) -> Result<Vec<search::Result>, Failure> {
                 fault: cooldown::pending(deadline),
                 temporary: true,
                 retry_at: Some(deadline),
+                uncertain: false,
             }
         } else if code >= 500 {
             Failure::unavailable("search service is unavailable")

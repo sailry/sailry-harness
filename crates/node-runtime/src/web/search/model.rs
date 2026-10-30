@@ -509,26 +509,12 @@ fn protect(result: Parsed, secrets: &[Secret]) -> Result<Parsed, Failure> {
     Ok(result)
 }
 
-pub(super) fn can_fallback(error: &Failure) -> bool {
-    error.temporary
-        || matches!(
-            error.fault.code,
-            ErrorCode::NotConfigured | ErrorCode::Expired
-        )
-        || matches!(
-            error.fault.details,
-            Some(FaultDetails::SearchUnsupported)
-                | Some(FaultDetails::ModelRequest {
-                    reason: ModelFailure::Unauthorized
-                })
-        )
-}
-
 pub(super) fn failure(fault: Fault) -> Failure {
     Failure {
         fault,
         temporary: false,
         retry_at: None,
+        uncertain: false,
     }
 }
 
@@ -539,6 +525,7 @@ fn request_fault(code: ErrorCode, reason: ModelFailure, message: &str, temporary
         fault,
         temporary,
         retry_at: None,
+        uncertain: false,
     }
 }
 
