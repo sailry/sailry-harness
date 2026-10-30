@@ -12,7 +12,7 @@ telemetry_welcome: "Анонимная диагностика включена �
 telemetry_saved: "Настройки конфиденциальности сохранены"
 telemetry_reset: "Анонимный ID сброшен"
 telemetry_diagnostics_sent: "Диагностика отправлена"
-telemetry_diagnostics_failed: "Не удалось отправить диагностику"
+telemetry_diagnostics_failed: "Не удалось подтвердить отправку диагностики"
 telemetry_conflict: "Настройки изменились. Обновите и повторите попытку"
 telemetry_unknown: "Результат неизвестен. Обновите для проверки"
 telemetry_failed: "Не удалось загрузить или сохранить настройки конфиденциальности"

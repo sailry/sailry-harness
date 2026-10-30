@@ -12,7 +12,7 @@ telemetry_welcome: "Anonyme Diagnosen sind standardmäßig aktiv. Sie können di
 telemetry_saved: "Datenschutzeinstellungen gespeichert"
 telemetry_reset: "Anonyme ID zurückgesetzt"
 telemetry_diagnostics_sent: "Diagnose gesendet"
-telemetry_diagnostics_failed: "Diagnose konnte nicht gesendet werden"
+telemetry_diagnostics_failed: "Diagnoseversand konnte nicht bestätigt werden"
 telemetry_conflict: "Die Einstellungen wurden geändert. Neu laden und erneut versuchen"
 telemetry_unknown: "Ergebnis unbekannt. Zum Prüfen neu laden"
 telemetry_failed: "Datenschutzeinstellungen konnten nicht geladen oder gespeichert werden"

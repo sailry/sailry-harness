@@ -12,7 +12,7 @@ telemetry_welcome: "Les diagnostics anonymes sont activés par défaut. Modifiez
 telemetry_saved: "Paramètres de confidentialité enregistrés"
 telemetry_reset: "Identifiant anonyme réinitialisé"
 telemetry_diagnostics_sent: "Diagnostic envoyé"
-telemetry_diagnostics_failed: "Impossible d’envoyer le diagnostic"
+telemetry_diagnostics_failed: "L’envoi du diagnostic n’a pas pu être confirmé"
 telemetry_conflict: "Les paramètres ont changé. Rechargez et réessayez"
 telemetry_unknown: "Résultat inconnu. Rechargez pour vérifier"
 telemetry_failed: "Impossible de charger ou d’enregistrer les paramètres de confidentialité"

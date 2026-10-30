@@ -12,7 +12,7 @@ telemetry_welcome: "匿名の診断は既定で有効です。設定で変更で
 telemetry_saved: "プライバシー設定を保存しました"
 telemetry_reset: "匿名 ID をリセットしました"
 telemetry_diagnostics_sent: "診断情報を送信しました"
-telemetry_diagnostics_failed: "診断情報を送信できませんでした"
+telemetry_diagnostics_failed: "診断情報の送信を確認できませんでした"
 telemetry_conflict: "設定が変更されました。再読み込みして再試行してください"
 telemetry_unknown: "結果は不明です。再読み込みして確認してください"
 telemetry_failed: "プライバシー設定を読み込みまたは保存できませんでした"

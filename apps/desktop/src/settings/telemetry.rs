@@ -201,6 +201,17 @@ impl Render for Panel {
                         );
                     })),
             ))
+            .child(Row::new(
+                "telemetry_support",
+                Button::new("send-diagnostics")
+                    .label(tr("telemetry_send_action"))
+                    .outline()
+                    .small()
+                    .disabled(self.pending || self.binding.is_none())
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.submit(Command::SendDiagnostics, window, cx)
+                    })),
+            ))
             .child(
                 div()
                     .py_3()

@@ -12,7 +12,7 @@ telemetry_welcome: "Os diagnósticos anônimos vêm ativados. Você pode alterar
 telemetry_saved: "Configurações de privacidade salvas"
 telemetry_reset: "ID anônimo redefinido"
 telemetry_diagnostics_sent: "Diagnóstico enviado"
-telemetry_diagnostics_failed: "Não foi possível enviar o diagnóstico"
+telemetry_diagnostics_failed: "Não foi possível confirmar o envio do diagnóstico"
 telemetry_conflict: "As configurações mudaram. Recarregue e tente novamente"
 telemetry_unknown: "Resultado desconhecido. Recarregue para verificar"
 telemetry_failed: "Não foi possível carregar ou salvar as configurações de privacidade"

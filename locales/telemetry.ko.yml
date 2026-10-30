@@ -12,7 +12,7 @@ telemetry_welcome: "익명 진단은 기본적으로 켜져 있으며 설정에�
 telemetry_saved: "개인정보 설정을 저장했습니다"
 telemetry_reset: "익명 ID를 재설정했습니다"
 telemetry_diagnostics_sent: "진단 정보를 보냈습니다"
-telemetry_diagnostics_failed: "진단 정보를 보내지 못했습니다"
+telemetry_diagnostics_failed: "진단 정보 전송을 확인하지 못했습니다"
 telemetry_conflict: "설정이 변경되었습니다. 새로고침 후 다시 시도하세요"
 telemetry_unknown: "결과를 알 수 없습니다. 새로고침하여 확인하세요"
 telemetry_failed: "개인정보 설정을 불러오거나 저장하지 못했습니다"
