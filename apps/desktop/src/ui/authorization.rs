@@ -353,10 +353,11 @@ impl RenderOnce for Authorization {
             .map(|(code, dim)| Self::render_code(code, dim, cx));
         let status = self.status(window, cx);
         let (secondary, mut primary) = self.actions();
+        // Browser callbacks keep reopening as a link beside their own Continue action.
         let links = secondary
             .into_iter()
             .chain(
-                matches!(self.flow, Flow::Device { .. } | Flow::Browser { .. })
+                matches!(self.flow, Flow::Browser { .. })
                     .then(|| primary.take())
                     .flatten(),
             )

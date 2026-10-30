@@ -1,6 +1,6 @@
 use super::*;
 use crate::conversation::usage::{self, external};
-use gpui_kit::component::{progress::Progress, tag::Tag};
+use gpui_kit::component::progress::Progress;
 use sailry_protocol::{Authentication, conversation::quota, plugin::ui::Detail};
 use std::rc::Rc;
 
@@ -106,18 +106,17 @@ impl Workspace {
                     .child(subtitle),
             );
         let summary = match Status::of(channel, authentication) {
-            Some(status) => div()
+            // Plain status text aligned with the model-count action it replaces.
+            Some(status) => h_flex()
                 .flex_shrink_0()
+                .px_2()
+                .gap_1p5()
+                .items_center()
+                .text_sm()
+                .text_color(theme.muted_foreground)
                 .debug_selector(move || format!("provider-status-{id}"))
-                .child(
-                    Tag::warning().small().child(
-                        h_flex()
-                            .gap_1p5()
-                            .items_center()
-                            .child(div().size(px(6.)).rounded_full().bg(theme.warning))
-                            .child(tr(status.key())),
-                    ),
-                )
+                .child(div().size(px(6.)).rounded_full().bg(theme.warning))
+                .child(tr(status.key()))
                 .into_any_element(),
             None => Button::new(("provider-models", id))
                 .ghost()
