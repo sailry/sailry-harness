@@ -1,6 +1,5 @@
 use super::*;
 use crate::settings::group::{Group, Row};
-use gpui_kit::component::{alert::Alert, text::markdown};
 
 impl Render for Panel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -122,35 +121,39 @@ impl Render for Panel {
                         )
                 }),
                 |column| {
+                    // A quiet footnote under the list; the action stays a regular button.
                     column.child(
-                        Alert::info(
-                            "permissions-disk-help",
-                            markdown(format!(
-                                "{}\n\n{}",
-                                tr("permission_disk_help"),
-                                if busy {
-                                    tr("permission_show_app").to_string()
-                                } else {
-                                    format!("[{}](#show-app)", tr("permission_show_app"))
-                                },
-                            ))
-                            .on_link_click(move |_, _, window, cx| {
-                                if busy {
-                                    return;
-                                }
-                                if let Some(path) = app::bundle() {
-                                    cx.reveal_path(&path);
-                                } else {
-                                    crate::feedback::info(
-                                        "",
-                                        tr("permission_app_unavailable").as_ref(),
-                                        window,
-                                        cx,
-                                    );
-                                }
-                            }),
-                        )
-                        .small(),
+                        h_flex()
+                            .w_full()
+                            .px_1()
+                            .gap_2()
+                            .items_center()
+                            .text_color(cx.theme().muted_foreground)
+                            .debug_selector(|| "permissions-disk-help".into())
+                            .child(Icon::new(IconName::Info).small().flex_shrink_0())
+                            .child(div().flex_1().min_w_0().child(tr("permission_disk_help")))
+                            .child(
+                                Button::new("permissions-show-app")
+                                    .ghost()
+                                    .small()
+                                    .icon(IconName::FolderOpen)
+                                    .label(tr("permission_show_app"))
+                                    .flex_shrink_0()
+                                    .disabled(busy)
+                                    .debug_selector(|| "permissions-show-app".into())
+                                    .on_click(|_, window, cx| {
+                                        if let Some(path) = app::bundle() {
+                                            cx.reveal_path(&path);
+                                        } else {
+                                            crate::feedback::info(
+                                                "",
+                                                tr("permission_app_unavailable").as_ref(),
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    }),
+                            ),
                     )
                 },
             )
