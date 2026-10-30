@@ -137,6 +137,7 @@ impl Searcher {
         })
     }
 
+    #[cfg(test)]
     pub async fn search(
         self: &Arc<Self>,
         caller: NodeId,
@@ -235,7 +236,7 @@ impl Searcher {
         if stop.is_cancelled() {
             return Err(Failure::cancelled().fault);
         }
-        let candidates = ordered(&plan.settings, &input.query);
+        let candidates = candidates(&plan.settings);
         if candidates.is_empty() {
             return Err(Fault::new(
                 ErrorCode::NotConfigured,
@@ -262,13 +263,13 @@ impl Searcher {
             };
             let input = &page_input;
             let attempt = if driver == Driver::Model {
-                let context = context.ok_or_else(|| {
-                    Fault::new(
+                match context {
+                    Some(context) => model::configured(&plan, context, input, id, stop).await,
+                    None => Err(model::failure(Fault::new(
                         ErrorCode::NotConfigured,
                         "model search context is unavailable",
-                    )
-                })?;
-                model::configured(&plan, context, input, id, stop).await
+                    ))),
+                }
             } else if driver == Driver::Exa {
                 exa::search(&self.endpoint(driver, &plan.settings), &auth, input, stop)
                     .await
@@ -321,7 +322,12 @@ impl Searcher {
                     if let Some(deadline) = deadline {
                         self.cool(driver, plan.settings.revision, deadline);
                     }
-                    if driver == Driver::Model || !error.temporary || !plan.settings.fallback {
+                    let recoverable = if driver == Driver::Model {
+                        plan.settings.driver == Some(Selection::Auto) && model::can_fallback(&error)
+                    } else {
+                        error.temporary
+                    };
+                    if !recoverable || !plan.settings.fallback {
                         return Err(error.fault);
                     }
                     failure = Some(error.fault);
@@ -401,44 +407,18 @@ impl Searcher {
     }
 }
 
-fn chinese(query: &str) -> bool {
-    let mut total = 0;
-    let mut han = 0;
-    for character in query
-        .chars()
-        .filter(|character| character.is_alphanumeric())
-    {
-        total += 1;
-        han += usize::from(matches!(character as u32,
-            0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x323af));
-    }
-    total > 0 && han * 2 > total
-}
-
-fn ordered(settings: &search::Settings, query: &str) -> Vec<Driver> {
-    let mut drivers = candidates(settings);
-    if settings.driver == Some(Selection::Auto) && chinese(query) {
-        drivers.sort_by_key(|driver| match driver {
-            Driver::Bocha => 0,
-            Driver::Volcengine => 1,
-            _ => 2,
-        });
-    }
-    drivers
-}
-
 fn candidates(settings: &search::Settings) -> Vec<Driver> {
     let Some(selection) = settings.driver else {
         return Vec::new();
     };
     let mut drivers = match selection {
-        Selection::Auto => Vec::new(),
+        Selection::Auto => settings.order.clone(),
         Selection::Driver(driver) => vec![driver],
     };
-    if matches!(selection, Selection::Auto)
-        || (settings.fallback && selection != Selection::Driver(Driver::Model))
+    if settings.fallback
+        && matches!(selection, Selection::Driver(driver) if driver != Driver::Model)
     {
-        for driver in Driver::ALL {
+        for driver in settings.order.iter().copied() {
             if driver != Driver::Model && !drivers.contains(&driver) {
                 drivers.push(driver);
             }

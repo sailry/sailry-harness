@@ -88,7 +88,19 @@ async fn bills_requests_once_in_the_calling_turn() {
         http.respond("/v1/responses", vec![native::streamed(&url)]);
         let provider = native::provider(&fixture.client, &format!("{}/v1", http.endpoint)).await;
         assert_ne!(provider.id, fixture.provider.id);
-        native::select(&fixture.client, &provider, true).await;
+        let mut settings = native::select(&fixture.client, &provider, true).await;
+        settings.driver = Some(search::Selection::Auto);
+        settings
+            .order
+            .sort_by_key(|driver| *driver != search::Driver::Model);
+        execute(
+            &fixture.client,
+            Command::SaveSearchSettings(search::Update {
+                settings,
+                credentials: Default::default(),
+            }),
+        )
+        .await;
         let mut turns = Vec::new();
         for round in 1..=2 {
             let turn = fixture.submit("Find a source with native search").await;

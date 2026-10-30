@@ -15,6 +15,8 @@ mod domestic;
 mod filters;
 #[path = "search/model.rs"]
 mod model;
+#[path = "search/ordering.rs"]
+mod ordering;
 #[path = "search/rendering.rs"]
 mod rendering;
 use crate::search_fixture as server;

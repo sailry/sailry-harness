@@ -16,6 +16,7 @@ async fn fills_missing_drivers_without_changing_settings() {
     let mut original = Stored::default();
     original.settings.revision = 7;
     original.settings.fallback = false;
+    original.settings.order.reverse();
     original.settings.providers.remove(&Driver::Tinyfish);
     original
         .settings
@@ -77,7 +78,9 @@ async fn invalid_defaults_leave_storage_unchanged() {
         .get_mut(&Driver::Tavily)
         .unwrap()
         .key_configured = true;
-    let bytes = encode(&original).unwrap();
+    let mut value = serde_json::to_value(&original).unwrap();
+    value["settings"].as_object_mut().unwrap().remove("order");
+    let bytes = serde_json::to_vec(&value).unwrap();
     db.execute("INSERT INTO search_settings VALUES(1,?1)", [bytes.clone()])
         .await
         .unwrap();

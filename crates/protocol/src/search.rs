@@ -107,12 +107,18 @@ pub struct ModelConfig {
     pub model: String,
 }
 
+fn order() -> Vec<Driver> {
+    Driver::ALL.to_vec()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub revision: u64,
     pub driver: Option<Selection>,
     pub fallback: bool,
+    #[serde(default = "order")]
+    pub order: Vec<Driver>,
     pub providers: BTreeMap<Driver, Config>,
     /// Node-owned driver declarations; clients cannot change them through a settings update.
     #[serde(default = "capabilities")]
@@ -135,6 +141,7 @@ impl Default for Settings {
             revision: 0,
             driver: Some(Selection::Auto),
             fallback: true,
+            order: order(),
             capabilities: capabilities(),
             providers: Driver::ALL
                 .into_iter()
@@ -337,6 +344,22 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<Settings>(serde_json::to_value(&settings).unwrap()).unwrap(),
             settings
+        );
+    }
+
+    #[test]
+    fn preserves_order_and_defaults_missing_field() {
+        let mut settings = Settings::default();
+        settings.order.reverse();
+        let mut value = serde_json::to_value(&settings).unwrap();
+        assert_eq!(
+            serde_json::from_value::<Settings>(value.clone()).unwrap(),
+            settings
+        );
+        value.as_object_mut().unwrap().remove("order");
+        assert_eq!(
+            serde_json::from_value::<Settings>(value).unwrap().order,
+            Driver::ALL
         );
     }
 

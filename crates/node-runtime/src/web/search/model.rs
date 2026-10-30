@@ -1,4 +1,4 @@
-//! Explicit native search shares authorization with ordinary model requests.
+//! Configured native search shares authorization with ordinary model requests.
 use super::{Failure, filters, search};
 use crate::{agent::canonical::Usage, providers::request as authorization, store::Ingress};
 use chrono::Utc;
@@ -509,7 +509,22 @@ fn protect(result: Parsed, secrets: &[Secret]) -> Result<Parsed, Failure> {
     Ok(result)
 }
 
-fn failure(fault: Fault) -> Failure {
+pub(super) fn can_fallback(error: &Failure) -> bool {
+    error.temporary
+        || matches!(
+            error.fault.code,
+            ErrorCode::NotConfigured | ErrorCode::Expired
+        )
+        || matches!(
+            error.fault.details,
+            Some(FaultDetails::SearchUnsupported)
+                | Some(FaultDetails::ModelRequest {
+                    reason: ModelFailure::Unauthorized
+                })
+        )
+}
+
+pub(super) fn failure(fault: Fault) -> Failure {
     Failure {
         fault,
         temporary: false,

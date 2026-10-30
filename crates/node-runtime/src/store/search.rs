@@ -11,7 +11,7 @@ use sailry_protocol::{
     plugin::settings::SecretUpdate,
     search::{self, Driver, Selection},
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use turso::Connection;
 
 #[cfg(test)]
@@ -63,9 +63,15 @@ pub(in crate::store) async fn pending_defaults(db: &Connection) -> Result<bool, 
         return Ok(false);
     }
     let stored = stored(db).await?;
-    Ok(Driver::ALL
-        .iter()
-        .any(|driver| !stored.settings.providers.contains_key(driver)))
+    let missing_order = db
+        .prepare("SELECT EXISTS(SELECT 1 FROM search_settings WHERE json_type(body,'$.settings.order') IS NULL)")
+        .await.map_err(storage_error)?
+        .query_row(()).await.map_err(storage_error)?
+        .get::<bool>(0).map_err(storage_error)?;
+    Ok(missing_order
+        || Driver::ALL
+            .iter()
+            .any(|driver| !stored.settings.providers.contains_key(driver)))
 }
 
 pub(in crate::store) async fn apply_defaults(db: &Connection) -> Result<(), Fault> {
@@ -118,6 +124,19 @@ fn validate(stored: &Stored) -> Result<(), Fault> {
         || stored.settings.revision > i64::MAX as u64
     {
         return Err(Fault::invalid("invalid search settings"));
+    }
+    if stored.settings.order.len() != Driver::ALL.len()
+        || stored
+            .settings
+            .order
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            != Driver::ALL.into_iter().collect()
+    {
+        return Err(Fault::invalid(
+            "search order must contain every driver once",
+        ));
     }
     for driver in Driver::ALL {
         let config = stored
@@ -281,35 +300,27 @@ impl Ingress {
                     (None, self.closed.clone())
                 };
                 let plan = self.search_plan().await?;
-                if plan.settings.driver == Some(Selection::Driver(Driver::Model)) {
-                    let session = request.plugin.as_ref().and_then(|context| context.session);
-                    let page = self
-                        .search
-                        .search_with(
-                            caller,
-                            request.id,
-                            plan,
-                            input,
-                            &stop,
-                            Options {
-                                fresh: false,
-                                context: Some(model::Context {
-                                    ingress: self,
-                                    caller,
-                                    session: session.unwrap_or_default(),
-                                    turn: turn.filter(|_| session.is_some()),
-                                }),
-                            },
-                        )
-                        .await?;
-                    Output::SearchPage(page)
-                } else {
-                    Output::SearchPage(
-                        self.search
-                            .search(caller, request.id, plan, input, &stop)
-                            .await?,
+                let session = request.plugin.as_ref().and_then(|context| context.session);
+                let page = self
+                    .search
+                    .search_with(
+                        caller,
+                        request.id,
+                        plan,
+                        input,
+                        &stop,
+                        Options {
+                            fresh: false,
+                            context: Some(model::Context {
+                                ingress: self,
+                                caller,
+                                session: session.unwrap_or_default(),
+                                turn: turn.filter(|_| session.is_some()),
+                            }),
+                        },
                     )
-                }
+                    .await?;
+                Output::SearchPage(page)
             }
             Command::TestSearchDriver { driver } => {
                 if request

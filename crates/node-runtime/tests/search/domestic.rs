@@ -72,6 +72,11 @@ async fn falls_back_from_bocha_to_volcengine() {
             settings.providers.get_mut(&driver).unwrap().enabled = true;
             node.set_search_fixture(driver, &http.url(driver));
         }
+        settings.order.sort_by_key(|driver| match driver {
+            Driver::Bocha => 0,
+            Driver::Volcengine => 1,
+            _ => 2,
+        });
         http.respond("/bocha", vec![Reply::Status(503, None)]);
         save(
             &client,
@@ -150,6 +155,9 @@ async fn skips_query_limits_without_cooling_drivers() {
             for configured in [driver, Driver::Tavily] {
                 node.set_search_fixture(configured, &http.url(configured));
             }
+            settings
+                .order
+                .sort_by_key(|configured| *configured != driver);
             settings.driver = Some(selection);
             settings.fallback = true;
             settings = save(

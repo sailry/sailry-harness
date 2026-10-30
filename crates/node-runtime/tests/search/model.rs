@@ -147,7 +147,7 @@ async fn returns_citations_and_checks_the_service() {
 }
 
 #[tokio::test]
-async fn excludes_fallbacks_and_automatic_selection() {
+async fn keeps_manual_search_explicit() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let node = Node::start_empty(directory.path().join("node"))
@@ -172,7 +172,7 @@ async fn excludes_fallbacks_and_automatic_selection() {
             ],
         );
         let provider = native::provider(&client, &format!("{}/v1", http.endpoint)).await;
-        let mut settings = native::select(&client, &provider, true).await;
+        native::select(&client, &provider, true).await;
         let error = page(&client, native::QUERY).await.unwrap_err();
         assert!(matches!(
             error.details.as_ref(),
@@ -200,18 +200,10 @@ async fn excludes_fallbacks_and_automatic_selection() {
         assert!(!serde_json::to_string(&error).unwrap().contains(native::KEY));
         assert_eq!(http.count("/v1/responses"), 3);
         assert_eq!(fallback.count("/exa"), 0);
-        settings.driver = Some(Selection::Auto);
-        settings.providers.get_mut(&Driver::Exa).unwrap().enabled = false;
-        settings = save(&client, settings, Default::default()).await;
-        assert!(page(&client, "Automatic search").await.is_err());
-        assert_eq!(http.count("/v1/responses"), 3);
-        settings.providers.get_mut(&Driver::Exa).unwrap().enabled = true;
-        save(&client, settings, Default::default()).await;
-        let automatic = page(&client, "Automatic search").await.unwrap();
-        assert_eq!(automatic.driver, Driver::Exa);
-        assert_eq!(fallback.count("/exa"), 1);
-        assert_eq!(http.count("/v1/responses"), 3);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
 }
+
+#[path = "model/automatic.rs"]
+mod automatic;

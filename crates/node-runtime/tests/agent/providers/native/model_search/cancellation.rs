@@ -49,7 +49,19 @@ async fn retains_usage_while_cancelling_source_reads() {
         let url = format!("{}/hold", source.origin);
         http.respond("/v1/responses", vec![native::response(&url)]);
         let provider = native::provider(&fixture.client, &format!("{}/v1", http.endpoint)).await;
-        native::select(&fixture.client, &provider, true).await;
+        let mut settings = native::select(&fixture.client, &provider, true).await;
+        settings.driver = Some(search::Selection::Auto);
+        settings
+            .order
+            .sort_by_key(|driver| *driver != search::Driver::Model);
+        execute(
+            &fixture.client,
+            Command::SaveSearchSettings(search::Update {
+                settings,
+                credentials: Default::default(),
+            }),
+        )
+        .await;
         price(&fixture.node, "openai").await;
 
         let turn = fixture.submit("Search and cancel the source read").await;
@@ -157,7 +169,19 @@ async fn retains_paused_usage_after_continuation_failure() {
         else {
             panic!("provider expected")
         };
-        native::select(&fixture.client, &provider, true).await;
+        let mut settings = native::select(&fixture.client, &provider, true).await;
+        settings.driver = Some(search::Selection::Auto);
+        settings
+            .order
+            .sort_by_key(|driver| *driver != search::Driver::Model);
+        execute(
+            &fixture.client,
+            Command::SaveSearchSettings(search::Update {
+                settings,
+                credentials: Default::default(),
+            }),
+        )
+        .await;
         price(&fixture.node, "anthropic").await;
         let paused = json!({
             "type":"message","role":"assistant","model":native::MODEL,
@@ -234,19 +258,28 @@ async fn retains_paused_usage_after_continuation_failure() {
                 .all(|entry| json!(entry.id) != record["id"])
         );
         assert_eq!(http.count("/v1/messages"), 2);
-        assert_eq!(http.count("/exa"), 0);
+        assert_eq!(http.count("/exa"), 1);
+        let (_, detail) = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .find(|(tool, _)| tool == &plugin_tool("web-search", "web_search"))
+            .unwrap();
+        let result: search::Page = serde_json::from_value(detail.result.unwrap()).unwrap();
+        assert_eq!(result.driver, search::Driver::Exa);
         assert_eq!(main.requests.lock().unwrap().len(), 2);
         {
             let requests = http.requests.lock().unwrap();
-            assert_eq!(requests.len(), 2);
+            assert_eq!(requests.len(), 3);
             assert_eq!(requests[1].1["messages"][1]["role"], "assistant");
             assert_eq!(requests[1].1["messages"][1]["content"], paused["content"]);
-            assert!(requests.iter().all(|(header, body)| {
+            assert!(requests[..2].iter().all(|(header, body)| {
                 header
                     .to_ascii_lowercase()
                     .contains(&format!("x-api-key: {}", native::KEY))
                     && !body.to_string().contains(native::KEY)
             }));
+            assert!(!requests[2].0.contains(native::KEY));
+            assert!(!requests[2].1.to_string().contains(native::KEY));
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
