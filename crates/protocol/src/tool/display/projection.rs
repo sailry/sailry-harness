@@ -116,6 +116,8 @@ pub struct Diff {
 pub enum Format {
     Added,
     Unified,
+    // The Node replaces the body with the confirmed file checkpoint for this call.
+    Checkpoint,
 }
 
 /// A string or an array of items containing paths; the call supplies ownership.

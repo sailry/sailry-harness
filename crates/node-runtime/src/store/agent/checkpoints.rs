@@ -10,7 +10,7 @@ use std::borrow::Cow;
 mod diff;
 pub(in crate::store) mod hunks;
 mod reads;
-pub(in crate::store) use diff::read as diff;
+pub(in crate::store) use diff::{append as append_diff, read as diff};
 pub(in crate::store) mod restore;
 #[cfg(test)]
 mod tests;

@@ -1915,7 +1915,8 @@
     "Format": {
       "enum": [
         "added",
-        "unified"
+        "unified",
+        "checkpoint"
       ],
       "type": "string"
     },

@@ -4,6 +4,7 @@ use sailry_protocol::{
     tool::{
         Display, Field, InputFormat, LocalText, ResultDisplay,
         detail::{Body, Input, Output, Resolved, Text},
+        projection::Format,
     },
 };
 use serde::Deserialize;
@@ -131,9 +132,12 @@ pub(super) fn resolve(
                                 .diff
                                 .as_ref()
                                 .filter(|diff| {
-                                    diff.when
-                                        .as_ref()
-                                        .is_none_or(|test| test.matches(arguments, result))
+                                    // Checkpoint diffs are attached by the detail reader.
+                                    diff.format != Format::Checkpoint
+                                        && diff
+                                            .when
+                                            .as_ref()
+                                            .is_none_or(|test| test.matches(arguments, result))
                                 })
                                 .map(|diff| diff.format),
                             empty: body.empty.as_ref().map(label),

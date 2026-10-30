@@ -103,38 +103,7 @@ pub(in crate::store) async fn read(
             truncated: false,
         };
         for (before, after) in versions.segments {
-            if before.as_deref() == Some(after.as_str()) {
-                continue;
-            }
-            let mut patch = git2::Patch::from_buffers(
-                before.as_deref().unwrap_or_default().as_bytes(),
-                Some(Path::new(&file.path)),
-                after.as_bytes(),
-                Some(Path::new(&file.path)),
-                None,
-            )
-            .map_err(storage_error)?;
-            let (_, added, removed) = patch.line_stats().map_err(storage_error)?;
-            file.additions += added;
-            file.deletions += removed;
-            let printed = patch.print(&mut |_, _, line| {
-                let prefix = matches!(line.origin(), '+' | '-' | ' ');
-                let text = String::from_utf8_lossy(line.content());
-                let size = text.len() + usize::from(prefix);
-                if size > remaining {
-                    file.truncated = true;
-                    return false;
-                }
-                remaining -= size;
-                if prefix {
-                    file.text.push(line.origin());
-                }
-                file.text.push_str(&text);
-                true
-            });
-            if !file.truncated {
-                printed.map_err(storage_error)?;
-            }
+            append(&mut file, before.as_deref(), &after, &mut remaining)?;
         }
         partial |= file.truncated;
         if file.additions > 0 || file.deletions > 0 {
@@ -147,4 +116,46 @@ pub(in crate::store) async fn read(
         files,
         partial,
     })
+}
+
+/// Appends one confirmed before/after segment as unified text within a shared byte budget.
+pub(in crate::store) fn append(
+    file: &mut GitDiff,
+    before: Option<&str>,
+    after: &str,
+    remaining: &mut usize,
+) -> Result<(), Fault> {
+    if before == Some(after) {
+        return Ok(());
+    }
+    let mut patch = git2::Patch::from_buffers(
+        before.unwrap_or_default().as_bytes(),
+        Some(Path::new(&file.path)),
+        after.as_bytes(),
+        Some(Path::new(&file.path)),
+        None,
+    )
+    .map_err(storage_error)?;
+    let (_, added, removed) = patch.line_stats().map_err(storage_error)?;
+    file.additions += added;
+    file.deletions += removed;
+    let printed = patch.print(&mut |_, _, line| {
+        let prefix = matches!(line.origin(), '+' | '-' | ' ');
+        let text = String::from_utf8_lossy(line.content());
+        let size = text.len() + usize::from(prefix);
+        if size > *remaining {
+            file.truncated = true;
+            return false;
+        }
+        *remaining -= size;
+        if prefix {
+            file.text.push(line.origin());
+        }
+        file.text.push_str(&text);
+        true
+    });
+    if !file.truncated {
+        printed.map_err(storage_error)?;
+    }
+    Ok(())
 }

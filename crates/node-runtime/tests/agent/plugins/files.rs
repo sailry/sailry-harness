@@ -238,6 +238,28 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
         .await
         .unwrap();
         assert_eq!(call.with_detail(detail).result(&page), Some(&outputs[2]));
+        let written = crate::agent_support::details::read(
+            &fixture.client,
+            view.calls[1].detail_reference(&page).unwrap(),
+        )
+        .await
+        .unwrap();
+        let body = written
+            .resolved
+            .as_ref()
+            .and_then(|resolved| resolved.output.as_ref())
+            .and_then(|output| output.body.as_ref())
+            .unwrap();
+        assert_eq!(
+            body.diff,
+            Some(sailry_protocol::tool::projection::Format::Unified)
+        );
+        assert_eq!(body.path.as_deref(), Some("note.txt"));
+        assert!(
+            body.text.contains("-First") && body.text.contains("+Second"),
+            "{}",
+            body.text
+        );
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("note.txt")).unwrap(),
             "Second"

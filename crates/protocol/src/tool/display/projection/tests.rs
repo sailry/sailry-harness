@@ -173,8 +173,18 @@ fn preserves_partial_notices_and_literal_inputs() {
         body.text.read(&args, &Value::Null).unwrap(),
         "\t<literal>\n"
     );
-    let condition = body.diff.unwrap().when.unwrap();
-    assert!(condition.matches(&args, &Value::Null));
+    let diff = body.diff.unwrap();
+    assert_eq!(diff.format, Format::Checkpoint);
+    assert!(diff.when.is_none());
+}
+
+#[test]
+fn missing_condition_values_compare_as_null() {
+    let condition: Condition = serde_json::from_value(json!({"any":[{
+        "value":{"source":"arguments","path":"/expected_revision"},"equals":null
+    }]}))
+    .unwrap();
+    assert!(condition.matches(&json!({"expected_revision":null}), &Value::Null));
     assert!(condition.matches(&json!({"text":"new"}), &Value::Null));
     assert!(!condition.matches(&json!({"expected_revision":"current"}), &Value::Null));
 }

@@ -184,18 +184,116 @@ pub(in crate::store) async fn page(
             "tool detail changed",
         ));
     }
+    let mut detail = raw.detail();
+    checkpoint(db, source.turn, &raw, &mut detail).await?;
     let text = cache.insert_with(
         reference.clone(),
         stamp,
         raw.source,
         (cursor.unwrap_or(0) == 0).then_some(limit),
         || {
-            serde_json::to_string(&raw.detail())
+            serde_json::to_string(&detail)
                 .map(Into::into)
                 .map_err(storage_error)
         },
     )?;
     slice(reference, &text, cursor.unwrap_or(0), limit)
+}
+
+/// Completed file mutations declared with checkpoint diffs show the confirmed
+/// change with file line numbers instead of the model's replacement fragments.
+async fn checkpoint(
+    db: &Connection,
+    turn: TurnId,
+    raw: &Raw,
+    detail: &mut Detail,
+) -> Result<(), Fault> {
+    use sailry_protocol::{
+        git::{GitDiff, GitDiffScope, MAX_DIFF_BYTES},
+        tool::{detail::Body, projection::Format},
+    };
+    let Some(declared) = raw
+        .display
+        .as_ref()
+        .and_then(|display| display.output.as_ref())
+        .and_then(|output| output.body.as_ref())
+    else {
+        return Ok(());
+    };
+    let (Some(call), Some(result)) = (raw.id.as_deref(), raw.result.as_ref()) else {
+        return Ok(());
+    };
+    if raw.failure.is_some()
+        || !declared.diff.as_ref().is_some_and(|diff| {
+            diff.format == Format::Checkpoint
+                && diff
+                    .when
+                    .as_ref()
+                    .is_none_or(|test| test.matches(&raw.arguments, result))
+        })
+    {
+        return Ok(());
+    }
+    let Some(output) = detail
+        .resolved
+        .as_mut()
+        .and_then(|resolved| resolved.output.as_mut())
+    else {
+        return Ok(());
+    };
+    let versions: Option<(Option<String>, String)> = {
+        let mut statement = db
+            .prepare(
+                "SELECT c.before_text,c.after_text FROM file_checkpoints c
+                 JOIN agent_approvals a ON a.id=c.approval
+                 WHERE a.turn=?1 AND a.call=?2",
+            )
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(params![turn.to_string(), call]).await {
+            Ok(row) => Some((
+                row.get::<Option<String>>(0).map_err(storage_error)?,
+                row.get::<String>(1).map_err(storage_error)?,
+            )),
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error)),
+        }
+    };
+    let Some((before, after)) = versions else {
+        return Ok(());
+    };
+    let path = declared
+        .path
+        .as_ref()
+        .and_then(|path| path.read(&raw.arguments, result)?.as_str())
+        .unwrap_or_default()
+        .to_owned();
+    let mut file = GitDiff {
+        path,
+        scope: GitDiffScope::All,
+        text: String::new(),
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        truncated: false,
+    };
+    let mut remaining = MAX_DIFF_BYTES;
+    super::super::super::checkpoints::append_diff(
+        &mut file,
+        before.as_deref(),
+        &after,
+        &mut remaining,
+    )?;
+    if file.text.is_empty() || file.truncated {
+        return Ok(());
+    }
+    output.body = Some(Body {
+        text: file.text,
+        path: Some(file.path).filter(|path| !path.is_empty()),
+        diff: Some(Format::Unified),
+        empty: None,
+    });
+    Ok(())
 }
 
 pub(super) fn slice(
