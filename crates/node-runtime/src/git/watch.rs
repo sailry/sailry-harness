@@ -231,7 +231,7 @@ mod tests {
             assert!(!filter.references_changed(&[root.join(name)]), "{name}");
         }
         assert!(filter.references_changed(&[]));
-        assert!(filter.references_changed(&[root.clone()]));
+        assert!(filter.references_changed(std::slice::from_ref(&root)));
         assert!(filter.references_changed(&[root.join(".git")]));
     }
 

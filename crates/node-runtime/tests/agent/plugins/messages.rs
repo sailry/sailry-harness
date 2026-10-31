@@ -183,25 +183,28 @@ async fn keeps_system_prompt_across_part_changes() {
         for message in ["parts:alpha", "parts:beta|gamma", "no parts", "parts:alpha"] {
             turn(&fixture, &server, message).await;
         }
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 4);
-        let system = |request: &serde_json::Value| -> String {
-            request["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
-                .map(|message| message_text(&message["content"]))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        let first = system(&requests[0]);
-        assert!(!first.is_empty());
-        assert!(!first.contains(MARK));
-        for request in requests.iter() {
-            assert_eq!(system(request), first);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 4);
+            let system = |request: &serde_json::Value| -> String {
+                request["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|message| {
+                        matches!(message["role"].as_str(), Some("system" | "developer"))
+                    })
+                    .map(|message| message_text(&message["content"]))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            let first = system(&requests[0]);
+            assert!(!first.is_empty());
+            assert!(!first.contains(MARK));
+            for request in requests.iter() {
+                assert_eq!(system(request), first);
+            }
         }
-        drop(requests);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

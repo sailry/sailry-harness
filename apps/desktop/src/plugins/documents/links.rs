@@ -10,6 +10,8 @@ use crate::file_picker::{Completion, Mode, Options, Selection};
 use sailry_client::Client;
 use std::rc::Rc;
 
+type Chosen = Rc<dyn Fn(String, &mut Window, &mut App)>;
+
 pub(super) fn handler(
     owner: WeakEntity<Controller>,
     base: String,
@@ -32,38 +34,34 @@ pub(super) fn handler(
 }
 
 pub(super) fn chooser(client: Arc<Client>, base: String, root: Option<String>) -> OnChoose {
-    Rc::new(
-        move |done: Rc<dyn Fn(String, &mut Window, &mut App)>,
-              window: &mut Window,
-              cx: &mut App| {
-            let base = base.clone();
-            let root = root.clone();
-            let _ = crate::file_picker::open(
-                Options {
-                    client: Some(client.clone()),
-                    preview_host: 0,
-                    initial: root.clone(),
-                    mode: Mode::Files { multiple: false },
-                    title: "content_image_choose",
-                    confirm: "content_image_choose",
-                },
-                move |selection, window, cx| {
-                    let Selection::Files(paths) = selection else {
-                        return Err("directory_stale");
-                    };
-                    let Some(path) = paths.into_iter().next() else {
-                        return Err("directory_stale");
-                    };
-                    let reference =
-                        portable(&base, &path, root.as_deref()).ok_or("files_remote_path")?;
-                    done(reference, window, cx);
-                    Ok(Completion::Close)
-                },
-                window,
-                cx,
-            );
-        },
-    )
+    Rc::new(move |done: Chosen, window: &mut Window, cx: &mut App| {
+        let base = base.clone();
+        let root = root.clone();
+        let _ = crate::file_picker::open(
+            Options {
+                client: Some(client.clone()),
+                preview_host: 0,
+                initial: root.clone(),
+                mode: Mode::Files { multiple: false },
+                title: "content_image_choose",
+                confirm: "content_image_choose",
+            },
+            move |selection, window, cx| {
+                let Selection::Files(paths) = selection else {
+                    return Err("directory_stale");
+                };
+                let Some(path) = paths.into_iter().next() else {
+                    return Err("directory_stale");
+                };
+                let reference =
+                    portable(&base, &path, root.as_deref()).ok_or("files_remote_path")?;
+                done(reference, window, cx);
+                Ok(Completion::Close)
+            },
+            window,
+            cx,
+        );
+    })
 }
 
 pub(super) fn images(

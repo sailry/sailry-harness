@@ -445,6 +445,21 @@ fn finish_span(
     }
 }
 
+fn counts(usage: &canonical::Usage) -> Option<Usage> {
+    Some(Usage {
+        input: usage.input?,
+        output: usage.output?,
+        cached_input: usage.cache_read.unwrap_or(0),
+        reasoning: usage.reasoning.unwrap_or(0),
+    })
+}
+fn micros(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_micros()).unwrap_or(u64::MAX)
+}
+fn millis(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,18 +516,4 @@ mod tests {
             ],
         );
     }
-}
-fn counts(usage: &canonical::Usage) -> Option<Usage> {
-    Some(Usage {
-        input: usage.input?,
-        output: usage.output?,
-        cached_input: usage.cache_read.unwrap_or(0),
-        reasoning: usage.reasoning.unwrap_or(0),
-    })
-}
-fn micros(duration: std::time::Duration) -> u64 {
-    u64::try_from(duration.as_micros()).unwrap_or(u64::MAX)
-}
-fn millis(duration: std::time::Duration) -> u64 {
-    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }

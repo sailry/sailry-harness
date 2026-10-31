@@ -358,14 +358,20 @@ async fn edits_survive_restart() {
                 .filter(|run| run.turn != first.id)
                 .all(|run| run.status == Status::Completed)
         );
-        assert_eq!(
-            page.runs
-                .iter()
-                .find(|run| run.turn == first.id)
-                .unwrap()
-                .status,
-            Status::Cancelled
-        );
+        let Output::ConversationRun(cancelled) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadConversationRun {
+                session: fixture.session.id,
+                turn: first.id,
+                expected_revision: Some(page.revision),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("run expected")
+        };
+        assert_eq!(cancelled.turn, first.id);
+        assert_eq!(cancelled.status, Status::Cancelled);
         assert!(!page.entries.iter().any(|entry| entry.turn == first.id));
         let requests = fixture.server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);

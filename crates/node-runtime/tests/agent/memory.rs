@@ -811,33 +811,34 @@ async fn keeps_system_prompt_across_messages() {
         for message in messages {
             run_turn(&fixture, message).await;
         }
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), messages.len());
-        let system = system_text(&requests[0]);
-        assert!(system.contains(POLICY));
-        assert!(!system.contains(BODY) && !system.contains(CUE));
-        for request in requests.iter() {
-            assert_eq!(system_text(request), system);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), messages.len());
+            let system = system_text(&requests[0]);
+            assert!(system.contains(POLICY));
+            assert!(!system.contains(BODY) && !system.contains(CUE));
+            for request in requests.iter() {
+                assert_eq!(system_text(request), system);
+            }
+            let count = |request: &serde_json::Value, text: &str| {
+                request["messages"].to_string().matches(text).count()
+            };
+            // A matching message adds its body once; a cue message adds the cue once.
+            let first = turn_context(&requests[0]);
+            assert!(first.contains("Relevant memory") && first.contains(BODY));
+            assert!(!first.contains(CUE));
+            let second = turn_context(&requests[1]);
+            assert!(second.contains(CUE) && !second.contains("Relevant memory"));
+            let third = turn_context(&requests[2]);
+            assert!(!third.contains(CUE) && !third.contains("Relevant memory"));
+            // Neither the same body nor the same cue is stated again in this conversation.
+            for request in &requests[3..] {
+                assert_eq!(count(request, BODY), 1);
+            }
+            assert_eq!(count(&requests[4], CUE), 1);
+            assert!(!turn_context(&requests[3]).contains(BODY));
+            assert!(!turn_context(&requests[4]).contains(CUE));
         }
-        let count = |request: &serde_json::Value, text: &str| {
-            request["messages"].to_string().matches(text).count()
-        };
-        // A matching message adds its body once; a cue message adds the cue once.
-        let first = turn_context(&requests[0]);
-        assert!(first.contains("Relevant memory") && first.contains(BODY));
-        assert!(!first.contains(CUE));
-        let second = turn_context(&requests[1]);
-        assert!(second.contains(CUE) && !second.contains("Relevant memory"));
-        let third = turn_context(&requests[2]);
-        assert!(!third.contains(CUE) && !third.contains("Relevant memory"));
-        // Neither the same body nor the same cue is stated again in this conversation.
-        for request in &requests[3..] {
-            assert_eq!(count(request, BODY), 1);
-        }
-        assert_eq!(count(&requests[4], CUE), 1);
-        assert!(!turn_context(&requests[3]).contains(BODY));
-        assert!(!turn_context(&requests[4]).contains(CUE));
-        drop(requests);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
