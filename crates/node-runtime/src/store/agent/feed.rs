@@ -588,7 +588,7 @@ pub(in crate::store) async fn run(database: &Database, current: Run) {
 }
 
 async fn statistics(database: &Database, session: SessionId) {
-    match super::statistics::read(&database.connection, session).await {
+    match super::statistics::current(&database.statistics, &database.connection, session).await {
         Ok(statistics) => database.feeds.publish(
             database.node,
             session,

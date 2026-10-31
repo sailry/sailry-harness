@@ -58,6 +58,55 @@ fn summary(anchor: &canonical::Record, text: &str) -> canonical::Record {
     )
 }
 
+mod cache {
+    use super::*;
+
+    async fn assert_current(fixture: &Fixture, cache: &Cache, misses: usize) {
+        let connection = &fixture.database.connection;
+        assert_eq!(
+            current(cache, connection, fixture.session).await.unwrap(),
+            read(connection, fixture.session).await.unwrap()
+        );
+        assert_eq!(cache.misses(), misses);
+    }
+
+    #[tokio::test]
+    async fn reuses_until_events_change() {
+        let mut fixture = Fixture::new().await;
+        let cache = Cache::default();
+        fixture.completed(&["First reply"]).await;
+        fixture.append([timed(100, 20, 125_000)]).await;
+        assert_current(&fixture, &cache, 1).await;
+        assert_current(&fixture, &cache, 1).await;
+        // Queue and run state do not invalidate canonical aggregates.
+        fixture.queued().await;
+        assert_current(&fixture, &cache, 1).await;
+        fixture.append([event(10, 4)]).await;
+        assert_current(&fixture, &cache, 2).await;
+        assert_eq!(
+            current(&cache, &fixture.database.connection, SessionId::new())
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+    }
+
+    #[tokio::test]
+    async fn retains_prepared_entries_explicitly() {
+        let mut fixture = Fixture::new().await;
+        let cache = Cache::default();
+        fixture.append([event(10, 4)]).await;
+        let connection = &fixture.database.connection;
+        let (prepared, entry) = prepare(&cache, connection, fixture.session).await.unwrap();
+        assert_eq!(prepared, read(connection, fixture.session).await.unwrap());
+        prepare(&cache, connection, fixture.session).await.unwrap();
+        assert_eq!(cache.misses(), 2);
+        cache.retain(entry);
+        assert_current(&fixture, &cache, 2).await;
+    }
+}
+
 #[tokio::test]
 async fn follows_latest_recorded_first_text() {
     let mut fixture = Fixture::new().await;

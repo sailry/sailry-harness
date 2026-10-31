@@ -3,7 +3,7 @@ use super::*;
 use sailry_protocol::conversation::observation::{
     Attempt, Category, Latency, RECENT_LIMIT, Request, Summary,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Default)]
 struct Mean {
@@ -68,14 +68,55 @@ impl Latencies {
 }
 
 // Resolve the latest observation once per turn, not once per event in its history.
-const PHASES: &str = "SELECT json_extract(e.body,'$.metadata.execution.phases')
+const PHASES: &str = "SELECT h.turn,json_extract(e.body,'$.metadata.execution.phases')
      FROM conversation_turns h JOIN agent_events e ON e.sequence=(
          SELECT max(latest.sequence) FROM agent_events latest WHERE latest.turn=h.turn
          AND json_type(latest.body,'$.metadata.execution.phases')='object')
      WHERE h.session=?1";
 
+#[cfg(test)]
 pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault> {
+    let (summary, phased) = canonical(db, session).await?;
+    complete(db, session, summary, &phased).await
+}
+
+/// Phase totals stay valid only while every finished turn recorded phases.
+/// Run states change without new events, so this check is never cached.
+pub(super) async fn complete(
+    db: &Connection,
+    session: SessionId,
+    mut summary: Summary,
+    phased: &BTreeSet<TurnId>,
+) -> Result<Summary, Fault> {
+    let mut statement = db
+        .prepare("SELECT h.turn FROM conversation_turns h JOIN agent_runs r ON r.turn=h.turn WHERE h.session=?1 AND json_extract(r.body,'$.status') IN ('completed','failed','cancelled','interrupted')")
+        .await
+        .map_err(storage_error)?;
+    let mut rows = statement
+        .query([session.to_string()])
+        .await
+        .map_err(storage_error)?;
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let turn: TurnId = row
+            .get::<String>(0)
+            .map_err(storage_error)?
+            .parse()
+            .map_err(storage_error)?;
+        if !phased.contains(&turn) {
+            summary.phases = Default::default();
+            break;
+        }
+    }
+    Ok(summary)
+}
+
+/// Event-derived observations and the turns that recorded phase totals.
+pub(super) async fn canonical(
+    db: &Connection,
+    session: SessionId,
+) -> Result<(Summary, BTreeSet<TurnId>), Fault> {
     let mut result = Summary::default();
+    let mut phased = BTreeSet::new();
     let mut calls = BTreeMap::<String, (u64, Request)>::new();
     let mut composition = BTreeMap::new();
     let mut query = db.prepare(
@@ -196,8 +237,14 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
         .map_err(storage_error)?;
     let mut recorded = 0u64;
     while let Some(row) = rows.next().await.map_err(storage_error)? {
+        phased.insert(
+            row.get::<String>(0)
+                .map_err(storage_error)?
+                .parse()
+                .map_err(storage_error)?,
+        );
         let value: sailry_protocol::conversation::observation::Phases =
-            serde_json::from_str(&row.get::<String>(0).map_err(storage_error)?)
+            serde_json::from_str(&row.get::<String>(1).map_err(storage_error)?)
                 .map_err(storage_error)?;
         if recorded == 0 {
             result.phases = value;
@@ -218,17 +265,6 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
     }
     drop(rows);
     drop(phases);
-    let missing: i64 = {
-        let mut statement = db.prepare("SELECT count(*) FROM conversation_turns h JOIN agent_runs r ON r.turn=h.turn WHERE h.session=?1 AND json_extract(r.body,'$.status') IN ('completed','failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn AND json_type(e.body,'$.metadata.execution.phases')='object')").await.map_err(storage_error)?;
-        statement
-            .query_row([session.to_string()])
-            .await
-            .and_then(|row| row.get(0))
-            .map_err(storage_error)?
-    };
-    if u64::try_from(missing).map_err(storage_error)? > 0 {
-        result.phases = Default::default();
-    }
     result.calls = calls.len() as u64;
     let children: i64 = {
         let mut statement = db.prepare("SELECT count(DISTINCT d.turn) FROM agent_delegations d JOIN conversation_turns h ON h.turn=d.parent_turn WHERE h.session=?1").await.map_err(storage_error)?;
@@ -294,7 +330,7 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
         .map(|(_, value)| value)
         .collect();
     result.recent.reverse();
-    Ok(result)
+    Ok((result, phased))
 }
 
 #[cfg(test)]

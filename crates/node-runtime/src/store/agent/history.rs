@@ -237,28 +237,43 @@ async fn write(
                 let mut statistics = None;
                 let mut parents = Vec::new();
                 let mut background = Vec::new();
+                // Canonical aggregates are retained only after this snapshot commits.
+                let mut entries = Vec::new();
                 if !batches.is_empty() {
                     // Publish the batch's final task state once, after all of its entries.
                     background = super::background::list(&transaction, session).await?;
-                    statistics = Some(super::statistics::read(&transaction, session).await?);
+                    let (value, entry) =
+                        super::statistics::prepare(&database.statistics, &transaction, session)
+                            .await?;
+                    statistics = Some(value);
+                    entries.push(entry);
                     for turn in turns {
                         for parent in super::statistics::parents(&transaction, turn).await? {
                             if !parents.iter().any(|(selected, _)| *selected == parent) {
-                                let value = super::statistics::read(&transaction, parent).await?;
+                                let (value, entry) = super::statistics::prepare(
+                                    &database.statistics,
+                                    &transaction,
+                                    parent,
+                                )
+                                .await?;
                                 parents.push((parent, value));
+                                entries.push(entry);
                             }
                         }
                     }
                 }
-                Ok((context, batches, statistics, parents, background))
+                Ok((context, batches, statistics, parents, background, entries))
             }
             .await;
-            let (context, batches, statistics, parents, background) = prepared?;
+            let (context, batches, statistics, parents, background, entries) = prepared?;
             if batches.is_empty() {
                 return Ok(());
             }
             let publication = publication.lock().await;
             crate::store::database::conflict::commit(transaction).await?;
+            for entry in entries {
+                database.statistics.retain(entry);
+            }
             let mut context = context;
             for (entry, visible, toggled, envelope, notices) in batches {
                 publication.send(events, envelope);

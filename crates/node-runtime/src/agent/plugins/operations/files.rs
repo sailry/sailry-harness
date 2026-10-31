@@ -89,7 +89,10 @@ pub(super) fn failure(operation: Operation, error: Fault) -> Value {
     let expected = (error.code == ErrorCode::NotFound)
         .then_some(match operation {
             Operation::ListDirectory => Some(Expected::DirectoryNotFound),
-            Operation::ReadFile | Operation::ReadFileLines => Some(Expected::FileNotFound),
+            Operation::ReadFile
+            | Operation::ReadFileLines
+            | Operation::ReadOffice
+            | Operation::ReadNotebook => Some(Expected::FileNotFound),
             _ => None,
         })
         .flatten();
@@ -106,6 +109,37 @@ pub(super) fn failure(operation: Operation, error: Fault) -> Value {
         });
     }
     result
+}
+
+/// Agent discovery treats a missing scope as an empty page, like common search tools.
+/// The caller still reports a missing worktree root as a failure.
+pub(super) fn absent(command: &Command) -> Option<Value> {
+    use sailry_protocol::{FileNames, Output, SearchDiagnostic, SearchResults};
+    let diagnostics = |path: &str| {
+        vec![SearchDiagnostic {
+            path: path.into(),
+            message: "path not found".into(),
+        }]
+    };
+    let output = match command {
+        Command::FindFiles { path, offset, .. } if !matches!(path.as_str(), "" | ".") => {
+            Output::FileNames(FileNames {
+                offset: *offset,
+                diagnostics: diagnostics(path),
+                ..Default::default()
+            })
+        }
+        Command::SearchFiles { options, .. } if !matches!(options.path.as_str(), "" | ".") => {
+            Output::SearchResults(SearchResults {
+                mode: options.mode,
+                offset: options.offset,
+                diagnostics: diagnostics(&options.path),
+                ..Default::default()
+            })
+        }
+        _ => return None,
+    };
+    serde_json::to_value(output).ok()
 }
 
 pub(super) fn description(operation: Operation) -> &'static str {
@@ -391,13 +425,60 @@ mod tests {
     }
 
     #[test]
+    fn empties_only_scoped_discovery() {
+        let worktree = sailry_protocol::WorktreeId::new();
+        let find = |path: &str| Command::FindFiles {
+            worktree,
+            globs: vec!["**/*".into()],
+            path: path.into(),
+            limit: 5,
+            offset: 4,
+        };
+        let search = |path: &str| Command::SearchFiles {
+            worktree,
+            options: FileSearch {
+                query: "needle".into(),
+                path: path.into(),
+                mode: sailry_protocol::SearchMode::Files,
+                ..Default::default()
+            },
+        };
+        let found = absent(&find("missing")).unwrap();
+        assert_eq!(found["kind"], "file_names");
+        assert_eq!(found["data"]["paths"], json!([]));
+        assert_eq!(found["data"]["offset"], 4);
+        let searched = absent(&search("missing/nested")).unwrap();
+        assert_eq!(searched["kind"], "search_results");
+        assert_eq!(searched["data"]["mode"], "files");
+        assert_eq!(searched["data"]["paths"], json!([]));
+        assert_eq!(
+            searched["data"]["diagnostics"],
+            json!([{"path":"missing/nested","message":"path not found"}])
+        );
+        for command in [find(""), find("."), search(""), search(".")] {
+            assert!(absent(&command).is_none());
+        }
+        assert!(
+            absent(&Command::ListDirectory {
+                worktree,
+                path: "missing".into(),
+                after: None,
+            })
+            .is_none()
+        );
+    }
+
+    #[test]
     fn marks_only_expected_read_failures() {
         use sailry_protocol::tool::{Expected, ResultDisplay};
         for (operation, expected) in [
             (Operation::ListDirectory, Some(Expected::DirectoryNotFound)),
             (Operation::ReadFile, Some(Expected::FileNotFound)),
-            (Operation::ReadOffice, None),
+            (Operation::ReadOffice, Some(Expected::FileNotFound)),
+            (Operation::ReadNotebook, Some(Expected::FileNotFound)),
             (Operation::WriteFile, None),
+            (Operation::EditNotebook, None),
+            (Operation::SearchFiles, None),
         ] {
             let result = failure(operation, Fault::new(ErrorCode::NotFound, "Raw diagnostic"));
             assert_eq!(result["error"]["message"], "Raw diagnostic");

@@ -536,9 +536,22 @@ impl HostOperation {
                 }
             }
             let mut cancellation = code::Cancellation::new(&self.ingress, self.caller, &request);
+            let absent = files::absent(&request.command);
             let mut result = self.dispatch(context.as_ref(), request).await;
             if let Some(cancellation) = cancellation.as_mut() {
                 cancellation.finish();
+            }
+            if let Some(empty) = absent
+                && result
+                    .as_ref()
+                    .is_err_and(|error| error.code == ErrorCode::NotFound)
+                && let Some(worktree) = self.context.worktree
+                && let Ok(root) = self.ingress.worktree_root(worktree).await
+                && tokio::fs::metadata(root)
+                    .await
+                    .is_ok_and(|metadata| metadata.is_dir())
+            {
+                result = Ok(empty);
             }
             if let Ok(output) = &mut result
                 && let Some(worktree) = self.context.worktree

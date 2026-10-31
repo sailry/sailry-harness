@@ -1,24 +1,66 @@
 use super::*;
+use sailry_protocol::{
+    conversation::{compaction::Record, observation::Summary},
+    usage::Metrics,
+};
+use std::collections::BTreeSet;
 
+mod cache;
 mod compaction;
 mod observations;
 pub(in crate::store) mod report;
+pub(in crate::store) use cache::Cache;
 
+/// Event-derived values, reusable while the session's canonical stamp is unchanged.
+/// Queue, run and configuration state is read again for every publication.
+#[derive(Clone)]
+struct Canonical {
+    observations: Summary,
+    phased: BTreeSet<TurnId>,
+    metrics: Metrics,
+    delegated: Metrics,
+    observation: Option<Observation>,
+    context_estimate: Option<u64>,
+    last_compaction: Option<Record>,
+}
+
+#[cfg(test)]
 pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fault> {
     check_session(db, session).await?;
-    let turns = {
-        let mut statement = db.prepare("SELECT count(*) FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 AND t.kind='task'
-         AND EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn)").await.map_err(storage_error)?;
-        statement
-            .query_row([session.to_string()])
-            .await
-            .and_then(|row| row.get::<i64>(0))
-            .map_err(storage_error)?
+    let canonical = canonical(db, session).await?;
+    finish(db, session, canonical).await
+}
+
+/// Reuses unchanged canonical aggregates. Callers retain the entry once its snapshot is committed.
+pub(super) async fn prepare(
+    cache: &Cache,
+    db: &Connection,
+    session: SessionId,
+) -> Result<(Statistics, cache::Entry), Fault> {
+    check_session(db, session).await?;
+    let stamp = cache::stamp(db, session).await?;
+    let canonical = match cache.find(session, &stamp) {
+        Some(canonical) => canonical,
+        None => std::sync::Arc::new(canonical(db, session).await?),
     };
+    let statistics = finish(db, session, (*canonical).clone()).await?;
+    Ok((statistics, cache::Entry::new(session, stamp, canonical)))
+}
+
+/// Reads statistics from a committed snapshot and retains its canonical aggregates.
+pub(super) async fn current(
+    cache: &Cache,
+    db: &Connection,
+    session: SessionId,
+) -> Result<Statistics, Fault> {
+    let (statistics, entry) = prepare(cache, db, session).await?;
+    cache.retain(entry);
+    Ok(statistics)
+}
+
+async fn canonical(db: &Connection, session: SessionId) -> Result<Canonical, Fault> {
     let (metrics, delegated) = report::session(db, session).await?;
     let observation = observation(db, session).await?;
-    let context_tokens = observation.as_ref().and_then(|value| value.tokens);
-    let context_limit = observation.as_ref().and_then(|value| value.context_limit);
     let context_estimate = if observation
         .as_ref()
         .is_some_and(|value| value.summary || value.estimate.is_some())
@@ -31,25 +73,57 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Statisti
     } else {
         None
     };
-    let context_model = observation.as_ref().and_then(|value| value.model.clone());
-    let context_timestamp_ms = observation.as_ref().and_then(|value| value.timestamp_ms);
-    let budget = compaction::budget(db, session).await?;
     let last_compaction = compaction::latest(db, session).await?;
-    let first_token_us = observation.as_ref().and_then(|value| value.first_token_us);
-    let observations = observations::read(db, session).await?;
+    let (observations, phased) = observations::canonical(db, session).await?;
+    Ok(Canonical {
+        observations,
+        phased,
+        metrics,
+        delegated,
+        observation,
+        context_estimate,
+        last_compaction,
+    })
+}
+
+async fn finish(
+    db: &Connection,
+    session: SessionId,
+    canonical: Canonical,
+) -> Result<Statistics, Fault> {
+    let turns = {
+        let mut statement = db.prepare("SELECT count(*) FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 AND t.kind='task'
+         AND EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn)").await.map_err(storage_error)?;
+        statement
+            .query_row([session.to_string()])
+            .await
+            .and_then(|row| row.get::<i64>(0))
+            .map_err(storage_error)?
+    };
+    let Canonical {
+        observations,
+        phased,
+        metrics,
+        delegated,
+        observation,
+        context_estimate,
+        last_compaction,
+    } = canonical;
+    let budget = compaction::budget(db, session).await?;
+    let observations = observations::complete(db, session, observations, &phased).await?;
     Ok(Statistics {
         observations,
         turns: turns as u64,
         responses: metrics.responses,
         usage: metrics.tokens,
-        context_tokens,
+        context_tokens: observation.as_ref().and_then(|value| value.tokens),
         context_estimate,
-        context_limit,
-        context_model,
-        context_timestamp_ms,
+        context_limit: observation.as_ref().and_then(|value| value.context_limit),
+        context_model: observation.as_ref().and_then(|value| value.model.clone()),
+        context_timestamp_ms: observation.as_ref().and_then(|value| value.timestamp_ms),
         budget,
         last_compaction,
-        first_token_us,
+        first_token_us: observation.as_ref().and_then(|value| value.first_token_us),
         cost: metrics.cost,
         generation: metrics.generation,
         delegated,
@@ -77,6 +151,7 @@ pub(super) async fn parents(db: &Connection, turn: TurnId) -> Result<Vec<Session
     Ok(parents)
 }
 
+#[derive(Clone)]
 struct Observation {
     summary: bool,
     estimate: Option<u64>,

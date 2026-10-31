@@ -28,6 +28,7 @@ pub(in crate::store) struct Facts {
     pub removals: Mutex<BTreeMap<WorktreeId, removal::Pending>>,
     pub relocations: Mutex<BTreeMap<(NodeId, RequestId), Vec<PathBuf>>>,
     pub usage: store::agent::statistics::report::Cache,
+    pub statistics: Arc<store::agent::statistics::Cache>,
     pub tool_details: store::agent::history::tools::Cache,
     #[cfg(test)]
     pub plugin_checks: std::sync::atomic::AtomicUsize,
@@ -64,6 +65,7 @@ impl Facts {
             removals: Default::default(),
             relocations: Default::default(),
             usage: Default::default(),
+            statistics: Default::default(),
             tool_details: Default::default(),
             #[cfg(test)]
             plugin_checks: Default::default(),

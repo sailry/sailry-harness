@@ -77,6 +77,88 @@ async fn explores_without_shell_approval() {
     }
 }
 
+#[tokio::test]
+async fn reports_missing_scopes_without_failure() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![
+            (
+                name("search_files"),
+                json!({"query":"needle","path":"missing","mode":"content","offset":3}),
+            ),
+            (
+                name("search_files"),
+                json!({"query":"needle","path":"missing/nested","mode":"count"}),
+            ),
+            (
+                name("find_files"),
+                json!({"globs":["**/*"],"path":"missing","offset":2}),
+            ),
+            (
+                name("search_files"),
+                json!({"query":"needle","path":"notes.md/child"}),
+            ),
+            (
+                name("search_files"),
+                json!({"query":"needle","path":"../outside"}),
+            ),
+            (name("find_files"), json!({"globs":["**/*"],"path":".git"})),
+            (name("list_directory"), json!({"path":"missing"})),
+            (name("read_file"), json!({"path":"missing.txt"})),
+            (name("read_notebook"), json!({"path":"missing.ipynb"})),
+        ])
+        .await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
+        install(&fixture).await;
+        std::fs::write(fixture.root.join("notes.md"), "needle").unwrap();
+        let turn = submit(&fixture).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{page:?}"
+        );
+        let outputs = results(&fixture.client, &page).await;
+        assert_eq!(outputs.len(), 9, "{outputs:?}");
+        for (output, path, rows, offset) in [
+            (&outputs[0], "missing", "matches", 3),
+            (&outputs[1], "missing/nested", "counts", 0),
+            (&outputs[2], "missing", "paths", 2),
+        ] {
+            assert!(output.get("isError").is_none(), "{output:?}");
+            assert_eq!(output["data"][rows], json!([]), "{output:?}");
+            assert_eq!(output["data"]["offset"], offset);
+            assert_eq!(output["data"]["skipped"], 0);
+            assert_eq!(output["data"]["truncated"], false);
+            assert_eq!(output["data"]["partial"], false);
+            assert!(output["data"]["next_offset"].is_null());
+            assert_eq!(
+                output["data"]["diagnostics"],
+                json!([{"path":path,"message":"path not found"}])
+            );
+        }
+        for (output, code) in [
+            (&outputs[3], "invalid_request"),
+            (&outputs[4], "invalid_request"),
+            (&outputs[5], "permission_denied"),
+        ] {
+            assert_eq!(output["isError"], true, "{output:?}");
+            assert_eq!(output["error"]["code"], code, "{output:?}");
+            assert!(output.get("sailry_result").is_none(), "{output:?}");
+        }
+        for (output, expected) in [
+            (&outputs[6], "directory_not_found"),
+            (&outputs[7], "file_not_found"),
+            (&outputs[8], "file_not_found"),
+        ] {
+            assert_eq!(output["error"]["code"], "not_found", "{output:?}");
+            assert_eq!(output["sailry_result"]["expected"], expected, "{output:?}");
+            assert_eq!(output["sailry_result"]["diagnostics"][0]["error"], false);
+        }
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
 fn latest(server: &Server) -> String {
     server
         .requests
