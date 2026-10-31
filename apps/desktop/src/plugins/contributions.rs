@@ -804,7 +804,13 @@ impl Registry {
             .and_then(|mounted| mounted.bridge.invoke(&key.id, kind, value));
         if let Err(error) = result {
             eprintln!("sailry-desktop: contribution action failed: {error}");
-            crate::feedback::error(&crate::tr("plugins_failed"), error, window, cx);
+            crate::feedback::error(
+                "plugins_failed",
+                &crate::tr("plugins_failed"),
+                error,
+                window,
+                cx,
+            );
             return;
         }
         cx.notify();

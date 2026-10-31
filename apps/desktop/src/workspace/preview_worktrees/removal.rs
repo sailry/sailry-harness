@@ -18,7 +18,7 @@ impl Shell {
         };
         let detail = rust_i18n::t!("worktree_remove_sample", name = expected.tree.path).to_string();
         if let Some(error) = self.workspace.removal_reason(owner) {
-            crate::feedback::error(&tr("worktree_remove"), &tr(error), window, cx);
+            crate::feedback::error(error, &tr("worktree_remove"), &tr(error), window, cx);
             return;
         }
         let shell = cx.entity().downgrade();
@@ -59,7 +59,7 @@ impl Confirmation {
         match result {
             Ok(()) => {}
             Err(error) => {
-                crate::feedback::error(&tr("worktree_remove"), &tr(error), window, cx);
+                crate::feedback::error(error, &tr("worktree_remove"), &tr(error), window, cx);
             }
         }
     }

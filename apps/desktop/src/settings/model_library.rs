@@ -474,6 +474,12 @@ impl Library {
         Some(definition)
     }
     fn failure(&self, window: &mut Window, cx: &mut Context<Self>) {
-        crate::feedback::error("", tr("model_library_failed").as_ref(), window, cx);
+        crate::feedback::error(
+            "model_library_failed",
+            "",
+            tr("model_library_failed").as_ref(),
+            window,
+            cx,
+        );
     }
 }

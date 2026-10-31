@@ -36,7 +36,13 @@ impl Panel {
         cx: &mut App,
     ) {
         let Some(session) = source.read(cx).session() else {
-            crate::feedback::error("", &crate::tr("artifact_export_failed"), window, cx);
+            crate::feedback::error(
+                "artifact_export_failed",
+                "",
+                &crate::tr("artifact_export_failed"),
+                window,
+                cx,
+            );
             return;
         };
         let resource = Resource {

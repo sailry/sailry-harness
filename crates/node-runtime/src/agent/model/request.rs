@@ -376,14 +376,12 @@ impl State {
                 tokens: self.tokens,
             });
         }
-        self.span.finish(
-            match outcome {
-                Outcome::Succeeded => crate::logging::Phase::Completed,
-                Outcome::Failed => crate::logging::Phase::Failed,
-                Outcome::Cancelled => crate::logging::Phase::Cancelled,
-            },
-            code,
-        );
+        let phase = match outcome {
+            Outcome::Succeeded => crate::logging::Phase::Completed,
+            Outcome::Failed => crate::logging::Phase::Failed,
+            Outcome::Cancelled => crate::logging::Phase::Cancelled,
+        };
+        finish_span(&mut self.span, phase, code, error);
         let record = canonical::Record {
             id: format!("model:{}:request", self.request.id),
             created: chrono::Utc::now(),
@@ -420,6 +418,79 @@ impl State {
         result.map_err(|_| {
             ProviderError::ExecutionError("model request observation could not be recorded".into())
         })
+    }
+}
+fn finish_span(
+    span: &mut crate::logging::Span,
+    phase: crate::logging::Phase,
+    code: Option<ErrorCode>,
+    error: Option<&ProviderError>,
+) {
+    if matches!(phase, crate::logging::Phase::Failed)
+        && code == Some(ErrorCode::Unavailable)
+        && error.is_some_and(super::errors::network)
+    {
+        span.finish_warn(phase, code);
+    } else {
+        span.finish(phase, code);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logging::{Area, Entry, Phase, Span};
+    use tracing_subscriber::layer::SubscriberExt;
+
+    #[derive(Clone, Default)]
+    struct Levels(Arc<std::sync::Mutex<Vec<tracing::Level>>>);
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Levels {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            if event.metadata().level() == &tracing::Level::WARN
+                || event.metadata().level() == &tracing::Level::ERROR
+            {
+                self.0.lock().unwrap().push(*event.metadata().level());
+            }
+        }
+    }
+
+    #[test]
+    fn retains_run_and_decode_failures() {
+        let levels = Levels::default();
+        tracing::subscriber::with_default(
+            tracing_subscriber::registry().with(levels.clone()),
+            || {
+                for error in [
+                    ProviderError::NetworkError("connection failed".into()),
+                    ProviderError::stream_decode_error("invalid response"),
+                    ProviderError::ExecutionError("provider unavailable".into()),
+                ] {
+                    let mut span = Span::new(Entry::new(Area::Model, Phase::Begin));
+                    finish_span(
+                        &mut span,
+                        Phase::Failed,
+                        Some(ErrorCode::Unavailable),
+                        Some(&error),
+                    );
+                }
+                let mut run = Span::new(Entry::new(Area::Run, Phase::Begin));
+                run.finish(Phase::Failed, Some(ErrorCode::Unavailable));
+            },
+        );
+        assert_eq!(
+            *levels.0.lock().unwrap(),
+            [
+                tracing::Level::WARN,
+                tracing::Level::ERROR,
+                tracing::Level::ERROR,
+                tracing::Level::ERROR
+            ],
+        );
     }
 }
 fn counts(usage: &canonical::Usage) -> Option<Usage> {

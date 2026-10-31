@@ -356,7 +356,13 @@ impl Shell {
                         .as_ref()
                         .is_none_or(|live| live.transport_for(*node).is_none())
                     {
-                        crate::feedback::error("", &crate::tr("reference_unavailable"), window, cx);
+                        crate::feedback::error(
+                            "reference_unavailable",
+                            "",
+                            &crate::tr("reference_unavailable"),
+                            window,
+                            cx,
+                        );
                         return;
                     }
                     let source = view.clone();

@@ -16,7 +16,13 @@ pub(super) fn choose(id: &str, window: &mut Window, cx: &mut App) {
         })
         .map(|root| root.join(id));
     let Some(source) = source else {
-        crate::feedback::error("", &tr("appearance_unavailable"), window, cx);
+        crate::feedback::error(
+            "appearance_unavailable",
+            "",
+            &tr("appearance_unavailable"),
+            window,
+            cx,
+        );
         return;
     };
     let name = format!("{id}.zip");
@@ -28,7 +34,13 @@ pub(super) fn choose(id: &str, window: &mut Window, cx: &mut App) {
             let _ = cx.update(|window, cx| match result {
                 Ok(Ok(Some(path))) => save(source, path, window, cx),
                 Ok(Ok(None)) => {}
-                _ => crate::feedback::error("", &tr("appearance_picker_failed"), window, cx),
+                _ => crate::feedback::error(
+                    "appearance_picker_failed",
+                    "",
+                    &tr("appearance_picker_failed"),
+                    window,
+                    cx,
+                ),
             });
         })
         .detach();
@@ -50,7 +62,13 @@ fn save(source: PathBuf, destination: PathBuf, window: &mut Window, cx: &mut App
                 ),
                 Err(error) => {
                     eprintln!("could not export theme: {error}");
-                    crate::feedback::error("", &tr("appearance_export_failed"), window, cx);
+                    crate::feedback::error(
+                        "appearance_export_failed",
+                        "",
+                        &tr("appearance_export_failed"),
+                        window,
+                        cx,
+                    );
                 }
             });
         })

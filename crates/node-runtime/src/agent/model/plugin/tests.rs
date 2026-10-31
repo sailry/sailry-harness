@@ -7,7 +7,7 @@ use goose_provider_types::{
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock as Content, Tool};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
-    Effort, Secret,
+    Effort, ErrorCode, Secret,
     plugin::model_adapter::{
         Capabilities, Dialect, Framing,
         wire::{self, Delta, Finish},
@@ -259,16 +259,16 @@ fn marks_invalid_arguments_without_substitution() {
 
 #[test]
 fn keeps_failures_and_private_diagnostics() {
-    assert!(matches!(
-        response::Accumulator::default().finish("model"),
-        Err(ProviderError::NetworkError(_))
-    ));
+    let error = response::Accumulator::default()
+        .finish("model")
+        .unwrap_err();
+    assert!(matches!(error, ProviderError::NetworkError(_)));
+    assert!(!super::super::errors::network(&error));
     let secret = Secret::new("private-token".into());
     let error = response::classified(
         wire::Class::RateLimited,
         "private-token quota",
         Some(2000),
-        Some(429),
         &[secret],
     );
     assert_eq!(
@@ -278,6 +278,25 @@ fn keeps_failures_and_private_diagnostics() {
             retry_delay: Some(std::time::Duration::from_secs(2))
         }
     );
+}
+
+#[test]
+fn keeps_provider_rejections_distinct_from_network() {
+    for class in [wire::Class::Unknown, wire::Class::Unavailable] {
+        let error = response::classified(class, "provider unavailable", None, &[]);
+        assert!(!super::super::errors::network(&error));
+        // Preserve the existing transient retry policy for these responses.
+        assert!(goose_provider_types::retry::should_retry(
+            &error,
+            &goose_provider_types::retry::RetryConfig::default().transient_only(),
+        ));
+    }
+    assert!(super::super::errors::network(
+        &transport::Failure::Network.model()
+    ));
+    let error = transport::Failure::Network.fault();
+    assert_eq!(error.code, ErrorCode::Unavailable);
+    assert_eq!(error.details, Some(sailry_protocol::FaultDetails::Network));
 }
 
 #[tokio::test]

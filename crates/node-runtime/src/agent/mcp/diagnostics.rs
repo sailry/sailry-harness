@@ -71,7 +71,11 @@ pub(super) fn finish(span: &mut Span, result: &Result<Value, Fault>, cancelled: 
             Some(span.entry.code.unwrap_or(ErrorCode::Unavailable)),
         ),
     };
-    span.finish(phase, code);
+    if result.as_ref().is_ok_and(server_error) {
+        span.finish_warn(phase, code);
+    } else {
+        span.finish(phase, code);
+    }
 }
 
 pub(super) fn server_error(value: &Value) -> bool {

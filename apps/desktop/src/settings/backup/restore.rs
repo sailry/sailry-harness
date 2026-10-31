@@ -76,7 +76,13 @@ pub(super) fn open_file(owner: Entity<Panel>, window: &mut Window, cx: &mut App)
             Ok(Ok(None)) => {}
             _ => {
                 _ = cx.update(|window, cx| {
-                    crate::feedback::error("", &tr("files_upload_picker"), window, cx)
+                    crate::feedback::error(
+                        "files_upload_picker",
+                        "",
+                        &tr("files_upload_picker"),
+                        window,
+                        cx,
+                    )
                 });
             }
         })
@@ -218,6 +224,7 @@ impl Restore {
                                 }
                             }
                             Ok(Err(error)) => crate::feedback::error(
+                                "backup_failed",
                                 &tr("backup_failed"),
                                 &crate::feedback::fault_message(&error),
                                 window,

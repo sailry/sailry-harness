@@ -436,7 +436,13 @@ impl Editor {
                         this.cli = Some(identity);
                     }
                     Ok(Err(error)) => failure(error, window, cx),
-                    _ => crate::feedback::error("", &tr("connector_unknown"), window, cx),
+                    _ => crate::feedback::error(
+                        "connector_unknown",
+                        "",
+                        &tr("connector_unknown"),
+                        window,
+                        cx,
+                    ),
                 }
                 cx.notify();
             });

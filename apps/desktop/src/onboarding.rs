@@ -63,7 +63,13 @@ impl Shell {
                 .map(|transport| (transport, live.name(live.selected)))
         });
         let Some((transport, label)) = target else {
-            crate::feedback::error("", &tr("onboarding_host_unavailable"), window, cx);
+            crate::feedback::error(
+                "onboarding_host_unavailable",
+                "",
+                &tr("onboarding_host_unavailable"),
+                window,
+                cx,
+            );
             return;
         };
         self.navigate(Page::Settings, window, cx);

@@ -75,6 +75,7 @@ impl Shell {
                                 shell.focus.focus(window, cx);
                                 if !cfg!(any(target_os = "macos", target_os = "windows")) {
                                     crate::feedback::error(
+                                        "workspace_native_menu_platform",
                                         &tr("workspace_native_menu_unavailable"),
                                         &tr("workspace_native_menu_platform"),
                                         window,

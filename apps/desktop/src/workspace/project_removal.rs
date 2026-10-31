@@ -20,7 +20,7 @@ impl Shell {
         let detail =
             rust_i18n::t!("project_remove_sample", name = expected.project.path).to_string();
         if let Some(error) = self.workspace.project_removal_reason(id) {
-            crate::feedback::error(&tr("project_remove"), &tr(error), window, cx);
+            crate::feedback::error(error, &tr("project_remove"), &tr(error), window, cx);
             return;
         }
         let shell = cx.entity().downgrade();
@@ -72,7 +72,7 @@ impl Confirmation {
         match result {
             Ok(()) => {}
             Err(error) => {
-                crate::feedback::error(&tr("project_remove"), &tr(error), window, cx);
+                crate::feedback::error(error, &tr("project_remove"), &tr(error), window, cx);
             }
         }
     }

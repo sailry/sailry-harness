@@ -171,7 +171,13 @@ impl Workspace {
                     != serde_json::to_value(&command).ok()
             })
         {
-            crate::feedback::error("", &tr("connector_unknown"), window, cx);
+            crate::feedback::error(
+                "connector_unknown",
+                "",
+                &tr("connector_unknown"),
+                window,
+                cx,
+            );
             return;
         }
         if !self.connectors.pending.insert(id) {
@@ -250,7 +256,13 @@ impl Workspace {
                     ),
                     Ok(Err(error)) if error.code == ErrorCode::Cancelled => (),
                     Ok(Err(error)) => failure(error, window, cx),
-                    _ => crate::feedback::error("", &tr("connector_unknown"), window, cx),
+                    _ => crate::feedback::error(
+                        "connector_unknown",
+                        "",
+                        &tr("connector_unknown"),
+                        window,
+                        cx,
+                    ),
                 }
                 cx.notify();
             });

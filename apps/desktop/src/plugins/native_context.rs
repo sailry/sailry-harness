@@ -69,6 +69,7 @@ pub(super) fn show(
 ) {
     if !cfg!(any(target_os = "macos", target_os = "windows")) {
         crate::feedback::error(
+            "workspace_native_menu_platform",
             &crate::tr("workspace_native_menu_unavailable"),
             &crate::tr("workspace_native_menu_platform"),
             window,

@@ -69,7 +69,7 @@ impl Panel {
             Ok(()) => self.cancel(cx),
             Err(error) => {
                 self.error = Some(error);
-                crate::feedback::error("", &tr(error), window, cx);
+                crate::feedback::error(error, "", &tr(error), window, cx);
                 cx.notify();
             }
         }
@@ -126,7 +126,7 @@ impl Panel {
                                 .accessibility_label(tr("shortcut_reset"))
                                 .on_click(cx.listener(move |panel, _, window, cx| {
                                     if let Err(error) = shortcuts::save(id, None, cx) {
-                                        crate::feedback::error("", &tr(error), window, cx);
+                                        crate::feedback::error(error, "", &tr(error), window, cx);
                                     }
                                     panel.cancel(cx);
                                 })),
@@ -141,7 +141,7 @@ impl Panel {
                                 .disabled(entry.key.is_empty())
                                 .on_click(cx.listener(move |panel, _, window, cx| {
                                     if let Err(error) = shortcuts::save(id, Some(""), cx) {
-                                        crate::feedback::error("", &tr(error), window, cx);
+                                        crate::feedback::error(error, "", &tr(error), window, cx);
                                     }
                                     panel.cancel(cx);
                                 })),

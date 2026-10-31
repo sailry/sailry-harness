@@ -42,7 +42,13 @@ pub(in crate::settings::market) fn open(
         .map(|package| package.id.clone())
         .or_else(|| source.as_ref().map(|source| source.entry.id.clone()))
     else {
-        crate::feedback::error("", &tr("appearance_unavailable"), window, cx);
+        crate::feedback::error(
+            "appearance_unavailable",
+            "",
+            &tr("appearance_unavailable"),
+            window,
+            cx,
+        );
         return None;
     };
     let node = market.read(cx).binding.client.target();
@@ -333,6 +339,7 @@ impl Render for Details {
                                     theme::apply(index, Some(window), cx);
                                 } else {
                                     crate::feedback::error(
+                                        "appearance_unavailable",
                                         "",
                                         &tr("appearance_unavailable"),
                                         window,

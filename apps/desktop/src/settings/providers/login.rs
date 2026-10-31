@@ -437,7 +437,7 @@ impl Login {
         }
         self.presented = Some(identity);
         if key == "provider_login_models_failed" {
-            crate::feedback::error("", &tr(key), window, cx);
+            crate::feedback::error(key, "", &tr(key), window, cx);
         } else if key == CONNECTED {
             crate::ui::authorization::connected(&self.provider.name, None, window, cx);
         } else {

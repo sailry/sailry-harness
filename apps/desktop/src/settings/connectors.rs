@@ -545,5 +545,5 @@ fn failure(error: Fault, window: &mut Window, cx: &mut App) {
         ErrorCode::Expired => "connector_expired",
         _ => "connector_failed",
     };
-    crate::feedback::error("", &tr(key), window, cx);
+    crate::feedback::error(key, "", &tr(key), window, cx);
 }

@@ -276,7 +276,7 @@ impl Editor {
                             if editing {
                                 failure(error, window, cx);
                             } else {
-                                crate::feedback::error("", &tr(failure_key(error.code)), window, cx);
+                                crate::feedback::error(failure_key(error.code), "", &tr(failure_key(error.code)), window, cx);
                             }
                         }
                     }

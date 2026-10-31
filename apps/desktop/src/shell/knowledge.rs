@@ -82,7 +82,7 @@ fn error_key(code: ErrorCode) -> &'static str {
 }
 
 pub(super) fn failure(key: &'static str, window: &mut Window, cx: &mut App) {
-    crate::feedback::error(&tr("knowledge_source"), &tr(key), window, cx);
+    crate::feedback::error(key, &tr("knowledge_source"), &tr(key), window, cx);
 }
 
 impl Shell {

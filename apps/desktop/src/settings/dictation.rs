@@ -215,6 +215,7 @@ impl Panel {
                                         if let dictation::models::State::Failed(error) = entry.state
                                         {
                                             crate::feedback::error(
+                                                error,
                                                 "",
                                                 tr(error).as_ref(),
                                                 window,
@@ -240,7 +241,7 @@ impl Panel {
                 }));
                 self.refresh(cx);
             }
-            Err(error) => crate::feedback::error("", tr(error).as_ref(), window, cx),
+            Err(error) => crate::feedback::error(error, "", tr(error).as_ref(), window, cx),
         }
     }
 
@@ -263,7 +264,7 @@ impl Panel {
             }
             dictation::models::State::Failed(error) => {
                 if self.state != State::Failed {
-                    crate::feedback::error("", tr(error).as_ref(), window, cx);
+                    crate::feedback::error(error, "", tr(error).as_ref(), window, cx);
                 }
                 self.state = State::Failed;
             }
@@ -285,7 +286,13 @@ impl Panel {
             .map(|services| services.runtime.clone())
             .or_else(|| self.binding.as_ref().map(|binding| binding.runtime.clone()))
         else {
-            crate::feedback::error("", tr("dictation_unavailable").as_ref(), window, cx);
+            crate::feedback::error(
+                "dictation_unavailable",
+                "",
+                tr("dictation_unavailable").as_ref(),
+                window,
+                cx,
+            );
             return;
         };
         match manager.start(id, None, &runtime) {
@@ -296,7 +303,7 @@ impl Panel {
                     self.state = State::Downloading(Default::default());
                 }
             }
-            Err(error) => crate::feedback::error("", tr(error).as_ref(), window, cx),
+            Err(error) => crate::feedback::error(error, "", tr(error).as_ref(), window, cx),
         }
         cx.notify();
     }
@@ -356,9 +363,13 @@ impl Panel {
                             panel.register(definition, window, cx);
                         }
                     }
-                    _ => {
-                        crate::feedback::error("", tr("model_library_failed").as_ref(), window, cx)
-                    }
+                    _ => crate::feedback::error(
+                        "model_library_failed",
+                        "",
+                        tr("model_library_failed").as_ref(),
+                        window,
+                        cx,
+                    ),
                 }
                 cx.notify();
             });
@@ -401,7 +412,7 @@ impl Panel {
             .and_then(|manager| manager.register(definition));
         match result {
             Ok(id) => self.install(Some(id), window, cx),
-            Err(error) => crate::feedback::error("", tr(error).as_ref(), window, cx),
+            Err(error) => crate::feedback::error(error, "", tr(error).as_ref(), window, cx),
         }
     }
 
@@ -445,7 +456,7 @@ impl Panel {
                 }
                 window.push_notification(tr("knowledge_deleted"), cx);
             }
-            Err(error) => crate::feedback::error("", tr(error).as_ref(), window, cx),
+            Err(error) => crate::feedback::error(error, "", tr(error).as_ref(), window, cx),
         }
         cx.notify();
     }

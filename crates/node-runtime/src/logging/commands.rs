@@ -151,13 +151,17 @@ pub(crate) fn rejected(span: &mut Span, fault: &Fault) {
     {
         span.entry.context.plugin_version = Some(plugin.version.clone());
     }
-    if matches!(
+    let expected = matches!(
         fault.code,
         sailry_protocol::ErrorCode::NotFound | sailry_protocol::ErrorCode::InvalidRequest
-    ) && !matches!(
-        &fault.details,
-        Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
-    ) {
+    ) || fault.code == sailry_protocol::ErrorCode::Unavailable
+        && matches!(&fault.details, Some(sailry_protocol::FaultDetails::Network));
+    if expected
+        && !matches!(
+            &fault.details,
+            Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+        )
+    {
         span.finish_warn(Phase::Failed, Some(fault.code));
     } else {
         span.finish(Phase::Failed, Some(fault.code));

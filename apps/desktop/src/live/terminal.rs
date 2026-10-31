@@ -117,6 +117,7 @@ impl Shell {
                         if Instant::now() >= deadline {
                             shell.terminals.pending.remove(&key);
                             crate::feedback::error(
+                                "plugins_view_unavailable",
                                 &tr("plugins_failed"),
                                 "resource action is unavailable",
                                 window,

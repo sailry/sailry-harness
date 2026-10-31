@@ -17,6 +17,11 @@ pub(super) struct Failure {
     pub key: &'static str,
     pub code: ErrorCode,
     pub stage: &'static str,
+    pub system_diagnostic: bool,
+}
+
+pub(super) fn expected_failure(code: ErrorCode, system_diagnostic: bool) -> bool {
+    matches!(code, ErrorCode::NotFound | ErrorCode::InvalidRequest) && !system_diagnostic
 }
 
 /// Disposable view resources, not another installation catalog or business store.
@@ -124,6 +129,21 @@ fn invalid_image() -> Fault {
 mod tests {
     use super::*;
     use std::{collections::BTreeMap, time::Duration};
+
+    #[test]
+    fn distinguishes_rejections_from_system_failures() {
+        for code in [ErrorCode::NotFound, ErrorCode::InvalidRequest] {
+            assert!(expected_failure(code, false));
+            assert!(!expected_failure(code, true));
+        }
+        for code in [
+            ErrorCode::Internal,
+            ErrorCode::Unavailable,
+            ErrorCode::OutcomeUnknown,
+        ] {
+            assert!(!expected_failure(code, false));
+        }
+    }
 
     fn bundle() -> Bundle {
         Bundle {

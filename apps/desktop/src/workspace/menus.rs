@@ -109,6 +109,7 @@ impl Shell {
         } else {
             // Kit's Linux backend draws a popup; do not present that as an OS-native menu.
             crate::feedback::error(
+                "workspace_native_menu_platform",
                 &tr("workspace_native_menu_unavailable"),
                 &tr("workspace_native_menu_platform"),
                 window,

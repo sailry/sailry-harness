@@ -420,7 +420,13 @@ impl View {
             return;
         }
         if sources.len() > 8usize.saturating_sub(self.attachments.items.len()) {
-            crate::feedback::error("", &tr("chat_attachment_limit"), window, cx);
+            crate::feedback::error(
+                "chat_attachment_limit",
+                "",
+                &tr("chat_attachment_limit"),
+                window,
+                cx,
+            );
             return;
         }
         self.attachments.error = None;
@@ -450,7 +456,13 @@ impl View {
             }
         }
         if invalid_name {
-            crate::feedback::error("", &tr("files_upload_name"), window, cx);
+            crate::feedback::error(
+                "files_upload_name",
+                "",
+                &tr("files_upload_name"),
+                window,
+                cx,
+            );
         }
         cx.notify();
     }

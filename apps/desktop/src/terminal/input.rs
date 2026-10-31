@@ -62,7 +62,13 @@ impl View {
             && !text.is_empty()
         {
             if text.len() > protocol::MAX_INPUT_BYTES {
-                crate::feedback::error("", &tr("terminal_paste_too_large"), window, cx);
+                crate::feedback::error(
+                    "terminal_paste_too_large",
+                    "",
+                    &tr("terminal_paste_too_large"),
+                    window,
+                    cx,
+                );
                 return;
             }
             if crate::preferences::data(cx).terminal.paste_protection && text.contains(['\n', '\r'])
@@ -120,7 +126,13 @@ impl View {
                 .menu(tr("terminal_select_all"), Box::new(SelectAll))
                 .show(event.position, window, cx);
         } else {
-            crate::feedback::error("", &tr("terminal_native_menu_unavailable"), window, cx);
+            crate::feedback::error(
+                "terminal_native_menu_unavailable",
+                "",
+                &tr("terminal_native_menu_unavailable"),
+                window,
+                cx,
+            );
         }
     }
 }

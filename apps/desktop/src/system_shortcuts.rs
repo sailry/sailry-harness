@@ -79,7 +79,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
     #[cfg(not(test))]
     {
         let Ok(manager) = GlobalHotKeyManager::new() else {
-            crate::feedback::error("", &tr("shortcut_unavailable"), window, cx);
+            crate::feedback::error(
+                "shortcut_unavailable",
+                "",
+                &tr("shortcut_unavailable"),
+                window,
+                cx,
+            );
             return;
         };
         cx.set_global(Service {
@@ -113,7 +119,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             .filter(|entry| entry.id.starts_with("system."))
         {
             if configure(entry.id, &entry.key, cx).is_err() {
-                crate::feedback::error("", &tr("shortcut_conflict"), window, cx);
+                crate::feedback::error(
+                    "shortcut_conflict",
+                    "",
+                    &tr("shortcut_conflict"),
+                    window,
+                    cx,
+                );
             }
         }
     }
@@ -210,8 +222,14 @@ fn dispatch(id: &str, cx: &mut App) {
                         window.activate_window();
                         match text {
                             Ok(text) if !text.trim().is_empty() => show(text, chat, window, cx),
-                            Err(key) => crate::feedback::error("", &tr(key), window, cx),
-                            _ => crate::feedback::error("", &tr("selection_empty"), window, cx),
+                            Err(key) => crate::feedback::error(key, "", &tr(key), window, cx),
+                            _ => crate::feedback::error(
+                                "selection_empty",
+                                "",
+                                &tr("selection_empty"),
+                                window,
+                                cx,
+                            ),
                         }
                     });
                 })
@@ -261,6 +279,7 @@ fn show(text: String, chat: Option<Composer>, window: &mut Window, cx: &mut App)
                                         window.close_dialog(cx);
                                     } else {
                                         crate::feedback::error(
+                                            "selection_unavailable",
                                             "",
                                             &tr("selection_unavailable"),
                                             window,

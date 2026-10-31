@@ -47,6 +47,9 @@ pub enum FaultDetails {
     StorageConflict,
     /// The plugin value owner rejected a key's expected revision before commit.
     PluginValueConflict,
+    /// A transport operation failed before a response was available.
+    /// This describes the cause, not permission to replay side effects.
+    Network,
     ModelRecovery {
         reason: crate::conversation::recovery::Stop,
     },

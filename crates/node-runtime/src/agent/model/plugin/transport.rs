@@ -186,7 +186,7 @@ pub(super) async fn send(
     if let Some(body) = prepared.body {
         request = request.body(body);
     }
-    let request = request.build().map_err(|_| Failure::Network)?;
+    let request = request.build().map_err(|_| invalid())?;
     tokio::select! {
         biased;
         _ = stop.cancelled() => Err(cancelled().into()),
@@ -278,7 +278,9 @@ fn resource() -> Fault {
     )
 }
 pub(super) fn network() -> Fault {
-    Fault::new(ErrorCode::Unavailable, "model connection failed")
+    let mut fault = Fault::new(ErrorCode::Unavailable, "model connection failed");
+    fault.details = Some(sailry_protocol::FaultDetails::Network);
+    fault
 }
 pub(super) fn cancelled() -> Fault {
     Fault::new(ErrorCode::Cancelled, "model request was cancelled")

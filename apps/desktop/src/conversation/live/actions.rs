@@ -79,7 +79,7 @@ impl View {
         }
         let references = self.active_references(cx);
         if !self.references_valid(&references) || !self.command_valid(cx) {
-            crate::feedback::error("", &tr("reference_stale"), window, cx);
+            crate::feedback::error("reference_stale", "", &tr("reference_stale"), window, cx);
             cx.notify();
             return;
         }

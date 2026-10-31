@@ -593,7 +593,13 @@ impl View {
             }
             Some("submit") => {
                 if content.artifact.revision != content.latest_revision {
-                    crate::feedback::error("", &crate::tr("artifact_form_stale"), window, cx);
+                    crate::feedback::error(
+                        "artifact_form_stale",
+                        "",
+                        &crate::tr("artifact_form_stale"),
+                        window,
+                        cx,
+                    );
                     self.ack(
                         event
                             .get("form")
@@ -620,7 +626,13 @@ impl View {
                     source.send_document(content.artifact.session, message, status, window, cx)
                 });
                 if !sent {
-                    crate::feedback::error("", &crate::tr("chat_action_failed"), window, cx);
+                    crate::feedback::error(
+                        "chat_action_failed",
+                        "",
+                        &crate::tr("chat_action_failed"),
+                        window,
+                        cx,
+                    );
                     self.ack(&form, false);
                     cx.notify();
                     return;
@@ -682,13 +694,13 @@ impl View {
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    fn report(&self, label: &str, fallback: &str, window: &mut Window, cx: &mut App) {
+    fn report(&self, label: &str, fallback: &'static str, window: &mut Window, cx: &mut App) {
         let message = self
             .labels
             .get(label)
             .map(|message| SharedString::from(message.clone()))
             .unwrap_or_else(|| crate::tr(fallback));
-        crate::feedback::error("", &message, window, cx);
+        crate::feedback::error(fallback, "", &message, window, cx);
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]

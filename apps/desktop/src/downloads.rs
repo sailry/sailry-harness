@@ -77,6 +77,7 @@ fn select_attachment(
                 Ok(Ok(Some(path))) => start(client, runtime, source, name, path, window, cx),
                 Ok(Ok(None)) => {}
                 _ => crate::feedback::error(
+                    "files_download_picker",
                     &tr("files_download"),
                     &tr("files_download_picker"),
                     window,
@@ -157,7 +158,7 @@ impl Form {
                 Status::Finished(Err("files_download_cancelled")) => {
                     crate::feedback::info("", &tr("files_download_cancelled"), window, cx)
                 }
-                Status::Finished(Err(key)) => crate::feedback::error("", &tr(key), window, cx),
+                Status::Finished(Err(key)) => crate::feedback::error(key, "", &tr(key), window, cx),
                 _ => {}
             }
         }

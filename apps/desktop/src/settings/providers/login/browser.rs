@@ -35,7 +35,13 @@ impl Login {
                         login.complete(window, cx);
                     }
                     _ => {
-                        crate::feedback::error("", &tr("provider_login_failed"), window, cx);
+                        crate::feedback::error(
+                            "provider_login_failed",
+                            "",
+                            &tr("provider_login_failed"),
+                            window,
+                            cx,
+                        );
                         // A consumed listener cannot resume this browser attempt.
                         login.cancel(window, cx);
                     }
@@ -55,7 +61,13 @@ impl Login {
         }
         let value = self.manual.read(cx).value().trim().to_owned();
         if value.is_empty() {
-            crate::feedback::error("", &tr("provider_login_callback_required"), window, cx);
+            crate::feedback::error(
+                "provider_login_callback_required",
+                "",
+                &tr("provider_login_callback_required"),
+                window,
+                cx,
+            );
             return;
         }
         let Some(attempt) = self.attempt.as_ref() else {

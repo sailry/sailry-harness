@@ -112,7 +112,13 @@ impl View {
                     Err(message) => message,
                 };
                 let _ = cx.update_window(view.history_window, |_, window, cx| {
-                    crate::feedback::error("", &diagnostic::display(&message), window, cx)
+                    crate::feedback::error(
+                        "tool_failed",
+                        "",
+                        &diagnostic::display(&message),
+                        window,
+                        cx,
+                    )
                 });
             });
         })

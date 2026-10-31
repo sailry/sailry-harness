@@ -230,7 +230,6 @@ async fn classify(
         classified.class,
         &classified.message,
         classified.retry_after_ms.or(retry),
-        Some(status),
         &credentials.secrets,
     ))
 }

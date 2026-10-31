@@ -144,7 +144,13 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
                     .expect("failed to open desktop window");
                 if logging_failed {
                     _ = window.update(cx, |_, window, cx| {
-                        crate::feedback::error("", &crate::tr("logs_unavailable"), window, cx);
+                        crate::feedback::error(
+                            "logs_unavailable",
+                            "",
+                            &crate::tr("logs_unavailable"),
+                            window,
+                            cx,
+                        );
                     });
                 }
                 cx.update(|cx| cx.activate(true));

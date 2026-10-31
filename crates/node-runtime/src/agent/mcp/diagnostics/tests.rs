@@ -1,6 +1,52 @@
 use super::*;
 use serde_json::json;
 
+#[derive(Clone, Default)]
+struct Levels(std::sync::Arc<std::sync::Mutex<Vec<tracing::Level>>>);
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Levels {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        self.0.lock().unwrap().push(*event.metadata().level());
+    }
+}
+
+#[test]
+fn warns_for_server_tool_failures() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let levels = Levels::default();
+    let subscriber = tracing_subscriber::registry().with(levels.clone());
+    tracing::subscriber::with_default(subscriber, || {
+        let mut span = call();
+        external(&mut span);
+        finish(&mut span, &Ok(json!({"isError":true})), false);
+    });
+    let levels = levels.0.lock().unwrap();
+    assert_eq!(levels.last(), Some(&tracing::Level::WARN));
+    assert!(!levels.contains(&tracing::Level::ERROR));
+}
+
+#[test]
+fn keeps_transport_failures_visible() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let levels = Levels::default();
+    let subscriber = tracing_subscriber::registry().with(levels.clone());
+    tracing::subscriber::with_default(subscriber, || {
+        let mut span = call();
+        external(&mut span);
+        finish(
+            &mut span,
+            &Err(Fault::new(ErrorCode::Unavailable, "transport failed")),
+            false,
+        );
+    });
+    assert_eq!(
+        levels.0.lock().unwrap().last(),
+        Some(&tracing::Level::ERROR)
+    );
+}
+
 fn call() -> Span {
     begin(
         Context {

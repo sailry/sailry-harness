@@ -232,7 +232,13 @@ impl Assets {
                     }
                     _ => {
                         panel.failed = true;
-                        crate::feedback::error("", &tr("chat_assets_failed"), window, cx);
+                        crate::feedback::error(
+                            "chat_assets_failed",
+                            "",
+                            &tr("chat_assets_failed"),
+                            window,
+                            cx,
+                        );
                     }
                 }
                 cx.notify();

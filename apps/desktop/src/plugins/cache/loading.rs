@@ -1,5 +1,5 @@
 //! Capacity contention may delay a view read without invalidating its captured owner.
-use super::{Cache, Failure};
+use super::{Cache, Failure, expected_failure};
 use sailry_client::Client;
 use sailry_link::CancellationToken;
 use sailry_node_runtime::logging::{Area, Context, Entry, Phase, Span};
@@ -26,20 +26,26 @@ pub(in crate::plugins) async fn prepare(
         Ok(Output::PluginView(bundle)) => bundle,
         Err(error) => {
             diagnostic.entry.reason = Some("view_read");
-            diagnostic.finish(Phase::Failed, Some(error.code));
+            let system_diagnostic = matches!(
+                error.details,
+                Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+            );
+            finish(&mut diagnostic, error.code, system_diagnostic);
             return Some(Err(Failure {
                 key: "plugins_view_read_failed",
                 code: error.code,
                 stage: "view_read",
+                system_diagnostic,
             }));
         }
         Ok(_) => {
             diagnostic.entry.reason = Some("view_output");
-            diagnostic.finish(Phase::Failed, Some(ErrorCode::InvalidRequest));
+            finish(&mut diagnostic, ErrorCode::InvalidRequest, false);
             return Some(Err(Failure {
                 key: "plugins_view_read_failed",
                 code: ErrorCode::InvalidRequest,
                 stage: "view_output",
+                system_diagnostic: false,
             }));
         }
     };
@@ -60,11 +66,16 @@ pub(in crate::plugins) async fn prepare(
         }
         Ok(Err(error)) => {
             diagnostic.entry.reason = Some("view_cache");
-            diagnostic.finish(Phase::Failed, Some(error.code));
+            let system_diagnostic = matches!(
+                error.details,
+                Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+            );
+            finish(&mut diagnostic, error.code, system_diagnostic);
             Err(Failure {
                 key: "plugins_view_read_failed",
                 code: error.code,
                 stage: "view_cache",
+                system_diagnostic,
             })
         }
         Err(_) => {
@@ -74,9 +85,18 @@ pub(in crate::plugins) async fn prepare(
                 key: "plugins_view_read_failed",
                 code: ErrorCode::Internal,
                 stage: "view_worker",
+                system_diagnostic: false,
             })
         }
     })
+}
+
+fn finish(span: &mut Span, code: ErrorCode, system_diagnostic: bool) {
+    if expected_failure(code, system_diagnostic) {
+        span.finish_warn(Phase::Failed, Some(code));
+    } else {
+        span.finish(Phase::Failed, Some(code));
+    }
 }
 
 pub(super) async fn read(

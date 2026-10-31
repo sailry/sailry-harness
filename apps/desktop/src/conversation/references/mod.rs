@@ -305,7 +305,7 @@ impl Shell {
                 let thread = self.conversations.get_mut(&key).unwrap();
                 thread.references.error = error;
                 if let Some(error) = error {
-                    crate::feedback::error(&tr("reference_title"), &tr(error), window, cx);
+                    crate::feedback::error(error, &tr("reference_title"), &tr(error), window, cx);
                     thread.references.dismiss();
                     input.update(cx, |input, cx| input.focus(window, cx));
                     cx.notify();
@@ -353,6 +353,7 @@ impl Shell {
                 });
                 if result.is_err() {
                     crate::feedback::error(
+                        "reference_stale",
                         &tr("reference_title"),
                         &tr("reference_stale"),
                         window,
@@ -507,7 +508,7 @@ impl Shell {
             });
         thread.references.error = error;
         if let Some(error) = error {
-            crate::feedback::error(&tr("reference_title"), &tr(error), window, cx);
+            crate::feedback::error(error, &tr("reference_title"), &tr(error), window, cx);
             cx.notify();
         }
         error.is_none()

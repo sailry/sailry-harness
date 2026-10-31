@@ -101,7 +101,7 @@ impl Accumulator {
                     message,
                     retry_after_ms,
                     ..
-                } => return Err(classified(class, &message, retry_after_ms, None, secrets)),
+                } => return Err(classified(class, &message, retry_after_ms, secrets)),
             }
         }
         Ok(output)
@@ -124,7 +124,7 @@ impl Accumulator {
 
     pub(super) fn finish(mut self, model: &str) -> Result<Vec<Chunk>, ProviderError> {
         let reason = self.finish.ok_or_else(|| {
-            ProviderError::NetworkError("model stream ended before completion".into())
+            ProviderError::stream_decode_error("model stream ended before completion")
         })?;
         let mut output = Vec::new();
         self.flush_thinking(&mut output);
@@ -181,7 +181,6 @@ pub(super) fn classified(
     class: Class,
     message: &str,
     retry_after_ms: Option<u64>,
-    status: Option<u16>,
     secrets: &[Secret],
 ) -> ProviderError {
     let message = super::super::errors::safe(message, secrets);
@@ -198,8 +197,9 @@ pub(super) fn classified(
         Class::ContextOverflow => ProviderError::ContextLengthExceeded(message),
         Class::InvalidRequest => ProviderError::InvalidValue(message),
         Class::Unsupported => ProviderError::NotImplemented(message),
-        _ if status.is_some_and(|status| status >= 500) => ProviderError::ServerError(message),
-        _ => ProviderError::NetworkError(message),
+        // The provider returned an error response. Retain the retryable class
+        // without misidentifying a business response as a transport failure.
+        _ => ProviderError::ServerError(message),
     }
 }
 

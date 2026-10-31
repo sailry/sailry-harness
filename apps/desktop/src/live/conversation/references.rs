@@ -16,7 +16,13 @@ impl Shell {
             .as_ref()
             .is_none_or(|live| live.transport_for(node).is_none())
         {
-            crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+            crate::feedback::error(
+                "reference_unavailable",
+                "",
+                &tr("reference_unavailable"),
+                window,
+                cx,
+            );
             return;
         }
         let client = binding.client.clone();
@@ -27,7 +33,13 @@ impl Shell {
             let result = job.await;
             let _ = shell.update_in(cx, |shell, window, cx| {
                 let Ok(Ok(Output::Snapshot(snapshot))) = result else {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                     return;
                 };
                 let session = snapshot
@@ -36,7 +48,13 @@ impl Shell {
                     .find(|session| session.id == id && session.delegation.is_none())
                     .cloned();
                 let Some(session) = session else {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                     return;
                 };
                 if shell
@@ -44,7 +62,13 @@ impl Shell {
                     .as_ref()
                     .is_none_or(|live| live.transport_for(node).is_none())
                 {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                     return;
                 }
                 if !shell.chats.views.contains_key(&(node, id)) {

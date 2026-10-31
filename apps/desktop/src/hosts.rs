@@ -179,7 +179,13 @@ impl Installer {
             && let Some(draft) = &self.network_draft
         {
             let Some(network) = draft.read(cx).target_network(cx) else {
-                crate::feedback::error("", &tr("pairing_relay_invalid"), window, cx);
+                crate::feedback::error(
+                    "pairing_relay_invalid",
+                    "",
+                    &tr("pairing_relay_invalid"),
+                    window,
+                    cx,
+                );
                 return;
             };
             self.network = Some(network);

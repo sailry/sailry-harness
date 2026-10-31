@@ -82,6 +82,14 @@ pub(super) fn safe(value: &str, secrets: &[Secret]) -> String {
     value
 }
 
+/// GDK uses the same retryable variant for transport and stream decoding.
+/// Its `stream_decode_error` helper owns this fixed prefix; it is not a
+/// classification inferred from arbitrary upstream diagnostic text.
+pub(super) fn network(error: &ProviderError) -> bool {
+    matches!(error, ProviderError::NetworkError(message)
+        if !message.starts_with("Stream decode error: "))
+}
+
 pub(in crate::agent) fn fault(error: ProviderError) -> Fault {
     use sailry_protocol::{ErrorCode, FaultDetails, ModelFailure};
     let code = if matches!(error, ProviderError::NotConfigured) {
@@ -102,6 +110,11 @@ pub(in crate::agent) fn fault(error: ProviderError) -> Fault {
 }
 
 pub(super) fn provider(error: Fault) -> ProviderError {
+    if error.code == sailry_protocol::ErrorCode::Unavailable
+        && matches!(error.details, Some(sailry_protocol::FaultDetails::Network))
+    {
+        return ProviderError::NetworkError(error.message);
+    }
     match error.code {
         sailry_protocol::ErrorCode::Cancelled => ProviderError::ExecutionError(error.message),
         sailry_protocol::ErrorCode::InvalidRequest => ProviderError::InvalidValue(error.message),
@@ -116,6 +129,25 @@ pub(super) fn provider(error: Fault) -> ProviderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distinguishes_transport_from_decode_failures() {
+        assert!(network(&ProviderError::NetworkError(
+            "connection failed".into()
+        )));
+        assert!(!network(&ProviderError::stream_decode_error(
+            "invalid stream frame"
+        )));
+        assert!(!network(&ProviderError::RequestFailed(
+            "network unavailable".into()
+        )));
+        assert!(!network(&ProviderError::ExecutionError(
+            "unavailable".into()
+        )));
+        assert!(!network(&ProviderError::ServerError(
+            "provider unavailable".into()
+        )));
+    }
 
     #[test]
     fn redacts_overlapping_credentials() {

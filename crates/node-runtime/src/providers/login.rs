@@ -237,7 +237,7 @@ fn api(authentication: Authentication) -> ModelApi {
 }
 
 async fn response(request: RequestBuilder) -> Result<(StatusCode, Zeroizing<Vec<u8>>), Fault> {
-    let mut response = request.send().await.map_err(|_| unavailable())?;
+    let mut response = request.send().await.map_err(transport_error)?;
     let status = response.status();
     if status.is_redirection() {
         return Err(Fault::new(
@@ -254,7 +254,7 @@ async fn response(request: RequestBuilder) -> Result<(StatusCode, Zeroizing<Vec<
         ));
     }
     let mut body = Zeroizing::new(Vec::new());
-    while let Some(chunk) = response.chunk().await.map_err(|_| unavailable())? {
+    while let Some(chunk) = response.chunk().await.map_err(transport_error)? {
         if body.len() + chunk.len() > BODY_LIMIT {
             return Err(sailry_protocol::Fault::invalid(
                 "authorization response exceeds its size limit",
@@ -319,6 +319,14 @@ fn unavailable() -> Fault {
         ErrorCode::Unavailable,
         "authorization service is unavailable",
     )
+}
+
+fn transport_error(error: reqwest::Error) -> Fault {
+    let mut fault = unavailable();
+    if error.is_connect() || error.is_timeout() || error.is_body() && !error.is_decode() {
+        fault.details = Some(sailry_protocol::FaultDetails::Network);
+    }
+    fault
 }
 fn expired() -> Fault {
     Fault::new(ErrorCode::Expired, "authorization expired; sign in again")

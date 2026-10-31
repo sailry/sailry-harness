@@ -54,7 +54,7 @@ impl View {
                 .submit_on_enter(true)
         });
         let Ok(content) = references::inline::content(&message.text, &message.references) else {
-            crate::feedback::error("", &tr("reference_stale"), window, cx);
+            crate::feedback::error("reference_stale", "", &tr("reference_stale"), window, cx);
             cx.notify();
             return;
         };

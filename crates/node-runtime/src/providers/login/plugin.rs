@@ -381,7 +381,9 @@ async fn response_with(
                 });
             }
             let mut response=request.send().await.map_err(|error| if error.is_connect() {
-                Fault::new(ErrorCode::Unavailable,"authorization endpoint could not be reached")
+                let mut fault = Fault::new(ErrorCode::Unavailable,"authorization endpoint could not be reached");
+                fault.details = Some(sailry_protocol::FaultDetails::Network);
+                fault
             } else {uncertain()})?;
             let status=response.status();
             let mut body=zeroize::Zeroizing::new(Vec::new());

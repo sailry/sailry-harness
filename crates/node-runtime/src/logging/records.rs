@@ -211,7 +211,7 @@ impl Entry {
     pub fn emit_debug(&self) {
         self.write(Some(tracing::Level::DEBUG));
     }
-    pub(crate) fn emit_warn(&self) {
+    pub fn emit_warn(&self) {
         self.write(Some(tracing::Level::WARN));
     }
     fn write(&self, level: Option<tracing::Level>) {
@@ -328,7 +328,7 @@ impl Span {
     pub fn finish(&mut self, phase: Phase, code: Option<ErrorCode>) {
         self.finish_with(phase, code, false);
     }
-    pub(super) fn finish_warn(&mut self, phase: Phase, code: Option<ErrorCode>) {
+    pub fn finish_warn(&mut self, phase: Phase, code: Option<ErrorCode>) {
         self.finish_with(phase, code, true);
     }
     fn finish_with(&mut self, phase: Phase, code: Option<ErrorCode>, warn: bool) {

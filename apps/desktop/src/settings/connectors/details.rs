@@ -184,7 +184,13 @@ impl Details {
                     }
                     Ok(Some(Err(error))) => failure(error, window, cx),
                     Ok(None) => (),
-                    _ => crate::feedback::error("", &tr("connector_check_failed"), window, cx),
+                    _ => crate::feedback::error(
+                        "connector_check_failed",
+                        "",
+                        &tr("connector_check_failed"),
+                        window,
+                        cx,
+                    ),
                 }
                 details.notify_list(cx);
                 cx.notify();
@@ -217,7 +223,13 @@ impl Details {
             .is_some_and(|request| !same_toggle(request, &package, &name, allowed))
         {
             self.pending.remove(&name);
-            crate::feedback::error("", &tr("connector_unknown"), window, cx);
+            crate::feedback::error(
+                "connector_unknown",
+                "",
+                &tr("connector_unknown"),
+                window,
+                cx,
+            );
             cx.notify();
             return;
         }

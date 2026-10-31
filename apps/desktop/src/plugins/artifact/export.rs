@@ -135,7 +135,13 @@ pub(super) fn choose(
     cx: &mut App,
 ) {
     if options.revision == 0 || options.artifact != resource.artifact.id {
-        crate::feedback::error("", &crate::tr("artifact_export_failed"), window, cx);
+        crate::feedback::error(
+            "artifact_export_failed",
+            "",
+            &crate::tr("artifact_export_failed"),
+            window,
+            cx,
+        );
         let _ = reply.send(false);
         return;
     }
@@ -167,7 +173,13 @@ pub(super) fn choose_card(
         live: None,
     };
     if source.reader.check(&source.options, cx).is_err() {
-        crate::feedback::error("", &crate::tr("artifact_export_failed"), window, cx);
+        crate::feedback::error(
+            "artifact_export_failed",
+            "",
+            &crate::tr("artifact_export_failed"),
+            window,
+            cx,
+        );
         let _ = reply.send(false);
         return;
     }
@@ -212,7 +224,13 @@ fn select(
                     let _ = reply.send(false);
                 }
                 _ => {
-                    crate::feedback::error("", &crate::tr("files_download_picker"), window, cx);
+                    crate::feedback::error(
+                        "files_download_picker",
+                        "",
+                        &crate::tr("files_download_picker"),
+                        window,
+                        cx,
+                    );
                     let _ = reply.send(false);
                 }
             });
@@ -294,7 +312,7 @@ fn start(
                         );
                     }
                     Err("files_download_cancelled") => (),
-                    Err(key) => crate::feedback::error("", &crate::tr(key), window, cx),
+                    Err(key) => crate::feedback::error(key, "", &crate::tr(key), window, cx),
                 }
             });
             let _ = reply.send(successful);

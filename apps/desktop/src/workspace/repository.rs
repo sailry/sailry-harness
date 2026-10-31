@@ -70,7 +70,7 @@ impl Confirmation {
         match result {
             Ok(()) => {}
             Err(error) => {
-                crate::feedback::error(&tr("git_initialize"), &tr(error), window, cx);
+                crate::feedback::error(error, &tr("git_initialize"), &tr(error), window, cx);
             }
         }
     }

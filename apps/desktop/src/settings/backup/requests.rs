@@ -269,9 +269,13 @@ impl Panel {
                 match selected {
                     Ok(Ok(Some(path))) => panel.download(path, window, cx),
                     Ok(Ok(None)) => (),
-                    _ => {
-                        crate::feedback::error("", &crate::tr("files_download_picker"), window, cx)
-                    }
+                    _ => crate::feedback::error(
+                        "files_download_picker",
+                        "",
+                        &crate::tr("files_download_picker"),
+                        window,
+                        cx,
+                    ),
                 }
             });
         })
@@ -313,7 +317,7 @@ impl Panel {
                 match result {
                     Ok(()) => crate::feedback::info("", &crate::tr("backup_exported"), window, cx),
                     Err("files_download_cancelled") => (),
-                    Err(key) => crate::feedback::error("", &crate::tr(key), window, cx),
+                    Err(key) => crate::feedback::error(key, "", &crate::tr(key), window, cx),
                 }
                 panel.load(window, cx);
                 cx.notify();

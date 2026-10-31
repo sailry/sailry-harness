@@ -101,5 +101,5 @@ pub(crate) fn local(path: PathBuf, window: &mut Window, cx: &mut App) {
 }
 
 pub(crate) fn failure(key: &'static str, window: &mut Window, cx: &mut App) {
-    crate::feedback::error(&tr("files_open"), &tr(key), window, cx);
+    crate::feedback::error(key, &tr("files_open"), &tr(key), window, cx);
 }

@@ -406,6 +406,7 @@ impl View {
                         for (_, error) in view.details.failures() {
                             let _ = cx.update_window(view.history_window, |_, window, cx| {
                                 crate::feedback::error(
+                                    "chat_history_failed",
                                     "",
                                     &diagnostic::display(&error.message),
                                     window,

@@ -446,7 +446,7 @@ impl Controller {
                     Err(fault) => Err(fault),
                 };
                 if let Err(fault) = result {
-                    crate::feedback::error("", &fault.message, window, cx);
+                    crate::feedback::error("files_open_failed", "", &fault.message, window, cx);
                 }
                 owner.changed(cx);
             });

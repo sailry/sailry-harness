@@ -32,6 +32,7 @@ pub(super) struct Failures {
         sailry_protocol::plugin::Reference,
         sailry_protocol::ErrorCode,
         &'static str,
+        bool,
     )>,
 }
 
@@ -41,8 +42,9 @@ impl Failures {
         package: &sailry_protocol::plugin::Reference,
         code: sailry_protocol::ErrorCode,
         stage: &'static str,
+        system_diagnostic: bool,
     ) -> bool {
-        let key = (package.clone(), code, stage);
+        let key = (package.clone(), code, stage, system_diagnostic);
         if self.last.as_ref() == Some(&key) {
             return false;
         }
@@ -68,17 +70,20 @@ mod tests {
             settings_revision: 1,
         };
         let mut failures = Failures::default();
-        assert!(failures.record(&package, ErrorCode::Busy, "view_read"));
-        assert!(!failures.record(&package, ErrorCode::Busy, "view_read"));
-        assert!(failures.record(&package, ErrorCode::Internal, "view_initialize"));
-        assert!(!failures.record(&package, ErrorCode::Internal, "view_initialize"));
+        assert!(failures.record(&package, ErrorCode::Busy, "view_read", false));
+        assert!(!failures.record(&package, ErrorCode::Busy, "view_read", false));
+        assert!(failures.record(&package, ErrorCode::Internal, "view_initialize", false));
+        assert!(!failures.record(&package, ErrorCode::Internal, "view_initialize", false));
+        assert!(failures.record(&package, ErrorCode::InvalidRequest, "view_read", false));
+        assert!(failures.record(&package, ErrorCode::InvalidRequest, "view_read", true));
+        assert!(!failures.record(&package, ErrorCode::InvalidRequest, "view_read", true));
         failures.clear();
-        assert!(failures.record(&package, ErrorCode::Internal, "view_initialize"));
+        assert!(failures.record(&package, ErrorCode::Internal, "view_initialize", false));
         let updated = Reference {
             settings_revision: 2,
             ..package
         };
-        assert!(failures.record(&updated, ErrorCode::Internal, "view_initialize"));
+        assert!(failures.record(&updated, ErrorCode::Internal, "view_initialize", false));
     }
 
     #[test]

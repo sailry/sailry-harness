@@ -404,7 +404,13 @@ impl View {
                         matches!(item.target, Target::Agent(_)) && item.target != reference.target
                     })
                 {
-                    crate::feedback::error("", &tr("reference_one_agent"), window, cx);
+                    crate::feedback::error(
+                        "reference_one_agent",
+                        "",
+                        &tr("reference_one_agent"),
+                        window,
+                        cx,
+                    );
                     cx.notify();
                     return;
                 }
@@ -419,7 +425,13 @@ impl View {
                     result
                 });
                 if result.is_err() {
-                    crate::feedback::error("", &tr("reference_stale"), window, cx);
+                    crate::feedback::error(
+                        "reference_stale",
+                        "",
+                        &tr("reference_stale"),
+                        window,
+                        cx,
+                    );
                 } else {
                     self.error = None;
                 }

@@ -86,7 +86,13 @@ pub(crate) fn choose(
             _ = cx.update(|window, cx| match selected {
                 Ok(Ok(Some(path))) => start(client, runtime, selection, format, path, window, cx),
                 Ok(Ok(None)) => (),
-                _ => crate::feedback::error("", &tr("files_download_picker"), window, cx),
+                _ => crate::feedback::error(
+                    "files_download_picker",
+                    "",
+                    &tr("files_download_picker"),
+                    window,
+                    cx,
+                ),
             });
         })
         .detach();
@@ -186,7 +192,7 @@ fn start(
                         );
                     }
                     Err("files_download_cancelled") => (),
-                    Err(key) => crate::feedback::error("", &tr(key), window, cx),
+                    Err(key) => crate::feedback::error(key, "", &tr(key), window, cx),
                 }
             });
         })

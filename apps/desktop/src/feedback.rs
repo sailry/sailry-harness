@@ -146,13 +146,14 @@ pub(crate) fn info(title: &str, detail: &str, window: &mut Window, cx: &mut App)
 
 struct Info;
 
-pub(crate) fn error(title: &str, detail: &str, window: &mut Window, cx: &mut App) {
-    let mut entry = sailry_node_runtime::logging::Entry::new(
-        sailry_node_runtime::logging::Area::Desktop,
-        sailry_node_runtime::logging::Phase::Failed,
-    );
-    entry.reason = Some("operation_feedback");
-    entry.emit();
+pub(crate) fn error(
+    key: &'static str,
+    title: &str,
+    detail: &str,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    record(key);
     deliver(
         window,
         diagnostic(detail.to_owned().into()).when(!title.trim().is_empty(), |note| {
@@ -160,6 +161,15 @@ pub(crate) fn error(title: &str, detail: &str, window: &mut Window, cx: &mut App
         }),
         cx,
     );
+}
+
+fn record(key: &'static str) {
+    let mut entry = sailry_node_runtime::logging::Entry::new(
+        sailry_node_runtime::logging::Area::Desktop,
+        sailry_node_runtime::logging::Phase::Failed,
+    );
+    entry.operation = Some(key);
+    entry.emit_warn();
 }
 
 pub(crate) fn diagnostic(message: SharedString) -> Notification {
@@ -238,12 +248,7 @@ pub(crate) fn observe_with<T: 'static, Errors, Built>(
             let messages: Vec<_> = added
                 .into_iter()
                 .map(|key| {
-                    let mut diagnostic = sailry_node_runtime::logging::Entry::new(
-                        sailry_node_runtime::logging::Area::Desktop,
-                        sailry_node_runtime::logging::Phase::Failed,
-                    );
-                    diagnostic.reason = Some(key);
-                    diagnostic.emit();
+                    record(key);
                     let built = build(view, key, cx).into();
                     scope.borrow_mut().record(key, built.scoped);
                     (tr(key), built.message.id1::<Errors>((key, owner)))

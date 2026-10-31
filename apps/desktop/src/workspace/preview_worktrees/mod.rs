@@ -187,7 +187,7 @@ impl Shell {
             return;
         }
         if let Some(reason) = self.workspace.new_worktree_reason(target.project) {
-            crate::feedback::error(&tr("worktree_create"), &tr(reason), window, cx);
+            crate::feedback::error(reason, &tr("worktree_create"), &tr(reason), window, cx);
             return;
         }
         let base = self.workspace.worktrees[&target.worktree].branch.clone();

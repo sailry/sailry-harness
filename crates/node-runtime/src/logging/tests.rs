@@ -425,7 +425,7 @@ fn retains_read_failures_and_slow_completions() {
 
 #[test]
 fn records_request_rejection_severity() {
-    use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Request};
+    use sailry_protocol::{Command, ErrorCode, Fault, FaultDetails, NodeId, Request};
 
     let capture = Capture::default();
     let dispatch = tracing::Dispatch::new(
@@ -444,16 +444,34 @@ fn records_request_rejection_severity() {
             ErrorCode::NotFound,
             ErrorCode::InvalidRequest,
             ErrorCode::Internal,
+            ErrorCode::Unavailable,
         ] {
             let request = Request::new(node, Command::ListSsh);
             let mut span = commands::begin(node, node, &request).unwrap();
             commands::rejected(&mut span, &Fault::new(code, "PRIVATE_MESSAGE"));
         }
+        let request = Request::new(node, Command::ListSsh);
+        let mut fault = Fault::new(ErrorCode::Unavailable, "PRIVATE_NETWORK_MESSAGE");
+        fault.details = Some(FaultDetails::Network);
+        let mut span = commands::begin(node, node, &request).unwrap();
+        commands::rejected(&mut span, &fault);
+        fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(
+            sailry_protocol::notification::SystemDiagnostic::new(
+                request.id,
+                sailry_protocol::notification::SystemSource::PluginCallback,
+                fault.code,
+            ),
+        )));
+        let mut span = commands::begin(node, node, &request).unwrap();
+        commands::rejected(&mut span, &fault);
     });
     let records = capture.0.lock().unwrap();
-    assert_eq!(records.len(), 3);
+    assert_eq!(records.len(), 6);
     for (record, level) in records.iter().zip([
         tracing::Level::WARN,
+        tracing::Level::WARN,
+        tracing::Level::ERROR,
+        tracing::Level::ERROR,
         tracing::Level::WARN,
         tracing::Level::ERROR,
     ]) {

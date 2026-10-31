@@ -32,7 +32,7 @@ pub(crate) fn toggle(id: String, markdown: &str, window: &mut Window, cx: &mut A
         speak(id, markdown, cx)
     };
     if result.is_err() {
-        crate::feedback::error("", &crate::tr("reader_failed"), window, cx);
+        crate::feedback::error("reader_failed", "", &crate::tr("reader_failed"), window, cx);
     }
     cx.refresh_windows();
 }

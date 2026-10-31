@@ -158,7 +158,7 @@ impl Monitor {
                             },
                             _ => "host_process_uncertain",
                         };
-                        crate::feedback::error("", &tr(key), window, cx);
+                        crate::feedback::error(key, "", &tr(key), window, cx);
                     }
                 }
                 cx.notify();

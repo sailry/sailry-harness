@@ -28,6 +28,7 @@ pub(super) fn open(window: &mut Window, cx: &mut App) {
                     let _ = path;
                 }
                 Err(_) => crate::feedback::error(
+                    "files_open_failed",
                     &crate::tr("menu_logs"),
                     &crate::tr("files_open_failed"),
                     window,

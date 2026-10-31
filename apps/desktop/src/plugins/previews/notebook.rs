@@ -111,7 +111,7 @@ impl View {
                     }
                     Err(fault) => {
                         owner.failed = true;
-                        crate::feedback::error("", &fault.message, window, cx);
+                        crate::feedback::error("files_open_failed", "", &fault.message, window, cx);
                     }
                 }
                 cx.notify();

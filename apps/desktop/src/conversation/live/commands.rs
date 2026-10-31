@@ -155,7 +155,7 @@ impl Panel {
                     _ => panel.error = Some("background_stop_failed"),
                 }
                 if let Some(error) = panel.error {
-                    crate::feedback::error("", &tr(error), window, cx);
+                    crate::feedback::error(error, "", &tr(error), window, cx);
                 }
                 panel.sync_selection();
                 panel.selected.send_modify(|_| {});

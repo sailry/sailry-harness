@@ -76,7 +76,13 @@ pub(super) fn definition(id: &str, cx: &App) -> Menu {
 
 pub(super) fn show(id: &str, position: Point<Pixels>, window: &mut Window, cx: &mut App) {
     if !cfg!(any(target_os = "macos", target_os = "windows")) {
-        crate::feedback::error("", &tr("workspace_native_menu_platform"), window, cx);
+        crate::feedback::error(
+            "workspace_native_menu_platform",
+            "",
+            &tr("workspace_native_menu_platform"),
+            window,
+            cx,
+        );
         return;
     }
     NativeMenu::from(definition(id, cx)).show(position, window, cx);
@@ -91,7 +97,13 @@ pub(super) fn apply(id: &str, window: &mut Window, cx: &mut App) {
     if let Some(index) = index {
         theme::apply(index, Some(window), cx);
     } else {
-        crate::feedback::error("", &tr("appearance_unavailable"), window, cx);
+        crate::feedback::error(
+            "appearance_unavailable",
+            "",
+            &tr("appearance_unavailable"),
+            window,
+            cx,
+        );
     }
 }
 
@@ -109,7 +121,13 @@ impl Workspace {
             .find(|package| package.id == dispatch.id)
             .cloned()
         else {
-            crate::feedback::error("", &tr("appearance_unavailable"), window, cx);
+            crate::feedback::error(
+                "appearance_unavailable",
+                "",
+                &tr("appearance_unavailable"),
+                window,
+                cx,
+            );
             return;
         };
         match dispatch.command {
@@ -144,7 +162,13 @@ impl Workspace {
                         ),
                         Err(error) => {
                             eprintln!("could not uninstall theme: {error}");
-                            crate::feedback::error("", &tr("appearance_remove_failed"), window, cx);
+                            crate::feedback::error(
+                                "appearance_remove_failed",
+                                "",
+                                &tr("appearance_remove_failed"),
+                                window,
+                                cx,
+                            );
                         }
                     },
                 );

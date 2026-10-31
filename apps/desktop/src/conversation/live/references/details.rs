@@ -24,7 +24,13 @@ impl View {
                     if let Some(worktree) = self.reference_worktree(turn) {
                         cx.emit(Event::FileAt(worktree, path.clone()));
                     } else {
-                        crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                        crate::feedback::error(
+                            "reference_unavailable",
+                            "",
+                            &tr("reference_unavailable"),
+                            window,
+                            cx,
+                        );
                     }
                 } else {
                     cx.emit(Event::File(path.clone()));
@@ -35,7 +41,13 @@ impl View {
                 if let Some(worktree) = self.reference_worktree(turn) {
                     cx.emit(Event::DirectoryAt(worktree, path.clone()));
                 } else {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                 }
                 return;
             }
@@ -45,7 +57,13 @@ impl View {
                 }) {
                     cx.emit(Event::Session(*id));
                 } else {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                 }
                 return;
             }
@@ -74,7 +92,13 @@ impl View {
                 {
                     cx.emit(Event::ProjectPage(self.binding.client.target(), project));
                 } else {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                 }
                 return;
             }
@@ -84,7 +108,13 @@ impl View {
                     .iter()
                     .find(|profile| profile.reference() == *role)
                 else {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                     return;
                 };
                 (
@@ -98,7 +128,13 @@ impl View {
                     .into_iter()
                     .find(|profile| profile.id == *id)
                 else {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                     return;
                 };
                 (
@@ -116,7 +152,13 @@ impl View {
                     .into_iter()
                     .find(|profile| profile.id == *connection)
                 else {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                     return;
                 };
                 let mut parts = vec![profile.name.clone()];
@@ -138,7 +180,13 @@ impl View {
                         .find(|item| item.id == worktree)
                 });
                 let Some(tree) = tree else {
-                    crate::feedback::error("", &tr("reference_unavailable"), window, cx);
+                    crate::feedback::error(
+                        "reference_unavailable",
+                        "",
+                        &tr("reference_unavailable"),
+                        window,
+                        cx,
+                    );
                     return;
                 };
                 (
@@ -175,7 +223,7 @@ impl View {
             .find(|plugin| plugin.name == name)
             .cloned()
         else {
-            crate::feedback::error("", &tr("reference_stale"), window, cx);
+            crate::feedback::error("reference_stale", "", &tr("reference_stale"), window, cx);
             cx.notify();
             return;
         };
@@ -206,7 +254,7 @@ impl View {
             .into_iter()
             .find(|package| package.name == name)
         else {
-            crate::feedback::error("", &tr("reference_stale"), window, cx);
+            crate::feedback::error("reference_stale", "", &tr("reference_stale"), window, cx);
             cx.notify();
             return;
         };

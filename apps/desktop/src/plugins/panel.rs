@@ -609,7 +609,12 @@ impl Panel {
         self.initialization = Initialization::Unloaded;
     }
 
-    fn report_failure(&mut self, code: sailry_protocol::ErrorCode, stage: &'static str) {
+    fn report_failure(
+        &mut self,
+        code: sailry_protocol::ErrorCode,
+        stage: &'static str,
+        system_diagnostic: bool,
+    ) {
         use sailry_protocol::notification::{DiagnosticPlugin, SystemDiagnostic, SystemSource};
         let Some(package) = &self.selected else {
             return;
@@ -621,7 +626,10 @@ impl Panel {
         else {
             return;
         };
-        if !self.failures.record(package, code, stage) {
+        if !self
+            .failures
+            .record(package, code, stage, system_diagnostic)
+        {
             return;
         }
         let mut report = SystemDiagnostic::new(
@@ -649,7 +657,11 @@ impl Panel {
         entry.context.session = self.session;
         entry.reason = Some(stage);
         entry.code = Some(code);
-        entry.emit();
+        if super::cache::expected_failure(code, system_diagnostic) {
+            entry.emit_warn();
+        } else {
+            entry.emit();
+        }
         let client = self.binding.client.clone();
         self.binding.runtime.spawn(async move {
             let _ = client.report_diagnostic(report).await;
@@ -995,13 +1007,14 @@ impl Panel {
                                 panel.report_failure(
                                     sailry_protocol::ErrorCode::Internal,
                                     "view_initialize",
+                                    false,
                                 );
                             }
                         }
                     }
                     Ok(Some(Err(error))) => {
                         panel.error = Some(error.key);
-                        panel.report_failure(error.code, error.stage);
+                        panel.report_failure(error.code, error.stage, error.system_diagnostic);
                     }
                     _ => panel.error = Some("plugins_view_unavailable"),
                 }
