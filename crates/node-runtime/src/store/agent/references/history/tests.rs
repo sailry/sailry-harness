@@ -290,7 +290,13 @@ async fn rejects_foreign_projects_and_changed_history() {
     else {
         panic!("project expected")
     };
-    let foreign_tree = worktree(&fixture, Some(foreign.id), directory.path()).await;
+    let foreign_tree = crate::store::worktrees::list(&fixture.database.connection)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|worktree| worktree.project == Some(foreign.id) && worktree.main)
+        .unwrap()
+        .id;
     let foreign_session = copy_session(&fixture, Some(foreign.id), foreign_tree).await;
     let source = start(&mut fixture).await;
     for query in [

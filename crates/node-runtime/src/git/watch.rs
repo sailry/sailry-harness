@@ -141,7 +141,8 @@ mod tests {
         assert!(!filter.changed(&[root.join(".sailry/worktrees/child/source.rs")]));
         assert!(filter.changed(&[root.join("ignored.txt")]));
         assert!(filter.changed(&[root.join("source.rs")]));
-        assert!(!filter.changed(&[directory.path().join("outside/source.rs")]));
+        let outside = tempfile::tempdir().unwrap();
+        assert!(!filter.changed(&[outside.path().canonicalize().unwrap().join("source.rs")]));
     }
 
     #[test]

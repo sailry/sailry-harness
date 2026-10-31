@@ -360,6 +360,7 @@ async fn retains_shell_after_profile_removal() {
             content(snapshot).contains("SSH_AFTER_REMOVE")
         })
         .await;
+        let mut catalog = client.subscribe().await.unwrap();
         input(&client, &info, "exit 9").await;
         until(&mut *stream, &mut projection, |snapshot| {
             snapshot.info.status == Status::Exited { code: 9 }
@@ -374,6 +375,20 @@ async fn retains_shell_after_profile_removal() {
         assert!(snapshot.info.owner.is_none());
         assert!(content(&snapshot).contains("SSH_CAPTURED"));
         assert!(content(&snapshot).contains("SSH_AFTER_REMOVE"));
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Update::Event(event) = catalog.next().await.unwrap()
+                    && let Event::TerminalChanged(current) = event.event
+                    && current.id == info.id
+                    && current.status == (Status::Exited { code: 9 })
+                {
+                    assert!(current.owner.is_none());
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("terminal catalog exit deadline");
         for controller in [&client, &other] {
             assert_eq!(
                 execute(
