@@ -14,7 +14,7 @@ pub(in crate::store) use diff::{append as append_diff, read as diff};
 pub(in crate::store) mod restore;
 #[cfg(test)]
 mod tests;
-pub(in crate::store) use reads::{list, read};
+pub(in crate::store) use reads::{list, read, saved};
 
 #[derive(Serialize, Deserialize)]
 struct Record {

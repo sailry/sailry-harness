@@ -176,7 +176,6 @@ approval_create_file: "创建 %{path}"
 approval_replace_file: "覆盖 %{path}"
 approval_interrupted: 审批已中断
 approval_closed: 该审批已结束
-tool_file_written: 已写入
 approval_command: 运行命令
 command_cwd: "工作目录：%{path}"
 command_timeout: "超时：%{milliseconds} 毫秒"

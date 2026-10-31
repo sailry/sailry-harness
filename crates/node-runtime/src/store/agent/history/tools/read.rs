@@ -200,8 +200,10 @@ pub(in crate::store) async fn page(
     slice(reference, &text, cursor.unwrap_or(0), limit)
 }
 
-/// Completed file mutations declared with checkpoint diffs show the confirmed
-/// change with file line numbers instead of the model's replacement fragments.
+/// A completed file mutation with a saved snapshot shows the confirmed change,
+/// with file line numbers, instead of the model's replacement fragments. The
+/// snapshot alone selects this projection, whatever the captured display
+/// declares, so frozen displays gain the diff and lose their result captions.
 async fn checkpoint(
     db: &Connection,
     turn: TurnId,
@@ -212,26 +214,10 @@ async fn checkpoint(
         GitDiff, GitDiffScope, MAX_DIFF_BYTES,
         tool::{detail::Body, projection::Format},
     };
-    let Some(declared) = raw
-        .display
-        .as_ref()
-        .and_then(|display| display.output.as_ref())
-        .and_then(|output| output.body.as_ref())
-    else {
-        return Ok(());
-    };
     let (Some(call), Some(result)) = (raw.id.as_deref(), raw.result.as_ref()) else {
         return Ok(());
     };
-    if raw.failure.is_some()
-        || !declared.diff.as_ref().is_some_and(|diff| {
-            diff.format == Format::Checkpoint
-                && diff
-                    .when
-                    .as_ref()
-                    .is_none_or(|test| test.matches(&raw.arguments, result))
-        })
-    {
+    if raw.failure.is_some() {
         return Ok(());
     }
     let Some(output) = detail
@@ -241,33 +227,18 @@ async fn checkpoint(
     else {
         return Ok(());
     };
-    let versions: Option<(Option<String>, String)> = {
-        let mut statement = db
-            .prepare(
-                "SELECT c.before_text,c.after_text FROM file_checkpoints c
-                 JOIN agent_approvals a ON a.id=c.approval
-                 WHERE a.turn=?1 AND a.call=?2",
-            )
-            .await
-            .map_err(storage_error)?;
-        match statement.query_row(params![turn.to_string(), call]).await {
-            Ok(row) => Some((
-                row.get::<Option<String>>(0).map_err(storage_error)?,
-                row.get::<String>(1).map_err(storage_error)?,
-            )),
-            Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error)),
-        }
-    };
-    let Some((before, after)) = versions else {
+    let Some(saved) = super::super::super::checkpoints::saved(db, turn, call).await? else {
         return Ok(());
     };
-    let path = declared
-        .path
+    let path = raw
+        .display
         .as_ref()
+        .and_then(|display| display.output.as_ref())
+        .and_then(|output| output.body.as_ref())
+        .and_then(|body| body.path.as_ref())
         .and_then(|path| path.read(&raw.arguments, result)?.as_str())
-        .unwrap_or_default()
-        .to_owned();
+        .filter(|path| !path.is_empty())
+        .map_or(saved.path, str::to_owned);
     let mut file = GitDiff {
         path,
         scope: GitDiffScope::All,
@@ -280,19 +251,23 @@ async fn checkpoint(
     let mut remaining = MAX_DIFF_BYTES;
     super::super::super::checkpoints::append_diff(
         &mut file,
-        before.as_deref(),
-        &after,
+        saved.before.as_deref(),
+        &saved.after,
         &mut remaining,
     )?;
-    if file.text.is_empty() || file.truncated {
+    if file.text.is_empty() || (file.additions == 0 && file.deletions == 0) {
         return Ok(());
     }
+    // The diff is the whole outcome. A truncated diff stays a partial diff, which
+    // the patch parser accepts, rather than falling back to the new text alone.
     output.body = Some(Body {
         text: file.text,
         path: Some(file.path).filter(|path| !path.is_empty()),
         diff: Some(Format::Unified),
         empty: None,
     });
+    output.preview.clear();
+    output.notices.clear();
     Ok(())
 }
 

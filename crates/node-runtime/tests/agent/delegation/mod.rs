@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 
 mod capacity;
 mod catalog;
+mod edits;
 mod explore;
 mod research;
 mod unassigned;

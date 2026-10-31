@@ -3,6 +3,8 @@ use sailry_protocol::{conversation::checkpoint, plugin, tool::Operation};
 use serde_json::{Value, json};
 use std::io::{Cursor, Write as _};
 
+#[path = "files/diffs.rs"]
+mod diffs;
 #[path = "files/edits.rs"]
 mod edits;
 #[path = "files/mutations.rs"]

@@ -107,6 +107,48 @@ pub(in crate::store) async fn read(
     content(db, session, id).await
 }
 
+/// Confirmed file versions saved before one approved call dispatched.
+pub(in crate::store) struct Saved {
+    pub path: String,
+    pub before: Option<String>,
+    pub after: String,
+}
+
+/// The snapshot of a turn's call, if its mutation was approved and prepared.
+pub(in crate::store) async fn saved(
+    db: &Connection,
+    turn: TurnId,
+    call: &str,
+) -> Result<Option<Saved>, Fault> {
+    let mut statement = db
+        .prepare(
+            "SELECT c.body,c.before_text,c.after_text FROM file_checkpoints c
+             JOIN agent_approvals a ON a.id=c.approval
+             WHERE a.turn=?1 AND a.call=?2",
+        )
+        .await
+        .map_err(storage_error)?;
+    let row = match statement.query_row(params![turn.to_string(), call]).await {
+        Ok(row) => row,
+        Err(turso::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(error) => return Err(storage_error(error)),
+    };
+    let mapped: turso::Result<_> = (|row: &turso::Row| {
+        Ok((
+            row.get::<Vec<u8>>(0)?,
+            row.get::<Option<String>>(1)?,
+            row.get::<String>(2)?,
+        ))
+    })(&row);
+    let (body, before, after) = mapped.map_err(storage_error)?;
+    let record: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+    Ok(Some(Saved {
+        path: record.path,
+        before,
+        after,
+    }))
+}
+
 pub(super) async fn content(
     db: &Connection,
     session: SessionId,
