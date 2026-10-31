@@ -11,7 +11,7 @@ mod projection;
 mod removal;
 pub mod reply;
 pub mod rows;
-mod search;
+pub mod search;
 pub mod tools;
 pub mod turns;
 pub use assets::unique as unique_assets;

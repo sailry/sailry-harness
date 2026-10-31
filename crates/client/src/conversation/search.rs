@@ -4,6 +4,8 @@ use sailry_protocol::{
     *,
 };
 
+use std::ops::Range;
+
 #[cfg(test)]
 mod tests;
 
@@ -102,4 +104,155 @@ fn validate(page: &search::Page, session: SessionId, query: &Query) -> Result<()
         ));
     }
     Ok(())
+}
+
+/// One-line plain text for a match row, with the highlight remapped onto it.
+///
+/// Inline Markdown syntax and block markers are removed and whitespace is collapsed. When the
+/// match lies entirely inside removed syntax, the raw snippet and highlight are returned.
+pub fn display(found: &search::Match) -> (String, Range<usize>) {
+    let raw = || (found.snippet.clone(), found.highlight.clone());
+    let mut kept = Vec::with_capacity(found.snippet.len());
+    let mut offset = 0;
+    for line in found.snippet.split_inclusive('\n') {
+        plain(line, offset, &mut kept);
+        offset += line.len();
+    }
+    let mut text = String::with_capacity(found.snippet.len());
+    let mut highlight: Option<Range<usize>> = None;
+    let mut space = false;
+    for (character, origin) in kept {
+        if character.is_whitespace() {
+            space = !text.is_empty();
+            continue;
+        }
+        if std::mem::take(&mut space) {
+            text.push(' ');
+        }
+        let start = text.len();
+        text.push(character);
+        if found.highlight.contains(&origin) {
+            let range = highlight.get_or_insert(start..start);
+            range.end = text.len();
+        }
+    }
+    highlight.map_or_else(raw, |highlight| (text, highlight))
+}
+
+/// Keeps a line's visible characters with their snippet byte offsets.
+fn plain(line: &str, offset: usize, kept: &mut Vec<(char, usize)>) {
+    let mut start = line.len() - line.trim_start().len();
+    loop {
+        let length = marker(&line[start..]);
+        if length == 0 {
+            break;
+        }
+        start += length;
+        start += line[start..].len() - line[start..].trim_start().len();
+    }
+    let body = &line[start..];
+    let content = body.trim();
+    // Table delimiter rows and thematic breaks carry no readable text.
+    if !content.is_empty()
+        && content
+            .chars()
+            .all(|character| matches!(character, '|' | '-' | ':' | ' ' | '\t'))
+    {
+        kept.push((' ', offset + start));
+        return;
+    }
+    inline(body, offset + start, kept);
+}
+
+/// Byte length of one leading block marker: heading, quote, bullet or ordinal.
+fn marker(line: &str) -> usize {
+    let spaced = |length: usize| {
+        if line[length..]
+            .chars()
+            .next()
+            .is_none_or(char::is_whitespace)
+        {
+            length
+        } else {
+            0
+        }
+    };
+    let hashes = line.bytes().take_while(|byte| *byte == b'#').count();
+    if (1..=6).contains(&hashes) {
+        return spaced(hashes);
+    }
+    if line.starts_with('>') {
+        return 1;
+    }
+    if line.starts_with(['-', '*', '+']) {
+        return spaced(1);
+    }
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    if (1..=9).contains(&digits) && line[digits..].starts_with(['.', ')']) {
+        return spaced(digits + 1);
+    }
+    0
+}
+
+/// Removes emphasis, code, strike-through and link syntax; table pipes become spaces.
+fn inline(text: &str, offset: usize, kept: &mut Vec<(char, usize)>) {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let at = |index: usize| chars.get(index).map(|(_, character)| *character);
+    let mut code = false;
+    let mut links: Vec<(usize, usize)> = Vec::new();
+    let mut index = 0;
+    while let Some((position, character)) = chars.get(index).copied() {
+        let previous = index.checked_sub(1).and_then(at);
+        let next = at(index + 1);
+        index += 1;
+        if character == '`' {
+            code = !code;
+            continue;
+        }
+        if code {
+            kept.push((character, offset + position));
+            continue;
+        }
+        let word = |side: Option<char>| side.is_some_and(|side| !side.is_whitespace());
+        match character {
+            '\\' if next.is_some_and(|next| next.is_ascii_punctuation()) => {
+                kept.push((chars[index].1, offset + chars[index].0));
+                index += 1;
+            }
+            '*' if word(previous) || word(next) => {}
+            '_' if (word(previous) || word(next))
+                && !(previous.is_some_and(char::is_alphanumeric)
+                    && next.is_some_and(char::is_alphanumeric)) => {}
+            '~' if previous == Some('~') || next == Some('~') => {}
+            '|' => kept.push((' ', offset + position)),
+            '!' if next == Some('[') && link(&chars, index).is_some() => {}
+            '[' => match link(&chars, index - 1) {
+                Some(target) => links.push(target),
+                None => kept.push((character, offset + position)),
+            },
+            ']' if links.last().is_some_and(|(close, _)| *close == index - 1) => {
+                let (_, end) = links.pop().unwrap_or_default();
+                index = end + 1;
+            }
+            _ => kept.push((character, offset + position)),
+        }
+    }
+}
+
+/// Char indices of the `]` and `)` closing an inline link that opens at `open`.
+fn link(chars: &[(usize, char)], open: usize) -> Option<(usize, usize)> {
+    let close = open
+        + 1
+        + chars[open + 1..]
+            .iter()
+            .position(|(_, character)| *character == ']')?;
+    if chars.get(close + 1)?.1 != '(' {
+        return None;
+    }
+    let end = close
+        + 2
+        + chars[close + 2..]
+            .iter()
+            .position(|(_, character)| *character == ')')?;
+    Some((close, end))
 }

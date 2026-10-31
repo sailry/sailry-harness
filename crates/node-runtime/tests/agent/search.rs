@@ -258,3 +258,71 @@ async fn searches_unloaded_history() {
         node.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn skips_reference_context() {
+    for remote in [false, true] {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("context.txt"), "Selected context").unwrap();
+        let node = Node::start_empty(&fixture.path().join("node"))
+            .await
+            .unwrap();
+        let controller =
+            Link::controller(fixture.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let server = Server::start(false).await;
+        let (session, _) = configured_session(&client, &server.endpoint, &root).await;
+        let Output::QueuedTurn(turn) = client
+            .execute(client.prepare(Command::SubmitTurn {
+                session: session.id,
+                expected_revision: 1,
+                message: Input {
+                    text: "Typed reference question".into(),
+                    references: vec![reference::Reference {
+                        target: reference::Target::File("context.txt".into()),
+                        label: "context.txt".into(),
+                    }],
+                    attachments: Vec::new(),
+                },
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected")
+        };
+        finished(&client, session.id, turn.id).await;
+        for hidden in ["User-selected references", "context identifiers"] {
+            assert!(
+                client
+                    .search_conversation(session.id, query(hidden))
+                    .await
+                    .unwrap()
+                    .matches
+                    .is_empty(),
+                "{hidden}"
+            );
+        }
+        let found = client
+            .search_conversation(session.id, query("reference question"))
+            .await
+            .unwrap();
+        assert_eq!(found.matches.len(), 1);
+        assert_eq!(found.matches[0].turn, turn.id);
+        assert_eq!(found.matches[0].part, 1);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}

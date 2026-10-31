@@ -878,75 +878,61 @@ async fn project_with_sources(
 ) -> Result<Entry, Fault> {
     let references = super::references::project(event)?;
     let failures = super::presentation::failures(event)?;
-    let input = event.metadata.input.as_ref();
-    let skipped = usize::from(!references.is_empty())
-        + usize::from(input.is_some_and(|input| input.notice_part.is_some()));
-    let hidden = event.provenance.author == "system"
-        && event.context().is_some_and(|context| context.captured);
-    let capability_part = input.and_then(|input| input.capability_part);
     let mut parts = Vec::new();
-    if !hidden {
-        if let Some(message) = event.message() {
-            for index in skipped..message.part_count {
-                if Some(index) == capability_part {
-                    continue;
+    if !hidden(event) {
+        for (index, block) in displayed(event)? {
+            let Some(block) = block else {
+                // Engine-only content leaves its public slot without exposing its payload.
+                parts.push(Part::Resource(
+                    serde_json::json!({"type":"provider_context"}),
+                ));
+                continue;
+            };
+            let part = match &block.kind {
+                BlockKind::Text { text } => Part::Text(text.clone()),
+                BlockKind::Image { asset } => {
+                    Part::Image(super::images::inline(db, turn, event, index, asset).await?)
                 }
-                let Some(block) = message.content.iter().find(|block| block.index == index) else {
-                    // Engine-only content leaves its public slot without exposing its payload.
-                    parts.push(Part::Resource(
-                        serde_json::json!({"type":"provider_context"}),
-                    ));
-                    continue;
-                };
-                let part = match &block.kind {
-                    BlockKind::Text { text } => Part::Text(text.clone()),
-                    BlockKind::Image { asset } => {
-                        Part::Image(super::images::inline(db, turn, event, index, asset).await?)
+                BlockKind::Document { asset } => {
+                    // Bytes stay in Node storage; history pages carry only display metadata.
+                    let mut value = serde_json::json!({"type":"document","mime_type":asset.mime,"size":asset.size});
+                    if let Some(uri) = &asset.uri {
+                        value["uri"] = uri.clone().into();
                     }
-                    BlockKind::Document { asset } => {
-                        // Bytes stay in Node storage; history pages carry only display metadata.
-                        let mut value = serde_json::json!({"type":"document","mime_type":asset.mime,"size":asset.size});
-                        if let Some(uri) = &asset.uri {
-                            value["uri"] = uri.clone().into();
-                        }
-                        if let Some(annotations) = &asset.annotations {
-                            value["annotations"] = annotations.clone();
-                        }
-                        Part::Resource(value)
+                    if let Some(annotations) = &asset.annotations {
+                        value["annotations"] = annotations.clone();
                     }
-                    BlockKind::File { file }
-                        if crate::agent::attachments::is_reference(&file.uri) =>
-                    {
-                        let id = crate::agent::attachments::id(&file.uri)?;
-                        let attachment =
-                            super::super::attachments::turns::get(db, turn, id).await?;
-                        if file.mime.as_deref() != Some(attachment.spec.media_type.as_str()) {
-                            return Err(Fault::invalid("attachment media type mismatch"));
-                        }
-                        Part::Attachment(attachment)
+                    Part::Resource(value)
+                }
+                BlockKind::File { file } if crate::agent::attachments::is_reference(&file.uri) => {
+                    let id = crate::agent::attachments::id(&file.uri)?;
+                    let attachment = super::super::attachments::turns::get(db, turn, id).await?;
+                    if file.mime.as_deref() != Some(attachment.spec.media_type.as_str()) {
+                        return Err(Fault::invalid("attachment media type mismatch"));
                     }
-                    BlockKind::File { file } => Part::Resource(
-                        serde_json::json!({"file_uri":file.uri,"mime_type":file.mime}),
-                    ),
-                    BlockKind::Thinking { text, .. } => Part::Thinking(text.clone()),
-                    BlockKind::RedactedThinking { .. } => {
-                        Part::Resource(serde_json::json!({"type":"provider_context"}))
-                    }
-                    BlockKind::ToolRequest(_) => {
-                        tools::with_sources(db, turn, sequence, event, index, sources)
-                            .await?
-                            .ok_or_else(|| Fault::invalid("tool call projection is missing"))?
-                            .part()
-                    }
-                    BlockKind::ToolResponse(_) => {
-                        tools::with_sources(db, turn, sequence, event, index, sources)
-                            .await?
-                            .ok_or_else(|| Fault::invalid("tool result projection is missing"))?
-                            .part()
-                    }
-                };
-                parts.push(part);
-            }
+                    Part::Attachment(attachment)
+                }
+                BlockKind::File { file } => {
+                    Part::Resource(serde_json::json!({"file_uri":file.uri,"mime_type":file.mime}))
+                }
+                BlockKind::Thinking { text, .. } => Part::Thinking(text.clone()),
+                BlockKind::RedactedThinking { .. } => {
+                    Part::Resource(serde_json::json!({"type":"provider_context"}))
+                }
+                BlockKind::ToolRequest(_) => {
+                    tools::with_sources(db, turn, sequence, event, index, sources)
+                        .await?
+                        .ok_or_else(|| Fault::invalid("tool call projection is missing"))?
+                        .part()
+                }
+                BlockKind::ToolResponse(_) => {
+                    tools::with_sources(db, turn, sequence, event, index, sources)
+                        .await?
+                        .ok_or_else(|| Fault::invalid("tool result projection is missing"))?
+                        .part()
+                }
+            };
+            parts.push(part);
         }
         if let Kind::Compaction(summary) = &event.kind {
             parts.push(Part::Compaction(
@@ -1031,6 +1017,33 @@ async fn project_with_sources(
                 reasoning: usage.reasoning.unwrap_or_default(),
             }),
     })
+}
+
+/// Captured system context stays in canonical history but is never displayed.
+fn hidden(event: &Record) -> bool {
+    event.provenance.author == "system" && event.context().is_some_and(|context| context.captured)
+}
+
+/// Message parts shown in public history, keyed by canonical part index.
+///
+/// Leading reference and notice parts, the capability part and captured system context are
+/// agent-only. `None` marks an engine-only slot whose payload stays private.
+pub(super) fn displayed(
+    event: &Record,
+) -> Result<impl Iterator<Item = (usize, Option<&records::Block>)>, Fault> {
+    let input = event.metadata.input.as_ref();
+    let skipped = usize::from(!super::references::project(event)?.is_empty())
+        + usize::from(input.is_some_and(|input| input.notice_part.is_some()));
+    let capability = input.and_then(|input| input.capability_part);
+    let message = event.message().filter(|_| !hidden(event));
+    Ok(message.into_iter().flat_map(move |message| {
+        (skipped..message.part_count)
+            .filter(move |index| Some(*index) != capability)
+            .map(move |index| {
+                let block = message.content.iter().find(|block| block.index == index);
+                (index, block)
+            })
+    }))
 }
 
 pub(super) const EVENTS_QUERY: &str =

@@ -105,7 +105,7 @@ pub(in crate::store) async fn search(
             continue;
         }
         let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
-        if let Some((part, snippet, highlight)) = find(&event, &matcher) {
+        if let Some((part, snippet, highlight)) = find(&event, &matcher)? {
             let turn: String = row.get(1).map_err(storage_error)?;
             page.matches.push(search::Match {
                 turn: turn.parse().map_err(storage_error)?,
@@ -122,9 +122,13 @@ pub(in crate::store) async fn search(
     Ok(page)
 }
 
-fn find(event: &Record, matcher: &Regex) -> Option<(usize, String, std::ops::Range<usize>)> {
-    event.message()?.content.iter().find_map(|block| {
-        let BlockKind::Text { text } = &block.kind else {
+/// Matches only text the history view displays; agent-only parts stay unsearchable.
+fn find(
+    event: &Record,
+    matcher: &Regex,
+) -> Result<Option<(usize, String, std::ops::Range<usize>)>, Fault> {
+    Ok(history::displayed(event)?.find_map(|(index, block)| {
+        let BlockKind::Text { text } = &block?.kind else {
             return None;
         };
         let matched = matcher.find(text)?;
@@ -138,9 +142,9 @@ fn find(event: &Record, matcher: &Regex) -> Option<(usize, String, std::ops::Ran
             .nth(CONTEXT)
             .map_or(text.len(), |(index, _)| matched.end() + index);
         Some((
-            block.index,
+            index,
             text[start..end].into(),
             matched.start() - start..matched.end() - start,
         ))
-    })
+    }))
 }

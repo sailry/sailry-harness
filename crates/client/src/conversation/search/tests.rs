@@ -220,3 +220,85 @@ async fn rejects_duplicate_results() {
             .is_err()
     );
 }
+
+mod display {
+    use super::*;
+
+    /// The cleaned text and highlighted text for the first `needle` in `snippet`.
+    fn clean(snippet: &str, needle: &str) -> (String, String) {
+        let start = snippet.find(needle).unwrap();
+        let found = search::Match {
+            snippet: snippet.into(),
+            highlight: start..start + needle.len(),
+            ..hit(1)
+        };
+        let (text, highlight) = super::super::display(&found);
+        let marked = text[highlight].to_owned();
+        (text, marked)
+    }
+
+    #[test]
+    fn strips_emphasis_and_code() {
+        assert_eq!(
+            clean("Use **bold** text", "bold"),
+            ("Use bold text".into(), "bold".into())
+        );
+        assert_eq!(
+            clean("Call `run_task()` now", "run_task"),
+            ("Call run_task() now".into(), "run_task".into())
+        );
+        assert_eq!(
+            clean(r"snake_case and ~~old~~ *em* \*lit\*", "old"),
+            ("snake_case and old em *lit*".into(), "old".into())
+        );
+    }
+
+    #[test]
+    fn flattens_table_rows() {
+        assert_eq!(
+            clean("| name | value |\n|---|---|\n| needle | 1 |", "needle"),
+            ("name value needle 1".into(), "needle".into())
+        );
+    }
+
+    #[test]
+    fn keeps_link_text() {
+        assert_eq!(
+            clean("See [the docs](https://example.com/docs) here", "docs"),
+            ("See the docs here".into(), "docs".into())
+        );
+        assert_eq!(
+            clean("![alt text](a.png) 2 * 3", "alt"),
+            ("alt text 2 * 3".into(), "alt".into())
+        );
+    }
+
+    #[test]
+    fn strips_block_markers() {
+        assert_eq!(
+            clean("## Plan\n1. First step\n- needle item\n> quoted", "needle"),
+            ("Plan First step needle item quoted".into(), "needle".into())
+        );
+    }
+
+    #[test]
+    fn preserves_unicode_boundaries() {
+        assert_eq!(
+            clean("**中文** 🙂 `needle`", "中文"),
+            ("中文 🙂 needle".into(), "中文".into())
+        );
+        assert_eq!(
+            clean("**中文** 🙂 `needle`", "🙂"),
+            ("中文 🙂 needle".into(), "🙂".into())
+        );
+    }
+
+    #[test]
+    fn falls_back_inside_syntax() {
+        let snippet = "See [the docs](https://example.com/docs) here";
+        assert_eq!(
+            clean(snippet, "example"),
+            (snippet.into(), "example".into())
+        );
+    }
+}
