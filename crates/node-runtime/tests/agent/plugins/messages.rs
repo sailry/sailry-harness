@@ -155,6 +155,26 @@ async fn states_each_part_once_per_conversation() {
 }
 
 #[tokio::test]
+async fn keeps_distinct_substring_parts() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
+        install_source(&fixture, true, PARTS).await;
+        let (latest, total) = turn(&fixture, &server, "parts:alpha extended").await;
+        assert!(latest.contains("Fixture part alpha extended"), "{latest}");
+        assert_eq!(total, 1);
+        let (latest, total) = turn(&fixture, &server, "parts:alpha").await;
+        assert!(latest.contains("Fixture part alpha"), "{latest}");
+        assert!(!latest.contains("Fixture part alpha extended"), "{latest}");
+        assert_eq!(total, 2);
+        let (_, total) = turn(&fixture, &server, "parts:alpha extended|alpha").await;
+        assert_eq!(total, 2);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn keeps_system_prompt_across_part_changes() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;

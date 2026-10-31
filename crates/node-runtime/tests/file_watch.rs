@@ -227,6 +227,15 @@ async fn reconnects_and_revokes() {
     let path = directory.path().join("node");
     let root = directory.path().join("project");
     std::fs::create_dir(&root).unwrap();
+    let repository = git2::Repository::init(&root).unwrap();
+    repository.set_head("refs/heads/main").unwrap();
+    let tree = repository
+        .find_tree(repository.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    let signature = git2::Signature::now("Fixture", "fixture@example.test").unwrap();
+    let commit = repository
+        .commit(Some("HEAD"), &signature, &signature, "Initial", &tree, &[])
+        .unwrap();
     let node = Node::start_empty(&path).await.unwrap();
     let local = Client::new(node.local());
     local
@@ -251,18 +260,24 @@ async fn reconnects_and_revokes() {
         .unwrap();
     let invitation = node.link().invite().unwrap();
     let address = controller.handle().pair(invitation.ticket()).await.unwrap();
-    let client = Client::new(controller.handle().remote(address));
+    let transport = controller.handle().remote(address);
+    let client = Client::new(transport.clone());
     let (sender, mut updates) = watch::channel(FileView::default());
+    let observer = Client::new(transport);
     let task = tokio::spawn(async move {
-        client
-            .watch_files(worktree, sender, CancellationToken::new())
+        observer
+            .watch_repository(worktree, sender, CancellationToken::new())
             .await
     });
     wait(&mut updates, |view| view.connected).await;
     let revision = updates.borrow().revision;
+    let references = updates.borrow().references;
     node.shutdown().await.unwrap();
     wait(&mut updates, |view| !view.connected && view.error.is_some()).await;
     std::fs::write(root.join("offline.txt"), "changed while disconnected").unwrap();
+    repository
+        .branch("offline", &repository.find_commit(commit).unwrap(), false)
+        .unwrap();
     let node = Node::start_empty_with_network(&path, NetworkScope::Direct(socket))
         .await
         .unwrap();
@@ -270,6 +285,22 @@ async fn reconnects_and_revokes() {
         view.connected && view.revision > revision
     })
     .await;
+    assert!(updates.borrow().references > references);
+    let Output::GitBranches(branches) = client
+        .execute(client.prepare(Command::ListGitBranches { worktree }))
+        .await
+        .unwrap()
+    else {
+        panic!("branches expected");
+    };
+    assert_eq!(branches.current.as_deref(), Some("main"));
+    assert!(
+        branches
+            .entries
+            .iter()
+            .any(|branch| branch.name == "offline")
+    );
+    assert_eq!(repository.head().unwrap().target(), Some(commit));
     node.link()
         .set_trust(
             sailry_protocol::NodeId(*controller.handle().address().id.as_bytes()),

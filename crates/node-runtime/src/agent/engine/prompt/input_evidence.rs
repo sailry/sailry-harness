@@ -125,14 +125,9 @@ pub(crate) fn inputs() -> (Input, Input) {
     let original = serde_json::to_value(&records).unwrap();
     let owners = owners::collect(&records);
     let system = "Fixed fixture system instructions".to_owned();
-    let mut context = super::context(
-        &owners
-            .parts()
-            .into_iter()
-            .map(|(_, part)| part)
-            .collect::<Vec<_>>(),
-    )
-    .unwrap();
+    let parts: Vec<_> = owners.parts().into_iter().map(|(_, part)| part).collect();
+    let owned: Vec<_> = parts.iter().map(String::as_str).collect();
+    let mut context = super::contexts::message(&parts, &owned).unwrap();
     context.id = Some("fixture-turn-context".into());
     context.created = 0;
     messages.push(context);
@@ -212,7 +207,8 @@ fn keeps_context_after_tool_pairs() {
                 ),
             ]);
         }
-        let tail = super::context(&["CURRENT_CONTEXT_MARKER 中文 🙂".into()]).unwrap();
+        let tail =
+            super::contexts::message(&["CURRENT_CONTEXT_MARKER 中文 🙂".into()], &[]).unwrap();
         let expected = tail.as_concat_text();
         messages.push(tail);
         for (index, message) in messages.iter_mut().enumerate() {

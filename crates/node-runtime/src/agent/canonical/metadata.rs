@@ -271,6 +271,17 @@ pub(crate) struct OperationNotes {
     pub delivered_subagent: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cancelled_subagents: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<PromptContext>,
+}
+
+/// Digests of the exact parts appended by the prompt operation. State preserves
+/// part boundaries; retained identities cover only parts present in this message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PromptContext {
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

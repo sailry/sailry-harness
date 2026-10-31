@@ -34,6 +34,42 @@ async fn database() -> (turso::Database, Connection) {
 }
 
 #[tokio::test]
+async fn preserves_prompt_context() {
+    let (_database, db) = database().await;
+    for retained in [vec![], vec!["part-one".to_owned(), "part-two".to_owned()]] {
+        let context = PromptContext {
+            state: "session-state".into(),
+            retained,
+        };
+        let mut message = gdk::Message::user()
+            .with_generated_id()
+            .with_text("<turn-context>\nEnvironment\n\nPart\n</turn-context>")
+            .with_metadata(gdk::MessageMetadata::agent_only().with_turn_context());
+        message
+            .metadata
+            .set_operation_note("prompt", "context", json!(context));
+        let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
+            .await
+            .unwrap();
+        let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+        assert_eq!(
+            stored
+                .metadata
+                .runtime
+                .as_ref()
+                .unwrap()
+                .notes
+                .as_ref()
+                .unwrap()
+                .context
+                .as_ref(),
+            Some(&context)
+        );
+        assert_eq!(project(&db, &stored).await.unwrap().unwrap(), message);
+    }
+}
+
+#[tokio::test]
 async fn preserves_call_metadata() {
     let (_database, db) = database().await;
     let mut message = gdk::Message::assistant()

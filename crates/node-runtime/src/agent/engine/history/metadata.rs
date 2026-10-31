@@ -26,6 +26,10 @@ pub(super) fn capture(source: &gdk::MessageMetadata, created: i64) -> Metadata {
                     .collect()
             })
             .unwrap_or_default(),
+        context: source
+            .operation_note("prompt", "context")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok()),
     };
     Metadata {
         runtime: Some(Runtime {
@@ -42,7 +46,8 @@ pub(super) fn capture(source: &gdk::MessageMetadata, created: i64) -> Metadata {
             inference,
             notes: (notes.empty_response
                 || notes.delivered_subagent.is_some()
-                || !notes.cancelled_subagents.is_empty())
+                || !notes.cancelled_subagents.is_empty()
+                || notes.context.is_some())
             .then_some(notes),
             logs: source.operation_logs.clone(),
         }),
@@ -106,6 +111,9 @@ pub(super) fn project(record: &Record) -> gdk::MessageMetadata {
                     "cancelled",
                     json!(notes.cancelled_subagents),
                 );
+            }
+            if let Some(context) = &notes.context {
+                output.set_operation_note("prompt", "context", json!(context));
             }
         }
     }

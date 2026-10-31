@@ -63,7 +63,7 @@ async fn receive(
 }
 
 #[tokio::test]
-async fn retains_references_across_reconnect() {
+async fn invalidates_references_after_reconnect() {
     for repository in [false, true] {
         let worktree = WorktreeId::new();
         let topic = if repository {
@@ -80,7 +80,7 @@ async fn retains_references_across_reconnect() {
         };
         let feed = Arc::new(Feed {
             topic,
-            updates: watch::channel(snapshot(7)).0,
+            updates: watch::channel(snapshot(1)).0,
         });
         let client = Client::new(feed.clone());
         let (updates, mut receiver) = watch::channel(FileView::default());
@@ -97,6 +97,9 @@ async fn retains_references_across_reconnect() {
         });
         let initial = receive(&mut receiver, |view| view.connected).await;
         assert_eq!(initial.references, 1);
+        let _ = feed.updates.send_replace(snapshot(1));
+        let repeated = receive(&mut receiver, |view| view.revision > initial.revision).await;
+        assert_eq!(repeated.references, initial.references);
         let _ = feed.updates.send_replace(Err(Fault::new(
             ErrorCode::Unavailable,
             "connection interrupted",
@@ -105,14 +108,14 @@ async fn retains_references_across_reconnect() {
             !view.connected && view.error.is_some()
         })
         .await;
-        let _ = feed.updates.send_replace(snapshot(7));
+        let _ = feed.updates.send_replace(snapshot(1));
         let restored = receive(&mut receiver, |view| view.connected).await;
-        assert!(restored.revision > initial.revision);
-        assert_eq!(restored.references, initial.references);
-        let _ = feed.updates.send_replace(snapshot(7));
+        assert!(restored.revision > repeated.revision);
+        assert_eq!(restored.references, repeated.references + 1);
+        let _ = feed.updates.send_replace(snapshot(1));
         let unchanged = receive(&mut receiver, |view| view.revision > restored.revision).await;
         assert_eq!(unchanged.references, restored.references);
-        let _ = feed.updates.send_replace(snapshot(8));
+        let _ = feed.updates.send_replace(snapshot(2));
         let changed = receive(&mut receiver, |view| view.revision > unchanged.revision).await;
         assert_eq!(changed.references, unchanged.references + 1);
         stop.cancel();

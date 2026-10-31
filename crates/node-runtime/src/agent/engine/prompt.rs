@@ -14,16 +14,14 @@ use crate::{
 use async_trait::async_trait;
 use goose_agent::{
     inference::{InferenceRequestPreparer, PreparedInferenceRequest},
-    operation::{InferenceInput, Operation, messages_since_kickoff},
+    operation::{InferenceInput, Operation},
 };
-use goose_provider_types::conversation::{
-    Conversation,
-    message::{Message, MessageMetadata},
-};
+use goose_provider_types::conversation::Conversation;
 use sailry_link::CancellationToken;
 use sailry_protocol::conversation::observation::CategoryKind;
 use std::{collections::BTreeSet, sync::Arc};
 
+mod contexts;
 mod owners;
 
 pub(super) struct Prompt {
@@ -126,7 +124,8 @@ impl InferenceRequestPreparer<Session> for Preparer {
             .chain(self.parts.iter().map(String::as_str))
             .collect();
         let mut input = input;
-        input.moim_parts = pending(conversation, &owned, std::mem::take(&mut input.moim_parts));
+        input.moim_parts =
+            contexts::pending(conversation, &owned, std::mem::take(&mut input.moim_parts));
         let mut contexts: Vec<_> = conversation
             .messages()
             .iter()
@@ -174,7 +173,7 @@ impl InferenceRequestPreparer<Session> for Preparer {
                 }
             }
         }
-        Ok(prepare(input, &loaded, &self.deferred))
+        Ok(prepare(input, &loaded, &self.deferred, &owned))
     }
 }
 
@@ -214,6 +213,7 @@ fn prepare(
     input: InferenceInput,
     loaded: &[String],
     deferred: &BTreeSet<String>,
+    owned: &[&str],
 ) -> PreparedInferenceRequest {
     let mut tools = Vec::new();
     let mut additional = std::collections::BTreeMap::new();
@@ -237,74 +237,10 @@ fn prepare(
     PreparedInferenceRequest {
         system_prompt: parts.join("\n\n"),
         tools,
-        additional_messages: context(&input.moim_parts).into_iter().collect(),
-    }
-}
-
-/// Parts for a new persisted turn context, or none when history already holds
-/// them. As in Goose, each turn states the session once and repeats it only when
-/// it changes, so each request extends the previous one. Owned parts, retained
-/// owner context and plugin parts, repeat only after compaction hides their
-/// earlier copy.
-fn pending(conversation: &Conversation, owned: &[&str], parts: Vec<String>) -> Vec<String> {
-    let persisted = |message: &&Message| message.is_turn_context() && message.is_agent_visible();
-    let visible: Vec<_> = conversation
-        .messages()
-        .iter()
-        .filter(persisted)
-        .map(Message::as_concat_text)
-        .collect();
-    let last = messages_since_kickoff(conversation)
-        .ok()
-        .and_then(|turn| turn.iter().rev().find(persisted))
-        .map(Message::as_concat_text);
-    let parts: Vec<_> = parts
-        .into_iter()
-        .filter(|part| {
-            !owned.contains(&part.as_str())
-                || !visible.iter().any(|text| text.contains(part.as_str()))
-        })
-        .collect();
-    let Some(candidate) = context(&parts).map(|message| message.as_concat_text()) else {
-        return Vec::new();
-    };
-    let changed = last.is_none_or(|last| state(&last, owned) != state(&candidate, owned));
-    if changed || parts.iter().any(|part| owned.contains(&part.as_str())) {
-        parts
-    } else {
-        Vec::new()
-    }
-}
-
-/// Session state of a context, without its owned parts, which follow it.
-fn state<'a>(text: &'a str, owned: &[&str]) -> &'a str {
-    let text = text.strip_suffix("\n</turn-context>").unwrap_or(text);
-    let end = owned
-        .iter()
-        .filter_map(|part| text.find(&format!("\n{part}")))
-        .chain(text.find(&format!("\n{}", owners::PREFIX)))
-        .min()
-        .unwrap_or(text.len());
-    text[..end].trim_end_matches('\n')
-}
-
-/// Turn state as an agent-only message. GDK returns it as an effect and the
-/// canonical writer persists it, so later requests repeat the same bytes.
-fn context(parts: &[String]) -> Option<Message> {
-    Context::new(
-        parts
-            .iter()
-            .map(|text| Source {
-                kind: CategoryKind::Injected,
-                text: text.clone(),
-            })
+        additional_messages: contexts::message(&input.moim_parts, owned)
+            .into_iter()
             .collect(),
-    )
-    .map(|context| {
-        Message::user()
-            .with_text(context.text())
-            .with_metadata(MessageMetadata::agent_only().with_turn_context())
-    })
+    }
 }
 
 #[cfg(test)]
@@ -328,6 +264,7 @@ pub(crate) async fn prepared(session: &Session) -> PreparedInferenceRequest {
         },
         &[],
         &BTreeSet::new(),
+        &[],
     )
 }
 
@@ -345,11 +282,12 @@ mod tests {
             ..Default::default()
         };
         let deferred = ["alpha".into(), "zeta".into()].into();
-        let first = prepare(declarations(), &["zeta".into()], &deferred);
+        let first = prepare(declarations(), &["zeta".into()], &deferred, &[]);
         let second = prepare(
             declarations(),
             &["zeta".into(), "alpha".into(), "zeta".into()],
             &deferred,
+            &[],
         );
         assert_eq!(second.tools[..first.tools.len()], first.tools);
         assert_eq!(
@@ -372,7 +310,7 @@ mod tests {
             moim_parts: vec!["Current task".into()],
         };
         let deferred = ["loaded".into(), "deferred".into()].into();
-        let request = prepare(declarations(), &["loaded".into()], &deferred);
+        let request = prepare(declarations(), &["loaded".into()], &deferred, &[]);
         assert_eq!(
             request
                 .tools
@@ -391,155 +329,8 @@ mod tests {
             context.as_concat_text(),
             "<turn-context>\nCurrent task\n</turn-context>"
         );
-        let request = prepare(declarations(), &[], &deferred);
+        let request = prepare(declarations(), &[], &deferred, &[]);
         assert_eq!(request.tools.len(), 1);
         assert_eq!(request.tools[0].name, "always");
-    }
-
-    mod contexts {
-        use super::*;
-
-        const ENVIRONMENT: &str = "Session environment";
-        const SKILL: &str = "Retained owner context: skill:fixture:SKILL.md\nBody";
-        const PLAN: &str = "Retained owner context: plan\nSteps";
-        const MEMORY: &str = "Relevant memory: {\"id\":\"one\"}";
-        const OTHER: &str = "Relevant memory: {\"id\":\"two\"}";
-
-        fn persisted(parts: &[&str]) -> Message {
-            context(
-                &parts
-                    .iter()
-                    .map(|part| (*part).to_owned())
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap()
-        }
-
-        fn select(messages: Vec<Message>, parts: &[&str]) -> Vec<String> {
-            pending(
-                &Conversation::new_unvalidated(messages),
-                &[SKILL, PLAN, MEMORY, OTHER],
-                parts.iter().map(|part| (*part).to_owned()).collect(),
-            )
-        }
-
-        #[test]
-        fn starts_with_every_part() {
-            assert_eq!(
-                select(
-                    vec![Message::user().with_text("Task")],
-                    &[ENVIRONMENT, SKILL]
-                ),
-                [ENVIRONMENT, SKILL]
-            );
-            assert!(select(vec![Message::user().with_text("Task")], &[]).is_empty());
-        }
-
-        #[test]
-        fn skips_unchanged_turn() {
-            let history = vec![
-                Message::user().with_text("Task"),
-                persisted(&[ENVIRONMENT, SKILL]),
-                Message::assistant().with_text("Working"),
-            ];
-            assert!(select(history.clone(), &[ENVIRONMENT, SKILL]).is_empty());
-            assert_eq!(
-                select(history.clone(), &["Moved environment", SKILL]),
-                ["Moved environment"]
-            );
-            assert_eq!(
-                select(history, &[ENVIRONMENT, SKILL, PLAN]),
-                [ENVIRONMENT, PLAN]
-            );
-        }
-
-        #[test]
-        fn states_each_turn_once() {
-            let history = vec![
-                Message::user().with_text("Task"),
-                persisted(&[ENVIRONMENT, SKILL]),
-                Message::assistant().with_text("Done"),
-                Message::user().with_text("Next task"),
-            ];
-            assert_eq!(select(history, &[ENVIRONMENT, SKILL]), [ENVIRONMENT]);
-        }
-
-        #[test]
-        fn keeps_state_beside_owner_parts() {
-            let history = vec![
-                Message::user().with_text("Task"),
-                persisted(&[ENVIRONMENT, SKILL]),
-                persisted(&[ENVIRONMENT, PLAN]),
-            ];
-            assert!(select(history, &[ENVIRONMENT, SKILL, PLAN]).is_empty());
-            let owners = vec![Message::user().with_text("Task"), persisted(&[SKILL])];
-            assert!(select(owners.clone(), &[SKILL]).is_empty());
-            assert_eq!(select(owners, &[ENVIRONMENT, SKILL]), [ENVIRONMENT]);
-        }
-
-        #[test]
-        fn states_plugin_parts_once_per_conversation() {
-            let history = vec![
-                Message::user().with_text("Task"),
-                persisted(&[ENVIRONMENT, MEMORY]),
-                Message::assistant().with_text("Done"),
-                Message::user().with_text("Next task"),
-            ];
-            assert_eq!(
-                select(history.clone(), &[ENVIRONMENT, MEMORY]),
-                [ENVIRONMENT]
-            );
-            assert_eq!(
-                select(history.clone(), &[ENVIRONMENT, MEMORY, OTHER]),
-                [ENVIRONMENT, OTHER]
-            );
-            assert_eq!(
-                select(history, &[ENVIRONMENT, OTHER, MEMORY]),
-                [ENVIRONMENT, OTHER]
-            );
-        }
-
-        #[test]
-        fn keeps_state_beside_plugin_parts() {
-            let history = vec![
-                Message::user().with_text("Task"),
-                persisted(&[ENVIRONMENT, MEMORY]),
-            ];
-            assert!(select(history.clone(), &[ENVIRONMENT, MEMORY]).is_empty());
-            assert_eq!(
-                select(history.clone(), &[ENVIRONMENT, MEMORY, OTHER]),
-                [ENVIRONMENT, OTHER]
-            );
-            assert_eq!(
-                select(history, &["Moved environment", MEMORY]),
-                ["Moved environment"]
-            );
-        }
-
-        #[test]
-        fn restores_hidden_plugin_parts() {
-            let mut hidden = persisted(&[ENVIRONMENT, MEMORY]);
-            hidden.metadata = hidden.metadata.with_agent_invisible();
-            assert_eq!(
-                select(
-                    vec![Message::user().with_text("Task"), hidden],
-                    &[ENVIRONMENT, MEMORY]
-                ),
-                [ENVIRONMENT, MEMORY]
-            );
-        }
-
-        #[test]
-        fn restores_hidden_owner_parts() {
-            let mut hidden = persisted(&[ENVIRONMENT, SKILL]);
-            hidden.metadata = hidden.metadata.with_agent_invisible();
-            assert_eq!(
-                select(
-                    vec![Message::user().with_text("Task"), hidden],
-                    &[ENVIRONMENT, SKILL]
-                ),
-                [ENVIRONMENT, SKILL]
-            );
-        }
     }
 }

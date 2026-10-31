@@ -89,9 +89,10 @@ impl Client {
         let _closing = Closing(updates.clone());
         let mut revision = 0u64;
         let mut references = 0u64;
-        let mut previous_references = None;
         let mut delay = Duration::from_millis(250);
         loop {
+            // A new Node watcher can restart its reference counter after reconnect.
+            let mut previous_references = None;
             let stream = tokio::select! {
                 biased;
                 _ = stop.cancelled() => return Ok(()),

@@ -66,6 +66,14 @@ async fn reconciles_changed_entries_without_restarting_turns() {
                 let server = Server::memory_tools(calls, gate.clone()).await;
                 let fixture = fixture(remote, &server).await;
                 install(&fixture).await;
+                let manifest: Value = serde_json::from_slice(
+                    &std::fs::read(fixture.root.join("memory/plugin.json")).unwrap(),
+                )
+                .unwrap();
+                let policy = manifest["extensions"]["dev.sailry.platform"]["instructions"]
+                    .as_str()
+                    .unwrap();
+                assert!(policy.starts_with(POLICY));
                 assert_eq!(fixture.session.config.permission, Permission::Ask);
                 let original = support::put(
                     &fixture.client,
@@ -170,13 +178,24 @@ async fn reconciles_changed_entries_without_restarting_turns() {
                         "Keep the original project boundary; preserve the concurrent fact; keep tests runnable"
                     );
                     assert_eq!(outputs[2]["updated"][0]["revision"], 3);
-                    let request = server.requests.lock().unwrap().last().unwrap().to_string();
-                    assert!(request.contains("changed/latest/pending is not saved"));
-                    assert!(
-                        request
-                            .contains("reread and reconcile automatically, preserving new facts")
-                    );
-                    assert!(request.contains("preserve the concurrent fact"));
+                }
+                {
+                    let requests = server.requests.lock().unwrap();
+                    let system = system_text(&requests[0]);
+                    assert!(system.contains(policy));
+                    for request in requests.iter() {
+                        assert_eq!(system_text(request), system);
+                        assert!(!turn_context(request).contains(policy));
+                    }
+                    if !deleted {
+                        assert!(
+                            requests
+                                .last()
+                                .unwrap()
+                                .to_string()
+                                .contains("preserve the concurrent fact")
+                        );
+                    }
                 }
                 fixture.node.shutdown().await.unwrap();
                 fixture.controller.close().await.unwrap();
