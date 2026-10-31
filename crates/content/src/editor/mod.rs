@@ -67,6 +67,8 @@ pub struct State {
     composition: Option<Composition>,
     stored: Vec<Mark>,
     layouts: BlockLayouts,
+    /// Diagrams, formulas, charts and HTML, prepared as the reader prepares them.
+    visuals: markdown::visuals::state::Cache,
     scroll: ScrollHandle,
     focus: FocusHandle,
     dragging: bool,
@@ -119,6 +121,7 @@ impl State {
             composition: None,
             stored: Vec::new(),
             layouts: BlockLayouts::default(),
+            visuals: Default::default(),
             scroll: ScrollHandle::new(),
             focus: cx.focus_handle(),
             dragging: false,
@@ -379,6 +382,11 @@ impl State {
             .absolute()
             .size_0()
         });
+        self.visuals
+            .prepare(&self.doc, None, None, window, cx, |state| {
+                &mut state.visuals
+            });
+        let visuals = self.visuals.images();
         let content = markdown::with_selection(
             &self.doc,
             Editing {
@@ -387,6 +395,8 @@ impl State {
                 layouts: Some(&self.layouts),
                 // Document clicks place the caret, including linked text.
                 on_link: Some(Rc::new(|_, _, _| {})),
+                visuals: Some(&visuals),
+                reveal: true,
                 ..Editing::default()
             },
             window,

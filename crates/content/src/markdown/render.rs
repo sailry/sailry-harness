@@ -119,6 +119,9 @@ pub struct Editing<'a> {
     pub annotations: &'a [Annotation],
     pub visuals: Option<&'a super::visuals::Images>,
     pub on_math_link: Option<OnMathLink>,
+    /// Editors show a visual block's source while the selection reaches it,
+    /// and its rendered form elsewhere, where a click places the caret in it.
+    pub reveal: bool,
 }
 
 impl Default for Editing<'_> {
@@ -142,6 +145,7 @@ impl Default for Editing<'_> {
             annotations: &[],
             visuals: None,
             on_math_link: None,
+            reveal: false,
         }
     }
 }
@@ -165,6 +169,9 @@ struct Frames {
     /// A task block's checkbox, which is not its marker column: the column is
     /// gutter either side of the box, and a click there places a caret.
     checkboxes: Vec<(usize, Bounds<Pixels>)>,
+    /// Rendered visual blocks in an editor. They paint no text rows, so the
+    /// caret reaches their source through these boxes.
+    visuals: Vec<(usize, Bounds<Pixels>)>,
 }
 
 /// One shaped run and the slice of its part it covers.
@@ -197,6 +204,13 @@ impl BlockLayouts {
     /// rather than doing nothing.
     pub fn hit(&self, point: Point<Pixels>) -> Option<Cursor> {
         let frames = self.0.borrow();
+        if let Some((block, _)) = frames
+            .visuals
+            .iter()
+            .find(|(_, bounds)| bounds.contains(&point))
+        {
+            return Some(Cursor::new(*block, Part::Code, 0));
+        }
         if let Some(row) = frames.rows.iter().find(|row| row.bounds.contains(&point)) {
             return Some(cursor_in_row(&frames, row, point.x));
         }
@@ -264,9 +278,23 @@ impl BlockLayouts {
                 })
             })?;
         let next = match down {
-            true => frames.rows.get(ix + 1)?,
-            false => frames.rows.get(ix.checked_sub(1)?)?,
+            true => frames.rows.get(ix + 1),
+            false => ix.checked_sub(1).and_then(|ix| frames.rows.get(ix)),
         };
+        // A rendered visual between the two rows is the next stop; entering
+        // it shows its source.
+        let visual = frames
+            .visuals
+            .iter()
+            .filter(|(block, _)| match (down, next) {
+                (true, next) => *block > at.block && next.is_none_or(|row| *block < row.block),
+                (false, next) => *block < at.block && next.is_none_or(|row| *block > row.block),
+            })
+            .min_by_key(|(block, _)| if down { *block } else { usize::MAX - *block });
+        if let Some((block, bounds)) = visual {
+            return Some((Cursor::new(*block, Part::Code, 0), bounds.origin.y));
+        }
+        let next = next?;
         Some((cursor_in_row(&frames, next, from.x), next.bounds.origin.y))
     }
 
@@ -332,13 +360,17 @@ impl BlockLayouts {
         self.0.borrow_mut().checkboxes.push((ix, bounds));
     }
 
+    fn record_visual(&self, ix: usize, bounds: Bounds<Pixels>) {
+        self.0.borrow_mut().visuals.push((ix, bounds));
+    }
+
     fn clear(&self) {
         let mut frames = self.0.borrow_mut();
         frames.texts.clear();
         frames.rows.clear();
         frames.blocks.clear();
-
         frames.checkboxes.clear();
+        frames.visuals.clear();
     }
 }
 
@@ -423,6 +455,7 @@ struct Overlay<'a> {
     annotations: &'a [Annotation],
     visuals: Option<&'a super::visuals::Images>,
     on_math_link: Option<&'a OnMathLink>,
+    reveal: bool,
 }
 
 impl<'a> Overlay<'a> {
@@ -479,6 +512,12 @@ impl<'a> Overlay<'a> {
         (from < to).then_some(from..to.min(len))
     }
 
+    /// Whether an editor shows this visual block's source: the caret or the
+    /// selection's other end sits in it.
+    fn shows_source(&self) -> bool {
+        shows_source(self.reveal, self.selection, self.block)
+    }
+
     /// Whether a block painting something a caret cannot enter — a rule, a
     /// picture — falls inside the selection, and so should show that it is
     /// going to be taken.
@@ -489,6 +528,14 @@ impl<'a> Overlay<'a> {
         let (start, end) = selection.ordered();
         start.block < self.block && self.block < end.block
     }
+}
+
+/// Whether an editor (`reveal`) shows block `ix` as source rather than its
+/// rendered visual: either end of the selection sits in it.
+fn shows_source(reveal: bool, selection: Option<Selection>, ix: usize) -> bool {
+    reveal
+        && selection
+            .is_some_and(|selection| selection.head.block == ix || selection.anchor.block == ix)
 }
 
 /// Render a document with a caret and a selection in it.
@@ -533,6 +580,7 @@ pub fn with_block(
         annotations,
         visuals,
         on_math_link,
+        reveal,
     } = editing;
     // Refilled every frame, in paint order — and emptied in *prepaint*, not
     // here. An editor reads last frame's positions while building this frame's
@@ -602,6 +650,7 @@ pub fn with_block(
             annotations,
             visuals,
             on_math_link: on_math_link.as_ref(),
+            reveal,
         };
         // The block's own box, recorded for a gutter handle and a drop target.
         // A rule and an image hold no text, so a layout would not find them.
@@ -853,8 +902,25 @@ fn block_element(
         BlockKind::Code {
             language: Some(language),
             code,
-        } if language == "chart" && overlay.visuals.is_some() => {
-            super::charts::render(&code.text, overlay.block, theme, cx).unwrap_or_else(|| {
+        } if language == "chart" && overlay.visuals.is_some() && !overlay.shows_source() => {
+            super::charts::render(&code.text, overlay.block, theme, cx)
+                .map(|chart| caret_target(chart, overlay, theme))
+                .unwrap_or_else(|| {
+                    code_block(
+                        Some(language),
+                        &code.text,
+                        overlay.at(Part::Code),
+                        typography,
+                        theme,
+                        cx,
+                    )
+                })
+        }
+        BlockKind::Code {
+            language: Some(language),
+            code,
+        } if language == "mermaid" && !overlay.shows_source() => {
+            visual(super::visuals::Kind::Mermaid, &code.text, overlay, theme).unwrap_or_else(|| {
                 code_block(
                     Some(language),
                     &code.text,
@@ -865,13 +931,19 @@ fn block_element(
                 )
             })
         }
-        BlockKind::Code {
-            language: Some(language),
-            code,
-        } if language == "mermaid" => visual(super::visuals::Kind::Mermaid, &code.text, overlay)
+        BlockKind::Math(code) => (!overlay.shows_source())
+            .then(|| {
+                visual(
+                    super::visuals::Kind::DisplayMath,
+                    &code.text,
+                    overlay,
+                    theme,
+                )
+            })
+            .flatten()
             .unwrap_or_else(|| {
                 code_block(
-                    Some(language),
+                    None,
                     &code.text,
                     overlay.at(Part::Code),
                     typography,
@@ -879,10 +951,16 @@ fn block_element(
                     cx,
                 )
             }),
-        BlockKind::Math(code) => visual(super::visuals::Kind::DisplayMath, &code.text, overlay)
+        // A reader shows nothing for comments; an editor keeps them reachable.
+        BlockKind::Html(code) if !overlay.reveal && super::html::hidden(&code.text) => {
+            div().into_any_element()
+        }
+        BlockKind::Html(code) => (!overlay.shows_source())
+            .then(|| visual(super::visuals::Kind::Html, &code.text, overlay, theme))
+            .flatten()
             .unwrap_or_else(|| {
                 code_block(
-                    None,
+                    Some("html"),
                     &code.text,
                     overlay.at(Part::Code),
                     typography,
@@ -1056,7 +1134,9 @@ fn text_element(
     theme: &Theme,
     _cx: &App,
 ) -> AnyElement {
+    // Formula images hold no caret, so an editor keeps inline math as text.
     if let Some(images) = overlay.visuals
+        && !overlay.reveal
         && text
             .marks
             .iter()
@@ -1082,13 +1162,22 @@ fn text_element(
     painted_text(flat, text.text.len(), size, line_height, overlay, theme)
 }
 
-fn visual(kind: super::visuals::Kind, source: &str, overlay: Overlay) -> Option<AnyElement> {
+fn visual(
+    kind: super::visuals::Kind,
+    source: &str,
+    overlay: Overlay,
+    theme: &Theme,
+) -> Option<AnyElement> {
     let prepared = overlay.visuals?.get(&(kind, source.to_owned()))?;
-    if kind == super::visuals::Kind::Mermaid {
+    if matches!(
+        kind,
+        super::visuals::Kind::Mermaid | super::visuals::Kind::Html
+    ) {
         // Preserve the authored diagram's readable native scale. Kit scrolls
-        // wide diagrams instead of shrinking every label to fit the column.
+        // wide diagrams and HTML instead of shrinking every label to fit.
         let image_id = format!("markdown-diagram-image-{}", overlay.block);
-        return Some(
+        let centered = kind == super::visuals::Kind::Mermaid;
+        return Some(caret_target(
             div()
                 .id(("diagram-viewport", overlay.block))
                 .test_support()
@@ -1100,7 +1189,7 @@ fn visual(kind: super::visuals::Kind, source: &str, overlay: Overlay) -> Option<
                         .h(px(prepared.height))
                         .min_w_0()
                         .flex()
-                        .justify_center()
+                        .when(centered, |row| row.justify_center())
                         .child(
                             img(prepared.image.clone())
                                 .debug_selector(move || image_id.clone())
@@ -1113,9 +1202,11 @@ fn visual(kind: super::visuals::Kind, source: &str, overlay: Overlay) -> Option<
                         .id(("diagram-scroll", overlay.block)),
                 )
                 .into_any_element(),
-        );
+            overlay,
+            theme,
+        ));
     }
-    Some(
+    Some(caret_target(
         div()
             .w_full()
             .min_w_0()
@@ -1129,7 +1220,36 @@ fn visual(kind: super::visuals::Kind, source: &str, overlay: Overlay) -> Option<
                     .object_fit(ObjectFit::Contain),
             )
             .into_any_element(),
-    )
+        overlay,
+        theme,
+    ))
+}
+
+/// A rendered visual in an editor: recorded so a click or a vertical step
+/// lands in its source, and washed when a selection spans it.
+fn caret_target(element: AnyElement, overlay: Overlay, theme: &Theme) -> AnyElement {
+    if !overlay.reveal {
+        return element;
+    }
+    let ix = overlay.block;
+    div()
+        .relative()
+        .w_full()
+        .min_w_0()
+        .when(overlay.covers_block(), |el| {
+            el.rounded(px(theme.radius)).bg(theme.selection)
+        })
+        .children(overlay.layouts.map(|layouts| {
+            let layouts = layouts.clone();
+            canvas(
+                move |bounds, _, _| layouts.record_visual(ix, bounds),
+                |_, _, _, _| (),
+            )
+            .absolute()
+            .size_full()
+        }))
+        .child(element)
+        .into_any_element()
 }
 
 /// Shaped inline content with the editing overlay under it: the selection, the
@@ -1979,3 +2099,6 @@ fn table(
         .child(inner)
         .into_any_element()
 }
+
+#[cfg(test)]
+mod tests;

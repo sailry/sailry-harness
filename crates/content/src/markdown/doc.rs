@@ -108,7 +108,10 @@ impl Block {
                 | BlockKind::Quote { text, .. },
                 Part::Body,
             ) => Some(text),
-            (BlockKind::Code { code, .. } | BlockKind::Math(code), Part::Code) => Some(code),
+            (
+                BlockKind::Code { code, .. } | BlockKind::Math(code) | BlockKind::Html(code),
+                Part::Code,
+            ) => Some(code),
             (BlockKind::Image { alt, .. }, Part::Caption) => Some(alt),
             (BlockKind::Table { header, .. }, Part::Cell { row: 0, column }) => header.get(column),
             (BlockKind::Table { rows, .. }, Part::Cell { row, column }) => {
@@ -129,7 +132,10 @@ impl Block {
                 | BlockKind::Quote { text, .. },
                 Part::Body,
             ) => Some(text),
-            (BlockKind::Code { code, .. } | BlockKind::Math(code), Part::Code) => Some(code),
+            (
+                BlockKind::Code { code, .. } | BlockKind::Math(code) | BlockKind::Html(code),
+                Part::Code,
+            ) => Some(code),
             (BlockKind::Image { alt, .. }, Part::Caption) => Some(alt),
             (BlockKind::Table { header, .. }, Part::Cell { row: 0, column }) => {
                 header.get_mut(column)
@@ -150,7 +156,7 @@ impl Block {
             | BlockKind::Ordered { .. }
             | BlockKind::Task { .. }
             | BlockKind::Quote { .. } => vec![Part::Body],
-            BlockKind::Code { .. } | BlockKind::Math(_) => vec![Part::Code],
+            BlockKind::Code { .. } | BlockKind::Math(_) | BlockKind::Html(_) => vec![Part::Code],
             BlockKind::Image { .. } => vec![Part::Caption],
             BlockKind::Table { header, rows, .. } => {
                 let mut parts = Vec::new();
@@ -236,6 +242,10 @@ pub enum BlockKind {
         code: Text,
     },
     Math(Text),
+    /// A raw HTML block, held as the exact source so an unedited document
+    /// writes back byte for byte. Its text is edited like a fence's code; the
+    /// sanitized rendering is a derived picture, never written back.
+    Html(Text),
     /// The caption is the alt text — markdown has one slot, and a reader that
     /// cannot see the picture reads the same words. Like [`BlockKind::Code`]'s,
     /// its marks are unreachable rather than forbidden.
@@ -429,4 +439,15 @@ pub enum Mark {
     /// the document is saved. No width: one among text has no box of its own to
     /// resize, and the `|480` that would say so stays the ordinary text it is.
     Image(String),
+    /// Inline HTML styles with no Markdown spelling: `<u>`, `<mark>`, `<kbd>`,
+    /// `<sub>`, `<sup>` and a color-only `<span>`. They are written back as
+    /// the same tags. Shaped text has one size per run, so sub- and superscript
+    /// keep the body size and paint muted.
+    Underline,
+    Highlight,
+    Key,
+    Subscript,
+    Superscript,
+    /// A CSS color the span was written with, kept as written.
+    Color(String),
 }

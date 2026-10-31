@@ -18,6 +18,7 @@ pub(crate) use math::events;
 use crate::markdown::doc::{
     Align, Block, BlockKind, Container, Doc, Form, Mark, MarkSpan, QuoteKind, Text,
 };
+use crate::markdown::html::Role;
 
 /// The extensions this crate reads. [`crate::editor`] colours with the same set.
 pub(crate) const OPTIONS: Options = Options::ENABLE_TABLES
@@ -115,6 +116,9 @@ struct TextBuilder {
     marks: Vec<MarkSpan>,
     /// Indices into `marks` for the marks still open, innermost last.
     open: Vec<usize>,
+    /// Inline HTML tags still open, and the indices of their marks.
+    tags: super::html::Tags,
+    html: Vec<usize>,
 }
 
 impl TextBuilder {
@@ -153,8 +157,33 @@ impl TextBuilder {
         });
     }
 
+    /// Apply one inline HTML tag; one with no mapped style stays literal.
+    fn html(&mut self, raw: &str) {
+        match self.tags.accept(raw) {
+            Some(Role::Break) => self.text.push('\n'),
+            Some(Role::Open(mark)) => {
+                self.html.push(self.marks.len());
+                let at = self.text.len();
+                self.marks.push(MarkSpan {
+                    range: at..at,
+                    mark,
+                });
+            }
+            Some(Role::Close(at)) => {
+                let ix = self.html.remove(at);
+                self.marks[ix].range.end = self.text.len();
+            }
+            None => self.text.push_str(raw),
+        }
+    }
+
     fn take(&mut self) -> Text {
         self.open.clear();
+        // A tag left open styles the rest of its text, as it does in a browser.
+        for ix in self.html.drain(..) {
+            self.marks[ix].range.end = self.text.len();
+        }
+        self.tags.clear();
         let mut text = normalize(
             &std::mem::take(&mut self.text),
             &std::mem::take(&mut self.marks),
@@ -496,6 +525,8 @@ struct ParseState {
     pending_marker: Option<Marker>,
     heading: Option<u8>,
     code: Option<(Option<String>, String)>,
+    /// The raw source of an open HTML block.
+    html: Option<String>,
     table: Option<TableBuild>,
     /// The event being handled. What a block that owns no inline run — an
     /// empty marker, a rule — is placed from.
@@ -646,9 +677,13 @@ impl ParseState {
                     self.indent(),
                 );
             }
-            // Raw HTML is content, not structure: this model has no HTML node,
-            // so it survives as the literal text the author typed.
-            Event::Html(t) | Event::InlineHtml(t) => self.builder.text.push_str(&t),
+            // A block keeps its exact source; inline tags with a text style
+            // become marks and every other tag stays the literal text typed.
+            Event::Html(t) => match &mut self.html {
+                Some(html) => html.push_str(&t),
+                None => self.builder.text.push_str(&t),
+            },
+            Event::InlineHtml(t) => self.builder.html(&t),
             // Soft and hard breaks are both just a line break in a block —
             // the distinction has no meaning in this model, or in Notion.
             Event::SoftBreak | Event::HardBreak => match &mut self.code {
@@ -685,6 +720,11 @@ impl ParseState {
                     kind: kind.map(QuoteKind::from),
                     at,
                 });
+            }
+            Tag::HtmlBlock => {
+                self.flush_inline();
+                self.flush_marker();
+                self.html = Some(String::new());
             }
             Tag::CodeBlock(kind) => {
                 self.flush_inline();
@@ -771,7 +811,17 @@ impl ParseState {
 
     fn end(&mut self, tag: TagEnd) {
         match tag {
-            TagEnd::Paragraph | TagEnd::HtmlBlock => self.flush_inline(),
+            TagEnd::Paragraph => self.flush_inline(),
+            TagEnd::HtmlBlock => {
+                self.flush_inline();
+                if let Some(html) = self.html.take() {
+                    let indent = self.indent();
+                    // Each line arrives with its newline; the last one belongs
+                    // to the separator, like a fence's.
+                    let html = html.trim_end_matches(['\r', '\n']);
+                    self.push(BlockKind::Html(Text::plain(html)), indent);
+                }
+            }
             TagEnd::Heading(_) => {
                 self.flush_marker();
                 let level = self.heading.take().unwrap_or(1);

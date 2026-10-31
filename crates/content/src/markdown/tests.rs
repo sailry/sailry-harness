@@ -92,6 +92,81 @@ mod parsing {
     }
 }
 
+mod html {
+    use super::*;
+
+    #[test]
+    fn keeps_block_source() {
+        let source = "Intro\n\n<div align=\"center\">\n  <img src=\"logo.png\">\n</div>\n\n<details>\n<summary>More</summary>\n\nBody\n\n</details>\n";
+        let parsed = with_ranges(source);
+        let blocks: Vec<_> = parsed.doc.blocks.iter().map(|block| &block.kind).collect();
+        assert_eq!(blocks.len(), 5, "{blocks:?}");
+        assert!(
+            matches!(blocks[1], BlockKind::Html(text) if text.text == "<div align=\"center\">\n  <img src=\"logo.png\">\n</div>")
+        );
+        assert!(
+            matches!(blocks[2], BlockKind::Html(text) if text.text == "<details>\n<summary>More</summary>")
+        );
+        assert!(matches!(blocks[3], BlockKind::Paragraph(text) if text.text == "Body"));
+        assert!(matches!(blocks[4], BlockKind::Html(text) if text.text == "</details>"));
+        assert_eq!(
+            parsed.doc.blocks[1].parts(),
+            vec![Part::Code],
+            "an HTML block is edited as source"
+        );
+        let reconstructed: String = parsed
+            .block_ranges
+            .iter()
+            .map(|range| &source[range.clone()])
+            .collect();
+        assert_eq!(reconstructed, source);
+    }
+
+    #[test]
+    fn maps_inline_tags_to_marks() {
+        let doc = parse(concat!(
+            "Press <kbd>Ctrl</kbd>+<b>C</b>, H<sub>2</sub>O<br>x<sup>2</sup> <mark>hot</mark> ",
+            "<u>u</u> <span style=\"color: red\">red</span> <a href=\"https://example.com\">site</a> ",
+            "<x-tag>keep</x-tag>",
+        ));
+        let text = doc.blocks[0].text_at(Part::Body).unwrap();
+        assert_eq!(
+            text.text,
+            "Press Ctrl+C, H2O\nx2 hot u red site <x-tag>keep</x-tag>"
+        );
+        let marked = |mark: Mark| {
+            text.marks
+                .iter()
+                .find(|span| span.mark == mark)
+                .map(|span| &text.text[span.range.clone()])
+        };
+        assert_eq!(marked(Mark::Key), Some("Ctrl"));
+        assert_eq!(marked(Mark::Bold), Some("C"));
+        assert_eq!(marked(Mark::Subscript), Some("2"));
+        assert_eq!(marked(Mark::Superscript), Some("2"));
+        assert_eq!(marked(Mark::Highlight), Some("hot"));
+        assert_eq!(marked(Mark::Underline), Some("u"));
+        assert_eq!(marked(Mark::Color("red".into())), Some("red"));
+        assert_eq!(
+            marked(Mark::Link("https://example.com".into())),
+            Some("site")
+        );
+        assert_eq!(text.marks.len(), 8);
+    }
+
+    #[test]
+    fn extends_unclosed_tags_and_keeps_stray_ones() {
+        let open = parse("a <u>b c");
+        let text = open.blocks[0].text_at(Part::Body).unwrap();
+        assert_eq!(text.text, "a b c");
+        assert_eq!(text.marks[0].range, 2..5);
+        let stray = parse("a </u> b");
+        let text = stray.blocks[0].text_at(Part::Body).unwrap();
+        assert_eq!(text.text, "a </u> b");
+        assert!(text.marks.is_empty());
+    }
+}
+
 mod selection {
     use super::*;
 

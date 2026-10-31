@@ -23,6 +23,10 @@ function element(tag, attributes = {}, children = []) {
     getAttribute(name) { return values.get(name) ?? null; },
     removeAttribute(name) { values.delete(name); if (name === 'style') properties.clear(); },
     replaceChildren(...next) { this.children = next; for (const child of next) child.parent = this; },
+    remove() {
+      if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this);
+      this.parent = null;
+    },
     appendChild(child) { child.parent = this; this.children.push(child); },
     replaceWith(next) {
       const index = this.parent.children.indexOf(this);
@@ -133,12 +137,80 @@ function setup(source, create = diagram) {
     current: () => current, cleared: () => cleared};
 }
 
+function htmlSetup(source, content) {
+  const host = element('main');
+  const frames = [], calls = [];
+  const window = {MathJax: {loader: {preLoaded() {}}}, async html2canvas(frame, options) {
+    calls.push({frame, options});
+    return {width: 1, height: 1, toDataURL: () => 'data:image/png;base64,AAAA'};
+  }};
+  vm.runInNewContext(source, {
+    window, MathJax: window.MathJax, mermaid: {}, TextEncoder,
+    getComputedStyle: () => ({backgroundColor: 'rgba(0, 0, 0, 0)'}),
+    Image: class {
+      async decode() { if (!/^data:image\/png;base64,/.test(this.src)) throw new Error('broken'); }
+    },
+    document: {
+      getElementById() { return host; },
+      createElement(tag) {
+        if (tag === 'template') return {set innerHTML(value) { this.html = value; }, content};
+        const frame = element(tag);
+        frame.scrollHeight = 96;
+        frame.getBoundingClientRect = () => ({left: 8, right: 728, width: 720, height: 96});
+        frames.push(frame);
+        return frame;
+      },
+      createRange() {
+        return {selectNodeContents(node) { this.node = node; },
+          getClientRects() { return [{width: 120, height: 20, right: this.node.right}]; }};
+      },
+    },
+  });
+  return {render: window.sailryRender, host, frames, calls};
+}
+
 const request = (dark = false) => ({kind: 'mermaid', source: 'flowchart LR\nA-->B', dark,
   foreground: dark ? '#ededed' : '#242424', background: dark ? '#181818' : '#ffffff', accent: '#775500', font_size: 16});
 
 for (const [name, path] of scripts) {
   const source = readFileSync(path, 'utf8');
   if (name === 'desktop') {
+    test('desktop rasterizes inert html', async () => {
+      const block = element('div', {align: 'center', onclick: 'run()', style: 'color:red'}, [
+        element('script'),
+        element('a', {href: 'javascript:alert(1)'}),
+        element('img', {src: 'data:image/png;base64,AAAA', onerror: 'run()'}),
+        element('img', {src: 'https://example.com/x.png'}),
+        element('details'),
+        element('span', {style: 'background:url(https://example.com/x.png)'}),
+      ]);
+      block.childNodes = [{nodeType: 3, data: 'Hi', right: 208}];
+      const [, link, picture, remote, details, span] = block.children;
+      picture.getBoundingClientRect = () => ({width: 50, height: 50, right: 308});
+      const content = element('#fragment', {}, [block]);
+      const view = htmlSetup(source, content);
+      const input = {...request(), kind: 'html', source: '<div>Hi</div>'};
+      const result = await view.render(input);
+      assert.deepEqual(JSON.parse(JSON.stringify(result)),
+        {source: 'AAAA', width: 300, height: 96, baseline: null, format: 'png'});
+      assert(!block.children.some(child => child.tag === 'script'));
+      assert.equal(block.getAttribute('onclick'), null);
+      assert.equal(block.getAttribute('style'), 'color:red');
+      assert.equal(link.getAttribute('href'), null);
+      assert.equal(link.style.color, input.accent);
+      assert.equal(picture.getAttribute('src'), 'data:image/png;base64,AAAA');
+      assert.equal(picture.getAttribute('onerror'), null);
+      assert(!block.children.includes(remote));
+      assert.equal(details.getAttribute('open'), '');
+      assert.equal(span.getAttribute('style'), null);
+      const [{frame, options}] = view.calls;
+      assert.equal(frame, view.frames[0]);
+      assert.equal(options.backgroundColor, null);
+      assert.equal(options.scale, 2);
+      assert.equal(options.width, 300);
+      assert.equal(view.host.children.length, 0);
+    });
+
     test('desktop preserves intrinsic diagram geometry', async () => {
       for (const [diagramSource, box, width, height] of [
         ['flowchart LR\nA[Long label]-->B[Another label]', '0 0 1200 220', 1200, 220],

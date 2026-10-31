@@ -4,7 +4,7 @@ use futures::{
 };
 use gpui_kit::{AnyWindowHandle, App, AppContext, Context, Entity, Global, Task, Window};
 use raw_window_handle::HasWindowHandle;
-use sailry_content::markdown::visuals::{self, Renderer, Request, Svg};
+use sailry_content::markdown::visuals::{self, Output, Renderer, Request};
 use serde::Deserialize;
 use std::{borrow::Cow, collections::VecDeque, rc::Rc, time::Duration};
 use tokio::sync::{mpsc, oneshot};
@@ -27,7 +27,7 @@ impl Global for Service {}
 struct Job {
     id: u64,
     request: Request,
-    sender: oneshot::Sender<Result<Svg, String>>,
+    sender: oneshot::Sender<Result<Output, String>>,
 }
 
 enum Event {
@@ -39,7 +39,7 @@ enum Event {
 #[serde(deny_unknown_fields)]
 struct Message {
     id: u64,
-    result: Option<Svg>,
+    result: Option<Output>,
     error: Option<String>,
 }
 
@@ -124,7 +124,7 @@ impl Surface {
     fn enqueue(
         &mut self,
         request: Request,
-        sender: oneshot::Sender<Result<Svg, String>>,
+        sender: oneshot::Sender<Result<Output, String>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -175,7 +175,7 @@ impl Surface {
                 }
             })
             .with_ipc_handler(move |request| {
-                if request.body().len() <= visuals::MAX_SVG_BYTES + 4096
+                if request.body().len() <= visuals::MAX_MESSAGE_BYTES
                     && let Ok(message) = serde_json::from_str::<Message>(request.body())
                 {
                     let _ = events.send(Event::Result(generation, message));
@@ -223,7 +223,7 @@ impl Surface {
                     .take()
                     .expect("Matching active visual request exists");
                 let result = match (message.result, message.error) {
-                    (Some(svg), None) => svg.validate().map(|()| svg),
+                    (Some(output), None) => output.validate().map(|()| output),
                     (None, Some(error)) => Err(error),
                     _ => Err("Visual renderer returned an invalid result".into()),
                 };
@@ -277,14 +277,21 @@ impl Surface {
     }
 }
 
+/// The page itself, and the blank frame html2canvas clones HTML into.
 fn navigation(url: String) -> bool {
-    url == URL || url == "http://sailry-visual.localhost/index.html"
+    url == URL || url == "http://sailry-visual.localhost/index.html" || url == "about:blank"
 }
 
 fn asset(request: &wry::http::Request<Vec<u8>>) -> wry::http::Response<Cow<'static, [u8]>> {
     let path = request.uri().path();
     let content = (request.method() == wry::http::Method::GET && request.uri().query().is_none())
-        .then(|| visuals::asset(path))
+        .then(|| match path {
+            // Shared with export; loaded only when an HTML block first renders.
+            "/html2canvas.js" => {
+                Some(include_bytes!("../../../assets/export/html2canvas.js").as_slice())
+            }
+            path => visuals::asset(path),
+        })
         .flatten();
     let kind = if path.ends_with(".html") {
         "text/html; charset=utf-8"

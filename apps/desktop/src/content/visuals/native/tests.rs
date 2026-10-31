@@ -58,6 +58,7 @@ fn serves_only_fixed_local_assets() {
     assert!(navigation(
         "http://sailry-visual.localhost/index.html".into()
     ));
+    assert!(navigation("about:blank".into()));
     for url in [
         "https://example.com",
         "file:///tmp/private",
@@ -65,6 +66,18 @@ fn serves_only_fixed_local_assets() {
     ] {
         assert!(!navigation(url.into()));
     }
+}
+
+#[test]
+fn serves_html_rasterizer() {
+    let response = asset(
+        &wry::http::Request::builder()
+            .uri("sailry-visual://localhost/html2canvas.js")
+            .body(Vec::new())
+            .unwrap(),
+    );
+    assert_eq!(response.status(), 200);
+    assert!(response.body().starts_with(b"/*!\n * html2canvas"));
 }
 
 #[test]

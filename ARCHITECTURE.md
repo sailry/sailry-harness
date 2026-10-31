@@ -989,6 +989,10 @@ preserve diagram CSS and markers. Message rows contain no embedded WebViews.
 Prepared visuals follow source and theme changes; unsupported platforms and
 rendering failures retain the original selectable text. The Desktop native adapter
 supports macOS and Windows; Linux retains that source fallback.
+Raw HTML blocks keep their exact source; Desktop renders an allowlist-sanitized
+copy in the same WebView with scripts and network loads blocked and returns a
+validated PNG. Only inline `data:` raster images display. The document editor
+shows a visual block's source while the caret is in it.
 
 Browser element annotations retain the selected page, tab and controller view.
 The browser package owns annotation review, note drafts and submission feedback.

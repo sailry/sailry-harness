@@ -1,6 +1,13 @@
 use super::*;
 use gpui_kit::{TestAppContext, component::ThemeMode, gpui};
 
+fn rendered(doc: &Doc, theme: &Theme, dark: bool) -> Vec<Request> {
+    requests(doc, theme, dark, 14., &mut HashMap::new())
+        .into_iter()
+        .map(|(request, _)| request)
+        .collect()
+}
+
 fn contrast(left: &str, right: &str) -> f64 {
     let luminance = |color: &str| {
         [0.2126, 0.7152, 0.0722]
@@ -31,7 +38,7 @@ fn separates_diagram_ink_from_outlines(cx: &mut TestAppContext) {
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
             gpui_kit::component::Theme::change(mode, None, cx);
             let theme = Theme::of(cx);
-            let items = requests(&doc, &theme, mode == ThemeMode::Dark, 14.);
+            let items = rendered(&doc, &theme, mode == ThemeMode::Dark);
             let diagram = items
                 .iter()
                 .find(|item| item.kind == Kind::Mermaid)
@@ -49,7 +56,7 @@ fn separates_diagram_ink_from_outlines(cx: &mut TestAppContext) {
             let mut changed = theme.clone();
             changed.border = gpui_kit::rgb(0x123456).into();
             changed.text_muted = gpui_kit::rgb(0x654321).into();
-            let next = requests(&doc, &changed, mode == ThemeMode::Dark, 14.);
+            let next = rendered(&doc, &changed, mode == ThemeMode::Dark);
             let next_diagram = next.iter().find(|item| item.kind == Kind::Mermaid).unwrap();
             assert_eq!(next_diagram.accent, "#654321");
             assert_eq!(next_diagram.foreground, diagram.foreground);
@@ -78,14 +85,34 @@ fn preserves_translucent_diagram_colors(cx: &mut TestAppContext) {
             theme.text = gpui_kit::rgb(ink).into();
             theme.border = gpui_kit::Hsla::from(gpui_kit::rgb(ink)).alpha(16. / 255.);
             theme.text_muted = gpui_kit::Hsla::from(gpui_kit::rgb(ink)).alpha(0.6);
-            let items = requests(&doc, &theme, dark, 14.);
+            let items = rendered(&doc, &theme, dark);
             let diagram = &items[0];
             assert_eq!(diagram.accent, outline);
             assert_eq!(diagram.foreground, label);
             theme.text_muted = theme.text_muted.alpha(0.);
-            let transparent = requests(&doc, &theme, dark, 14.);
+            let transparent = rendered(&doc, &theme, dark);
             assert_eq!(transparent[0].accent, color(theme.surface));
             assert_ne!(key(diagram), key(&transparent[0]));
         }
+    });
+}
+
+#[gpui::test]
+fn renders_sanitized_html_for_its_source(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let source =
+            "<div align=\"center\" onclick=\"run()\">\n<b>Hi</b><script>run()</script>\n</div>";
+        let doc = crate::markdown::parse::parse(&format!("{source}\n\n<!-- note -->"));
+        let mut sanitized = HashMap::new();
+        let items = requests(&doc, &Theme::of(cx), false, 14., &mut sanitized);
+        let [(request, original)] = items.as_slice() else {
+            panic!("one HTML request: {items:?}");
+        };
+        assert_eq!(request.kind, Kind::Html);
+        assert_eq!(original, source);
+        assert!(request.source.contains("<b>Hi</b>"));
+        assert!(!request.source.contains("onclick") && !request.source.contains("script"));
+        assert_eq!(sanitized.len(), 2);
     });
 }

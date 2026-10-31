@@ -89,6 +89,8 @@ pub(super) fn flatten_with(
             .filter(|span| span.range.start <= start && span.range.end >= end);
 
         let (mut bold, mut italic, mut mono, mut strike) = (false, false, false, false);
+        let (mut underline, mut highlight, mut muted) = (false, false, false);
+        let mut ink = None;
         let mut chip = false;
         let mut link = None;
         for span in covering {
@@ -96,12 +98,16 @@ pub(super) fn flatten_with(
                 Mark::Bold => bold = true,
                 Mark::Italic => italic = true,
                 Mark::Strike => strike = true,
-                Mark::Code | Mark::Math => mono = true,
+                Mark::Code | Mark::Math | Mark::Key => mono = true,
                 Mark::Mention { url, .. } => {
                     chip = true;
                     link = Some(url.clone());
                 }
                 Mark::Link(url) | Mark::Image(url) => link = Some(url.clone()),
+                Mark::Underline => underline = true,
+                Mark::Highlight => highlight = true,
+                Mark::Subscript | Mark::Superscript => muted = true,
+                Mark::Color(value) => ink = super::html::color(value).or(ink),
             }
         }
 
@@ -147,8 +153,12 @@ pub(super) fn flatten_with(
             .is_some_and(|annotation| annotation.icon.is_some() && start == annotation.range.start);
         let mut color = if link.is_some() || annotation.is_some() {
             theme.link
+        } else if let Some(ink) = ink {
+            ink
         } else if mono {
             theme.code_text
+        } else if muted {
+            theme.text_muted
         } else if bold {
             theme.strong_color.unwrap_or(theme.text)
         } else {
@@ -161,12 +171,20 @@ pub(super) fn flatten_with(
             len: end - start,
             font: face,
             color,
-            background_color: None,
-            underline: (link.is_some() && !chip).then_some(UnderlineStyle {
-                color: Some(theme.link),
-                thickness: px(1.0),
-                wavy: false,
-            }),
+            background_color: highlight.then(|| theme.warning.opacity(0.3)),
+            underline: if link.is_some() && !chip {
+                Some(UnderlineStyle {
+                    color: Some(theme.link),
+                    thickness: px(1.0),
+                    wavy: false,
+                })
+            } else {
+                underline.then_some(UnderlineStyle {
+                    color: Some(color),
+                    thickness: px(1.0),
+                    wavy: false,
+                })
+            },
             strikethrough: strike.then_some(StrikethroughStyle {
                 thickness: px(1.0),
                 color: Some(theme.text_muted),

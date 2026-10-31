@@ -77,6 +77,8 @@ fn write_block(out: &mut String, kind: &BlockKind, indent: u8) {
         BlockKind::Math(code) => {
             write_lines(out, &pad, &pad, &format!("$$\n{}\n$$", code.text));
         }
+        // Raw HTML is its own spelling.
+        BlockKind::Html(code) => write_lines(out, &pad, &pad, &code.text),
         BlockKind::Image { url, alt, width } => {
             out.push_str(&pad);
             out.push_str("![");
@@ -350,17 +352,30 @@ fn italic_delimiter(written: &str, text: &Text, range: &std::ops::Range<usize>) 
 }
 
 fn open_mark(out: &mut String, mark: &Mark, italic: char) {
+    if let Some((open, _)) = crate::markdown::html::spelling(mark) {
+        return out.push_str(&open);
+    }
     match mark {
         Mark::Bold => out.push_str("**"),
         Mark::Italic => out.push(italic),
         Mark::Strike => out.push_str("~~"),
         Mark::Link(_) | Mark::Mention { .. } => out.push('['),
         Mark::Image(_) => out.push_str("!["),
-        Mark::Code | Mark::Math => {}
+        Mark::Code
+        | Mark::Math
+        | Mark::Underline
+        | Mark::Highlight
+        | Mark::Key
+        | Mark::Subscript
+        | Mark::Superscript
+        | Mark::Color(_) => {}
     }
 }
 
 fn close_mark(out: &mut String, mark: &Mark, italic: char) {
+    if let Some((_, close)) = crate::markdown::html::spelling(mark) {
+        return out.push_str(close);
+    }
     match mark {
         Mark::Bold => out.push_str("**"),
         Mark::Italic => out.push(italic),
@@ -379,7 +394,14 @@ fn close_mark(out: &mut String, mark: &Mark, italic: char) {
             out.push_str(form.title().unwrap_or("chip"));
             out.push_str("\")");
         }
-        Mark::Code | Mark::Math => {}
+        Mark::Code
+        | Mark::Math
+        | Mark::Underline
+        | Mark::Highlight
+        | Mark::Key
+        | Mark::Subscript
+        | Mark::Superscript
+        | Mark::Color(_) => {}
     }
 }
 
@@ -563,6 +585,24 @@ mod tests {
                 .map(block)
                 .collect::<Vec<_>>()
                 .join("\n\n");
+            assert_eq!(with_ranges(&serialized).doc, original, "{source}");
+        }
+    }
+
+    #[test]
+    fn spells_html_marks_and_blocks() {
+        for source in [
+            "Press <kbd>Ctrl</kbd> and H<sub>2</sub>O x<sup>2</sup> <mark>hot</mark> <u>under</u> <span style=\"color: #c00\">red</span>",
+            "<div align=\"center\">\n  <b>Hi</b>\n</div>",
+        ] {
+            let original = with_ranges(source).doc;
+            let serialized = original
+                .blocks
+                .iter()
+                .map(block)
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            assert_eq!(serialized, source);
             assert_eq!(with_ranges(&serialized).doc, original, "{source}");
         }
     }

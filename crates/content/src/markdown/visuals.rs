@@ -3,10 +3,15 @@ use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 use gpui_kit::{App, Global, Image, ImageFormat, Task, Window};
 use serde::{Deserialize, Serialize};
-pub(super) mod state;
+pub(crate) mod state;
 
 pub const MAX_SOURCE_BYTES: usize = 64 * 1024;
 pub const MAX_SVG_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_PNG_BYTES: usize = 8 * 1024 * 1024;
+/// The largest renderer message: a base64 PNG and its JSON envelope.
+pub const MAX_MESSAGE_BYTES: usize = MAX_PNG_BYTES / 3 * 4 + 8192;
+/// HTML rasterizes at this pixel density, so it stays sharp on HiDPI screens.
+const PNG_SCALE: f32 = 2.0;
 
 pub fn asset(path: &str) -> Option<&'static [u8]> {
     match path.trim_start_matches('/') {
@@ -26,6 +31,10 @@ pub enum Kind {
     Mermaid,
     InlineMath,
     DisplayMath,
+    /// A sanitized HTML block. HTML-in-SVG (`foreignObject`) is not drawn by
+    /// the SVG renderer images use, so the surface rasterizes the laid-out
+    /// fragment to PNG: pixels carry no markup, scripts or resource requests.
+    Html,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -62,28 +71,66 @@ impl Request {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Format {
+    #[default]
+    Svg,
+    /// Base64 PNG pixels at [`PNG_SCALE`] times the logical size.
+    Png,
+}
+
+/// What the surface returns: SVG text, or PNG for rasterized HTML.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Svg {
+pub struct Output {
     pub source: String,
     pub width: f32,
     pub height: f32,
     pub baseline: Option<f32>,
+    #[serde(default)]
+    pub format: Format,
 }
 
-impl Svg {
+impl Output {
     pub fn validate(&self) -> Result<(), String> {
-        if self.source.len() > MAX_SVG_BYTES
-            || [self.width, self.height]
-                .iter()
-                .any(|value| !value.is_finite() || !(0.0..=4096.0).contains(value) || *value == 0.0)
+        if [self.width, self.height]
+            .iter()
+            .any(|value| !value.is_finite() || !(0.0..=4096.0).contains(value) || *value == 0.0)
             || self
                 .baseline
                 .is_some_and(|value| !value.is_finite() || !(0.0..=self.height).contains(&value))
         {
             return Err("Rendered visual exceeds the supported size".into());
         }
-        validate_source(&self.source)
+        match self.format {
+            Format::Svg => validate_source(&self.source),
+            Format::Png => self.png().map(|_| ()),
+        }
+    }
+
+    /// Decoded PNG bytes whose header matches the reported size.
+    fn png(&self) -> Result<Vec<u8>, String> {
+        use base64::Engine as _;
+        const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+        if self.source.len() > MAX_PNG_BYTES / 3 * 4 + 4 {
+            return Err("Rendered visual exceeds the supported size".into());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&self.source)
+            .map_err(|_| "Rendered visual is not valid PNG".to_owned())?;
+        if bytes.len() < 24 || !bytes.starts_with(SIGNATURE) || &bytes[12..16] != b"IHDR" {
+            return Err("Rendered visual is not valid PNG".into());
+        }
+        let side = |at: usize| {
+            u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+        };
+        let limit = |logical: f32| (logical * PNG_SCALE).ceil() as u32 + 2;
+        let (width, height) = (side(16), side(20));
+        if width == 0 || height == 0 || width > limit(self.width) || height > limit(self.height) {
+            return Err("Rendered visual exceeds the supported size".into());
+        }
+        Ok(bytes)
     }
 }
 
@@ -155,7 +202,7 @@ fn external_url(value: &str) -> bool {
     false
 }
 
-pub type Render = dyn Fn(Request, &mut Window, &mut App) -> Task<Result<Svg, String>>;
+pub type Render = dyn Fn(Request, &mut Window, &mut App) -> Task<Result<Output, String>>;
 
 #[derive(Clone)]
 pub struct Renderer(pub Rc<Render>);
@@ -171,16 +218,20 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn new(svg: Svg, font_size: f32) -> Result<Self, String> {
-        svg.validate()?;
+    pub fn new(output: Output, font_size: f32) -> Result<Self, String> {
+        output.validate()?;
         if !font_size.is_finite() || !(8.0..=96.0).contains(&font_size) {
             return Err("Visual font size is invalid".into());
         }
+        let image = match output.format {
+            Format::Svg => Image::from_bytes(ImageFormat::Svg, output.source.into_bytes()),
+            Format::Png => Image::from_bytes(ImageFormat::Png, output.png()?),
+        };
         Ok(Self {
-            image: Arc::new(Image::from_bytes(ImageFormat::Svg, svg.source.into_bytes())),
-            width: svg.width,
-            height: svg.height,
-            baseline: svg.baseline,
+            image: Arc::new(image),
+            width: output.width,
+            height: output.height,
+            baseline: output.baseline,
             font_size,
         })
     }

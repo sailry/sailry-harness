@@ -14243,6 +14243,8 @@ dependencies = [
 name = "sailry-content"
 version = "0.1.0"
 dependencies = [
+ "ammonia",
+ "base64 0.22.1",
  "gpui-kit",
  "image",
  "pulldown-cmark",

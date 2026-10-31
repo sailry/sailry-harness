@@ -6,11 +6,12 @@ mod spelling;
 use crate::markdown::{
     Block, BlockKind, Cursor, Doc, Part,
     doc::{Container, Text},
+    html::{Role, Tags},
     parse::parse,
     with_ranges,
 };
 use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
-use std::ops::Range;
+use std::{collections::HashMap, ops::Range};
 
 #[derive(Clone, Debug)]
 struct Character {
@@ -234,6 +235,8 @@ impl Map {
         let mut row = 0;
         let mut column = 0;
         let mut cell = None;
+        // Inline tags pair per text, exactly as the parser pairs them.
+        let mut tags: HashMap<(usize, Part), Tags> = HashMap::new();
         for (event, range) in crate::markdown::parse::events(source) {
             match &event {
                 Event::Start(Tag::Table(_)) | Event::Start(Tag::TableHead) => {
@@ -276,7 +279,7 @@ impl Map {
                 extents[index] = Some(range.clone());
             }
             let part = match block.kind {
-                BlockKind::Code { .. } | BlockKind::Math(_) => Part::Code,
+                BlockKind::Code { .. } | BlockKind::Math(_) | BlockKind::Html(_) => Part::Code,
                 BlockKind::Image { .. } => Part::Caption,
                 BlockKind::Table { .. } => match cell {
                     Some(part) => part,
@@ -317,8 +320,15 @@ impl Map {
                     span.syntax(at..at);
                     span.prefix = Some(prefix);
                 }
-                Event::Text(value) | Event::Html(value) | Event::InlineHtml(value) => {
-                    span.push(&value, range, source, false)
+                Event::Text(value) | Event::Html(value) => span.push(&value, range, source, false),
+                // A styling tag is syntax around its text; a break is the
+                // newline it reads as; anything else stays literal text.
+                Event::InlineHtml(value) => {
+                    match tags.entry((index, part)).or_default().accept(&value) {
+                        Some(Role::Break) => span.push("\n", range, source, false),
+                        Some(_) => span.syntax(range),
+                        None => span.push(&value, range, source, false),
+                    }
                 }
                 Event::Code(value) => span.push(&value, range, source, true),
                 Event::InlineMath(value) | Event::DisplayMath(value) => {

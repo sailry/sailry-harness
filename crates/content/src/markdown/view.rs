@@ -24,7 +24,7 @@ impl Global for Bindings {}
 pub struct State {
     source: SharedString,
     pub(super) document: Rc<Doc>,
-    pub(super) visuals: super::visuals::state::Cache,
+    visuals: super::visuals::state::Cache,
     layouts: BlockLayouts,
     selection: Option<Selection>,
     dragging: bool,
@@ -259,7 +259,14 @@ impl Focusable for State {
 
 impl Render for State {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        super::visuals::state::Cache::prepare(self, window, cx);
+        self.visuals.prepare(
+            &self.document,
+            self.foreground,
+            self.typography,
+            window,
+            cx,
+            |state| &mut state.visuals,
+        );
         let visuals = self.visuals.images();
         let math_entity = cx.weak_entity();
         let on_math_link: super::render::OnMathLink =

@@ -109,6 +109,29 @@ fn isolates_cell_edits() {
 }
 
 #[test]
+fn preserves_inline_html_tags() {
+    let source = "Press <kbd>Ctrl</kbd> now<br>next\n\nKeep **this**\n";
+    let (result, expected) = insert(source, Cursor::new(0, Part::Body, 8), "X");
+    assert_eq!(result, source.replacen("Ctrl", "CtXrl", 1));
+    assert_eq!(parse(&result), expected);
+}
+
+#[test]
+fn edits_html_block_source() {
+    let source = "<div align=\"center\">\nHello\n</div>\n\nKeep **this**\n";
+    let document = parse(source);
+    assert!(
+        Map::new(source, &document)
+            .patch(source, &document, &document)
+            .is_none()
+    );
+    let offset = "<div align=\"center\">\n".len();
+    let (result, expected) = insert(source, Cursor::new(0, Part::Code, offset), "X");
+    assert_eq!(result, source.replacen("Hello", "XHello", 1));
+    assert_eq!(parse(&result), expected);
+}
+
+#[test]
 fn preserves_code_fences() {
     let source = "~~~rust\r\nlet value = 1;\r\n~~~\r\n\r\nKeep **this**\r\n";
     let (result, expected) = insert(source, Cursor::new(0, Part::Code, 4), "new_");

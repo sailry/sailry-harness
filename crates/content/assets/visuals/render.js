@@ -5,7 +5,7 @@
   const surface = () => document.getElementById('surface');
   const color = value => /^#[0-9a-f]{6}$/i.test(value);
   const validate = request => {
-    if (!['mermaid', 'inline_math', 'display_math'].includes(request.kind)
+    if (!['mermaid', 'inline_math', 'display_math', 'html'].includes(request.kind)
         || typeof request.source !== 'string' || request.source.length === 0
         || new TextEncoder().encode(request.source).length > 65536
         || ![request.foreground, request.background, request.accent].every(color)
@@ -193,6 +193,105 @@
     }
     return {source, width, height, baseline};
   };
+  // HTML arrives sanitized; this second pass keeps the page inert even if a
+  // tag slips through. The CSP still blocks scripts and every network load.
+  const HTML_WIDTH = 720, HTML_SCALE = 2;
+  const IMAGE = /^data:image\/(?:png|jpeg|gif|webp);base64,/i;
+  const REMOVED = new Set(['script', 'style', 'iframe', 'frame', 'frameset', 'object', 'embed',
+    'applet', 'link', 'meta', 'base', 'svg', 'math', 'form', 'input', 'button', 'textarea',
+    'select', 'video', 'audio', 'source', 'picture', 'canvas', 'template', 'noscript']);
+  const scrub = root => {
+    for (const element of [...root.querySelectorAll('*')]) {
+      const tag = element.tagName.toLowerCase();
+      if (REMOVED.has(tag)) {
+        element.remove();
+        continue;
+      }
+      for (const {name, value} of [...element.attributes]) {
+        const key = name.toLowerCase(), text = String(value).toLowerCase();
+        if (key.startsWith('on') || ['href', 'srcset', 'background', 'poster', 'action', 'formaction', 'xlink:href'].includes(key)
+            || (key === 'src' && !(tag === 'img' && IMAGE.test(value)))
+            || (key === 'style' && /url\(|image|expression|@|\\/.test(text))
+            || text.includes('javascript:')) element.removeAttribute(name);
+      }
+      // A picture cannot be toggled, so collapsed content stays readable.
+      if (tag === 'details') element.setAttribute('open', '');
+    }
+  };
+  // Detached probes keep a broken image from reaching the page's error guard.
+  const decodeImages = async root => {
+    for (const image of [...root.querySelectorAll('img')]) {
+      const probe = new Image();
+      probe.src = image.getAttribute('src') ?? '';
+      try { await probe.decode(); } catch { image.remove(); }
+    }
+  };
+  let rasterizer;
+  const rasterize = () => rasterizer ??= window.html2canvas ? Promise.resolve(window.html2canvas)
+    : new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'html2canvas.js';
+      script.onload = () => window.html2canvas ? resolve(window.html2canvas)
+        : reject(new Error('HTML renderer is unavailable'));
+      script.onerror = () => reject(new Error('HTML renderer is unavailable'));
+      document.head.appendChild(script);
+    });
+  const painted = element => {
+    if (['img', 'hr'].includes(element.tagName.toLowerCase())) return true;
+    const style = getComputedStyle(element);
+    return !['rgba(0, 0, 0, 0)', 'transparent', ''].includes(style.backgroundColor ?? '')
+      || ['Top', 'Right', 'Bottom', 'Left'].some(side =>
+        parseFloat(style[`border${side}Width`]) > 0 && style[`border${side}Style`] !== 'none');
+  };
+  // The right edge of visible ink, so short content is not a full-width image.
+  const extent = frame => {
+    const left = frame.getBoundingClientRect().left;
+    const range = document.createRange();
+    let right = 0;
+    for (const element of [frame, ...frame.querySelectorAll('*')]) {
+      const rects = [];
+      if (element !== frame && painted(element)) rects.push(element.getBoundingClientRect());
+      for (const node of [...(element.childNodes ?? [])]) {
+        if (node.nodeType !== 3 || !node.data.trim()) continue;
+        range.selectNodeContents(node);
+        rects.push(...range.getClientRects());
+      }
+      for (const rect of rects) {
+        if (rect.width > 0 && rect.height > 0) right = Math.max(right, rect.right - left);
+      }
+    }
+    return Math.min(HTML_WIDTH, Math.ceil(right));
+  };
+  const html = async (host, request) => {
+    const template = document.createElement('template');
+    template.innerHTML = request.source;
+    const content = template.content;
+    scrub(content);
+    await decodeImages(content);
+    const frame = document.createElement('div');
+    frame.style.cssText = `display:flow-root;width:${HTML_WIDTH}px;color:${request.foreground};`
+      + `font:${request.font_size}px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;overflow-wrap:anywhere`;
+    frame.appendChild(content);
+    for (const link of frame.querySelectorAll('a')) {
+      if (!link.style.color) link.style.color = request.accent;
+    }
+    host.appendChild(frame);
+    if (document.fonts?.ready) await document.fonts.ready;
+    const width = extent(frame), height = Math.ceil(frame.scrollHeight);
+    if (!(width > 0 && height > 0)) throw new Error('HTML block has nothing to show');
+    if (height > 4096) throw new Error('Rendered visual exceeds the supported size');
+    const render = await rasterize();
+    const canvas = await render(frame, {backgroundColor:null, scale:HTML_SCALE, width, height,
+      windowWidth:HTML_WIDTH, windowHeight:Math.max(height, 480), scrollX:0, scrollY:0,
+      logging:false, useCORS:false, allowTaint:false, imageTimeout:5000});
+    const data = canvas.toDataURL('image/png');
+    canvas.width = canvas.height = 0;
+    const prefix = 'data:image/png;base64,';
+    if (!data.startsWith(prefix) || data.length - prefix.length > 8388608 / 3 * 4) {
+      throw new Error('Rendered visual exceeds the supported size');
+    }
+    return {source:data.slice(prefix.length), width, height, baseline:null, format:'png'};
+  };
   window.sailryRender = async request => {
     validate(request);
     const host = surface();
@@ -201,6 +300,7 @@
     host.style.color = request.foreground;
     host.style.backgroundColor = request.background;
     try {
+      if (request.kind === 'html') return await html(host, request);
       if (request.kind === 'mermaid') {
         if (request.source.includes('%%{') || /^\s*---/.test(request.source)) {
           throw new Error('Diagram configuration directives are unsupported');

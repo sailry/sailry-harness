@@ -3,6 +3,7 @@ mod charts;
 pub mod doc;
 pub mod edit;
 mod files;
+pub(crate) mod html;
 mod images;
 mod inline;
 pub mod parse;
