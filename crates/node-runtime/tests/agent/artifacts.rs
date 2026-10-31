@@ -1245,13 +1245,15 @@ async fn restores_revisions_and_removes_session_files() {
             .unwrap();
         let identity = fixture.node.id();
         fixture.node.shutdown().await.unwrap();
+        fixture.controller.handle().disconnect(identity).await;
         // Restored identity starts only after the original owner has shut down.
         let node = Node::start_empty(&target).await.unwrap();
         assert_eq!(node.id(), identity);
-        let address = fixture
+        let address = node.link().address();
+        fixture
             .controller
             .handle()
-            .pair(node.link().invite().unwrap().ticket())
+            .update_peer(address.clone())
             .await
             .unwrap();
         let client = Client::new(if remote {
