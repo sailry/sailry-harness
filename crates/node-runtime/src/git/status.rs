@@ -215,6 +215,12 @@ impl Candidates {
             None => self.omitted_paths += 1,
         }
     }
+
+    fn exclude(&mut self, value: &str) {
+        let prefix = format!("{value}/");
+        self.paths
+            .retain(|path| path != value && !path.starts_with(&prefix));
+    }
 }
 
 // Retain directory capabilities while enumerating; never descend through symlinks.
@@ -273,10 +279,26 @@ fn scan_workdir(
                 scan.omitted_paths += 1;
                 continue;
             }
-            let child = dir.open_dir_nofollow(name).map_err(io_error)?;
+            let child = match dir.open_dir_nofollow(name) {
+                Ok(child) => child,
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    // Remove HEAD/index candidates too, so libgit2 cannot
+                    // mistake inaccessible tracked files for deletions.
+                    scan.exclude(&value);
+                    continue;
+                }
+                Err(error) => return Err(io_error(error)),
+            };
             #[cfg(windows)]
             path::identity::directory(&child)?;
-            let children = child.entries().map_err(io_error)?;
+            let children = match child.entries() {
+                Ok(children) => children,
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    scan.exclude(&value);
+                    continue;
+                }
+                Err(error) => return Err(io_error(error)),
+            };
             pending.push((value, child, children));
         } else if kind.is_file() || kind.is_symlink() {
             scan.observe_bytes(value.as_bytes());
@@ -485,3 +507,6 @@ fn statistics(
     }
     Ok(())
 }
+
+#[cfg(all(test, unix))]
+mod tests;

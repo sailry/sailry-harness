@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(unix)]
+#[path = "reads/permissions.rs"]
+mod permissions;
+
 #[tokio::test]
 async fn head_does_not_scan_worktree() {
     let directory = tempfile::tempdir().unwrap();
