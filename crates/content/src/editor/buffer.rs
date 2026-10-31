@@ -57,9 +57,9 @@ impl Buffer {
         input.focus_handle(cx)
     }
 
-    pub(super) fn find(&self, cx: &mut App) {
+    pub(super) fn find(&self, replace: bool, cx: &mut App) {
         let Self::Editor(input) = self;
-        input.update(cx, |input, cx| input.open_search(false, cx));
+        input.update(cx, |input, cx| input.open_search(replace, cx));
     }
 
     pub(super) fn command(&self, command: Command, window: &mut Window, cx: &mut App) {
@@ -69,7 +69,7 @@ impl Buffer {
             Command::Paste => &Paste,
             Command::Undo => &Undo,
             Command::Redo => &Redo,
-            Command::Find => return,
+            _ => return,
         };
         self.focus_handle(cx).dispatch_action(action, window, cx);
     }

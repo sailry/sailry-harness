@@ -3,6 +3,7 @@
 mod appearance;
 mod focus;
 mod load_more;
+mod measure;
 mod menu;
 mod models;
 mod segments;
@@ -27,6 +28,15 @@ use sailry_link::CancellationToken;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc, sync::Arc};
+
+/// A tooltip naming the control and its platform-formatted shortcut.
+fn shortcut(label: &str, key: Option<&str>, cx: &App) -> String {
+    match key.map(|key| crate::shortcuts::label(key, cx.platform_info().os)) {
+        Some(key) if !key.is_empty() => format!("{label}  {key}"),
+        _ => label.to_owned(),
+    }
+}
+
 fn icon(value: &str) -> Icon {
     Icon::empty().path(if value.contains(':') || value.contains('/') {
         value.to_owned()
@@ -59,6 +69,7 @@ pub(super) fn module(
     let module = models::extend(module, controls.clone());
     let module = segments::extend(module, controls.clone());
     let module = load_more::extend(module, controls.clone());
+    let module = measure::extend(module, controls.clone());
     let module = tabs.extend(module);
     select::extend(module, controls.clone()).component("SelectableText", move |args, _, _| {
         // Kit b79f4ce's script catalog has Text, but no selectable TextView.
@@ -89,6 +100,7 @@ pub(super) fn module(
         // Script Button has no native icon slot; retain its icon-label ordering.
         let show_label = props.get("show_label").and_then(HostValue::as_bool) == Some(true);
         let dropdown_caret = props.get("dropdown_caret").and_then(HostValue::as_bool) == Some(true);
+        let tooltip = shortcut(&label, props.get("shortcut").and_then(HostValue::as_str), cx);
         let sender = buttons.clone();
         let button = Button::new(SharedString::from(id.clone())).debug_selector({let id=id.clone(); move || id.clone()})
             .map(|button| if primary { button.primary() } else { button.ghost() })
@@ -99,7 +111,7 @@ pub(super) fn module(
             .when(show_label, |button| button.label(label.clone()))
             .dropdown_caret(dropdown_caret)
             .selected(selected)
-            .when(!show_label, |button| button.tooltip(label.clone()))
+            .when(!show_label, |button| button.tooltip(tooltip))
             .accessibility_label(label).disabled(disabled)
             .when(tone == Some("success"), |button| button.text_color(cx.theme().success))
             .when(tone == Some("muted"), |button| button.text_color(cx.theme().muted_foreground))

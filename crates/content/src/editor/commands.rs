@@ -116,6 +116,26 @@ impl State {
             return;
         }
         self.cancel_composition(cx);
+        let (start, end) = self.selection.ordered();
+        let url = text.trim();
+        if super::links::address(url)
+            && !self.selection.is_collapsed()
+            && start.block == end.block
+            && start.part == end.part
+            && !matches!(start.part, Part::Code | Part::Caption)
+            && let Some(original) = self
+                .doc
+                .blocks
+                .get(start.block)
+                .and_then(|block| block.text_at(start.part))
+                .and_then(|value| value.text.get(start.offset..end.offset))
+                .map(str::to_owned)
+        {
+            // Paste plainly first, so one undo returns to the pasted address.
+            self.insert(url, window, cx);
+            self.link_paste(start, url, &original, window, cx);
+            return;
+        }
         if matches!(
             self.cursor().part,
             Part::Code | Part::Caption | Part::Cell { .. }

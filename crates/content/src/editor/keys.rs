@@ -5,6 +5,8 @@ use gpui_kit::{App, Global, KeyBinding, actions};
 
 pub(super) const CONTEXT: &str = "MarkdownEditor";
 pub(super) const COMPOSER: &str = "MarkdownComposer";
+/// Source mode keeps Kit's editor focused; formatting keys bind around it.
+pub(super) const SOURCE: &str = "MarkdownSource";
 
 actions!(
     markdown_editor,
@@ -35,6 +37,14 @@ actions!(
         Italic,
         Code,
         Strike,
+        Link,
+        Paragraph,
+        Heading1,
+        Heading2,
+        Heading3,
+        Heading4,
+        Heading5,
+        Heading6,
     ]
 );
 
@@ -194,7 +204,11 @@ pub(super) fn init(cx: &mut App) {
     }
     // Source-based drafts expose selection formatting, not invisible stored
     // marks for future typing. The document editor retains its existing keys.
-    for context in [Some(CONTEXT), Some("MarkdownComposer && MarkdownSelection")] {
+    for context in [
+        Some(CONTEXT),
+        Some(SOURCE),
+        Some("MarkdownComposer && MarkdownSelection"),
+    ] {
         #[cfg(target_os = "macos")]
         cx.bind_keys([
             KeyBinding::new("cmd-b", Bold, context),
@@ -208,6 +222,23 @@ pub(super) fn init(cx: &mut App) {
             KeyBinding::new("ctrl-i", Italic, context),
             KeyBinding::new("ctrl-e", Code, context),
             KeyBinding::new("ctrl-shift-x", Strike, context),
+        ]);
+    }
+    for context in [Some(CONTEXT), Some(SOURCE)] {
+        let secondary = if cx.platform_info().is_mac() {
+            "cmd"
+        } else {
+            "ctrl"
+        };
+        cx.bind_keys([
+            KeyBinding::new(&format!("{secondary}-k"), Link, context),
+            KeyBinding::new(&format!("{secondary}-alt-0"), Paragraph, context),
+            KeyBinding::new(&format!("{secondary}-alt-1"), Heading1, context),
+            KeyBinding::new(&format!("{secondary}-alt-2"), Heading2, context),
+            KeyBinding::new(&format!("{secondary}-alt-3"), Heading3, context),
+            KeyBinding::new(&format!("{secondary}-alt-4"), Heading4, context),
+            KeyBinding::new(&format!("{secondary}-alt-5"), Heading5, context),
+            KeyBinding::new(&format!("{secondary}-alt-6"), Heading6, context),
         ]);
     }
 }

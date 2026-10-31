@@ -136,6 +136,15 @@ impl Controller {
                         .then(|| {
                             cx.new(|cx| crate::content::editor::State::from_input(&input, cx))
                         });
+                    if let Some(markdown) = &markdown {
+                        let owner = cx.weak_entity();
+                        let client = controller.binding.client.clone();
+                        let (base, context) = (path.clone(), context.clone());
+                        markdown.update(cx, |state, _| {
+                            state.set_link_handler(links::handler(owner, base, context));
+                            state.set_image_chooser(links::chooser(client));
+                        });
+                    }
                     let mut observers =
                         vec![cx.observe(&input, |controller, _, cx| controller.changed(cx))];
                     if let Some(markdown) = &markdown {
@@ -160,6 +169,7 @@ impl Controller {
                             dismissed: false,
                             uncertain: false,
                             error: None,
+                            wrap: true,
                             stop: controller.stop.child_token(),
                             _observers: observers,
                         },

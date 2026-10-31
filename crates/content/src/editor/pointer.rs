@@ -3,7 +3,7 @@
 
 use super::State;
 use crate::markdown::{
-    Selection,
+    Cursor, Part, Selection,
     pointer::{edge_delta, word},
 };
 use gpui_kit::{Context, MouseDownEvent, Pixels, Point, Window, point, px};
@@ -47,6 +47,18 @@ impl State {
             Selection::at(cursor)
         };
         self.notify_caret(cx);
+        // A click on the picture, above its caption, edits the image address.
+        if event.click_count == 1
+            && !event.modifiers.shift
+            && cursor.part == Part::Caption
+            && self
+                .layouts
+                .position(Cursor::new(cursor.block, Part::Caption, 0))
+                .is_some_and(|(caption, _)| event.position.y < caption.y)
+        {
+            self.dragging = false;
+            self.edit_image(cursor.block, window, cx);
+        }
     }
 
     pub(super) fn moved(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {

@@ -2,7 +2,10 @@
 use crate::plugins::host::sdk::values::decode;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    component::tab::{Tab, TabBar},
+    component::{
+        tab::{Tab, TabBar},
+        tooltip::Tooltip,
+    },
     *,
 };
 use gpui_shell::{HostError, HostModule};
@@ -14,6 +17,8 @@ use tokio::sync::mpsc::Sender;
 struct Item {
     id: String,
     label: String,
+    icon: Option<String>,
+    shortcut: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -26,7 +31,7 @@ struct Props {
     fill: bool,
 }
 
-fn render(id: String, props: Props, events: Sender<Value>) -> AnyElement {
+fn render(id: String, props: Props, events: Sender<Value>, cx: &App) -> AnyElement {
     let ids = props
         .items
         .iter()
@@ -43,11 +48,20 @@ fn render(id: String, props: Props, events: Sender<Value>) -> AnyElement {
         )
         .children(props.items.into_iter().map(|item| {
             let selector = format!("{id}-item-{}", item.id);
-            Tab::new()
+            let tab = Tab::new()
                 .when(props.fill, |tab| tab.flex_1().min_w_0())
-                .label(item.label)
                 .disabled(props.disabled)
-                .debug_selector(move || selector.clone())
+                .debug_selector(move || selector.clone());
+            match item.icon {
+                // Icon-only segments keep their name for assistive technology and tooltips.
+                Some(glyph) => {
+                    let tooltip = super::shortcut(&item.label, item.shortcut.as_deref(), cx);
+                    tab.icon(super::icon(&glyph))
+                        .aria_label(item.label)
+                        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                }
+                None => tab.label(item.label),
+            }
         }))
         .on_click(move |index, _, _| {
             if !props.disabled
@@ -60,13 +74,13 @@ fn render(id: String, props: Props, events: Sender<Value>) -> AnyElement {
 }
 
 pub(super) fn extend(module: HostModule, events: Sender<Value>) -> HostModule {
-    module.component("SegmentedTabs", move |args, _, _| {
+    module.component("SegmentedTabs", move |args, _, cx| {
         let Ok(props) = decode(args.props()).and_then(|value| {
             serde_json::from_value::<Props>(value)
                 .map_err(|error| HostError::new(error.to_string()))
         }) else {
             return div().into_any_element();
         };
-        render(args.id().to_owned(), props, events.clone())
+        render(args.id().to_owned(), props, events.clone(), cx)
     })
 }

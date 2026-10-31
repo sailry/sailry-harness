@@ -7,13 +7,19 @@
 //! the caller's sole buffer, undo history and existing draft/save subscriptions.
 mod buffer;
 mod commands;
+mod format;
 mod input;
 mod keys;
+mod links;
+mod markup;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod menu;
 mod pointer;
 pub(crate) mod serialize;
 mod source;
+
+pub use format::{Format, Insert, Kind, Style};
+pub use links::OnChoose;
 
 use crate::markdown::{
     self, Block, BlockKind, BlockLayouts, Cursor, Doc, Editing, Mark, Selection, doc::Text,
@@ -32,7 +38,7 @@ use gpui_kit::{
     IntoElement, MouseButton, MouseMoveEvent, Pixels, Point, Render, RenderOnce, ScrollHandle,
     SharedString, Subscription, Task, Window, canvas, div, point, prelude::*, px,
 };
-use std::{ops::Range, rc::Rc, time::Duration};
+use std::{ops::Range, time::Duration};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mode {
@@ -49,6 +55,11 @@ pub enum Command {
     Undo,
     Redo,
     Find,
+    Replace,
+    Style(Style),
+    Kind(Kind),
+    Insert(Insert),
+    Link,
 }
 
 struct Composition {
@@ -78,6 +89,10 @@ pub struct State {
     reveal: bool,
     caret_on: bool,
     blink: Option<Task<()>>,
+    popup: Option<links::Popup>,
+    popup_events: Vec<Subscription>,
+    on_link: Option<markdown::render::OnLink>,
+    on_choose: Option<OnChoose>,
     _source: Subscription,
     _blur: Option<Subscription>,
 }
@@ -131,6 +146,10 @@ impl State {
             reveal: false,
             caret_on: true,
             blink: None,
+            popup: None,
+            popup_events: Vec::new(),
+            on_link: None,
+            on_choose: None,
             _source: changes,
             _blur: None,
         }
@@ -158,9 +177,18 @@ impl State {
         match command {
             Command::Undo => self.undo(&Undo, window, cx),
             Command::Redo => self.redo(&Redo, window, cx),
-            Command::Find => {
+            Command::Find | Command::Replace => {
                 self.set_mode(Mode::Source, window, cx);
-                self.input.find(cx);
+                self.input.find(matches!(command, Command::Replace), cx);
+            }
+            Command::Style(style) => self.style(style, window, cx),
+            Command::Kind(kind) => self.convert(kind, window, cx),
+            Command::Insert(insert) => self.insert_block(insert, window, cx),
+            Command::Link if self.mode == Mode::Document => self.edit_link(window, cx),
+            Command::Link => {
+                let source = self.input.value(cx);
+                let edit = markup::link(&source, self.input.selection(cx));
+                self.source_edit(edit, window, cx);
             }
             command if self.mode == Mode::Source => {
                 if matches!(command, Command::Copy) || !self.readonly {
@@ -188,6 +216,8 @@ impl State {
         self.cancel_composition(cx);
         self.dragging = false;
         self.blink = None;
+        self.popup = None;
+        self.popup_events.clear();
         self.sync(cx);
         if mode == Mode::Source {
             let (start, end) = self.selection.ordered();
@@ -393,8 +423,8 @@ impl State {
                 selection: Some(self.selection),
                 caret_on: focused && self.caret_on,
                 layouts: Some(&self.layouts),
-                // Document clicks place the caret, including linked text.
-                on_link: Some(Rc::new(|_, _, _| {})),
+                // Document clicks place the caret; the platform modifier opens links.
+                on_link: Some(self.link_click(cx)),
                 visuals: Some(&visuals),
                 reveal: true,
                 ..Editing::default()
@@ -546,16 +576,57 @@ impl Render for State {
                 .into_any_element(),
             Mode::Source => self.input.render(self.readonly, self.label.clone()),
         };
+        let overlay = self.overlay(cx);
         div()
             .relative()
             .size_full()
             .min_h_0()
             .flex()
             .flex_col()
+            .when(self.mode == Mode::Source, |view| {
+                view.key_context(keys::SOURCE)
+            })
+            .on_action(cx.listener(|state, _: &keys::Bold, window, cx| {
+                state.command(Command::Style(Style::Bold), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Italic, window, cx| {
+                state.command(Command::Style(Style::Italic), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Code, window, cx| {
+                state.command(Command::Style(Style::Code), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Strike, window, cx| {
+                state.command(Command::Style(Style::Strike), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Link, window, cx| {
+                state.command(Command::Link, window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Paragraph, window, cx| {
+                state.command(Command::Kind(Kind::Paragraph), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Heading1, window, cx| {
+                state.command(Command::Kind(Kind::Heading(1)), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Heading2, window, cx| {
+                state.command(Command::Kind(Kind::Heading(2)), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Heading3, window, cx| {
+                state.command(Command::Kind(Kind::Heading(3)), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Heading4, window, cx| {
+                state.command(Command::Kind(Kind::Heading(4)), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Heading5, window, cx| {
+                state.command(Command::Kind(Kind::Heading(5)), window, cx)
+            }))
+            .on_action(cx.listener(|state, _: &keys::Heading6, window, cx| {
+                state.command(Command::Kind(Kind::Heading(6)), window, cx)
+            }))
             .when(self.mode == Mode::Document && !self.readonly, |view| {
                 view.child(self.input.actions())
             })
             .child(div().flex_1().min_h_0().child(content))
+            .children(overlay)
             .into_any_element()
     }
 }

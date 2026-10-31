@@ -1,8 +1,8 @@
-export const IconButton: {new(id:string,props:{icon:string;label:string;disabled?:boolean;selected?:boolean;tone?:'success'|'muted';variant?:'primary';circular?:boolean;size?:'small'|'medium';show_label?:boolean;full_width?:boolean;dropdown_caret?:boolean}):import('gpui-kit').Element};
+export const IconButton: {new(id:string,props:{icon:string;label:string;disabled?:boolean;selected?:boolean;tone?:'success'|'muted';variant?:'primary';circular?:boolean;size?:'small'|'medium';show_label?:boolean;full_width?:boolean;dropdown_caret?:boolean;/** Keystroke such as `secondary-b`, shown in the tooltip. */shortcut?:string}):import('gpui-kit').Element};
 export const SelectableRow: {new(id:string,props:{selected:boolean;variant?:'list'|'card';label?:string;disabled?:boolean;stripe?:boolean}):import('gpui-kit').Element};
 export const SelectableText: {new(id:string,props:{text:string}):import('gpui-kit').Element};
 export const Toggle: {new(id:string,props:{label:string;checked:boolean;disabled?:boolean;variant?:'button'|'checkbox';text?:string}):import('gpui-kit').Element};
-export function nextControlEvent():Promise<{id:string;value?:boolean|string|{icon:string;color:string}|{model:string;effort:import('sailry/sdk').Json};click_count?:number}>;
+export function nextControlEvent():Promise<{id:string;value?:boolean|string|number|{icon:string;color:string}|{model:string;effort:import('sailry/sdk').Json};click_count?:number}>;
 export const ActionScope: {new(id:string,props:{close?:string}):import('gpui-kit').Element};
 /** Wrap one native focusable leaf. focusEntry requests keyboard entry after its next completed layout. */
 export const FocusEntry: {new(id:string):import('gpui-kit').Element};
@@ -17,7 +17,10 @@ export const SelectField: {new(id:string,props:{label:string;items:{id:string;la
 /** Provider-only model and reasoning picker; package confirmation stays draft-local. */
 export const ModelPopup: {new(id:string,props:{label:string;placeholder:string;catalog:{models:import('sailry/sdk').Json[]};selected:string|null;effort:import('sailry/sdk').Json;disabled?:boolean}):import('gpui-kit').Element};
 export const MenuButton: {new(id:string,props:{label:string;items:{id:string;label:string;disabled?:boolean}[];selected:string|null;disabled?:boolean}):import('gpui-kit').Element};
-export const SegmentedTabs: {new(id:string,props:{items:{id:string;label:string}[];selected:string|null;disabled?:boolean}):import('gpui-kit').Element};
+/** Items with `icon` show only the icon; the label and optional shortcut become the tooltip. */
+export const SegmentedTabs: {new(id:string,props:{items:{id:string;label:string;icon?:string;shortcut?:string}[];selected:string|null;disabled?:boolean;fill?:boolean}):import('gpui-kit').Element};
+/** A zero-height bar that emits `{id, value:width}` in whole pixels whenever its full-width size changes. */
+export const Measure: {new(id:string):import('gpui-kit').Element};
 /** List-end sentinel: emits `{id, value:'load'}` once each time it scrolls into view while not loading; shows a spinner row while loading. */
 export const LoadMore: {new(id:string,props:{loading:boolean;label:string}):import('gpui-kit').Element};
 export const Appearance: {new(id:string,props:{value:{icon:string;color:string}}):import('gpui-kit').Element};

@@ -28,5 +28,13 @@ pub(crate) fn init(cx: &mut gpui_kit::App) {
         copy: tr("files_copy"),
         cut: tr("files_cut"),
         paste: tr("files_paste"),
+        link_address: tr("content_link_address"),
+        link_open: tr("content_link_open"),
+        link_edit: tr("content_link_edit"),
+        link_copy: tr("content_link_copy"),
+        link_remove: tr("content_link_remove"),
+        image_address: tr("content_image_address"),
+        image_alt: tr("content_image_alt"),
+        image_choose: tr("content_image_choose"),
     });
 }

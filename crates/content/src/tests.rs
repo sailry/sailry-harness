@@ -18,5 +18,13 @@ pub(crate) fn init(cx: &mut App) {
         copy: "Copy".into(),
         cut: "Cut".into(),
         paste: "Paste".into(),
+        link_address: "Link address".into(),
+        link_open: "Open link".into(),
+        link_edit: "Edit link".into(),
+        link_copy: "Copy link".into(),
+        link_remove: "Remove link".into(),
+        image_address: "Image address".into(),
+        image_alt: "Alt text".into(),
+        image_choose: "Choose file".into(),
     });
 }

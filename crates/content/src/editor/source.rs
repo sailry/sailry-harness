@@ -391,6 +391,11 @@ impl Map {
             .or_else(|| (span.value.is_empty() && cursor.offset == 0).then_some(leaf.range.end))
     }
 
+    /// The source bytes a block occupies.
+    pub fn block_range(&self, block: usize) -> Option<Range<usize>> {
+        self.leaves.get(block).map(|leaf| leaf.range.clone())
+    }
+
     pub fn cursor(&self, offset: usize, doc: &Doc) -> Cursor {
         self.leaves
             .iter()

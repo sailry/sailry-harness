@@ -1,12 +1,13 @@
 //! Kit b79f4ce's JS DropdownMenu only supports enabled items. This adapter keeps
-//! the original Kit controls while exposing disabled/checked items, form triggers,
-//! and captured selection IDs.
+//! the original Kit controls while exposing disabled/checked items, section
+//! headers, shortcut hints, form triggers, and captured selection IDs.
 use gpui_kit::base::ElementExt as _;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
-        Disableable, Icon, Sizable,
+        ActiveTheme as _, Disableable, Icon, Sizable,
         button::{Button, ButtonVariants, DropdownButton},
+        h_flex,
         menu::{DropdownMenu, PopupMenu, PopupMenuItem},
     },
     *,
@@ -34,6 +35,9 @@ struct Props {
     form: bool,
     #[serde(default)]
     small: bool,
+    /// Shows a dropdown caret beside a text trigger.
+    #[serde(default)]
+    caret: bool,
     size: Option<TriggerSize>,
     items: Vec<Item>,
     primary: Option<Item>,
@@ -49,12 +53,17 @@ pub(super) struct Item {
     icon: Option<String>,
     #[serde(default)]
     separator: bool,
+    /// A non-interactive section title.
+    #[serde(default)]
+    header: bool,
     #[serde(default)]
     enabled: bool,
     #[serde(default)]
     checked: bool,
     #[serde(default)]
     children: Vec<Item>,
+    /// A keystroke such as `secondary-alt-1`, shown beside the label.
+    shortcut: Option<String>,
     value: Option<serde_json::Value>,
 }
 
@@ -65,7 +74,7 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
     let receiver = Arc::new(tokio::sync::Mutex::new(receiver));
     let closed = stop.clone();
     let declarations = format!(
-        "{}\nexport type MenuItem = {{id?:string;label?:string;icon?:string;separator?:boolean;enabled?:boolean;checked?:boolean;children?:MenuItem[];value?:unknown}};\nexport const Menu: {{new(id:string,props:{{label:string;icon?:string;disabled?:boolean;form?:boolean;small?:boolean;size?:'small'|'medium';items:MenuItem[];primary?:MenuItem}}):import(\"gpui-kit\").Element}};\nexport function nextMenuEvent():Promise<{{menu:string;id:string;value?:unknown}}>;",
+        "{}\nexport type MenuItem = {{id?:string;label?:string;icon?:string;separator?:boolean;header?:boolean;enabled?:boolean;checked?:boolean;children?:MenuItem[];shortcut?:string;value?:unknown}};\nexport const Menu: {{new(id:string,props:{{label:string;icon?:string;disabled?:boolean;form?:boolean;small?:boolean;caret?:boolean;size?:'small'|'medium';items:MenuItem[];primary?:MenuItem}}):import(\"gpui-kit\").Element}};\nexport function nextMenuEvent():Promise<{{menu:string;id:string;value?:unknown}}>;",
         module.declared().unwrap_or_default()
     );
     module
@@ -138,7 +147,7 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
             } else if let Some(icon) = &props.icon {
                 button.ghost().when(!medium,|button|button.small()).icon(resolve_icon(icon)).tooltip(props.label.clone()).accessibility_label(props.label)
             } else {
-                button.ghost().label(props.label)
+                button.ghost().label(props.label).dropdown_caret(props.caret)
             };
             let button = button.when(small, |button| button.small())
                 .disabled(props.disabled || closed.is_cancelled())
@@ -181,6 +190,7 @@ pub(super) fn valid(items: &[Item]) -> bool {
 fn valid_items(items: &[Item]) -> bool {
     items.iter().all(|item| {
         item.separator
+            || (item.header && !item.label.trim().is_empty())
             || (!item.label.trim().is_empty()
                 && ((!item.children.is_empty() && valid_items(&item.children))
                     || (!item.id.is_empty() && item.id.len() <= 256)))
@@ -199,6 +209,10 @@ pub(super) fn entries(
             menu = menu.separator();
             continue;
         }
+        if item.header {
+            menu = menu.label(item.label.clone());
+            continue;
+        }
         if !item.children.is_empty() {
             let children = item.children.clone();
             let selection = selection.clone();
@@ -213,8 +227,23 @@ pub(super) fn entries(
             let selection = selection.clone();
             let event = item.id.clone();
             let value = item.value.clone();
+            let entry = match item.shortcut.clone() {
+                Some(key) => {
+                    let label = item.label.clone();
+                    PopupMenuItem::element(move |_, cx| {
+                        let key = crate::shortcuts::label(&key, cx.platform_info().os);
+                        h_flex()
+                            .w_full()
+                            .justify_between()
+                            .gap_6()
+                            .child(label.clone())
+                            .child(div().text_color(cx.theme().muted_foreground).child(key))
+                    })
+                }
+                None => PopupMenuItem::new(item.label.clone()),
+            };
             menu = menu.item(
-                PopupMenuItem::new(item.label.clone())
+                entry
                     .when_some(item.icon.as_deref(), |item, icon| {
                         item.icon(resolve_icon(icon))
                     })

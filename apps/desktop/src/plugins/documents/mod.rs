@@ -1,6 +1,7 @@
 //! Captured document buffers outlive plugin renderers; Kit owns editing and undo.
 mod closing;
 pub(in crate::plugins) mod entries;
+mod links;
 mod load;
 pub(in crate::plugins) mod notebook;
 mod reads;

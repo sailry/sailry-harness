@@ -1,4 +1,5 @@
-//! Editing actions use the Kit editor's focus and undo history.
+//! Editing actions use the Kit editor's focus and undo history; clipboard
+//! actions stay on the editor's own shortcuts and context menu.
 use crate::content::editor::{Command, Mode};
 use crate::{shell::Shell, tr};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -7,6 +8,7 @@ use gpui_kit::{
         button::{Button, ButtonVariants},
         input,
         tab::{Tab, TabBar},
+        tooltip::Tooltip,
         *,
     },
     *,
@@ -22,36 +24,18 @@ impl Shell {
         let editor = state.tabs.editors[state.tabs.selected].clone();
         let markdown = state.markdown(editor.entity_id());
         let readonly = true;
-        let actions: [(Icon, &str, Command, Box<dyn Action>); 5] = [
+        let actions: [(IconName, &str, Command, Box<dyn Action>); 2] = [
             (
-                Icon::new(IconName::Undo),
+                IconName::Undo,
                 "files_undo",
                 Command::Undo,
                 Box::new(input::Undo),
             ),
             (
-                Icon::new(IconName::Redo),
+                IconName::Redo,
                 "files_redo",
                 Command::Redo,
                 Box::new(input::Redo),
-            ),
-            (
-                Icon::new(IconName::Copy),
-                "files_copy",
-                Command::Copy,
-                Box::new(input::Copy),
-            ),
-            (
-                Icon::empty().path("icons/cut.svg"),
-                "files_cut",
-                Command::Cut,
-                Box::new(input::Cut),
-            ),
-            (
-                Icon::empty().path("icons/paste.svg"),
-                "files_paste",
-                Command::Paste,
-                Box::new(input::Paste),
             ),
         ];
         let mode = markdown.clone();
@@ -93,18 +77,7 @@ impl Shell {
                             .icon(icon)
                             .tooltip(tr(key))
                             .accessibility_label(tr(key))
-                            .disabled(if key == "files_copy" {
-                                !markdown.as_ref().map_or_else(
-                                    || editor.read(cx).is_copyable(),
-                                    |state| state.read(cx).can_copy(cx),
-                                )
-                            } else {
-                                readonly
-                                    || (matches!(command, Command::Cut | Command::Paste)
-                                        && markdown
-                                            .as_ref()
-                                            .is_some_and(|state| !state.read(cx).can_cut_paste()))
-                            })
+                            .disabled(readonly)
                             .on_click(move |_, window, cx| {
                                 if let Some(markdown) = &markdown {
                                     markdown
@@ -146,16 +119,29 @@ impl Shell {
                         .segmented()
                         .small()
                         .selected_index(selected)
-                        .children([
-                            Tab::new()
-                                .aria_label(tr("content_document"))
-                                .child(div().text_size(px(14.)).child(tr("content_document")))
-                                .debug_selector(|| "markdown-document-mode".into()),
-                            Tab::new()
-                                .aria_label(tr("content_source"))
-                                .child(div().text_size(px(14.)).child(tr("content_source")))
-                                .debug_selector(|| "markdown-source-mode".into()),
-                        ])
+                        .children(
+                            [
+                                (
+                                    "icons/eye.svg",
+                                    "content_document",
+                                    "markdown-document-mode",
+                                ),
+                                (
+                                    "icons/code-xml.svg",
+                                    "content_source",
+                                    "markdown-source-mode",
+                                ),
+                            ]
+                            .map(|(icon, key, selector)| {
+                                Tab::new()
+                                    .icon(Icon::empty().path(icon))
+                                    .aria_label(tr(key))
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(tr(key)).build(window, cx)
+                                    })
+                                    .debug_selector(move || selector.into())
+                            }),
+                        )
                         .on_click(move |index, window, cx| {
                             state.update(cx, |state, cx| {
                                 state.set_mode(
