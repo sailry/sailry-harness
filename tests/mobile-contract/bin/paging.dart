@@ -2,17 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
+import 'package:sailry_bridge/api/conversation.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' show part;
 import 'conversation.dart' show canonicalJson, check, detail, execute, until;
 
-void complete(Map<String, dynamic> view) {
+void consistent(Map<String, dynamic> view) {
+  check(view['error'] == null, 'conversation observer succeeds');
   check(view['older_error'] == null, 'older history read succeeds');
   final snapshot = view['snapshot'];
-  check(
-    (snapshot['missing'] as List).isEmpty,
-    'only complete turns are published',
-  );
   final page = snapshot['page'];
   final runs = page['runs'] as List;
   check(
@@ -48,6 +46,14 @@ void complete(Map<String, dynamic> view) {
   }
 }
 
+void complete(Map<String, dynamic> view) {
+  consistent(view);
+  check(
+    (view['snapshot']['missing'] as List).isEmpty,
+    'requested turns are complete',
+  );
+}
+
 void messages(Map<String, dynamic> page, int users, int answers, String model) {
   final entries = page['entries'] as List;
   check(
@@ -78,6 +84,27 @@ Future<void> rejects(Future<void> Function() action) async {
   check(rejected, 'closed subscription rejects paging');
 }
 
+Future<Map<String, dynamic>> readOlder(
+  ConversationUpdates updates,
+  Map<String, dynamic> current,
+) async {
+  final entries = (current['snapshot']['page']['entries'] as List).length;
+  // The pending read holds the receiver lock; paging must not wait for that lock.
+  final waiting = updates.next();
+  await updates.loadOlder().timeout(const Duration(seconds: 2));
+  return Future(() async {
+    var view = jsonDecode(await waiting) as Map<String, dynamic>;
+    while (true) {
+      consistent(view);
+      if (view['loading_older'] == false &&
+          (view['snapshot']['page']['entries'] as List).length > entries) {
+        return view;
+      }
+      view = jsonDecode(await updates.next()) as Map<String, dynamic>;
+    }
+  }).timeout(const Duration(seconds: 10));
+}
+
 Future<void> main() async {
   final env = Platform.environment;
   await RustLib.init(
@@ -95,13 +122,18 @@ Future<void> main() async {
   final session = sessions[0] as String;
 
   final large = await connection.watchConversation(session: sessions[1]);
-  final hydrated = await until(large, (snapshot) {
-    check(
-      (snapshot['missing'] as List).isEmpty,
-      'initial snapshot is hydrated before publication',
-    );
-    return true;
-  });
+  final partial = await until(large, (_) => true);
+  consistent(partial);
+  check(
+    (partial['snapshot']['missing'] as List).length == 1 &&
+        (partial['snapshot']['page']['runs'] as List).length == 1 &&
+        partial['snapshot']['missing'][0] ==
+            partial['snapshot']['page']['runs'][0]['turn'] &&
+        (partial['snapshot']['page']['entries'] as List).length == 100 &&
+        partial['loading_older'] == false,
+    'initial snapshot publishes a bounded large turn before hydration',
+  );
+  final hydrated = await readOlder(large, partial);
   complete(hydrated);
   messages(hydrated['snapshot']['page'], 1, 1, 'ffi-history');
   check(
@@ -109,7 +141,7 @@ Future<void> main() async {
         (hydrated['calls'] as List).every(
           (call) => call['state'] == 'returned',
         ),
-    'large turn retains all 51 complete tool exchanges before publication',
+    'large turn retains all 51 complete tool exchanges after hydration',
   );
   await large.close();
   await rejects(large.loadOlder);
@@ -144,6 +176,7 @@ Future<void> main() async {
 
   var updates = await connection.watchConversation(session: session);
   final recent = await until(updates, (_) => true);
+  var current = recent;
   complete(recent);
   messages(recent['snapshot']['page'], 20, 20, 'ffi-history');
   check(
@@ -161,26 +194,26 @@ Future<void> main() async {
     'expected_revision': configured['revision'],
     'message': {'text': 'Stream while paging 中文 🙂', 'attachments': []},
   }))['data'];
-  await until(updates, (snapshot) => (snapshot['drafts'] as List).isNotEmpty);
+  current = await until(
+    updates,
+    (snapshot) => (snapshot['drafts'] as List).isNotEmpty,
+  );
 
   Future<Map<String, dynamic>> load(int count) async {
-    // The pending read holds the receiver lock; paging must not wait for that lock.
-    final waiting = updates.next();
-    await updates.loadOlder().timeout(const Duration(seconds: 2));
-    var view =
-        jsonDecode(await waiting.timeout(const Duration(seconds: 10)))
-            as Map<String, dynamic>;
-    complete(view);
-    if ((view['snapshot']['page']['runs'] as List).length != count ||
-        view['loading_older'] == true) {
-      view = await until(
-        updates,
-        (snapshot) => (snapshot['page']['runs'] as List).length == count,
+    do {
+      current = await readOlder(updates, current);
+      check(
+        (current['snapshot']['page']['runs'] as List).length <= count,
+        'paging stays within the requested turn range',
       );
-    }
-    complete(view);
-    check(view['loading_older'] == false, 'paging completion is shared state');
-    return view;
+    } while ((current['snapshot']['page']['runs'] as List).length != count ||
+        (current['snapshot']['missing'] as List).isNotEmpty);
+    complete(current);
+    check(
+      current['loading_older'] == false,
+      'paging completion is shared state',
+    );
+    return current;
   }
 
   final older = await load(41);
@@ -245,6 +278,7 @@ Future<void> main() async {
     (reopened['snapshot']['page']['runs'] as List).length == 20,
     'new controller starts a new recent-history view',
   );
+  current = reopened;
   await load(40);
   final restored = await load(46);
   check(
@@ -260,6 +294,6 @@ Future<void> main() async {
   controller.dispose();
   RustLib.dispose();
   print(
-    'Dart FFI complete-turn paging, concurrent reads, live drafts and lifecycle passed',
+    'Dart FFI bounded paging, hydration, concurrent reads, live drafts and lifecycle passed',
   );
 }
