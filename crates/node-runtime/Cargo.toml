@@ -120,6 +120,7 @@ serde-saphyr.workspace = true
 zeroize.workspace = true
 blake3.workspace = true
 sha2.workspace = true
+xxhash-rust.workspace = true
 md-5.workspace = true
 ed25519-dalek.workspace = true
 file-format.workspace = true

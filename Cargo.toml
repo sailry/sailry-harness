@@ -99,7 +99,7 @@ xz2 = { version = "=0.1.7", features = ["static"] }
 toml = "=1.1.5"
 bytes = "=1.12.1"
 tokio-util = { version = "=0.7.19", features = ["rt", "codec"] }
-reqwest = { version = "=0.13.4", default-features = false, features = ["rustls-no-provider", "json", "query", "stream"] }
+reqwest = { version = "=0.13.4", default-features = false, features = ["rustls-no-provider", "json", "query", "stream", "gzip", "brotli", "deflate", "zstd"] }
 self_update = { version = "=1.3.0", default-features = false, features = ["async", "manifest", "checksums", "signatures", "archive-zip", "compression-zip-deflate"] }
 ed25519-dalek = "=3.0.0"
 semver = "=1.0.28"
@@ -119,6 +119,7 @@ cbc = { version = "=0.1.2", features = ["alloc"] }
 pbkdf2 = "=0.12.2"
 sha1 = "=0.10.7"
 sha2 = "=0.10.9"
+xxhash-rust = { version = "=0.8.19", features = ["xxh64"] }
 md-5 = "=0.10.6"
 security-framework = "=3.7.0"
 block2 = "=0.6.2"

@@ -324,15 +324,23 @@ fn expected(api: ModelApi, authentication: Authentication) -> Value {
             }
             value
         }
-        ModelApi::Anthropic => json!({
+        ModelApi::Anthropic => {
+            let mut body = json!({
             "model":"fixture-model", "max_tokens":4096,
-            "system":if authentication == Authentication::ClaudeOAuth {
-                format!("You are Claude Code, Anthropic's official CLI for Claude.\n\n{GUIDANCE}")
-            } else {GUIDANCE.into()},
+            "system":GUIDANCE,
             "messages":[{"role":"user","content":"search fixture"}],
             "tools":[{"type":"web_search_20250305","name":"web_search","max_uses":3}],
             "tool_choice":{"type":"auto"}
-        }),
+            });
+            if authentication == Authentication::ClaudeOAuth {
+                body["metadata"] = crate::providers::claude::metadata(
+                    "33333333-3333-4333-8333-333333333333",
+                    auth::SESSION,
+                    None,
+                );
+            }
+            body
+        }
         ModelApi::Gemini => json!({
             "contents":[{"role":"user","parts":[{"text":"search fixture"}]}],
             "tools":[{"googleSearch":{}}],
@@ -359,8 +367,8 @@ fn assert_headers(captured: &fixture::Captured, authentication: Authentication, 
             "chatgpt-account-id":"fixed-account","session-id":"11111111-1111-4111-8111-111111111111","x-codex-routing-hint":"model=fixture-model"
         }),
         Authentication::ClaudeOAuth => json!({
-            "authorization":"Bearer fixed-access","user-agent":"CapturedAgent/1","anthropic-version":"2023-06-01",
-            "anthropic-beta":"claude-code-20250219,oauth-2025-04-20","anthropic-dangerous-direct-browser-access":"true","x-app":"cli"
+            "authorization":"Bearer fixed-access","user-agent":"claude-cli/2.1.280 (external, cli)","anthropic-version":"2023-06-01",
+            "anthropic-beta":"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,fallback-credit-2026-06-01","anthropic-dangerous-direct-browser-access":"true","x-app":"cli"
         }),
         Authentication::Plugin => {
             let mut expected =

@@ -10,15 +10,15 @@ fn tool(name: &str) -> Tool {
 #[test]
 fn reverses_only_exact_wire_names() {
     let names = policy::Names::new(&["read", "custom"]).unwrap().reverse;
-    assert_eq!(names.get("Read").map(String::as_str), Some("read"));
-    assert_eq!(names.get("custom").map(String::as_str), Some("custom"));
+    assert_eq!(names.get("_read").map(String::as_str), Some("read"));
+    assert_eq!(names.get("_custom").map(String::as_str), Some("custom"));
     assert!(!names.contains_key("READ"));
     assert!(!names.contains_key("CUSTOM"));
 }
 
 #[test]
-fn rejects_normalized_collisions() {
-    assert!(policy::Names::new(&["read", "Read"]).is_err());
+fn rejects_duplicate_names() {
+    assert!(policy::Names::new(&["read", "Read"]).is_ok());
     assert!(policy::Names::new(&["custom", "custom"]).is_err());
 }
 
@@ -103,14 +103,51 @@ fn matches_captured_gdk_request_baselines() {
                 expected["system"] = json!("");
             }
             Authentication::ClaudeOAuth => {
-                expected["system"] = json!(
-                    "You are Claude Code, Anthropic's official CLI for Claude.\n\nCaptured system"
+                expected["parameters"]["metadata"] = crate::providers::claude::metadata(
+                    "33333333-3333-4333-8333-333333333333",
+                    fixture::SESSION,
+                    None,
                 );
-                expected["tools"] = json!(["Read", "custom"]);
-                expected["history"] = json!(["Read", "READ"]);
+                expected["tools"] = json!(["_read", "_custom"]);
+                expected["history"] = json!(["_read", "READ"]);
             }
             _ => {}
         }
         assert_eq!(actual, expected);
     }
+}
+
+#[test]
+fn prefixes_retired_tools_without_rewriting_content() {
+    let tools = [tool("current")];
+    let mut messages = [Message::assistant().with_text("retired").with_tool_request(
+        "old",
+        Ok(rmcp::model::CallToolRequestParams::new("retired")),
+    )];
+    assert_eq!(request_names(&tools, &messages, false), vec!["current"]);
+    let names = request_names(&tools, &messages, true);
+    assert_eq!(names, vec!["current", "retired"]);
+    let provider = fixture::provider(Authentication::ClaudeOAuth, ModelApi::Anthropic);
+    let prepared = policy::prepare(
+        &provider,
+        &fixture::credentials(Authentication::ClaudeOAuth),
+        fixture::metadata("fixture-model", "Captured system", &names),
+    )
+    .unwrap();
+    apply(
+        &prepared,
+        &mut ModelConfig::new("fixture-model"),
+        &mut String::new(),
+        &mut messages,
+        &mut [],
+    )
+    .unwrap();
+    let MessageContentBlock::ToolRequest(request) = &messages[0].content[1] else {
+        panic!("tool request expected")
+    };
+    assert_eq!(request.tool_call.as_ref().unwrap().name, "_retired");
+    let MessageContentBlock::Text(text) = &messages[0].content[0] else {
+        panic!("text expected")
+    };
+    assert_eq!(text.text, "retired");
 }

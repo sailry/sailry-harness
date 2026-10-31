@@ -5,14 +5,14 @@ use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 use sailry_link::CancellationToken;
 use serde_json::{Value, json};
 
-fn exposure(declared: &[(&str, &str)], registered: &[&str], claude: bool) -> Exposure {
+fn exposure(declared: &[(&str, &str)], registered: &[&str]) -> Exposure {
     let declared: Vec<_> = declared
         .iter()
         .map(|(package, tool)| (alias(package, tool), (*tool).to_owned()))
         .collect();
     let mut registered: BTreeSet<_> = registered.iter().map(|name| (*name).to_owned()).collect();
     registered.extend(declared.iter().map(|(alias, _)| alias.clone()));
-    Exposure::new(declared, registered, claude)
+    Exposure::new(declared, registered)
 }
 
 fn tool(name: impl Into<String>) -> Tool {
@@ -39,7 +39,7 @@ fn result(message: &Message) -> &CallToolResult {
 
 #[test]
 fn unique_names_round_trip_exactly() {
-    let names = exposure(&[("files", "read_file")], &["tool_search"], false);
+    let names = exposure(&[("files", "read_file")], &["tool_search"]);
     let tools = [tool(alias("files", "read_file")), tool("tool_search")];
     let sent = names.tools(&tools);
     assert_eq!(sent[0].name, "read_file");
@@ -65,7 +65,6 @@ fn reserves_deferred_and_internal_names() {
             ("third", "install_plugin"),
         ],
         &["install_plugin"],
-        false,
     );
     for (package, name) in [
         ("first", "read"),
@@ -78,7 +77,7 @@ fn reserves_deferred_and_internal_names() {
         assert_eq!(names.tools(&[tool(canonical.clone())])[0].name, canonical);
     }
     let occupied = alias("first", "read");
-    let names = exposure(&[("first", "read"), ("second", &occupied)], &[], false);
+    let names = exposure(&[("first", "read"), ("second", &occupied)], &[]);
     assert_eq!(names.name(&alias("first", "read")), "read");
     assert_eq!(
         names.name(&alias("second", &occupied)),
@@ -100,20 +99,18 @@ fn reserves_historical_core_names() {
     registration.plugin = Some("fixture".into());
     let tools = [registration];
     let historical = ["read".into()].into();
-    for claude in [false, true] {
-        let names = Exposure::capture(&plugins, &tools, &historical, claude);
-        let core = if claude { "Read" } else { "read" };
-        assert_eq!(names.name(&canonical), canonical);
-        assert_eq!(names.tools(&[tool(canonical.clone())])[0].name, canonical);
-        let history = [call("old", core), call("new", canonical.clone())];
-        assert_eq!(names.messages(&history).as_ref(), history);
-        for mut response in history {
-            let original = response.clone();
-            names.restore(&mut response);
-            assert_eq!(response, original);
-        }
+    let names = Exposure::capture(&plugins, &tools, &historical);
+    let core = "read";
+    assert_eq!(names.name(&canonical), canonical);
+    assert_eq!(names.tools(&[tool(canonical.clone())])[0].name, canonical);
+    let history = [call("old", core), call("new", canonical.clone())];
+    assert_eq!(names.messages(&history).as_ref(), history);
+    for mut response in history {
+        let original = response.clone();
+        names.restore(&mut response);
+        assert_eq!(response, original);
     }
-    let names = Exposure::capture(&plugins, &tools, &BTreeSet::new(), false);
+    let names = Exposure::capture(&plugins, &tools, &BTreeSet::new());
     assert_eq!(names.name(&canonical), "read");
 }
 
@@ -136,7 +133,7 @@ fn captures_only_eligible_package_declarations() {
     };
     let plugins = [package("eligible"), package("unavailable")];
     let tools = [registration("eligible")];
-    let names = Exposure::capture(&plugins, &tools, &BTreeSet::new(), false);
+    let names = Exposure::capture(&plugins, &tools, &BTreeSet::new());
     assert_eq!(names.name(&alias("eligible", "read")), "read");
     assert_eq!(
         names.name(&alias("unavailable", "read")),
@@ -150,7 +147,7 @@ fn captures_only_eligible_package_declarations() {
     assert_eq!(called(&sent[0]), called(&history[0]));
     assert_eq!(called(&sent[1]), "read");
     let tools = [registration("eligible"), registration("unavailable")];
-    let names = Exposure::capture(&plugins, &tools, &BTreeSet::new(), false);
+    let names = Exposure::capture(&plugins, &tools, &BTreeSet::new());
     assert_eq!(
         names.name(&alias("eligible", "read")),
         alias("eligible", "read")
@@ -163,7 +160,7 @@ fn reserves_only_exact_internal_namespace() {
         alias("unavailable", "read"),
         crate::agent::mcp::alias("a", "b", "read"),
     ] {
-        let names = exposure(&[("current", &historical)], &[], false);
+        let names = exposure(&[("current", &historical)], &[]);
         assert_eq!(
             names.name(&alias("current", &historical)),
             alias("current", &historical)
@@ -184,7 +181,7 @@ fn reserves_only_exact_internal_namespace() {
         "mcp_read_0123456789abcdef0123456F",
         "mcp__0123456789abcdef01234567",
     ] {
-        let names = exposure(&[("current", name)], &[], false);
+        let names = exposure(&[("current", name)], &[]);
         assert_eq!(names.name(&alias("current", name)), name);
     }
 }
@@ -192,7 +189,7 @@ fn reserves_only_exact_internal_namespace() {
 #[test]
 fn preserves_body_arguments_and_confirmation_prompts() {
     let canonical = alias("files", "read_file");
-    let names = exposure(&[("files", "read_file")], &[], false);
+    let names = exposure(&[("files", "read_file")], &[]);
     let text = format!("User, skill, file, command and MCP text: {canonical}");
     let mut request = call("file", canonical.clone());
     let MessageContentBlock::ToolRequest(block) = &mut request.content[0] else {
@@ -251,7 +248,7 @@ fn preserves_body_arguments_and_confirmation_prompts() {
 #[test]
 fn projects_only_owned_discovery_fields() {
     let canonical = alias("files", "read_file");
-    let names = exposure(&[("files", "read_file")], &[], false);
+    let names = exposure(&[("files", "read_file")], &[]);
     let value =
         json!({"tools":[{"name":canonical,"description":canonical}],"sailry_context":canonical});
     let mut raw = CallToolResult::structured(value.clone());
@@ -279,16 +276,14 @@ fn projects_only_owned_discovery_fields() {
 }
 
 #[test]
-fn reserves_claude_wire_names() {
-    let names = exposure(&[("first", "read"), ("second", "Read")], &[], true);
+fn preserves_case_sensitive_names() {
+    let names = exposure(&[("first", "read"), ("second", "Read")], &[]);
     for (package, name) in [("first", "read"), ("second", "Read")] {
-        assert_eq!(names.name(&alias(package, name)), alias(package, name));
+        assert_eq!(names.name(&alias(package, name)), name);
+        let mut response = call("read", name);
+        names.restore(&mut response);
+        assert_eq!(called(&response), alias(package, name));
     }
-    let names = exposure(&[("first", "read")], &[], true);
-    assert_eq!(names.name(&alias("first", "read")), "Read");
-    let mut response = call("read", "Read");
-    names.restore(&mut response);
-    assert_eq!(called(&response), alias("first", "read"));
     let mut response = call("other", "READ");
     names.restore(&mut response);
     assert_eq!(called(&response), "READ");

@@ -7,7 +7,6 @@ fn carries_exact_tool_identity_and_unchanged_bodies() {
     let names = Exposure::new(
         [(canonical.clone(), "read_file".into())],
         [canonical.clone()].into(),
-        false,
     );
     let messages = [
         Message::user().with_text(canonical.clone()),
@@ -99,11 +98,7 @@ fn carries_exact_tool_identity_and_unchanged_bodies() {
 fn pairs_reused_ids_with_current_owner() {
     let old = alias("previous", "read");
     let current = alias("current", "read");
-    let names = Exposure::new(
-        [(current.clone(), "read".into())],
-        [current.clone()].into(),
-        false,
-    );
+    let names = Exposure::new([(current.clone(), "read".into())], [current.clone()].into());
     let messages = [
         Message::assistant()
             .with_tool_request("reused", Ok(CallToolRequestParams::new(old.clone()))),

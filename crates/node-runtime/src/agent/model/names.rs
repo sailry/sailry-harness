@@ -9,7 +9,7 @@ use goose_provider_types::{
     errors::ProviderError,
 };
 use rmcp::model::Tool;
-use sailry_protocol::{Authentication, Fault, plugin::Info};
+use sailry_protocol::{Fault, plugin::Info};
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
@@ -26,16 +26,7 @@ impl Registry {
         tools: &[Registration],
         historical: &BTreeSet<String>,
     ) -> Result<Arc<Exposure>, Fault> {
-        let claude = invocation
-            .provider
-            .as_ref()
-            .is_some_and(|provider| provider.authentication == Authentication::ClaudeOAuth);
-        let exposure = Arc::new(Exposure::capture(
-            &invocation.plugins,
-            tools,
-            historical,
-            claude,
-        ));
+        let exposure = Arc::new(Exposure::capture(&invocation.plugins, tools, historical));
         self.0
             .set(exposure.clone())
             .map_err(|_| Fault::invalid("tool exposure was already captured"))?;
@@ -59,12 +50,7 @@ pub(in crate::agent) struct Exposure {
 }
 
 impl Exposure {
-    fn capture(
-        plugins: &[Info],
-        tools: &[Registration],
-        historical: &BTreeSet<String>,
-        claude: bool,
-    ) -> Self {
+    fn capture(plugins: &[Info], tools: &[Registration], historical: &BTreeSet<String>) -> Self {
         let declared = tools.iter().filter_map(|entry| {
             let owner = entry.plugin.as_deref()?;
             let declaration = plugins
@@ -89,39 +75,28 @@ impl Exposure {
                 .map(|entry| entry.tool.name.to_string())
                 .chain(historical.iter().cloned())
                 .collect(),
-            claude,
         )
     }
 
     pub(super) fn new(
         declared: impl IntoIterator<Item = (String, String)>,
         registered: BTreeSet<String>,
-        claude: bool,
     ) -> Self {
-        let wire = |name: &str| {
-            if claude {
-                super::authorization::canonical(name).to_owned()
-            } else {
-                name.to_owned()
-            }
-        };
         let declared: BTreeMap<_, _> = declared.into_iter().collect();
         let mut counts = BTreeMap::new();
         for name in declared.values() {
-            *counts.entry(wire(name)).or_insert(0) += 1;
+            *counts.entry(name.clone()).or_insert(0) += 1;
         }
         // Reserve current and historical identities, including deferred tools and
         // aliases which happen to resemble another package's declared name.
-        let occupied: BTreeSet<_> = registered.iter().map(|name| wire(name)).collect();
         let forward: BTreeMap<_, _> = declared
             .into_iter()
             .filter(|(_, name)| {
-                counts[&wire(name)] == 1
-                    && !occupied.contains(&wire(name))
+                counts[name] == 1
+                    && !registered.contains(name)
                     && !crate::plugins::tools::is_alias(name)
                     && !crate::agent::mcp::is_alias(name)
             })
-            .map(|(alias, name)| (alias, wire(&name)))
             .collect();
         let reverse = forward
             .iter()

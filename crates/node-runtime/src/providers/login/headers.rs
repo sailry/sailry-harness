@@ -86,14 +86,14 @@ impl Grant {
         );
         match (self, options) {
             (Self::ClaudeOAuth { .. }, Options::ClaudeOAuth { .. }) => {
-                for (name, value) in [
-                    ("anthropic-version", "2023-06-01"),
-                    ("anthropic-beta", "claude-code-20250219,oauth-2025-04-20"),
-                    ("anthropic-dangerous-direct-browser-access", "true"),
-                    ("x-app", "cli"),
-                ] {
-                    headers.insert(name, HeaderValue::from_static(value));
-                }
+                crate::providers::claude::headers(&mut headers);
+                headers.insert(
+                    "user-agent",
+                    HeaderValue::from_str(&crate::providers::claude::user_agent(
+                        options.user_agent(),
+                    ))
+                    .map_err(|_| Fault::invalid("Claude user agent is invalid"))?,
+                );
             }
             (Self::ChatGpt { .. }, Options::ChatGpt { .. }) => {
                 if !self.plan_enabled() {

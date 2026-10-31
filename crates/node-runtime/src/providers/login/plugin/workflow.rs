@@ -24,6 +24,8 @@ enum Effect {
         name: String,
         fields: BTreeMap<String, Secret>,
         state: Value,
+        #[serde(default)]
+        optional: bool,
     },
     Prompt {
         url: String,
@@ -100,10 +102,13 @@ where
     let state_proof = super::super::random();
     let nonce = super::super::random();
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.expose().as_bytes()));
-    input
+    let agent = input
         .fields
         .entry("user_agent".into())
         .or_insert_with(|| Secret::new("Sailry/0.1".into()));
+    if input.declaration.authentication == Some(sailry_protocol::Authentication::ClaudeOAuth) {
+        *agent = Secret::new(crate::providers::claude::user_agent(agent.expose()));
+    }
     let initial = json!({
         "previous":previous,"host_id":context.host_id,"registration":context.registration,
         "redirect":input.redirect,"fields":input.fields,"scopes":input.declaration.scopes,
@@ -163,9 +168,13 @@ where
                     name,
                     fields,
                     state: next,
+                    optional,
                 } => {
                     let stage = request_stage(&name);
                     let endpoint = requests.get(&name).ok_or_else(invalid)?;
+                    if optional && endpoint.method != model_auth::Method::Get {
+                        return Err(invalid());
+                    }
                     for key in ["client_id", "client_secret"] {
                         if let (Some(configured), Some(requested)) =
                             (input.fields.get(key), fields.get(key))
@@ -176,7 +185,7 @@ where
                     }
                     let mut resolved = input.fields.clone();
                     resolved.extend(fields);
-                    let (status, body) = super::response_with(
+                    let response = super::response_with(
                         &input.service,
                         endpoint,
                         &resolved,
@@ -187,7 +196,16 @@ where
                     .await
                     .inspect_err(|error| {
                         diagnostic(stage, "request_failed", Some(error.code), None)
-                    })?;
+                    });
+                    let (status, body) = match response {
+                        Ok(response) => response,
+                        Err(error) if optional && error.code != ErrorCode::Cancelled => {
+                            state = next;
+                            event = json!({"kind":"failure","code":error.code});
+                            return Ok(None);
+                        }
+                        Err(error) => return Err(error),
+                    };
                     diagnostic(
                         stage,
                         if status.is_success() {

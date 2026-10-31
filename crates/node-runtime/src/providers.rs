@@ -1,5 +1,6 @@
 //! Model discovery follows Code 67ae9fa0 adapter_catalog.rs, with native pagination.
 mod authorized;
+pub(crate) mod claude;
 mod endpoint;
 pub(crate) use endpoint::{anthropic as anthropic_base_url, parse as endpoint_url};
 pub(crate) mod catalog;

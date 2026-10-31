@@ -11,8 +11,6 @@ use goose_provider_types::{
 };
 use sailry_protocol::{RequestId, SessionId};
 
-pub(super) use policy::canonical;
-
 #[cfg(test)]
 mod tests;
 
@@ -104,7 +102,11 @@ impl GdkProvider for Model {
         )
         .await
         .map_err(errors::provider)?;
-        let tool_names: Vec<_> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+        let tool_names = request_names(
+            tools,
+            messages,
+            resolved.provider.authentication == Authentication::ClaudeOAuth,
+        );
         let user = messages
             .iter()
             .rev()
@@ -134,6 +136,37 @@ impl GdkProvider for Model {
             registry::fingerprint(&resolved.provider, &self.config, resolved.revision)
                 .map_err(errors::provider)?;
         let mut config = config.clone();
+        if resolved.provider.authentication == Authentication::ClaudeOAuth {
+            let first = messages
+                .iter()
+                .filter(|message| {
+                    !message.is_turn_context()
+                        && message.role == rmcp::model::Role::User
+                        && !message.is_tool_response()
+                })
+                .find_map(|message| {
+                    message
+                        .content
+                        .iter()
+                        .find_map(|block| match block {
+                            MessageContentBlock::Text(text) if !text.text.trim().is_empty() => {
+                                Some(text.text.clone())
+                            }
+                            _ => None,
+                        })
+                        .or_else(|| {
+                            message
+                                .content
+                                .iter()
+                                .any(|block| matches!(block, MessageContentBlock::Image(_)))
+                                .then(String::new)
+                        })
+                })
+                .unwrap_or_default();
+            config = config.with_merged_request_params(
+                [("sailry_claude_first_user".into(), serde_json::json!(first))].into(),
+            );
+        }
         let mut system = system.to_owned();
         let mut messages = messages.to_vec();
         let mut tools = tools.to_vec();
@@ -159,7 +192,40 @@ impl GdkProvider for Model {
             })
             .map_err(errors::provider)?;
         let provider = errors::wrap(provider, prepared.secrets);
-        let responses = provider.stream(&config, &system, &messages, &tools).await?;
+        let mut retried = false;
+        let responses = loop {
+            let sent_version = crate::providers::claude::version::current();
+            let request_config = if resolved.provider.authentication == Authentication::ClaudeOAuth
+            {
+                config.clone().with_merged_request_params(
+                    [(
+                        "sailry_claude_version".into(),
+                        serde_json::json!(sent_version),
+                    )]
+                    .into(),
+                )
+            } else {
+                config.clone()
+            };
+            match provider
+                .stream(&request_config, &system, &messages, &tools)
+                .await
+            {
+                Err(error)
+                    if !retried
+                        && resolved.provider.authentication == Authentication::ClaudeOAuth
+                        && !self.stop.is_cancelled()
+                        && crate::providers::claude::version::adopt(
+                            &error.to_string(),
+                            &sent_version,
+                        ) =>
+                {
+                    retried = true;
+                    continue;
+                }
+                result => break result?,
+            }
+        };
         let names = prepared.names.reverse;
         Ok(Box::pin(responses.map(move |item| {
             item.map(|(mut message, usage)| {
@@ -177,6 +243,26 @@ impl GdkProvider for Model {
             })
         })))
     }
+}
+
+fn request_names<'a>(
+    tools: &'a [rmcp::model::Tool],
+    messages: &'a [Message],
+    claude: bool,
+) -> Vec<&'a str> {
+    let mut names: Vec<_> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+    if claude {
+        // Historical tool calls retain the same wire prefix after a tool is removed.
+        for block in messages.iter().flat_map(|message| &message.content) {
+            if let MessageContentBlock::ToolRequest(request) = block
+                && let Ok(call) = &request.tool_call
+                && !names.contains(&call.name.as_ref())
+            {
+                names.push(call.name.as_ref());
+            }
+        }
+    }
+    names
 }
 
 fn apply(

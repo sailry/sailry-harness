@@ -115,10 +115,23 @@ pub(crate) fn headers(authentication: Authentication) -> Value {
             "version":"0.161.0", "chatgpt-account-id":"fixed-account", "session-id":SESSION,
             "x-codex-routing-hint":"model=fixture-model"
         }),
-        Authentication::ClaudeOAuth => json!({
-            "authorization":"Bearer fixed-access", "user-agent":"CapturedAgent/1", "anthropic-version":"2023-06-01",
-            "anthropic-beta":"claude-code-20250219,oauth-2025-04-20", "anthropic-dangerous-direct-browser-access":"true", "x-app":"cli"
-        }),
+        Authentication::ClaudeOAuth => {
+            let mut headers = reqwest::header::HeaderMap::new();
+            crate::providers::claude::headers(&mut headers);
+            headers.insert(
+                "authorization",
+                reqwest::header::HeaderValue::from_static("Bearer fixed-access"),
+            );
+            headers.insert(
+                "user-agent",
+                reqwest::header::HeaderValue::from_static("claude-cli/2.1.280 (external, cli)"),
+            );
+            headers.insert(
+                "x-claude-code-session-id",
+                reqwest::header::HeaderValue::from_static(SESSION),
+            );
+            header_value(&headers)
+        }
         Authentication::Copilot => json!({
             "authorization":"Bearer fixed-access", "user-agent":"CapturedAgent/1", "editor-version":"CapturedEditor/1",
             "editor-plugin-version":"CapturedPlugin/1", "copilot-integration-id":"vscode-chat", "x-github-api-version":"2025-04-01",

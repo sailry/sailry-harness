@@ -312,7 +312,7 @@ async fn send(client: &Client, prepared: &Prepared, run: &Run<'_>) -> Result<Val
         )
     });
     let operation = async {
-        let response = client
+        let request = client
             .post(prepared.endpoint.clone())
             .headers(prepared.authorization.headers.clone())
             .header(
@@ -324,28 +324,43 @@ async fn send(client: &Client, prepared: &Prepared, run: &Run<'_>) -> Result<Val
                 },
             )
             .timeout(Duration::from_secs(90))
-            .json(&prepared.body)
-            .send()
-            .await
-            .map_err(|error| {
-                if error.is_builder() {
-                    invalid("model search request is invalid")
-                } else if error.is_timeout() {
-                    request_fault(
-                        ErrorCode::Unavailable,
-                        ModelFailure::Timeout,
-                        "model search deadline exceeded",
-                        true,
-                    )
-                } else {
-                    request_fault(
-                        ErrorCode::Unavailable,
-                        ModelFailure::Request,
-                        "model search service is unreachable",
-                        true,
-                    )
-                }
-            })?;
+            .json(&prepared.body);
+        let request = if run.provider.authentication == Authentication::ClaudeOAuth {
+            let mut request = request
+                .build()
+                .map_err(|_| invalid("model search request is invalid"))?;
+            crate::providers::claude::decorate(
+                &mut request,
+                run.provider
+                    .oauth
+                    .as_ref()
+                    .map(|options| options.user_agent())
+                    .unwrap_or_default(),
+            )
+            .map_err(failure)?;
+            reqwest::RequestBuilder::from_parts(client.clone(), request)
+        } else {
+            request
+        };
+        let response = request.send().await.map_err(|error| {
+            if error.is_builder() {
+                invalid("model search request is invalid")
+            } else if error.is_timeout() {
+                request_fault(
+                    ErrorCode::Unavailable,
+                    ModelFailure::Timeout,
+                    "model search deadline exceeded",
+                    true,
+                )
+            } else {
+                request_fault(
+                    ErrorCode::Unavailable,
+                    ModelFailure::Request,
+                    "model search service is unreachable",
+                    true,
+                )
+            }
+        })?;
         if let Some(metric) = &mut metric {
             metric.status(response.status().as_u16());
         }

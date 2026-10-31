@@ -4,7 +4,7 @@ use crate::{Authentication, Fault};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_CATALOG_VERSION: &str = "0.160.1";
-pub const DEFAULT_CLAUDE_AGENT: &str = "claude-cli/2.1.280";
+pub const DEFAULT_CLAUDE_AGENT: &str = "claude-cli/2.1.280 (external, cli)";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]

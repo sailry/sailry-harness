@@ -43,6 +43,16 @@ pub(crate) enum Grant {
         access: Secret,
         refresh: Secret,
         expires_at_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        email: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        org_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        org_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        installation_id: Option<String>,
         #[serde(default)]
         renewal_pending: bool,
     },
@@ -108,7 +118,14 @@ impl Grant {
             } => {
                 values.extend([refresh.clone(), id_token.clone()]);
             }
-            Grant::ClaudeOAuth { refresh, .. } => values.push(refresh.clone()),
+            Grant::ClaudeOAuth {
+                refresh,
+                account_id,
+                ..
+            } => {
+                values.push(refresh.clone());
+                values.extend(account_id.iter().cloned().map(Secret::new));
+            }
             Grant::Copilot { github, .. } => values.push(github.clone()),
         }
         values
@@ -158,7 +175,9 @@ impl Grant {
 
     pub(crate) fn account_label(&self) -> Option<&str> {
         let email = match self {
-            Self::ChatGpt { email, .. } | Self::ChatGptOAuth { email, .. } => email.as_deref(),
+            Self::ChatGpt { email, .. }
+            | Self::ChatGptOAuth { email, .. }
+            | Self::ClaudeOAuth { email, .. } => email.as_deref(),
             Self::Plugin { record, .. } => record.issued.account_label.as_deref(),
             _ => None,
         };
@@ -199,7 +218,23 @@ impl Grant {
             (Self::Copilot { github: first, .. }, Self::Copilot { github: second, .. }) => {
                 first == second
             }
-            (Self::ClaudeOAuth { .. }, Self::ClaudeOAuth { .. }) => true,
+            (
+                Self::ClaudeOAuth {
+                    account_id: first,
+                    org_id: first_org,
+                    ..
+                },
+                Self::ClaudeOAuth {
+                    account_id: second,
+                    org_id: second_org,
+                    ..
+                },
+            ) => {
+                second.as_ref().is_none_or(|id| first.as_ref() == Some(id))
+                    && second_org
+                        .as_ref()
+                        .is_none_or(|id| first_org.as_ref() == Some(id))
+            }
             _ => false,
         }
     }

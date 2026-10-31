@@ -184,3 +184,33 @@ fn projects_optional_account_emails() {
         Some("fixture@example.test")
     );
 }
+
+#[test]
+fn enriches_only_missing_claude_identity() {
+    let authentication = Authentication::ClaudeOAuth;
+    let missing = read(authentication, document(authentication)).unwrap();
+    let mut value = document(authentication);
+    value["account_id"] = json!("account");
+    value["org_id"] = json!("org");
+    let known = read(authentication, value.clone()).unwrap();
+    assert!(known.same_account(&missing));
+    assert!(!missing.same_account(&known));
+    assert!(known.same_account(&known));
+    for field in ["account_id", "org_id"] {
+        let mut changed = value.clone();
+        changed[field] = json!("other");
+        assert!(!read(authentication, changed).unwrap().same_account(&known));
+    }
+}
+
+#[test]
+fn protects_claude_account_in_response_errors() {
+    let authentication = Authentication::ClaudeOAuth;
+    let mut value = document(authentication);
+    value["account_id"] = json!("private-account");
+    let grant = read(authentication, value).unwrap();
+    let secrets = grant.secrets(&HeaderMap::new());
+    for expected in ["fixture-access", "fixture-refresh", "private-account"] {
+        assert!(secrets.iter().any(|secret| secret.expose() == expected));
+    }
+}

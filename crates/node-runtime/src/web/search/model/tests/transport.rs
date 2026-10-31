@@ -77,12 +77,21 @@ async fn sends_native_requests_across_logins() {
         let captured = server.captured().await;
         let path = match api {
             ModelApi::Responses => "/responses",
+            ModelApi::Anthropic if authentication == Authentication::ClaudeOAuth => {
+                "/v1/messages?beta=true"
+            }
             ModelApi::Anthropic => "/v1/messages",
             ModelApi::Gemini => "/v1beta/models/fixture-model:generateContent",
             _ => unreachable!(),
         };
         assert_eq!(captured.route, format!("POST {path} HTTP/1.1"));
-        assert_eq!(captured.body, expected(api, authentication));
+        let expected = expected(api, authentication);
+        let expected = if authentication == Authentication::ClaudeOAuth {
+            serde_json::from_slice(&crate::providers::claude::encode(&expected).unwrap()).unwrap()
+        } else {
+            expected
+        };
+        assert_eq!(captured.body, expected);
         assert_headers(&captured, authentication, api);
     }
 }

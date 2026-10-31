@@ -227,13 +227,14 @@ fn preserves_server_tools_and_maps_function_history() {
     assert_eq!(
         body,
         json!({
-            "model":"fixture-model", "tools":[{"name":"Read", "input_schema":{}}, {"type":"web_search_20250305", "name":"web_search"}],
-            "system":"You are Claude Code, Anthropic's official CLI for Claude.\n\nCaptured system",
-            "messages":[{"role":"assistant", "content":[{"type":"tool_use", "name":"Read", "id":"call", "input":{}}]}]
+            "model":"fixture-model", "tools":[{"name":"_read", "input_schema":{}}, {"type":"web_search_20250305", "name":"web_search"}],
+            "system":"Captured system",
+            "metadata":super::super::claude::metadata("33333333-3333-4333-8333-333333333333",fixture::SESSION,None),
+            "messages":[{"role":"assistant", "content":[{"type":"tool_use", "name":"_read", "id":"call", "input":{}}]}]
         })
     );
     assert_eq!(
-        prepared.names.reverse.get("Read").map(String::as_str),
+        prepared.names.reverse.get("_read").map(String::as_str),
         Some("read")
     );
     assert!(!prepared.names.reverse.contains_key("READ"));

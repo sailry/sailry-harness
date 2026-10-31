@@ -328,6 +328,11 @@ private prior credential, configured fields, callback address, registration and
 PKCE proofs in `context`. Initial events are `start` or `refresh`; subsequent
 events are `response` (HTTP status and document), `presented`, `callback`
 (validated fields), `elapsed`, `identity` (verified OIDC claims) or `registered`.
+A read-only `request` may set `optional: true`. Only declared GET endpoints accept
+this flag; a transport or decoding failure returns a private `failure` event with
+an error code so the package can retain already issued credentials. Cancellation
+and the absolute login deadline still terminate the flow. HTTP errors remain
+`response` events with their status.
 A step returns one effect: `request` (declared name and private fields), `prompt`,
 `callback`, `wait`, `verify`, `registered`, `finish` or `reject`. Effects carry
 only their next private `state`; it never becomes a controller projection. HTTP

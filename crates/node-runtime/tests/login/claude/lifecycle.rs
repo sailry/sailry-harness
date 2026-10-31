@@ -4,13 +4,11 @@ use super::*;
 async fn connects_and_restores_both_callback_flows() {
     for remote in [false, true] {
         for redirect in [Some(REDIRECT), None] {
-            let agent = if redirect.is_some() {
-                "claude-cli/2.1.280"
-            } else {
-                "claude-fixture/copy"
-            };
+            let agent = "claude-cli/2.1.280 (external, cli)";
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                assert_eq!(request.headers["user-agent"], agent);
+                if request.path.starts_with("/v1/models") {
+                    assert_eq!(request.headers["user-agent"], agent);
+                }
                 if request.path.starts_with("/v1/models") {
                     server::catalog(request, ACCESS, agent)
                 } else {
@@ -81,7 +79,10 @@ async fn connects_and_restores_both_callback_flows() {
             assert_eq!(credentials.len(), 1);
             assert_eq!(credentials[0].authentication, Authentication::ClaudeOAuth);
             assert_eq!(credentials[0].expires_at_ms, None);
-            assert_eq!(credentials[0].account_label, None);
+            assert_eq!(
+                credentials[0].account_label.as_deref(),
+                Some("fixture@example.test")
+            );
             let error = fixture
                 .client
                 .execute(fixture.client.prepare(Command::ReadProviderKey {
@@ -119,7 +120,18 @@ async fn connects_and_restores_both_callback_flows() {
                 let requests = server.requests.lock().unwrap();
                 let body: Value = serde_json::from_str(&requests[0].body).unwrap();
                 assert!(body["state"].as_str() == Some(state.as_str()));
-                assert!(body["code_verifier"].as_str() == Some(state.as_str()));
+                let verifier = body["code_verifier"].as_str().unwrap();
+                assert_ne!(verifier, state);
+                let challenge = authorization
+                    .query_pairs()
+                    .find(|(key, _)| key == "code_challenge")
+                    .unwrap()
+                    .1;
+                use sha2::Digest;
+                assert_eq!(
+                    URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes())),
+                    challenge
+                );
             }
             assert_eq!(
                 fixture.client.execute(request.clone()).await.unwrap(),
@@ -315,5 +327,102 @@ async fn rejects_denials_and_expired_grants() {
             public_rows(&fixture, &url).await;
             fixture.close().await;
         }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retains_tokens_when_identity_is_unavailable() {
+    for remote in [false, true] {
+        for mode in ["identity", "unavailable", "invalid"] {
+            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+                if request.path == "/v1/oauth/token" {
+                    let mut tokens = server::tokens(request, false, 3600);
+                    tokens.as_object_mut().unwrap().remove("account");
+                    tokens.as_object_mut().unwrap().remove("organization");
+                    Reply::Json(tokens)
+                } else if request.path.starts_with("/api/claude_cli/bootstrap") {
+                    assert_eq!(request.method, "GET");
+                    assert_eq!(request.headers["authorization"], format!("Bearer {ACCESS}"));
+                    assert_eq!(request.headers["user-agent"], "claude-code/2.1.280");
+                    assert_eq!(request.headers["anthropic-beta"], "oauth-2025-04-20");
+                    assert!(request.path.contains("entrypoint=cli"));
+                    assert!(request.path.contains("model=claude-opus-4-8"));
+                    match mode {
+                        "identity" => Reply::Json(json!({"oauth_account":{
+                            "account_uuid":"fixture-account", "account_email":"fixture@example.test",
+                            "organization_uuid":"fixture-org", "organization_name":"Fixture"
+                        }})),
+                        "unavailable" => Reply::Raw("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()),
+                        _ => Reply::Raw("HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx".into()),
+                    }
+                } else {
+                    server::catalog(request, ACCESS, "claude-cli/2.1.280 (external, cli)")
+                }
+            }).await;
+            let fixture = Fixture::empty(remote, &server).await;
+            let provider = connected(&fixture).await;
+            let private = grant(&fixture, &provider).await;
+            assert_eq!(private["access"], ACCESS);
+            assert_eq!(private["refresh"], REFRESH);
+            assert!(
+                private["installation_id"]
+                    .as_str()
+                    .is_some_and(|id| !id.is_empty())
+            );
+            if mode == "identity" {
+                assert_eq!(private["account_id"], "fixture-account");
+                assert_eq!(private["org_id"], "fixture-org");
+            } else {
+                assert!(private["account_id"].is_null());
+                assert!(private["org_id"].is_null());
+            }
+            redacted(&provider);
+            assert_eq!(server.requests.lock().unwrap().len(), 4);
+            fixture.close().await;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancellation_stops_optional_identity_lookup() {
+    for remote in [false, true] {
+        let server = Server::start_with_request(ModelApi::Anthropic, |request| {
+            if request.path == "/v1/oauth/token" {
+                let mut tokens = server::tokens(request, false, 3600);
+                tokens.as_object_mut().unwrap().remove("account");
+                Reply::Json(tokens)
+            } else {
+                assert!(request.path.starts_with("/api/claude_cli/bootstrap"));
+                Reply::Hold
+            }
+        })
+        .await;
+        let fixture = Fixture::empty(remote, &server).await;
+        let original = provider(&fixture.client, None).await;
+        let (_, attempt, url) = begin(&fixture.client, &original, Some(REDIRECT)).await;
+        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        super::super::complete(&fixture.client, &attempt, callback(&url, Some(REDIRECT))).await;
+        server.wait_requests(2).await;
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::CancelProviderLogin {
+                attempt: attempt.id,
+            }))
+            .await
+            .unwrap();
+        let update = super::super::terminal(&mut stream).await;
+        assert_eq!(update.state, login::State::Cancelled);
+        redacted(&update);
+        server.wait_closed(1).await;
+        assert_eq!(saved(&fixture.client, original.id).await, original);
+        assert_eq!(
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::ListCredentials))
+                .await
+                .unwrap(),
+            Output::Credentials(vec![])
+        );
+        fixture.close().await;
     }
 }

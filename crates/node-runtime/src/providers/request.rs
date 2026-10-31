@@ -112,11 +112,15 @@ impl Names {
     pub(crate) fn new(names: &[&str]) -> Result<Self, Fault> {
         let mut result = Self::default();
         for name in names {
-            let wire = canonical(name);
-            if result.reverse.insert(wire.into(), (*name).into()).is_some() {
+            let wire = super::claude::tool_name(name);
+            if result
+                .reverse
+                .insert(wire.clone(), (*name).into())
+                .is_some()
+            {
                 return Err(Fault::invalid("authorized model tool names conflict"));
             }
-            result.forward.insert((*name).into(), wire.into());
+            result.forward.insert((*name).into(), wire);
         }
         Ok(result)
     }
@@ -219,15 +223,28 @@ pub(crate) fn prepare(
             );
         }
         Grant::ChatGpt { .. } => prepared.remove_params = &["max_tokens", "temperature"],
-        Grant::ClaudeOAuth { .. } => {
-            // Pi's reviewed subscription identity is an authorization requirement.
-            // Source: pi 4270522473e677ddba7b093caa0064a3df51d459 (MIT).
-            prepared.system.text = format!(
-                "You are Claude Code, Anthropic's official CLI for Claude.\n\n{}",
-                metadata.system
-            );
+        Grant::ClaudeOAuth {
+            account_id,
+            installation_id,
+            ..
+        } => {
             prepared.names = Names::new(metadata.tool_names)?;
+            prepared.parameters.insert(
+                "metadata".into(),
+                super::claude::metadata(
+                    installation_id
+                        .as_deref()
+                        .unwrap_or(&provider.id.to_string()),
+                    &metadata.session.to_string(),
+                    account_id.as_deref(),
+                ),
+            );
+            prepared.headers.insert(
+                "x-claude-code-session-id",
+                header(&metadata.session.to_string())?,
+            );
         }
+
         Grant::Copilot { .. } => {
             prepared.headers.insert(
                 "openai-intent",
@@ -301,31 +318,4 @@ fn insert_secret(headers: &mut HeaderMap, name: &str, value: &str) -> Result<(),
     value.set_sensitive(true);
     headers.insert(name, value);
     Ok(())
-}
-
-pub(crate) fn canonical(name: &str) -> &str {
-    const TOOLS: &[&str] = &[
-        "Read",
-        "Write",
-        "Edit",
-        "Bash",
-        "Grep",
-        "Glob",
-        "AskUserQuestion",
-        "EnterPlanMode",
-        "ExitPlanMode",
-        "KillShell",
-        "NotebookEdit",
-        "Skill",
-        "Task",
-        "TaskOutput",
-        "TodoWrite",
-        "WebFetch",
-        "WebSearch",
-    ];
-    TOOLS
-        .iter()
-        .copied()
-        .find(|candidate| candidate.eq_ignore_ascii_case(name))
-        .unwrap_or(name)
 }

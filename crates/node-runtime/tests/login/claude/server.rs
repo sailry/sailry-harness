@@ -11,15 +11,18 @@ pub(super) fn authorization(url: &str, endpoint: &str, redirect: Option<&str>) {
     assert_eq!(fields["client_id"], CLIENT);
     assert_eq!(fields["response_type"], "code");
     assert_eq!(fields["code"], "true");
-    assert_eq!(fields["redirect_uri"], redirect.unwrap_or(COPY_REDIRECT));
+    assert_eq!(fields["redirect_uri"], redirect.unwrap_or(REDIRECT));
     assert_eq!(fields["code_challenge_method"], "S256");
     assert_eq!(
         fields["scope"],
         "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
     );
     assert!(fields["state"].len() >= 43);
-    let expected = URL_SAFE_NO_PAD.encode(Sha256::digest(fields["state"].as_bytes()));
-    assert!(fields["code_challenge"] == expected);
+    assert_eq!(fields["code_challenge"].len(), 43);
+    assert_ne!(
+        fields["code_challenge"],
+        URL_SAFE_NO_PAD.encode(Sha256::digest(fields["state"].as_bytes()))
+    );
 }
 
 pub(crate) fn tokens(request: &discovery_support::Request, fresh: bool, expires: u64) -> Value {
@@ -31,27 +34,31 @@ pub(crate) fn tokens(request: &discovery_support::Request, fresh: bool, expires:
     assert!(body.get("scope").is_none());
     if fresh {
         assert_eq!(body["grant_type"], "refresh_token");
+        assert_eq!(request.headers["anthropic-beta"], "oauth-2025-04-20");
+        assert_eq!(
+            request.headers["user-agent"],
+            "anthropic-sdk-typescript/0.112.1 userOAuthProvider"
+        );
         assert!(body["refresh_token"] == REFRESH);
         assert_eq!(body.as_object().unwrap().len(), 3);
     } else {
         assert_eq!(body["grant_type"], "authorization_code");
         assert!(body["code"] == CODE);
-        assert!(body["code_verifier"] == body["state"]);
+        assert_ne!(body["code_verifier"], body["state"]);
         assert!(
             body["state"]
                 .as_str()
                 .is_some_and(|state| state.len() >= 43)
         );
-        assert!(matches!(
-            body["redirect_uri"].as_str(),
-            Some(REDIRECT | COPY_REDIRECT)
-        ));
+        assert_eq!(body["redirect_uri"], REDIRECT);
         assert_eq!(body.as_object().unwrap().len(), 6);
     }
     json!({
         "access_token": if fresh { REFRESHED } else { ACCESS },
         "refresh_token": if fresh { ROTATED } else { REFRESH },
         "expires_in": expires,
+        "account":{"uuid":"fixture-account","email_address":"fixture@example.test"},
+        "organization":{"uuid":"fixture-org","name":"Fixture"},
     })
 }
 
@@ -60,11 +67,17 @@ pub(super) fn headers(request: &discovery_support::Request, access: &str, agent:
     assert!(!request.headers.contains_key("x-api-key"));
     assert_eq!(request.headers["user-agent"], agent);
     assert_eq!(request.headers["anthropic-version"], "2023-06-01");
-    let betas = request.headers["anthropic-beta"]
+    let betas = request
+        .headers
+        .get("anthropic-beta")
+        .map(String::as_str)
+        .unwrap_or("")
         .split(',')
         .collect::<Vec<_>>();
-    assert!(betas.contains(&"claude-code-20250219"));
-    assert!(betas.contains(&"oauth-2025-04-20"));
+    if request.path.starts_with("/v1/messages") {
+        assert!(betas.contains(&"claude-code-20250219"));
+        assert!(betas.contains(&"oauth-2025-04-20"));
+    }
     assert_eq!(
         request.headers["anthropic-dangerous-direct-browser-access"],
         "true"
@@ -101,31 +114,61 @@ pub(crate) fn standard(request: &discovery_support::Request) -> Reply {
     if request.path == "/v1/oauth/token" {
         Reply::Json(tokens(request, false, 3600))
     } else if request.path.starts_with("/v1/models") {
-        catalog(request, ACCESS, "claude-cli/2.1.280")
+        catalog(request, ACCESS, "claude-cli/2.1.280 (external, cli)")
     } else {
         panic!("unexpected Claude fixture endpoint")
     }
 }
 
 pub(super) fn generation(request: &discovery_support::Request, access: &str, tools: bool) -> Reply {
-    headers(request, access, "claude-cli/2.1.280");
+    generation_version(request, access, tools, "2.1.280")
+}
+
+pub(super) fn generation_version(
+    request: &discovery_support::Request,
+    access: &str,
+    tools: bool,
+    version: &str,
+) -> Reply {
+    headers(
+        request,
+        access,
+        &format!("claude-cli/{version} (external, cli)"),
+    );
     assert_eq!(request.method, "POST");
-    assert_eq!(request.path, "/v1/messages");
+    assert_eq!(request.path, "/v1/messages?beta=true");
     let body: Value = serde_json::from_str(&request.body).unwrap();
     assert_eq!(body["model"], "fixture");
     assert_eq!(body["stream"], true);
     assert_eq!(body["max_tokens"], 512);
     for tool in body["tools"].as_array().into_iter().flatten() {
-        if tool["name"] == "manage_mcp" {
+        if tool["name"] == "_manage_mcp" {
             let schema = &tool["input_schema"];
             assert_eq!(schema["type"], "object");
             assert!(schema["oneOf"].is_array());
         }
     }
     let system = body["system"].as_array().unwrap();
-    assert!(system[0]["text"].as_str().unwrap().starts_with(
-        "You are Claude Code, Anthropic's official CLI for Claude.\n\nYou are Sailry,"
-    ));
+    assert!(system[0]["text"].as_str().unwrap().starts_with(&format!(
+        "x-anthropic-billing-header: cc_version={version}."
+    )));
+    assert_eq!(
+        system[1]["text"],
+        "You are Claude Code, Anthropic's official CLI for Claude."
+    );
+    assert!(
+        system[2]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("You are Sailry,")
+    );
+    let identity: Value =
+        serde_json::from_str(body["metadata"]["user_id"].as_str().unwrap()).unwrap();
+    assert_eq!(identity["account_uuid"], "fixture-account");
+    assert_eq!(
+        identity["session_id"],
+        request.headers["x-claude-code-session-id"]
+    );
     assert_eq!(
         system
             .iter()
@@ -162,7 +205,7 @@ pub(super) fn generation(request: &discovery_support::Request, access: &str, too
             .as_array()
             .unwrap()
             .iter()
-            .find_map(|tool| tool["name"].as_str().filter(|name| *name == "read_file"))
+            .find_map(|tool| tool["name"].as_str().filter(|name| *name == "_read_file"))
             .expect("files read tool expected");
         json!({"type":"tool_use", "id":"call_claude", "name":name, "input":{}})
     } else {

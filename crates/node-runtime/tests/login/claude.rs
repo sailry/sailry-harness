@@ -9,10 +9,11 @@ mod lifecycle;
 mod renewals;
 #[path = "claude/server.rs"]
 pub(super) mod server;
+#[path = "claude/version.rs"]
+mod version;
 
 const CLIENT: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const REDIRECT: &str = "http://127.0.0.1:53692/callback";
-const COPY_REDIRECT: &str = "https://platform.claude.com/oauth/code/callback";
+const REDIRECT: &str = "http://localhost:54545/callback";
 const ACCESS: &str = "isolated-claude-access";
 const REFRESH: &str = "isolated-claude-refresh";
 const REFRESHED: &str = "isolated-claude-renewed-access";

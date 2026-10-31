@@ -191,6 +191,13 @@ pub(super) fn native(
             ))
             .or_insert(HeaderValue::from_static(ANTHROPIC_API_VERSION));
     }
+    let claude_oauth = provider.authentication == Authentication::ClaudeOAuth;
+    let claude_agent = provider
+        .oauth
+        .as_ref()
+        .map(|options| options.user_agent())
+        .unwrap_or_default()
+        .to_owned();
     let decorator: RequestBuilderDecorator = Arc::new(move |request| {
         // ApiClient applies auth after this decorator; keep it on the rebuilt request.
         // Its private default headers are not carried by RequestBuilder::build().
@@ -201,6 +208,13 @@ pub(super) fn native(
             }
         }
         Ok(reqwest::RequestBuilder::from_parts(shared.clone(), request))
+    });
+    let finalizer: RequestBuilderDecorator = Arc::new(move |builder| {
+        let (client, request) = builder.build_split();
+        let mut request = request?;
+        crate::providers::claude::decorate(&mut request, &claude_agent)
+            .map_err(|error| anyhow::anyhow!("{}", error.message))?;
+        Ok(reqwest::RequestBuilder::from_parts(client, request))
     });
     let injection = provider
         .binding
@@ -221,7 +235,11 @@ pub(super) fn native(
             .with_request_builder(decorator.clone())
             .with_same_origin_redirects()
             .map_err(unavailable)?;
-        Ok(client)
+        Ok(if claude_oauth {
+            client.with_request_finalizer(finalizer.clone())
+        } else {
+            client
+        })
     };
     let query = endpoint
         .query_pairs()

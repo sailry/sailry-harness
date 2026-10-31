@@ -51,6 +51,8 @@ async fn preserves_paused_content_and_accumulates_usage() {
         .as_array_mut()
         .unwrap()
         .push(json!({"role":"assistant","content":paused["content"]}));
+    let expected: Value =
+        serde_json::from_slice(&crate::providers::claude::encode(&expected).unwrap()).unwrap();
     assert_eq!(requests[1].body, expected);
     assert_eq!(
         requests[1].body["messages"][1]["content"][1]["content"][0]["encrypted_content"],
