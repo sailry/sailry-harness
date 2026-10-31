@@ -230,6 +230,13 @@ async fn checkpoint(
     let Some(saved) = super::super::super::checkpoints::saved(db, turn, call).await? else {
         return Ok(());
     };
+    // Notebooks keep their declared cell preview; a raw JSON diff is unreadable.
+    if std::path::Path::new(&saved.path)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ipynb"))
+    {
+        return Ok(());
+    }
     let path = raw
         .display
         .as_ref()
