@@ -29,9 +29,8 @@ impl View {
                 self.sync_rows(cx);
             }
             self.refresh_clock(cx);
-            // A reshown pane may reuse its cached frame without another layout pass,
-            // so reselect from the rows recorded before it was hidden.
-            self.select_details(self.navigation.bounds.get());
+            // Expansion state survives hiding, so showing the pane selects it again.
+            self.select_details();
         } else {
             self.clock = None;
             self.details.protect([]);

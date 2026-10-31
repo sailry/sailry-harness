@@ -42,47 +42,138 @@ fn call(state: State, code: Option<ErrorCode>) -> Call {
     }
 }
 
-#[test]
-fn selects_publications_by_their_own_bounds() {
-    use sailry_protocol::tool::detail::Reference;
-    use std::collections::BTreeSet;
-    let reference = |entry: &str| Reference {
-        session: SessionId::new(),
-        turn: TurnId::new(),
-        entry: entry.into(),
-        index: 0,
-        call: Some(entry.into()),
-        revision: "current".into(),
-    };
-    let published = reference("published");
-    let pending = reference("pending");
-    let current = BTreeSet::from([published.clone(), pending.clone()]);
-    let row = Bounds::new(point(px(0.), px(100.)), size(px(500.), px(160.)));
-    let viewport = |top| Bounds::new(point(px(0.), px(top)), size(px(500.), px(300.)));
-    let rows = [(published.clone(), row, true)];
-    let select =
-        |bounds| details::selection(&rows, bounds, &current, BTreeSet::from([pending.clone()]));
-    let (selected, protected) = select(viewport(0.));
-    assert_eq!(selected, current);
-    assert_eq!(protected, current);
-    // The long turn remains visible while its publication is above the viewport.
-    let (selected, protected) = select(viewport(700.));
-    assert_eq!(selected, BTreeSet::from([pending.clone()]));
-    assert_eq!(protected, selected);
-    let (restored, protected) = select(viewport(0.));
-    assert_eq!(restored, current);
-    assert_eq!(protected, current);
-    let loading = Bounds::new(row.origin, size(row.size.width, DETAIL_LOADING_HEIGHT));
-    assert!(DETAIL_LOADING_HEIGHT > px(0.));
-    assert!(details::visible(loading, viewport(0.)));
-    assert!(!details::visible(loading, viewport(700.)));
-    assert!(!details::visible(
-        Bounds::new(row.origin, size(row.size.width, px(0.))),
-        viewport(0.)
-    ));
-    let stale = BTreeSet::from([pending.clone()]);
-    let (selected, _) = details::selection(&rows, viewport(0.), &stale, stale.clone());
-    assert_eq!(selected, stale);
+mod selection {
+    use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    type Open = BTreeMap<(TurnId, String), bool>;
+
+    fn fixture() -> (Call, Page) {
+        raw_fixture(json!({"output":{"text":"Job output"}}))
+    }
+
+    fn pair() -> ([Call; 2], Page) {
+        let (first, mut page) = fixture();
+        let mut second = first.clone();
+        second.id = Some("second".into());
+        second.source.index = 1;
+        second.response.as_mut().unwrap().index = 1;
+        let entries = std::sync::Arc::make_mut(&mut page.entries);
+        let mut source = entries[0].parts[0].clone();
+        if let Part::ToolCall { id, .. } = &mut source {
+            *id = second.id.clone();
+        }
+        entries[0].parts.push(source);
+        let mut response = entries[1].parts[0].clone();
+        if let Part::ToolResult { id, .. } = &mut response {
+            *id = second.id.clone();
+        }
+        entries[1].parts.push(response);
+        ([first, second], page)
+    }
+
+    fn summary_mut(page: &mut Page) -> &mut tool::detail::Summary {
+        let Part::ToolResult { summary, .. } =
+            &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+        else {
+            unreachable!()
+        };
+        summary
+    }
+
+    fn row(call: &Call, open: bool) -> Open {
+        BTreeMap::from([((call.turn, row_key(call)), open)])
+    }
+
+    #[core::prelude::v1::test]
+    fn keeps_expanded_row() {
+        let (call, page) = fixture();
+        let reference = call.detail_reference(&page).unwrap();
+        // Selection takes no geometry, so a row is kept whether or not it was measured.
+        let selected = details::expanded(&row(&call, true), &[call], &page);
+        assert_eq!(selected, BTreeSet::from([reference]));
+    }
+
+    #[core::prelude::v1::test]
+    fn releases_collapsed_row() {
+        let (call, page) = fixture();
+        let calls = [call];
+        let mut open = row(&calls[0], true);
+        assert_eq!(details::expanded(&open, &calls, &page).len(), 1);
+        open.insert((calls[0].turn, row_key(&calls[0])), false);
+        assert!(details::expanded(&open, &calls, &page).is_empty());
+        assert!(details::expanded(&Open::new(), &calls, &page).is_empty());
+    }
+
+    #[core::prelude::v1::test]
+    fn releases_row_off_page() {
+        let (call, page) = fixture();
+        let open = row(&call, true);
+        let calls = [call];
+        assert!(!details::expanded(&open, &calls, &page).is_empty());
+        // The flag survives, but the next page neither lists nor describes the call.
+        let next = super::page();
+        assert!(details::expanded(&open, &[], &page).is_empty());
+        assert!(details::expanded(&open, &calls, &next).is_empty());
+    }
+
+    #[core::prelude::v1::test]
+    fn survives_pane_reshow() {
+        let (call, mut page) = fixture();
+        let calls = [call];
+        let open = row(&calls[0], true);
+        let hidden = details::expanded(&open, &calls, &page);
+        // History that arrives while the pane is hidden applies when it is shown again.
+        summary_mut(&mut page).revision = "next".into();
+        let shown = details::expanded(&open, &calls, &page);
+        assert_eq!(shown.len(), 1);
+        assert!(shown.is_disjoint(&hidden));
+        assert_eq!(shown.first().unwrap().revision, "next");
+    }
+
+    #[core::prelude::v1::test]
+    fn keeps_projected_group_run() {
+        let (mut calls, page) = pair();
+        let resolved = display::Resolved {
+            label: None,
+            input: Default::default(),
+            output: Some(tool::detail::Output {
+                preview: String::new(),
+                preview_deferred: false,
+                notices: vec![],
+                paths: vec!["a".into(), "b".into()],
+                path_count: 2,
+                body: None,
+                table: None,
+            }),
+            approval: vec![],
+            status: None,
+            command: None,
+            diagnostics: vec![],
+        };
+        for call in &mut calls {
+            call.resolved = Some(resolved.clone());
+        }
+        let open = Open::from([((calls[0].turn, group_key(&calls[0])), true)]);
+        assert_eq!(details::expanded(&open, &calls, &page).len(), 2);
+        // A group without projected output leaves its calls to their own rows.
+        calls[0].resolved = None;
+        assert!(details::expanded(&open, &calls, &page).is_empty());
+    }
+
+    #[core::prelude::v1::test]
+    fn keeps_publications_on_page() {
+        let (call, mut page) = fixture();
+        let calls = [call];
+        assert!(details::publications(&calls, &page).is_empty());
+        summary_mut(&mut page).published = true;
+        let reference = calls[0].detail_reference(&page).unwrap();
+        assert_eq!(
+            details::publications(&calls, &page),
+            BTreeSet::from([reference])
+        );
+        assert!(details::publications(&calls, &super::page()).is_empty());
+    }
 }
 
 #[test]

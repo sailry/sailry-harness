@@ -549,10 +549,12 @@ without the parameters. Intrinsically oversized details preserve summary-based
 approval, and rejection remains available without details. Released capacity
 restarts blocked selections without evicting other visible values or reporting
 eviction as an operation failure.
-Desktop selects expanded rows and published cards by their own viewport bounds;
-offscreen cards retain only their reference and measured height. Hidden cached
-views release their selections until displayed again. Mobile consumes the same
-tracker states. Desktop retains Kit parsing state for tool text while its source
+Desktop selects expanded rows, projected groups and published cards on the
+current page by expansion state, never by scroll position or focus. Collapsing a
+row or leaving the page releases its value. Hidden cached views release their
+selections and select them again from expansion state when displayed; published
+cards keep their measured height meanwhile. Mobile consumes the same tracker
+states. Desktop retains Kit parsing state for tool text while its source
 is retained by Client, and releases it when the view is hidden.
 Plugin snapshots read details directly with bounded concurrency and no automatic
 retry; their returned JSON belongs to the

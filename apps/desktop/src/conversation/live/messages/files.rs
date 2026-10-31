@@ -103,19 +103,17 @@ impl View {
                     })
                     .into_any_element()
             };
-            let observe = self.detail_bounds([reference.clone()], true);
             let heights = self.publication_heights.clone();
             groups.push(
                 div()
                     .w_full()
                     .child(content)
-                    .on_children_prepainted(move |bounds, window, cx| {
+                    .on_children_prepainted(move |bounds, _, _| {
                         if ready && let Some(bounds) = bounds.first() {
                             heights
                                 .borrow_mut()
                                 .insert(reference.clone(), bounds.size.height);
                         }
-                        observe(bounds, window, cx);
                     })
                     .into_any_element(),
             );

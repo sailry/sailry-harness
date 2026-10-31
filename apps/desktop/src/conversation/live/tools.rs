@@ -120,7 +120,7 @@ impl View {
         let first = calls[0];
         let grouped = projection::group(self, calls, page, cx).filter(|group| group.count > 0);
         let turn = first.turn;
-        let key = format!("tool-group-{}", first.source.key());
+        let key = group_key(first);
         let summary = self
             .preparing_summary(group_summary(calls, page), calls, page)
             .continuing(continuing);
@@ -141,7 +141,6 @@ impl View {
                 cx,
             );
         }
-        let projected = grouped.is_some();
         let content = if open {
             match grouped {
                 Some(group) => group.content,
@@ -151,12 +150,12 @@ impl View {
             v_flex().into_any_element()
         };
         let content_id = format!("live-{turn}-{key}-content");
-        let references: Vec<_> = calls
-            .iter()
-            .filter_map(|call| call.detail_reference(page))
-            .collect();
-        let visible = if open && projected {
-            references.clone()
+        // Only a projected group shows its calls' details itself.
+        let references: Vec<_> = if projection::grouped(first, page) {
+            calls
+                .iter()
+                .filter_map(|call| call.detail_reference(page))
+                .collect()
         } else {
             Vec::new()
         };
@@ -179,9 +178,6 @@ impl View {
             )
             .content(
                 disclosure::body(content, cx)
-                    .when(!visible.is_empty(), |body| {
-                        body.on_children_prepainted(self.detail_bounds(visible, false))
-                    })
                     .py_2()
                     .debug_selector(move || content_id.clone()),
             )
@@ -196,7 +192,7 @@ impl View {
             .gap_2()
             .children(calls.iter().enumerate().map(|(index, call)| {
                 let continuing = continuing && index + 1 == calls.len();
-                let key = format!("tools-{}", call.source.key());
+                let key = row_key(call);
                 let turn = call.turn;
                 if call.progress.is_some() {
                     return self.tool(call, page, continuing, cx);
@@ -215,7 +211,6 @@ impl View {
                         .get(&(turn, key.clone()))
                         .copied()
                         .unwrap_or(false);
-                let visible = if open { references.clone() } else { Vec::new() };
                 Collapsible::new()
                     .open(open)
                     .w_full()
@@ -237,13 +232,9 @@ impl View {
                     )
                     .content(
                         disclosure::body(
-                            v_flex()
-                                .when(open, |body| {
-                                    body.child(self.tool(call, page, continuing, cx))
-                                })
-                                .when(!visible.is_empty(), |body| {
-                                    body.on_children_prepainted(self.detail_bounds(visible, false))
-                                }),
+                            v_flex().when(open, |body| {
+                                body.child(self.tool(call, page, continuing, cx))
+                            }),
                             cx,
                         )
                         .pt_1()
@@ -533,6 +524,15 @@ fn summary(call: &Call, page: &Page) -> Summary {
 
 fn expandable(calls: &[&Call], page: &Page) -> bool {
     calls.len() > 1 || calls.iter().any(|call| call.details(page))
+}
+
+/// Expansion keys are shared by rendering and detail selection.
+fn row_key(call: &Call) -> String {
+    format!("tools-{}", call.source.key())
+}
+
+fn group_key(first: &Call) -> String {
+    format!("tool-group-{}", first.source.key())
 }
 
 fn activity(id: String, summary: Summary, cx: &App) -> AnyElement {

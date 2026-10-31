@@ -109,12 +109,6 @@ pub(crate) enum Event {
     LocationChanged,
 }
 
-type DetailRow = (
-    sailry_protocol::tool::detail::Reference,
-    Bounds<Pixels>,
-    bool,
-);
-
 pub(crate) struct View {
     contributions: Entity<crate::plugins::contributions::Registry>,
     contribution_metadata: Entity<crate::plugins::metadata::Metadata>,
@@ -157,7 +151,6 @@ pub(crate) struct View {
     expanded: BTreeMap<(TurnId, String), bool>,
     details: sailry_client::conversation::details::Tracker,
     details_visible: Cell<bool>,
-    detail_rows: Rc<std::cell::RefCell<Vec<DetailRow>>>,
     publication_heights:
         Rc<std::cell::RefCell<BTreeMap<sailry_protocol::tool::detail::Reference, Pixels>>>,
     changes: BTreeMap<TurnId, Entity<messages::changes::Card>>,
@@ -486,7 +479,6 @@ impl View {
             expanded: BTreeMap::new(),
             details,
             details_visible: Cell::new(true),
-            detail_rows: Default::default(),
             publication_heights: Default::default(),
             changes: BTreeMap::new(),
             editing: None,
@@ -709,7 +701,6 @@ impl Render for View {
             )
         });
         self.navigation.rows.borrow_mut().clear();
-        self.detail_rows.borrow_mut().clear();
         let welcome = self.session.is_none() && self.rows.is_empty();
         let owner = cx.entity().downgrade();
         let body = if self.loading_history() || (self.rows.is_empty() && self.readonly()) {
@@ -817,7 +808,6 @@ impl Render for View {
                         let owner = owner.clone();
                         cx.defer(move |cx| {
                             let _ = owner.update(cx, |view, cx| {
-                                view.select_details(bounds);
                                 if view.navigation.resize(bounds.size.width) {
                                     cx.notify();
                                 }

@@ -1,56 +1,42 @@
 //! The Client tracker owns selected tool values and their shared budget.
 use super::*;
 use sailry_protocol::tool::detail::{Detail as ToolDetail, Reference};
+use std::collections::BTreeSet;
 
 impl View {
-    pub(in crate::conversation::live) fn select_details(&self, bounds: Bounds<Pixels>) {
+    /// Expansion state decides what the tracker keeps; layout and focus never do.
+    pub(in crate::conversation::live) fn select_details(&self) {
         if !self.details_visible.get() {
             return;
         }
-        let mut current = std::collections::BTreeSet::new();
-        let mut protected = std::collections::BTreeSet::new();
+        let mut protected = BTreeSet::new();
         for history in std::iter::once(&self.history).chain(self.approvals.histories()) {
             let Some(snapshot) = &history.snapshot else {
                 continue;
             };
-            for call in history.calls.iter() {
-                if let Some(reference) = call.detail_reference(&snapshot.page) {
-                    current.insert(reference.clone());
-                    if call.approval_pending(&snapshot.page) {
-                        protected.insert(reference);
-                    }
-                }
-            }
+            protected.extend(
+                history
+                    .calls
+                    .iter()
+                    .filter(|call| call.approval_pending(&snapshot.page))
+                    .filter_map(|call| call.detail_reference(&snapshot.page)),
+            );
         }
-        self.publication_heights
-            .borrow_mut()
-            .retain(|reference, _| current.contains(reference));
-        let (selected, protected) =
-            selection(&self.detail_rows.borrow(), bounds, &current, protected);
+        let mut selected = protected.clone();
+        if let Some(snapshot) = &self.history.snapshot {
+            let calls = self.history.calls.as_slice();
+            let shown = publications(calls, &snapshot.page);
+            self.publication_heights
+                .borrow_mut()
+                .retain(|reference, _| shown.contains(reference));
+            selected.extend(expanded(&self.expanded, calls, &snapshot.page));
+            selected.extend(shown);
+        } else {
+            self.publication_heights.borrow_mut().clear();
+        }
         self.details.protect(protected);
         self.details.set(selected);
         self.prune_tool_texts();
-    }
-
-    // Child-bounds listeners keep scroll-layer reuse from skipping selection updates.
-    pub(in crate::conversation::live) fn detail_bounds(
-        &self,
-        references: impl IntoIterator<Item = Reference>,
-        published: bool,
-    ) -> impl Fn(Vec<Bounds<Pixels>>, &mut Window, &mut App) + 'static {
-        let references = references.into_iter().collect::<Vec<_>>();
-        let rows = self.detail_rows.clone();
-        move |bounds, _, _| {
-            let Some(bounds) = bounds.into_iter().reduce(|row, child| row.union(&child)) else {
-                return;
-            };
-            rows.borrow_mut().extend(
-                references
-                    .iter()
-                    .cloned()
-                    .map(|reference| (reference, bounds, published)),
-            );
-        }
     }
 
     pub(super) fn copy_detail(&self, reference: Reference, cx: &mut Context<Self>) {
@@ -149,47 +135,54 @@ impl View {
         references: Vec<Reference>,
         cx: &mut Context<Self>,
     ) {
+        self.expand(turn, key, open, cx);
+        self.select_details();
         if open {
+            // An explicit open refreshes a failed or superseded detail.
             for reference in references {
-                self.details.include(reference.clone());
                 self.details.retry(&reference);
             }
-        } else {
-            for reference in references {
-                self.details.remove(&reference);
-            }
         }
-        self.expand(turn, key, open, cx);
     }
 }
 
-pub(super) fn visible(row: Bounds<Pixels>, viewport: Bounds<Pixels>) -> bool {
-    viewport.size.height > px(0.)
-        && row.size.height > px(0.)
-        && row.bottom() > viewport.top()
-        && row.top() < viewport.bottom()
-}
-
-pub(super) fn selection(
-    rows: &[(Reference, Bounds<Pixels>, bool)],
-    bounds: Bounds<Pixels>,
-    current: &std::collections::BTreeSet<Reference>,
-    mut protected: std::collections::BTreeSet<Reference>,
-) -> (
-    std::collections::BTreeSet<Reference>,
-    std::collections::BTreeSet<Reference>,
-) {
-    let mut selected = std::collections::BTreeSet::new();
-    for (reference, row, published) in rows {
-        if visible(*row, bounds) && current.contains(reference) {
-            selected.insert(reference.clone());
-            if *published {
-                protected.insert(reference.clone());
-            }
+/// References whose rows are expanded, from expansion state and the page alone.
+pub(super) fn expanded(
+    open: &BTreeMap<(TurnId, String), bool>,
+    calls: &[Call],
+    page: &Page,
+) -> BTreeSet<Reference> {
+    let mut references = BTreeSet::new();
+    for (index, call) in calls.iter().enumerate() {
+        if call.progress.is_some() || !call.details(page) {
+            continue;
+        }
+        let is_open = |key: String| open.get(&(call.turn, key)).copied().unwrap_or(false);
+        if is_open(row_key(call)) {
+            references.extend(call.detail_reference(page));
+        }
+        // A projected group shows the whole same-name run that starts at its first call.
+        if is_open(group_key(call)) && projection::grouped(call, page) {
+            references.extend(
+                calls[index..]
+                    .iter()
+                    .filter(|member| member.turn == call.turn)
+                    .take_while(|member| member.name == call.name && member.progress.is_none())
+                    .filter(|member| member.details(page))
+                    .filter_map(|member| member.detail_reference(page)),
+            );
         }
     }
-    selected.extend(protected.iter().cloned());
-    (selected, protected)
+    references
+}
+
+/// Answer publications are always shown, so they stay loaded while on the page.
+pub(super) fn publications(calls: &[Call], page: &Page) -> BTreeSet<Reference> {
+    calls
+        .iter()
+        .filter(|call| call.summary(page).is_some_and(|summary| summary.published))
+        .filter_map(|call| call.detail_reference(page))
+        .collect()
 }
 
 fn copy_text(detail: &sailry_protocol::tool::detail::Detail) -> String {

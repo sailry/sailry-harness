@@ -57,7 +57,6 @@ impl View {
         {
             self.reveal = None;
             self.publication_heights.borrow_mut().clear();
-            self.detail_rows.borrow_mut().clear();
             self.expanded
                 .retain(|(turn, _), _| snapshot.page.runs.iter().any(|run| run.turn == *turn));
         }
@@ -80,7 +79,7 @@ impl View {
             .is_some_and(|worktree| repository::changed(&self.history, &next, worktree));
         self.approvals.observe(&next);
         self.history = next;
-        self.select_details(self.navigation.bounds.get());
+        self.select_details();
         if changed || self.outgoing.is_some() {
             self.sync_rows_for(affected.as_ref(), cx);
         }
