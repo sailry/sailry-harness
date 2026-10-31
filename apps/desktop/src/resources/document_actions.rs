@@ -100,12 +100,24 @@ impl Shell {
         if self.guard_document_navigation(
             window,
             cx,
-            std::rc::Rc::new(|shell, window, cx| {
-                shell.close_resource_panel(cx);
-                shell.focus.focus(window, cx);
-            }),
+            std::rc::Rc::new(|shell, window, cx| shell.dismiss_resource_panel(window, cx)),
         ) {
             return;
+        }
+        self.dismiss_resource_panel(window, cx);
+    }
+
+    /// Hides native surfaces before dropping the resource so none outlive its page.
+    fn dismiss_resource_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(browser) = self
+            .side_resource
+            .as_ref()
+            .and_then(|resource| resource.browser(cx))
+        {
+            browser.update(cx, |browser, cx| browser.visibility(false, window, cx));
+        }
+        if let Some(super::SideResource::CardBrowser(browser)) = &self.side_resource {
+            browser.update(cx, |browser, cx| browser.hide(cx));
         }
         self.close_resource_panel(cx);
         self.focus.focus(window, cx);

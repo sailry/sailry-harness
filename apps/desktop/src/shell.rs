@@ -512,19 +512,9 @@ impl Shell {
             return;
         }
         if self.page == Page::Conversation {
-            if self.side_resource.is_some() && !self.layout.panel_open[0] {
-                self.layout.panel_open[0] = true;
-                cx.notify();
-            } else if self.side_resource.is_some() {
-                // Collapse the existing resource so reopening retains its page and drafts.
-                self.layout.panel_open[0] = false;
-                if let Some(crate::resources::SideResource::CardBrowser(browser)) =
-                    &self.side_resource
-                {
-                    browser.update(cx, |browser, cx| browser.hide(cx));
-                }
-                self.focus.focus(window, cx);
-                cx.notify();
+            if self.layout.panel_open[0] && self.side_resource.is_some() {
+                // Closing destroys the page; reopening starts from the launcher.
+                self.close_file_panel(window, cx);
             } else {
                 let plugins = self.current_chat().cloned().map(|source| {
                     let panel = cx.new(|cx| crate::plugins::Panel::new(source, cx));
