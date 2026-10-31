@@ -308,6 +308,89 @@ fn scan_workdir(
             scan.paths.remove(&value);
         }
     }
+    drop(pending);
+    // Index and HEAD paths survive ignored directories and exhausted discovery
+    // budgets. Check their directory access before libgit2 interprets failures as
+    // deletions, without enumerating another tree or consuming discovery budget.
+    filter_inaccessible(root, scan, control)
+}
+
+enum CandidateDir {
+    Readable(Dir),
+    // A missing or replaced directory remains a candidate for normal deletion
+    // classification and EntryParents validation. Never follow its replacement.
+    Absent,
+    Denied,
+}
+
+impl CandidateDir {
+    fn child(&self, name: &str) -> Result<Self, Fault> {
+        let parent = match self {
+            Self::Readable(parent) => parent,
+            Self::Absent => return Ok(Self::Absent),
+            Self::Denied => return Ok(Self::Denied),
+        };
+        match parent.symlink_metadata(name) {
+            Ok(metadata) if metadata.is_dir() && !metadata.is_symlink() => {}
+            Ok(_) => return Ok(Self::Absent),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self::Absent);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                return Ok(Self::Denied);
+            }
+            Err(error) => return Err(io_error(error)),
+        }
+        let child = match parent.open_dir_nofollow(name) {
+            Ok(child) => child,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self::Absent);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                return Ok(Self::Denied);
+            }
+            Err(error) => return Err(io_error(error)),
+        };
+        #[cfg(windows)]
+        path::identity::directory(&child)?;
+        // On Linux a searchable directory can be opened with O_PATH despite
+        // denied enumeration. Metadata checks alone cannot establish readability.
+        match child.entries() {
+            Ok(_) => Ok(Self::Readable(child)),
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => Ok(Self::Denied),
+            Err(error) => Err(io_error(error)),
+        }
+    }
+}
+
+fn filter_inaccessible(root: &Dir, scan: &mut Candidates, control: &Control) -> Result<(), Fault> {
+    let mut stack = vec![(
+        String::new(),
+        CandidateDir::Readable(root.try_clone().map_err(io_error)?),
+    )];
+    // Paths are sorted; retain capabilities only along the current ancestor
+    // chain, reusing shared prefixes and releasing handles at sibling branches.
+    for value in std::mem::take(&mut scan.paths) {
+        control.check()?;
+        let parts = path::components(&value, false)?;
+        let shared = parts
+            .iter()
+            .zip(stack.iter().skip(1))
+            .take_while(|(name, (retained, _))| **name == retained.as_str())
+            .count();
+        stack.truncate(shared + 1);
+        for name in &parts[shared..] {
+            control.check()?;
+            let access = stack.last().expect("root is retained").1.child(name)?;
+            stack.push(((*name).to_owned(), access));
+        }
+        if !matches!(
+            stack.last().expect("root is retained").1,
+            CandidateDir::Denied
+        ) {
+            scan.paths.insert(value);
+        }
+    }
     Ok(())
 }
 
