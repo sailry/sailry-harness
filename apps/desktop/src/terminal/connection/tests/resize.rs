@@ -1,5 +1,8 @@
 use super::*;
 
+#[cfg(target_os = "macos")]
+mod prompt;
+
 fn viewport(columns: u16) -> Viewport {
     Viewport {
         columns,

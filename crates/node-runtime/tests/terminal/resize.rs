@@ -1,5 +1,30 @@
 use super::*;
 
+async fn settled_screen(client: &Client, info: &Info) -> Screen {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut previous = None;
+        loop {
+            let Output::TerminalSnapshot(snapshot) = client
+                .execute(client.prepare(Command::InspectTerminal { terminal: info.id }))
+                .await
+                .unwrap()
+            else {
+                panic!("terminal snapshot expected")
+            };
+            let screen = snapshot.screen;
+            if content(&screen).ends_with("resize-fixture project > ")
+                && previous.as_ref() == Some(&screen)
+            {
+                return screen;
+            }
+            previous = Some(screen);
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+    })
+    .await
+    .expect("terminal prompt settlement deadline")
+}
+
 #[tokio::test]
 async fn redraws_prompt() {
     let directory = tempfile::tempdir().unwrap();
@@ -71,6 +96,36 @@ RPROMPT=''
         let mut stream = client.subscribe_terminal(info.id).await.unwrap();
         let mut projection = Projection::new(node.id(), info.id, 1);
         until(&mut *stream, &mut projection, "resize-fixture").await;
+        let screen = settled_screen(&client, &info).await;
+        assert_eq!(content(&screen).trim(), "resize-fixture project >");
+        // Sample the 180 ms sidebar transition at 15 ms intervals: 240 pixels
+        // of navigation at this fixture's eight-pixel cell width. Rows stay fixed.
+        let opening = [80, 77, 67, 61, 58, 55, 53, 52, 51, 50, 50, 50, 50];
+        let closing = [50, 52, 62, 68, 71, 74, 76, 77, 78, 79, 79, 79, 80];
+        for _ in 0..3 {
+            for columns in opening.into_iter().chain(closing) {
+                client
+                    .execute(client.prepare(Command::ResizeTerminal {
+                        terminal: info.id,
+                        revision: info.revision,
+                        viewport: Viewport {
+                            columns,
+                            rows: 24,
+                            pixel_width: u32::from(columns) * 8,
+                            pixel_height: 384,
+                        },
+                    }))
+                    .await
+                    .unwrap();
+                tokio::time::sleep(Duration::from_millis(15)).await;
+            }
+        }
+        let screen = settled_screen(&client, &info).await;
+        assert_eq!(
+            content(&screen).trim(),
+            "resize-fixture project >",
+            "idle prompt must not accumulate redraws"
+        );
         command(&client, &info, "printf 'output-with-newline\\n'").await;
         for columns in (80..220).rev().chain(80..220) {
             client
