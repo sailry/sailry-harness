@@ -26,7 +26,6 @@ fn row(notice: &Notice, cx: &App) -> AnyElement {
         .w_full()
         .min_w_0()
         .gap_2()
-        .text_sm()
         .child(
             Icon::new(match notice.kind {
                 Kind::Agent { .. } => IconName::Bot,
@@ -57,31 +56,23 @@ fn row(notice: &Notice, cx: &App) -> AnyElement {
 
 /// Replaces the absent user bubble for turns delivered by background work.
 pub(super) fn message(runs: &[&Run], cx: &App) -> Option<Message> {
-    let notices: Vec<_> = runs
-        .iter()
-        .filter(|run| run.notice)
-        .flat_map(|run| &run.notices)
-        .collect();
+    let delivered: Vec<_> = runs.iter().filter(|run| run.notice).collect();
+    let notices: Vec<_> = delivered.iter().flat_map(|run| &run.notices).collect();
+    let turn = delivered.first()?.turn;
     if notices.is_empty() {
         return None;
     }
     Some(
         Message::new().alignment(MessageAlignment::End).content(
-            MessageContent::new().bubble(
-                Bubble::new().with_variant(BubbleVariant::Outline).child(
+            MessageContent::new().bubble(crate::conversation::surface::user_bubble(
+                crate::theme::messages::user(cx).child(
                     v_flex()
-                        .min_w(px(240.))
-                        .max_w(px(480.))
+                        .id(format!("background-notice-{turn}"))
+                        .aria_label(tr("background_notice_title"))
                         .gap_1p5()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(tr("background_notice_title")),
-                        )
                         .children(notices.into_iter().map(|notice| row(notice, cx))),
                 ),
-            ),
+            )),
         ),
     )
 }

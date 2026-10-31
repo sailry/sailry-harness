@@ -1,6 +1,5 @@
 use super::*;
 use gpui_kit::component::{
-    bubble::{Bubble, BubbleVariant},
     button::{Button, ButtonVariants},
     clipboard::Clipboard,
     collapsible::Collapsible,
@@ -59,30 +58,21 @@ impl View {
             .when(
                 !prompt.is_empty() || !references.is_empty() || editing,
                 |content| {
-                    let bubble = Bubble::new()
-                        .with_variant(BubbleVariant::Muted)
-                        .max_w(px(crate::conversation::layout::USER_MESSAGE_WIDTH))
-                        .when(editing, |bubble| bubble.w_full())
-                        .content(
-                            crate::theme::messages::user(cx)
-                                .when(editing, |content| content.w_full())
-                                .child(
-                                    div()
-                                        .debug_selector(move || format!("live-user-bubble-{turn}"))
-                                        .when(
-                                            prompt.is_empty() && !references.is_empty(),
-                                            |content| {
-                                                content.child(
-                                                    self.sent_references(turn, references, cx),
-                                                )
-                                            },
-                                        )
-                                        .when(!prompt.is_empty() || editing, |content| {
-                                            content
-                                                .child(self.user_text(turn, prompt, references, cx))
-                                        }),
-                                ),
-                        );
+                    let bubble = crate::conversation::surface::user_bubble(
+                        crate::theme::messages::user(cx)
+                            .when(editing, |content| content.w_full())
+                            .child(
+                                div()
+                                    .debug_selector(move || format!("live-user-bubble-{turn}"))
+                                    .when(prompt.is_empty() && !references.is_empty(), |content| {
+                                        content.child(self.sent_references(turn, references, cx))
+                                    })
+                                    .when(!prompt.is_empty() || editing, |content| {
+                                        content.child(self.user_text(turn, prompt, references, cx))
+                                    }),
+                            ),
+                    )
+                    .when(editing, |bubble| bubble.w_full());
                     content.bubble(bubble)
                 },
             )

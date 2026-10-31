@@ -1,7 +1,6 @@
 use super::turn::{Block, Status, Turn};
 use crate::{shell::Shell, tr};
 use gpui_kit::component::{
-    bubble::{Bubble, BubbleVariant},
     clipboard::Clipboard,
     collapsible::Collapsible,
     message::{
@@ -337,56 +336,47 @@ impl Shell {
                             .alignment(MessageAlignment::End)
                             .footer(self.user_footer(location, turn, cx))
                             .content(
-                                MessageContent::new().bubble(
-                                    Bubble::new()
-                                        .with_variant(BubbleVariant::Muted)
-                                        .max_w(px(440.))
-                                        .content(
-                                            crate::theme::messages::user(cx)
-                                                .when(location.child.is_none(), |bubble| {
-                                                    bubble.when_some(
-                                                        self.sent_references(
-                                                            location.session,
-                                                            location.turn,
-                                                            cx,
-                                                        ),
-                                                        |bubble, references| {
-                                                            bubble.child(references)
-                                                        },
-                                                    )
-                                                })
-                                                .child(
-                                                    self.linked_message(
-                                                        format!("{id}-prompt"),
-                                                        turn.prompt.clone(),
-                                                        cx,
-                                                    )
-                                                    .foreground(crate::theme::messages::foreground(
-                                                        "user", cx,
-                                                    )),
-                                                )
-                                                .when(
-                                                    turn.options
-                                                        .as_ref()
-                                                        .is_some_and(|options| options.attachment),
-                                                    |bubble| {
-                                                        bubble.child(
-                                                            h_flex()
-                                                                .gap_2()
-                                                                .text_xs()
-                                                                .child(
-                                                                    crate::ui::file_icon::render(
-                                                                        "README.md",
-                                                                        "text/markdown",
-                                                                        rems(1.),
-                                                                    ),
-                                                                )
-                                                                .child(tr("composer_example_file")),
-                                                        )
-                                                    },
+                                MessageContent::new().bubble(super::surface::user_bubble(
+                                    crate::theme::messages::user(cx)
+                                        .when(location.child.is_none(), |bubble| {
+                                            bubble.when_some(
+                                                self.sent_references(
+                                                    location.session,
+                                                    location.turn,
+                                                    cx,
                                                 ),
+                                                |bubble, references| bubble.child(references),
+                                            )
+                                        })
+                                        .child(
+                                            self.linked_message(
+                                                format!("{id}-prompt"),
+                                                turn.prompt.clone(),
+                                                cx,
+                                            )
+                                            .foreground(crate::theme::messages::foreground(
+                                                "user", cx,
+                                            )),
+                                        )
+                                        .when(
+                                            turn.options
+                                                .as_ref()
+                                                .is_some_and(|options| options.attachment),
+                                            |bubble| {
+                                                bubble.child(
+                                                    h_flex()
+                                                        .gap_2()
+                                                        .text_xs()
+                                                        .child(crate::ui::file_icon::render(
+                                                            "README.md",
+                                                            "text/markdown",
+                                                            rems(1.),
+                                                        ))
+                                                        .child(tr("composer_example_file")),
+                                                )
+                                            },
                                         ),
-                                ),
+                                )),
                             ),
                     )
                     .child(

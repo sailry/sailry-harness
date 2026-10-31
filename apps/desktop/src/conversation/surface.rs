@@ -50,6 +50,14 @@ pub(crate) fn tool_icon(name: &str) -> Option<Icon> {
     }))
 }
 
+/// The user message bubble, shared by prompts and the background work that replaces them.
+pub(crate) fn user_bubble(content: bubble::BubbleContent) -> bubble::Bubble {
+    bubble::Bubble::new()
+        .with_variant(bubble::BubbleVariant::Muted)
+        .max_w(px(super::layout::USER_MESSAGE_WIDTH))
+        .content(content)
+}
+
 /// A bordered card; the header keeps the activity identity visible while the body scrolls.
 pub(crate) fn card(header: Option<AnyElement>, body: AnyElement, cx: &App) -> Div {
     v_flex()
