@@ -20,6 +20,7 @@ mod tests;
 
 const MAX_FILES: usize = 50_000;
 const BATCH: usize = 16;
+const MAX_ISSUES: usize = 5;
 
 pub(crate) struct Service {
     profile: Option<PathBuf>,
@@ -312,18 +313,15 @@ impl Service {
             } else {
                 // Another reader is already refreshing this worktree. Its committed
                 // transactions remain readable without queuing a second full scan.
-                sync::Report {
-                    partial: true,
-                    truncated: true,
-                    ..Default::default()
-                }
+                sync::Report::interrupted()
             };
+            let scoped = report.scoped(query.path.as_deref());
             let mut page = index.search(query, stop).await?;
             page.visited = report.visited;
-            page.skipped = report.skipped;
-            page.partial |= report.partial;
-            page.truncated |= report.truncated;
-            page.issues = report.issues;
+            page.skipped = scoped.skipped;
+            page.partial |= scoped.partial;
+            page.truncated |= scoped.truncated;
+            page.issues = scoped.issues;
             Ok(page)
         };
         tokio::select! {

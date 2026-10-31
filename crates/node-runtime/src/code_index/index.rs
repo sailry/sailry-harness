@@ -324,19 +324,31 @@ impl Index {
             .map(|field| format!("{field}:({terms})"))
             .collect::<Vec<_>>()
             .join(" OR ");
+        // Exact names rank before prefixes and other hits; declarations outside
+        // test paths rank before tests inside each group. The score breaks ties.
+        let order = "CASE WHEN ?5 IS NULL THEN 2 WHEN lower(s.name)=lower(?5) THEN 0 WHEN substr(lower(s.name),1,length(?5))=lower(?5) THEN 1 ELSE 2 END,CASE WHEN instr('/'||s.path,'/tests/')>0 OR instr('/'||s.path||'/','/tests.rs/')>0 OR instr(s.path,'_test')>0 OR instr('/'||s.path,'/test_')>0 THEN 1 ELSE 0 END";
         let sql = if terms.is_empty() {
-            format!("SELECT s.body FROM symbols s WHERE {filter} ORDER BY s.path,s.id LIMIT ?4")
+            format!(
+                "SELECT s.body FROM symbols s WHERE {filter} ORDER BY {order},s.path,s.id LIMIT ?4"
+            )
         } else {
             // Materializing scores preserves order with secondary sorting in Turso 0.8.3.
             format!(
-                "WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,?5) AS score FROM symbols WHERE fts_match(field0,field1,cjk0,cjk1,?5)) SELECT s.body FROM candidates f JOIN symbols s ON s.id=f.id WHERE {filter} ORDER BY f.score DESC,s.path,s.id LIMIT ?4"
+                "WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,?6) AS score FROM symbols WHERE fts_match(field0,field1,cjk0,cjk1,?6)) SELECT s.body FROM candidates f JOIN symbols s ON s.id=f.id WHERE {filter} ORDER BY {order},f.score DESC,s.path,s.id LIMIT ?4"
             )
         };
+        let wanted = query
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .or_else(|| Some(query.query.trim()).filter(|text| !text.is_empty()));
         let mut values = vec![
             turso::Value::from(query.name.as_deref()),
             turso::Value::from(query.path.as_deref()),
             turso::Value::from(query.language.as_deref()),
             turso::Value::from((limit + 1) as i64),
+            turso::Value::from(wanted),
         ];
         if !terms.is_empty() {
             values.push(expression.into());

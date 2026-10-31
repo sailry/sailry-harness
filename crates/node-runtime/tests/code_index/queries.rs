@@ -286,3 +286,104 @@ async fn confines_paths_to_the_registered_worktree() {
     assert!(!database(&fixture).exists());
     fixture.close().await;
 }
+
+#[tokio::test]
+async fn omits_unsupported_files_from_issues() {
+    let fixture = Fixture::empty().await;
+    std::fs::write(fixture.root.join(".gitignore"), "ignored/\n").unwrap();
+    std::fs::write(fixture.root.join(".gitmodules"), "[submodule]\n").unwrap();
+    std::fs::write(fixture.root.join("LICENSE"), "Plain license text\n").unwrap();
+    std::fs::write(fixture.root.join("main.rs"), "pub fn indexed() {}\n").unwrap();
+    for client in fixture.clients() {
+        let page = client
+            .search_code(fixture.worktree, code_index::Search::default())
+            .await
+            .unwrap();
+        assert!(page.symbols.iter().any(|symbol| symbol.name == "indexed"));
+        assert!(page.issues.is_empty(), "{:?}", page.issues);
+        assert_eq!(page.skipped, 0);
+        assert!(!page.partial && !page.truncated);
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn scopes_issues_to_the_path_filter() {
+    let fixture = Fixture::empty().await;
+    std::fs::create_dir(fixture.root.join("src")).unwrap();
+    std::fs::create_dir(fixture.root.join("vendor")).unwrap();
+    std::fs::write(fixture.root.join("src/lib.rs"), "pub fn scoped() {}\n").unwrap();
+    std::fs::write(
+        fixture.root.join("vendor/large.rs"),
+        "x".repeat(code_index::MAX_FILE_BYTES + 1),
+    )
+    .unwrap();
+    for client in fixture.clients() {
+        let everything = client
+            .search_code(fixture.worktree, code_index::Search::default())
+            .await
+            .unwrap();
+        assert_eq!(everything.issues.len(), 1);
+        assert_eq!(everything.issues[0].path, "vendor/large.rs");
+        assert_eq!(everything.issues[0].status, code_index::Status::TooLarge);
+        assert!(everything.partial && everything.truncated);
+        let scoped = client
+            .search_code(
+                fixture.worktree,
+                code_index::Search {
+                    path: Some("src".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(scoped.symbols.iter().any(|symbol| symbol.name == "scoped"));
+        assert!(scoped.issues.is_empty(), "{:?}", scoped.issues);
+        assert_eq!(scoped.skipped, 0);
+        assert!(!scoped.partial && !scoped.truncated);
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn ranks_exact_definitions_before_tests() {
+    let fixture = Fixture::empty().await;
+    std::fs::create_dir(fixture.root.join("src")).unwrap();
+    std::fs::create_dir(fixture.root.join("tests")).unwrap();
+    for (path, source) in [
+        ("src/names.rs", "pub fn provider_name() {}\n"),
+        ("src/provider.rs", "pub struct Provider;\n"),
+        ("tests/provider.rs", "#[test]\nfn provider() {}\n"),
+    ] {
+        std::fs::write(fixture.root.join(path), source).unwrap();
+    }
+    for client in fixture.clients() {
+        let page = client
+            .search_code(
+                fixture.worktree,
+                code_index::Search {
+                    query: "Provider".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let order: Vec<_> = page
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.path.as_str(), symbol.name.as_str()))
+            .collect();
+        assert_eq!(order[0], ("src/provider.rs", "Provider"), "{order:?}");
+        let test = order
+            .iter()
+            .position(|entry| *entry == ("tests/provider.rs", "provider"))
+            .unwrap();
+        if let Some(prefix) = order
+            .iter()
+            .position(|entry| *entry == ("src/names.rs", "provider_name"))
+        {
+            assert!(test < prefix, "{order:?}");
+        }
+    }
+    fixture.close().await;
+}

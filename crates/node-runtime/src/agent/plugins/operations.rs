@@ -224,6 +224,9 @@ impl HostOperation {
             Ok(output)
         } else {
             let mut data = output.get("data").cloned().unwrap_or(Value::Null);
+            if code::handles(self.operation) {
+                data = code::output(self.operation, data)?;
+            }
             for key in ["sailry_context", "sailry_guide_loaded"] {
                 if let Some(value) = output.get(key)
                     && data.is_object()

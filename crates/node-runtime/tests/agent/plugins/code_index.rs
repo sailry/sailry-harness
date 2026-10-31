@@ -119,7 +119,7 @@ async fn capture(fixture: &process::Fixture, turn: &QueuedTurn) {
         panic!("captured package expected");
     };
     assert_eq!(info.summary.digest, reference.digest);
-    assert_eq!(info.summary.version.as_deref(), Some("0.1.10"));
+    assert_eq!(info.summary.version.as_deref(), Some("0.1.11"));
     assert_eq!(
         info.extension
             .unwrap()
@@ -181,8 +181,10 @@ async fn executes_in_existing_worktrees() {
                 assert!(
                     output["symbols"].as_array().unwrap().iter().any(|symbol| {
                         symbol["name"] == "observed_symbol"
-                            && symbol["path"] == "source.rs"
-                            && symbol["file_revision"] == revision
+                            && symbol["start_line"] == 1
+                            && symbol["end_line"] == 3
+                            && symbol.get("range").is_none()
+                            && symbol.get("file_revision").is_none()
                     }),
                     "{output:?}"
                 );
@@ -190,8 +192,15 @@ async fn executes_in_existing_worktrees() {
                 assert_eq!(output["partial"], false, "{output:?}");
                 assert_eq!(output["truncated"], false, "{output:?}");
             }
+            let search = result(&fixture.client, &page, "code_search").await;
+            assert_eq!(search["symbols"][0]["path"], "source.rs");
+            assert!(
+                serde_json::to_vec(&search).unwrap().len() < 1536,
+                "{search:?}"
+            );
             let outline = result(&fixture.client, &page, "code_outline").await;
             assert_eq!(outline["status"], "parsed");
+            assert_eq!(outline["path"], "source.rs");
             assert_eq!(outline["file_revision"], revision);
             let context = result(&fixture.client, &page, "code_context").await;
             let snippets = context["snippets"].as_array().unwrap();

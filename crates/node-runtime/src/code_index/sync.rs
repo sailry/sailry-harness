@@ -5,9 +5,27 @@ use index::Cached;
 use parser::Parsed;
 use std::collections::VecDeque;
 
+/// Scan-wide reconcile state plus per-file problems that searches scope by path.
 #[derive(Clone, Default)]
 pub(super) struct Report {
     pub visited: usize,
+    /// Walk entries omitted without a path, such as links and special files.
+    pub skipped: usize,
+    /// The reconcile itself was cut short or could not prove freshness.
+    pub partial: bool,
+    pub truncated: bool,
+    problems: BTreeMap<String, Problem>,
+}
+
+#[derive(Clone)]
+struct Problem {
+    status: Status,
+    partial: bool,
+    truncated: bool,
+}
+
+/// Search metadata limited to one requested path prefix.
+pub(super) struct Scoped {
     pub skipped: usize,
     pub partial: bool,
     pub truncated: bool,
@@ -15,18 +33,62 @@ pub(super) struct Report {
 }
 
 impl Report {
+    /// Another refresh or an exhausted walk cannot prove the index is current.
+    pub(super) fn interrupted() -> Self {
+        Self {
+            partial: true,
+            truncated: true,
+            ..Default::default()
+        }
+    }
+
     fn record(&mut self, path: &str, state: &index::State) {
-        self.partial |= state.partial;
-        self.truncated |= state.truncated;
-        if state.status != Status::Parsed {
-            self.skipped += 1;
-            if self.issues.len() < 100 {
-                self.issues.push(Issue {
-                    path: path.into(),
+        // Files without a supported grammar are expected and never degrade a result.
+        let problem = state.status != Status::Unsupported
+            && (state.status != Status::Parsed || state.partial || state.truncated);
+        if problem {
+            self.problems.insert(
+                path.into(),
+                Problem {
                     status: state.status,
-                });
+                    partial: state.partial,
+                    truncated: state.truncated,
+                },
+            );
+        } else {
+            self.problems.remove(path);
+        }
+    }
+
+    pub(super) fn scoped(&self, filter: Option<&str>) -> Scoped {
+        let mut scoped = Scoped {
+            skipped: self.skipped,
+            partial: self.partial,
+            truncated: self.truncated,
+            issues: Vec::new(),
+        };
+        for (path, problem) in &self.problems {
+            if filter.is_some_and(|filter| {
+                path != filter
+                    && !path
+                        .strip_prefix(filter)
+                        .is_some_and(|rest| rest.starts_with('/'))
+            }) {
+                continue;
+            }
+            scoped.partial |= problem.partial;
+            scoped.truncated |= problem.truncated;
+            if problem.status != Status::Parsed {
+                scoped.skipped += 1;
+                if scoped.issues.len() < MAX_ISSUES {
+                    scoped.issues.push(Issue {
+                        path: path.clone(),
+                        status: problem.status,
+                    });
+                }
             }
         }
+        scoped
     }
 }
 
@@ -176,13 +238,7 @@ impl Service {
             check(stop)?;
             let listing = match listing {
                 Ok(listing) => listing,
-                Err(fault) if fault.code == ErrorCode::Busy => {
-                    return Ok(Report {
-                        partial: true,
-                        truncated: true,
-                        ..Default::default()
-                    });
-                }
+                Err(fault) if fault.code == ErrorCode::Busy => return Ok(Report::interrupted()),
                 Err(fault) => return Err(fault),
             };
             let seen = listing
@@ -212,7 +268,7 @@ impl Service {
                     skipped: listing.report.skipped,
                     partial: listing.report.partial,
                     truncated: listing.report.truncated,
-                    issues: Vec::new(),
+                    problems: BTreeMap::new(),
                 },
             });
         }
