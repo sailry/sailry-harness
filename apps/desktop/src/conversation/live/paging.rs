@@ -1,5 +1,6 @@
 use super::*;
 use sailry_protocol::conversation::RunKind;
+use std::collections::BTreeSet;
 
 #[cfg(test)]
 pub(super) mod tests;
@@ -38,6 +39,10 @@ impl View {
     }
 
     pub(super) fn update_history(&mut self, next: History, cx: &mut Context<Self>) {
+        if !self.details_visible.get() {
+            self.pending_history = Some(next);
+            return;
+        }
         if !next.connected
             || next.older_error.is_some()
             || (self.history.loading_older && !next.loading_older)
@@ -61,6 +66,14 @@ impl View {
                 !Arc::ptr_eq(&previous.page, &snapshot.page) || previous.drafts != snapshot.drafts
             })
         });
+        let affected = self
+            .history
+            .snapshot
+            .as_ref()
+            .zip(next.snapshot.as_ref())
+            .and_then(|(previous, next)| {
+                sailry_client::conversation::rows::changed(previous, next)
+            });
         let repository_changed = self
             .binding
             .worktree
@@ -69,7 +82,7 @@ impl View {
         self.history = next;
         self.select_details(self.navigation.bounds.get());
         if changed || self.outgoing.is_some() {
-            self.sync_rows(cx);
+            self.sync_rows_for(affected.as_ref(), cx);
         }
         if repository_changed {
             self.refresh_repository(repository::Refresh::History, cx);
@@ -96,73 +109,93 @@ impl View {
         }
     }
     pub(super) fn sync_rows(&mut self, cx: &mut Context<Self>) {
+        self.sync_rows_for(None, cx);
+    }
+
+    fn sync_rows_for(&mut self, affected: Option<&BTreeSet<TurnId>>, cx: &mut Context<Self>) {
+        if !self.details_visible.get() {
+            return;
+        }
+        let outgoing = self.outgoing.as_ref().map(|outgoing| outgoing.row);
         self.reconcile_outgoing();
+        let previous: BTreeSet<_> = self.rows.iter().copied().collect();
         let child = self
             .session
             .as_ref()
             .is_some_and(|session| session.delegation.is_some());
-        let mut rows =
-            self.history
-                .snapshot
-                .as_ref()
-                .map(|snapshot| {
-                    snapshot
-                        .page
-                        .runs
-                        .iter()
-                        .filter(|run| {
-                            sailry_client::conversation::turns::visible(
-                                run,
-                                &snapshot.page,
-                                &snapshot.drafts,
-                            )
-                        })
-                        .filter(|run| {
-                            (run.status != Status::Queued
+        let mut rows = self
+            .history
+            .snapshot
+            .as_ref()
+            .map(|snapshot| {
+                let entries: BTreeSet<_> = snapshot
+                    .page
+                    .entries
+                    .iter()
+                    .map(|entry| entry.turn)
+                    .collect();
+                let users: BTreeSet<_> = snapshot
+                    .page
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.author == "user")
+                    .map(|entry| entry.turn)
+                    .collect();
+                let guidance: BTreeSet<_> = snapshot
+                    .page
+                    .queue
+                    .items
+                    .iter()
+                    .filter(|item| item.guidance.is_some())
+                    .map(|item| item.turn)
+                    .collect();
+                let visible = sailry_client::conversation::turns::visible_turns(
+                    &snapshot.page,
+                    &snapshot.drafts,
+                );
+                snapshot
+                    .page
+                    .runs
+                    .iter()
+                    .filter(|run| visible.contains(&run.turn))
+                    .filter(|run| {
+                        (run.status != Status::Queued || child && !guidance.contains(&run.turn))
+                            && (run.status != Status::Cancelled
                                 || child
-                                    && !snapshot.page.queue.items.iter().any(|item| {
-                                        item.turn == run.turn && item.guidance.is_some()
-                                    }))
-                                && (run.status != Status::Cancelled
-                                    || child
-                                    || run.kind == RunKind::Compaction
-                                    || run.input.is_some()
-                                    || snapshot
-                                        .page
-                                        .entries
-                                        .iter()
-                                        .any(|entry| entry.turn == run.turn))
+                                || run.kind == RunKind::Compaction
+                                || run.input.is_some()
+                                || entries.contains(&run.turn))
+                    })
+                    .filter(|run| {
+                        // A run can arrive before both its user event and the Node
+                        // admission snapshot. Do not put an unpaired response above
+                        // the local message while its exact identity is still unknown.
+                        self.outgoing.as_ref().is_none_or(|outgoing| {
+                            outgoing.turn == Some(run.turn)
+                                || previous.contains(&run.turn)
+                                || self.sent.contains_key(&run.turn)
+                                || run.kind != RunKind::Task
+                                || !matches!(run.status, Status::Running | Status::Stopping)
+                                || users.contains(&run.turn)
                         })
-                        .filter(|run| {
-                            // A run can arrive before both its user event and the Node
-                            // admission snapshot. Do not put an unpaired response above
-                            // the local message while its exact identity is still unknown.
-                            self.outgoing.as_ref().is_none_or(|outgoing| {
-                                outgoing.turn == Some(run.turn)
-                                    || self.rows.contains(&run.turn)
-                                    || self.sent.contains_key(&run.turn)
-                                    || run.kind != RunKind::Task
-                                    || !matches!(run.status, Status::Running | Status::Stopping)
-                                    || snapshot.page.entries.iter().any(|entry| {
-                                        entry.turn == run.turn && entry.author == "user"
-                                    })
-                            })
-                        })
-                        .map(|run| run.turn)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+                    })
+                    .map(|run| run.turn)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let mut selected: BTreeSet<_> = rows.iter().copied().collect();
         if let Some(snapshot) = &self.history.snapshot {
             for run in sailry_client::conversation::turns::guided(&snapshot.page) {
-                if !rows.contains(&run.turn) {
+                if selected.insert(run.turn) {
                     rows.push(run.turn);
                 }
             }
         }
         if let Some(outgoing) = &self.outgoing
-            && !outgoing.turn.is_some_and(|turn| rows.contains(&turn))
+            && !outgoing.turn.is_some_and(|turn| selected.contains(&turn))
         {
             rows.push(outgoing.row);
+            selected.insert(outgoing.row);
         }
         self.scroller.update(cx, |scroller, cx| {
             match insertion(&self.rows, &rows) {
@@ -195,7 +228,17 @@ impl View {
                 }
             }
             // Keep the pixel offset within the surviving row, including growing markdown.
-            scroller.remeasure_items(0..rows.len(), cx);
+            if let Some(affected) = affected {
+                for (index, turn) in rows.iter().enumerate() {
+                    if previous.contains(turn)
+                        && (affected.contains(turn) || outgoing == Some(*turn))
+                    {
+                        scroller.remeasure_items(index..index + 1, cx);
+                    }
+                }
+            } else {
+                scroller.remeasure_items(0..rows.len(), cx);
+            }
         });
         let prefixes: Vec<_> = rows.iter().map(ToString::to_string).collect();
         self.texts
@@ -203,7 +246,7 @@ impl View {
             .retain(|key, _| prefixes.iter().any(|prefix| key.starts_with(prefix)));
         self.rows = rows;
         self.prune_tool_texts();
-        self.changes.retain(|turn, _| self.rows.contains(turn));
+        self.changes.retain(|turn, _| selected.contains(turn));
     }
 }
 

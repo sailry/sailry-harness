@@ -42,7 +42,7 @@ fn fixture() -> (Projection, Snapshot, Run, Draft) {
         page: Arc::new(Page {
             session,
             revision: 1,
-            entries: Vec::new(),
+            entries: Vec::new().into(),
             runs: vec![run.clone()],
             next_before: None,
             queue: Default::default(),
@@ -124,7 +124,10 @@ fn commits_canonical_output() {
         .apply(1, frame(&snapshot, 13, Change::Entry(entry.clone())))
         .unwrap();
     assert!(projection.snapshot().unwrap().drafts.is_empty());
-    assert_eq!(projection.snapshot().unwrap().page.entries, vec![entry]);
+    assert_eq!(
+        projection.snapshot().unwrap().page.entries.as_slice(),
+        &[entry]
+    );
     assert_eq!(projection.live_start(), Some(41));
     run.status = Status::Completed;
     projection

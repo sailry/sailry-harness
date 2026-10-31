@@ -357,6 +357,20 @@ impl Node {
         self.ingress.hold_approval_commit(after_claim, fail).await
     }
 
+    /// Holds an isolated committed command before derived publication.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn hold_publication_fixture(
+        &self,
+    ) -> Result<
+        (
+            std::sync::Arc<tokio::sync::Notify>,
+            tokio::sync::oneshot::Sender<()>,
+        ),
+        sailry_protocol::Fault,
+    > {
+        self.ingress.hold_publication().await
+    }
+
     /// Routes model generations independently from an authorization HTTP fixture.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_model_endpoint_fixture(&self, endpoint: &str) {

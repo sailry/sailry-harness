@@ -216,7 +216,7 @@ impl Call {
 pub(super) fn collect(page: &Page) -> Vec<Call> {
     let mut calls: Vec<Call> = Vec::new();
     let mut pending: BTreeMap<(TurnId, &str, &str), Vec<usize>> = BTreeMap::new();
-    for entry in &page.entries {
+    for entry in page.entries.iter() {
         for (index, part) in entry.parts.iter().enumerate() {
             let source = Reference {
                 entry: entry.id.clone(),

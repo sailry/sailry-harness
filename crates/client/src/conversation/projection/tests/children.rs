@@ -10,7 +10,7 @@ fn setup() -> (Projection, Snapshot, Child) {
         index: 0,
         role: Some(RoleId::new()),
     };
-    Arc::make_mut(&mut snapshot.page).entries.push(Entry {
+    Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries).push(Entry {
         sequence: 1,
         id: origin.entry.clone(),
         turn: run.turn,
@@ -198,12 +198,12 @@ fn preserves_live_state_on_merge() {
 fn hydrates_from_earlier_call() {
     let (_, snapshot, child) = setup();
     let mut page = (*snapshot.page).clone();
-    page.entries.clear();
+    std::sync::Arc::make_mut(&mut page.entries).clear();
     let mut chunk = (*snapshot.page).clone();
     chunk.children.push(child.clone());
     super::super::super::history::merge(&mut page, chunk.clone(), false).unwrap();
     assert_eq!(page.children, [child]);
-    assert_eq!(page.entries, chunk.entries);
+    assert_eq!(page.entries.as_slice(), chunk.entries.as_slice());
     super::super::super::history::merge(&mut page, chunk.clone(), false).unwrap();
     assert_eq!(page, chunk);
 }
@@ -213,7 +213,11 @@ fn validates_worktree_selection() {
     let (mut projection, mut snapshot, mut child) = setup();
     let target = WorktreeId::new();
     let page = Arc::make_mut(&mut snapshot.page);
-    let Part::ToolCall { summary, .. } = &mut page.entries.last_mut().unwrap().parts[0] else {
+    let Part::ToolCall { summary, .. } = &mut std::sync::Arc::make_mut(&mut page.entries)
+        .last_mut()
+        .unwrap()
+        .parts[0]
+    else {
         panic!("delegation call expected")
     };
     summary.delegation.worktree = Some(target);
@@ -273,7 +277,7 @@ fn preserves_reused_and_guided_runs() {
     let page = Arc::make_mut(&mut snapshot.page);
     page.runs[0].status = Status::Completed;
     page.runs.push(parent.clone());
-    page.entries.push(call.clone());
+    std::sync::Arc::make_mut(&mut page.entries).push(call.clone());
     page.children.push(first.clone());
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
@@ -326,7 +330,8 @@ fn preserves_reused_and_guided_runs() {
 fn hydrates_reuse_without_founding_call() {
     let (_, mut snapshot, mut child) = setup();
     child.run.worktree = WorktreeId::new();
-    let Part::ToolCall { summary, .. } = &mut Arc::make_mut(&mut snapshot.page).entries[0].parts[0]
+    let Part::ToolCall { summary, .. } =
+        &mut Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries)[0].parts[0]
     else {
         panic!("delegation call expected")
     };
@@ -335,7 +340,7 @@ fn hydrates_reuse_without_founding_call() {
         .children
         .push(child.clone());
     let mut page = (*snapshot.page).clone();
-    page.entries.clear();
+    std::sync::Arc::make_mut(&mut page.entries).clear();
     page.children.clear();
     let chunk = (*snapshot.page).clone();
     crate::conversation::history::merge(&mut page, chunk.clone(), false).unwrap();
@@ -388,7 +393,7 @@ fn rejects_changed_reuse_ownership() {
     ] {
         let mut forged = snapshot.clone();
         let Part::ToolCall { summary, .. } =
-            &mut Arc::make_mut(&mut forged.page).entries[0].parts[0]
+            &mut Arc::make_mut(&mut Arc::make_mut(&mut forged.page).entries)[0].parts[0]
         else {
             panic!("delegation call expected")
         };

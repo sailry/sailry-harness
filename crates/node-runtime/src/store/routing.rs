@@ -191,6 +191,8 @@ fn read(command: &Command) -> bool {
             | Command::ReadWorktreeCatalog { .. }
             | Command::ReadSession { .. }
             | Command::ReadConversation { .. }
+            | Command::ReadConversationRuns { .. }
+            | Command::ReadConversationRun { .. }
             | Command::ReadTurn { .. }
             | Command::ReadToolDetail { .. }
             | Command::ReadTurnCapture { .. }

@@ -7,6 +7,9 @@ use sailry_protocol::{
 use serde::{Serialize, Serializer, ser::SerializeStruct};
 use std::{borrow::Cow, collections::BTreeMap};
 
+mod changes;
+pub use changes::changed;
+
 pub struct Row<'a> {
     pub source: Reference,
     pub draft: bool,

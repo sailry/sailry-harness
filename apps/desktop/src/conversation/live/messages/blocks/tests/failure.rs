@@ -47,7 +47,7 @@ fn retains_failure_identity_between_text() {
                     children: vec![],
                     background: vec![],
                     runs: vec![],
-                    entries: vec![entry],
+                    entries: vec![entry].into(),
                 }),
             })),
             ..Default::default()

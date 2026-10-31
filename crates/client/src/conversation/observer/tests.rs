@@ -48,7 +48,7 @@ fn partial_view() -> (Snapshot, Run, Run) {
         page: Arc::new(Page {
             session,
             revision: 1,
-            entries: vec![entry(&older, 5), entry(&older, 6), entry(&newer, 7)],
+            entries: vec![entry(&older, 5), entry(&older, 6), entry(&newer, 7)].into(),
             runs: vec![older.clone(), newer.clone()],
             next_before: Some(older.turn),
             queue: Default::default(),
@@ -91,7 +91,7 @@ mod extent {
         };
         assert!(!extent.needs_more(&snapshot));
         // After resubscription only the newest entries of the partial turn remain.
-        Arc::make_mut(&mut snapshot.page).entries = vec![entry(&older, 6), entry(&newer, 7)];
+        Arc::make_mut(&mut snapshot.page).entries = vec![entry(&older, 6), entry(&newer, 7)].into();
         assert!(extent.needs_more(&snapshot));
         // A newer partial turn was complete before and must be completed again.
         let (mut snapshot, _, newer) = partial_view();

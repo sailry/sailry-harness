@@ -391,6 +391,7 @@ pub(in crate::plugins) fn public_output(output: Output) -> Result<Value, HostErr
         output,
         Output::PluginTransaction(_)
             | Output::Conversation(_)
+            | Output::ConversationRuns(_)
             | Output::Queue(_)
             | Output::PluginSearch(_)
             | Output::KnowledgeCollection(_)

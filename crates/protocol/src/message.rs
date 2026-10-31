@@ -677,6 +677,16 @@ pub enum Command {
         /// Number of turns, not events or model messages.
         limit: u16,
     },
+    ReadConversationRuns {
+        session: SessionId,
+        before: Option<crate::TurnId>,
+        limit: u16,
+    },
+    ReadConversationRun {
+        session: SessionId,
+        turn: crate::TurnId,
+        expected_revision: Option<u64>,
+    },
     ReadUsage(crate::usage::Query),
     ReadActivityCatalog,
     ReadActivity {
@@ -1636,6 +1646,8 @@ impl Command {
                 | Self::DiscoverModels(_)
                 | Self::ValidateProvider { .. }
                 | Self::ReadConversation { .. }
+                | Self::ReadConversationRuns { .. }
+                | Self::ReadConversationRun { .. }
                 | Self::ReadSession { .. }
                 | Self::ReadUsage(_)
                 | Self::ReadActivity { .. }
@@ -1949,6 +1961,8 @@ pub enum Output {
     CatalogStatus(crate::conversation::catalog::Status),
     ModelCatalog(crate::conversation::catalog::Page),
     Conversation(crate::conversation::History),
+    ConversationRuns(crate::conversation::runs::Page),
+    ConversationRun(crate::conversation::runs::Summary),
     Usage(crate::usage::Report),
     Activity(Vec<crate::activity::Preview>),
     DiscoveredModels(crate::conversation::discovery::Catalog),
@@ -2270,6 +2284,9 @@ pub enum Update {
     FilesChanged {
         node: NodeId,
         worktree: WorktreeId,
+        /// Repository refs and identity invalidation, independent of ordinary file edits.
+        #[serde(default)]
+        references: u64,
     },
     Snapshot(Snapshot),
     Event(EventEnvelope),

@@ -164,7 +164,7 @@ async fn disables_confinement_for_existing_sessions() {
             let turn = approvals::rules::submit(&fixture.client, &fixture.session).await;
             let mut page = finished(&fixture.client, fixture.session.id, turn.id).await;
             page.approvals.retain(|approval| approval.turn == turn.id);
-            page.entries.retain(|entry| entry.turn == turn.id);
+            std::sync::Arc::make_mut(&mut page.entries).retain(|entry| entry.turn == turn.id);
             assert_eq!(page.approvals[0].access, Some(Access::Workspace));
             assert_eq!(page.approvals[0].source, ApprovalSource::Sandbox);
             assert_eq!(

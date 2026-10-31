@@ -138,7 +138,7 @@ fn notice_input_is_not_user_editable() {
     run.notice = true;
     let page = Arc::make_mut(&mut snapshot.page);
     page.runs = vec![run.clone()];
-    page.entries.push(Entry {
+    std::sync::Arc::make_mut(&mut page.entries).push(Entry {
         sequence: 1,
         id: "system-input".into(),
         turn: run.turn,

@@ -538,8 +538,13 @@ pub(in crate::store) async fn command(database: &mut Database, output: &Output) 
         return;
     }
     if let Output::Queue(update) = output {
+        let mut sessions = std::collections::BTreeSet::new();
         for current in &update.runs {
-            run(database, current.clone()).await;
+            hydrate(database, current.clone()).await;
+            sessions.insert(current.session);
+        }
+        for session in sessions {
+            statistics(database, session).await;
         }
         if let Ok(tasks) = super::background::list(&database.connection, update.session).await {
             super::background::publish(database, tasks).await;
@@ -578,13 +583,18 @@ pub(in crate::store) async fn command(database: &mut Database, output: &Output) 
 /// Conversation-only capture hydration must not change a committed business result.
 pub(in crate::store) async fn run(database: &Database, current: Run) {
     let session = current.session;
+    hydrate(database, current).await;
+    statistics(database, session).await;
+}
+
+async fn hydrate(database: &Database, current: Run) {
+    let session = current.session;
     match runs::hydrate(&database.connection, current).await {
         Ok(current) => database
             .feeds
             .publish(database.node, session, Change::Run(current)),
         Err(_) => database.feeds.reset(session),
     }
-    statistics(database, session).await;
 }
 
 async fn statistics(database: &Database, session: SessionId) {

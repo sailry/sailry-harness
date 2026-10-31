@@ -113,6 +113,10 @@ pub fn output(output: Output) -> Value {
             value["data"]["page"]["queue"]["revision"] =
                 json!(history.page.queue.revision.to_string());
         }
+        Output::ConversationRuns(page) => {
+            value["data"]["revision"] = json!(page.revision.to_string());
+            value["data"]["queue_revision"] = json!(page.queue_revision.to_string());
+        }
         Output::Queue(update) => {
             value["data"]["queue"]["revision"] = json!(update.queue.revision.to_string());
         }
@@ -228,7 +232,7 @@ mod tests {
             page: Page {
                 session,
                 revision: 1,
-                entries: vec![],
+                entries: vec![].into(),
                 runs: vec![],
                 queue: queue.clone(),
                 approvals: vec![],

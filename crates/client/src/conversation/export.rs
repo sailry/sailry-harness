@@ -100,7 +100,7 @@ impl Client {
             history.page.next_before = next;
         }
         if let Some(turn) = turn {
-            history.page.entries.retain(|entry| entry.turn == turn);
+            std::sync::Arc::make_mut(&mut history.page.entries).retain(|entry| entry.turn == turn);
             if history.page.entries.is_empty() {
                 return Err(Fault::invalid("Reply is unavailable"));
             }
@@ -153,7 +153,7 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
     // Match the transcript's final reply boundary: work before the last tool,
     // reasoning or compaction part is not part of the published answer.
     let mut boundaries = BTreeMap::new();
-    for entry in &page.entries {
+    for entry in page.entries.iter() {
         if entry.author == "user" {
             continue;
         }
@@ -164,7 +164,7 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
         }
     }
     let conversation = page.entries.iter().any(|entry| entry.author == "user");
-    for entry in &page.entries {
+    for entry in page.entries.iter() {
         let user = entry.author == "user";
         // Automatic controller input is execution context, not user-authored speech.
         if user

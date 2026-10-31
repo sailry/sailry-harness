@@ -12,8 +12,11 @@ mod tests;
 const GRACE: Duration = Duration::from_secs(5);
 
 enum Loaded {
-    Page { before: TurnId, history: History },
-    Turn(TurnHistory),
+    Page {
+        before: TurnId,
+        history: Box<History>,
+    },
+    Turn(Box<TurnHistory>),
 }
 
 impl Loaded {
@@ -42,7 +45,7 @@ impl<'a> Load<'a> {
                 client
                     .read_turn(session, turn, revision, before, super::history::TURN_PAGE)
                     .await
-                    .map(Loaded::Turn)
+                    .map(|chunk| Loaded::Turn(Box::new(chunk)))
             })));
         }
         let before = page.next_before?;
@@ -50,7 +53,10 @@ impl<'a> Load<'a> {
             client
                 .read_page(session, Some(before), 20)
                 .await
-                .map(|history| Loaded::Page { before, history })
+                .map(|history| Loaded::Page {
+                    before,
+                    history: Box::new(history),
+                })
         })))
     }
 }
@@ -245,9 +251,9 @@ impl Client {
                                     };
                                     let applied = match *loaded {
                                         Loaded::Page { before, history } => {
-                                            projection.merge_history(generation, Some(before), history)
+                                            projection.merge_history(generation, Some(before), *history)
                                         }
-                                        Loaded::Turn(chunk) => projection.merge_turn(generation, chunk),
+                                        Loaded::Turn(chunk) => projection.merge_turn(generation, *chunk),
                                     };
                                     match applied {
                                         // A superseded read is re-planned from the current view.

@@ -15,7 +15,7 @@ fn returned(summary: Summary) -> Page {
         unreachable!()
     };
     **target = summary;
-    page.entries.push(response);
+    std::sync::Arc::make_mut(&mut page.entries).push(response);
     page
 }
 
@@ -140,7 +140,9 @@ fn preserves_bounded_labels_and_path_fallback() {
     let call = &collect(&page)[0];
     assert_eq!(call.row(&page).detail.unwrap().text, "source.rs");
     let mut page = page;
-    let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] else {
+    let Part::ToolCall { summary, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    else {
         unreachable!()
     };
     summary.resolved = Some(display::Resolved {
@@ -175,17 +177,22 @@ fn preserves_bounded_labels_and_path_fallback() {
 #[test]
 fn retains_hidden_activity_exceptions() {
     let mut page = returned(Summary::default());
-    let Part::ToolCall { presentation, .. } = &mut page.entries[0].parts[0] else {
+    let Part::ToolCall { presentation, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    else {
         unreachable!()
     };
     *presentation = Presentation::Hidden;
     assert!(collect(&page)[0].hidden(&page));
-    let Part::ToolResult { summary, .. } = &mut page.entries[1].parts[0] else {
+    let Part::ToolResult { summary, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+    else {
         unreachable!()
     };
     summary.diagnostics = true;
     assert!(!collect(&page)[0].hidden(&page));
-    let Part::ToolCall { name, .. } = &mut page.entries[0].parts[0] else {
+    let Part::ToolCall { name, .. } = &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    else {
         unreachable!()
     };
     *name = "ask_user".into();
@@ -236,7 +243,9 @@ fn uses_captured_child_titles_and_role_names() {
         },
         name: Some("Explore".into()),
     };
-    let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] else {
+    let Part::ToolCall { summary, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    else {
         unreachable!()
     };
     summary.title = Some("Review sources".into());
@@ -293,7 +302,9 @@ fn published_only_content_has_no_empty_disclosure() {
                 notices: vec![],
             },
         ));
-    let Part::ToolResult { summary, .. } = &mut page.entries[1].parts[0] else {
+    let Part::ToolResult { summary, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+    else {
         unreachable!()
     };
     summary.has_details = true;

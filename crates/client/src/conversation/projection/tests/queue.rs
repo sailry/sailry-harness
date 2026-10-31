@@ -32,6 +32,11 @@ fn orders_and_recovers() {
     assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
     assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
     let page = projection.snapshot().unwrap().page.clone();
+    assert!(Arc::ptr_eq(&snapshot.page.entries, &page.entries));
+    let wire = serde_json::to_value(page.as_ref()).unwrap();
+    assert!(wire["entries"].is_array());
+    let decoded: Page = serde_json::from_value(wire).unwrap();
+    assert_eq!(&decoded, page.as_ref());
     projection
         .apply(1, frame(&snapshot, 12, Change::Delta(draft)))
         .unwrap();
@@ -177,7 +182,7 @@ fn guides_in_queue_order_until_canonical_input() {
         selected[0].input.as_ref().unwrap().message.text,
         "Second guide"
     );
-    page.entries.push(Entry {
+    std::sync::Arc::make_mut(&mut page.entries).push(Entry {
         sequence: 1,
         id: "guided-user".into(),
         turn: second.turn,

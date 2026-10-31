@@ -11,7 +11,7 @@ fn preserves_statistics_identity_across_drafts() {
         page: Arc::new(conversation::Page {
             session,
             revision: 1,
-            entries: Vec::new(),
+            entries: Vec::new().into(),
             runs: Vec::new(),
             queue: Default::default(),
             approvals: Vec::new(),

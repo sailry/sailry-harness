@@ -126,7 +126,7 @@ async fn replays_retained_sequences() {
     let page = Page {
         session,
         revision: 1,
-        entries: Vec::new(),
+        entries: Vec::new().into(),
         runs: vec![run.clone()],
         next_before: None,
         queue: Default::default(),
@@ -422,4 +422,61 @@ fn hidden_entry_supersedes_draft() {
     let sequence = feeds.sequence(session);
     feeds.delta(node, session, draft).unwrap();
     assert_eq!(feeds.sequence(session), sequence);
+}
+
+#[tokio::test]
+async fn coalesces_batch_statistics_per_session() {
+    let mut fixture = crate::store::agent::tests::fixture::Fixture::new().await;
+    let first = fixture.queued().await;
+    let second = fixture.queued().await;
+    let runs = vec![
+        runs::get(&fixture.database.connection, first)
+            .await
+            .unwrap(),
+        runs::get(&fixture.database.connection, second)
+            .await
+            .unwrap(),
+    ];
+    let queue = super::super::queue::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    let feed = Feed::default();
+    let _subscription = feed.updates.subscribe();
+    fixture
+        .database
+        .feeds
+        .0
+        .lock()
+        .unwrap()
+        .insert(fixture.session, feed);
+    command(
+        &mut fixture.database,
+        &Output::Queue(sailry_protocol::conversation::QueueUpdate {
+            session: fixture.session,
+            queue,
+            runs,
+        }),
+    )
+    .await;
+    let feeds = fixture.database.feeds.0.lock().unwrap();
+    let changes = feeds[&fixture.session]
+        .retained
+        .iter()
+        .map(|(frame, _)| &frame.change)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|change| matches!(change, Change::Run(_)))
+            .count(),
+        2
+    );
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|change| matches!(change, Change::Statistics(_)))
+            .count(),
+        1
+    );
+    assert!(matches!(changes.last(), Some(Change::Queue(_))));
 }

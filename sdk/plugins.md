@@ -17,7 +17,7 @@ share the scoped request contract with bounded snapshot observations.
 | Coalesced invalidation | `nextChange(cursor?, scope?)` |
 | Model error handling | `errorCode(error.message)` |
 | Plugin storage | `getValue(key)`, `listKeys(prefix?, after?, limit?)`, `setValue(key, value, revision)`, `deleteValue(key, revision)` |
-| Captured session | `readSession()`, `readConversation(before?, limit?)`, `nextConversation(cursor?, projection?)`, `sendMessage(input, revision)`, `stopTurn(turn)`, `setSessionConfig(config, revision)` |
+| Captured session | `readSession()`, `readConversation(before?, limit?)`, `readConversationRuns(before?, limit?)`, `readConversationRun(turn, revision?)`, `nextConversation(cursor?, projection?)`, `sendMessage(input, revision)`, `stopTurn(turn)`, `setSessionConfig(config, revision)` |
 | Node HTTP | `requestHttp(request)` |
 | Captured Git | `inspectGit()`, `prepareGitIndex(draft)`, `prepareGitCommit(draft)` |
 | Declarative UI | `publishContributions(states)`, `nextContributionEvent()` |
@@ -171,7 +171,11 @@ scoped watcher. These scopes grant no resource-reading authority. Omit the scope
 to retain the shared Node cursor.
 
 Updates coalesce for 750 ms with a one-second maximum wait. Connection, visibility
-and view-entry changes arrive immediately. The result includes `visible`; hidden
+and view-entry changes arrive immediately. The result includes `revision` for the selected event scope, `terminal_tools` for
+terminal settings invalidation, and `references` for repository refs and identity
+changes. These decimal string counters are invalidation tokens, not writable
+resource revisions. Ordinary file edits preserve `references`; recovery advances it.
+The result also includes `visible`; hidden
 views keep their last invalidation and wait until shown, without refreshing their
 data. Pass each returned opaque cursor to the next call. Use composer or
 conversation observations for session execution and draft state.
@@ -1093,3 +1097,14 @@ JavaScript helper inside `runtimeTest`. This returns one validity flag per value
 using the host's `--validate-schema` mode. Invalid schemas fail separately;
 external references cannot read files or use the network. This checks the raw
 schema, not a model provider's normalized declaration or enforcement.
+
+`readConversationRuns(before = null, limit = 100)` returns bounded lifecycle
+metadata for the captured session: `{session, revision, runs, next_before,
+queue_revision}`. Each run contains only `{turn, sequence, status, origin,
+error_code}`; it never loads message bodies, admitted input or notices. Pages
+contain at most 100 runs, ordered by admission sequence within each page. Pass
+`next_before` to read older runs. `readConversationRun(turn, revision = null)`
+reads one visible run; a supplied structural history revision rejects stale
+fork/rewind membership. Both methods require `conversation.read` and the captured
+session. The page's `revision` and `queue_revision` are decimal strings; the latter
+is the current queue control revision.

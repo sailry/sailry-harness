@@ -17,6 +17,7 @@ pub mod quota;
 pub mod reasoning;
 pub mod recovery;
 pub mod reference;
+pub mod runs;
 pub mod search;
 use crate::{CredentialRef, Fault, NodeId, ProviderId, SessionId, TurnId};
 use serde::{Deserialize, Serialize};
@@ -487,7 +488,7 @@ pub struct Page {
     pub session: SessionId,
     /// Structural history revision; appending events does not change it.
     pub revision: u64,
-    pub entries: Vec<Entry>,
+    pub entries: std::sync::Arc<Vec<Entry>>,
     pub runs: Vec<Run>,
     pub queue: Queue,
     pub approvals: Vec<Approval>,

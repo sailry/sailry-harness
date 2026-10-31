@@ -81,7 +81,18 @@ async fn follow_target(remote: bool) {
         .read_conversation(session.id, None, 100)
         .await
         .unwrap();
-    let middle = canonical.page.runs[35].sequence;
+    // A logical page is also bounded by entries; positions are not session offsets.
+    let sequence = |turn| {
+        canonical
+            .page
+            .runs
+            .iter()
+            .find(|run| run.turn == turn)
+            .unwrap()
+            .sequence
+    };
+    let middle = sequence(turns[35]);
+    let latest = sequence(turns[64]);
 
     // An early request survives initial subscription setup and reports read failure.
     let observed = Arc::new(Observed::new(transport.clone()));
@@ -143,9 +154,14 @@ async fn follow_target(remote: bool) {
             .any(|entry| entry.id == target.entry)
     );
     assert_eq!(observed.cancelled_reads(), 0);
+    let generation = view.borrow().generation;
     observed.disconnect();
-    super::super::observed(&mut view, |view| !view.connected).await;
-    super::super::observed(&mut view, |view| view.connected).await;
+    // Recovery preserves the connected view; a new published generation proves
+    // the subscription has restored the entire previously loaded range.
+    super::super::observed(&mut view, |view| {
+        view.generation > generation && view.connected && !view.loading_older
+    })
+    .await;
     assert_eq!(view.borrow().snapshot.as_ref().unwrap().page, all.page);
     stop.cancel();
     worker.await.unwrap().unwrap();
@@ -185,10 +201,7 @@ async fn follow_target(remote: bool) {
         Some(turns[26])
     );
     // An already visible target acknowledges the request without reading any old page.
-    requests
-        .send(through(canonical.page.runs[64].sequence))
-        .await
-        .unwrap();
+    requests.send(through(latest)).await.unwrap();
     super::super::observed(&mut view, |view| {
         view.older_error.is_none() && !view.loading_older
     })
@@ -203,14 +216,33 @@ async fn follow_target(remote: bool) {
     node.shutdown().await.unwrap();
     let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
-    assert_eq!(
-        client
-            .read_conversation(session.id, None, 100)
-            .await
-            .unwrap()
-            .page,
-        *all.page
-    );
+    // Restore all 66 turns through the same public paging owner, rather than
+    // treating one bounded transport page as the entire conversation.
+    let (updates, mut restored) = watch::channel(View::default());
+    let (requests, receiver) = mpsc::channel(1);
+    requests.send(through(target.turn_sequence)).await.unwrap();
+    let stop = CancellationToken::new();
+    let worker = tokio::spawn({
+        let stop = stop.clone();
+        async move {
+            client
+                .watch_conversation(session.id, updates, stop, receiver)
+                .await
+        }
+    });
+    super::super::observed(&mut restored, |view| {
+        view.connected
+            && !view.loading_older
+            && view.snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot.page.runs.len() == 66
+                    && snapshot.page.next_before.is_none()
+                    && snapshot.missing.is_empty()
+            })
+    })
+    .await;
+    assert_eq!(restored.borrow().snapshot.as_ref().unwrap().page, all.page);
     assert_eq!(server.requests.lock().unwrap().len(), 66);
+    stop.cancel();
+    worker.await.unwrap().unwrap();
     node.shutdown().await.unwrap();
 }

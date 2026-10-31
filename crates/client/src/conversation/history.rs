@@ -5,7 +5,10 @@ use sailry_protocol::{
     conversation::{History, Page, TurnHistory},
     *,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 impl Client {
     /// Loads the original admission capture without copying it into every Node snapshot.
@@ -176,7 +179,7 @@ pub(super) fn merge_turn(
         session: chunk.run.session,
         revision: chunk.revision,
         runs: vec![chunk.run],
-        entries: chunk.entries,
+        entries: chunk.entries.into(),
         approvals: chunk.approvals,
         questions: chunk.questions,
         children: chunk.children,
@@ -202,8 +205,7 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
         ));
     }
     let mut merged = current.clone();
-    let mut entries: BTreeMap<_, _> = merged
-        .entries
+    let mut entries: BTreeMap<_, _> = Arc::unwrap_or_clone(merged.entries)
         .into_iter()
         .map(|entry| (entry.sequence, entry))
         .collect();
@@ -211,7 +213,7 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
         .values()
         .map(|entry| (entry.id.clone(), entry.sequence))
         .collect();
-    for entry in incoming.entries {
+    for entry in Arc::unwrap_or_clone(incoming.entries) {
         if let Some(previous) = entries.get(&entry.sequence) {
             if previous != &entry {
                 return Err(sailry_protocol::Fault::invalid(
@@ -230,7 +232,7 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
             entries.insert(entry.sequence, entry);
         }
     }
-    merged.entries = entries.into_values().collect();
+    merged.entries = entries.into_values().collect::<Vec<_>>().into();
     for run in incoming.runs {
         if let Some(previous) = merged
             .runs

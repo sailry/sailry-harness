@@ -117,7 +117,10 @@ async fn preserves_outcomes_after_tool_summaries() {
             } else {
                 assert!(run.error.is_none());
             }
-            assert_eq!(&page.entries[..original.entries.len()], original.entries);
+            assert_eq!(
+                &page.entries[..original.entries.len()],
+                original.entries.as_slice()
+            );
             let requests = rejected
                 .as_ref()
                 .unwrap_or(&server)

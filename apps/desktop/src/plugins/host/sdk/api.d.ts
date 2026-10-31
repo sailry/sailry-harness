@@ -43,7 +43,7 @@ export function forgetRequest(id: string): void;
  * completion and worktree changes; repository adds scoped filesystem and Git metadata changes.
  * Connection, visibility and entry changes arrive immediately.
  * Pass the returned opaque cursor to wait; hidden views retain invalidation until shown. */
-export function nextChange(cursor?: string, scope?: "package" | "settled" | "repository"): Promise<{cursor: string; connected: boolean; entry: string; visible: boolean}>;
+export function nextChange(cursor?: string, scope?: "package" | "settled" | "repository"): Promise<{cursor: string; revision: string; connected: boolean; entry: string; visible: boolean; terminal_tools: string; references: string}>;
 export function getValue(key: string): Promise<Entry>;
 export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;
 /** Prepare a durable compare-and-set write; completeRequest returns its receipt. */
@@ -119,6 +119,9 @@ export function nextContributionEvent(): Promise<ContributionEvent>;
 export function readSession(): Promise<{ id: string; revision: string; config: Json } & Record<string, Json>>;
 /** page.queue.revision is an exact decimal string for queue_pause transactions. */
 export function readConversation(before?: string | null, limit?: number): Promise<Json>;
+/** Lifecycle metadata only. Structural and queue revisions are exact decimal strings. */
+export function readConversationRuns(before?: string | null, limit?: number): Promise<Json>;
+export function readConversationRun(turn: string, revision?: string | null): Promise<Json>;
 /** Prepare durable commands, then use completeRequest with the returned ID. */
 export function sendMessage(input: Json, expectedRevision: string): string;
 export function stopTurn(turn: string): string;

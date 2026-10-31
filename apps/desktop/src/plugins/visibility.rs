@@ -2,21 +2,21 @@
 use crate::{preview::Page, resources::SideResource, shell::Shell};
 use gpui_kit::App;
 
-fn set(resource: &SideResource, visible: bool, cx: &App) {
+fn set(resource: &SideResource, visible: bool, cx: &mut App) {
     if let SideResource::Plugin(panel) | SideResource::Launcher(Some(panel)) = resource {
         panel.read(cx).set_visible(visible);
     }
     if let SideResource::Child(panel) = resource {
         for tab in &panel.tabs {
-            tab.view
-                .read(cx)
-                .set_visibility(visible && tab.id == panel.selected, cx);
+            tab.view.update(cx, |view, cx| {
+                view.set_visibility(visible && tab.id == panel.selected, cx)
+            });
         }
     }
 }
 
 impl Shell {
-    pub(crate) fn sync_plugin_visibility(&self, details: bool, cx: &App) {
+    pub(crate) fn sync_plugin_visibility(&self, details: bool, cx: &mut App) {
         for resource in self.retained_panels() {
             set(resource, false, cx);
         }
@@ -35,19 +35,27 @@ impl Shell {
                 );
             }
         }
-        let dock = self.splits.read(cx);
-        for chat in self.chats.controllers() {
-            let view = chat.read(cx);
-            let target = view
-                .session()
-                .map_or(crate::panes::Target::Draft, |session| {
-                    crate::panes::Target::Session(view.binding().client.target(), session)
-                });
-            view.set_visibility(
-                self.page == Page::Conversation && dock.displayed(target, cx),
-                cx,
-            );
+        let visibility: Vec<_> = self
+            .chats
+            .controllers()
+            .map(|chat| {
+                let dock = self.splits.read(cx);
+                let view = chat.read(cx);
+                let target = view
+                    .session()
+                    .map_or(crate::panes::Target::Draft, |session| {
+                        crate::panes::Target::Session(view.binding().client.target(), session)
+                    });
+                (
+                    chat.clone(),
+                    self.page == Page::Conversation && dock.displayed(target, cx),
+                )
+            })
+            .collect();
+        for (chat, visible) in visibility {
+            chat.update(cx, |view, cx| view.set_visibility(visible, cx));
         }
+        let dock = self.splits.read(cx);
         for (target, panel) in &self.plugin_panes.panels {
             panel.read(cx).set_visible(
                 matches!(self.page, Page::Conversation | Page::Terminal)

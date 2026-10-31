@@ -119,7 +119,7 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
         Status::Completed,
         "{page:?}"
     );
-    assert_eq!(&page.entries[..original.len()], original);
+    assert_eq!(&page.entries[..original.len()], original.as_slice());
     assert!(page.entries.iter().all(|entry| entry.parts.iter().all(|part| {
         !matches!(part, Part::Text(text) if ["Session environment", ROOT_RULE, NESTED_RULE, PERSONAL_FIRST, PERSONAL_NEXT].iter().any(|context| text.contains(*context)))
     })));
@@ -374,7 +374,10 @@ async fn persists_native_summary() {
                 Status::Completed,
                 "{page:?}"
             );
-            assert_eq!(&page.entries[..before.entries.len()], before.entries);
+            assert_eq!(
+                &page.entries[..before.entries.len()],
+                before.entries.as_slice()
+            );
             let entry = page.entries.last().unwrap();
             assert_eq!(entry.turn, compact.id);
             assert_eq!(entry.author, "system");

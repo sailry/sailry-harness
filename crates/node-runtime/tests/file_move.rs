@@ -129,7 +129,8 @@ async fn moves_across_worktrees_once() {
                         .unwrap(),
                     Update::FilesChanged {
                         node: fixture.node.id(),
-                        worktree
+                        worktree,
+                        references: 0,
                     }
                 );
             }

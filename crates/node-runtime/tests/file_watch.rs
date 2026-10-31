@@ -138,7 +138,14 @@ async fn observes_repository_changes() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("project");
     std::fs::create_dir(&root).unwrap();
-    git2::Repository::init(&root).unwrap();
+    let repository = git2::Repository::init(&root).unwrap();
+    let tree = repository
+        .find_tree(repository.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    let signature = git2::Signature::now("Fixture", "fixture@example.test").unwrap();
+    let commit = repository
+        .commit(Some("HEAD"), &signature, &signature, "Initial", &tree, &[])
+        .unwrap();
     std::fs::write(root.join("source.txt"), "initial").unwrap();
     let node = Node::start_empty(directory.path().join("node"))
         .await
@@ -194,6 +201,18 @@ async fn observes_repository_changes() {
             panic!("file expected");
         };
         assert_eq!(read.text, content);
+        let references = updates.borrow().references;
+        repository
+            .branch(
+                &format!("external-{index}"),
+                &repository.find_commit(commit).unwrap(),
+                false,
+            )
+            .unwrap();
+        wait_for(&mut updates, NATIVE_WAIT, |view| {
+            view.references > references
+        })
+        .await;
         stop.cancel();
         task.await.unwrap().unwrap();
         assert!(!updates.borrow().connected);

@@ -89,7 +89,10 @@ async fn reveals_unpublished_tail() {
     .await
     .unwrap();
     assert_eq!(entry.id, id);
-    assert_eq!(fixture.read(None, 100).await.page.entries, vec![entry]);
+    assert_eq!(
+        fixture.read(None, 100).await.page.entries.as_slice(),
+        &[entry]
+    );
 }
 
 /// Next visibility frame, skipping unrelated statistics and task frames.

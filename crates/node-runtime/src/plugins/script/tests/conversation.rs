@@ -41,7 +41,7 @@ export async function run() {
                         page: Page {
                             session,
                             revision: 1,
-                            entries: vec![],
+                            entries: vec![].into(),
                             runs: vec![],
                             queue: Queue {
                                 revision: 9007199254740993,
@@ -171,4 +171,80 @@ export async function run() {
     assert_eq!(ids[0], ids[1]);
     assert_ne!(ids[0][0], ids[0][1]);
     assert_ne!(ids[0][0], call);
+}
+
+#[test]
+fn reads_run_metadata_with_exact_revisions() {
+    use sailry_protocol::{
+        Command, SessionId, TurnId,
+        conversation::{
+            Status,
+            runs::{Page, Summary},
+        },
+    };
+    let session = SessionId::new();
+    let turn = TurnId::new();
+    let mut scope = context();
+    scope.session = Some(session);
+    let captured = scope.clone();
+    let result = run(
+        bundle(
+            r#"
+import {readConversationRuns,readConversationRun} from 'sailry/sdk';
+export async function run() {
+  const page=await readConversationRuns(null,1);
+  const run=await readConversationRun(page.runs[0].turn,page.revision);
+  return {revision:page.revision,queue:page.queue_revision,status:run.status};
+}
+"#,
+        ),
+        "run",
+        json!(null),
+        scope,
+        NodeId([1; 32]),
+        CancellationToken::new(),
+        move |request| {
+            assert_eq!(request.plugin.as_ref(), Some(&captured));
+            let run = Summary {
+                turn,
+                sequence: 1,
+                status: Status::Completed,
+                origin: None,
+                error_code: None,
+            };
+            match request.command {
+                Command::ReadConversationRuns {
+                    session: target,
+                    before,
+                    limit,
+                } => {
+                    assert_eq!((target, before, limit), (session, None, 1));
+                    Ok(Output::ConversationRuns(Page {
+                        session,
+                        revision: 9007199254740993,
+                        runs: vec![run],
+                        next_before: None,
+                        queue_revision: 9007199254740994,
+                    }))
+                }
+                Command::ReadConversationRun {
+                    session: target,
+                    turn: target_turn,
+                    expected_revision,
+                } => {
+                    assert_eq!(
+                        (target, target_turn, expected_revision),
+                        (session, turn, Some(9007199254740993))
+                    );
+                    Ok(Output::ConversationRun(run))
+                }
+                _ => panic!("metadata read expected"),
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result,
+        json!({"revision":"9007199254740993","queue":"9007199254740994","status":"completed"})
+    );
 }

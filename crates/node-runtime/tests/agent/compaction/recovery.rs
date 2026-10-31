@@ -38,7 +38,10 @@ async fn retries_transient_summary_without_replaying_tools() {
                 .status,
             Status::Completed
         );
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(
             requests
@@ -116,7 +119,10 @@ async fn rejects_failed_saves_without_advancing() {
                 .status,
             Status::Failed
         );
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         assert!(
             !after
                 .entries

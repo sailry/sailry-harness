@@ -42,7 +42,7 @@ fn coalesces_changes_and_ends_with_the_view() {
     });
     assert_eq!(
         next,
-        json!({"cursor":"7-0:true:0:true","connected":true,"entry":"0","visible":true})
+        json!({"cursor":"7-0:true:0:true","revision":"7","connected":true,"entry":"0","visible":true,"terminal_tools":"0","references":"0"})
     );
     let pending = module
         .begin("nextChange", &args(json!([next["cursor"]])))
@@ -53,13 +53,13 @@ fn coalesces_changes_and_ends_with_the_view() {
     let next = decode(&fixture.runtime.block_on(pending).unwrap()).unwrap();
     assert_eq!(
         next,
-        json!({"cursor":"7-0:true:2:true","connected":true,"entry":"2","visible":true})
+        json!({"cursor":"7-0:true:2:true","revision":"7","connected":true,"entry":"2","visible":true,"terminal_tools":"0","references":"0"})
     );
     host.observe(8, 0, 0, true);
     let next = complete(&fixture, &module, "nextChange", json!([next["cursor"]]));
     assert_eq!(
         next,
-        json!({"cursor":"8-0:true:2:true","connected":true,"entry":"2","visible":true})
+        json!({"cursor":"8-0:true:2:true","revision":"8","connected":true,"entry":"2","visible":true,"terminal_tools":"0","references":"0"})
     );
     let global = module
         .begin("nextChange", &args(json!([next["cursor"]])))

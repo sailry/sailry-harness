@@ -36,7 +36,7 @@ fn history(run: &Run) -> History {
             page: Arc::new(Page {
                 session: run.session,
                 revision: 1,
-                entries: vec![],
+                entries: vec![].into(),
                 runs: vec![run.clone()],
                 queue: Default::default(),
                 approvals: vec![],

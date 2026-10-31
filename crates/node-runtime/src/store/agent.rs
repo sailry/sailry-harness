@@ -15,6 +15,7 @@ pub(crate) mod elicitation;
 mod feed;
 pub(in crate::store) mod history;
 mod images;
+pub(in crate::store) mod metadata;
 mod permissions;
 pub(in crate::store) mod plugins;
 pub(in crate::store) use plugins::package as plugin_package;
@@ -200,6 +201,11 @@ pub(super) enum Operation {
         turn: TurnId,
         call: String,
         owner: RequestId,
+    },
+    #[cfg(any(test, feature = "test-support"))]
+    PublicationFixture {
+        gate: super::publication::fixture::Gate,
+        reply: oneshot::Sender<()>,
     },
     #[cfg(any(test, feature = "test-support"))]
     ApprovalCommitFixture {
@@ -871,6 +877,11 @@ pub(super) fn execute<'a>(
                     let _ = reply.send(Err(error));
                 }
             }
+        }),
+        #[cfg(any(test, feature = "test-support"))]
+        Operation::PublicationFixture { gate, reply } => Box::pin(async move {
+            *database.publication_gate.lock().unwrap() = Some(gate);
+            let _ = reply.send(());
         }),
         #[cfg(any(test, feature = "test-support"))]
         Operation::ApprovalCommitFixture { gate, reply } => Box::pin(async move {

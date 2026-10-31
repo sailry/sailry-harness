@@ -373,7 +373,10 @@ async fn compacts_before_plain_followup() {
         let current = "Continue with this exact request";
         let (_, _, after) = submit(&fixture.client, fixture.session.id, current.into()).await;
         assert_eq!(summaries(&after), 1);
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 3);
         assert!(agent_support::compaction::is_summary(&requests[1]));

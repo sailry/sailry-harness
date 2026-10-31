@@ -174,6 +174,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             | "write_indexed_plugin_value"
                             | "remove_plugin_value"
                             | "remove_plugin_conversation_value"
+                            | "read_conversation_run"
                             | "submit_turn"
                             | "continue_turn"
                             | "rebuild_knowledge_collection"
@@ -415,6 +416,8 @@ fn allowed(command: &Command) -> bool {
             | Command::ListArtifactRevisions { .. }
             | Command::ReadSession { .. }
             | Command::ReadConversation { .. }
+            | Command::ReadConversationRuns { .. }
+            | Command::ReadConversationRun { .. }
             | Command::ReadTurnCapture { .. }
             | Command::ReadTurn { .. }
             | Command::SubmitTurn { .. }

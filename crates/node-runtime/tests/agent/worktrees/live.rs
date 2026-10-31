@@ -67,7 +67,7 @@ async fn delegates_checkout() {
         let mut seen = std::collections::HashSet::new();
         let page = loop {
             let page = history(&client, session.id).await;
-            for entry in &page.entries {
+            for entry in page.entries.iter() {
                 for (index, part) in entry.parts.iter().enumerate() {
                     if seen.insert((entry.id.clone(), index)) {
                         match part {

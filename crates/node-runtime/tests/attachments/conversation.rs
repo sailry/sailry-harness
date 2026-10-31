@@ -186,7 +186,7 @@ async fn page(client: &Client, session: SessionId) -> Page {
 async fn results(client: &Client, page: &Page, turn: Option<TurnId>) -> Vec<serde_json::Value> {
     let mut page = page.clone();
     if let Some(turn) = turn {
-        page.entries.retain(|entry| entry.turn == turn);
+        std::sync::Arc::make_mut(&mut page.entries).retain(|entry| entry.turn == turn);
     }
     server::details::tool_details(client, &page)
         .await

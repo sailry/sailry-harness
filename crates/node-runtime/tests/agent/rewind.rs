@@ -164,7 +164,7 @@ async fn recovers_subscribers_after_rewind() {
         let restored = view.borrow().snapshot.clone().unwrap();
         assert_eq!(restored.page.runs.len(), 1);
         assert_eq!(
-            restored.page.entries,
+            restored.page.entries.as_slice(),
             before
                 .entries
                 .iter()

@@ -108,6 +108,9 @@ export function callId(): string;
 export function readSession(): Promise<Json>;
 /** page.queue.revision is an exact decimal string for queue_pause transactions. */
 export function readConversation(before?:string|null,limit?:number): Promise<Json>;
+/** Lifecycle metadata only. Structural and queue revisions are exact decimal strings. */
+export function readConversationRuns(before?: string | null, limit?: number): Promise<Json>;
+export function readConversationRun(turn: string, revision?: string | null): Promise<Json>;
 export function readTurn(turn:string,before?:number|null,limit?:number): Promise<Json>;
 /** Ephemeral policy state shared only by this package's callbacks and tools in one turn. */
 export function readTurnState(): Json;

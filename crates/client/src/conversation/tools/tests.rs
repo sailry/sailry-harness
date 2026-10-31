@@ -55,7 +55,9 @@ fn shares_localized_approval_facts() {
         label: "Writes outside the worktree".into(),
         locales: Default::default(),
     };
-    let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] else {
+    let Part::ToolCall { summary, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    else {
         unreachable!()
     };
     summary.resolved = Some(display::Resolved {
@@ -103,7 +105,7 @@ fn projects_closing_interactions_for_controllers() {
         let mut page = page();
         let Part::ToolCall {
             name: tool_name, ..
-        } = &mut page.entries[0].parts[0]
+        } = &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
         else {
             unreachable!()
         };
@@ -162,7 +164,7 @@ fn page() -> Page {
         questions: Vec::new(),
         children: Vec::new(),
         background: Vec::new(),
-        entries: vec![entry(1, turn, "", false)],
+        entries: vec![entry(1, turn, "", false)].into(),
         runs: vec![Run {
             worktree: sailry_protocol::WorktreeId::new(),
             kind: sailry_protocol::conversation::RunKind::Task,
@@ -188,7 +190,7 @@ fn page() -> Page {
 fn references_results() {
     let mut page = page();
     assert_eq!(collect(&page)[0].state, State::Waiting);
-    page.entries.push(entry(2, page.runs[0].turn, "", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, page.runs[0].turn, "", true));
     let calls = collect(&page);
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].source.key(), "event-1-0");
@@ -204,7 +206,9 @@ fn retains_localized_display_without_a_live_package() {
         "label":"Read", "locales":{"zh-CN":"读取"}
     }))
     .unwrap();
-    if let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] {
+    if let Part::ToolCall { summary, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    {
         summary.resolved = Some(display::Resolved {
             label: Some(label),
             input: display::Input {
@@ -235,10 +239,12 @@ fn retains_localized_display_without_a_live_package() {
 #[test]
 fn uses_declared_presentation() {
     let mut page = page();
-    if let Part::ToolCall { presentation, .. } = &mut page.entries[0].parts[0] {
+    if let Part::ToolCall { presentation, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    {
         *presentation = sailry_protocol::tool::Presentation::Summary;
     }
-    page.entries.push(entry(2, page.runs[0].turn, "", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, page.runs[0].turn, "", true));
     assert_eq!(
         collect(&page)[0].presentation,
         sailry_protocol::tool::Presentation::Summary
@@ -274,7 +280,7 @@ fn approval_does_not_imply_execution() {
     assert_eq!(collect(&page)[0].state, State::Waiting);
     page.runs[0].status = Status::Cancelled;
     assert_eq!(collect(&page)[0].state, State::Interrupted);
-    page.entries.push(entry(2, page.runs[0].turn, "", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, page.runs[0].turn, "", true));
     assert_eq!(collect(&page)[0].state, State::Returned);
     page.approvals[0].turn = TurnId::new();
     assert!(collect(&page)[0].approval.is_none());
@@ -309,9 +315,9 @@ fn distinguishes_denial_and_interruption() {
     started.parts = vec![Part::Resource(json!({
         "type": "tool_started", "id": "call", "name": "read_file"
     }))];
-    page.entries.push(started);
+    std::sync::Arc::make_mut(&mut page.entries).push(started);
     assert_eq!(collect(&page)[0].state, State::Interrupted);
-    page.entries.push(entry(3, page.runs[0].turn, "", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(3, page.runs[0].turn, "", true));
     assert_eq!(collect(&page)[0].state, State::Returned);
 }
 
@@ -319,15 +325,15 @@ fn distinguishes_denial_and_interruption() {
 fn isolates_reused_ids() {
     let mut page = page();
     let turn = page.runs[0].turn;
-    page.entries.push(entry(2, turn, "child", false));
-    page.entries.push(entry(3, turn, "child", true));
-    page.entries.push(entry(4, TurnId::new(), "", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, turn, "child", false));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(3, turn, "child", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(4, TurnId::new(), "", true));
     let calls = collect(&page);
     assert_eq!(calls.len(), 3);
     assert!(calls[0].result(&page).is_none());
     assert_eq!(calls[1].response.as_ref().unwrap().entry, "event-3");
     assert_eq!(calls[2].source.entry, "event-4");
-    page.entries.push(entry(5, turn, "", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(5, turn, "", true));
     assert_eq!(
         collect(&page)[0].response.as_ref().unwrap().entry,
         "event-5"
@@ -338,7 +344,7 @@ fn isolates_reused_ids() {
 fn retains_unconsumed_answers() {
     use sailry_protocol::conversation::question::{Answer, Question, State as QuestionState};
     let mut page = page();
-    page.entries[0].parts[0] = Part::ToolCall {
+    std::sync::Arc::make_mut(&mut page.entries)[0].parts[0] = Part::ToolCall {
         presentation: Default::default(),
         grouping: Default::default(),
         id: Some("call".into()),
@@ -372,7 +378,7 @@ fn retains_unconsumed_answers() {
 fn started_question_retains_pending_input() {
     use sailry_protocol::conversation::question::{Question, State as QuestionState};
     let mut page = page();
-    page.entries[0].parts[0] = Part::ToolCall {
+    std::sync::Arc::make_mut(&mut page.entries)[0].parts[0] = Part::ToolCall {
         presentation: Default::default(),
         grouping: Default::default(),
         id: Some("call".into()),
@@ -397,7 +403,7 @@ fn started_question_retains_pending_input() {
     started.parts = vec![Part::Resource(json!({
         "type":"tool_started", "id":"call", "name":"ask_user"
     }))];
-    page.entries.push(started);
+    std::sync::Arc::make_mut(&mut page.entries).push(started);
     let calls = collect(&page);
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].state, State::Running);
@@ -412,8 +418,8 @@ fn started_question_retains_pending_input() {
 fn retains_uncertain_calls() {
     let mut page = page();
     let turn = page.runs[0].turn;
-    page.entries.push(entry(2, turn, "", false));
-    page.entries.push(entry(3, turn, "", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, turn, "", false));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(3, turn, "", true));
     let calls = collect(&page);
     assert_eq!(calls.len(), 3);
     assert!(calls[..2].iter().all(|call| call.response.is_none()));
@@ -455,9 +461,7 @@ fn reuses_calls_during_streaming() {
     view.replace(Arc::new(snapshot.clone()), 0, 1, None);
     assert!(Arc::ptr_eq(&calls, &view.calls));
     let turn = snapshot.page.runs[0].turn;
-    Arc::make_mut(&mut snapshot.page)
-        .entries
-        .push(entry(2, turn, "", true));
+    Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries).push(entry(2, turn, "", true));
     view.replace(Arc::new(snapshot), 0, 2, Some(2));
     assert!(!Arc::ptr_eq(&calls, &view.calls));
     assert_eq!(view.generation, 2);
@@ -476,12 +480,12 @@ fn starts_only_the_matching_call() {
     if let Part::ToolCall { id, .. } = &mut queued.parts[0] {
         *id = Some("later".into());
     }
-    page.entries.push(queued);
+    std::sync::Arc::make_mut(&mut page.entries).push(queued);
     let mut started = entry(3, turn, "", false);
     started.parts = vec![Part::Resource(
         json!({"type":"tool_started", "id":"call", "name":"read_file"}),
     )];
-    page.entries.push(started);
+    std::sync::Arc::make_mut(&mut page.entries).push(started);
     assert_eq!(
         collect(&page)
             .iter()
@@ -489,7 +493,7 @@ fn starts_only_the_matching_call() {
             .collect::<Vec<_>>(),
         [State::Running, State::Waiting]
     );
-    page.entries.push(entry(4, turn, "", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(4, turn, "", true));
     assert_eq!(
         collect(&page)
             .iter()
@@ -505,11 +509,13 @@ fn starts_only_the_matching_call() {
 fn preserves_grouping_before_and_after_results() {
     use sailry_protocol::tool::{Grouping, Presentation};
     let mut page = page();
-    if let Part::ToolCall { grouping, .. } = &mut page.entries[0].parts[0] {
+    if let Part::ToolCall { grouping, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    {
         *grouping = Grouping::Standalone;
     }
     assert_eq!(collect(&page)[0].grouping, Grouping::Standalone);
-    page.entries.push(entry(2, page.runs[0].turn, "", true));
+    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, page.runs[0].turn, "", true));
     let call = &collect(&page)[0];
     assert_eq!(call.grouping, Grouping::Standalone);
     assert_eq!(
@@ -520,11 +526,11 @@ fn preserves_grouping_before_and_after_results() {
         grouping,
         presentation,
         ..
-    } = &mut page.entries[0].parts[0]
+    } = &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
     {
         *grouping = Grouping::Sequence;
         *presentation = Presentation::Progress;
     }
-    page.entries.pop();
+    std::sync::Arc::make_mut(&mut page.entries).pop();
     assert_eq!(collect(&page)[0].grouping, Grouping::Standalone);
 }

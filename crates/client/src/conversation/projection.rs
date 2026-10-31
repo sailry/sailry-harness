@@ -108,8 +108,7 @@ impl Projection {
         }
         let next = history.page.next_before;
         let mut page = history.page;
-        page.entries
-            .retain(|entry| !self.hidden.contains(&entry.id));
+        Arc::make_mut(&mut page.entries).retain(|entry| !self.hidden.contains(&entry.id));
         super::history::merge(Arc::make_mut(&mut snapshot.page), page, true)?;
         if before.is_some() {
             Arc::make_mut(&mut snapshot.page).next_before = next;
@@ -209,7 +208,7 @@ impl Projection {
             {
                 run.input = None;
             }
-            page.entries.insert(index, entry);
+            Arc::make_mut(&mut page.entries).insert(index, entry);
         }
     }
 
@@ -349,7 +348,7 @@ impl Projection {
                                 .drafts
                                 .retain(|draft| draft.turn != entry.turn || draft.id != entry.id);
                             self.live_start.get_or_insert(entry.sequence);
-                            page.entries.push(entry);
+                            Arc::make_mut(&mut page.entries).push(entry);
                         }
                         if user && let Some(run) = page.runs.iter_mut().find(|run| run.turn == turn)
                         {
@@ -381,7 +380,7 @@ impl Projection {
                     }
                     Change::Hidden { turn, id } => {
                         let page = Arc::make_mut(&mut snapshot.page);
-                        page.entries
+                        Arc::make_mut(&mut page.entries)
                             .retain(|entry| entry.turn != turn || entry.id != id);
                         snapshot
                             .drafts

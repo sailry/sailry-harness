@@ -69,7 +69,37 @@ fn snapshot(turn: TurnId, parts: Vec<Part>) -> Snapshot {
                 usage: None,
                 citations: vec![],
                 search_suggestions: Some("Search suggestion markup".into()),
-            }],
+            }]
+            .into(),
         }),
     }
+}
+
+#[test]
+fn isolates_streaming_changes() {
+    let turn = TurnId::new();
+    let other = TurnId::new();
+    let before = snapshot(turn, vec![Part::Text("History".into())]);
+    let mut after = before.clone();
+    after.drafts.push(sailry_protocol::conversation::Draft {
+        id: "draft".into(),
+        turn: other,
+        author: "assistant".into(),
+        branch: String::new(),
+        parts: vec![Part::Text("Streaming".into())],
+    });
+    assert_eq!(changed(&before, &after), Some([other].into()));
+    assert_eq!(changed(&before, &before), Some(Default::default()));
+    assert_eq!(changed(&after, &before), Some([other].into()));
+}
+
+#[test]
+fn tracks_entry_visibility() {
+    let turn = TurnId::new();
+    let before = snapshot(turn, vec![Part::Text("History".into())]);
+    let mut after = before.clone();
+    Arc::make_mut(&mut Arc::make_mut(&mut after.page).entries).clear();
+    assert_eq!(changed(&before, &after), Some([turn].into()));
+    Arc::make_mut(&mut after.page).revision += 1;
+    assert_eq!(changed(&before, &after), None);
 }

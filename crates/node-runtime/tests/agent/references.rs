@@ -277,8 +277,7 @@ async fn reads_history_with_and_without_mentions() {
         )
         .await;
         let mut selected_history = history(&client, selected.id).await;
-        selected_history
-            .entries
+        std::sync::Arc::make_mut(&mut selected_history.entries)
             .retain(|entry| entry.turn == selected_turn);
         assert!(
             tool_details(&client, &selected_history)

@@ -8,9 +8,9 @@ fn review() -> Page {
     let mut page = page();
     page.runs[0].status = Status::Completed;
     page.runs[0].finished_ms = Some(2000);
-    page.entries[0].author = "plan_review".into();
+    std::sync::Arc::make_mut(&mut page.entries)[0].author = "plan_review".into();
     let id = page.entries[0].id.clone();
-    page.entries[0].parts[0] = Part::ToolCall {
+    std::sync::Arc::make_mut(&mut page.entries)[0].parts[0] = Part::ToolCall {
         presentation: Default::default(),
         grouping: Default::default(),
         id: Some(id.clone()),
@@ -61,14 +61,18 @@ fn excludes_unowned_and_nonsynthetic_completion() {
         match case {
             "origin" => page.runs[0].origin = Some(SessionId::new()),
             "session" => page.runs[0].session = SessionId::new(),
-            "author" => page.entries[0].author = "assistant".into(),
+            "author" => std::sync::Arc::make_mut(&mut page.entries)[0].author = "assistant".into(),
             "tool" => {
-                if let Part::ToolCall { name, .. } = &mut page.entries[0].parts[0] {
+                if let Part::ToolCall { name, .. } =
+                    &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+                {
                     *name = "ask_user".into();
                 }
             }
             "prompt" => {
-                if let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] {
+                if let Part::ToolCall { summary, .. } =
+                    &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+                {
                     summary.question.as_mut().unwrap().prompt = "Model plan question".into();
                 }
             }
@@ -94,7 +98,7 @@ fn canonical_result_closes_pending_review() {
         summary: Box::default(),
         images: Vec::new(),
     };
-    page.entries.push(result);
+    std::sync::Arc::make_mut(&mut page.entries).push(result);
     let call = &collect(&page)[0];
     assert_eq!(page.questions[0].state, QuestionState::Pending);
     assert_eq!(call.state, State::Returned);

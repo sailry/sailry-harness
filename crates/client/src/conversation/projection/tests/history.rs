@@ -68,7 +68,7 @@ fn merges_turns_after_watermark() {
     run.sequence = 2;
     let page = Arc::make_mut(&mut snapshot.page);
     page.runs = vec![run.clone()];
-    page.entries = vec![entry(&run, 3)];
+    page.entries = vec![entry(&run, 3)].into();
     page.next_before = Some(run.turn);
     snapshot.drafts.push(draft);
     projection
@@ -81,14 +81,14 @@ fn merges_turns_after_watermark() {
         status: Status::Completed,
         ..run.clone()
     };
-    let mut history = History {
+    let history = History {
         sequence: 11,
         missing: vec![],
         page: Page {
             session: run.session,
             revision: 1,
             runs: vec![older.clone()],
-            entries: vec![entry(&older, 1), entry(&older, 2)],
+            entries: vec![entry(&older, 1), entry(&older, 2)].into(),
             approvals: vec![],
             questions: vec![],
             children: Vec::new(),
@@ -110,23 +110,26 @@ fn merges_turns_after_watermark() {
         .unwrap();
     let mut older_page = history.clone();
     older_page.sequence = snapshot.sequence;
+    older_page.missing = vec![older.turn];
     assert_eq!(
         paged.merge_history(1, Some(run.turn), older_page).unwrap(),
         Apply::Applied
     );
     assert_eq!(paged.live_start(), None);
+    assert_eq!(paged.snapshot().unwrap().missing, [older.turn]);
+    assert_eq!(paged.snapshot().unwrap().page.entries.len(), 3);
     projection
         .apply(1, frame(&snapshot, 11, Change::Entry(entry(&run, 4))))
         .unwrap();
     let before = projection.snapshot().unwrap().clone();
-    history.missing = vec![older.turn];
+    let mut conflicting = history.clone();
+    Arc::make_mut(&mut conflicting.page.entries)[0].id = before.page.entries[0].id.clone();
     assert!(
         projection
-            .merge_history(1, Some(run.turn), history.clone())
+            .merge_history(1, Some(run.turn), conflicting)
             .is_err()
     );
     assert_eq!(projection.snapshot().unwrap(), &before);
-    history.missing.clear();
     assert_eq!(
         projection
             .merge_history(1, Some(run.turn), history.clone())
@@ -227,7 +230,7 @@ fn rejects_invalid_boundaries() {
     run.sequence = 2;
     let page = Arc::make_mut(&mut snapshot.page);
     page.runs = vec![run.clone()];
-    page.entries = vec![entry(&run, 2)];
+    page.entries = vec![entry(&run, 2)].into();
     page.next_before = Some(run.turn);
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
@@ -245,8 +248,11 @@ fn rejects_invalid_boundaries() {
     for index in 0..6 {
         let mut changed = history.clone();
         match index {
-            0 => changed.page.entries[0].sequence = 1,
-            1 => changed.page.entries[0].parts = vec![Part::Text("changed".into())],
+            0 => std::sync::Arc::make_mut(&mut changed.page.entries)[0].sequence = 1,
+            1 => {
+                std::sync::Arc::make_mut(&mut changed.page.entries)[0].parts =
+                    vec![Part::Text("changed".into())]
+            }
             2 => changed.page.runs[0].revision += 1,
             3 => changed.page.runs[0].sequence += 1,
             4 => changed.page.runs[0].kind = conversation::RunKind::Compaction,
@@ -256,7 +262,8 @@ fn rejects_invalid_boundaries() {
         assert_eq!(projection.snapshot().unwrap(), &snapshot);
     }
     let mut duplicate = (*snapshot.page).clone();
-    duplicate.entries.push(duplicate.entries[0].clone());
+    let entry = duplicate.entries[0].clone();
+    std::sync::Arc::make_mut(&mut duplicate.entries).push(entry);
     assert!(validate_page(&duplicate).is_err());
 }
 
@@ -290,7 +297,10 @@ fn recovers_compaction_failures_without_duplicates() {
         projection
             .apply(2, Update::ConversationSnapshot(Box::new(saved)))
             .unwrap();
-        assert_eq!(projection.snapshot().unwrap().page.entries, vec![failure]);
+        assert_eq!(
+            projection.snapshot().unwrap().page.entries.as_slice(),
+            &[failure]
+        );
     }
 }
 
@@ -328,7 +338,7 @@ fn preserves_recovery_diagnostics_across_reconnect() {
             .apply(2, Update::ConversationSnapshot(Box::new(saved)))
             .unwrap();
         let current = projection.snapshot().unwrap();
-        assert_eq!(current.page.entries, vec![retry]);
+        assert_eq!(current.page.entries.as_slice(), &[retry]);
         assert_eq!(current.page.runs, vec![run]);
         assert_eq!(current.drafts, vec![draft]);
     }
@@ -360,13 +370,13 @@ fn keeps_failures_visible_after_guidance() {
         }
         .resource(),
     )];
-    Arc::make_mut(&mut snapshot.page).entries.push(entry);
+    Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries).push(entry);
     assert!(crate::conversation::turns::visible(
         &run,
         &snapshot.page,
         &[]
     ));
-    Arc::make_mut(&mut snapshot.page).entries[0].parts = vec![Part::Resource(
+    Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries)[0].parts = vec![Part::Resource(
         serde_json::json!({"type":"provider_context"}),
     )];
     assert!(!crate::conversation::turns::visible(

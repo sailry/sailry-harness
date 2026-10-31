@@ -41,7 +41,7 @@ fn preserves_update_shape() {
         page: std::sync::Arc::new(Page {
             session: SessionId::new(),
             revision: 1,
-            entries: Vec::new(),
+            entries: Vec::new().into(),
             runs: Vec::new(),
             queue: Queue::default(),
             approvals: Vec::new(),

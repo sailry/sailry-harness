@@ -125,7 +125,7 @@ async fn reads_unassigned_history_in_resource_sessions() {
         )
         .await;
         let mut page = history(&client, target.id).await;
-        page.entries.retain(|entry| entry.turn == turn);
+        std::sync::Arc::make_mut(&mut page.entries).retain(|entry| entry.turn == turn);
         let results = results(&client, &page).await;
         assert_eq!(results.len(), 7, "{results:?}");
         assert_eq!(results[0]["sessions"].as_array().unwrap().len(), 1);

@@ -86,7 +86,8 @@ async fn shares_idempotent_rename() {
                 .unwrap(),
             Update::FilesChanged {
                 node: node.id(),
-                worktree
+                worktree,
+                references: 0,
             }
         );
         drop(watch);

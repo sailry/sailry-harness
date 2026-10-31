@@ -69,7 +69,10 @@ async fn preserves_large_images() {
     history::rebuild(&mut fixture.database.connection)
         .await
         .unwrap();
-    assert_eq!(fixture.read(None, 100).await.page.entries, projected);
+    assert_eq!(
+        fixture.read(None, 100).await.page.entries.as_slice(),
+        projected.as_slice()
+    );
 }
 
 #[tokio::test]
@@ -191,7 +194,10 @@ async fn projects_json_media() {
         history::rebuild(&mut fixture.database.connection)
             .await
             .unwrap();
-        assert_eq!(fixture.read(None, 100).await.page.entries, entries);
+        assert_eq!(
+            fixture.read(None, 100).await.page.entries.as_slice(),
+            entries.as_slice()
+        );
         assert_eq!(
             super::super::images::resolve(
                 &fixture.database.connection,
@@ -339,7 +345,10 @@ async fn preserves_assistant_parts() {
     history::rebuild(&mut fixture.database.connection)
         .await
         .unwrap();
-    assert_eq!(fixture.read(None, 100).await.page.entries, entries);
+    assert_eq!(
+        fixture.read(None, 100).await.page.entries.as_slice(),
+        entries.as_slice()
+    );
 }
 
 #[tokio::test]

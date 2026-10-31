@@ -169,7 +169,7 @@ fn preserves_word_boundaries() {
         &Page {
             session: SessionId::new(),
             revision: 1,
-            entries: vec![entry],
+            entries: vec![entry].into(),
             runs: vec![],
             queue: Queue::default(),
             approvals: vec![],

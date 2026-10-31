@@ -17,16 +17,23 @@ enum Provider {
 }
 
 impl View {
-    pub(crate) fn set_visibility(&self, visible: bool, cx: &App) {
+    pub(crate) fn set_visibility(&mut self, visible: bool, cx: &mut Context<Self>) {
         self.contributions.read(cx).set_visible(visible, cx);
         if self.details_visible.replace(visible) == visible {
             return;
         }
         if visible {
+            if let Some(history) = self.pending_history.take() {
+                self.update_history(history, cx);
+            } else if self.outgoing.is_some() {
+                self.sync_rows(cx);
+            }
+            self.refresh_clock(cx);
             // A reshown pane may reuse its cached frame without another layout pass,
             // so reselect from the rows recorded before it was hidden.
             self.select_details(self.navigation.bounds.get());
         } else {
+            self.clock = None;
             self.details.protect([]);
             self.details.set([]);
             self.tool_texts.borrow_mut().clear();

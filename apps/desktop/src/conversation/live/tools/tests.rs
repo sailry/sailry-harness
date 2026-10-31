@@ -15,7 +15,7 @@ fn page() -> Page {
         children: vec![],
         background: vec![],
         runs: vec![],
-        entries: vec![],
+        entries: vec![].into(),
     }
 }
 
@@ -126,7 +126,7 @@ fn keeps_last_title_while_earlier_tool_runs() {
         command: None,
         diagnostics: vec![],
     });
-    page.entries.push(sailry_protocol::conversation::Entry {
+    std::sync::Arc::make_mut(&mut page.entries).push(sailry_protocol::conversation::Entry {
         id: last.source.entry.clone(),
         turn: last.turn,
         sequence: 1,
@@ -189,7 +189,7 @@ fn avoids_duplicate_file_context() {
         diagnostics: vec![],
     });
     let mut page = page();
-    page.entries.push(sailry_protocol::conversation::Entry {
+    std::sync::Arc::make_mut(&mut page.entries).push(sailry_protocol::conversation::Entry {
         id: "source".into(),
         sequence: 1,
         turn: call.turn,
@@ -261,7 +261,7 @@ fn raw_fixture(result: serde_json::Value) -> (Call, Page) {
         index: 0,
     });
     let mut page = page();
-    page.entries.push(sailry_protocol::conversation::Entry {
+    std::sync::Arc::make_mut(&mut page.entries).push(sailry_protocol::conversation::Entry {
         id: "source".into(),
         sequence: 1,
         turn: call.turn,
@@ -304,7 +304,7 @@ fn raw_fixture(result: serde_json::Value) -> (Call, Page) {
         }),
         images: vec![],
     }];
-    page.entries.push(response);
+    std::sync::Arc::make_mut(&mut page.entries).push(response);
     call.detail = Some(std::sync::Arc::new(tool::detail::Detail {
         arguments: json!({}),
         result: Some(result),
@@ -336,7 +336,9 @@ fn groups_calls_without_details() {
     for raw in [false, true] {
         let result = json!({"output":{"logs_content":"Job output"},"metadata":{"cursor":"next"}});
         let (first, mut page) = raw_fixture(result.clone());
-        if let Part::ToolResult { summary, .. } = &mut page.entries[1].parts[0] {
+        if let Part::ToolResult { summary, .. } =
+            &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+        {
             summary.raw_result = raw;
             summary.has_details = false;
         }
@@ -348,12 +350,16 @@ fn groups_calls_without_details() {
         if let Part::ToolCall { id, .. } = &mut source {
             *id = second.id.clone();
         }
-        page.entries[0].parts.push(source);
+        std::sync::Arc::make_mut(&mut page.entries)[0]
+            .parts
+            .push(source);
         let mut response = page.entries[1].parts[0].clone();
         if let Part::ToolResult { id, .. } = &mut response {
             *id = second.id.clone();
         }
-        page.entries[1].parts.push(response);
+        std::sync::Arc::make_mut(&mut page.entries)[1]
+            .parts
+            .push(response);
         let original = page.clone();
         let calls = [&first, &second];
         assert!(expandable(&calls, &page));
@@ -374,7 +380,9 @@ fn declared_content_keeps_expansion() {
         "sailry_content":{"version":1,"blocks":[{"kind":"text","path":"/text"}]}}});
     let (mut call, mut page) = raw_fixture(result.clone());
     call.presentation = tool::Presentation::Content;
-    if let Part::ToolCall { presentation, .. } = &mut page.entries[0].parts[0] {
+    if let Part::ToolCall { presentation, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    {
         *presentation = call.presentation;
     }
     let content = call.presentation.content(&result);
@@ -394,7 +402,9 @@ fn failed_raw_keeps_diagnostics() {
     call.failure = Some(tool::Failure {
         code: Some(ErrorCode::Unavailable),
     });
-    let Part::ToolResult { summary: facts, .. } = &mut page.entries[1].parts[0] else {
+    let Part::ToolResult { summary: facts, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+    else {
         unreachable!()
     };
     facts.diagnostics = true;
@@ -413,8 +423,10 @@ fn failed_raw_keeps_diagnostics() {
     for changed in 0..3 {
         let mut page = page.clone();
         if changed == 0 {
-            page.entries[1].turn = TurnId::new();
-        } else if let Part::ToolResult { id, name, .. } = &mut page.entries[1].parts[0] {
+            std::sync::Arc::make_mut(&mut page.entries)[1].turn = TurnId::new();
+        } else if let Part::ToolResult { id, name, .. } =
+            &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+        {
             if changed == 1 {
                 *id = Some("other-call".into());
             } else {

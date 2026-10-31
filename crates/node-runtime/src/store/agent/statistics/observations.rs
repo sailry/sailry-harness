@@ -67,12 +67,36 @@ impl Latencies {
     }
 }
 
-// Resolve the latest observation once per turn, not once per event in its history.
-const PHASES: &str = "SELECT h.turn,json_extract(e.body,'$.metadata.execution.phases')
-     FROM conversation_turns h JOIN agent_events e ON e.sequence=(
-         SELECT max(latest.sequence) FROM agent_events latest WHERE latest.turn=h.turn
-         AND json_type(latest.body,'$.metadata.execution.phases')='object')
-     WHERE h.session=?1";
+const EVENTS: &str = "SELECT e.turn,json_object(
+         'kind',json_extract(e.body,'$.kind'),
+         'phases',json_extract(e.body,'$.metadata.execution.phases'),
+         'usage',coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')),
+         'has_reply',json_extract(e.body,'$.role')='assistant' AND EXISTS(
+             SELECT 1 FROM json_each(e.body,'$.content') p WHERE length(json_extract(p.value,'$.text'))>0),
+         'tools',(SELECT json_group_array(json_extract(p.value,'$.name'))
+             FROM json_each(e.body,'$.content') p WHERE json_extract(p.value,'$.type')='tool_request'
+             AND json_type(p.value,'$.name')='text' AND json_type(p.value,'$.arguments')='object')),
+         EXISTS(SELECT 1 FROM conversation_events membership
+             WHERE membership.session=?1 AND membership.sequence=e.sequence)
+         FROM agent_events e WHERE e.sequence>?2 AND EXISTS(
+             SELECT 1 FROM conversation_turns h WHERE h.session=?1 AND h.turn=e.turn)
+         ORDER BY e.sequence";
+
+#[derive(Clone, Default)]
+pub(super) struct State {
+    calls: BTreeMap<String, (u64, Request)>,
+    phases: BTreeMap<TurnId, sailry_protocol::conversation::observation::Phases>,
+    replies: BTreeSet<TurnId>,
+    tools: BTreeMap<String, u64>,
+    compactions: u64,
+    usage_count: u64,
+    cache_count: u64,
+    cache_total: u64,
+    reasoning_count: u64,
+    reasoning_total: u64,
+    #[cfg(test)]
+    pub(super) examined: u64,
+}
 
 #[cfg(test)]
 pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault> {
@@ -111,13 +135,24 @@ pub(super) async fn complete(
 }
 
 /// Event-derived observations and the turns that recorded phase totals.
+#[cfg(test)]
 pub(super) async fn canonical(
     db: &Connection,
     session: SessionId,
 ) -> Result<(Summary, BTreeSet<TurnId>), Fault> {
+    let (summary, phased, _) = advance(db, session, 0, State::default()).await?;
+    Ok((summary, phased))
+}
+
+pub(super) async fn advance(
+    db: &Connection,
+    session: SessionId,
+    after: i64,
+    mut state: State,
+) -> Result<(Summary, BTreeSet<TurnId>, State), Fault> {
     let mut result = Summary::default();
     let mut phased = BTreeSet::new();
-    let mut calls = BTreeMap::<String, (u64, Request)>::new();
+    let calls = &mut state.calls;
     let mut composition = BTreeMap::new();
     let mut query = db.prepare(
         "WITH rounds AS (
@@ -134,11 +169,11 @@ pub(super) async fn canonical(
            AND json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1),
           (SELECT turn_index FROM rounds WHERE rounds.id=e.turn)
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-         WHERE h.session=?1 AND json_type(e.body,'$.metadata.execution.observation')='object'
+         WHERE h.session=?1 AND h.sequence>?2 AND json_type(e.body,'$.metadata.execution.observation')='object'
          ORDER BY h.sequence"
     ).await.map_err(storage_error)?;
     let mut rows = query
-        .query([session.to_string()])
+        .query(params![session.to_string(), after])
         .await
         .map_err(storage_error)?;
     while let Some(row) = rows.next().await.map_err(storage_error)? {
@@ -177,77 +212,78 @@ pub(super) async fn canonical(
     }
     drop(rows);
     drop(query);
-    let scalar = async |expression: &str| -> Result<u64, Fault> {
-        let value: i64 = {
-            let mut statement = db.prepare(&format!(
-            "SELECT {expression} FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1")).await.map_err(storage_error)?;
-            statement
-                .query_row([session.to_string()])
-                .await
-                .and_then(|row| row.get(0))
-                .map_err(storage_error)?
-        };
-        u64::try_from(value).map_err(storage_error)
-    };
-    result.compactions =
-        scalar("count(CASE WHEN json_extract(e.body,'$.kind')='compaction' THEN 1 END)").await?;
-    result.replies = scalar(
-        "count(DISTINCT CASE WHEN json_extract(e.body,'$.role')='assistant' AND EXISTS (SELECT 1 FROM json_each(e.body,'$.content') p WHERE length(json_extract(p.value,'$.text'))>0) THEN e.turn END)",
-    ).await?;
-    let usage_field = async |field: &str| -> Result<Option<u64>, Fault> {
-        let value: Option<i64> = {
-            let mut statement = db.prepare(&format!(
-            "WITH responses AS (SELECT coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage
-             FROM conversation_turns h JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1)
-             SELECT CASE WHEN count(*)>0 AND count(*)=count(json_extract(usage,'$.{field}')) THEN sum(json_extract(usage,'$.{field}')) END
-             FROM responses WHERE json_type(usage)='object'")).await.map_err(storage_error)?;
-            statement
-                .query_row([session.to_string()])
-                .await
-                .and_then(|row| row.get(0))
-                .map_err(storage_error)?
-        };
-        value.map(u64::try_from).transpose().map_err(storage_error)
-    };
-    result.cache_read = usage_field("cache_read").await?;
-    result.reasoning = usage_field("reasoning").await?;
-    let mut tools = db.prepare(
-        "SELECT json_extract(p.value,'$.name'),count(*)
-         FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence, json_each(e.body,'$.content') p
-         WHERE h.session=?1 AND json_extract(p.value,'$.type')='tool_request' AND json_type(p.value,'$.name')='text' AND json_type(p.value,'$.arguments')='object'
-         GROUP BY json_extract(p.value,'$.name')"
-    ).await.map_err(storage_error)?;
-    let mut rows = tools
-        .query([session.to_string()])
+    let mut query = db.prepare(EVENTS).await.map_err(storage_error)?;
+    let mut rows = query
+        .query(params![session.to_string(), after])
         .await
         .map_err(storage_error)?;
     while let Some(row) = rows.next().await.map_err(storage_error)? {
-        let name = row.get::<String>(0).map_err(storage_error)?;
-        let count = row.get::<i64>(1).map_err(storage_error)?;
-        result
-            .tools
-            .insert(name, u64::try_from(count).map_err(storage_error)?);
-    }
-    drop(rows);
-    drop(tools);
-    let mut phases = db.prepare(PHASES).await.map_err(storage_error)?;
-    let mut rows = phases
-        .query([session.to_string()])
-        .await
-        .map_err(storage_error)?;
-    let mut recorded = 0u64;
-    while let Some(row) = rows.next().await.map_err(storage_error)? {
-        phased.insert(
-            row.get::<String>(0)
-                .map_err(storage_error)?
-                .parse()
-                .map_err(storage_error)?,
-        );
-        let value: sailry_protocol::conversation::observation::Phases =
+        #[cfg(test)]
+        {
+            state.examined += 1;
+        }
+        let turn: TurnId = row
+            .get::<String>(0)
+            .map_err(storage_error)?
+            .parse()
+            .map_err(storage_error)?;
+        let body: serde_json::Value =
             serde_json::from_str(&row.get::<String>(1).map_err(storage_error)?)
                 .map_err(storage_error)?;
-        if recorded == 0 {
-            result.phases = value;
+        let visible = row.get::<bool>(2).map_err(storage_error)?;
+        if let Some(phases) = body.get("phases").filter(|v| v.is_object()) {
+            state.phases.insert(
+                turn,
+                serde_json::from_value(phases.clone()).map_err(storage_error)?,
+            );
+        }
+        if let Some(usage) = body
+            .get("usage")
+            .filter(|v| !v.is_null())
+            .or_else(|| body.pointer("/summary/usage"))
+            .filter(|v| v.is_object())
+        {
+            state.usage_count += 1;
+            if let Some(value) = usage["cache_read"].as_u64() {
+                state.cache_count += 1;
+                state.cache_total = state.cache_total.saturating_add(value);
+            }
+            if let Some(value) = usage["reasoning"].as_u64() {
+                state.reasoning_count += 1;
+                state.reasoning_total = state.reasoning_total.saturating_add(value);
+            }
+        }
+        if !visible {
+            continue;
+        }
+        if body["kind"] == "compaction" {
+            state.compactions += 1;
+        }
+        if body["has_reply"] == 1 {
+            state.replies.insert(turn);
+        }
+        for name in body["tools"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+        {
+            *state.tools.entry(name.to_owned()).or_default() += 1;
+        }
+    }
+    drop(rows);
+    drop(query);
+    result.compactions = state.compactions;
+    result.replies = state.replies.len() as u64;
+    result.tools = state.tools.clone();
+    result.cache_read = (state.usage_count > 0 && state.cache_count == state.usage_count)
+        .then_some(state.cache_total);
+    result.reasoning = (state.usage_count > 0 && state.reasoning_count == state.usage_count)
+        .then_some(state.reasoning_total);
+    for (index, (turn, value)) in state.phases.iter().enumerate() {
+        phased.insert(*turn);
+        if index == 0 {
+            result.phases = value.clone();
         } else {
             for (sum, next) in [
                 (&mut result.phases.active_us, value.active_us),
@@ -261,10 +297,7 @@ pub(super) async fn canonical(
                     .map(|(left, right)| left.saturating_add(right));
             }
         }
-        recorded += 1;
     }
-    drop(rows);
-    drop(phases);
     result.calls = calls.len() as u64;
     let children: i64 = {
         let mut statement = db.prepare("SELECT count(DISTINCT d.turn) FROM agent_delegations d JOIN conversation_turns h ON h.turn=d.parent_turn WHERE h.session=?1").await.map_err(storage_error)?;
@@ -275,7 +308,7 @@ pub(super) async fn canonical(
             .map_err(storage_error)?
     };
     result.children = u64::try_from(children).map_err(storage_error)?;
-    let mut calls = calls.into_values().collect::<Vec<_>>();
+    let mut calls = calls.values().cloned().collect::<Vec<_>>();
     calls.sort_by_key(|(sequence, _)| *sequence);
     let mut latency = Latencies::default();
     for (_, call) in &calls {
@@ -330,7 +363,7 @@ pub(super) async fn canonical(
         .map(|(_, value)| value)
         .collect();
     result.recent.reverse();
-    Ok((result, phased))
+    Ok((result, phased, state))
 }
 
 #[cfg(test)]

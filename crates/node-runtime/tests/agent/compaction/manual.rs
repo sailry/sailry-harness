@@ -84,7 +84,10 @@ async fn loads_captured_plugin_context() {
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
         let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
         assert_eq!(run.status, Status::Completed, "{run:?}");
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         assert_eq!(summaries(&after), 1);
         {
             let requests = server.requests.lock().unwrap();
@@ -231,7 +234,10 @@ async fn formats_materialized_attachments() {
                 "{:?}",
                 after.runs
             );
-            assert_eq!(&after.entries[..before.entries.len()], before.entries);
+            assert_eq!(
+                &after.entries[..before.entries.len()],
+                before.entries.as_slice()
+            );
             assert_eq!(summaries(&after), 1);
             {
                 let requests = server.requests.lock().unwrap();
@@ -310,7 +316,10 @@ async fn formats_historical_attachments() {
             "{:?}",
             after.runs
         );
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         assert_eq!(summaries(&after), 1);
         {
             let requests = server.requests.lock().unwrap();
@@ -347,14 +356,17 @@ async fn handles_empty_and_small_context() {
                 .iter()
                 .all(|run| run.status == Status::Completed)
         );
-        assert_eq!(&compacted.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &compacted.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         assert_eq!(summaries(&compacted), 2);
         assert_eq!(server.requests.lock().unwrap().len(), 3);
         let (_, repeated) = compact(&fixture.client, fixture.session.id, 1).await;
         let repeated = finished(&fixture.client, fixture.session.id, repeated.id).await;
         assert_eq!(
             &repeated.entries[..compacted.entries.len()],
-            compacted.entries
+            compacted.entries.as_slice()
         );
         assert_eq!(summaries(&repeated), 3);
         assert_eq!(server.requests.lock().unwrap().len(), 4);
@@ -399,7 +411,10 @@ async fn accepts_a_short_two_turn_handoff() {
         let (request, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(after.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         assert_eq!(summaries(&after), 1);
         assert!(
             !after
@@ -440,7 +455,10 @@ async fn preserves_verbatim_only_history() {
         let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(after.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         assert_eq!(summaries(&after), 1);
         assert_eq!(server.requests.lock().unwrap().len(), count + 1);
         assert!(
@@ -481,7 +499,10 @@ async fn supports_unknown_usage() {
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(after.runs.last().unwrap().status, Status::Completed);
         assert_eq!(summaries(&after), 1);
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 8);
@@ -533,7 +554,10 @@ async fn restores_branch_history() {
         let (request, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(summaries(&page), 1);
-        assert_eq!(&page.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &page.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         let entry = page.entries.last().unwrap();
         assert_eq!(entry.turn, turn.id);
         assert_eq!(entry.author, "system");
@@ -687,7 +711,10 @@ async fn preserves_failed_context() {
                 .unwrap()
                 .contains(agent_support::compaction::PRIVATE_SENTINEL)
         );
-        assert_eq!(&page.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &page.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         assert_eq!(page.entries.len(), before.entries.len() + 1);
         let failure = page.entries.last().unwrap();
         assert_eq!(failure.turn, turn.id);
@@ -998,7 +1025,10 @@ async fn accepts_larger_raw_handoffs() {
         let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(after.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         assert_eq!(summaries(&after), 1);
         let summary = after
             .entries

@@ -52,7 +52,7 @@ async fn resumes_gap_on_both_transports() {
             page: Page {
                 session,
                 revision: 1,
-                entries: Vec::new(),
+                entries: Vec::new().into(),
                 runs: Vec::new(),
                 next_before: None,
                 approvals: Vec::new(),

@@ -220,7 +220,7 @@ async fn reads_only_changed_calls() {
     let view = observation.history.snapshot.as_mut().unwrap();
     let page = Arc::make_mut(&mut Arc::make_mut(view).page);
     let sailry_protocol::conversation::Part::ToolResult { summary, .. } =
-        &mut page.entries[0].parts[1]
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[1]
     else {
         unreachable!()
     };
@@ -246,7 +246,7 @@ async fn metadata_updates_reuse_existing_details() {
     );
     snapshot(&observation).await.unwrap();
     let view = Arc::make_mut(observation.history.snapshot.as_mut().unwrap());
-    Arc::make_mut(&mut view.page).entries[0].timestamp_ms = 1234;
+    Arc::make_mut(&mut Arc::make_mut(&mut view.page).entries)[0].timestamp_ms = 1234;
     let changed = snapshot(&observation).await.unwrap();
     assert_eq!(changed["calls"][0]["timestamp_ms"], 1234);
     assert_eq!(backend.0.load(Ordering::Relaxed), 3);
@@ -386,7 +386,7 @@ async fn failure_allows_later_calls() {
                 _ => unreachable!(),
             }
         }
-        page.entries.push(entry);
+        std::sync::Arc::make_mut(&mut page.entries).push(entry);
         let calls = Arc::make_mut(&mut observation.history.calls);
         let mut call = calls[2].clone();
         call.id = Some("call-3".into());
@@ -476,7 +476,7 @@ async fn eviction_keeps_other_sessions_live() {
     Arc::make_mut(&mut initial.calls).truncate(1);
     let initial_page = Arc::make_mut(initial.snapshot.as_mut().unwrap());
     initial_page.sequence = 1;
-    Arc::make_mut(&mut initial_page.page).entries.truncate(1);
+    Arc::make_mut(&mut Arc::make_mut(&mut initial_page.page).entries).truncate(1);
     let oldest = initial.calls[0]
         .detail_reference(&initial.snapshot.as_ref().unwrap().page)
         .unwrap();
@@ -572,7 +572,7 @@ async fn cursor_ignores_drafts_and_tracks_tool_changes() {
     let current = observed.get_mut("fixture").unwrap();
     let page = Arc::make_mut(&mut Arc::make_mut(current.history.snapshot.as_mut().unwrap()).page);
     let sailry_protocol::conversation::Part::ToolResult { summary, .. } =
-        &mut page.entries[0].parts[1]
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[1]
     else {
         unreachable!()
     };
@@ -581,7 +581,7 @@ async fn cursor_ignores_drafts_and_tracks_tool_changes() {
     let revised = cursor(&observed).unwrap();
     let current = observed.get_mut("fixture").unwrap();
     let page = Arc::make_mut(&mut Arc::make_mut(current.history.snapshot.as_mut().unwrap()).page);
-    page.entries[0].timestamp_ms = 100;
+    Arc::make_mut(&mut page.entries)[0].timestamp_ms = 100;
     assert_ne!(cursor(&observed).unwrap(), revised);
     assert_eq!(backend.0.load(Ordering::Relaxed), 0);
 }

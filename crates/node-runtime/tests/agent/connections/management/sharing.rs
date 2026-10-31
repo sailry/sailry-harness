@@ -64,7 +64,7 @@ async fn retains_project_connections_across_turns() {
         approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
         let turn = submit(&fixture).await;
         let mut page = finished(&fixture.client, fixture.session.id, turn).await;
-        page.entries.retain(|entry| entry.turn == turn);
+        std::sync::Arc::make_mut(&mut page.entries).retain(|entry| entry.turn == turn);
         let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 4, "{output:?}");
         assert_eq!(output[0].as_array().unwrap().len(), 1);

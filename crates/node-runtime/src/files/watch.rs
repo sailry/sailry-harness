@@ -4,7 +4,10 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, Weak},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -27,6 +30,7 @@ struct Active {
     changes: watch::Sender<Result<(), Fault>>,
     repository: watch::Sender<Result<(), Fault>>,
     filter: Arc<Mutex<crate::git::WatchFilter>>,
+    references: Arc<AtomicU64>,
 }
 
 impl Watches {
@@ -47,6 +51,7 @@ impl Watches {
             state.roots.get(root).and_then(Weak::upgrade)
         };
         if let Some(active) = active {
+            active.references.fetch_add(1, Ordering::Relaxed);
             invalidate(&active.changes, Ok(()));
             invalidate(&active.repository, Ok(()));
         }
@@ -63,12 +68,17 @@ impl Watches {
         };
         if let Some(active) = active {
             invalidate(&active.changes, Ok(()));
-            if active
-                .filter
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .changed(paths)
-            {
+            let relevant = {
+                let mut filter = active
+                    .filter
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if filter.references_changed(paths) {
+                    active.references.fetch_add(1, Ordering::Relaxed);
+                }
+                filter.changed(paths)
+            };
+            if relevant {
                 if let Some(git) = &self.1 {
                     git.invalidate(root);
                 }
@@ -119,6 +129,8 @@ impl Watches {
             let repository_sink = repository.clone();
             let filter = Arc::new(Mutex::new(crate::git::Git::watch_filter(&root)?));
             let changed_filter = filter.clone();
+            let references = Arc::new(AtomicU64::new(1));
+            let changed_references = references.clone();
             let git = self.1.clone();
             let watched_root = root.clone();
             let mut backend = RecommendedWatcher::new(
@@ -127,11 +139,14 @@ impl Watches {
                         return;
                     }
                     let relevant = match &event {
-                        Ok(event) if !event.need_rescan() => changed_filter
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .changed(&event.paths),
-                        _ => true,
+                        Ok(event) if !event.need_rescan() => {
+                            let mut filter = changed_filter.lock().unwrap_or_else(|error| error.into_inner());
+                            if filter.references_changed(&event.paths) {
+                                changed_references.fetch_add(1, Ordering::Relaxed);
+                            }
+                            filter.changed(&event.paths)
+                        },
+                        _ => { changed_references.fetch_add(1, Ordering::Relaxed); true },
                     };
                     if relevant {
                         if let Some(git) = &git {
@@ -163,6 +178,7 @@ impl Watches {
                 changes,
                 repository,
                 filter,
+                references,
             });
             state.roots.insert(root, Arc::downgrade(&active));
             active
@@ -174,6 +190,7 @@ impl Watches {
                 active.changes.subscribe()
             },
             _active: active,
+            repository,
             node,
             worktree,
             initial: true,
@@ -211,6 +228,7 @@ fn invalidate(changes: &watch::Sender<Result<(), Fault>>, result: Result<(), Fau
 struct Events {
     changes: watch::Receiver<Result<(), Fault>>,
     _active: Arc<Active>,
+    repository: bool,
     node: NodeId,
     worktree: WorktreeId,
     initial: bool,
@@ -245,6 +263,11 @@ impl Subscription for Events {
             Ok(Update::FilesChanged {
                 node: self.node,
                 worktree: self.worktree,
+                references: if self.repository {
+                    self._active.references.load(Ordering::Relaxed)
+                } else {
+                    0
+                },
             })
         })
     }
@@ -298,6 +321,7 @@ mod tests {
             changes,
             repository: watch::channel(Ok(())).0,
             filter: Arc::new(Mutex::new(crate::git::Git::watch_filter(&root).unwrap())),
+            references: Arc::new(AtomicU64::new(1)),
         });
         let watches = Watches::default();
         watches
@@ -309,6 +333,7 @@ mod tests {
         let mut events = Events {
             changes: receiver,
             _active: active.clone(),
+            repository: false,
             node: NodeId([1; 32]),
             worktree: WorktreeId::new(),
             initial: true,
@@ -397,6 +422,7 @@ mod tests {
             changes,
             repository,
             filter: Arc::new(Mutex::new(crate::git::Git::watch_filter(&root).unwrap())),
+            references: Arc::new(AtomicU64::new(1)),
         });
         let watches = Watches::default();
         watches
@@ -415,10 +441,16 @@ mod tests {
         assert!(git.has_changed().unwrap());
         files.borrow_and_update();
         git.borrow_and_update();
+        assert_eq!(active.references.load(Ordering::Relaxed), 1);
+        watches.changed_paths(&root, &[root.join(".git/refs/heads/other")]);
+        assert_eq!(active.references.load(Ordering::Relaxed), 2);
+        files.borrow_and_update();
+        git.borrow_and_update();
         watches.changed_paths(Path::new("other"), &[root.join("source.txt")]);
         assert!(!files.has_changed().unwrap());
         assert!(!git.has_changed().unwrap());
         watches.changed(&root);
+        assert_eq!(active.references.load(Ordering::Relaxed), 3);
         assert!(files.has_changed().unwrap());
         assert!(git.has_changed().unwrap());
     }

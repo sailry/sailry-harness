@@ -139,7 +139,7 @@ async fn freezes_config_and_history() {
         }
         let mut histories = Vec::new();
         let mut captured = Vec::new();
-        for entry in &page.entries {
+        for entry in page.entries.iter() {
             for (index, part) in entry.parts.iter().enumerate() {
                 if let Part::ToolResult { id, .. } = part {
                     let detail = tool_detail(&client, &page, entry, index).await;

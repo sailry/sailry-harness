@@ -178,9 +178,9 @@ async fn bounds_summary_history() {
     assert_eq!(chunk.children[0].name, None);
     assert_eq!(chunk.next_before, None);
     let mut page = recent.page;
-    page.entries = chunk.entries;
+    page.entries = chunk.entries.into();
     page.children = chunk.children;
-    page.entries.remove(0);
+    std::sync::Arc::make_mut(&mut page.entries).remove(0);
     history::pages::retain_metadata(&mut page);
     assert!(page.children.is_empty());
 }

@@ -21,9 +21,9 @@ async fn fits_cached_entry_lengths_exactly() {
         fit(&mut page, headroom, true).unwrap(),
         BTreeSet::from([turn])
     );
-    assert_eq!(page.entries, entries[1..]);
+    assert_eq!(page.entries.as_slice(), &entries[1..]);
     assert_eq!(encode(&page).unwrap().len(), budget);
-    page.entries.clear();
+    std::sync::Arc::make_mut(&mut page.entries).clear();
     assert_eq!(
         encoded_size(&mut page, 0).unwrap(),
         encode(&page).unwrap().len()
@@ -96,7 +96,7 @@ async fn chunks_complete_turns() {
     assert_eq!(recent.page.next_before, None);
     assert_eq!(recent.missing, [large]);
     assert!(encode(&Output::Conversation(recent.clone())).unwrap().len() < MAX_FRAME_BYTES);
-    let mut restored = recent.page.entries;
+    let mut restored = std::sync::Arc::unwrap_or_clone(recent.page.entries);
     let mut chunks = 0;
     loop {
         let before = restored.first().unwrap().sequence;
@@ -376,4 +376,52 @@ async fn defers_turns_above_a_partial_turn() {
     .unwrap();
     assert_eq!(whole.entries.len(), 150);
     assert_eq!(whole.entries[50..], recent.page.entries[..]);
+}
+
+#[tokio::test]
+async fn seeks_turn_events_without_sorting() {
+    let mut fixture = Fixture::new().await;
+    let turn = fixture.completed(&["first", "second"]).await;
+    for (sql, parameters) in [
+        (
+            first_query(),
+            vec![
+                turso::Value::Text(fixture.session.to_string()),
+                turso::Value::Text(turn.to_string()),
+            ],
+        ),
+        (
+            turn_query(),
+            vec![
+                turso::Value::Text(fixture.session.to_string()),
+                turso::Value::Text(turn.to_string()),
+                turso::Value::Integer(i64::MAX),
+                turso::Value::Integer(10),
+            ],
+        ),
+    ] {
+        let mut rows = fixture
+            .database
+            .connection
+            .query(format!("EXPLAIN QUERY PLAN {sql}"), parameters)
+            .await
+            .unwrap();
+        let mut plan = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            plan.push(row.get::<String>(3).unwrap());
+        }
+        assert!(
+            plan.iter().any(|line| line.contains("SEARCH e ")
+                && line.contains("agent_events_turn")
+                && line.contains("turn=?")),
+            "{plan:?}"
+        );
+        assert!(
+            !plan
+                .iter()
+                .any(|line| line.contains("SORTER") || line.contains("TEMP B-TREE")),
+            "{plan:?}"
+        );
+        assert!(plan.iter().any(|line| line.contains("SEARCH h ") && line.contains("session=? AND sequence=?")), "{plan:?}");
+    }
 }

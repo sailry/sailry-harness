@@ -62,7 +62,7 @@ pub(super) async fn conversation(
 ) -> Result<Value, Fault> {
     let mut truncation = Truncation::default();
     let mut entries = Vec::new();
-    for entry in history.page.entries {
+    for entry in std::sync::Arc::unwrap_or_clone(history.page.entries) {
         entries.push(bounded_entry(db, session, entry, &mut truncation).await?);
     }
     let mut response = Conversation {

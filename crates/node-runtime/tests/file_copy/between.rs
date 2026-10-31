@@ -107,7 +107,8 @@ async fn shares_cross_worktree_copies() {
                     .unwrap(),
                 Update::FilesChanged {
                     node: fixture.node.id(),
-                    worktree: target
+                    worktree: target,
+                    references: 0,
                 }
             );
             drop(watch);

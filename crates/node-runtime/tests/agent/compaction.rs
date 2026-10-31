@@ -218,7 +218,7 @@ async fn resumes_compacted_context() {
         for session in [fixture.session.id, branch.id] {
             let prior = history(&client, session).await.entries;
             let (_, _, after) = submit(&client, session, "Continue after restart".into()).await;
-            assert_eq!(&after.entries[..prior.len()], prior);
+            assert_eq!(&after.entries[..prior.len()], prior.as_slice());
             let requests = server.requests.lock().unwrap().clone();
             let summary = &requests[requests.len() - 2];
             assert!(agent_support::compaction::is_summary(summary));

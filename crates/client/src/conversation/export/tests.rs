@@ -16,7 +16,8 @@ fn page(parts: Vec<Part>) -> Page {
             citations: vec![],
             search_suggestions: None,
             usage: None,
-        }],
+        }]
+        .into(),
         runs: vec![],
         queue: Default::default(),
         approvals: vec![],
@@ -202,7 +203,7 @@ fn excludes_work_before_final_reply() {
         Part::Thinking("Private reasoning".into()),
         Part::Text("Final **answer**".into()),
     ];
-    page.entries.push(assistant);
+    std::sync::Arc::make_mut(&mut page.entries).push(assistant);
     let document = render(&page, "Conversation", Format::Markdown, "assets").unwrap();
     assert!(document.content.contains("Question"));
     assert!(document.content.contains("Final **answer**"));
@@ -235,7 +236,7 @@ fn preserves_reply_before_closing_interactions() {
             Part::Thinking("Work details".into()),
             Part::Text("Final plan".into()),
         ];
-        page.entries.push(assistant.clone());
+        std::sync::Arc::make_mut(&mut page.entries).push(assistant.clone());
         assistant.id = "closing".into();
         assistant.sequence = 3;
         assistant.parts = vec![
@@ -248,7 +249,7 @@ fn preserves_reply_before_closing_interactions() {
             },
             Part::Resource(serde_json::json!({"type":"tool_started","id":"closing","name":name})),
         ];
-        page.entries.push(assistant.clone());
+        std::sync::Arc::make_mut(&mut page.entries).push(assistant.clone());
         assistant.id = "closed".into();
         assistant.sequence = 4;
         assistant.parts = vec![
@@ -260,7 +261,7 @@ fn preserves_reply_before_closing_interactions() {
             },
             Part::Resource(serde_json::json!({"type":"provider_context"})),
         ];
-        page.entries.push(assistant);
+        std::sync::Arc::make_mut(&mut page.entries).push(assistant);
         for format in [Format::Markdown, Format::Html] {
             let document = render(&page, "Plan", format, "assets").unwrap();
             assert!(document.content.contains("Final plan"));
@@ -304,7 +305,7 @@ fn excludes_notice_input_but_keeps_user_speech() {
     answer.sequence = 2;
     answer.author = "assistant".into();
     answer.parts = vec![Part::Text("Actual answer".into())];
-    page.entries.push(answer);
+    std::sync::Arc::make_mut(&mut page.entries).push(answer);
     let document = render(&page, "Notices", Format::Markdown, "assets").unwrap();
     assert!(!document.content.contains("Node notice fixture"));
     assert!(document.content.contains("Actual answer"));

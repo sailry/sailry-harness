@@ -80,3 +80,6 @@ pub(in crate::store) async fn read(
     }
     Ok((through, events))
 }
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod fixture;

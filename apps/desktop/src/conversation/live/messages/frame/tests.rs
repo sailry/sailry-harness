@@ -73,7 +73,7 @@ fn active_phase_lifecycle() {
     let mut page = Page {
         session: run.session,
         revision: 1,
-        entries: vec![],
+        entries: vec![].into(),
         runs: vec![],
         queue: Default::default(),
         approvals: vec![],
@@ -193,7 +193,7 @@ fn excludes_later_child_calls() {
     let page = Page {
         session: run.session,
         revision: 1,
-        entries: vec![],
+        entries: vec![].into(),
         runs: vec![],
         queue: Default::default(),
         approvals: vec![],

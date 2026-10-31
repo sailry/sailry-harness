@@ -318,3 +318,27 @@ async fn mutations_order_refreshes() {
     assert_ne!(task.await.unwrap().unwrap(), new.unwrap());
     assert_eq!(backend.calls.lock().unwrap().len(), 3);
 }
+
+#[tokio::test]
+async fn coalesces_terminal_catalogs() {
+    let worktree = WorktreeId::new();
+    for command in [
+        Command::ListTerminals { worktree },
+        Command::ListTerminalTools { worktree },
+    ] {
+        let backend = Backend::new();
+        let reads = Arc::new(Reads::default());
+        let sidebar = backend.client(&reads);
+        let pane = backend.client(&reads);
+        let (left, right, _) = tokio::join!(
+            sidebar.execute(sidebar.prepare(command.clone())),
+            pane.execute(pane.prepare(command)),
+            async {
+                backend.entered().await;
+                backend.release.add_permits(1);
+            }
+        );
+        assert_eq!(left.unwrap(), right.unwrap());
+        assert_eq!(backend.calls.lock().unwrap().len(), 1);
+    }
+}

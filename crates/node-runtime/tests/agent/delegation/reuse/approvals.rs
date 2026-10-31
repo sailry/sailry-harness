@@ -169,7 +169,7 @@ async fn isolates_repeated_call_identity() {
                     if id == "call-fixture-0" && name == &plugin_tool("delegation", "spawn_agent")
             ));
             let mut page = parent.clone();
-            page.entries.retain(|entry| entry.turn == parent_turn);
+            std::sync::Arc::make_mut(&mut page.entries).retain(|entry| entry.turn == parent_turn);
             let returned = results(&fixture.client, &page).await;
             assert_eq!(returned.len(), 1);
             assert_eq!(returned[0]["session"], json!(child.id));

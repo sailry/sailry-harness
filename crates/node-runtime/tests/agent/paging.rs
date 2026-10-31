@@ -443,7 +443,7 @@ async fn restore_stream(remote: bool) {
     assert_totals(&all.statistics, 26, 77, 30);
     assert_eq!(
         &all.page.entries[..complete.page.entries.len()],
-        &complete.page.entries,
+        complete.page.entries.as_slice(),
         "tool-pair summaries preserve every original public entry"
     );
     assert_eq!(all.page.questions, complete.page.questions);
@@ -488,17 +488,47 @@ async fn restore_stream(remote: bool) {
             .unwrap()
             .page
     );
+    let mut expected_turns = turns.clone();
+    expected_turns.extend([next, last]);
     let mut completion = Completion::new(&client, session.id).await;
     for _ in 0..24 {
         let turn = submit(&client, session.id).await;
         completion.wait(turn).await;
+        expected_turns.push(turn);
     }
     drop(completion);
-    let all = client
+    let recent = client
         .read_conversation(session.id, None, 100)
         .await
         .unwrap();
-    assert_eq!(all.page.runs.len(), 51);
+    // The entry budget holds the newest 50 two-entry turns. The initial large
+    // turn remains on the older page rather than appearing without its entries.
+    assert_eq!(recent.page.runs.len(), 50);
+    assert_eq!(recent.page.next_before, Some(expected_turns[1]));
+    assert!(recent.missing.is_empty());
+    let older_page = client
+        .read_conversation(session.id, recent.page.next_before, 100)
+        .await
+        .unwrap();
+    assert_eq!(older_page.page.runs.len(), 1);
+    assert!(older_page.page.next_before.is_none());
+    assert!(older_page.missing.is_empty());
+    let complete_turns: Vec<_> = older_page
+        .page
+        .runs
+        .iter()
+        .chain(&recent.page.runs)
+        .map(|run| run.turn)
+        .collect();
+    assert_eq!(complete_turns, expected_turns);
+    assert_eq!(complete_turns.len(), 51);
+    assert_eq!(
+        complete_turns
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        51
+    );
     let statistics = {
         let mut updates = client.subscribe_conversation(session.id).await.unwrap();
         let Update::ConversationSnapshot(snapshot) = updates.next().await.unwrap() else {
@@ -585,7 +615,15 @@ async fn restore_stream(remote: bool) {
             .await
             .unwrap()
             .page,
-        all.page
+        recent.page
+    );
+    assert_eq!(
+        client
+            .read_conversation(session.id, recent.page.next_before, 100)
+            .await
+            .unwrap()
+            .page,
+        older_page.page
     );
     assert_eq!(server.requests.lock().unwrap().len(), model_requests);
     node.shutdown().await.unwrap();

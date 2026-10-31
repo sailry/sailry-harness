@@ -144,7 +144,7 @@ async fn preserves_shared_history() {
     );
     let page = fixture.read(None, 100).await.page;
     assert_eq!(page.revision, 2);
-    assert_eq!(page.entries, before.entries[..1]);
+    assert_eq!(page.entries.as_slice(), &before.entries[..1]);
     assert_eq!(page.runs, before.runs[..1]);
     assert_eq!(page.next_before, None);
     let backup = history::pages::read(&fixture.database.connection, branch.id, None, 100)
@@ -197,8 +197,8 @@ async fn preserves_shared_history() {
         ErrorCode::WrongTarget
     );
     assert_eq!(
-        fixture.read(None, 1).await.page.entries,
-        before.entries[..1]
+        fixture.read(None, 1).await.page.entries.as_slice(),
+        &before.entries[..1]
     );
     assert_eq!(
         runs::stop(&fixture.database.connection, turns[2])
@@ -370,7 +370,7 @@ async fn preserves_source_branch() {
     assert!(result.backup.is_none());
     let page = fixture.read(None, 100).await.page;
     assert_eq!(page.runs[0].origin, Some(source));
-    assert_eq!(page.entries, before.entries[..1]);
+    assert_eq!(page.entries.as_slice(), &before.entries[..1]);
     let backup = history::pages::read(&fixture.database.connection, retained.id, None, 100)
         .await
         .unwrap()

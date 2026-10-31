@@ -277,6 +277,7 @@ mod tests {
         let update = Update::FilesChanged {
             node: sailry_protocol::NodeId([1; 32]),
             worktree: sailry_protocol::WorktreeId::new(),
+            references: 0,
         };
         let wire = serde_json::json!({"kind":"update", "data":update});
         let reply: Reply = serde_json::from_value(wire.clone()).unwrap();

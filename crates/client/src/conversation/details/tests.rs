@@ -120,7 +120,8 @@ impl Backend {
                         ..Default::default()
                     }),
                 }],
-            }],
+            }]
+            .into(),
             runs: vec![],
             queue: Default::default(),
             approvals: vec![],
@@ -283,7 +284,9 @@ fn invalidates_changed_parts_during_a_read() {
         },
     );
     let mut page = backend.page(1);
-    let Part::ToolResult { summary, .. } = &mut page.entries[0].parts[0] else {
+    let Part::ToolResult { summary, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    else {
         unreachable!()
     };
     summary.revision = "b".repeat(64);

@@ -94,7 +94,8 @@ async fn invalidates_live_subscriptions() {
                 .unwrap(),
             Update::FilesChanged {
                 node: fixture.node.id(),
-                worktree: fixture.worktree
+                worktree: fixture.worktree,
+                references: 0,
             }
         );
     }

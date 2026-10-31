@@ -16,6 +16,7 @@ pub(in crate::store) use cache::Cache;
 #[derive(Clone)]
 struct Canonical {
     observations: Summary,
+    observation_state: observations::State,
     phased: BTreeSet<TurnId>,
     metrics: Metrics,
     delegated: Metrics,
@@ -28,7 +29,7 @@ struct Canonical {
 pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fault> {
     check_session(db, session).await?;
     let canonical = canonical(db, session).await?;
-    finish(db, session, canonical).await
+    finish(db, session, &canonical).await
 }
 
 /// Reuses unchanged canonical aggregates. Callers retain the entry once its snapshot is committed.
@@ -41,9 +42,12 @@ pub(super) async fn prepare(
     let stamp = cache::stamp(db, session).await?;
     let canonical = match cache.find(session, &stamp) {
         Some(canonical) => canonical,
-        None => std::sync::Arc::new(canonical(db, session).await?),
+        None => std::sync::Arc::new(match cache.previous(session, &stamp) {
+            Some((after, previous)) => advance(db, session, after, Some(&previous)).await?,
+            None => canonical(db, session).await?,
+        }),
     };
-    let statistics = finish(db, session, (*canonical).clone()).await?;
+    let statistics = finish(db, session, &canonical).await?;
     Ok((statistics, cache::Entry::new(session, stamp, canonical)))
 }
 
@@ -59,8 +63,34 @@ pub(super) async fn current(
 }
 
 async fn canonical(db: &Connection, session: SessionId) -> Result<Canonical, Fault> {
-    let (metrics, delegated) = report::session(db, session).await?;
-    let observation = observation(db, session).await?;
+    advance(db, session, 0, None).await
+}
+
+async fn advance(
+    db: &Connection,
+    session: SessionId,
+    after: i64,
+    previous: Option<&Canonical>,
+) -> Result<Canonical, Fault> {
+    let (metrics, delegated) = report::session::advance(
+        db,
+        session,
+        after,
+        previous
+            .map(|value| value.metrics.clone())
+            .unwrap_or_default(),
+        previous
+            .map(|value| value.delegated.clone())
+            .unwrap_or_default(),
+    )
+    .await?;
+    let observation = advance_observation(
+        db,
+        session,
+        after,
+        previous.and_then(|value| value.observation.clone()),
+    )
+    .await?;
     let context_estimate = if observation
         .as_ref()
         .is_some_and(|value| value.summary || value.estimate.is_some())
@@ -73,10 +103,21 @@ async fn canonical(db: &Connection, session: SessionId) -> Result<Canonical, Fau
     } else {
         None
     };
-    let last_compaction = compaction::latest(db, session).await?;
-    let (observations, phased) = observations::canonical(db, session).await?;
+    let last_compaction = compaction::since(db, session, after)
+        .await?
+        .or_else(|| previous.and_then(|value| value.last_compaction.clone()));
+    let (observations, phased, observation_state) = observations::advance(
+        db,
+        session,
+        after,
+        previous
+            .map(|value| value.observation_state.clone())
+            .unwrap_or_default(),
+    )
+    .await?;
     Ok(Canonical {
         observations,
+        observation_state,
         phased,
         metrics,
         delegated,
@@ -89,7 +130,7 @@ async fn canonical(db: &Connection, session: SessionId) -> Result<Canonical, Fau
 async fn finish(
     db: &Connection,
     session: SessionId,
-    canonical: Canonical,
+    canonical: &Canonical,
 ) -> Result<Statistics, Fault> {
     let turns = {
         let mut statement = db.prepare("SELECT count(*) FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 AND t.kind='task'
@@ -102,6 +143,7 @@ async fn finish(
     };
     let Canonical {
         observations,
+        observation_state: _,
         phased,
         metrics,
         delegated,
@@ -110,23 +152,23 @@ async fn finish(
         last_compaction,
     } = canonical;
     let budget = compaction::budget(db, session).await?;
-    let observations = observations::complete(db, session, observations, &phased).await?;
+    let observations = observations::complete(db, session, observations.clone(), phased).await?;
     Ok(Statistics {
         observations,
         turns: turns as u64,
         responses: metrics.responses,
-        usage: metrics.tokens,
+        usage: metrics.tokens.clone(),
         context_tokens: observation.as_ref().and_then(|value| value.tokens),
-        context_estimate,
+        context_estimate: *context_estimate,
         context_limit: observation.as_ref().and_then(|value| value.context_limit),
         context_model: observation.as_ref().and_then(|value| value.model.clone()),
         context_timestamp_ms: observation.as_ref().and_then(|value| value.timestamp_ms),
         budget,
-        last_compaction,
+        last_compaction: last_compaction.clone(),
         first_token_us: observation.as_ref().and_then(|value| value.first_token_us),
-        cost: metrics.cost,
-        generation: metrics.generation,
-        delegated,
+        cost: metrics.cost.clone(),
+        generation: metrics.generation.clone(),
+        delegated: delegated.clone(),
     })
 }
 
@@ -224,11 +266,24 @@ pub(super) async fn context_usage(
 }
 
 async fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation>, Fault> {
-    let latest = read_observation(db, session, false).await?;
+    advance_observation(db, session, 0, None).await
+}
+
+async fn advance_observation(
+    db: &Connection,
+    session: SessionId,
+    after: i64,
+    previous: Option<Observation>,
+) -> Result<Option<Observation>, Fault> {
+    let latest = read_observation(db, session, false, after)
+        .await?
+        .or(previous.clone());
     if latest
         .as_ref()
         .is_some_and(|value| value.tokens.is_none() && !value.summary && value.estimate.is_none())
-        && let Some(reset) = read_observation(db, session, true).await?
+        && let Some(reset) = read_observation(db, session, true, after)
+            .await?
+            .or(previous)
         && (reset.summary || reset.estimate.is_some())
     {
         // An unmetered response cannot replace a post-compaction estimate with
@@ -242,6 +297,7 @@ async fn read_observation(
     db: &Connection,
     session: SessionId,
     measured: bool,
+    after: i64,
 ) -> Result<Option<Observation>, Fault> {
     // Read the last model observation in canonical order. A summary invalidates
     // the old window measurement; its own prompt is not the resumed context.
@@ -266,7 +322,7 @@ async fn read_observation(
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          LEFT JOIN agent_runs r ON r.turn=e.turn LEFT JOIN turns t ON t.id=e.turn
          LEFT JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
-         WHERE h.session=?1 AND json_extract(e.body,'$.metadata.execution.media') IS NULL
+         WHERE h.session=?1 AND h.sequence>?3 AND json_extract(e.body,'$.metadata.execution.media') IS NULL
            AND coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='search'
            AND (coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='compaction'
              OR json_extract(e.body,'$.kind')='compaction')
@@ -280,7 +336,7 @@ async fn read_observation(
                  AND json_extract(e.body,'$.usage.output')>=0))
          ORDER BY h.sequence DESC LIMIT 1").await.map_err(storage_error)?;
     let row = match statement
-        .query_row(params![session.to_string(), measured])
+        .query_row(params![session.to_string(), measured, after])
         .await
     {
         Ok(row) => row,

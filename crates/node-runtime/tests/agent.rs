@@ -176,7 +176,7 @@ async fn planning_denial(client: &Client, page: &Page, turn: TurnId) {
     assert_eq!(run.status, Status::Completed, "{run:?}");
     assert!(run.error.is_none());
     let mut page = page.clone();
-    page.entries.retain(|entry| entry.turn == turn);
+    std::sync::Arc::make_mut(&mut page.entries).retain(|entry| entry.turn == turn);
     assert!(tool_details(client, &page).await.iter().any(|(_, detail)| {
         detail.result.as_ref().is_some_and(|result| {
             result["isError"] == true

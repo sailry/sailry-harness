@@ -95,7 +95,8 @@ fn fixture(mode: Presentation, result: Value) -> (View, Arc<Detail>) {
                     }),
                 },
             ),
-        ],
+        ]
+        .into(),
     };
     (
         View {
@@ -123,7 +124,7 @@ fn serialized(view: &View) -> Value {
 fn summary(view: &mut View) -> &mut Summary {
     let snapshot = Arc::make_mut(view.snapshot.as_mut().unwrap());
     let Part::ToolResult { summary, .. } =
-        &mut Arc::make_mut(&mut snapshot.page).entries[1].parts[0]
+        &mut Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries)[1].parts[0]
     else {
         unreachable!()
     };
@@ -374,8 +375,10 @@ async fn refreshes_approval_facts_without_resending_details() {
     let (mut current, mut detail) = fixture(Presentation::Details, Value::Null);
     let snapshot = Arc::make_mut(current.snapshot.as_mut().unwrap());
     let page = Arc::make_mut(&mut snapshot.page);
-    page.entries.truncate(1);
-    let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] else {
+    std::sync::Arc::make_mut(&mut page.entries).truncate(1);
+    let Part::ToolCall { summary, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+    else {
         unreachable!()
     };
     summary.revision = "a".repeat(64);

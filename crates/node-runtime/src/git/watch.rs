@@ -45,6 +45,39 @@ impl WatchFilter {
         paths.iter().any(|path| self.worktree_change(path))
     }
 
+    pub(crate) fn references_changed(&self, paths: &[PathBuf]) -> bool {
+        paths.is_empty()
+            || paths.iter().any(|path| {
+                if path == &self.root || path == &self.root.join(".git") {
+                    return true;
+                }
+                self.metadata.iter().any(|root| {
+                    let Ok(relative) = path.strip_prefix(root) else {
+                        return false;
+                    };
+                    if relative
+                        .extension()
+                        .is_some_and(|extension| extension == "lock")
+                    {
+                        return false;
+                    }
+                    relative.as_os_str().is_empty()
+                        || relative.starts_with("refs")
+                        || matches!(
+                            relative.to_str(),
+                            Some(
+                                "HEAD"
+                                    | "packed-refs"
+                                    | "config"
+                                    | "config.worktree"
+                                    | "commondir"
+                                    | "shallow"
+                            )
+                        )
+                })
+            })
+    }
+
     fn refresh(&mut self) -> Result<(), Fault> {
         self.repository = match open(&self.root) {
             Ok(repository) => Some(repository),
@@ -90,7 +123,16 @@ impl WatchFilter {
             }
             matches!(
                 relative.to_str(),
-                Some("HEAD" | "index" | "packed-refs" | "config" | "commondir" | "info/exclude")
+                Some(
+                    "HEAD"
+                        | "index"
+                        | "packed-refs"
+                        | "config"
+                        | "config.worktree"
+                        | "commondir"
+                        | "shallow"
+                        | "info/exclude"
+                )
             ) || relative.starts_with("refs")
         })
     }
@@ -160,6 +202,40 @@ mod tests {
     }
 
     #[test]
+    fn separates_references_from_worktree_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        Repository::init(&root).unwrap();
+        let filter = WatchFilter::new(&root).unwrap();
+        for name in [
+            "HEAD",
+            "refs/heads/main",
+            "refs/remotes/origin/main",
+            "packed-refs",
+            "config",
+            "config.worktree",
+            "commondir",
+        ] {
+            assert!(
+                filter.references_changed(&[root.join(".git").join(name)]),
+                "{name}"
+            );
+        }
+        for name in [
+            "source.rs",
+            ".git/index",
+            ".git/index.lock",
+            ".git/refs/heads/main.lock",
+            ".git/objects/ab/object",
+        ] {
+            assert!(!filter.references_changed(&[root.join(name)]), "{name}");
+        }
+        assert!(filter.references_changed(&[]));
+        assert!(filter.references_changed(&[root.clone()]));
+        assert!(filter.references_changed(&[root.join(".git")]));
+    }
+
+    #[test]
     fn reloads_ignore_rules() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().canonicalize().unwrap();
@@ -198,6 +274,9 @@ mod tests {
         assert!(filter.changed(&[metadata.join("HEAD")]));
         assert!(filter.changed(&[metadata.join("index")]));
         assert!(filter.changed(&[common.join("refs/heads/main")]));
+        assert!(filter.references_changed(&[common.join("refs/heads/main")]));
+        assert!(filter.references_changed(&[metadata.join("HEAD")]));
+        assert!(!filter.references_changed(&[metadata.join("index")]));
         assert!(filter.changed(&[common.join("info/exclude")]));
         assert!(!filter.changed(&[common.join("objects/ab/object")]));
         assert!(!filter.changed(&[common.join("logs/HEAD")]));

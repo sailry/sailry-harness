@@ -542,6 +542,8 @@ impl Database {
                 ),
                 Command::ReadSession { session }
                 | Command::ReadConversation { session, .. }
+                | Command::ReadConversationRuns { session, .. }
+                | Command::ReadConversationRun { session, .. }
                 | Command::ReadTurnCapture { session, .. }
                 | Command::ReadTurn { session, .. }
                 | Command::ReadToolDetail { session, .. }

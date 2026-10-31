@@ -50,7 +50,7 @@ async fn run(client: &Client, session: &Session) -> Page {
             .count(),
         2
     );
-    page.entries.retain(|entry| entry.turn == turn);
+    std::sync::Arc::make_mut(&mut page.entries).retain(|entry| entry.turn == turn);
     page.runs.retain(|run| run.turn == turn);
     assert_eq!(page.runs.last().unwrap().status, Status::Completed);
     page

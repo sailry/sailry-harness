@@ -42,7 +42,7 @@ pub async fn tool_detail(client: &Client, page: &Page, entry: &Entry, index: usi
 
 pub async fn tool_details(client: &Client, page: &Page) -> Vec<(String, Detail)> {
     let mut details = Vec::new();
-    for entry in &page.entries {
+    for entry in page.entries.iter() {
         for (index, part) in entry.parts.iter().enumerate() {
             if let Part::ToolResult { name, .. } = part {
                 details.push((name.clone(), tool_detail(client, page, entry, index).await));
@@ -54,7 +54,7 @@ pub async fn tool_details(client: &Client, page: &Page) -> Vec<(String, Detail)>
 
 pub async fn tool_calls(client: &Client, page: &Page) -> Vec<(String, Detail)> {
     let mut details = Vec::new();
-    for entry in &page.entries {
+    for entry in page.entries.iter() {
         for (index, part) in entry.parts.iter().enumerate() {
             if let Part::ToolCall { name, .. } = part {
                 details.push((name.clone(), tool_detail(client, page, entry, index).await));

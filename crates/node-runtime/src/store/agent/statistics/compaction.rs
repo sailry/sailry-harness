@@ -51,14 +51,21 @@ pub(super) async fn budget(db: &Connection, session: SessionId) -> Result<Option
     }))
 }
 
-pub(super) async fn latest(db: &Connection, session: SessionId) -> Result<Option<Record>, Fault> {
+pub(super) async fn since(
+    db: &Connection,
+    session: SessionId,
+    after: i64,
+) -> Result<Option<Record>, Fault> {
     let row: Option<(i64, String, Vec<u8>, i64)> = {
         let mut statement = db.prepare("SELECT h.sequence,e.turn,e.body,t.rowid FROM conversation_events h
-         JOIN agent_events e ON e.sequence=h.sequence JOIN turns t ON t.id=e.turn WHERE h.session=?1 AND
+         JOIN agent_events e ON e.sequence=h.sequence JOIN turns t ON t.id=e.turn WHERE h.session=?1 AND h.sequence>?2 AND
          (json_extract(e.body,'$.kind')='compaction'
           OR json_type(e.body,'$.metadata.compaction.failure')='object')
          ORDER BY h.sequence DESC LIMIT 1").await.map_err(storage_error)?;
-        match statement.query_row([session.to_string()]).await {
+        match statement
+            .query_row(params![session.to_string(), after])
+            .await
+        {
             Ok(row) => Some((
                 row.get(0).map_err(storage_error)?,
                 row.get(1).map_err(storage_error)?,

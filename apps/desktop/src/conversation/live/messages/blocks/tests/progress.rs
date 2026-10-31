@@ -76,7 +76,7 @@ fn updates_preserve_failures() {
         children: vec![],
         background: Vec::new(),
         runs: vec![],
-        entries,
+        entries: entries.into(),
     };
     let calls = page
         .entries

@@ -127,7 +127,7 @@ fn history() -> (TurnId, View) {
                 children,
                 background: Vec::new(),
                 runs: vec![],
-                entries,
+                entries: entries.into(),
             }),
         })),
         ..Default::default()
@@ -158,9 +158,10 @@ fn delegation_order() {
     );
 
     // Missing summaries must not hide the tool's result or error.
-    Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page)
-        .entries
-        .retain(|entry| entry.id != "summary");
+    Arc::make_mut(
+        &mut Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page).entries,
+    )
+    .retain(|entry| entry.id != "summary");
     let blocks = collect(turn, &history);
     assert!(matches!(&blocks[1], Block::Tools(group) if group[0].name == "compact_context"));
 }
@@ -215,7 +216,7 @@ fn keeps_reused_calls_independent() {
 fn joins_children_after_hidden_reasoning() {
     let (turn, mut history) = history();
     let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
-    page.entries[0]
+    Arc::make_mut(&mut page.entries)[0]
         .parts
         .push(Part::Thinking("Before the next delegation".into()));
     let original = page.clone();

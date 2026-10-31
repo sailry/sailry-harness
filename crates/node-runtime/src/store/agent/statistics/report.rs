@@ -8,11 +8,11 @@ use std::collections::{BTreeMap, BTreeSet};
 mod cache;
 mod pricing;
 mod query;
-mod session;
+pub(super) mod session;
 pub(in crate::store) use cache::Cache;
 #[cfg(test)]
 pub(super) use session::ROWS as SESSION_ROWS;
-pub(super) use session::read as session;
+
 #[cfg(test)]
 mod tests;
 

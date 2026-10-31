@@ -17,6 +17,12 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         Command::DiscoverRegistrySkill { .. } => ("discover_registry_skill", None, None),
         Command::ReadSkillDocument { .. } => ("read_skill_document", None, None),
         Command::ReadConversation { session, .. } => ("read_conversation", Some(*session), None),
+        Command::ReadConversationRuns { session, .. } => {
+            ("read_conversation_runs", Some(*session), None)
+        }
+        Command::ReadConversationRun { session, turn, .. } => {
+            ("read_conversation_run", Some(*session), Some(*turn))
+        }
         Command::ReadTurnCapture { session, turn } => {
             ("read_turn_capture", Some(*session), Some(*turn))
         }
@@ -66,6 +72,8 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         } else if matches!(
             &request.command,
             Command::ReadConversation { .. }
+                | Command::ReadConversationRuns { .. }
+                | Command::ReadConversationRun { .. }
                 | Command::ReadTurnCapture { .. }
                 | Command::ReadTurn { .. }
                 | Command::ReadCommandPage { .. }

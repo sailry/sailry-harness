@@ -136,7 +136,7 @@ fn successful(page: &Page, turn: TurnId) -> usize {
     let mut calls = BTreeMap::new();
     let mut results = BTreeMap::new();
     let mut batches = 0;
-    for entry in &page.entries {
+    for entry in page.entries.iter() {
         for part in &entry.parts {
             assert!(
                 !matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"),
@@ -407,7 +407,7 @@ async fn exercise(remote: bool) {
                 .max();
         }
         let mut current = page.clone();
-        current.entries.retain(|entry| entry.turn == turn);
+        std::sync::Arc::make_mut(&mut current.entries).retain(|entry| entry.turn == turn);
         let id = verify_tools(
             &fixture,
             &current,

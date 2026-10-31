@@ -234,7 +234,10 @@ async fn idless_mcp_results_keep_execution_facts() {
         execute(&fixture.client, Command::StopTurn { turn: active }).await;
         let stopped = finished(&fixture.client, fixture.session.id, active).await;
         assert_eq!(stopped.runs.last().unwrap().status, Status::Cancelled);
-        assert_eq!(&stopped.entries[..page.entries.len()], &page.entries);
+        assert_eq!(
+            &stopped.entries[..page.entries.len()],
+            page.entries.as_slice()
+        );
         tokio::time::timeout(Duration::from_secs(10), closed.notified())
             .await
             .unwrap();

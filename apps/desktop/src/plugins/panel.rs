@@ -396,6 +396,7 @@ impl Panel {
         }
         if let Some(mounted) = &self.mounted {
             let package = mounted.host().context().package;
+            mounted.host().observe_reads(self.read_cursors);
             mounted.observe(
                 cursor,
                 self.package_cursor(&package, cx),
@@ -795,6 +796,7 @@ impl Panel {
                             .then(|| crate::dictation::Service::models(cx).ok())
                             .flatten();
                         host.model_services(manager, panel.binding.runtime.clone(), install_models);
+                        host.observe_reads(panel.read_cursors);
                         host.observe(
                             panel
                                 .snapshot

@@ -34,6 +34,8 @@ pub(in crate::store) struct Facts {
     pub plugin_checks: std::sync::atomic::AtomicUsize,
     #[cfg(any(test, feature = "test-support"))]
     pub approval_commit: Mutex<Option<store::agent::approvals::fixture::Commit>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub publication_gate: Mutex<Option<store::publication::fixture::Gate>>,
 }
 
 /// The existing Node owner retains handles and facts, never a live connection.
@@ -71,6 +73,8 @@ impl Facts {
             plugin_checks: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             approval_commit: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            publication_gate: Default::default(),
         }
     }
 

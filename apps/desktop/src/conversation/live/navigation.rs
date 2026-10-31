@@ -325,7 +325,7 @@ impl View {
         self.history
             .snapshot
             .iter()
-            .flat_map(|snapshot| &snapshot.page.entries)
+            .flat_map(|snapshot| snapshot.page.entries.iter())
             .filter(|entry| Some(&entry.turn) == turn && entry.author == "user")
             .flat_map(|entry| &entry.parts)
             .filter_map(|part| match part {

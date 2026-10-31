@@ -77,7 +77,8 @@ fn sample(display: Option<Resolved>) -> (Call, Page) {
             citations: vec![],
             search_suggestions: None,
             usage: None,
-        }],
+        }]
+        .into(),
         runs: vec![],
         queue: Default::default(),
         approvals: vec![],

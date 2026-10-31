@@ -46,7 +46,7 @@ fn page(session: SessionId, children: Vec<Child>) -> Page {
         questions: vec![],
         children,
         background: vec![],
-        entries: vec![],
+        entries: vec![].into(),
         runs: vec![],
     }
 }

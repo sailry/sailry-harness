@@ -262,7 +262,7 @@ mod tests {
                 page: std::sync::Arc::new(Page {
                     session,
                     revision: 1,
-                    entries: Vec::new(),
+                    entries: Vec::new().into(),
                     runs: Vec::new(),
                     next_before: None,
                     queue: Default::default(),

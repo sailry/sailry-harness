@@ -18,6 +18,8 @@ export function context() { return JSON.parse(JSON.stringify(scope)); }
 export async function readProjectCatalog() { return read("read_project_catalog"); }
 export async function readSession() { return read("read_session", {session:scope.session}); }
 export async function readConversation(before=null, limit=20) { return read("read_conversation", {session:scope.session,before,limit}); }
+export async function readConversationRuns(before=null,limit=100) { return read("read_conversation_runs", {session:scope.session,before,limit}); }
+export async function readConversationRun(turn,revision=null) { return read("read_conversation_run", {session:scope.session,turn,expected_revision:revision}); }
 export async function readTurn(turn,before=null,limit=100) {
   const history=await readConversation(null,1);
   return read("read_turn", {session:scope.session,turn,expected_revision:history.page.revision,before,limit});

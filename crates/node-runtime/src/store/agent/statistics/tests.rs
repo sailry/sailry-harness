@@ -6,6 +6,13 @@ use crate::store::agent::tests::{command, fixture::Fixture};
 mod context;
 mod maintenance;
 
+async fn checked(cache: &Cache, db: &Connection, session: SessionId) -> Result<Statistics, Fault> {
+    let expected = read(db, session).await?;
+    let actual = current(cache, db, session).await?;
+    assert_eq!(actual, expected);
+    Ok(actual)
+}
+
 fn event(input: i32, output: i32) -> canonical::Record {
     let mut event = message(
         "assistant",
@@ -104,6 +111,83 @@ mod cache {
         assert_eq!(cache.misses(), 2);
         cache.retain(entry);
         assert_current(&fixture, &cache, 2).await;
+    }
+
+    #[tokio::test]
+    async fn appends_without_rereading_prior_events() {
+        let mut fixture = Fixture::new().await;
+        let cache = Cache::default();
+        fixture.append((0..128).map(|_| event(10, 4))).await;
+        assert_current(&fixture, &cache, 1).await;
+        let before = super::super::cache::stamp(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        let initial = cache
+            .find(fixture.session, &before)
+            .unwrap()
+            .observation_state
+            .examined;
+        let anchor = event(20, 5);
+        fixture.append([anchor.clone()]).await;
+        assert_current(&fixture, &cache, 2).await;
+        let after = super::super::cache::stamp(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        assert_eq!(
+            cache
+                .find(fixture.session, &after)
+                .unwrap()
+                .observation_state
+                .examined,
+            initial + 1
+        );
+        fixture
+            .append([summary(&anchor, "Handoff"), event(4, 2)])
+            .await;
+        assert_current(&fixture, &cache, 3).await;
+    }
+
+    #[tokio::test]
+    async fn rebuilds_changed_membership_and_discards_rollback() {
+        let mut fixture = Fixture::new().await;
+        let cache = Cache::default();
+        let turn = fixture.append([event(10, 4)]).await;
+        assert_current(&fixture, &cache, 1).await;
+        let transaction = fixture
+            .database
+            .connection
+            .transaction_with_behavior(turso::transaction::TransactionBehavior::Concurrent)
+            .await
+            .unwrap();
+        let mut pending = event(100, 50);
+        pending.turn = turn;
+        super::super::super::history::insert(&transaction, fixture.session, turn, pending)
+            .await
+            .unwrap();
+        let (prepared, _) = prepare(&cache, &transaction, fixture.session)
+            .await
+            .unwrap();
+        assert_eq!(prepared, read(&transaction, fixture.session).await.unwrap());
+        transaction.rollback().await.unwrap();
+        assert_current(&fixture, &cache, 2).await;
+        fixture.append([event(20, 8)]).await;
+        assert_current(&fixture, &cache, 3).await;
+        let transaction = fixture
+            .database
+            .connection
+            .transaction_with_behavior(turso::transaction::TransactionBehavior::Concurrent)
+            .await
+            .unwrap();
+        transaction.execute("DELETE FROM conversation_events WHERE session=?1 AND sequence=(SELECT min(sequence) FROM conversation_events WHERE session=?1)", [fixture.session.to_string()]).await.unwrap();
+        transaction
+            .execute(
+                "UPDATE sessions SET history_revision=history_revision+1 WHERE id=?1",
+                [fixture.session.to_string()],
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        assert_current(&fixture, &cache, 4).await;
     }
 }
 
@@ -224,13 +308,16 @@ async fn counts_reported_usage_once() {
 #[tokio::test]
 async fn follows_visible_history() {
     let mut fixture = Fixture::new().await;
+    let cache = Cache::default();
     let source = fixture.session;
     let first = fixture.append([event(10, 4)]).await;
     let mut last = first;
     for _ in 0..24 {
         last = fixture.append([event(10, 4)]).await;
     }
-    let totals = read(&fixture.database.connection, source).await.unwrap();
+    let totals = checked(&cache, &fixture.database.connection, source)
+        .await
+        .unwrap();
     assert_eq!(totals.turns, 25);
     assert_eq!(totals.responses, 25);
     assert_eq!(totals.usage.as_ref().unwrap().input, 250);
@@ -239,7 +326,9 @@ async fn follows_visible_history() {
     assert_eq!(page.page.entries.len(), 1);
     fixture.read(page.page.next_before, 2).await;
     assert_eq!(
-        read(&fixture.database.connection, source).await.unwrap(),
+        checked(&cache, &fixture.database.connection, source)
+            .await
+            .unwrap(),
         totals
     );
     let Output::Session(fork) = command(
@@ -256,7 +345,7 @@ async fn follows_visible_history() {
         panic!("fork expected");
     };
     assert_eq!(
-        read(&fixture.database.connection, fork.id)
+        checked(&cache, &fixture.database.connection, fork.id)
             .await
             .unwrap()
             .responses,
@@ -264,12 +353,16 @@ async fn follows_visible_history() {
     );
     fixture.session = fork.id;
     fixture.append([event(20, 8)]).await;
-    let fork_totals = read(&fixture.database.connection, fork.id).await.unwrap();
+    let fork_totals = checked(&cache, &fixture.database.connection, fork.id)
+        .await
+        .unwrap();
     assert_eq!(fork_totals.responses, 2);
     assert_eq!(fork_totals.usage.as_ref().unwrap().input, 30);
     assert_eq!(fork_totals.context_tokens, Some(28));
     assert_eq!(
-        read(&fixture.database.connection, source).await.unwrap(),
+        checked(&cache, &fixture.database.connection, source)
+            .await
+            .unwrap(),
         totals
     );
     let retained = fixture.fork(source, last).await;
@@ -288,7 +381,7 @@ async fn follows_visible_history() {
         panic!("rewind expected");
     };
     assert_eq!(
-        read(&fixture.database.connection, source)
+        checked(&cache, &fixture.database.connection, source)
             .await
             .unwrap()
             .responses,
@@ -296,13 +389,15 @@ async fn follows_visible_history() {
     );
     assert!(rewind.backup.is_none());
     assert_eq!(
-        read(&fixture.database.connection, retained.id)
+        checked(&cache, &fixture.database.connection, retained.id)
             .await
             .unwrap(),
         totals
     );
     assert_eq!(
-        read(&fixture.database.connection, fork.id).await.unwrap(),
+        checked(&cache, &fixture.database.connection, fork.id)
+            .await
+            .unwrap(),
         fork_totals
     );
     let index = fixture
@@ -332,7 +427,7 @@ async fn follows_visible_history() {
         .await
         .unwrap();
     assert_eq!(
-        read(&fixture.database.connection, retained.id)
+        checked(&cache, &fixture.database.connection, retained.id)
             .await
             .unwrap(),
         totals
@@ -342,10 +437,11 @@ async fn follows_visible_history() {
 #[tokio::test]
 async fn invalidates_stale_context() {
     let mut fixture = Fixture::new().await;
+    let cache = Cache::default();
     let original = timed(100, 20, 125_000);
     fixture.append([original.clone()]).await;
     let read_context = async |fixture: &Fixture| {
-        let tokens = read(&fixture.database.connection, fixture.session)
+        let tokens = checked(&cache, &fixture.database.connection, fixture.session)
             .await
             .unwrap()
             .context_tokens;
@@ -361,7 +457,7 @@ async fn invalidates_stale_context() {
     };
     assert_eq!(read_context(&fixture).await, Some(120));
     assert_eq!(
-        read(&fixture.database.connection, fixture.session)
+        checked(&cache, &fixture.database.connection, fixture.session)
             .await
             .unwrap()
             .first_token_us,
@@ -378,7 +474,7 @@ async fn invalidates_stale_context() {
     fixture.completed(&["Unmetered response"]).await;
     assert_eq!(read_context(&fixture).await, None);
     assert_eq!(
-        read(&fixture.database.connection, fixture.session)
+        checked(&cache, &fixture.database.connection, fixture.session)
             .await
             .unwrap()
             .first_token_us,
@@ -395,7 +491,7 @@ async fn invalidates_stale_context() {
     fixture.append([summary]).await;
     assert_eq!(read_context(&fixture).await, None);
     assert_eq!(
-        read(&fixture.database.connection, fixture.session)
+        checked(&cache, &fixture.database.connection, fixture.session)
             .await
             .unwrap()
             .first_token_us,
@@ -509,7 +605,10 @@ async fn reads_indexed_totals() {
         .prepare(&format!("EXPLAIN QUERY PLAN {}", report::SESSION_ROWS))
         .await
         .unwrap();
-    let mut rows = plan.query([fixture.session.to_string()]).await.unwrap();
+    let mut rows = plan
+        .query(params![fixture.session.to_string(), 0])
+        .await
+        .unwrap();
     let mut details = Vec::new();
     while let Some(row) = rows.next().await.unwrap() {
         details.push(row.get::<String>(3).unwrap());

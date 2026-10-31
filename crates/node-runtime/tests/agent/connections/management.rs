@@ -410,7 +410,7 @@ async fn credential_edits_keep_revision_and_plan_boundaries() {
         let turn = submit(&fixture).await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn).await;
         let mut current = page.clone();
-        current.entries.retain(|entry| entry.turn == turn);
+        std::sync::Arc::make_mut(&mut current.entries).retain(|entry| entry.turn == turn);
         let output: Vec<_> = tool_details(&fixture.client, &current)
             .await
             .into_iter()
@@ -908,7 +908,7 @@ async fn relative_saves_preserve_scope_and_plan() {
         let turn = submit(&fixture).await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn).await;
         let mut current = page.clone();
-        current.entries.retain(|entry| entry.turn == turn);
+        std::sync::Arc::make_mut(&mut current.entries).retain(|entry| entry.turn == turn);
         let output: Vec<_> = tool_details(&fixture.client, &current)
             .await
             .into_iter()

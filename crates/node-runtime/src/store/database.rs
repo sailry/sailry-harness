@@ -20,6 +20,8 @@ pub(super) mod schema;
 mod startup;
 pub(super) mod validation;
 
+type PendingAdmission = Option<(oneshot::Sender<Result<Admission, Fault>>, Admission)>;
+
 const APPLICATION_ID: i64 = 0x5341_494c;
 
 pub(super) struct Database {
@@ -359,20 +361,29 @@ impl Database {
             let effect = super::routing::effect(&request.command);
             let plugin_command = super::plugins::command::resolve(self, &request).await;
             if matches!(plugin_command, Ok(None)) && effect.is_none() {
-                let output = match self.execute(caller, &request, events).await {
-                    Ok(output) => output,
-                    Err(error) => {
-                        let _ = reply.send(Err(error));
-                        return None;
-                    }
-                };
                 let (completion, result) = oneshot::channel();
-                let _ = completion.send(output);
-                // Database-only admission and its outcome have committed together.
-                let _ = reply.send(Ok(Admission {
-                    receipt,
-                    completion: result,
-                }));
+                let mut admission = Some((
+                    reply,
+                    Admission {
+                        receipt,
+                        completion: result,
+                    },
+                ));
+                let output = self
+                    .execute_admitted(caller, &request, events, &mut admission)
+                    .await;
+                match output {
+                    Ok(output) => {
+                        let _ = completion.send(output);
+                    }
+                    Err(error) => {
+                        if let Some((reply, _)) = admission.take() {
+                            let _ = reply.send(Err(error));
+                        } else {
+                            let _ = completion.send(Err(error));
+                        }
+                    }
+                }
                 return None;
             }
             let previous = match self.admit(caller, &request).await {
@@ -832,6 +843,19 @@ impl Database {
         events: &'a broadcast::Sender<EventEnvelope>,
     ) -> sailry_link::Pending<'a, Result<Response, Fault>> {
         Box::pin(async move {
+            self.execute_admitted(caller, request, events, &mut None)
+                .await
+        })
+    }
+
+    fn execute_admitted<'a>(
+        &'a mut self,
+        caller: NodeId,
+        request: &'a Request,
+        events: &'a broadcast::Sender<EventEnvelope>,
+        admission: &'a mut PendingAdmission,
+    ) -> sailry_link::Pending<'a, Result<Response, Fault>> {
+        Box::pin(async move {
             if matches!(request.command, Command::ResolveApproval { .. }) {
                 super::agent::approvals::prune(self, events).await?;
             }
@@ -843,7 +867,7 @@ impl Database {
             };
             let attempts = if external { 0 } else { conflict::RETRIES };
             for attempt in 0..=attempts {
-                let result = self.execute_once(caller, request, events).await;
+                let result = self.execute_once(caller, request, events, admission).await;
                 if let Err(error) = conflict::rollback(&self.connection).await {
                     if let Some(write) = write {
                         self.connection.hold_write(write);
@@ -870,6 +894,7 @@ impl Database {
         caller: NodeId,
         request: &'a Request,
         events: &'a broadcast::Sender<EventEnvelope>,
+        admission: &'a mut PendingAdmission,
     ) -> sailry_link::Pending<'a, Result<Response, Fault>> {
         Box::pin(async move {
             let approval = matches!(request.command, Command::ResolveApproval { .. });
@@ -881,6 +906,7 @@ impl Database {
                 && let Some(previous) = admit_in(&transaction, caller, request).await?
             {
                 conflict::rollback(&transaction).await?;
+                deliver(admission);
                 return Ok(previous);
             }
             // Commands validate before mutation. A savepoint also rolls back partial business errors.
@@ -1065,6 +1091,11 @@ impl Database {
                 }
                 _ => {}
             }
+            // Durable admission is independent of derived publication. The same
+            // Node-owned task retains ordering and completes even if the caller leaves.
+            deliver(admission);
+            #[cfg(any(test, feature = "test-support"))]
+            super::publication::fixture::wait(&self.publication_gate).await;
             self.publish(events, &publication, envelopes).await;
             if let Ok(output) = &result {
                 for (session, change) in review_changes {
@@ -1463,4 +1494,10 @@ pub(super) async fn upgrade_backup(
     drop(connection);
     drop(handle);
     Ok(backup)
+}
+
+fn deliver(admission: &mut PendingAdmission) {
+    if let Some((reply, admission)) = admission.take() {
+        let _ = reply.send(Ok(admission));
+    }
 }

@@ -36,7 +36,8 @@ pub(super) fn python(
 
 impl View {
     pub(super) fn refresh_clock(&mut self, cx: &mut Context<Self>) {
-        let active = self.history.connected
+        let active = self.details_visible.get()
+            && self.history.connected
             && self.history.snapshot.as_ref().is_some_and(|snapshot| {
                 snapshot
                     .page

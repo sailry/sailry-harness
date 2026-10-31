@@ -72,6 +72,21 @@ fn controls_captured_session_and_observes_shared_history() {
         );
         call(&module, "forgetRequest", json!([request]));
         let turn = admitted["Ok"]["data"]["id"].clone();
+        let metadata = complete(&fixture, &module, "readConversationRuns", json!([null, 1]));
+        assert_eq!(metadata["session"], json!(fixture.session.id));
+        assert!(metadata["revision"].is_string());
+        assert!(metadata["queue_revision"].is_string());
+        assert_eq!(metadata["runs"][0]["turn"], turn);
+        assert!(metadata["runs"][0].get("input").is_none());
+        assert_eq!(
+            complete(
+                &fixture,
+                &module,
+                "readConversationRun",
+                json!([turn, metadata["revision"]])
+            ),
+            metadata["runs"][0]
+        );
         let observed = until(&fixture, &module, |view| {
             view["snapshot"]["page"]["runs"]
                 .as_array()

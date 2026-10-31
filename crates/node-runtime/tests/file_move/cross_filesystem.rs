@@ -158,7 +158,8 @@ async fn recovers_without_replay() {
                         .unwrap(),
                     Update::FilesChanged {
                         node: fixture.node.id(),
-                        worktree
+                        worktree,
+                        references: 0,
                     }
                 );
             }

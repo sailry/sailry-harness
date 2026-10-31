@@ -1,4 +1,4 @@
-//! Shared, read-only Git requests for one controller. Completed results are not cached.
+//! Shared, scoped Git and terminal reads for one controller. Completed results are not cached.
 use sailry_link::Transport;
 use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Request};
 use std::{
@@ -86,7 +86,7 @@ impl Reads {
             receiver
                 .changed()
                 .await
-                .map_err(|_| Fault::new(ErrorCode::Unavailable, "Git read stopped"))?;
+                .map_err(|_| Fault::new(ErrorCode::Unavailable, "Scoped read stopped"))?;
         }
     }
 
@@ -117,7 +117,9 @@ async fn read(transport: &dyn Transport, request: Request) -> Response {
 pub(crate) fn is_read(command: &Command) -> bool {
     matches!(
         command,
-        Command::InspectGit { .. }
+        Command::ListTerminals { .. }
+            | Command::ListTerminalTools { .. }
+            | Command::InspectGit { .. }
             | Command::ReadGitHead { .. }
             | Command::ListGitBranches { .. }
             | Command::ListWorktrees { .. }

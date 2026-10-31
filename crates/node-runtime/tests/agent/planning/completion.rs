@@ -76,7 +76,10 @@ async fn compacts_without_reviewing_history() {
                     Status::Completed
                 }
             );
-            assert_eq!(&after.entries[..before.entries.len()], before.entries);
+            assert_eq!(
+                &after.entries[..before.entries.len()],
+                before.entries.as_slice()
+            );
             assert_eq!(after.questions, before.questions);
             assert!(
                 after

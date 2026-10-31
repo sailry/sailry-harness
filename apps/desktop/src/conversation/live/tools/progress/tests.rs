@@ -32,7 +32,7 @@ fn isolates_turn_activity() {
     let mut page = Page {
         session: run.session,
         revision: 1,
-        entries: vec![],
+        entries: vec![].into(),
         runs: vec![run.clone(), next.clone()],
         queue: Default::default(),
         approvals: vec![],

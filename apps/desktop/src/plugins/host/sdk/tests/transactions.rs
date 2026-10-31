@@ -15,7 +15,7 @@ fn queue_outputs_preserve_exact_revisions() {
         page: Page {
             session,
             revision: 1,
-            entries: vec![],
+            entries: vec![].into(),
             runs: vec![],
             queue: queue.clone(),
             approvals: vec![],

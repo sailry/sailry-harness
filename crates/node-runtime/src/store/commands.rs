@@ -687,6 +687,30 @@ pub(super) fn execute<'a>(
                 None,
             ))
         }),
+        Command::ReadConversationRuns {
+            session,
+            before,
+            limit,
+        } => defer(move || async move {
+            Ok((
+                Output::ConversationRuns(
+                    super::agent::metadata::page(db, *session, *before, *limit).await?,
+                ),
+                None,
+            ))
+        }),
+        Command::ReadConversationRun {
+            session,
+            turn,
+            expected_revision,
+        } => defer(move || async move {
+            Ok((
+                Output::ConversationRun(
+                    super::agent::metadata::read(db, *session, *turn, *expected_revision).await?,
+                ),
+                None,
+            ))
+        }),
         Command::ReadTurnCapture { session, turn } => defer(move || async move {
             Ok((
                 Output::QueuedTurn(super::captures::read(db, *session, *turn).await?),

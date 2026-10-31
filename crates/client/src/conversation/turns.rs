@@ -154,12 +154,52 @@ pub fn visible(run: &Run, page: &Page, drafts: &[Draft]) -> bool {
                     .filter(|draft| draft.turn == run.turn)
                     .flat_map(|draft| &draft.parts),
             )
-            .any(|part| match part {
-                Part::Text(text) | Part::Thinking(text) => !text.trim().is_empty(),
-                Part::Resource(value) => {
-                    sailry_protocol::conversation::compaction::Failure::from_resource(value)
-                        .is_some()
-                }
-                _ => true,
-            })
+            .any(visible_part)
+}
+
+/// Computes visibility once for a complete history projection.
+pub fn visible_turns(page: &Page, drafts: &[Draft]) -> std::collections::BTreeSet<TurnId> {
+    use std::collections::BTreeSet;
+    let turns: BTreeSet<_> = page.runs.iter().map(|run| run.turn).collect();
+    let continued: BTreeSet<_> = page
+        .runs
+        .iter()
+        .filter(|run| run.continuation.is_some() && run.status == Status::Continued)
+        .map(|run| run.turn)
+        .collect();
+    let content: BTreeSet<_> = page
+        .entries
+        .iter()
+        .filter(|entry| entry.author != "user" && continued.contains(&entry.turn))
+        .map(|entry| (entry.turn, &entry.parts))
+        .chain(
+            drafts
+                .iter()
+                .filter(|draft| continued.contains(&draft.turn))
+                .map(|draft| (draft.turn, &draft.parts)),
+        )
+        .filter(|(_, parts)| parts.iter().any(visible_part))
+        .map(|(turn, _)| turn)
+        .collect();
+    page.runs
+        .iter()
+        .filter(|run| {
+            !run.joined
+                .is_some_and(|owner| owner != run.turn && turns.contains(&owner))
+                && (run.continuation.is_none()
+                    || run.status != Status::Continued
+                    || content.contains(&run.turn))
+        })
+        .map(|run| run.turn)
+        .collect()
+}
+
+fn visible_part(part: &Part) -> bool {
+    match part {
+        Part::Text(text) | Part::Thinking(text) => !text.trim().is_empty(),
+        Part::Resource(value) => {
+            sailry_protocol::conversation::compaction::Failure::from_resource(value).is_some()
+        }
+        _ => true,
+    }
 }

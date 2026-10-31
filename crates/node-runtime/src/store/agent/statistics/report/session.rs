@@ -22,7 +22,7 @@ pub(in crate::store::agent::statistics) const ROWS: &str = "WITH selected AS (
     JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision
     LEFT JOIN session_media media ON media.session=t.session
     LEFT JOIN json_each(media.body) m ON m.key=json_extract(e.body,'$.metadata.execution.media')
-    WHERE coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
+    WHERE e.sequence>?2 AND coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
     AND coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))>=0
     AND coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))>=0)
     SELECT NULL,
@@ -36,16 +36,17 @@ pub(in crate::store::agent::statistics) const ROWS: &str = "WITH selected AS (
     json_extract(e.body,'$.metadata.execution.timing.elapsed_us'),
     json_extract(e.body,'$.metadata.execution.media'),e.delegated FROM responses e";
 
-pub(in crate::store::agent::statistics) async fn read(
+pub(in crate::store::agent::statistics) async fn advance(
     db: &Connection,
     session: SessionId,
+    after: i64,
+    mut own: Metrics,
+    mut delegated: Metrics,
 ) -> Result<(Metrics, Metrics), Fault> {
-    let mut own = Metrics::default();
-    let mut delegated = Metrics::default();
     let mut prices = pricing::Catalog::default();
     let mut statement = db.prepare(ROWS).await.map_err(storage_error)?;
     let mut rows = statement
-        .query([session.to_string()])
+        .query(params![session.to_string(), after])
         .await
         .map_err(storage_error)?;
     while let Some(row) = rows.next().await.map_err(storage_error)? {

@@ -40,11 +40,11 @@ async fn shared_turns_append_changed_guides_once() {
                 Status::Completed,
                 "{page:?}"
             );
-            assert_eq!(&page.entries[..original.len()], original);
+            assert_eq!(&page.entries[..original.len()], original.as_slice());
             assert!(page.entries.iter().all(|entry| entry.parts.iter().all(|part| {
                 !matches!(part, Part::Text(text) if [ROOT_RULE, NESTED_RULE, changed].iter().any(|guide| text.contains(*guide)))
             })));
-            original = page.entries;
+            original = std::sync::Arc::unwrap_or_clone(page.entries);
         }
         {
             let requests = server.requests.lock().unwrap();

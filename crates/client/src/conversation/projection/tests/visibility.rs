@@ -43,7 +43,7 @@ fn chunk(snapshot: &Snapshot, run: &Run, entries: Vec<Entry>) -> TurnHistory {
 #[test]
 fn reveals_and_hides_in_order() {
     let (mut projection, mut snapshot, run, _) = fixture();
-    Arc::make_mut(&mut snapshot.page).entries = vec![entry(&run, 2), entry(&run, 4)];
+    Arc::make_mut(&mut snapshot.page).entries = vec![entry(&run, 2), entry(&run, 4)].into();
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
@@ -86,7 +86,7 @@ fn reveals_and_hides_in_order() {
 #[test]
 fn defers_reveals_before_loaded_range() {
     let (mut projection, mut snapshot, run, _) = fixture();
-    Arc::make_mut(&mut snapshot.page).entries = vec![entry(&run, 5), entry(&run, 6)];
+    Arc::make_mut(&mut snapshot.page).entries = vec![entry(&run, 5), entry(&run, 6)].into();
     snapshot.missing = vec![run.turn];
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
@@ -123,7 +123,7 @@ fn defers_reveals_before_loaded_range() {
 #[test]
 fn continues_partial_turns() {
     let (mut projection, mut snapshot, run, _) = fixture();
-    Arc::make_mut(&mut snapshot.page).entries = vec![entry(&run, 5)];
+    Arc::make_mut(&mut snapshot.page).entries = vec![entry(&run, 5)].into();
     snapshot.missing = vec![run.turn];
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))

@@ -110,7 +110,8 @@ fn history(turn: TurnId, parts: Vec<Part>) -> View {
                     usage: None,
                     citations: vec![],
                     search_suggestions: None,
-                }],
+                }]
+                .into(),
             }),
         })),
         ..Default::default()

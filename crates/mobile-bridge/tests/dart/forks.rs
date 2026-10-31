@@ -99,7 +99,7 @@ fn resumes_without_replay() {
         assert_eq!(inherited, baseline[0].entries.iter().collect::<Vec<_>>());
     }
     assert_eq!(
-        pages[3].entries,
+        pages[3].entries.as_slice(),
         baseline[0]
             .entries
             .iter()

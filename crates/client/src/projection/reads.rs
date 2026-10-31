@@ -6,9 +6,14 @@ pub struct ReadCursors {
     roles: u64,
     models: u64,
     terminals: u64,
+    terminal_tools: u64,
 }
 
 impl ReadCursors {
+    pub fn terminal_tools(&self) -> u64 {
+        self.terminal_tools
+    }
+
     pub fn for_actions(&self, actions: &[Action]) -> u64 {
         actions
             .iter()
@@ -27,6 +32,7 @@ impl ReadCursors {
             roles: revision,
             models: revision,
             terminals: revision,
+            terminal_tools: revision,
         };
     }
 
@@ -52,10 +58,35 @@ impl ReadCursors {
             | Event::ProviderRemoved { .. }
             | Event::ModelCatalogChanged(_)
             | Event::LocalModelsChanged { .. } => self.models = revision,
-            Event::TerminalChanged(_)
-            | Event::TerminalSettingsChanged { .. }
-            | Event::WorktreeRemoved { .. } => self.terminals = revision,
+            Event::TerminalSettingsChanged { .. } => {
+                self.terminals = revision;
+                self.terminal_tools = revision;
+            }
+            Event::TerminalChanged(_) | Event::WorktreeRemoved { .. } => self.terminals = revision,
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tools_ignore_terminal_inventory() {
+        let mut cursors = ReadCursors::default();
+        cursors.reset(1);
+        cursors.observe(
+            &Event::WorktreeRemoved {
+                id: sailry_protocol::WorktreeId::new(),
+            },
+            2,
+        );
+        assert_eq!(cursors.terminal_tools(), 1);
+        assert_eq!(cursors.for_actions(&[Action::ReadTerminals]), 2);
+        cursors.observe(&Event::TerminalSettingsChanged { revision: 4 }, 3);
+        assert_eq!(cursors.terminal_tools(), 3);
+        cursors.reset(4);
+        assert_eq!(cursors.terminal_tools(), 4);
     }
 }

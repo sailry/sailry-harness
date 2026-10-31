@@ -90,21 +90,21 @@ async fn complete(
 }
 
 async fn assert_reads(fixture: &Fixture, events: usize, expected: usize) {
-    let mut query = fixture.database.connection.prepare(PHASES).await.unwrap();
-    let mut rows = query.query([fixture.session.to_string()]).await.unwrap();
-    let mut count = 0;
-    while rows.next().await.unwrap().is_some() {
-        count += 1;
-    }
-    drop(rows);
-    drop(query);
-    assert_eq!(count, expected);
+    let (_, phased, _) = advance(
+        &fixture.database.connection,
+        fixture.session,
+        0,
+        State::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(phased.len(), expected);
     let mut rows = fixture
         .database
         .connection
         .query(
-            format!("EXPLAIN QUERY PLAN {PHASES}"),
-            [fixture.session.to_string()],
+            format!("EXPLAIN QUERY PLAN {EVENTS}"),
+            params![fixture.session.to_string(), 0],
         )
         .await
         .unwrap();
@@ -112,18 +112,70 @@ async fn assert_reads(fixture: &Fixture, events: usize, expected: usize) {
     while let Some(row) = rows.next().await.unwrap() {
         details.push(row.get::<String>(3).unwrap());
     }
-    // The native SDK exposes plans, not executed VM steps. Require one indexed
-    // history lookup per turn, including turns without phase records.
     assert!(
-        details.iter().any(|line| line.starts_with("SEARCH latest ")
-            && line.contains("agent_events_turn")
-            && line.contains("turn=?")),
+        details
+            .iter()
+            .any(|line| line.contains("SEARCH e USING INTEGER PRIMARY KEY")),
         "{details:?} for {events} events"
     );
     assert!(
-        !details.iter().any(|line| line.starts_with("SCAN ")
-            && (line.contains("latest") || line.contains("agent_events"))),
-        "{details:?} for {events} events"
+        !details
+            .iter()
+            .any(|line| line.contains("SORTER") || line.contains("TEMP B-TREE")),
+        "{details:?}"
+    );
+    drop(rows);
+    assert_seek(&fixture.database.connection, fixture.session).await;
+}
+
+async fn assert_seek(db: &Connection, session: SessionId) {
+    let root = db
+        .prepare("SELECT rootpage FROM sqlite_schema WHERE type='table' AND name='agent_events'")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get::<i64>(0)
+        .unwrap();
+    let mut rows = db
+        .query(format!("EXPLAIN {EVENTS}"), params![session.to_string(), 7])
+        .await
+        .unwrap();
+    let mut code = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        code.push((
+            row.get::<String>(1).unwrap(),
+            row.get::<i64>(2).unwrap(),
+            row.get::<i64>(3).unwrap(),
+            row.get::<i64>(4).unwrap(),
+        ));
+    }
+    // Turso 0.8.3 labels rowid range searches as rowid=? in EQP. Its VDBE
+    // exposes the actual exclusive seek: OpenRead.p1 is the event cursor,
+    // SeekGT.p3 is its key register, and Variable.p2 receives parameter p1.
+    let cursors: BTreeSet<_> = code
+        .iter()
+        .filter(|(op, _, page, database)| op == "OpenRead" && *page == root && *database == 0)
+        .map(|(_, cursor, _, _)| *cursor)
+        .collect();
+    assert!(!cursors.is_empty(), "event table must be opened: {code:?}");
+    assert!(
+        code.iter().any(|(op, cursor, _, key)| {
+            op == "SeekGT"
+                && cursors.contains(cursor)
+                && code.iter().any(|(op, parameter, register, _)| {
+                    op == "Variable" && *parameter == 2 && register == key
+                })
+        }),
+        "event range must seek past parameter 2: {code:?}"
+    );
+    assert!(
+        !code.iter().any(|(op, cursor, _, _)| {
+            op == "Rewind" && cursors.contains(cursor)
+                || matches!(op.as_str(), "SorterOpen" | "SorterSort" | "Sort")
+        }),
+        "event range must not scan from the start or sort: {code:?}"
     );
 }
 

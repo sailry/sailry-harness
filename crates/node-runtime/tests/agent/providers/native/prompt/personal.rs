@@ -65,7 +65,7 @@ async fn freezes_current_turn_and_refreshes_next() {
             Status::Completed,
             "{page:?}"
         );
-        assert_eq!(&page.entries[..original.len()], original);
+        assert_eq!(&page.entries[..original.len()], original.as_slice());
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 3);

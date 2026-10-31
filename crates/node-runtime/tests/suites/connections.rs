@@ -1,12 +1,12 @@
 #[path = "../support/database.rs"]
 mod database_fixture;
-#[expect(
-    dead_code,
-    reason = "Connection fixtures exercise separate Node and controller shutdown paths"
-)]
 #[path = "../support/files.rs"]
 mod file_fixture;
 
+#[path = "../admission.rs"]
+mod admission;
+#[path = "../conversation_runs.rs"]
+mod conversation_runs;
 #[path = "../network.rs"]
 mod network;
 #[path = "../pairing.rs"]

@@ -93,10 +93,7 @@ pub(in crate::store) async fn read(
     let turns: Vec<_> = page.runs.iter().map(|run| run.turn).collect();
     // The first visible event of each turn decides whether the page holds it completely.
     let mut starts = BTreeMap::<TurnId, u64>::new();
-    let first = format!(
-        "SELECT e.sequence FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn
-         WHERE h.session=?1 AND e.turn=?2 AND {VISIBLE_EVENT} ORDER BY e.sequence LIMIT 1"
-    );
+    let first = first_query();
     for turn in &turns {
         let mut query = db.prepare(&first).await.map_err(storage_error)?;
         {
@@ -161,7 +158,7 @@ pub(in crate::store) async fn turn(
         sequence: 0,
         revision: page.revision,
         run,
-        entries: page.entries,
+        entries: std::sync::Arc::unwrap_or_clone(page.entries),
         approvals: page.approvals,
         questions: page.questions,
         children: page.children,
@@ -208,6 +205,26 @@ fn bounded_limit(limit: u16) -> Result<u16, Fault> {
     Ok(limit.min(100))
 }
 
+fn first_query() -> String {
+    // The membership alias is local to EXISTS; visibility uses the captured session.
+    let visible = VISIBLE_EVENT.replace("h.session", "?1");
+    format!(
+        "SELECT e.sequence FROM agent_events e WHERE e.turn=?2 AND EXISTS(
+        SELECT 1 FROM conversation_events h WHERE h.session=?1 AND h.sequence=e.sequence)
+        AND {visible} ORDER BY e.sequence LIMIT 1"
+    )
+}
+
+fn turn_query() -> String {
+    let visible = VISIBLE_EVENT.replace("h.session", "?1");
+    format!(
+        "SELECT e.sequence,e.turn,e.body FROM agent_events e
+        WHERE e.turn=?2 AND e.sequence<?3 AND EXISTS(
+            SELECT 1 FROM conversation_events h WHERE h.session=?1 AND h.sequence=e.sequence)
+        AND {visible} ORDER BY e.sequence DESC LIMIT ?4"
+    )
+}
+
 async fn entries(
     db: &Connection,
     session: SessionId,
@@ -219,12 +236,7 @@ async fn entries(
     // the conversation backwards and stops at its limit.
     let (sql, scope) = match turns {
         [turn] => (
-            format!(
-                "SELECT e.sequence,e.turn,e.body FROM agent_events e
-                 JOIN conversation_events h ON h.session=?1 AND h.sequence=e.sequence
-                 WHERE e.turn=?2 AND e.sequence<?3
-                 AND {VISIBLE_EVENT} ORDER BY e.sequence DESC LIMIT ?4"
-            ),
+            turn_query(),
             turn.to_string(),
         ),
         _ => (
@@ -309,7 +321,7 @@ async fn page(
         background: super::super::background::list(db, session).await?,
         session,
         revision: crate::store::sessions::history_revision(db, session).await?,
-        entries,
+        entries: entries.into(),
         runs,
         next_before,
         approvals,
@@ -336,7 +348,7 @@ pub(in crate::store::agent) fn fit(
     let mut trimmed = BTreeSet::new();
     while encoded_size(page, entries_bytes)? > budget {
         if page.entries.len() > 1 {
-            trimmed.insert(page.entries.remove(0).turn);
+            trimmed.insert(std::sync::Arc::make_mut(&mut page.entries).remove(0).turn);
             entries_bytes -= sizes.pop_front().expect("cached entry size").1;
             retain_metadata(page);
             continue;
@@ -360,7 +372,7 @@ pub(in crate::store::agent) fn fit(
         }
         let (index, turn) = closed[0];
         page.runs.remove(index);
-        page.entries.retain(|entry| entry.turn != turn);
+        std::sync::Arc::make_mut(&mut page.entries).retain(|entry| entry.turn != turn);
         sizes.retain(|(current, bytes)| {
             if *current == turn {
                 entries_bytes -= *bytes;

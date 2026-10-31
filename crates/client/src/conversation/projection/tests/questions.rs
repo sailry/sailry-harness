@@ -78,7 +78,7 @@ fn recovers_answers() {
 fn rejects_inconsistent_questions() {
     let (mut projection, mut snapshot, run, _) = fixture();
     let question = question(&run);
-    Arc::make_mut(&mut snapshot.page).entries.push(Entry {
+    Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries).push(Entry {
         sequence: 1,
         id: question.entry.clone(),
         turn: run.turn,
@@ -167,7 +167,7 @@ fn validates_plan_answers() {
                 max_bytes: 64,
             }
         };
-        Arc::make_mut(&mut snapshot.page).entries.push(Entry {
+        Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries).push(Entry {
             sequence: 1,
             id: question.entry.clone(),
             turn: run.turn,
@@ -256,7 +256,7 @@ fn projects_automatic_reviews() {
             state,
             ..question(&run)
         };
-        Arc::make_mut(&mut snapshot.page).entries.push(review_entry(
+        Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries).push(review_entry(
             &question,
             Spec {
                 prompt: String::new(),
@@ -364,8 +364,7 @@ fn rejects_invalid_review_sources() {
     ] {
         let (mut projection, mut snapshot, run, _) = fixture();
         let question = question(&run);
-        Arc::make_mut(&mut snapshot.page)
-            .entries
+        Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries)
             .push(review_entry(&question, spec));
         projection
             .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
@@ -401,7 +400,7 @@ fn retains_nonempty_model_prompts() {
         panic!("tool call expected")
     };
     *name = "ask_user".into();
-    Arc::make_mut(&mut snapshot.page).entries.push(entry);
+    Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries).push(entry);
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();

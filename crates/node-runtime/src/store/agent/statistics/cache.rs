@@ -1,10 +1,13 @@
 //! Reuse a session's event-derived statistics while its canonical inputs are unchanged.
 //!
 //! Canonical events are append-only with a global sequence, so the newest selected
-//! event plus membership counts identify the event-derived input without decoding
+//! event plus rewind revision and indexed turn tips identify inputs without decoding
 //! bodies. Commands that only change queue or run state reuse the aggregate.
 use super::*;
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+};
 
 const ENTRIES: usize = 32;
 
@@ -19,9 +22,8 @@ pub(in crate::store) struct Cache {
 pub(super) struct Stamp {
     latest: i64,
     latest_id: Option<String>,
-    turns: i64,
-    members: i64,
-    member_latest: i64,
+    history_revision: u64,
+    tips: BTreeMap<String, (i64, i64)>,
     delegations: i64,
     pricing: u64,
     media: Vec<(String, Vec<u8>)>,
@@ -61,6 +63,39 @@ impl Cache {
         Some(canonical)
     }
 
+    pub(super) fn previous(
+        &self,
+        session: SessionId,
+        stamp: &Stamp,
+    ) -> Option<(i64, Arc<Canonical>)> {
+        let entries = self.entries.lock().unwrap();
+        let entry = entries.iter().find(|entry| entry.session == session)?;
+        let old = &entry.stamp;
+        if old.history_revision != stamp.history_revision
+            || old.pricing != stamp.pricing
+            || old.media != stamp.media
+            || old.delegations != stamp.delegations
+            || old.latest >= stamp.latest
+        {
+            return None;
+        }
+        // Every retained turn remains append-only. Newly selected historical
+        // turns must rebuild rather than skipping events below the watermark.
+        if old.tips.iter().any(|(turn, (first, last))| {
+            !stamp
+                .tips
+                .get(turn)
+                .is_some_and(|(next_first, next_last)| next_first == first && next_last >= last)
+        }) || stamp
+            .tips
+            .iter()
+            .any(|(turn, (first, _))| *first <= old.latest && !old.tips.contains_key(turn))
+        {
+            return None;
+        }
+        Some((old.latest, entry.canonical.clone()))
+    }
+
     /// Only committed snapshots may be retained.
     pub(in crate::store) fn retain(&self, entry: Entry) {
         let mut entries = self.entries.lock().unwrap();
@@ -97,15 +132,35 @@ pub(super) async fn stamp(db: &Connection, session: SessionId) -> Result<Stamp, 
             row.get(1).map_err(storage_error)?,
         ))
     };
-    let (latest, turns) = scalars(&format!(
-        "{SELECTED} SELECT coalesce(max(e.sequence),0),count(DISTINCT e.turn)
-         FROM selected s JOIN agent_events e ON e.turn=s.turn"
-    ))
-    .await?;
-    let (members, member_latest) = scalars(
-        "SELECT count(*),coalesce(max(sequence),0) FROM conversation_events WHERE session=?1",
-    )
-    .await?;
+    let mut tips = BTreeMap::new();
+    let mut query = db
+        .prepare(&format!(
+            "{SELECTED} SELECT s.turn,
+         (SELECT min(e.sequence) FROM agent_events e WHERE e.turn=s.turn),
+         (SELECT max(e.sequence) FROM agent_events e WHERE e.turn=s.turn)
+         FROM selected s ORDER BY s.turn"
+        ))
+        .await
+        .map_err(storage_error)?;
+    let mut rows = query
+        .query([session.to_string()])
+        .await
+        .map_err(storage_error)?;
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        if let Some(first) = row.get::<Option<i64>>(1).map_err(storage_error)? {
+            tips.insert(
+                row.get::<String>(0).map_err(storage_error)?,
+                (first, row.get::<i64>(2).map_err(storage_error)?),
+            );
+        }
+    }
+    drop(rows);
+    drop(query);
+    let latest = tips
+        .iter()
+        .map(|(_, (_, latest))| *latest)
+        .max()
+        .unwrap_or_default();
     let (delegations, _) = scalars(
         "SELECT count(*),0 FROM agent_delegations d
          JOIN conversation_turns h ON h.turn=d.parent_turn WHERE h.session=?1",
@@ -147,9 +202,8 @@ pub(super) async fn stamp(db: &Connection, session: SessionId) -> Result<Stamp, 
     Ok(Stamp {
         latest,
         latest_id,
-        turns,
-        members,
-        member_latest,
+        history_revision: crate::store::sessions::history_revision(db, session).await?,
+        tips,
         delegations,
         pricing: crate::store::providers::catalog::status(db).await?.revision,
         media,

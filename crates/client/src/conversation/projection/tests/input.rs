@@ -63,7 +63,7 @@ fn canonical_user_replaces_capture() {
         .unwrap();
     let current = projection.snapshot().unwrap();
     assert!(current.page.runs[0].input.is_none());
-    assert_eq!(current.page.entries, [entry]);
+    assert_eq!(current.page.entries.as_slice(), &[entry]);
     assert_eq!(
         super::super::super::turns::input(&current.page, run.turn)
             .unwrap()
@@ -237,7 +237,7 @@ fn groups_joined_inputs_before_their_response() {
     let page = Arc::make_mut(&mut snapshot.page);
     page.runs = vec![first.clone(), second.clone(), primary.clone()];
     for (index, run) in [&primary, &second, &first].into_iter().enumerate() {
-        page.entries.push(Entry {
+        std::sync::Arc::make_mut(&mut page.entries).push(Entry {
             sequence: index as u64 + 1,
             id: format!("batch-user-{index}"),
             turn: run.turn,
@@ -263,11 +263,14 @@ fn groups_joined_inputs_before_their_response() {
         "Earlier admitted guide"
     );
     assert!(turns::visible(&primary, page, &[]));
+    assert!(turns::visible_turns(page, &[]).contains(&primary.turn));
     assert!(!turns::visible(&first, page, &[]));
+    assert!(!turns::visible_turns(page, &[]).contains(&first.turn));
     assert_eq!(turns::owner(page, first.turn), primary.turn);
 
     page.runs.retain(|run| run.turn != primary.turn);
     assert!(turns::visible(&first, page, &[]));
+    assert!(turns::visible_turns(page, &[]).contains(&first.turn));
     assert_eq!(turns::owner(page, first.turn), first.turn);
     assert_eq!(
         turns::group(page, first.turn)

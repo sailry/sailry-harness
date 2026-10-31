@@ -168,7 +168,10 @@ async fn restores_loaded_content_after_compaction() {
         };
         let compacted = finished(&client, session.id, summary.id).await;
         assert_eq!(compacted.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(&compacted.entries[..before.entries.len()], before.entries);
+        assert_eq!(
+            &compacted.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
         let requests = compact.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 1);
         assert!(agent_support::compaction::is_summary(&requests[0]));

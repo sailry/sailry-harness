@@ -21,6 +21,8 @@ impl Host {
     pub(super) fn conversation_module(self: &Arc<Self>, module: HostModule) -> HostModule {
         let session = self.clone();
         let history = self.clone();
+        let runs = self.clone();
+        let run = self.clone();
         let send = self.clone();
         let stop = self.clone();
         let configure = self.clone();
@@ -47,6 +49,40 @@ impl Host {
                         .unwrap_or(20)
                         .try_into()
                         .map_err(|_| HostError::new("invalid history page limit"))?,
+                })
+            })
+            .async_function("readConversationRuns", move |args| {
+                runs.read_public(Command::ReadConversationRuns {
+                    session: runs.session()?,
+                    before: args
+                        .get(0)
+                        .and_then(HostValue::as_str)
+                        .map(str::parse::<TurnId>)
+                        .transpose()
+                        .map_err(HostError::new)?,
+                    limit: args
+                        .get(1)
+                        .map(|_| args.integer(1))
+                        .transpose()?
+                        .unwrap_or(100)
+                        .try_into()
+                        .map_err(|_| HostError::new("invalid run page limit"))?,
+                })
+            })
+            .async_function("readConversationRun", move |args| {
+                run.read_public(Command::ReadConversationRun {
+                    session: run.session()?,
+                    turn: args.string(0)?.parse().map_err(HostError::new)?,
+                    expected_revision: args
+                        .get(1)
+                        .filter(|value| !matches!(value, HostValue::Null))
+                        .map(|value| {
+                            value
+                                .as_str()
+                                .ok_or_else(|| HostError::new("revision must be a decimal string"))
+                                .and_then(revision)
+                        })
+                        .transpose()?,
                 })
             })
             .function("sendMessage", move |args| {

@@ -11,6 +11,7 @@ use crate::Client;
 #[derive(Clone, Default)]
 pub struct FileView {
     pub revision: u64,
+    pub references: u64,
     pub connected: bool,
     pub error: Option<Fault>,
 }
@@ -87,6 +88,7 @@ impl Client {
     ) -> Result<(), Fault> {
         let _closing = Closing(updates.clone());
         let mut revision = 0u64;
+        let mut references = 0u64;
         let mut delay = Duration::from_millis(250);
         loop {
             let stream = tokio::select! {
@@ -96,38 +98,53 @@ impl Client {
                 stream = self.transport.subscribe(topic.clone()) => stream,
             };
             let failure = match stream {
-                Ok(mut stream) => loop {
-                    let update = tokio::select! {
-                        biased;
-                        _ = stop.cancelled() => return Ok(()),
-                        _ = updates.closed() => return Ok(()),
-                        update = stream.next() => update,
-                    };
-                    match update {
-                        Ok(Update::FilesChanged {
-                            node,
-                            worktree: owner,
-                        }) if node == self.target() && owner == worktree => {
-                            revision = revision.checked_add(1).ok_or_else(|| {
-                                Fault::new(ErrorCode::Internal, "file view revision exhausted")
-                            })?;
-                            updates.send_replace(FileView {
-                                revision,
-                                connected: true,
-                                error: None,
-                            });
-                            delay = Duration::from_millis(250);
+                Ok(mut stream) => {
+                    let mut previous_references = None;
+                    loop {
+                        let update = tokio::select! {
+                            biased;
+                            _ = stop.cancelled() => return Ok(()),
+                            _ = updates.closed() => return Ok(()),
+                            update = stream.next() => update,
+                        };
+                        match update {
+                            Ok(Update::FilesChanged {
+                                node,
+                                worktree: owner,
+                                references: current_references,
+                            }) if node == self.target() && owner == worktree => {
+                                revision = revision.checked_add(1).ok_or_else(|| {
+                                    Fault::new(ErrorCode::Internal, "file view revision exhausted")
+                                })?;
+                                if previous_references != Some(current_references) {
+                                    references = references.checked_add(1).ok_or_else(|| {
+                                        Fault::new(
+                                            ErrorCode::Internal,
+                                            "repository revision exhausted",
+                                        )
+                                    })?;
+                                    previous_references = Some(current_references);
+                                }
+                                updates.send_replace(FileView {
+                                    revision,
+                                    references,
+                                    connected: true,
+                                    error: None,
+                                });
+                                delay = Duration::from_millis(250);
+                            }
+                            Ok(_) => {
+                                break Fault::invalid("unexpected file subscription update");
+                            }
+                            Err(error) => break error,
                         }
-                        Ok(_) => {
-                            break Fault::invalid("unexpected file subscription update");
-                        }
-                        Err(error) => break error,
                     }
-                },
+                }
                 Err(error) => error,
             };
             updates.send_replace(FileView {
                 revision,
+                references,
                 connected: false,
                 error: Some(failure.clone()),
             });

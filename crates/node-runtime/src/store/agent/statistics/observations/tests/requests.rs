@@ -470,3 +470,67 @@ async fn indexes_visible_rounds() {
         ]
     );
 }
+
+#[tokio::test]
+async fn advances_repeated_attempt_snapshots_exactly() {
+    let mut fixture = Fixture::new().await;
+    let turn = fixture.queued().await;
+    complete(&mut fixture, turn, [response()]).await;
+    let mut state = State::default();
+    let mut after = 0;
+    let mut request = Request {
+        id: RequestId::new().to_string(),
+        turn,
+        turn_index: None,
+        model: "fixture".into(),
+        context_limit: None,
+        timestamp_ms: 1,
+        boundary: None,
+        attempts: Vec::new(),
+    };
+    for attempts in [
+        vec![Attempt {
+            elapsed_us: None,
+            usage: None,
+            ..attempt(1, Outcome::Cancelled)
+        }],
+        vec![attempt(1, Outcome::Failed)],
+        vec![attempt(1, Outcome::Failed), attempt(2, Outcome::Succeeded)],
+        vec![attempt(2, Outcome::Succeeded)],
+    ] {
+        request.attempts = attempts;
+        let transaction = fixture
+            .database
+            .connection
+            .transaction_with_behavior(turso::transaction::TransactionBehavior::Concurrent)
+            .await
+            .unwrap();
+        history::insert(&transaction, fixture.session, turn, observed(&request))
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        let (summary, phased, next) =
+            advance(&fixture.database.connection, fixture.session, after, state)
+                .await
+                .unwrap();
+        assert_eq!(
+            (summary, phased),
+            canonical(&fixture.database.connection, fixture.session)
+                .await
+                .unwrap()
+        );
+        state = next;
+        after = fixture
+            .database
+            .connection
+            .query("SELECT max(sequence) FROM agent_events", ())
+            .await
+            .unwrap()
+            .next()
+            .await
+            .unwrap()
+            .unwrap()
+            .get::<i64>(0)
+            .unwrap();
+    }
+}

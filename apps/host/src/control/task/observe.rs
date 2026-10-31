@@ -204,7 +204,7 @@ async fn locate(
 
 fn text(page: &Page, turn: TurnId) -> String {
     let mut text = String::new();
-    for entry in &page.entries {
+    for entry in page.entries.iter() {
         if entry.turn != turn || entry.author == "user" {
             continue;
         }

@@ -70,7 +70,8 @@ async fn shares_idempotent_copy() {
                 .unwrap(),
             Update::FilesChanged {
                 node: fixture.node.id(),
-                worktree: fixture.worktree
+                worktree: fixture.worktree,
+                references: 0,
             }
         );
         drop(watch);

@@ -159,7 +159,7 @@ async fn rebuilds_shared_history() {
         .await
         .unwrap()
         .page;
-    assert_eq!(page.entries, before.entries[..2]);
+    assert_eq!(page.entries.as_slice(), &before.entries[..2]);
     assert_eq!(page.runs.len(), 2);
     assert!(
         page.runs
@@ -206,7 +206,7 @@ async fn rebuilds_shared_history() {
         .await
         .unwrap()
         .page;
-    assert_eq!(inherited.entries, before.entries[..1]);
+    assert_eq!(inherited.entries.as_slice(), &before.entries[..1]);
     assert_eq!(inherited.runs[0].origin, Some(original));
     let invocation = fixture.queued().await;
     let request = sessions::Query {

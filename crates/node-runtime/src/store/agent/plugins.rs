@@ -33,6 +33,8 @@ pub(in crate::store) async fn package(
                 | Command::ReadPluginConnection { .. }
                 | Command::ReadSession { .. }
                 | Command::ReadConversation { .. }
+                | Command::ReadConversationRuns { .. }
+                | Command::ReadConversationRun { .. }
                 | Command::ReadTurn { .. }
         )
     {

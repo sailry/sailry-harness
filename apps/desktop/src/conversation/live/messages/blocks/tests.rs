@@ -46,7 +46,8 @@ fn keeps_native_references_in_canonical_copy_source() {
                     usage: None,
                     citations: vec![],
                     search_suggestions: None,
-                }],
+                }]
+                .into(),
             }),
         })),
         ..View::default()
@@ -84,7 +85,7 @@ fn preserves_image_message_boundaries() {
             },
         })
     };
-    let entries = [
+    let entries: Vec<_> = [
         vec![image(0), image(1)],
         vec![image(2), Part::Text("Between".into()), image(3)],
     ]
@@ -121,7 +122,7 @@ fn preserves_image_message_boundaries() {
                 children: vec![],
                 background: Vec::new(),
                 runs: vec![],
-                entries,
+                entries: entries.into(),
             }),
         })),
         ..View::default()
@@ -204,7 +205,8 @@ fn retains_text_boundaries() {
                     usage: None,
                     citations: vec![],
                     search_suggestions: None,
-                }],
+                }]
+                .into(),
             }),
         })),
         calls: Arc::new(vec![
@@ -254,7 +256,8 @@ fn retains_text_boundaries() {
     assert!(matches!(&blocks[4], Block::Compaction(_, "Summary")));
     drop(blocks);
     let snapshot = Arc::make_mut(history.snapshot.as_mut().unwrap());
-    Arc::make_mut(&mut snapshot.page).entries[0].parts[2] = Part::Text(" \n\t".into());
+    Arc::make_mut(&mut Arc::make_mut(&mut snapshot.page).entries)[0].parts[2] =
+        Part::Text(" \n\t".into());
     snapshot.drafts.push(sailry_protocol::conversation::Draft {
         id: "blank".into(),
         turn,
@@ -293,7 +296,7 @@ fn retains_text_boundaries() {
     }
     let snapshot = Arc::make_mut(history.snapshot.as_mut().unwrap());
     let page = Arc::make_mut(&mut snapshot.page);
-    page.entries[0].parts = vec![
+    std::sync::Arc::make_mut(&mut page.entries)[0].parts = vec![
         Part::Thinking("Think ".into()),
         Part::Thinking("together".into()),
         Part::Text("SA".into()),
@@ -308,7 +311,7 @@ fn retains_text_boundaries() {
         Part::Resource(serde_json::json!({"type":"provider_context"})),
         Part::Text("Separate response".into()),
     ];
-    page.entries.push(next);
+    std::sync::Arc::make_mut(&mut page.entries).push(next);
     let blocks = collect(turn, &history);
     assert_eq!(blocks.len(), 3);
     assert!(matches!(&blocks[0], Block::Thinking(_, text) if text == "Think together"));

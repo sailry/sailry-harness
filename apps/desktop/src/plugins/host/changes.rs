@@ -35,6 +35,8 @@ struct State {
     connected: bool,
     entry: u64,
     visible: bool,
+    terminal_tools: u64,
+    references: u64,
 }
 
 impl Default for State {
@@ -45,6 +47,8 @@ impl Default for State {
             connected: false,
             entry: 0,
             visible: true,
+            terminal_tools: 0,
+            references: 0,
         }
     }
 }
@@ -62,12 +66,15 @@ impl State {
         (self.updated[scope as usize].unwrap_or(first) + DEBOUNCE).min(first + MAX_WAIT)
     }
 
-    fn value(&self, cursor: String) -> HostValue {
+    fn value(&self, cursor: String, scope: Scope) -> HostValue {
         HostObject::new()
             .field("cursor", cursor)
+            .field("revision", self.cursors[scope as usize].to_string())
             .field("connected", self.connected)
             .field("entry", self.entry.to_string())
             .field("visible", self.visible)
+            .field("terminal_tools", self.terminal_tools.to_string())
+            .field("references", self.references.to_string())
             .into()
     }
 }
@@ -94,6 +101,17 @@ impl Changes {
 }
 
 impl Host {
+    pub(in crate::plugins) fn observe_reads(&self, reads: sailry_client::ReadCursors) {
+        self.changes.state.send_if_modified(|state| {
+            let revision = reads.terminal_tools();
+            if state.terminal_tools == revision {
+                return false;
+            }
+            state.terminal_tools = revision;
+            true
+        });
+    }
+
     pub(in crate::plugins) fn observe(
         &self,
         cursor: u64,
@@ -186,6 +204,7 @@ impl Host {
                         .map(|files| {
                             let value = files.borrow_and_update().clone();
                             state.connected &= value.connected;
+                            state.references = value.references;
                             value.revision
                         })
                         .unwrap_or(0);
@@ -203,12 +222,12 @@ impl Host {
                             != Some(state.suffix().as_str());
                     let deadline = if cursor != seen && (state.visible || urgent) {
                         if urgent {
-                            return Ok(state.value(cursor));
+                            return Ok(state.value(cursor, scope));
                         }
                         let deadline =
                             state.deadline(scope, *first.get_or_insert_with(Instant::now));
                         if Instant::now() >= deadline {
-                            return Ok(state.value(cursor));
+                            return Ok(state.value(cursor, scope));
                         }
                         Some(deadline)
                     } else {
