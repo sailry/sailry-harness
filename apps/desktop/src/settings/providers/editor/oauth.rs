@@ -80,7 +80,7 @@ impl Fields {
 }
 
 impl Editor {
-    pub(super) fn oauth_form(&self, window: &Window, cx: &Context<Self>) -> impl IntoElement {
+    pub(super) fn oauth_form(&self, cx: &Context<Self>) -> impl IntoElement {
         let fields: &[(&str, &str, &Entity<InputState>)] = match self.preset {
             Preset::ChatGptOAuth => &[
                 (
@@ -137,44 +137,8 @@ impl Editor {
             .open(self.oauth.expanded)
             .gap_3()
             .child(
-                gpui_kit::base::AccordionTrigger::new("provider-oauth-advanced")
-                    .debug_selector(|| "provider-oauth-advanced".into())
-                    .open(self.oauth.expanded)
-                    .w_full()
-                    .h_8()
-                    .h_flex()
-                    .justify_start()
-                    .gap_2()
-                    .text_sm()
-                    .rounded(cx.theme().radius)
-                    .aria_label(tr("provider_oauth_advanced"))
-                    .when(!self.pending, |trigger| {
-                        trigger.track_focus(&self.oauth.focus)
-                    })
-                    .when(
-                        self.oauth.focus.is_focused(window) && !self.pending,
-                        |trigger| trigger.focus_ring_style(window, cx),
-                    )
-                    .when(self.pending, |trigger| {
-                        trigger
-                            .text_color(cx.theme().muted_foreground)
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    })
-                    .disabled(self.pending)
-                    .child(
-                        Icon::new(if self.oauth.expanded {
-                            IconName::ChevronDown
-                        } else {
-                            IconName::ChevronRight
-                        })
-                        .small(),
-                    )
-                    .child(
-                        div()
-                            .debug_selector(|| "provider-oauth-advanced-label".into())
-                            .child(tr("provider_oauth_advanced")),
-                    )
-                    // Dialog consumes Enter as Confirm before native trigger key-up.
+                // Dialog consumes Enter as Confirm before the button's native key-up.
+                h_flex()
                     .on_action(cx.listener(|editor, _: &Confirm, _, cx| {
                         cx.stop_propagation();
                         if editor.pending {
@@ -183,17 +147,26 @@ impl Editor {
                         editor.oauth.expanded = !editor.oauth.expanded;
                         cx.notify();
                     }))
-                    .on_change({
-                        let editor = cx.entity().downgrade();
-                        move |expanded, _, _, cx| {
-                            let _ = editor.update(cx, |editor, cx| {
-                                if !editor.pending {
-                                    editor.oauth.expanded = expanded;
-                                    cx.notify();
+                    .child(
+                        Button::new("provider-oauth-advanced")
+                            .debug_selector(|| "provider-oauth-advanced".into())
+                            .text()
+                            .label(tr("provider_oauth_advanced"))
+                            .icon(if self.oauth.expanded {
+                                IconName::ChevronDown
+                            } else {
+                                IconName::ChevronRight
+                            })
+                            .track_focus(&self.oauth.focus)
+                            .disabled(self.pending)
+                            .on_click(cx.listener(|editor, _, _, cx| {
+                                if editor.pending {
+                                    return;
                                 }
-                            });
-                        }
-                    }),
+                                editor.oauth.expanded = !editor.oauth.expanded;
+                                cx.notify();
+                            })),
+                    ),
             )
             .content(form)
     }

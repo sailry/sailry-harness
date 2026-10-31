@@ -616,9 +616,7 @@ impl Render for Editor {
                         .on_click(move |_, _, cx| cx.open_url(&url)),
                 )
             })
-            .when(self.preset.oauth(), |body| {
-                body.child(self.oauth_form(window, cx))
-            })
+            .when(self.preset.oauth(), |body| body.child(self.oauth_form(cx)))
             .child(
                 h_flex()
                     .items_center()

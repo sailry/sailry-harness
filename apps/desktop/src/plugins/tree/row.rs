@@ -271,9 +271,10 @@ fn checkbox(
         .accessibility_label(check.label)
         .debug_selector(move || id.clone())
         .rounded(cx.theme().radius * 0.5)
-        .when(focus.is_focused(window), |checkbox| {
-            checkbox.focus_ring_style(window, cx)
-        })
+        .when(
+            focus.is_focused(window) && window.last_input_was_keyboard(),
+            |checkbox| checkbox.focus_ring_style(window, cx),
+        )
         .child(
             div()
                 .size_3p5()
