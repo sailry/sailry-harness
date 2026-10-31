@@ -316,7 +316,7 @@ async fn wait_closed(stream: &mut TcpStream, closed: &tokio::sync::Notify) -> st
     Ok(())
 }
 
-fn response_events(tool: bool, streaming: bool, index: usize) -> Vec<serde_json::Value> {
+pub(super) fn response_events(tool: bool, streaming: bool, index: usize) -> Vec<serde_json::Value> {
     let output = if tool {
         json!([
             {"type":"reasoning", "id":"reasoning", "summary":[{"type":"summary_text","text":"Read the file"}],"encrypted_content":"fixture-encrypted-reasoning"},

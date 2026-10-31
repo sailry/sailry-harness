@@ -22,6 +22,8 @@ mod progress;
 mod prompt;
 #[path = "native/reasoning.rs"]
 mod reasoning;
+#[path = "native/replay.rs"]
+mod replay;
 #[path = "native/search_assistant.rs"]
 mod search_assistant;
 #[path = "../../support/search/mcp.rs"]

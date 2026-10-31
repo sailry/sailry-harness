@@ -23,6 +23,7 @@ use std::time::Instant;
 
 pub(super) struct Model {
     inner: Arc<dyn GdkProvider>,
+    owner: String,
     ingress: Arc<Ingress>,
     turn: TurnId,
     session: SessionId,
@@ -47,6 +48,7 @@ impl Model {
         observation::install();
         Arc::new(Self {
             inner,
+            owner: format!("sailry:{}", invocation.turn.config.provider),
             ingress: ingress.clone(),
             turn: invocation.turn.id,
             session: invocation.turn.session,
@@ -84,13 +86,20 @@ impl Model {
 #[async_trait]
 impl GdkProvider for Model {
     fn get_name(&self) -> &str {
-        self.inner.get_name()
+        // GDK persists this owner with signed thinking and checks it before replay.
+        &self.owner
     }
     fn manages_own_context(&self) -> bool {
         self.inner.manages_own_context()
     }
     async fn get_context_limit(&self, model: &str, limit: Option<usize>) -> usize {
         self.inner.get_context_limit(model, limit).await
+    }
+    async fn fetch_model_info(
+        &self,
+        model: &str,
+    ) -> Result<goose_provider_types::base::ModelInfo, ProviderError> {
+        self.inner.fetch_model_info(model).await
     }
     async fn stream(
         &self,

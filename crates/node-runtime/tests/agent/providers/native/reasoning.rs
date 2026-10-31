@@ -1,24 +1,26 @@
 use super::*;
 
 #[tokio::test]
-async fn omits_encrypted_replay() {
+async fn requests_encrypted_reasoning_by_capability() {
     for remote in [false, true] {
-        for (known, catalog, effort, include) in [
-            (Some(false), false, Effort::Default, false),
-            (None, false, Effort::Default, false),
-            (None, false, Effort::High, true),
-            (Some(true), true, Effort::Disabled, true),
-            (None, true, Effort::Disabled, true),
+        for (known, catalog, effort, model, include) in [
+            (Some(false), false, Effort::Default, "gpt-6-fixture", false),
+            (None, false, Effort::Default, "gpt-4o", false),
+            (None, false, Effort::High, "gpt-6-fixture", true),
+            (None, false, Effort::High, "unknown-fixture", false),
+            (
+                Some(true),
+                true,
+                Effort::Disabled,
+                "reasoning-fixture",
+                true,
+            ),
+            (None, true, Effort::Disabled, "reasoning-fixture", true),
         ] {
             let server = Server::start(ModelApi::Responses, Reply::Text).await;
             let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let mut provider = current.provider.clone();
-            let model = if include {
-                "reasoning-fixture"
-            } else {
-                "gpt-4o"
-            }
-            .to_owned();
+            let model = model.to_owned();
             provider.models[0].id = model.clone();
             provider.default_model = model.clone();
             provider.models[0].reasoning = catalog;
@@ -70,7 +72,14 @@ async fn omits_encrypted_replay() {
                 let requests = server.requests.lock().unwrap();
                 assert_eq!(requests.len(), 1);
                 let body = &requests[0].body;
-                assert!(body.get("include").is_none());
+                if include {
+                    assert_eq!(
+                        body["include"],
+                        serde_json::json!(["reasoning.encrypted_content"])
+                    );
+                } else {
+                    assert!(body.get("include").is_none());
+                }
                 assert!(body.get("previous_response_id").is_none());
             }
             current.controller.close().await.unwrap();

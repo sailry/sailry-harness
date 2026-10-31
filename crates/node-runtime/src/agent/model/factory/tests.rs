@@ -124,7 +124,17 @@ async fn responses_use_sse_and_stable_calls() {
         assert_eq!(request.body["prompt_cache_key"], session.to_string());
         assert!(request.body.get("tool_choice").is_none());
         assert!(request.body.get("previous_response_id").is_none());
-        assert!(!request.body.to_string().contains("encrypted_content"));
+        assert_eq!(
+            request.body["include"],
+            json!(["reasoning.encrypted_content"])
+        );
+        assert!(
+            request.body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["type"] != "reasoning")
+        );
     }
     let input = requests[1].body["input"].as_array().unwrap();
     assert!(
