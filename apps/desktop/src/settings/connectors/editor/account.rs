@@ -1,6 +1,6 @@
 //! The local CLI account a connector binds, presented as a one-row selection list.
 use super::*;
-use gpui_kit::component::{avatar::Avatar, radio::Radio};
+use gpui_kit::component::{avatar::Avatar, radio::Radio, skeleton::Skeleton};
 
 const ROW_HEIGHT: f32 = 52.;
 // Kit's standard small avatar; custom pixel sizes do not center its initials.
@@ -61,6 +61,34 @@ pub(super) fn list(identity: Option<&connector::Identity>, cx: &App) -> AnyEleme
                     .child(tr("connector_not_connected")),
             ),
     };
+    frame(row, cx)
+}
+
+/// Holds the account row's place while the Node inspects the local CLI.
+pub(super) fn loading(cx: &App) -> AnyElement {
+    let row = h_flex()
+        .w_full()
+        .h(px(ROW_HEIGHT))
+        .px_3p5()
+        .gap_3()
+        .items_center()
+        .child(
+            Skeleton::new()
+                .size(px(AVATAR_SIZE))
+                .flex_shrink_0()
+                .rounded_full(),
+        )
+        .child(
+            v_flex()
+                .gap_1()
+                .child(Skeleton::new().h_3().w(px(120.)).rounded_sm())
+                .child(Skeleton::new().secondary().h_2p5().w(px(80.)).rounded_sm()),
+        );
+    frame(row, cx)
+}
+
+fn frame(row: impl IntoElement, cx: &App) -> AnyElement {
+    let theme = cx.theme();
     div()
         .w_full()
         .bg(theme.colors.list)

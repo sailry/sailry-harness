@@ -545,19 +545,32 @@ impl Editor {
             self.field_form(kind)
         } else {
             match auth {
+                Auth::LocalCli { .. } if self.inspecting => account::loading(cx),
                 Auth::LocalCli { .. } => v_flex()
                     .gap_3()
-                    .when(!self.inspecting, |element| {
-                        element
-                            .when(self.cli.is_some(), |element| {
-                                element.child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(tr("connector_choose_account")),
-                                )
-                            })
-                            .child(account::list(self.cli.as_ref(), cx))
+                    .when(self.cli.is_some(), |element| {
+                        element.child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(tr("connector_choose_account")),
+                        )
+                    })
+                    .child(account::list(self.cli.as_ref(), cx))
+                    .when(self.cli.is_none(), |element| {
+                        element.child(
+                            h_flex().justify_end().child(
+                                Button::new("connector-account-retry")
+                                    .ghost()
+                                    .small()
+                                    .label(tr("chat_retry"))
+                                    .disabled(self.pending || self.request.is_some())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.inspect(window, cx);
+                                        cx.notify();
+                                    })),
+                            ),
+                        )
                     })
                     .into_any_element(),
                 Auth::McpOauth { client: None, .. }
