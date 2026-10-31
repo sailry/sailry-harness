@@ -35,6 +35,9 @@ impl Shell {
                 );
             }
         }
+        let workspace = self
+            .page
+            .workspace_visible(self.terminal_workspace_visible(cx));
         let visibility: Vec<_> = self
             .chats
             .controllers()
@@ -46,10 +49,7 @@ impl Shell {
                     .map_or(crate::panes::Target::Draft, |session| {
                         crate::panes::Target::Session(view.binding().client.target(), session)
                     });
-                (
-                    chat.clone(),
-                    self.page == Page::Conversation && dock.displayed(target, cx),
-                )
+                (chat.clone(), workspace && dock.displayed(target, cx))
             })
             .collect();
         for (chat, visible) in visibility {
@@ -57,10 +57,9 @@ impl Shell {
         }
         let dock = self.splits.read(cx);
         for (target, panel) in &self.plugin_panes.panels {
-            panel.read(cx).set_visible(
-                matches!(self.page, Page::Conversation | Page::Terminal)
-                    && dock.displayed(*target, cx),
-            );
+            panel
+                .read(cx)
+                .set_visible(workspace && dock.displayed(*target, cx));
         }
     }
 }

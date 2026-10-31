@@ -210,8 +210,9 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let visible = self.page == Page::Conversation
-            || self.page == Page::Terminal && self.terminal_workspace_visible(cx);
+        let visible = self
+            .page
+            .workspace_visible(self.terminal_workspace_visible(cx));
         self.release_plugin_pane(target);
         if let Target::Session(node, id) = target
             && self.splits.read(cx).contains(target)

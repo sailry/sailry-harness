@@ -573,10 +573,11 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let active = (self.page == Page::Conversation
-            || self.page == Page::Terminal && self.terminal_workspace_visible(cx))
-        .then(|| self.splits.read(cx).active)
-        .flatten();
+        let active = self
+            .page
+            .workspace_visible(self.terminal_workspace_visible(cx))
+            .then(|| self.splits.read(cx).active)
+            .flatten();
         self.clear_plugin_focus(active, cx);
         if let Some(live) = &self.live
             && live.view.connected

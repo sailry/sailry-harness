@@ -76,6 +76,11 @@ impl Page {
         }
     }
 
+    /// Terminal focus can keep conversations visible in the same split workspace.
+    pub(crate) fn workspace_visible(self, terminal_workspace: bool) -> bool {
+        self == Self::Conversation || self == Self::Terminal && terminal_workspace
+    }
+
     pub fn panel_index(self) -> usize {
         match self {
             Self::Files => 1,
@@ -207,6 +212,42 @@ mod panel_visibility {
         };
         assert!(!layout.panel_visible(Page::Git, 1235.));
         assert!(layout.panel_visible(Page::Git, 1236.));
+    }
+}
+
+#[cfg(test)]
+mod workspace_visibility {
+    use super::*;
+
+    #[test]
+    fn preserves_split_on_terminal_focus() {
+        for (page, terminal_workspace) in [
+            (Page::Conversation, false),
+            (Page::Terminal, true),
+            (Page::Conversation, false),
+        ] {
+            assert!(page.workspace_visible(terminal_workspace), "{page:?}");
+        }
+    }
+
+    #[test]
+    fn hides_inactive_terminal_workspaces() {
+        assert!(!Page::Terminal.workspace_visible(false));
+    }
+
+    #[test]
+    fn hides_other_pages() {
+        for page in Page::ALL
+            .into_iter()
+            .chain([Page::Plugin, Page::Notifications])
+        {
+            if matches!(page, Page::Conversation | Page::Terminal) {
+                continue;
+            }
+            for terminal_workspace in [false, true] {
+                assert!(!page.workspace_visible(terminal_workspace), "{page:?}");
+            }
+        }
     }
 }
 
