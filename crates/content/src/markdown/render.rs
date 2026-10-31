@@ -1659,10 +1659,10 @@ fn code_block(
                             .map(str::to_owned)
                             .unwrap_or_else(|| cx.global::<crate::Labels>().plain.to_string()),
                     )),
-                ),
+                )
+                .child(copy_button(code, ix, cx)),
         )
         .child(body)
-        .child(copy_button(code, ix, cx))
         .into_any_element()
 }
 
@@ -1714,8 +1714,11 @@ fn copy_button(code: &str, ix: usize, cx: &App) -> AnyElement {
     div()
         .id(ElementId::named_usize("md-copy-control", ix))
         .absolute()
-        .top(px(3.0))
+        .top_0()
+        .bottom_0()
         .right(px(5.0))
+        .flex()
+        .items_center()
         .on_click(|_, _, cx| cx.stop_propagation())
         .child(
             Clipboard::new(ElementId::named_usize("md-copy", ix))
