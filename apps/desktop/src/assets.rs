@@ -167,6 +167,33 @@ gpui_kit::assets::icon_assets!(
     ]
 );
 
+// Plugins may name any bundled Lucide icon, which the full catalog serves. In
+// debug builds that catalog reads checkout files, so keep the editor icons
+// outside Kit's default set embedded for portable development packages.
+gpui_kit::assets::icon_assets!(
+    ContentAssets,
+    [
+        Bold,
+        Italic,
+        Strikethrough,
+        ListOrdered,
+        ListChecks,
+        Quote,
+        Table,
+        TextWrap,
+        CodeXml,
+        Image,
+        ImagePlus,
+        SeparatorHorizontal,
+        SquareCode,
+        Workflow,
+        Sigma,
+        ChartBar,
+        FileCode,
+        X
+    ]
+);
+
 pub(crate) const DRAG_ICON: &str = "icons/reicon/move.svg";
 
 // Kit b79f4ce has no file-diff or Git status glyphs. These product SVGs use
@@ -561,12 +588,16 @@ impl AssetSource for Assets {
         if let Some(bytes) = ComponentAssets.load(path)? {
             return Ok(Some(bytes));
         }
-        gpui_kit::assets::Assets.load(path)
+        if let Some(bytes) = ContentAssets.load(path)? {
+            return Ok(Some(bytes));
+        }
+        gpui_kit::assets::AllAssets.load(path)
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        let mut names = gpui_kit::assets::Assets.list(path)?;
+        let mut names = gpui_kit::assets::AllAssets.list(path)?;
         names.extend(ComponentAssets.list(path)?);
+        names.extend(ContentAssets.list(path)?);
         names.extend(ActivityAssets.list(path)?);
         names.extend(UsageAssets.list(path)?);
         names.extend(SettingsAssets.list(path)?);
@@ -644,6 +675,43 @@ mod tests {
             assert_eq!(Assets.load(path).unwrap().unwrap(), expected);
             assert!(names.iter().any(|name| name.as_ref() == path));
         }
+    }
+
+    #[test]
+    fn content_icons() {
+        let names = Assets.list("icons/").unwrap();
+        for path in [
+            "icons/bold.svg",
+            "icons/italic.svg",
+            "icons/strikethrough.svg",
+            "icons/list-ordered.svg",
+            "icons/list-checks.svg",
+            "icons/quote.svg",
+            "icons/table.svg",
+            "icons/text-wrap.svg",
+            "icons/code-xml.svg",
+            "icons/image.svg",
+            "icons/image-plus.svg",
+            "icons/separator-horizontal.svg",
+            "icons/square-code.svg",
+            "icons/workflow.svg",
+            "icons/sigma.svg",
+            "icons/chart-bar.svg",
+            "icons/file-code.svg",
+            "icons/x.svg",
+        ] {
+            assert_eq!(
+                Assets.load(path).unwrap().unwrap(),
+                ContentAssets.load(path).unwrap().unwrap()
+            );
+            assert!(names.iter().any(|name| name.as_ref() == path));
+        }
+    }
+
+    #[test]
+    fn catalog_icons() {
+        assert!(Assets.load("icons/heading-1.svg").unwrap().is_some());
+        assert!(Assets.load("icons/missing-icon.svg").is_err());
     }
 
     #[test]
