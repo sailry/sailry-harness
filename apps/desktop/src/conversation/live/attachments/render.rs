@@ -270,6 +270,7 @@ pub(in crate::conversation::live) fn source_links(
                                 gallery.clone(),
                                 index,
                                 gallery.len() > 1,
+                                true,
                                 cx,
                             ))
                             .into_any_element()

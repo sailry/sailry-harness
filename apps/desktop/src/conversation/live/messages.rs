@@ -202,6 +202,7 @@ impl View {
                                 gallery,
                                 index,
                                 urls.len() > 1,
+                                true,
                                 cx,
                             ))
                             .into_any_element();
