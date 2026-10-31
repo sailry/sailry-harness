@@ -9,6 +9,15 @@
 - External reference worktrees are read-only unless the user explicitly authorizes changes. Use reviewed, committed source as the reference; never import mixed working-tree experiments wholesale.
 - When current library APIs are needed, follow the repository's Context7 instructions and verify examples against the exact pinned dependency revision.
 
+## Agent delegation
+
+- The primary agent coordinates, delegates, and integrates work, and runs consolidated runtime tests.
+- Parallelize independent tasks with disjoint file ownership. Use isolated worktrees when changes conflict.
+- Review and audit subagents use `gpt-6-astra` with `xhigh` reasoning.
+- Development and execution subagents inherit the primary agent's current model.
+- Implementation subagents perform only static checks and self-review.
+- Do not run a standalone build or Clippy after tests unless the user explicitly requests it.
+
 ## Scope and sequence
 
 - Before implementation, map the change to the user's authorized task. Complete that task against its stated acceptance criteria. Instructions to continue or finish all tasks preserve this scope. Unlisted work must be a demonstrated prerequisite or blocking defect for the active task; optional improvements, speculative hardening, historical discoveries, and later-phase work must not become new completion gates.
