@@ -103,7 +103,15 @@ impl Turn {
         input["tools"] = json!(tools);
         input["project"] = json!(invocation.project);
         input["resources"] = json!(resources);
-        let result = owner.evaluate(policy.initialize.clone(), input).await?;
+        let call = super::identity::call(
+            invocation.turn.id,
+            &owner.context.package,
+            "turn.initialize",
+            &policy.initialize,
+        )?;
+        let result = owner
+            .evaluate(policy.initialize.clone(), input, Some(call))
+            .await?;
         let result: Selection = serde_json::from_value(result)
             .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin turn selection"))?;
         result.validate(&tools)?;
@@ -133,7 +141,13 @@ impl Turn {
         }))
     }
 
-    async fn evaluate(self: &Arc<Self>, handler: String, input: Value) -> Result<Value, Fault> {
+    /// A hook's stable identity lets it write private package storage once per evaluation.
+    async fn evaluate(
+        self: &Arc<Self>,
+        handler: String,
+        input: Value,
+        call: Option<sailry_protocol::RequestId>,
+    ) -> Result<Value, Fault> {
         if serde_json::to_vec(&input)
             .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin turn input"))?
             .len()
@@ -158,7 +172,7 @@ impl Turn {
                 .plugins
                 .read_host(&owner.package, owner.stop.clone())?;
             let state = Arc::new(Mutex::new(crate::plugins::script::execution::State {
-                call_id: None,
+                call_id: call,
                 mode: owner.mode,
                 read_only: false,
                 turn: Some(current.clone()),
@@ -241,14 +255,31 @@ impl Operation<RuntimeSession, Effect> for Observer {
                     .map(|call| (request.id.as_str(), call.name.as_ref()))
             })
             .collect();
-        let results: Vec<_> = conversation
+        let responses: Vec<_> = conversation
             .messages()
             .iter()
             .flat_map(|message| &message.content)
-            .filter_map(|block| {
-                let MessageContentBlock::ToolResponse(response) = block else {
-                    return None;
-                };
+            .filter_map(|block| match block {
+                MessageContentBlock::ToolResponse(response) => Some(response),
+                _ => None,
+            })
+            .collect();
+        // The newest result identifies this observation across replays.
+        let call = responses
+            .last()
+            .zip(self.owner.context.turn)
+            .map(|(response, turn)| {
+                super::identity::call(
+                    turn,
+                    &self.owner.context.package,
+                    "turn.before_model",
+                    response.id.as_str(),
+                )
+            })
+            .transpose()?;
+        let results: Vec<_> = responses
+            .into_iter()
+            .filter_map(|response| {
                 let name = self.owner.names.get(*calls.get(response.id.as_str())?)?;
                 let value = match &response.tool_result {
                     Ok(result) => result
@@ -262,7 +293,7 @@ impl Operation<RuntimeSession, Effect> for Observer {
             .collect();
         let result = self
             .owner
-            .evaluate(self.handler.clone(), json!({"results":results}))
+            .evaluate(self.handler.clone(), json!({"results":results}), call)
             .await?;
         if result.get("stop").and_then(Value::as_bool) == Some(true) {
             self.completion.store(true, Ordering::Release);

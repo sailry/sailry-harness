@@ -781,6 +781,23 @@ select that mode.
 
 Tools can bind public operations (`progress.update`, `storage.get/list/set/delete`, `settings.read`, `http.request`, `artifacts.write/read/list`) without an MCP server. Declare each operation's required action. Node owns approval, planning restrictions, cancellation and durable outcomes; a desktop JavaScript callback is not an Agent tool implementation.
 
+The main agent starts with everyday workspace tools; other package tools stay
+discoverable through `tool_search`. A tool can declare `"initial": true` to start
+visible as well. It is accepted only for tools whose effects stay inside the
+package: a handler declaring `read_only`, or tools whose declared operations are
+all `storage.*` operations. MCP tools and tools with file, process, network or
+other external operations reject it. Delegated agents and role tool selections
+keep their own rules.
+
+A `host.turn.initialize` hook receives the turn's user text as `message` when the
+package declares `conversation.message.read`. It contains only the text, without
+attachments or references, capped at 4 KiB of UTF-8 on a character boundary. It is
+`null` for automatic, notice and delegated turns and for empty text. Turn hooks
+can write the package's private storage with an identity derived from the turn
+(`initialize`) or the newest observed tool result (`before_model`), so a replayed
+evaluation reuses its request. Planning turns still reject these writes; treat
+any write failure as optional and continue.
+
 Packages that submit automatic input with `ContinueTurn` can declare
 `continuation_marker` in `extensions.dev.sailry.platform`, using a localized
 `label` and optional `locales` map. Node captures the package reference and marker

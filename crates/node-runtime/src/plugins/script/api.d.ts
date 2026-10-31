@@ -4,8 +4,9 @@ export type Entry = { key: string; revision: string; value: Json; present: boole
 /** Opaque private state follows visible conversation history. Restoration does not authorize execution. */
 export type ConversationEntry = Entry & { restored: boolean };
 /** Turn initialization receives the admitted configuration, never live session defaults.
- * config is null unless the package declares conversation.read. */
-export type TurnInput = { project: string | null; tools: string[]; mode: "plan" | "code"; config: Json; options: Record<string, Json>; session_revision: string | null };
+ * config is null unless the package declares conversation.read. message is the user's text,
+ * capped at 4 KiB UTF-8, and null unless the package declares conversation.message.read. */
+export type TurnInput = { project: string | null; tools: string[]; mode: "plan" | "code"; config: Json; options: Record<string, Json>; session_revision: string | null; message: string | null };
 export function context(): Json;
 /** Registered projects and worktrees only; requires projects.read and an unscoped context. */
 export function readProjectCatalog(): Promise<Json>;

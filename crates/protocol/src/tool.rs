@@ -72,6 +72,9 @@ pub struct Declaration {
     pub contexts: Vec<crate::plugin::conversation::Resource>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub platform_descriptions: std::collections::BTreeMap<String, String>,
+    /// Starts visible to the main agent; limited to read-only or package-storage tools.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -471,6 +474,34 @@ impl Declaration {
             .or(self.description.as_deref())
     }
 
+    /// Effects stay inside the package's own storage, so no approval is bypassed.
+    fn contained(&self) -> bool {
+        let mut operations = self
+            .operation
+            .into_iter()
+            .chain(self.handler.iter().flat_map(|handler| {
+                handler.operation.into_iter().chain(
+                    handler
+                        .flow
+                        .iter()
+                        .flat_map(|flow| flow.operations.iter().copied()),
+                )
+            }));
+        let storage = operations.all(|operation| {
+            matches!(
+                operation.action(),
+                Some(crate::plugin::Action::ReadStorage | crate::plugin::Action::WriteStorage)
+            )
+        });
+        // Plain handlers without declared operations must also declare read-only.
+        self.server.is_none()
+            && storage
+            && (self.operation.is_some()
+                || self.handler.as_ref().is_some_and(|handler| {
+                    handler.read_only || handler.operation.is_some() || handler.flow.is_some()
+                }))
+    }
+
     pub fn valid(&self) -> bool {
         self.handler.as_ref().is_none_or(|handler| {
             crate::plugin::host::valid_handler(&handler.name)
@@ -571,6 +602,66 @@ impl Declaration {
                     && (self.operation != Some(Operation::Progress)
                         || self.presentation == Presentation::Progress)
             })
+            && (!self.initial || self.contained())
+    }
+}
+
+#[cfg(test)]
+mod initial_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn tool(handler: serde_json::Value) -> Declaration {
+        serde_json::from_value(
+            json!({"name":"recall","description":"Recall","initial":true,"handler":handler}),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn accepts_contained_effects() {
+        for handler in [
+            json!({"name":"search","parameters":{"type":"object"},"read_only":true}),
+            json!({"name":"save","parameters":{"type":"object"},"flow":{"operations":["storage.transaction"]}}),
+            json!({"name":"read","parameters":{"type":"object"},"operation":"storage.get"}),
+        ] {
+            assert!(tool(handler).valid());
+        }
+        let native: Declaration =
+            serde_json::from_value(json!({"name":"get","operation":"storage.get","initial":true}))
+                .unwrap();
+        assert!(native.valid());
+    }
+
+    #[test]
+    fn rejects_external_effects() {
+        for handler in [
+            json!({"name":"plain","parameters":{"type":"object"}}),
+            json!({"name":"write","parameters":{"type":"object"},"flow":{"operations":["storage.transaction","files.write"]}}),
+            json!({"name":"fetch","parameters":{"type":"object"},"read_only":true,"operation":"http.request"}),
+            json!({"name":"run","parameters":{"type":"object"},"flow":{"operations":["process.run"]}}),
+            json!({"name":"read","parameters":{"type":"object"},"read_only":true,"operation":"files.read"}),
+        ] {
+            assert!(!tool(handler).valid());
+        }
+        let server: Declaration =
+            serde_json::from_value(json!({"name":"remote","server":"docs","initial":true}))
+                .unwrap();
+        assert!(!server.valid());
+    }
+
+    #[test]
+    fn defaults_to_deferred() {
+        let value = json!({"name":"search","description":"Search","handler":{"name":"search","parameters":{"type":"object"},"read_only":true}});
+        let declaration: Declaration = serde_json::from_value(value.clone()).unwrap();
+        assert!(!declaration.initial);
+        assert_eq!(
+            serde_json::to_value(&declaration).unwrap().get("initial"),
+            None
+        );
+        let mut value = value;
+        value["initial"] = json!("true");
+        assert!(serde_json::from_value::<Declaration>(value).is_err());
     }
 }
 

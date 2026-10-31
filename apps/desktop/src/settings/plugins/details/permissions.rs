@@ -58,6 +58,7 @@ pub(super) fn label(action: &Action) -> &'static str {
         Action::ControlTerminals => "market_permission_terminals_control",
         Action::ReadConversation => "market_permission_conversation_read",
         Action::ControlConversation => "market_permission_conversation_control",
+        Action::ReadMessage => "market_permission_conversation_message_read",
         Action::StartSessions => "market_permission_sessions_start",
         Action::ReadProjects => "market_permission_projects_read",
         Action::Http => "market_permission_http_request",

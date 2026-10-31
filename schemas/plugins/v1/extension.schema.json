@@ -59,6 +59,7 @@
             "terminals.control",
             "conversation.read",
             "conversation.control",
+            "conversation.message.read",
             "projects.read",
             "http.request",
             "web.read",
@@ -1307,6 +1308,10 @@
             }
           ],
           "description": "A named export from the package's bounded headless entry."
+        },
+        "initial": {
+          "description": "Starts visible to the main agent; limited to read-only or package-storage tools.",
+          "type": "boolean"
         },
         "name": {
           "type": "string"

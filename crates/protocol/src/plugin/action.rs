@@ -114,6 +114,8 @@ pub enum Action {
     ReadConversation,
     #[serde(rename = "conversation.control")]
     ControlConversation,
+    #[serde(rename = "conversation.message.read")]
+    ReadMessage,
     /// Host-wide creation; does not grant access to existing conversations.
     #[serde(rename = "sessions.start")]
     StartSessions,
@@ -178,6 +180,7 @@ impl Action {
             | Self::ReadCommands
             | Self::ReadTerminals
             | Self::ReadConversation
+            | Self::ReadMessage
             | Self::ReadProjects
             | Self::ReadWeb
             | Self::ReadStorage
@@ -246,6 +249,7 @@ impl Action {
                 | Self::ReadCommands
                 | Self::ReadTerminals
                 | Self::ReadConversation
+                | Self::ReadMessage
                 | Self::ReadProjects
                 | Self::ReadWeb
                 | Self::ReadStorage
@@ -269,6 +273,7 @@ mod tests {
             ("models.generate", Action::GenerateText),
             ("knowledge.read", Action::ReadKnowledge),
             ("knowledge.write", Action::WriteKnowledge),
+            ("conversation.message.read", Action::ReadMessage),
             ("code.index.read", Action::ReadCodeIndex),
             ("code.index.settings.read", Action::ReadCodeIndexSettings),
             ("code.index.settings.write", Action::SaveCodeIndexSettings),

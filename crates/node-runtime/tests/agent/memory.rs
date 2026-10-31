@@ -114,19 +114,22 @@ async fn preserves_reads_in_plan() {
             .map(|(_, detail)| detail.result.unwrap())
             .collect();
         assert_eq!(results.len(), 3, "{page:?}");
-        for name in [
-            "search_memory",
-            "review_memories",
-            "save_memory",
-            "forget_memory",
-            "consolidate_memories",
+        // Initial tools are already visible, so discovery returns only deferred ones.
+        for (name, initial) in [
+            ("search_memory", true),
+            ("review_memories", false),
+            ("save_memory", true),
+            ("forget_memory", false),
+            ("consolidate_memories", false),
         ] {
-            assert!(
+            assert_eq!(
                 results[0]["tools"]
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|tool| tool["name"] == plugin_tool("memory", name))
+                    .any(|tool| tool["name"] == plugin_tool("memory", name)),
+                !initial,
+                "{name}"
             );
         }
         let results = &results[1..];
@@ -140,16 +143,17 @@ async fn preserves_reads_in_plan() {
         assert_eq!(support::read(&fixture.client, id).await.unwrap(), original);
         for (index, request) in server.requests.lock().unwrap().iter().enumerate() {
             let tools = request["tools"].as_array().unwrap();
-            for name in [
-                "search_memory",
-                "review_memories",
-                "save_memory",
-                "forget_memory",
-                "consolidate_memories",
+            for (name, initial) in [
+                ("search_memory", true),
+                ("review_memories", false),
+                ("save_memory", true),
+                ("forget_memory", false),
+                ("consolidate_memories", false),
             ] {
                 assert_eq!(
                     tools.iter().any(|tool| tool["function"]["name"] == name),
-                    index > 0
+                    initial || index > 0,
+                    "{name}"
                 );
             }
         }
@@ -329,7 +333,9 @@ async fn curates_scoped_memory() {
             let prompt = requests[0]["messages"].to_string();
             assert!(prompt.contains(&id.to_string()));
             assert!(!prompt.contains(&foreign_id.to_string()));
-            assert!(prompt.contains("Original feedback"));
+            // Unrelated entries are listed by title; only matching bodies are injected.
+            assert!(prompt.contains("Existing feedback"));
+            assert!(!prompt.contains("Original feedback"));
         }
         let entries = support::run::<Vec<Entry>>(
             &fixture.client,
@@ -421,10 +427,11 @@ async fn applies_tool_settings() {
                 let requests = server.requests.lock().unwrap();
                 for (index, request) in requests.iter().enumerate() {
                     let tools = request["tools"].as_array().unwrap();
-                    for name in ["search_memory", "review_memories"] {
+                    for (name, initial) in [("search_memory", true), ("review_memories", false)] {
                         assert_eq!(
                             tools.iter().any(|tool| tool["function"]["name"] == name),
-                            enabled && index > 0
+                            enabled && (initial || index > 0),
+                            "{name}"
                         );
                     }
                     for name in ["save_memory", "forget_memory", "consolidate_memories"] {
@@ -453,12 +460,16 @@ async fn applies_tool_settings() {
             if enabled {
                 let results: Vec<_> = results(&fixture.client, &page).await;
                 assert_eq!(results.len(), 3);
+                let discovered = results[0]["tools"].as_array().unwrap();
                 assert!(
-                    results[0]["tools"]
-                        .as_array()
-                        .unwrap()
+                    discovered
                         .iter()
-                        .any(|tool| tool["name"] == plugin_tool("memory", "search_memory"))
+                        .any(|tool| tool["name"] == plugin_tool("memory", "review_memories"))
+                );
+                assert!(
+                    discovered
+                        .iter()
+                        .all(|tool| tool["name"] != plugin_tool("memory", "search_memory"))
                 );
                 let results = &results[1..];
                 assert!(results[0].to_string().contains("body_truncated"));
@@ -709,8 +720,9 @@ async fn leaves_tool_use_optional() {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 1);
             let prompt = requests[0].to_string();
-            assert!(prompt.contains("Memory is optional"));
-            assert!(!prompt.contains("Before answering"));
+            assert!(prompt.contains("Memory holds lasting user preferences"));
+            assert!(prompt.contains("Save with save_memory"));
+            assert!(!prompt.contains("Relevant memories"));
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

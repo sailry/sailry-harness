@@ -89,9 +89,15 @@ fn initial(invocation: &Invocation, selected: Option<&str>, entry: &ToolRegistra
         .and_then(|package| package.extension.as_ref())
         .is_some_and(|extension| {
             extension.tools.iter().any(|tool| {
-                operations::alias(owner, &tool.name) == entry.tool.name.as_ref() && visible(tool)
+                operations::alias(owner, &tool.name) == entry.tool.name.as_ref()
+                    && starts(tool, invocation.child.is_some())
             })
         })
+}
+
+/// Declared initial tools start visible only to the main agent.
+fn starts(tool: &sailry_protocol::tool::Declaration, child: bool) -> bool {
+    visible(tool) || (tool.initial && !child)
 }
 
 fn matches(invocation: &Invocation, selection: &Selection, entry: &ToolRegistration) -> bool {
@@ -226,6 +232,7 @@ mod tests {
             platforms: vec![],
             contexts: vec![],
             platform_descriptions: Default::default(),
+            initial: false,
         };
         for operation in [
             Operation::ReadFile,
@@ -281,5 +288,11 @@ mod tests {
             assert!(standard(&tool(operation)));
             assert!(!visible(&tool(operation)));
         }
+        let mut declared = tool(Operation::StorageTransaction);
+        assert!(!starts(&declared, false));
+        declared.initial = true;
+        assert!(starts(&declared, false));
+        assert!(!starts(&declared, true));
+        assert!(starts(&tool(Operation::ReadFile), true));
     }
 }

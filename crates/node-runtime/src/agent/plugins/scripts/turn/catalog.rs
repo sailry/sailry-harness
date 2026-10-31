@@ -6,6 +6,7 @@ use sailry_protocol::{
 };
 
 const ROLE_SUMMARY_CHARS: usize = 1024;
+const MESSAGE_BYTES: usize = 4096;
 
 pub(super) fn input(
     invocation: &Invocation,
@@ -95,9 +96,28 @@ pub(super) fn input(
         .contains(&Operation::ApplyRoles)
         .then(|| invocation.turn.revision.to_string());
     let options = crate::plugins::options::captured(package, &invocation.turn.config)?;
+    // Only a person's own text; package-authored, notice and delegated input stay private.
+    let message = package
+        .extension
+        .as_ref()
+        .filter(|extension| extension.actions.contains(&plugin::Action::ReadMessage))
+        .filter(|_| !invocation.automatic && !invocation.notice && invocation.child.is_none())
+        .and_then(|_| excerpt(&invocation.message.text));
     Ok(
-        json!({"roles":roles,"options":options,"session_revision":session_revision,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}}),
+        json!({"roles":roles,"options":options,"session_revision":session_revision,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"message":message,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}}),
     )
+}
+
+/// The leading user text, bounded in UTF-8 bytes on a character boundary.
+fn excerpt(text: &str) -> Option<String> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    let mut end = text.len().min(MESSAGE_BYTES);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    Some(text[..end].to_owned())
 }
 
 fn role_tools(
@@ -144,6 +164,20 @@ fn database(profile: &sailry_protocol::database::Profile) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounds_message_excerpt() {
+        assert_eq!(excerpt(""), None);
+        assert_eq!(excerpt(" \n\t"), None);
+        assert_eq!(excerpt("Remember tabs").as_deref(), Some("Remember tabs"));
+        let ascii = "a".repeat(MESSAGE_BYTES + 10);
+        assert_eq!(excerpt(&ascii).unwrap().len(), MESSAGE_BYTES);
+        let wide = "记".repeat(MESSAGE_BYTES);
+        let bounded = excerpt(&wide).unwrap();
+        assert!(bounded.len() <= MESSAGE_BYTES);
+        assert_eq!(bounded.len(), MESSAGE_BYTES - 1);
+        assert!(wide.starts_with(&bounded));
+    }
 
     #[test]
     fn uses_captured_model_capabilities() {

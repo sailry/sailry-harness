@@ -27,6 +27,8 @@ mod git;
 mod goal_history;
 #[path = "plugins/http.rs"]
 mod http;
+#[path = "plugins/messages.rs"]
+mod messages;
 #[path = "plugins/ocr.rs"]
 mod ocr;
 #[path = "plugins/operations.rs"]
@@ -136,7 +138,9 @@ async fn scopes_tool_switches_to_the_execution_node() {
                 .await
                 .unwrap();
         }
-        let memory = plugin_tool("memory", "search_memory");
+        // search_memory starts visible; review_memories still requires discovery.
+        let memory = plugin_tool("memory", "review_memories");
+        let initial_memory = plugin_tool("memory", "search_memory");
         let common = [
             ("git", "git_status"),
             ("commands", "run_command"),
@@ -165,7 +169,7 @@ async fn scopes_tool_switches_to_the_execution_node() {
             }
             let mut calls = vec![("tool_search".into(), json!({"query":memory,"limit":1}))];
             if enabled {
-                calls.push((memory.clone(), json!({"query":""})));
+                calls.push((memory.clone(), json!({})));
             }
             server.replace_tools(calls);
             let start = server.requests.lock().unwrap().len();
@@ -203,7 +207,9 @@ async fn scopes_tool_switches_to_the_execution_node() {
             assert_eq!(executed.len(), if index < 2 { 1 } else { 2 });
             if enabled {
                 assert_eq!(searched["tools"][0]["name"], memory);
-                assert!(executed.last().unwrap().1.result.as_ref().unwrap()["entries"].is_array());
+                assert!(
+                    executed.last().unwrap().1.result.as_ref().unwrap()["candidates"].is_array()
+                );
             }
             assert!(page.approvals.is_empty());
             let requests = server.requests.lock().unwrap();
@@ -223,6 +229,8 @@ async fn scopes_tool_switches_to_the_execution_node() {
             }
             assert_eq!(initial.contains(exposed(&memory)), enabled && index > 0);
             assert_eq!(tools.contains(exposed(&memory)), enabled);
+            assert_eq!(initial.contains(exposed(&initial_memory)), enabled);
+            assert!(!discovered.contains(initial_memory.as_str()));
             for (package, name) in [
                 ("commands", "write_command"),
                 ("delegation", "spawn_agent"),
@@ -248,24 +256,13 @@ async fn scopes_tool_switches_to_the_execution_node() {
             let request = requests.last().unwrap();
             let instructions = node_context(request, "Work mode");
             assert!(!instructions.contains("Use update_plan for substantial multi-step tasks"));
-            let memory_rule =
-                "When an answer or action depends on earlier preferences or decisions";
-            assert_eq!(
-                instructions.matches(memory_rule).count(),
-                usize::from(enabled)
-            );
-            assert_eq!(
-                node_context(&requests[start], "Work mode")
-                    .matches(memory_rule)
-                    .count(),
-                usize::from(enabled && index > 0)
-            );
-            if enabled && index == 0 {
-                assert!(
-                    searched["sailry_context"]
-                        .as_str()
-                        .unwrap()
-                        .contains(memory_rule)
+            // The memory policy comes from its turn initializer, once per turn context.
+            let memory_rule = "Memory holds lasting user preferences, corrections and decisions";
+            assert_eq!(instructions.matches(memory_rule).count(), 0);
+            for request in [&requests[start], request] {
+                assert_eq!(
+                    turn_context(request).matches(memory_rule).count(),
+                    usize::from(enabled)
                 );
             }
             assert!(
