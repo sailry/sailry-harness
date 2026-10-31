@@ -7,8 +7,9 @@ pub(crate) fn card(
     gallery: Vec<ImageSource>,
     index: usize,
     compact: bool,
+    preview: bool,
     cx: &App,
-) -> gpui_kit::component::button::Button {
+) -> AnyElement {
     let single = !compact;
     let ratio = if single {
         Images::aspect_ratio(images, source, cx)
@@ -39,5 +40,9 @@ pub(crate) fn card(
                 .overlay(div().size_full().debug_selector(move || selector.clone()))
                 .rounded(cx.theme().radius_2xl()),
         );
-    Images::gallery(card, images, gallery, index, cx)
+    // Without preview the click belongs to the surrounding editor.
+    match preview {
+        true => Images::gallery(card, images, gallery, index, cx).into_any_element(),
+        false => card.into_any_element(),
+    }
 }

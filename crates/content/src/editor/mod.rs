@@ -19,7 +19,7 @@ pub(crate) mod serialize;
 mod source;
 
 pub use format::{Format, Insert, Kind, Style};
-pub use links::OnChoose;
+pub use links::{OnChoose, OnImage};
 
 use crate::markdown::{
     self, Block, BlockKind, BlockLayouts, Cursor, Doc, Editing, Mark, Selection, doc::Text,
@@ -92,7 +92,7 @@ pub struct State {
     popup: Option<links::Popup>,
     popup_events: Vec<Subscription>,
     on_link: Option<markdown::render::OnLink>,
-    on_image: Option<markdown::render::OnImage>,
+    on_image: Option<OnImage>,
     on_choose: Option<OnChoose>,
     _source: Subscription,
     _blur: Option<Subscription>,
@@ -157,11 +157,7 @@ impl State {
         }
     }
 
-    pub fn set_image_handler(
-        &mut self,
-        handler: markdown::render::OnImage,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_image_handler(&mut self, handler: OnImage, cx: &mut Context<Self>) {
         self.on_image = Some(handler);
         cx.notify();
     }
@@ -440,7 +436,13 @@ impl State {
                 layouts: Some(&self.layouts),
                 // Document clicks place the caret; the platform modifier opens links.
                 on_link: Some(self.link_click(cx)),
-                on_image: self.on_image.clone(),
+                on_image: self.on_image.clone().map(|handler| {
+                    // Clicks preview a picture only where they cannot edit it.
+                    let preview = self.readonly || self.mode != Mode::Document;
+                    std::rc::Rc::new(move |url: &str, urls: &[&str], index: usize, cx: &App| {
+                        handler(url, urls, index, preview, cx)
+                    }) as markdown::render::OnImage
+                }),
                 visuals: Some(visuals),
                 reveal: true,
                 ..Editing::default()

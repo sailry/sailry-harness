@@ -25,6 +25,11 @@ use std::{ops::Range, rc::Rc};
 /// Asks the caller for an image path and reports the chosen address.
 pub type OnChoose = Rc<dyn Fn(Rc<dyn Fn(String, &mut Window, &mut App)>, &mut Window, &mut App)>;
 
+/// Renders a picture as [`crate::markdown::render::OnImage`] does, told whether
+/// a click may preview it. While the document is editable a click edits the
+/// image instead, so the picture must not claim the click for itself.
+pub type OnImage = Rc<dyn Fn(&str, &[&str], usize, bool, &App) -> AnyElement>;
+
 pub(super) enum Popup {
     Link {
         selection: Selection,

@@ -2,9 +2,9 @@
 //! choose files with the shared execution-host picker.
 use super::*;
 use crate::content::{
-    editor::OnChoose,
+    editor::{OnChoose, OnImage},
     images::{self, ImageSource, Images},
-    markdown::render::{OnImage, OnLink},
+    markdown::render::OnLink,
 };
 use crate::file_picker::{Completion, Mode, Options, Selection};
 use sailry_client::Client;
@@ -72,7 +72,7 @@ pub(super) fn images(
     root: Option<String>,
     context: plugin::Context,
 ) -> OnImage {
-    Rc::new(move |url, urls, position, cx| {
+    Rc::new(move |url, urls, position, preview, cx| {
         if let Some(source) = source_for(&base, url, root.as_deref(), &context) {
             let mut index = 0;
             let gallery = urls
@@ -86,8 +86,15 @@ pub(super) fn images(
                     Some(source)
                 })
                 .collect();
-            return images::card(&source, &images, gallery, index, urls.len() > 1, cx)
-                .into_any_element();
+            return images::card(
+                &source,
+                &images,
+                gallery,
+                index,
+                urls.len() > 1,
+                preview,
+                cx,
+            );
         }
         if url.starts_with("https://")
             || url.starts_with("http://")
