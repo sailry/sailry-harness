@@ -1,8 +1,10 @@
 //! Shell geometry and surfaces. Features supply optional navigation and details
 //! slots; their headers align with the outer band without another header layer.
 mod corner;
+mod motion;
 
 use super::limits;
+use motion::Phase;
 
 use crate::{
     preview::{HEADER_HEIGHT, Layout, Page, RAIL_WIDTH},
@@ -19,6 +21,7 @@ pub(crate) struct Geometry {
     pub panel_width: f32,
     sidebar_open: bool,
     sidebar_width: Pixels,
+    navigation_width: Pixels,
     navigation_range: Range<Pixels>,
     details_range: Range<Pixels>,
     min_content_width: Pixels,
@@ -118,19 +121,21 @@ impl super::Shell {
             constraints.details = px(360.)..px(720.);
         }
         let sidebar_open = layout.sidebar_open;
-        let navigation_width = if sidebar_open {
-            px(layout.sidebar_width)
-                .clamp(constraints.navigation.start, constraints.navigation.end)
-                .min(
-                    (window.viewport_size().width - px(RAIL_WIDTH) - window_content_width)
-                        .max(constraints.navigation.start),
-                )
-        } else {
-            px(0.)
-        };
+        // A closed sidebar keeps its fitted width so the close motion can shrink from it.
+        let navigation_width = px(layout.sidebar_width)
+            .clamp(constraints.navigation.start, constraints.navigation.end)
+            .min(
+                (window.viewport_size().width - px(RAIL_WIDTH) - window_content_width)
+                    .max(constraints.navigation.start),
+            );
         // Fit the rendered navigation without overwriting its saved width.
         layout.sidebar_width = f32::from(navigation_width);
-        let sidebar_width = px(RAIL_WIDTH) + navigation_width;
+        let sidebar_width = px(RAIL_WIDTH)
+            + if sidebar_open {
+                navigation_width
+            } else {
+                px(0.)
+            };
         let panel_width = if self.settings_details.is_some() {
             self.settings_details_width
         } else if let Some(workspace) = &plugin_workspace {
@@ -171,6 +176,7 @@ impl super::Shell {
             panel_width: f32::from(panel_width),
             sidebar_open,
             sidebar_width,
+            navigation_width,
             navigation_range: constraints.navigation,
             details_range: constraints.details,
             min_content_width,
@@ -210,6 +216,7 @@ impl super::Shell {
             panel_width,
             sidebar_open,
             sidebar_width,
+            navigation_width,
             navigation_range,
             details_range,
             min_content_width,
@@ -226,6 +233,15 @@ impl super::Shell {
         };
         let plugin_workspace = self.plugin_workspace(cx);
         let panel_index = self.page.panel_index();
+        // Each page and plugin workspace owns its details motion, so switching
+        // between them shows the destination's settled state.
+        let details_key = SharedString::from(format!(
+            "{}-{}",
+            self.page.key(),
+            plugin_workspace
+                .as_ref()
+                .map_or(0, |workspace| workspace.entity_id().as_u64())
+        ));
         let navigation_resize = navigation_range.clone();
         let details_resize = details_range.clone();
         let frame = Frame {
@@ -240,7 +256,7 @@ impl super::Shell {
             },
             sidebar: navigation.map(|content| Pane {
                 visible: sidebar_open,
-                width: sidebar_width - px(RAIL_WIDTH),
+                width: navigation_width,
                 range: navigation_range,
                 content,
             }),
@@ -273,6 +289,7 @@ impl super::Shell {
                 range: details_range,
                 content,
             }),
+            details_key,
             min_content_width,
             on_resize: Box::new(
                 cx.listener(move |this, state: &Entity<ResizableState>, _, cx| {
@@ -336,6 +353,7 @@ pub struct Frame {
     pub module_header: AnyElement,
     pub content: AnyElement,
     pub details: Option<Pane>,
+    pub details_key: SharedString,
     pub min_content_width: Pixels,
     pub on_resize: ResizeHandler,
     pub on_workspace_resize: ResizeHandler,
@@ -347,43 +365,103 @@ fn hidden_divider() -> gpui_kit::base::ResizeHandleRenderer {
 
 impl RenderOnce for Frame {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let motion = Transition::new(cx.theme().motion_tokens().duration_normal)
+            .easing(cx.theme().motion_tokens().easing_move.clone());
         let sidebar_visible = self.sidebar.as_ref().is_some_and(|pane| pane.visible);
         let sidebar_width = self.sidebar.as_ref().map_or(px(0.), |pane| pane.width);
         let openness = if self.sidebar.is_some() {
             transition(
                 "sidebar-openness",
                 if sidebar_visible { 1.0_f32 } else { 0.0 },
-                Transition::new(cx.theme().motion_tokens().duration_normal)
-                    .easing(cx.theme().motion_tokens().easing_move.clone()),
+                motion.clone(),
                 window,
                 cx,
             )
         } else {
             0.
         };
-        let mounted = sidebar_visible || openness > 0.;
-        let left_width = px(RAIL_WIDTH) + sidebar_width * openness;
-        let left_range = match self.sidebar.as_ref() {
-            _ if openness > 0. && openness < 1. => left_width..left_width,
-            Some(pane) if pane.visible => {
-                (pane.range.start + px(RAIL_WIDTH))..(pane.range.end + px(RAIL_WIDTH))
-            }
-            _ => px(RAIL_WIDTH)..px(RAIL_WIDTH),
+        let sidebar_phase = Phase::new(sidebar_visible, openness);
+        let mounted = sidebar_phase.mounted();
+        let navigation_extent = sidebar_phase.extent(sidebar_width, openness);
+        let left_width = px(RAIL_WIDTH) + navigation_extent;
+        let left_range = {
+            let range = sidebar_phase.range(
+                self.sidebar
+                    .as_ref()
+                    .map_or(px(0.)..px(0.), |pane| pane.range.clone()),
+                navigation_extent,
+            );
+            (range.start + px(RAIL_WIDTH))..(range.end + px(RAIL_WIDTH))
         };
-        let detail_geometry = self.details.as_ref().map(|pane| {
-            (
-                pane.visible
-                    && window.viewport_size().width
-                        >= left_width + self.min_content_width + pane.width,
-                pane.width,
-            )
+        // Fit against the settled sidebar so its motion cannot toggle the details pane.
+        let target_left = px(RAIL_WIDTH)
+            + if sidebar_visible {
+                sidebar_width
+            } else {
+                px(0.)
+            };
+        let details_visible = self.details.as_ref().is_some_and(|pane| {
+            pane.visible
+                && window.viewport_size().width >= target_left + self.min_content_width + pane.width
+        });
+        let details_openness = transition(
+            format!("details-openness-{}", self.details_key),
+            if details_visible { 1.0_f32 } else { 0.0 },
+            motion,
+            window,
+            cx,
+        );
+        let details_phase = Phase::new(details_visible, details_openness);
+        // Closing may drop the pane's content at once, as the conversation panel
+        // does; the last open width keeps the closing shell's size.
+        let details_width = window.use_keyed_state(
+            SharedString::from(format!("details-width-{}", self.details_key)),
+            cx,
+            |_, _| px(0.),
+        );
+        if let Some(pane) = self.details.as_ref().filter(|_| details_visible)
+            && *details_width.read(cx) != pane.width
+        {
+            details_width.update(cx, |width, _| *width = pane.width);
+        }
+        let details_width = *details_width.read(cx);
+        let details_extent = details_phase.extent(details_width, details_openness);
+        let details = details_phase.mounted().then(|| {
+            let (range, content) = match self.details {
+                Some(pane) => (pane.range, pane.content),
+                None => (details_width..details_width, div().into_any_element()),
+            };
+            Pane {
+                visible: true,
+                width: details_extent,
+                range: details_phase.range(range, details_extent),
+                content: if details_phase == Phase::Moving {
+                    // Hold the content at its open width so it slides instead of reflowing.
+                    div()
+                        .relative()
+                        .size_full()
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .right_0()
+                                .w(details_width)
+                                .child(content),
+                        )
+                        .into_any_element()
+                } else {
+                    content
+                },
+            }
         });
         let geometry = (
             window.viewport_size(),
             self.min_content_width,
             left_width,
             sidebar_width,
-            detail_geometry,
+            details.as_ref().map(|pane| pane.width),
         );
         let previous = window.use_keyed_state("shell-panel-geometry", cx, |_, _| None);
         if previous.read(cx).as_ref() != Some(&geometry) {
@@ -391,17 +469,28 @@ impl RenderOnce for Frame {
             self.workspace_state.update(cx, |state, _| state.clear());
             previous.update(cx, |previous, _| *previous = Some(geometry));
         }
+        let main_minimum =
+            self.min_content_width + details.as_ref().map_or(px(0.), |pane| pane.width);
+        let on_workspace_resize = self.on_workspace_resize;
         let workspace = Workspace {
             state: self.workspace_state,
             content: self.content,
             header: self.module_header,
-            details: self.details,
+            details,
             minimum: self.min_content_width,
             left_width,
             sidebar_mounted: mounted,
-            on_resize: self.on_workspace_resize,
+            // Sizes reported mid-motion are animation frames, not user choices.
+            on_resize: Box::new(
+                move |state: &Entity<ResizableState>, window: &mut Window, cx: &mut App| {
+                    if details_phase == Phase::Open {
+                        on_workspace_resize(state, window, cx);
+                    }
+                },
+            ),
         }
         .into_any_element();
+        let on_resize = self.on_resize;
         let left = v_flex()
             .size_full()
             .min_w_0()
@@ -431,7 +520,11 @@ impl RenderOnce for Frame {
                             div()
                                 .debug_selector(|| "shell-navigation".into())
                                 .relative()
-                                .flex_1()
+                                // Hold the content at its open width so it slides instead of reflowing.
+                                .map(|navigation| match sidebar_phase {
+                                    Phase::Moving => navigation.flex_none().w(sidebar_width),
+                                    _ => navigation.flex_1(),
+                                })
                                 .min_w_0()
                                 .h_full()
                                 .rounded_tl(cx.theme().radius_lg)
@@ -444,10 +537,18 @@ impl RenderOnce for Frame {
             );
         let panels = h_resizable("shell-panels")
             .with_state(&self.state)
-            .when(!mounted, |panels| {
+            // The divider belongs to the open sidebar; collapsed or moving, the
+            // rail meets the content outline without a full-height hairline.
+            .when(sidebar_phase != Phase::Open, |panels| {
                 panels.with_handle_appearance(hidden_divider())
             })
-            .on_resize(self.on_resize)
+            .on_resize(
+                move |state: &Entity<ResizableState>, window: &mut Window, cx: &mut App| {
+                    if sidebar_phase == Phase::Open {
+                        on_resize(state, window, cx);
+                    }
+                },
+            )
             .child(
                 resizable_panel()
                     .size(left_width)
@@ -457,13 +558,7 @@ impl RenderOnce for Frame {
             )
             .child(
                 resizable_panel()
-                    .size_range(
-                        (self.min_content_width
-                            + detail_geometry
-                                .filter(|(visible, _)| *visible)
-                                .map_or(px(0.), |(_, width)| width))
-                            ..px(10000.),
-                    )
+                    .size_range(main_minimum..px(10000.))
                     .child(
                         div()
                             .debug_selector(|| "main-region".into())
@@ -582,7 +677,7 @@ pub(crate) struct Workspace {
 }
 
 impl RenderOnce for Workspace {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let Self {
             state,
             content,
@@ -596,10 +691,9 @@ impl RenderOnce for Workspace {
         let main = main(content, header, left_width, sidebar_mounted, cx);
         let mut details = resizable_panel().visible(false);
         if let Some(pane) = pane {
-            let visible =
-                pane.visible && window.viewport_size().width >= left_width + minimum + pane.width;
+            // Frame already fitted the pane and keeps it mounted through its motion.
             details = details
-                .visible(visible)
+                .visible(pane.visible)
                 .size(pane.width)
                 .size_range(pane.range)
                 .flex_none()
