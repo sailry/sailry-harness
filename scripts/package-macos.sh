@@ -20,7 +20,7 @@ esac
 test "$(uname -s)" = Darwin
 command -v jq >/dev/null
 task_root="$(cd "$(dirname "$0")/.." && pwd)"
-task_build="$task_root/target/$task_profile"
+task_build="${3:-$task_root/target/$task_profile}"
 task_target="$(rustc -vV | awk '/^host: / {print $2}')"
 task_manifest=desktop
 if test "$task_desktop" = 0; then task_manifest=host; fi

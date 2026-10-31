@@ -64,7 +64,7 @@ class Packaging(unittest.TestCase):
     def test_removes_signing_secrets(self):
         secrets = {name: "secret" for name in ("APPLE_API_PRIVATE_KEY", "APPLE_CERTIFICATE_P12",
                    "SAILRY_UPDATE_SIGNING_KEY", "NOTARYTOOL_PROFILE", "TAURI_SIGNING_PRIVATE_KEY",
-                   "KEYCHAIN_PASSWORD", "MACOS_SIGNING_IDENTITY")}
+                   "KEYCHAIN_PASSWORD", "MACOS_SIGNING_IDENTITY", "SENTRY_AUTH_TOKEN")}
         with patch.dict(os.environ, secrets | {"SAILRY_SIGNING": "developer-id", "SAILRY_NOTARIZE": "1"}):
             values = adhoc.environment()
         self.assertTrue(set(secrets).isdisjoint(values))
@@ -121,6 +121,60 @@ class Packaging(unittest.TestCase):
         with patch.object(adhoc.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "bash")):
             with self.assertRaises(subprocess.CalledProcessError):
                 adhoc.package(self.source, "aarch64-apple-darwin")
+
+    def test_builds_before_collecting_and_uploading(self):
+        target = "aarch64-apple-darwin"
+        for selected in ("target", "custom build", str(self.source / "absolute build")):
+            with self.subTest(target_directory=selected):
+                self.assets(target)
+                directory = (self.source / selected).resolve()
+                build = directory / target / "release"
+                symbols = directory / "debug-symbols/desktop" / target
+                replies = [subprocess.CompletedProcess([], 0, stdout=f"host: {target}\n")]
+                replies += [subprocess.CompletedProcess([], 0)] * 3
+                replies += [subprocess.CompletedProcess([], 0, stdout=f"Local package: {self.directory}\n")]
+                values = {"CARGO_TARGET_DIR": selected, "SENTRY_AUTH_TOKEN": "synthetic-token",
+                          "CARGO_PROFILE_RELEASE_DEBUG": "0", "CARGO_PROFILE_RELEASE_STRIP": "symbols"}
+                with patch.dict(os.environ, values), \
+                        patch.object(adhoc.subprocess, "run", side_effect=replies) as run, \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    adhoc.package(self.source, target, build=True)
+                host, compile, collect, upload, package = run.call_args_list
+                self.assertEqual(host.args[0], ["rustc", "-vV"])
+                self.assertEqual(compile.args[0][2:], ["--parsers", "--", "cargo", "build", "--locked",
+                    "--release", "--timings", "--target", target, "-p", "sailry-desktop", "-p", "sailry-release"])
+                self.assertEqual(compile.kwargs["env"]["CARGO_TARGET_DIR"], str(directory))
+                self.assertEqual(compile.kwargs["env"]["CARGO_BUILD_TARGET"], target)
+                self.assertEqual(compile.kwargs["env"]["CARGO_PROFILE_RELEASE_DEBUG"], "line-tables-only")
+                self.assertEqual(compile.kwargs["env"]["CARGO_PROFILE_RELEASE_STRIP"], "none")
+                self.assertEqual(collect.args[0][2:], ["collect", "--binary", str(build / "sailry-desktop"),
+                    "--target", target, "--output", str(symbols)])
+                self.assertEqual(upload.args[0][2:], ["upload", "--symbols", str(symbols)])
+                self.assertEqual(package.args[0][-1], str(build))
+                self.assertEqual(upload.kwargs["env"]["SENTRY_AUTH_TOKEN"], "synthetic-token")
+                for call in (host, compile, collect, package):
+                    self.assertNotIn("SENTRY_AUTH_TOKEN", call.kwargs["env"])
+                for call in run.call_args_list:
+                    self.assertTrue(call.kwargs["check"])
+
+    def test_stops_before_packaging_on_prepare_failure(self):
+        target = "aarch64-apple-darwin"
+        for phase in range(1, 4):
+            with self.subTest(phase=phase):
+                replies = [subprocess.CompletedProcess([], 0, stdout=f"host: {target}\n")]
+                replies += [subprocess.CompletedProcess([], 0)] * (phase - 1)
+                replies += [subprocess.CalledProcessError(1, "fixture")]
+                with patch.object(adhoc.subprocess, "run", side_effect=replies) as run:
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        adhoc.package(self.source, target, build=True)
+                self.assertEqual(run.call_count, phase + 1)
+
+    def test_rejects_cross_target_before_building(self):
+        reply = subprocess.CompletedProcess([], 0, stdout="host: x86_64-apple-darwin\n")
+        with patch.object(adhoc.subprocess, "run", return_value=reply) as run:
+            with self.assertRaisesRegex(ValueError, "native macOS target"):
+                adhoc.package(self.source, "aarch64-apple-darwin", build=True)
+        run.assert_called_once()
 
 
 if __name__ == "__main__":

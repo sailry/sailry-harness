@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import sys
 import tempfile
 
 
@@ -17,7 +18,7 @@ def environment():
     excluded = ("APPLE_", "SAILRY_UPDATE_", "TAURI_SIGNING_", "NOTARY")
     values = {name: value for name, value in os.environ.items()
               if not name.startswith(excluded)
-              and name not in {"KEYCHAIN_PASSWORD", "MACOS_SIGNING_IDENTITY"}}
+              and name not in {"KEYCHAIN_PASSWORD", "MACOS_SIGNING_IDENTITY", "SENTRY_AUTH_TOKEN"}}
     values.update(SAILRY_SIGNING="ad-hoc", SAILRY_NOTARIZE="0")
     return values
 
@@ -26,11 +27,41 @@ def regular(path):
     return stat.S_ISREG(path.lstat().st_mode) and path.stat().st_size > 0
 
 
-def package(source, target):
+def prepare(source, target):
+    values = environment()
+    host = subprocess.run(["rustc", "-vV"], cwd=source, env=values,
+                          capture_output=True, text=True, check=True)
+    if f"host: {target}" not in host.stdout.splitlines():
+        raise ValueError("Local Desktop distribution requires the native macOS target")
+    directory = Path(values.get("CARGO_TARGET_DIR", "target"))
+    if not directory.is_absolute():
+        directory = source / directory
+    directory = directory.resolve()
+    values.update(CARGO_TARGET_DIR=str(directory), CARGO_BUILD_TARGET=target,
+                  CARGO_PROFILE_RELEASE_DEBUG="line-tables-only", CARGO_PROFILE_RELEASE_STRIP="none")
+    subprocess.run([sys.executable, str(source / "scripts/ci-run.py"), "--parsers", "--",
+                    "cargo", "build", "--locked", "--release", "--timings", "--target", target,
+                    "-p", "sailry-desktop", "-p", "sailry-release"], cwd=source, env=values, check=True)
+    build = directory / target / "release"
+    symbols = directory / "debug-symbols/desktop" / target
+    command = [sys.executable, str(source / "scripts/package/debug-symbols.py")]
+    subprocess.run(command + ["collect", "--binary", str(build / "sailry-desktop"),
+                              "--target", target, "--output", str(symbols)],
+                   cwd=source, env=values, check=True)
+    subprocess.run(command + ["upload", "--symbols", str(symbols)], cwd=source,
+                   env={**values, "SENTRY_AUTH_TOKEN": os.environ.get("SENTRY_AUTH_TOKEN", "")},
+                   check=True)
+    return build
+
+
+def package(source, target, build=False):
     if target not in TARGETS:
         raise ValueError("Ad-hoc Desktop packaging requires a supported macOS target")
     source = source.resolve(strict=True)
-    result = subprocess.run(["bash", str(source / "scripts/package-macos.sh"), "release", "desktop"],
+    command = ["bash", str(source / "scripts/package-macos.sh"), "release", "desktop"]
+    if build:
+        command.append(str(prepare(source, target)))
+    result = subprocess.run(command,
                             cwd=source, env=environment(), stdout=subprocess.PIPE, text=True,
                             check=True)
     print(result.stdout, end="")
@@ -65,8 +96,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--target", choices=sorted(TARGETS), required=True)
+    parser.add_argument("--build", action="store_true",
+                        help="Build locally with line tables, collect and upload symbols before packaging")
     arguments = parser.parse_args()
-    print(f"Ad-hoc package: {package(arguments.source, arguments.target)}")
+    print(f"Ad-hoc package: {package(arguments.source, arguments.target, arguments.build)}")
 
 
 if __name__ == "__main__":

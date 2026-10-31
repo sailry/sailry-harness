@@ -205,9 +205,12 @@ class Upload(unittest.TestCase):
                             for missing in self.environment)
         for environment in environments:
             with self.subTest(environment=environment), patch.object(SYMBOLS, "cli") as cli, \
-                    patch("sys.stdout", new_callable=io.StringIO):
+                    patch("sys.stdout", new_callable=io.StringIO) as output:
                 self.assertFalse(SYMBOLS.upload(self.symbols, environment))
                 cli.assert_not_called()
+                self.assertEqual(output.getvalue(),
+                                 "Native symbols preserved; upload credentials are not configured\n")
+                self.assertEqual(self.payload.read_bytes(), b"retained native debug")
 
     def test_keeps_token_in_environment(self):
         with patch.object(SYMBOLS, "cli", return_value=Path("fixture-cli")), \
