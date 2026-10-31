@@ -1149,6 +1149,187 @@ fn declares(request: &serde_json::Value, name: &str) -> bool {
 }
 
 #[tokio::test]
+async fn joins_after_provider_metadata_updates() {
+    for remote in [false, true] {
+        let release = CancellationToken::new();
+        let server = Server::markdown_held("Completed".into(), release.clone()).await;
+        let mut fixture = Fixture::with_server(remote, server).await;
+        fixture.reasoning().await;
+        let active = fixture.push("Initial task").await;
+        fixture.server.wait_count(1).await;
+        let mut inputs = Vec::new();
+        for change in ["revision", "name", "display", "default", "unselected"] {
+            let mut provider = fixture.provider.clone();
+            match change {
+                "revision" => {}
+                "name" => provider.name = "Renamed provider".into(),
+                "display" => provider.models[0].display_name = Some("Renamed model".into()),
+                "default" => provider.default_model = "fixture-b".into(),
+                "unselected" => provider.models[1].output *= 2,
+                _ => unreachable!(),
+            }
+            let Output::Provider(provider) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::PutProvider {
+                    provider,
+                    expected_revision: fixture.provider.revision,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("provider expected")
+            };
+            assert!(provider.revision > fixture.provider.revision);
+            fixture.provider = provider;
+            let selected = held(&fixture, format!("Queued guidance after {change}").into()).await;
+            fixture
+                .client
+                .execute(guide(&fixture, selected.id, active.id, 1))
+                .await
+                .unwrap();
+            let direct = fresh(
+                &fixture,
+                &active,
+                &format!("Direct guidance after {change}"),
+            )
+            .await;
+            for turn in [selected, direct] {
+                assert_eq!(read(&fixture.client, turn.id).await.turn, turn);
+                inputs.push(turn);
+            }
+            let queue = fixture.queue().await;
+            assert_eq!(queue.items.len(), inputs.len());
+            assert!(
+                queue
+                    .items
+                    .iter()
+                    .all(|item| item.guidance == Some(active.id) && item.ready)
+            );
+        }
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        release.cancel();
+        let page = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&page, active.id), Status::Completed);
+        assert!(page.queue.items.is_empty());
+        for turn in inputs {
+            let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
+            assert_eq!(run.status, Status::Continued);
+            assert_eq!(run.joined, Some(active.id));
+            assert_eq!(
+                page.entries
+                    .iter()
+                    .filter(|entry| entry.turn == turn.id && entry.author == "user")
+                    .count(),
+                1
+            );
+        }
+        let requests = fixture.server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(
+            |request| request["model"] == "fixture-a" && request["reasoning_effort"] == "high"
+        ));
+        let messages = requests[1]["messages"].to_string();
+        for change in ["revision", "name", "display", "default", "unselected"] {
+            assert!(messages.contains(&format!("Queued guidance after {change}")));
+            assert!(messages.contains(&format!("Direct guidance after {change}")));
+        }
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn queues_changed_execution_and_permissions() {
+    for remote in [false, true] {
+        let release = CancellationToken::new();
+        let server = Server::markdown_held("Completed".into(), release.clone()).await;
+        let mut fixture = Fixture::with_server(remote, server).await;
+        fixture.reasoning().await;
+        let original = fixture.provider.clone();
+        let active = fixture.push("Initial task").await;
+        fixture.server.wait_count(1).await;
+        let mut inputs = Vec::new();
+        for change in ["output", "capabilities", "permission"] {
+            let mut provider = original.clone();
+            match change {
+                "output" => provider.models[0].output *= 2,
+                "capabilities" => {
+                    provider.models[0].tools = false;
+                    provider.models[0].capabilities.as_mut().unwrap().tools = Some(false);
+                }
+                "permission" => {}
+                _ => unreachable!(),
+            }
+            let Output::Provider(provider) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::PutProvider {
+                    provider,
+                    expected_revision: fixture.provider.revision,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("provider expected")
+            };
+            fixture.provider = provider;
+            if change == "permission" {
+                let mut config = fixture.session.config.clone();
+                config.permission = Permission::Full;
+                assert_ne!(config.permission, active.config.permission);
+                let Output::Session(session) = fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::SetSessionConfig {
+                        session: fixture.session.id,
+                        expected_revision: fixture.session.revision,
+                        config,
+                    }))
+                    .await
+                    .unwrap()
+                else {
+                    panic!("session expected")
+                };
+                fixture.session = session;
+            }
+            let selected = held(&fixture, format!("Queued input after {change}").into()).await;
+            fixture
+                .client
+                .execute(guide(&fixture, selected.id, active.id, 1))
+                .await
+                .unwrap();
+            let direct = fresh(&fixture, &active, &format!("Direct input after {change}")).await;
+            for turn in [selected, direct] {
+                assert_eq!(read(&fixture.client, turn.id).await.turn, turn);
+                inputs.push(turn);
+            }
+            let queue = fixture.queue().await;
+            assert_eq!(queue.items.len(), inputs.len());
+            assert!(
+                queue
+                    .items
+                    .iter()
+                    .all(|item| item.guidance.is_none() && item.ready)
+            );
+        }
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        release.cancel();
+        let page = finished(
+            &fixture.client,
+            fixture.session.id,
+            inputs.last().unwrap().id,
+        )
+        .await;
+        assert_eq!(status(&page, active.id), Status::Completed);
+        assert!(page.queue.items.is_empty());
+        for turn in inputs {
+            let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
+            assert_eq!(run.status, Status::Completed);
+            assert_eq!(run.joined, None);
+        }
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 7);
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn queues_changed_captures_without_replacement() {
     for remote in [false, true] {
         let release = CancellationToken::new();

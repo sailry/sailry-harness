@@ -818,6 +818,150 @@ async fn recovers_active_owner() {
     );
 }
 
+mod provider_capture {
+    use super::*;
+    use serde_json::json;
+
+    fn provider() -> Provider {
+        serde_json::from_value(json!({
+            "id": ProviderId::new(),
+            "revision": 1,
+            "name": "Captured provider",
+            "api": "chat_completions",
+            "authentication": "api_key",
+            "endpoint": "https://model.invalid/v1",
+            "enabled": true,
+            "models": [{
+                "id": "selected", "context": 128000, "output": 2048,
+                "tools": true, "reasoning": true, "default_effort": "high"
+            }, {
+                "id": "other", "context": 32000, "output": 1024
+            }],
+            "default_model": "selected",
+            "credential": null
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn ignores_presentation_and_unselected_models() {
+        let original = provider();
+        let mut changed = original.clone();
+        changed.revision += 1;
+        changed.name = "Renamed provider".into();
+        changed.default_model = "other".into();
+        changed.models[0].display_name = Some("Renamed model".into());
+        changed.models[1].context *= 2;
+        changed.models[1].tools = true;
+        changed.models.reverse();
+        assert!(same_provider(
+            Some(original.clone()),
+            Some(changed.clone()),
+            "selected"
+        ));
+        changed.models.retain(|entry| entry.id == "selected");
+        assert!(same_provider(Some(original), Some(changed), "selected"));
+    }
+
+    #[test]
+    fn retains_protected_provider_fields() {
+        let original = provider();
+        for (field, value) in [
+            ("id", json!(ProviderId::new())),
+            ("api", json!("responses")),
+            ("authentication", json!("chat_gpt_oauth")),
+            ("endpoint", json!("https://other.invalid/v1")),
+            ("enabled", json!(false)),
+            (
+                "credential",
+                json!({"node": NodeId([9; 32]), "id": CredentialId::new()}),
+            ),
+            (
+                "options",
+                json!({"kind": "azure_open_ai", "api_version": "2025-01-01"}),
+            ),
+            (
+                "oauth",
+                json!({"kind": "claude_oauth", "user_agent": "fixture"}),
+            ),
+            ("request_max_retries", json!(1)),
+            ("stream_max_retries", json!(1)),
+            (
+                "preset",
+                json!({"source": {"kind": "builtin"}, "id": "fixture", "route": null}),
+            ),
+            (
+                "binding",
+                json!({"policies": [{"models": ["selected"], "body": {"temperature": 0}}]}),
+            ),
+            (
+                "consent",
+                json!({"package": {"name": "fixture", "settings_revision": 1, "digest": "captured"}, "scopes": {"messages": true}}),
+            ),
+        ] {
+            let mut changed = serde_json::to_value(&original).unwrap();
+            changed[field] = value;
+            let changed = serde_json::from_value(changed).unwrap();
+            assert!(
+                !same_provider(Some(original.clone()), Some(changed), "selected"),
+                "{field}"
+            );
+        }
+    }
+
+    #[test]
+    fn retains_selected_execution_metadata() {
+        let original = provider();
+        for (field, value) in [
+            ("context", json!(64000)),
+            ("output", json!(4096)),
+            ("compaction_tokens", json!(16000)),
+            ("vision", json!(true)),
+            ("tools", json!(false)),
+            ("reasoning", json!(false)),
+            ("generates", json!(["image"])),
+            ("efforts", json!(["low", "high"])),
+            ("custom_efforts", json!(true)),
+            ("default_effort", json!("low")),
+            ("capabilities", json!({"tools": false})),
+        ] {
+            let mut changed = serde_json::to_value(&original).unwrap();
+            changed["models"][0][field] = value;
+            let changed = serde_json::from_value(changed).unwrap();
+            assert!(
+                !same_provider(Some(original.clone()), Some(changed), "selected"),
+                "{field}"
+            );
+        }
+        let mut changed = original.clone();
+        changed.models.remove(0);
+        assert!(!same_provider(Some(original), Some(changed), "selected"));
+    }
+
+    #[test]
+    fn preserves_missing_capture_and_model_availability() {
+        let mut original = provider();
+        assert!(same_provider(None, None, "selected"));
+        assert!(!same_provider(Some(original.clone()), None, "selected"));
+        let mut changed = original.clone();
+        changed.models.clear();
+        assert!(!same_provider(
+            Some(original.clone()),
+            Some(changed.clone()),
+            "unknown"
+        ));
+        assert!(!same_provider(
+            Some(original.clone()),
+            Some(changed),
+            "selected"
+        ));
+        original.models.remove(0);
+        let mut changed = original.clone();
+        changed.models[0].context *= 2;
+        assert!(same_provider(Some(original), Some(changed), "unknown"));
+    }
+}
+
 mod controller {
     use super::*;
 

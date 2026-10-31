@@ -36,9 +36,35 @@ Err(error) => return Err(storage_error(error)),
     .transpose()
 }
 
+fn same_provider(source: Option<Provider>, target: Option<Provider>, model: &str) -> bool {
+    let execution = |mut provider: Provider| {
+        let available =
+            provider.models.is_empty() || provider.models.iter().any(|entry| entry.id == model);
+        provider.revision = 0;
+        provider.name.clear();
+        provider.default_model.clear();
+        provider.models.retain(|entry| entry.id == model);
+        for entry in &mut provider.models {
+            entry.display_name = None;
+        }
+        (provider, available)
+    };
+    source.map(execution) == target.map(execution)
+}
+
 async fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<bool, Fault> {
-    let provider = async |turn: TurnId| -> Result<Option<Vec<u8>>, Fault> {
-        (async {
+    if source.kind != RunKind::Task
+        || source.session != target.session
+        || source.worktree != target.worktree
+    {
+        return Ok(false);
+    }
+    let config = super::super::permissions::config(db, source.turn).await?;
+    if config != super::super::permissions::config(db, target.turn).await? {
+        return Ok(false);
+    }
+    let provider = async |turn: TurnId| -> Result<Option<Provider>, Fault> {
+        let body: Option<Vec<u8>> = (async {
             let mut statement = db
                 .prepare("SELECT provider FROM agent_runs WHERE turn=?1")
                 .await?;
@@ -47,20 +73,23 @@ async fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<boo
             mapped
         })
         .await
-        .map_err(storage_error)
+        .map_err(storage_error)?;
+        body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
+            .transpose()
     };
-    Ok(source.kind == RunKind::Task
-        && source.session == target.session
-        && source.worktree == target.worktree
-        && super::super::permissions::config(db, source.turn).await?
-            == super::super::permissions::config(db, target.turn).await?
-        && super::super::super::sessions::roles::for_turn(db, source.turn).await?
+    Ok(
+        super::super::super::sessions::roles::for_turn(db, source.turn).await?
             == super::super::super::sessions::roles::for_turn(db, target.turn).await?
-        && super::super::plugins::read(db, source.turn).await?
-            == super::super::plugins::read(db, target.turn).await?
-        && super::super::super::hooks::frozen(db, source.turn).await?
-            == super::super::super::hooks::frozen(db, target.turn).await?
-        && provider(source.turn).await? == provider(target.turn).await?)
+            && super::super::plugins::read(db, source.turn).await?
+                == super::super::plugins::read(db, target.turn).await?
+            && super::super::super::hooks::frozen(db, source.turn).await?
+                == super::super::super::hooks::frozen(db, target.turn).await?
+            && same_provider(
+                provider(source.turn).await?,
+                provider(target.turn).await?,
+                &config.model,
+            ),
+    )
 }
 
 pub(in crate::store::agent) async fn compatible(
