@@ -97,12 +97,9 @@ pub(super) fn images(
                 .max_w_full()
                 .into_any_element();
         }
+        // The renderer draws the empty-address placeholder itself.
         div()
-            .child(if url.is_empty() {
-                crate::tr("content_image_choose")
-            } else {
-                SharedString::from(url.to_owned())
-            })
+            .child(SharedString::from(url.to_owned()))
             .into_any_element()
     })
 }

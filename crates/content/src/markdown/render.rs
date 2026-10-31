@@ -19,7 +19,8 @@ use gpui::{
 use gpui_kit as gpui;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::{
-    ActiveTheme, attachment::AttachmentGroup, clipboard::Clipboard, scroll::ScrollableElement as _,
+    ActiveTheme, Icon, attachment::AttachmentGroup, clipboard::Clipboard,
+    scroll::ScrollableElement as _,
 };
 use theme::{TextStyle, Theme, Typeset};
 
@@ -65,7 +66,7 @@ const CARD_BORDER: f32 = 1.0;
 const CARD_ICON: f32 = 16.0;
 const CARD_COVER: f32 = 44.0;
 /// Image metrics.
-const IMAGE_EMPTY_HEIGHT: f32 = 52.0;
+const IMAGE_EMPTY_HEIGHT: f32 = 72.0;
 const CAPTION_GAP: f32 = 4.0;
 /// Table metrics. The design is frameless: hairlines between rows are the only
 /// chrome — no outer box, no header fill, no rounding.
@@ -306,6 +307,19 @@ impl BlockLayouts {
             .iter()
             .find(|(block, _)| *block == ix)
             .map(|(_, bounds)| *bounds)
+    }
+
+    /// The innermost block painted under `point` last frame. A grouped image
+    /// run records its own box before each picture's, so the last match is
+    /// the picture rather than the run.
+    pub fn block_at(&self, point: Point<Pixels>) -> Option<usize> {
+        self.0
+            .borrow()
+            .blocks
+            .iter()
+            .rev()
+            .find(|(_, bounds)| bounds.contains(&point))
+            .map(|(block, _)| *block)
     }
 
     /// Where a task block's checkbox painted, which is the box itself and not
@@ -1749,23 +1763,35 @@ fn image(
         placeholder: Some(&hint),
         ..overlay.at(Part::Caption)
     };
-    let picture = if let Some(render) = overlay.on_image {
+    // An empty address is a placeholder whoever renders pictures, so a host's
+    // image handler only ever sees something to show.
+    let picture = if url.is_empty() {
         div()
-            .debug_selector(|| "markdown-image-picture".into())
-            .child(render(url, overlay.image_urls, overlay.image_index, cx))
-    } else if url.is_empty() {
-        div()
+            .debug_selector(|| "markdown-image-placeholder".into())
             .h(px(IMAGE_EMPTY_HEIGHT))
             .flex()
+            .flex_col()
             .items_center()
+            .justify_center()
+            .gap_1()
             .px(px(CARD_PADDING))
             .rounded(px(theme.radius))
             .border_1()
             .border_dashed()
             .border_color(theme.border)
+            .bg(theme.code_wash)
             .text_size(px(typography.body.size()))
             .text_color(theme.text_muted)
+            .child(
+                Icon::new(gpui_kit::assets::IconName::ImagePlus)
+                    .size_5()
+                    .text_color(theme.text_muted),
+            )
             .child(cx.global::<crate::Labels>().add_image.clone())
+    } else if let Some(render) = overlay.on_image {
+        div()
+            .debug_selector(|| "markdown-image-picture".into())
+            .child(render(url, overlay.image_urls, overlay.image_index, cx))
     } else {
         // A URL is fetched; anything else is a file, and gpui reads one only
         // from a `PathBuf` — handed a string it looks for an asset built into

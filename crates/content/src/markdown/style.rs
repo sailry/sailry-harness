@@ -35,7 +35,11 @@ pub struct Theme {
 
 impl Theme {
     pub fn of(cx: &App) -> Self {
-        let theme = cx.theme();
+        Self::from_kit(cx.theme())
+    }
+
+    /// The document palette derived from a Kit theme, without an app.
+    pub(crate) fn from_kit(theme: &gpui_kit::component::Theme) -> Self {
         Self {
             text: theme.foreground,
             strong_color: None,

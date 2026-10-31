@@ -6,7 +6,7 @@ use gpui_kit::component::text::{
     InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin,
     SelectionFormat, markdown_ast,
 };
-use gpui_kit::{AnyElement, App, IntoElement, Window, div, img, prelude::*, px};
+use gpui_kit::{AnyElement, App, HighlightStyle, IntoElement, Window, div, img, prelude::*, px};
 use std::sync::Arc;
 
 struct Math {
@@ -52,6 +52,26 @@ impl MarkdownPlugin for Math {
     }
 }
 
+/// Kit's default style carries a light-palette inline code background that
+/// wins over the code background, so inline code takes the theme's code colors
+/// explicitly, as the ordinary paragraph path does.
+fn style(theme: &Theme, dark: bool) -> TextViewStyle {
+    TextViewStyle::default()
+        .with_foreground(theme.text)
+        .with_muted_foreground(theme.text_muted)
+        .with_link(theme.link)
+        .with_selection(theme.selection)
+        .with_code_background(theme.code_wash)
+        .with_inline_code(HighlightStyle {
+            color: Some(theme.code_text),
+            background_color: Some(theme.code_wash),
+            ..Default::default()
+        })
+        .with_border(theme.border)
+        .with_dark(dark)
+        .with_paragraph_gap(gpui_kit::rems(0.0))
+}
+
 pub(in crate::markdown) fn render(
     text: &Text,
     block: usize,
@@ -66,17 +86,7 @@ pub(in crate::markdown) fn render(
         crate::editor::serialize::text(text),
     )
     .selection_format(SelectionFormat::Source)
-    .style(
-        TextViewStyle::default()
-            .with_foreground(theme.text)
-            .with_muted_foreground(theme.text_muted)
-            .with_link(theme.link)
-            .with_selection(theme.selection)
-            .with_code_background(theme.code_wash)
-            .with_border(theme.border)
-            .with_dark(cx.theme().is_dark())
-            .with_paragraph_gap(gpui_kit::rems(0.0)),
-    )
+    .style(style(theme, cx.theme().is_dark()))
     .plugin(Math {
         images: Arc::new(images.clone()),
     })
@@ -90,4 +100,23 @@ pub(in crate::markdown) fn render(
         .line_height(px(line_height))
         .child(view)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::component::{Theme as Kit, ThemeColor};
+
+    #[test]
+    fn code_uses_theme_colors() {
+        for (colors, dark) in [(ThemeColor::light(), false), (ThemeColor::dark(), true)] {
+            let theme = Theme::from_kit(&Kit::from(&*colors));
+            let code = style(&theme, dark).inline_code();
+            assert_eq!(code.color, Some(theme.code_text));
+            assert_eq!(code.background_color, Some(theme.code_wash));
+        }
+        let light = Theme::from_kit(&Kit::from(&*ThemeColor::light()));
+        let dark = Theme::from_kit(&Kit::from(&*ThemeColor::dark()));
+        assert_ne!(light.code_wash, dark.code_wash);
+    }
 }

@@ -1,9 +1,9 @@
 //! Pointer editing adapted from Bezel 4a7505ab (MIT).
 //! See third_party_licenses/bezel.md.
 
-use super::State;
+use super::{Mode, State};
 use crate::markdown::{
-    Cursor, Part, Selection,
+    BlockKind, Cursor, Part, Selection,
     pointer::{edge_delta, word},
 };
 use gpui_kit::{Context, MouseDownEvent, Pixels, Point, Window, point, px};
@@ -32,6 +32,15 @@ impl State {
         if self.tail_click(event.position, window, cx) {
             return;
         }
+        if event.click_count == 1
+            && !event.modifiers.shift
+            && let Some(block) = self.image_at(event.position)
+        {
+            self.selection = Selection::at(Cursor::new(block, Part::Caption, 0));
+            self.notify_caret(cx);
+            self.edit_image(block, window, cx);
+            return;
+        }
         let Some(cursor) = self.layouts.hit(event.position) else {
             return;
         };
@@ -47,18 +56,27 @@ impl State {
             Selection::at(cursor)
         };
         self.notify_caret(cx);
-        // A click on the picture, above its caption, edits the image address.
-        if event.click_count == 1
-            && !event.modifiers.shift
-            && cursor.part == Part::Caption
-            && self
-                .layouts
-                .position(Cursor::new(cursor.block, Part::Caption, 0))
-                .is_some_and(|(caption, _)| event.position.y < caption.y)
-        {
-            self.dragging = false;
-            self.edit_image(cursor.block, window, cx);
+    }
+
+    /// The editable image block whose picture is under `position`. The whole
+    /// block counts when no caption is painted, so the picture stays clickable
+    /// after the caret leaves it; a painted caption keeps its own clicks.
+    fn image_at(&self, position: Point<Pixels>) -> Option<usize> {
+        if self.readonly || self.mode != Mode::Document {
+            return None;
         }
+        let block = self.layouts.block_at(position)?;
+        if !matches!(
+            self.doc.blocks.get(block).map(|value| &value.kind),
+            Some(BlockKind::Image { .. })
+        ) {
+            return None;
+        }
+        let caption = self
+            .layouts
+            .position(Cursor::new(block, Part::Caption, 0))
+            .map(|(caption, _)| caption.y);
+        edits_image(caption, position.y).then_some(block)
     }
 
     pub(super) fn moved(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
@@ -113,5 +131,24 @@ impl State {
         if before != after && selected == self.selection {
             cx.notify();
         }
+    }
+}
+
+/// Whether a press at `y` lands on the picture: anywhere when no caption is
+/// painted, otherwise above the caption's first line.
+fn edits_image(caption: Option<Pixels>, y: Pixels) -> bool {
+    caption.is_none_or(|caption| y < caption)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_click_targets() {
+        assert!(edits_image(None, px(40.)));
+        assert!(edits_image(Some(px(60.)), px(40.)));
+        assert!(!edits_image(Some(px(60.)), px(60.)));
+        assert!(!edits_image(Some(px(60.)), px(72.)));
     }
 }
