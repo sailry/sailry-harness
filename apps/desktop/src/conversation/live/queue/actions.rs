@@ -215,6 +215,15 @@ impl Panel {
                     }
                     Ok(Ok(Output::Queue(update))) => {
                         panel.queue = update.queue.clone();
+                        if guide::separate(&attempt.request.command, &update.queue) {
+                            let message = tr("queue_guidance_separate");
+                            crate::feedback::toast(
+                                window,
+                                message.clone(),
+                                gpui_kit::component::notification::Notification::info(message),
+                                cx,
+                            );
+                        }
                         let extracted = panel.retry.as_ref().filter(|attempt| attempt.extract).and_then(|attempt| attempt.message.clone());
                         panel.retry = None;
                         if let Some(message) = extracted {

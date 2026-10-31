@@ -1,5 +1,15 @@
 use super::{Command, Context, Panel, Queue, TurnId, Window};
 
+pub(super) fn separate(command: &Command, queue: &Queue) -> bool {
+    let Command::GuideQueuedTurn { turn, .. } = command else {
+        return false;
+    };
+    queue
+        .items
+        .iter()
+        .any(|item| item.turn == *turn && item.ready && item.guidance.is_none())
+}
+
 fn take(
     intent: &mut Option<(TurnId, u64)>,
     queue: &Queue,
@@ -52,7 +62,7 @@ impl Panel {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, Queue, TurnId, take};
+    use super::{Command, Queue, TurnId, separate, take};
     use sailry_protocol::conversation::Pending;
 
     fn queue() -> Queue {
@@ -139,5 +149,57 @@ mod tests {
         )) if turn == second.turn)
         );
         assert!(intent.is_none());
+    }
+
+    #[test]
+    fn acknowledges_separate_ready_input() {
+        let mut queue = queue();
+        let command = Command::GuideQueuedTurn {
+            turn: queue.items[0].turn,
+            recipient: TurnId::new(),
+            expected_revision: queue.items[0].revision,
+        };
+        // Captured capabilities can differ even with the same session revision.
+        for revision in [1, 2] {
+            queue.items[0].config_revision = revision;
+            assert!(separate(&command, &queue));
+        }
+    }
+
+    #[test]
+    fn ignores_other_guidance_outcomes() {
+        let queue = queue();
+        let turn = queue.items[0].turn;
+        let recipient = TurnId::new();
+        let command = Command::GuideQueuedTurn {
+            turn,
+            recipient,
+            expected_revision: queue.items[0].revision,
+        };
+        for change in [
+            "guided",
+            "other-recipient",
+            "unready",
+            "missing",
+            "other-turn",
+        ] {
+            let mut queue = queue.clone();
+            match change {
+                "guided" => queue.items[0].guidance = Some(recipient),
+                "other-recipient" => queue.items[0].guidance = Some(TurnId::new()),
+                "unready" => queue.items[0].ready = false,
+                "missing" => queue.items.clear(),
+                "other-turn" => queue.items[0].turn = TurnId::new(),
+                _ => unreachable!(),
+            }
+            assert!(!separate(&command, &queue), "{change}");
+        }
+        assert!(!separate(
+            &Command::SendQueuedTurn {
+                turn,
+                expected_revision: queue.items[0].revision,
+            },
+            &queue,
+        ));
     }
 }
