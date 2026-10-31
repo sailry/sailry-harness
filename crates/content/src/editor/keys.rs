@@ -225,20 +225,44 @@ pub(super) fn init(cx: &mut App) {
         ]);
     }
     for context in [Some(CONTEXT), Some(SOURCE)] {
-        let secondary = if cx.platform_info().is_mac() {
-            "cmd"
-        } else {
-            "ctrl"
-        };
+        let mac = cx.platform_info().is_mac();
         cx.bind_keys([
-            KeyBinding::new(&format!("{secondary}-k"), Link, context),
-            KeyBinding::new(&format!("{secondary}-alt-0"), Paragraph, context),
-            KeyBinding::new(&format!("{secondary}-alt-1"), Heading1, context),
-            KeyBinding::new(&format!("{secondary}-alt-2"), Heading2, context),
-            KeyBinding::new(&format!("{secondary}-alt-3"), Heading3, context),
-            KeyBinding::new(&format!("{secondary}-alt-4"), Heading4, context),
-            KeyBinding::new(&format!("{secondary}-alt-5"), Heading5, context),
-            KeyBinding::new(&format!("{secondary}-alt-6"), Heading6, context),
+            KeyBinding::new(if mac { "cmd-k" } else { "ctrl-k" }, Link, context),
+            KeyBinding::new(
+                if mac { "cmd-alt-0" } else { "ctrl-alt-0" },
+                Paragraph,
+                context,
+            ),
+            KeyBinding::new(
+                if mac { "cmd-alt-1" } else { "ctrl-alt-1" },
+                Heading1,
+                context,
+            ),
+            KeyBinding::new(
+                if mac { "cmd-alt-2" } else { "ctrl-alt-2" },
+                Heading2,
+                context,
+            ),
+            KeyBinding::new(
+                if mac { "cmd-alt-3" } else { "ctrl-alt-3" },
+                Heading3,
+                context,
+            ),
+            KeyBinding::new(
+                if mac { "cmd-alt-4" } else { "ctrl-alt-4" },
+                Heading4,
+                context,
+            ),
+            KeyBinding::new(
+                if mac { "cmd-alt-5" } else { "ctrl-alt-5" },
+                Heading5,
+                context,
+            ),
+            KeyBinding::new(
+                if mac { "cmd-alt-6" } else { "ctrl-alt-6" },
+                Heading6,
+                context,
+            ),
         ]);
     }
 }

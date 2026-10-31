@@ -93,7 +93,7 @@ pub struct Output {
 }
 
 impl Output {
-    pub fn validate(&self) -> Result<(), String> {
+    fn validate_bounds(&self) -> Result<(), String> {
         if [self.width, self.height]
             .iter()
             .any(|value| !value.is_finite() || !(0.0..=4096.0).contains(value) || *value == 0.0)
@@ -103,10 +103,31 @@ impl Output {
         {
             return Err("Rendered visual exceeds the supported size".into());
         }
+        Ok(())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        self.validate_bounds()?;
         match self.format {
             Format::Svg => validate_source(&self.source),
             Format::Png => self.png().map(|_| ()),
         }
+    }
+
+    /// Validate the surface output once and retain decoded image bytes.
+    pub fn decode(self) -> Result<VerifiedOutput, String> {
+        self.validate_bounds()?;
+        let bytes = match self.format {
+            Format::Svg => {
+                validate_source(&self.source)?;
+                self.source.as_bytes().to_vec()
+            }
+            Format::Png => self.png()?,
+        };
+        Ok(VerifiedOutput {
+            output: self,
+            bytes,
+        })
     }
 
     /// Decoded PNG bytes whose header matches the reported size.
@@ -202,7 +223,22 @@ fn external_url(value: &str) -> bool {
     false
 }
 
-pub type Render = dyn Fn(Request, &mut Window, &mut App) -> Task<Result<Output, String>>;
+/// Validated dimensions, format and decoded image bytes from one surface reply.
+#[derive(Debug)]
+pub struct VerifiedOutput {
+    output: Output,
+    bytes: Vec<u8>,
+}
+
+impl std::ops::Deref for VerifiedOutput {
+    type Target = Output;
+
+    fn deref(&self) -> &Self::Target {
+        &self.output
+    }
+}
+
+pub type Render = dyn Fn(Request, &mut Window, &mut App) -> Task<Result<VerifiedOutput, String>>;
 
 #[derive(Clone)]
 pub struct Renderer(pub Rc<Render>);
@@ -218,14 +254,14 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn new(output: Output, font_size: f32) -> Result<Self, String> {
-        output.validate()?;
+    pub fn new(verified: VerifiedOutput, font_size: f32) -> Result<Self, String> {
+        let VerifiedOutput { output, bytes } = verified;
         if !font_size.is_finite() || !(8.0..=96.0).contains(&font_size) {
             return Err("Visual font size is invalid".into());
         }
         let image = match output.format {
-            Format::Svg => Image::from_bytes(ImageFormat::Svg, output.source.into_bytes()),
-            Format::Png => Image::from_bytes(ImageFormat::Png, output.png()?),
+            Format::Svg => Image::from_bytes(ImageFormat::Svg, bytes),
+            Format::Png => Image::from_bytes(ImageFormat::Png, bytes),
         };
         Ok(Self {
             image: Arc::new(image),

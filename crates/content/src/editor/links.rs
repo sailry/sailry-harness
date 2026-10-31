@@ -127,7 +127,7 @@ impl State {
         let owner = cx.weak_entity();
         Rc::new(
             move |url: &SharedString, window: &mut Window, cx: &mut App| {
-                if window.modifiers().secondary() {
+                if window.modifiers().secondary(cx) {
                     let url = url.to_string();
                     let _ = owner.update(cx, |state, cx| state.open_link(&url, window, cx));
                 }

@@ -62,6 +62,7 @@ impl EntityInputHandler for State {
             return;
         };
         self.doc = composition.doc;
+        self.visuals.invalidate();
         self.selection = composition.selection;
         self.marked = None;
         if let Some(value) = value.filter(|value| !value.is_empty()) {
@@ -83,6 +84,7 @@ impl EntityInputHandler for State {
         }
         if let Some(composition) = self.composition.take() {
             self.doc = composition.doc;
+            self.visuals.invalidate();
             self.selection = composition.selection;
             self.marked = None;
             if text.is_empty() {
@@ -135,6 +137,7 @@ impl EntityInputHandler for State {
         let start = self.selection.clamp(&self.doc).ordered().0;
         // Candidate text bypasses Markdown shortcuts and all persistent edits.
         self.doc.replace(self.selection, Text::plain(text));
+        self.visuals.invalidate();
         self.marked = Some(start.offset..start.offset + text.len());
         let selected = selected
             .map(|range| from_utf16(text, range))

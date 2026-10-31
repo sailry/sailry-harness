@@ -193,7 +193,7 @@ impl Block {
 /// than a path, and the model stays flat. The ordering is document order, which
 /// is what makes a [`crate::markdown::Cursor`] comparable and therefore what makes a
 /// selection a range.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum Part {
     #[default]
     Body,

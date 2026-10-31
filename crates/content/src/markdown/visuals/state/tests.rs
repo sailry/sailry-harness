@@ -2,7 +2,7 @@ use super::*;
 use gpui_kit::{TestAppContext, component::ThemeMode, gpui};
 
 fn rendered(doc: &Doc, theme: &Theme, dark: bool) -> Vec<Request> {
-    requests(doc, theme, dark, 14., &mut HashMap::new())
+    requests(doc, theme, dark, 14., &mut HashMap::new(), None)
         .into_iter()
         .map(|(request, _)| request)
         .collect()
@@ -105,7 +105,7 @@ fn renders_sanitized_html_for_its_source(cx: &mut TestAppContext) {
             "<div align=\"center\" onclick=\"run()\">\n<b>Hi</b><script>run()</script>\n</div>";
         let doc = crate::markdown::parse::parse(&format!("{source}\n\n<!-- note -->"));
         let mut sanitized = HashMap::new();
-        let items = requests(&doc, &Theme::of(cx), false, 14., &mut sanitized);
+        let items = requests(&doc, &Theme::of(cx), false, 14., &mut sanitized, None);
         let [(request, original)] = items.as_slice() else {
             panic!("one HTML request: {items:?}");
         };
@@ -114,5 +114,19 @@ fn renders_sanitized_html_for_its_source(cx: &mut TestAppContext) {
         assert!(request.source.contains("<b>Hi</b>"));
         assert!(!request.source.contains("onclick") && !request.source.contains("script"));
         assert_eq!(sanitized.len(), 2);
+    });
+}
+
+#[gpui::test]
+fn defers_blocks_showing_source(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let doc = crate::markdown::parse::parse("```mermaid\nflowchart LR\nA-->B\n```\n\n$$x^2$$");
+        let theme = Theme::of(cx);
+        let items = requests(&doc, &theme, false, 14., &mut HashMap::new(), Some((0, 0)));
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].0.kind, Kind::DisplayMath);
+        let items = requests(&doc, &theme, false, 14., &mut HashMap::new(), None);
+        assert_eq!(items.len(), 2);
     });
 }

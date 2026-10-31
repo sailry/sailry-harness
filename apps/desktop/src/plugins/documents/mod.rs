@@ -93,6 +93,7 @@ pub(crate) struct Controller {
     binding: Binding,
     session: Option<SessionId>,
     documents: BTreeMap<RequestId, Document>,
+    metadata: BTreeMap<RequestId, Value>,
     entries: BTreeMap<RequestId, entries::Entry>,
     changes: tokio::sync::watch::Sender<Value>,
     cursor: u64,
@@ -249,6 +250,7 @@ impl Controller {
             binding,
             session,
             documents: BTreeMap::new(),
+            metadata: BTreeMap::new(),
             entries: BTreeMap::new(),
             changes: tokio::sync::watch::channel(Value::Null).0,
             cursor: 0,
@@ -361,7 +363,11 @@ impl Controller {
     }
     fn document_value(&self, id: RequestId, cx: &App) -> Value {
         let document = &self.documents[&id];
-        let mut value = document.snapshot(id, cx);
+        let mut value = self
+            .metadata
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| document.snapshot(id, cx));
         if self.locked(&document.path, cx) {
             value["can_edit"] = false.into();
             value["can_cut_paste"] = false.into();
@@ -372,6 +378,27 @@ impl Controller {
     }
 
     pub(in crate::plugins) fn changed(&mut self, cx: &mut Context<Self>) {
+        self.metadata = self
+            .documents
+            .iter()
+            .map(|(id, document)| (*id, document.snapshot(*id, cx)))
+            .collect();
+        self.publish(cx);
+    }
+
+    fn document_changed(&mut self, id: RequestId, cx: &mut Context<Self>) {
+        let Some(document) = self.documents.get(&id) else {
+            return;
+        };
+        let value = document.snapshot(id, cx);
+        if self.metadata.get(&id) == Some(&value) {
+            return;
+        }
+        self.metadata.insert(id, value);
+        self.publish(cx);
+    }
+
+    fn publish(&mut self, cx: &mut Context<Self>) {
         self.cursor += 1;
         self.changes.send_replace(self.snapshot(cx));
         cx.notify();

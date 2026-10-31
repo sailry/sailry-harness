@@ -4,7 +4,7 @@ use futures::{
 };
 use gpui_kit::{AnyWindowHandle, App, AppContext, Context, Entity, Global, Task, Window};
 use raw_window_handle::HasWindowHandle;
-use sailry_content::markdown::visuals::{self, Output, Renderer, Request};
+use sailry_content::markdown::visuals::{self, Output, Renderer, Request, VerifiedOutput};
 use serde::Deserialize;
 use std::{borrow::Cow, collections::VecDeque, rc::Rc, time::Duration};
 use tokio::sync::{mpsc, oneshot};
@@ -27,7 +27,7 @@ impl Global for Service {}
 struct Job {
     id: u64,
     request: Request,
-    sender: oneshot::Sender<Result<Output, String>>,
+    sender: oneshot::Sender<Result<VerifiedOutput, String>>,
 }
 
 enum Event {
@@ -124,7 +124,7 @@ impl Surface {
     fn enqueue(
         &mut self,
         request: Request,
-        sender: oneshot::Sender<Result<Output, String>>,
+        sender: oneshot::Sender<Result<VerifiedOutput, String>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -223,7 +223,7 @@ impl Surface {
                     .take()
                     .expect("Matching active visual request exists");
                 let result = match (message.result, message.error) {
-                    (Some(output), None) => output.validate().map(|()| output),
+                    (Some(output), None) => output.decode(),
                     (None, Some(error)) => Err(error),
                     _ => Err("Visual renderer returned an invalid result".into()),
                 };

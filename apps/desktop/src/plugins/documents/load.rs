@@ -57,14 +57,34 @@ impl Controller {
             let worktree = task_context
                 .worktree
                 .ok_or_else(|| Fault::invalid("document requires a worktree"))?;
-            super::notebook::load(
-                client,
+            let markdown = crate::content::files::markdown(&task_path);
+            let document = super::notebook::load(
+                client.clone(),
                 worktree,
                 task_path,
                 Some(task_context),
-                cancellation,
+                cancellation.clone(),
             )
-            .await
+            .await?;
+            let root = if markdown {
+                let request =
+                    client.prepare(sailry_protocol::Command::ReadWorktreeCatalog { worktree });
+                let result = tokio::select! {
+                    _ = cancellation.cancelled() => return Err(cancelled()),
+                    result = client.execute(request) => result,
+                };
+                match result {
+                    Ok(sailry_protocol::Output::ProjectCatalog(catalog)) => catalog
+                        .worktrees
+                        .into_iter()
+                        .find(|tree| tree.id == worktree)
+                        .map(|tree| tree.path),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            Ok((document, root))
         });
         cx.spawn_in(window, async move |controller, cx| {
             let result = job.await.unwrap_or_else(|_| Err(unavailable()));
@@ -75,7 +95,7 @@ impl Controller {
                     let _ = reply.send(Err(cancelled()));
                     return;
                 }
-                let (content, notebook_page) = match result {
+                let ((content, notebook_page), root) = match result {
                     Ok(content) => content,
                     Err(fault) => {
                         let _ = reply.send(Err(fault));
@@ -140,16 +160,36 @@ impl Controller {
                         let owner = cx.weak_entity();
                         let client = controller.binding.client.clone();
                         let (base, context) = (path.clone(), context.clone());
-                        markdown.update(cx, |state, _| {
-                            state.set_link_handler(links::handler(owner, base, context));
-                            state.set_image_chooser(links::chooser(client));
+                        let runtime = controller.binding.runtime.clone();
+                        let images = cx.new(|cx| {
+                            crate::content::images::Images::new(
+                                client.clone(),
+                                runtime,
+                                Arc::new(tokio::sync::Semaphore::new(2)),
+                                cx,
+                            )
+                        });
+                        markdown.update(cx, |state, cx| {
+                            state.set_link_handler(links::handler(
+                                owner,
+                                base.clone(),
+                                context.clone(),
+                            ));
+                            state.set_image_chooser(links::chooser(
+                                client,
+                                base.clone(),
+                                root.clone(),
+                            ));
+                            state.set_image_handler(links::images(images, base, root, context), cx);
                         });
                     }
-                    let mut observers =
-                        vec![cx.observe(&input, |controller, _, cx| controller.changed(cx))];
+                    let mut observers = vec![cx.observe(&input, move |controller, _, cx| {
+                        controller.document_changed(id, cx)
+                    })];
                     if let Some(markdown) = &markdown {
-                        observers
-                            .push(cx.observe(markdown, |controller, _, cx| controller.changed(cx)));
+                        observers.push(cx.observe(markdown, move |controller, _, cx| {
+                            controller.document_changed(id, cx)
+                        }));
                     }
                     controller.documents.insert(
                         id,

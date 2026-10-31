@@ -92,6 +92,7 @@ pub struct State {
     popup: Option<links::Popup>,
     popup_events: Vec<Subscription>,
     on_link: Option<markdown::render::OnLink>,
+    on_image: Option<markdown::render::OnImage>,
     on_choose: Option<OnChoose>,
     _source: Subscription,
     _blur: Option<Subscription>,
@@ -149,10 +150,20 @@ impl State {
             popup: None,
             popup_events: Vec::new(),
             on_link: None,
+            on_image: None,
             on_choose: None,
             _source: changes,
             _blur: None,
         }
+    }
+
+    pub fn set_image_handler(
+        &mut self,
+        handler: markdown::render::OnImage,
+        cx: &mut Context<Self>,
+    ) {
+        self.on_image = Some(handler);
+        cx.notify();
     }
 
     pub fn source(&self, cx: &App) -> SharedString {
@@ -258,6 +269,7 @@ impl State {
     fn cancel_composition(&mut self, cx: &mut Context<Self>) {
         if let Some(original) = self.composition.take() {
             self.doc = original.doc;
+            self.visuals.invalidate();
             self.selection = original.selection;
         }
         if self.marked.take().is_some() {
@@ -272,6 +284,7 @@ impl State {
         }
         self.cancel_composition(cx);
         self.doc = document(&source);
+        self.visuals.invalidate();
         self.map = source::Map::new(&source, &self.doc);
         self.source = source;
         self.selection = Selection::at(self.map.cursor(self.input.selection(cx).end, &self.doc));
@@ -293,6 +306,7 @@ impl State {
         // Set the expected source before notifying Kit observers, so a view's
         // own edit retains temporary trailing spaces and an empty new paragraph.
         self.source = updated.into();
+        self.visuals.invalidate();
         self.map = source::Map::new(&self.source, &self.doc);
         self.input.replace(patch.range, patch.text, window, cx);
         self.notify_caret(cx);
@@ -412,6 +426,7 @@ impl State {
             .absolute()
             .size_0()
         });
+        self.visuals.editing(self.selection);
         self.visuals
             .prepare(&self.doc, None, None, window, cx, |state| {
                 &mut state.visuals
@@ -425,7 +440,8 @@ impl State {
                 layouts: Some(&self.layouts),
                 // Document clicks place the caret; the platform modifier opens links.
                 on_link: Some(self.link_click(cx)),
-                visuals: Some(&visuals),
+                on_image: self.on_image.clone(),
+                visuals: Some(visuals),
                 reveal: true,
                 ..Editing::default()
             },

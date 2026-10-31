@@ -109,6 +109,7 @@ impl State {
             parsed.doc
         });
         self.source = source;
+        self.visuals.invalidate();
         self.hovered_link = None;
         self.selection = self
             .selection
@@ -393,7 +394,7 @@ impl Render for State {
                     typography: self.typography,
                     foreground: self.foreground,
                     strong_color: self.strong_color,
-                    visuals: Some(&visuals),
+                    visuals: Some(visuals),
                     on_math_link: Some(on_math_link),
                     ..Editing::default()
                 },
@@ -530,6 +531,7 @@ impl RenderOnce for View {
         state.update(cx, |state, cx| {
             if state.on_image.is_some() != self.on_image.is_some() {
                 let doc = with_ranges(state.source.as_ref()).doc;
+                state.visuals.invalidate();
                 state.document = Rc::new(if self.on_image.is_some() {
                     super::images::expand(doc)
                 } else {

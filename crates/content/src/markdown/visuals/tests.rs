@@ -71,3 +71,12 @@ fn refuses_external_and_active_content() {
     result.baseline = Some(25.0);
     assert!(result.validate().is_err());
 }
+
+#[test]
+fn prepares_verified_png_bytes() {
+    let verified = png(200, 100).decode().unwrap();
+    assert!(verified.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+    let image = Prepared::new(verified, 14.).unwrap();
+    assert_eq!((image.width, image.height), (100., 50.));
+    assert!(png(4000, 100).decode().is_err());
+}

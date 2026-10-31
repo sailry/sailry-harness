@@ -1,7 +1,11 @@
 //! Markdown links open workspace documents through this controller; images
 //! choose files with the shared execution-host picker.
 use super::*;
-use crate::content::{editor::OnChoose, markdown::render::OnLink};
+use crate::content::{
+    editor::OnChoose,
+    images::{self, ImageSource, Images},
+    markdown::render::{OnImage, OnLink},
+};
 use crate::file_picker::{Completion, Mode, Options, Selection};
 use sailry_client::Client;
 use std::rc::Rc;
@@ -27,16 +31,18 @@ pub(super) fn handler(
     })
 }
 
-pub(super) fn chooser(client: Arc<Client>) -> OnChoose {
+pub(super) fn chooser(client: Arc<Client>, base: String, root: Option<String>) -> OnChoose {
     Rc::new(
         move |done: Rc<dyn Fn(String, &mut Window, &mut App)>,
               window: &mut Window,
               cx: &mut App| {
+            let base = base.clone();
+            let root = root.clone();
             let _ = crate::file_picker::open(
                 Options {
                     client: Some(client.clone()),
                     preview_host: 0,
-                    initial: None,
+                    initial: root.clone(),
                     mode: Mode::Files { multiple: false },
                     title: "content_image_choose",
                     confirm: "content_image_choose",
@@ -48,7 +54,9 @@ pub(super) fn chooser(client: Arc<Client>) -> OnChoose {
                     let Some(path) = paths.into_iter().next() else {
                         return Err("directory_stale");
                     };
-                    done(path, window, cx);
+                    let reference =
+                        portable(&base, &path, root.as_deref()).ok_or("files_remote_path")?;
+                    done(reference, window, cx);
                     Ok(Completion::Close)
                 },
                 window,
@@ -56,6 +64,97 @@ pub(super) fn chooser(client: Arc<Client>) -> OnChoose {
             );
         },
     )
+}
+
+pub(super) fn images(
+    images: Entity<Images>,
+    base: String,
+    root: Option<String>,
+    context: plugin::Context,
+) -> OnImage {
+    Rc::new(move |url, urls, position, cx| {
+        if let Some(source) = source_for(&base, url, root.as_deref(), &context) {
+            let mut index = 0;
+            let gallery = urls
+                .iter()
+                .enumerate()
+                .filter_map(|(at, url)| {
+                    let source = source_for(&base, url, root.as_deref(), &context)?;
+                    if at < position {
+                        index += 1;
+                    }
+                    Some(source)
+                })
+                .collect();
+            return images::card(&source, &images, gallery, index, urls.len() > 1, cx)
+                .into_any_element();
+        }
+        if url.starts_with("https://")
+            || url.starts_with("http://")
+            || url.starts_with("data:image/")
+        {
+            return img(SharedString::from(url.to_owned()))
+                .max_w_full()
+                .into_any_element();
+        }
+        div()
+            .child(if url.is_empty() {
+                crate::tr("content_image_choose")
+            } else {
+                SharedString::from(url.to_owned())
+            })
+            .into_any_element()
+    })
+}
+
+fn source_for(
+    base: &str,
+    url: &str,
+    root: Option<&str>,
+    context: &plugin::Context,
+) -> Option<ImageSource> {
+    let path = image_path(base, url, root)?;
+    let worktree = context.worktree?;
+    images::displayable(&path).then(|| ImageSource::File {
+        worktree,
+        path,
+        context: Some(context.clone()),
+    })
+}
+
+fn image_path(base: &str, url: &str, root: Option<&str>) -> Option<String> {
+    use crate::conversation::file_reference::{self, Target};
+    if url.contains("://") || url.starts_with('/') || url.as_bytes().get(1) == Some(&b':') {
+        if let Some(root) = root
+            && let Some(Target::Workspace { path, .. }) = file_reference::resolve(url, root)
+        {
+            return Some(path);
+        }
+        // Leading slashes in Markdown also support workspace-root references.
+        if url.starts_with('/') && !url.starts_with("//") {
+            return resolve(base, url);
+        }
+        return None;
+    }
+    resolve(base, url)
+}
+
+fn portable(base: &str, path: &str, root: Option<&str>) -> Option<String> {
+    use crate::conversation::file_reference::{self, Target};
+    let Target::Workspace { path, .. } = file_reference::resolve(path, root?)? else {
+        return None;
+    };
+    let mut parent = base.split('/').collect::<Vec<_>>();
+    parent.pop();
+    let target = path.split('/').collect::<Vec<_>>();
+    let shared = parent
+        .iter()
+        .zip(&target)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut parts = vec![".."; parent.len() - shared];
+    parts.extend_from_slice(&target[shared..]);
+    Some(parts.join("/"))
 }
 
 /// A workspace path for a document link, relative to the linking document.
@@ -86,7 +185,7 @@ fn resolve(base: &str, url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve;
+    use super::{image_path, portable, resolve};
 
     #[test]
     fn resolves_relative_to_document() {
@@ -103,6 +202,68 @@ mod tests {
             Some("docs/node.md")
         );
         assert_eq!(resolve("a.md", "./b.md").as_deref(), Some("b.md"));
+    }
+
+    #[test]
+    fn resolves_images_on_execution_host() {
+        for (url, expected) in [
+            ("../images/a.png", "images/a.png"),
+            ("/remote/project/images/a.png", "images/a.png"),
+            ("file:///remote/project/images/a.png", "images/a.png"),
+            ("/images/a.png", "images/a.png"),
+        ] {
+            assert_eq!(
+                image_path("docs/a.md", url, Some("/remote/project")).as_deref(),
+                Some(expected)
+            );
+        }
+        assert_eq!(
+            image_path(
+                "docs/a.md",
+                "https://example.test/a.png",
+                Some("/remote/project")
+            ),
+            None
+        );
+        assert_eq!(
+            image_path("a.md", "../../private.png", Some("/remote/project")),
+            None
+        );
+    }
+
+    #[test]
+    fn chooser_keeps_portable_references() {
+        for (base, selected, root, expected) in [
+            (
+                "docs/a.md",
+                "/remote/project/images/a.png",
+                "/remote/project",
+                "../images/a.png",
+            ),
+            (
+                "docs/a.md",
+                "/remote/project/docs/a.png",
+                "/remote/project",
+                "a.png",
+            ),
+            (
+                "a.md",
+                "C:/project/images/a.png",
+                "C:/project",
+                "images/a.png",
+            ),
+        ] {
+            let reference = portable(base, selected, Some(root)).unwrap();
+            assert_eq!(reference, expected);
+            assert_eq!(
+                image_path(base, &reference, Some(root)),
+                image_path(base, selected, Some(root))
+            );
+        }
+        assert_eq!(
+            portable("a.md", "/other/private.png", Some("/remote/project")),
+            None
+        );
     }
 
     #[test]
