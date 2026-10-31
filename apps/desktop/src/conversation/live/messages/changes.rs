@@ -299,10 +299,11 @@ impl Render for Card {
             )
             .child(
                 Button::new("undo-changes")
-                    .outline()
-                    .h_8()
+                    .ghost()
+                    .small()
+                    .icon(IconName::Undo)
+                    .label(tr("turn_changes_undo"))
                     .accessibility_label(tr("turn_changes_undo"))
-                    .child(tr("turn_changes_undo"))
                     .debug_selector(move || format!("live-turn-undo-{turn}"))
                     .disabled(self.restore.as_ref().is_some_and(|state| {
                         let state = state.read(cx);
@@ -316,8 +317,8 @@ impl Render for Card {
             )
             .child(
                 Button::new("review-changes")
-                    .primary()
-                    .h_8()
+                    .outline()
+                    .small()
                     .label(tr("turn_changes_review"))
                     .debug_selector(move || format!("live-turn-review-{turn}"))
                     .on_click(cx.listener(|card, _, _, cx| card.open(None, cx))),
@@ -431,7 +432,9 @@ impl Render for Card {
                                                     style.opacity(1.)
                                                 })
                                                 .focus_visible(|style| style.opacity(1.))
-                                                .icon(IconName::FileText)
+                                                .icon(Icon::new(
+                                                    gpui_kit::assets::IconName::ListChecks,
+                                                ))
                                                 .tooltip(tr("hunks_review"))
                                                 .accessibility_label(tr("hunks_review"))
                                                 .debug_selector(move || {

@@ -10,3 +10,6 @@ hunks_conflict: "파일 또는 스테이징 내용이 변경되었습니다. 다
 hunks_failed: "변경 블록을 적용할 수 없어요"
 hunks_unknown: "변경을 확인하지 못했어요. 확인한 후 다시 시도하세요"
 hunks_busy: "블록을 처리할 수 없어요. 나중에 다시 시도하세요"
+hunks_state_accepted: "수락됨"
+hunks_state_rejected: "되돌림"
+hunks_state_staged: "스테이징됨"

@@ -6,6 +6,9 @@ use gpui_kit::component::{
 };
 use sailry_protocol::conversation::search::{MAX_QUERY_BYTES, Query};
 
+/// Fixed two-line row height: role label above a single-line snippet.
+const ROW_HEIGHT: f32 = 56.;
+
 pub(super) struct Results {
     client: Arc<Client>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -159,40 +162,50 @@ impl ListDelegate for Results {
         cx: &mut Context<ListState<Self>>,
     ) -> Option<ListItem> {
         let found = self.matches.get(index.row)?;
-        let start = found.snippet[..found.highlight.start]
+        let (text, highlight) = sailry_client::conversation::search::display(found);
+        let marked = text[highlight.clone()].to_owned();
+        let start = text[..highlight.start]
             .char_indices()
             .rev()
             .nth(12)
             .map_or(0, |(index, _)| index);
         let snippet = if start > 0 {
-            format!("…{}", &found.snippet[start..])
+            format!("…{}", &text[start..])
         } else {
-            found.snippet.clone()
+            text.clone()
+        };
+        let role = if found.author == "user" {
+            tr("user")
+        } else {
+            tr("chat_search_assistant")
         };
         Some(
             ListItem::new(index.row)
-                .h_20()
+                .h(px(ROW_HEIGHT))
                 .min_w_0()
                 .rounded(cx.theme().radius)
-                // Kit's virtual List has no gap option; row margins are measured.
-                .mb(px(1.))
-                .px_2()
+                .px_3()
                 .py_2()
-                .accessibility_label(found.snippet.clone())
+                .accessibility_label(text)
                 .child(
                     v_flex()
                         .w_full()
                         .min_w_0()
+                        .gap_0p5()
                         .debug_selector(move || format!("live-search-result-{}", index.row))
                         .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(role),
+                        )
+                        .child(
                             Label::new(snippet)
-                                .highlights(found.snippet[found.highlight.clone()].to_owned())
+                                .highlights(marked)
                                 .w_full()
                                 .min_w_0()
                                 .text_sm()
-                                .line_height(relative(1.25))
-                                .whitespace_normal()
-                                .line_clamp(3),
+                                .truncate(),
                         ),
                 ),
         )

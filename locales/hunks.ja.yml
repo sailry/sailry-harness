@@ -10,3 +10,6 @@ hunks_conflict: "ファイルまたはステージ内容が変更されました
 hunks_failed: "変更ブロックを適用できません"
 hunks_unknown: "変更を確認できません。確認してから再試行してください"
 hunks_busy: "ブロックを操作できません。後で再試行してください"
+hunks_state_accepted: "承認済み"
+hunks_state_rejected: "元に戻し済み"
+hunks_state_staged: "ステージ済み"

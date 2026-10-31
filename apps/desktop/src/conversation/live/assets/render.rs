@@ -58,7 +58,7 @@ impl Assets {
         let mut body = v_flex()
             .id("asset-overview")
             .relative()
-            .gap_4()
+            .gap_2()
             .w_full()
             .max_h((window.viewport_size().height - px(128.)).max(px(120.)))
             .overflow_y_scroll()
@@ -88,8 +88,7 @@ impl Assets {
                     .debug_selector(move || format!("asset-child-{id}"))
                     .ghost()
                     .w_full()
-                    .h_auto()
-                    .p_2()
+                    .small()
                     .justify_start()
                     .accessibility_label(format!("{}: {}", child.name, tr(child.status)))
                     .child(
@@ -197,8 +196,7 @@ impl Assets {
                     .debug_selector(move || format!("asset-source-{index}"))
                     .ghost()
                     .w_full()
-                    .h_auto()
-                    .p_2()
+                    .small()
                     .justify_start()
                     .accessibility_label(label.clone())
                     .icon(IconName::Globe)
@@ -310,7 +308,7 @@ impl Assets {
             source.filter(|source| kind == Kind::Artifact && source.kind().is_some())
         {
             Images::media(&self.images, source, cx)
-                .size_8()
+                .size_5()
                 .into_any_element()
         } else {
             crate::ui::file_icon::render(&name, &mime, rems(1.))
@@ -327,8 +325,7 @@ impl Assets {
             .debug_selector(move || selector.clone())
             .ghost()
             .w_full()
-            .h_auto()
-            .p_2()
+            .small()
             .justify_start()
             .accessibility_label(name.clone())
             .when(kind == Kind::Resource, |button| button.tooltip(name))
@@ -353,7 +350,7 @@ impl Assets {
 fn section(id: &'static str, label: &'static str) -> Div {
     v_flex()
         .debug_selector(move || format!("asset-{id}"))
-        .gap_1()
+        .gap_0p5()
         .w_full()
         .min_w_0()
         .child(div().text_sm().font_semibold().child(tr(label)))
@@ -373,7 +370,7 @@ fn pending(section: Div, loading: bool) -> Div {
 
 fn empty(label: &'static str, cx: &App) -> Div {
     div()
-        .py_1()
+        .py_0p5()
         .text_sm()
         .text_color(cx.theme().muted_foreground)
         .child(tr(label))

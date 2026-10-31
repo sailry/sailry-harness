@@ -1,8 +1,10 @@
 use super::*;
 use crate::theme::DialogStyle as _;
 use gpui_kit::component::{
-    Disableable, Sizable, dialog::Dialog, h_flex, scroll::ScrollableElement, v_flex,
+    ActiveTheme as _, Disableable, IconName, Sizable, button::ButtonVariants as _, dialog::Dialog,
+    h_flex, scroll::ScrollableElement, tag::Tag, v_flex,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 
 impl Review {
     pub(super) fn dialog(
@@ -24,48 +26,77 @@ impl Review {
                     .on_click(cx.listener(|review, _, window, cx| review.retry(window, cx))),
             );
         }
+        let title = h_flex()
+            .min_w_0()
+            .gap_2()
+            .child(div().min_w_0().truncate().child(self.path.clone()))
+            .when_some(self.data.as_ref(), |title, data| {
+                let (added, removed) = data.hunks.iter().fold((0, 0), |(added, removed), hunk| {
+                    (added + hunk.additions, removed + hunk.deletions)
+                });
+                title.child(crate::conversation::surface::diff::badge(
+                    added, removed, cx,
+                ))
+            });
         if let Some(data) = &self.data {
             for hunk in &data.hunks {
                 let state = self.decisions.get(&hunk.id).copied();
                 let accepted = hunk.id.clone();
                 let rejected = hunk.id.clone();
                 let staged = hunk.id.clone();
-                let actions = h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new("accept")
-                            .small()
-                            .outline()
-                            .label(tr("hunks_accept"))
-                            .disabled(blocked || state.is_some())
-                            .on_click(cx.listener(move |review, _, window, cx| {
-                                review.accept(&accepted, window, cx)
-                            })),
+                let reject = Button::new("reject")
+                    .small()
+                    .ghost()
+                    .icon(IconName::Undo2)
+                    .label(tr("hunks_reject"))
+                    .disabled(blocked || state.is_some())
+                    .on_click(cx.listener(move |review, _, window, cx| {
+                        review.apply(&rejected, hunk::Operation::Reject, window, cx)
+                    }));
+                let stage = Button::new("stage")
+                    .small()
+                    .ghost()
+                    .label(tr("hunks_stage"))
+                    .disabled(
+                        blocked
+                            || self.index.is_none()
+                            || matches!(state, Some(Decision::Rejected | Decision::Staged)),
                     )
-                    .child(
-                        Button::new("reject")
-                            .small()
-                            .outline()
-                            .label(tr("hunks_reject"))
-                            .disabled(blocked || state.is_some())
-                            .on_click(cx.listener(move |review, _, window, cx| {
-                                review.apply(&rejected, hunk::Operation::Reject, window, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("stage")
-                            .small()
-                            .outline()
-                            .label(tr("hunks_stage"))
-                            .disabled(
-                                blocked
-                                    || self.index.is_none()
-                                    || matches!(state, Some(Decision::Rejected | Decision::Staged)),
-                            )
-                            .on_click(cx.listener(move |review, _, window, cx| {
-                                review.apply(&staged, hunk::Operation::Stage, window, cx)
-                            })),
-                    );
+                    .on_click(cx.listener(move |review, _, window, cx| {
+                        review.apply(&staged, hunk::Operation::Stage, window, cx)
+                    }));
+                let accept = Button::new("accept")
+                    .small()
+                    .primary()
+                    .icon(IconName::Check)
+                    .label(tr("hunks_accept"))
+                    .disabled(blocked || state.is_some())
+                    .on_click(cx.listener(move |review, _, window, cx| {
+                        review.accept(&accepted, window, cx)
+                    }));
+                let stageable = self.index.is_some();
+                // An accepted hunk keeps its change in the worktree and may still be staged.
+                let actions = h_flex().flex_shrink_0().gap_1().map(|actions| match state {
+                    None => actions
+                        .child(reject)
+                        .when(stageable, |actions| actions.child(stage))
+                        .child(accept),
+                    Some(state) => actions
+                        .child(decision(state))
+                        .when(state == Decision::Accepted && stageable, |actions| {
+                            actions.child(stage)
+                        }),
+                });
+                let header = hunk
+                    .text
+                    .lines()
+                    .next()
+                    .filter(|line| line.starts_with("@@"))
+                    .map(|line| {
+                        line.find(" @@")
+                            .map_or(line, |end| &line[..end + 3])
+                            .to_owned()
+                    });
                 // Kit exposes file headers, not a hunk-action callback. Keep the
                 // revision-checked controls with this immutable hunk identity.
                 let id = format!("turn-hunk-{}-{}", self.turn, hunk.id);
@@ -73,8 +104,28 @@ impl Review {
                     v_flex()
                         .id(id.clone())
                         .test_support()
-                        .gap_2()
-                        .child(actions)
+                        .rounded(cx.theme().radius)
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .overflow_hidden()
+                        .child(
+                            h_flex()
+                                .px_3()
+                                .py_1p5()
+                                .gap_2()
+                                .justify_between()
+                                .bg(cx.theme().muted)
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_xs()
+                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .text_color(cx.theme().muted_foreground)
+                                        .children(header),
+                                )
+                                .child(actions),
+                        )
                         .child(crate::content::diff::rows(
                             &id, &hunk.text, &self.path, false,
                         )),
@@ -86,9 +137,19 @@ impl Review {
         }
         dialog
             .floating_surface(cx)
-            .title(self.path.clone())
+            .title(title)
             .w((window.viewport_size().width - px(48.)).min(px(900.)))
             .max_h(window.viewport_size().height * 0.8)
             .child(body.overflow_y_scrollbar())
     }
+}
+
+/// Settled state shown in place of a hunk's actions.
+fn decision(state: Decision) -> Tag {
+    let (tag, key) = match state {
+        Decision::Accepted => (Tag::success(), "hunks_state_accepted"),
+        Decision::Rejected => (Tag::danger(), "hunks_state_rejected"),
+        Decision::Staged => (Tag::info(), "hunks_state_staged"),
+    };
+    tag.small().child(tr(key))
 }
