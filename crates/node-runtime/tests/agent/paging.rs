@@ -304,7 +304,7 @@ async fn restore_stream(remote: bool) {
     assert_eq!(server.requests.lock().unwrap().len(), 52);
     let hydrated = Arc::new(Client::new(transport.clone()));
     let (updates, mut initial) = watch::channel(View::default());
-    let (_older, requests) = mpsc::channel(1);
+    let (partial, requests) = mpsc::channel(1);
     let stop = CancellationToken::new();
     let worker = tokio::spawn({
         let stop = stop.clone();
@@ -314,22 +314,31 @@ async fn restore_stream(remote: bool) {
                 .await
         }
     });
+    // The newest page publishes at once; the rest of the large turn loads on request.
+    super::observed(&mut initial, |view| view.connected).await;
+    {
+        let view = initial.borrow();
+        let snapshot = view.snapshot.as_ref().unwrap();
+        assert_eq!(snapshot.missing, [first]);
+        assert_eq!(snapshot.page.entries.len(), 100);
+        assert_eq!(
+            &snapshot.page.entries[..],
+            &complete.page.entries[complete.page.entries.len() - 100..]
+        );
+    }
+    partial.send(HistoryRequest::Older).await.unwrap();
     super::observed(&mut initial, |view| {
-        if let Some(snapshot) = &view.snapshot {
-            assert!(snapshot.missing.is_empty());
-            assert_eq!(
-                snapshot
-                    .page
-                    .entries
-                    .iter()
-                    .filter(|entry| !is_context(entry))
-                    .count(),
-                initial_entries
-            );
-        }
-        view.connected
+        !view.loading_older
+            && view
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.missing.is_empty())
     })
     .await;
+    assert_eq!(
+        initial.borrow().snapshot.as_ref().unwrap().page.entries,
+        complete.page.entries
+    );
     assert_eq!(initial.borrow().calls.len(), 51);
     assert_totals(
         &initial.borrow().snapshot.as_ref().unwrap().statistics,
@@ -408,6 +417,17 @@ async fn restore_stream(remote: bool) {
                 .is_some_and(|snapshot| snapshot.page.next_before.is_none())
     })
     .await;
+    // The oldest page leaves its large turn partial until another request.
+    assert_eq!(view.borrow().snapshot.as_ref().unwrap().missing, [turns[0]]);
+    older.send(HistoryRequest::Older).await.unwrap();
+    super::observed(&mut view, |view| {
+        !view.loading_older
+            && view
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.missing.is_empty())
+    })
+    .await;
     assert_eq!(observed.reads(), 2);
     let all = view.borrow().snapshot.clone().unwrap();
     assert!(all.missing.is_empty());
@@ -429,8 +449,9 @@ async fn restore_stream(remote: bool) {
     assert_eq!(all.page.questions, complete.page.questions);
     assert_eq!(view.borrow().calls.len(), 51);
     assert_eq!(observed.cancelled_reads(), 0);
+    // Automatic recovery keeps the loaded view connected and silent while it restores.
     observed.disconnect();
-    super::observed(&mut view, |view| !view.connected).await;
+    assert!(view.borrow().connected);
     assert_eq!(view.borrow().snapshot.as_ref().unwrap(), &all);
     let last = submit(&client, session.id).await;
     super::finished(&client, session.id, last).await;
@@ -446,6 +467,7 @@ async fn restore_stream(remote: bool) {
             })
     })
     .await;
+    assert!(view.borrow().error.is_none());
     let all = view.borrow().snapshot.clone().unwrap();
     assert!(all.missing.is_empty());
     assert_eq!(all.page.next_before, None);

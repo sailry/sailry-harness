@@ -75,7 +75,7 @@ async fn reveals_unpublished_tail() {
         loop {
             match updates.next().await.unwrap() {
                 Update::ConversationFrame(frame) => {
-                    if let Change::Entry(entry) = frame.change {
+                    if let Change::Revealed(entry) = frame.change {
                         break entry;
                     }
                 }
@@ -92,8 +92,27 @@ async fn reveals_unpublished_tail() {
     assert_eq!(fixture.read(None, 100).await.page.entries, vec![entry]);
 }
 
+/// Next visibility frame, skipping unrelated statistics and task frames.
+async fn toggled(updates: &mut Box<dyn Subscription>) -> Change {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            match updates.next().await.unwrap() {
+                Update::ConversationFrame(frame)
+                    if matches!(frame.change, Change::Revealed(_) | Change::Hidden { .. }) =>
+                {
+                    break frame.change;
+                }
+                Update::ResetRequired => panic!("visibility changes stay incremental"),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
-async fn resets_immutable_public_entries() {
+async fn publishes_earlier_changes_incrementally() {
     let mut fixture = Fixture::new().await;
     let turn = running(&mut fixture).await;
     let mut hidden = message(
@@ -123,18 +142,26 @@ async fn resets_immutable_public_entries() {
     .await;
     let mut updates = subscription(&fixture).await;
     append(&mut fixture, turn, change(&id, true)).await;
-    assert!(matches!(
-        updates.next().await.unwrap(),
-        Update::ResetRequired
-    ));
-    assert_eq!(fixture.read(None, 100).await.page.entries.len(), 2);
-    let mut updates = subscription(&fixture).await;
+    let Change::Revealed(revealed) = toggled(&mut updates).await else {
+        panic!("revealed entry expected");
+    };
+    assert_eq!(revealed.id, id);
+    let entries = fixture.read(None, 100).await.page.entries;
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0], revealed);
     append(&mut fixture, turn, change(&id, false)).await;
-    assert!(matches!(
-        updates.next().await.unwrap(),
-        Update::ResetRequired
-    ));
+    assert_eq!(
+        toggled(&mut updates).await,
+        Change::Hidden {
+            turn,
+            id: id.clone()
+        }
+    );
     let entries = fixture.read(None, 100).await.page.entries;
     assert_eq!(entries.len(), 1);
     assert_ne!(entries[0].id, id);
+    // An unchanged visibility value publishes nothing.
+    append(&mut fixture, turn, change(&id, false)).await;
+    append(&mut fixture, turn, change(&id, true)).await;
+    assert!(matches!(toggled(&mut updates).await, Change::Revealed(entry) if entry.id == id));
 }

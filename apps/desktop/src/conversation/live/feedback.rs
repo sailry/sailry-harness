@@ -36,12 +36,14 @@ impl View {
                 let error = view
                     .connection_error()
                     .expect("connection error is present");
+                // Client retries quietly and reports only a lasting interruption; its
+                // internal fault text is not user copy.
+                if retrying(error) {
+                    return gpui_kit::component::notification::Notification::error(tr(key)).into();
+                }
                 let notice =
                     crate::feedback::diagnostic(diagnostic::display(&error.message).into())
                         .title(tr(key));
-                if retrying(error) {
-                    return notice.into();
-                }
                 let owner = cx.weak_entity();
                 notice.autohide(false).scoped_action(move |_, _, cx| {
                     let owner = owner.clone();

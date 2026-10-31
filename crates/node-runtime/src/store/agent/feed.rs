@@ -35,6 +35,8 @@ struct Feed {
     bytes: usize,
     retained: VecDeque<(Frame, usize)>,
     retained_bytes: usize,
+    // Last published task state; republishing an unchanged task adds no frame.
+    background: BTreeMap<String, sailry_protocol::conversation::background::Task>,
     updates: broadcast::Sender<Update>,
 }
 
@@ -48,6 +50,7 @@ impl Default for Feed {
             bytes: 0,
             retained: VecDeque::new(),
             retained_bytes: 0,
+            background: BTreeMap::new(),
             updates: broadcast::channel(64).0,
         }
     }
@@ -77,6 +80,7 @@ impl Feeds {
             feed.bytes = 0;
             feed.retained.clear();
             feed.retained_bytes = 0;
+            feed.background.clear();
             let _ = feed.updates.send(Update::ResetRequired);
         }
     }
@@ -124,13 +128,16 @@ impl Feeds {
                     }
                 }
             }
-            Change::Entry(entry) => {
+            Change::Entry(sailry_protocol::conversation::Entry { turn, id, .. })
+            | Change::Revealed(sailry_protocol::conversation::Entry { turn, id, .. })
+            | Change::Hidden { turn, id } => {
+                // A committed entry, visible or not, supersedes its transient draft.
                 feed.drafts
-                    .retain(|draft| draft.turn != entry.turn || draft.id != entry.id);
-                if feed.active == Some(entry.turn)
+                    .retain(|draft| draft.turn != *turn || draft.id != *id);
+                if feed.active == Some(*turn)
                     && let Some(finalized) = &mut feed.finalized
                 {
-                    finalized.insert(entry.id.clone());
+                    finalized.insert(id.clone());
                     if finalized.len() > MAX_FINALIZED {
                         feed.finalized = None;
                     }
@@ -142,7 +149,13 @@ impl Feeds {
             | Change::Question(_)
             | Change::Child(_)
             | Change::Statistics(_) => {}
-            Change::Artifact(_) | Change::Background(_) => {}
+            Change::Background(task) => {
+                if feed.background.get(&task.id) == Some(task) {
+                    return;
+                }
+                feed.background.insert(task.id.clone(), task.clone());
+            }
+            Change::Artifact(_) => {}
         }
         feed.bytes = feed
             .drafts

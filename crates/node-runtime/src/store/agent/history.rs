@@ -13,12 +13,16 @@ pub(in crate::store) mod output;
 pub(super) mod pages;
 pub(in crate::store) mod tools;
 // Visibility effects keep messages immutable and are scoped to this conversation's membership.
+// The newest change is found through the partial `agent_visibility` index; membership is a
+// primary-key probe. Scanning the session's events per row made history reads quadratic.
 pub(super) const VISIBLE_EVENT: &str = "CASE WHEN json_extract(e.body,'$.kind')='compaction' THEN 1 ELSE coalesce((SELECT json_extract(v.body,'$.user_visible')
-       FROM conversation_events visibility JOIN agent_events v ON v.sequence=visibility.sequence
-       WHERE visibility.session=h.session AND json_extract(v.body,'$.kind')='operation'
+       FROM agent_events v INDEXED BY agent_visibility
+       WHERE json_extract(v.body,'$.message')=json_extract(e.body,'$.id')
+         AND json_extract(v.body,'$.kind')='operation'
          AND json_extract(v.body,'$.operation')='visibility'
-         AND json_extract(v.body,'$.message')=json_extract(e.body,'$.id')
-       ORDER BY visibility.sequence DESC LIMIT 1),
+         AND EXISTS(SELECT 1 FROM conversation_events visibility
+                    WHERE visibility.session=h.session AND visibility.sequence=v.sequence)
+       ORDER BY v.sequence DESC LIMIT 1),
        json_extract(e.body,'$.metadata.runtime.user_visible'),1) END";
 #[cfg(test)]
 mod tests;
@@ -199,33 +203,27 @@ async fn write(
                         let mapped: turso::Result<_> = row.get(0);
                         mapped.map_err(storage_error)?
                     };
-                    let (revealed, reset) = if let Some((target, before)) = previous_visibility {
+                    // Visibility changes publish ordered, incremental frames; only
+                    // structural history changes require a subscription reset.
+                    let toggled = if let Some((target, before)) = previous_visibility {
                         let (_, after) = visibility(&transaction, session, &target.id).await?
                             .ok_or_else(|| Fault::invalid("visibility target is missing"))?;
-                        if before == after {
-                            (None, false)
-                        } else if after {
-                            let mut query = transaction.prepare(&format!(
-                                "SELECT max(e.sequence) FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-                                 WHERE h.session=?1 AND e.sequence!=?2 AND {VISIBLE_EVENT}"
-                            )).await.map_err(storage_error)?;
-                            let row=query.query_row(params![session.to_string(),target.sequence as i64]).await.map_err(storage_error)?;
-                            let latest:Option<i64>=row.get(0).map_err(storage_error)?;
-                            if latest.is_none_or(|sequence|sequence < target.sequence as i64) {
-                                (Some(target), false)
+                        (before != after).then(|| {
+                            if after {
+                                Change::Revealed(target)
                             } else {
-                                (None, true)
+                                Change::Hidden {
+                                    turn: target.turn,
+                                    id: target.id,
+                                }
                             }
-                        } else {
-                            (None, true)
-                        }
+                        })
                     } else {
-                        (None, false)
+                        None
                     };
                     let notice =
                         super::super::notifications::system::compaction(&transaction, session, &entry)
                             .await?;
-                    let background = super::background::list(&transaction, session).await?;
                     let envelope = changed(&transaction, database.node, session).await?;
                     let mut changes: Vec<_> = notice.into_iter().collect();
                     if settled::completed(&transaction, turn, &entry).await? {
@@ -233,14 +231,15 @@ async fn write(
                     }
                     let notices =
                         super::super::database::record(&transaction, database.node, changes).await?;
-                    batches.push((
-                        entry, visible, revealed, reset, background, envelope, notices,
-                    ));
+                    batches.push((entry, visible, toggled, envelope, notices));
                 }
                 // Each statistics read supersedes the previous one, so a batch publishes only its final state.
                 let mut statistics = None;
                 let mut parents = Vec::new();
+                let mut background = Vec::new();
                 if !batches.is_empty() {
+                    // Publish the batch's final task state once, after all of its entries.
+                    background = super::background::list(&transaction, session).await?;
                     statistics = Some(super::statistics::read(&transaction, session).await?);
                     for turn in turns {
                         for parent in super::statistics::parents(&transaction, turn).await? {
@@ -251,17 +250,17 @@ async fn write(
                         }
                     }
                 }
-                Ok((context, batches, statistics, parents))
+                Ok((context, batches, statistics, parents, background))
             }
             .await;
-            let (context, batches, statistics, parents) = prepared?;
+            let (context, batches, statistics, parents, background) = prepared?;
             if batches.is_empty() {
                 return Ok(());
             }
             let publication = publication.lock().await;
             crate::store::database::conflict::commit(transaction).await?;
             let mut context = context;
-            for (entry, visible, revealed, reset, background, envelope, notices) in batches {
+            for (entry, visible, toggled, envelope, notices) in batches {
                 publication.send(events, envelope);
                 for notice in notices {
                     publication.send(events, notice);
@@ -276,15 +275,11 @@ async fn write(
                         .feeds
                         .publish(database.node, session, Change::Entry(entry));
                 }
-                if reset {
-                    database.feeds.reset(session);
-                } else if let Some(entry) = revealed {
-                    database
-                        .feeds
-                        .publish(database.node, session, Change::Entry(entry));
+                if let Some(change) = toggled {
+                    database.feeds.publish(database.node, session, change);
                 }
-                super::background::publish(database, background).await;
             }
+            super::background::publish(database, background).await;
             if let Some(statistics) = statistics {
                 database.feeds.publish(
                     database.node,

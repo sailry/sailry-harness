@@ -319,3 +319,61 @@ async fn bounds_failed_inputs_without_truncation() {
     }
     assert_eq!(restored, expected.into_iter().collect());
 }
+
+#[tokio::test]
+async fn defers_turns_above_a_partial_turn() {
+    let mut fixture = Fixture::new().await;
+    let first = fixture.completed(&["first answer"]).await;
+    let second = fixture.completed(&["second answer"]).await;
+    let large = fixture.completed(&vec!["large event 中文"; 150]).await;
+    let recent = fixture.read(None, 20).await;
+    // Turns older than the partial turn return through the next page instead of
+    // appearing empty above it.
+    assert_eq!(
+        recent
+            .page
+            .runs
+            .iter()
+            .map(|run| run.turn)
+            .collect::<Vec<_>>(),
+        [large]
+    );
+    assert_eq!(recent.missing, [large]);
+    assert_eq!(recent.page.entries.len(), 100);
+    assert_eq!(recent.page.next_before, Some(large));
+    let older = fixture.read(recent.page.next_before, 20).await;
+    assert_eq!(
+        older
+            .page
+            .runs
+            .iter()
+            .map(|run| run.turn)
+            .collect::<Vec<_>>(),
+        [first, second]
+    );
+    assert!(older.missing.is_empty());
+    assert_eq!(older.page.next_before, None);
+    // Continuations may exceed the logical page limit within the frame budget.
+    let chunk = turn(
+        &fixture.database.connection,
+        fixture.session,
+        large,
+        Some(recent.page.entries[0].sequence),
+        500,
+    )
+    .await
+    .unwrap();
+    assert_eq!(chunk.entries.len(), 50);
+    assert_eq!(chunk.next_before, None);
+    let whole = turn(
+        &fixture.database.connection,
+        fixture.session,
+        large,
+        None,
+        500,
+    )
+    .await
+    .unwrap();
+    assert_eq!(whole.entries.len(), 150);
+    assert_eq!(whole.entries[50..], recent.page.entries[..]);
+}

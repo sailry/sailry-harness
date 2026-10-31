@@ -609,6 +609,9 @@ feed without entering the storage worker queue. Publication checks active turn
 ownership and cancellation. Canonical messages and tool results still commit
 through the authoritative canonical history path before publishing durable changes;
 reconnect combines that history with any current drafts from the same feed.
+Visibility changes to committed entries publish ordered reveal and hide changes;
+only structural history changes reset subscriptions. Client publishes the newest
+page of a large turn at once and reads its older entries when requested.
 When a run stops or fails, remaining visible text and reasoning are sealed and
 written as interrupted canonical output before its terminal status is published.
 Completed entries are not duplicated, and incomplete tool calls are not retained.

@@ -11,6 +11,7 @@ mod input;
 mod questions;
 mod queue;
 mod statistics;
+mod visibility;
 
 fn fixture() -> (Projection, Snapshot, Run, Draft) {
     let node = NodeId([61; 32]);

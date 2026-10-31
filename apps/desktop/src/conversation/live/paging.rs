@@ -9,11 +9,9 @@ impl View {
         if self.paging_requested
             || !self.history.connected
             || self.history.loading_older
-            || self
-                .history
-                .snapshot
-                .as_ref()
-                .is_none_or(|snapshot| snapshot.page.next_before.is_none())
+            || self.history.snapshot.as_ref().is_none_or(|snapshot| {
+                snapshot.page.next_before.is_none() && snapshot.missing.is_empty()
+            })
         {
             return;
         }

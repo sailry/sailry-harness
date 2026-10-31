@@ -1,4 +1,4 @@
-//! Hydrate complete turns before exposing another logical history page.
+//! Logical history pages and bounded continuations of large turns.
 use super::projection::validate_page;
 use crate::Client;
 use sailry_protocol::{
@@ -32,6 +32,17 @@ impl Client {
         before: Option<TurnId>,
         limit: u16,
     ) -> Result<History, Fault> {
+        let history = self.read_page(session, before, limit).await?;
+        self.complete_history(history).await
+    }
+
+    /// One logical page whose `missing` turns may still be partial.
+    pub(super) async fn read_page(
+        &self,
+        session: SessionId,
+        before: Option<TurnId>,
+        limit: u16,
+    ) -> Result<History, Fault> {
         let Output::Conversation(history) = self
             .execute(self.prepare(Command::ReadConversation {
                 session,
@@ -49,10 +60,6 @@ impl Client {
                 "history belongs to another conversation",
             ));
         }
-        self.complete_history(history).await
-    }
-
-    pub(super) async fn complete_history(&self, mut history: History) -> Result<History, Fault> {
         validate_page(&history.page)?;
         let mut missing = BTreeSet::new();
         for turn in &history.missing {
@@ -62,55 +69,93 @@ impl Client {
                 ));
             }
         }
-        for turn in missing {
-            let mut before = history
-                .page
-                .entries
-                .iter()
-                .find(|entry| entry.turn == turn)
-                .map(|entry| entry.sequence);
+        Ok(history)
+    }
+
+    /// One validated continuation of a turn, older than `before` when present.
+    pub(super) async fn read_turn(
+        &self,
+        session: SessionId,
+        turn: TurnId,
+        revision: u64,
+        before: Option<u64>,
+        limit: u16,
+    ) -> Result<TurnHistory, Fault> {
+        let Output::TurnHistory(chunk) = self
+            .execute(self.prepare(Command::ReadTurn {
+                session,
+                turn,
+                expected_revision: revision,
+                before,
+                limit,
+            }))
+            .await?
+        else {
+            return Err(sailry_protocol::Fault::invalid(
+                "turn continuation response expected",
+            ));
+        };
+        if chunk.run.session != session || chunk.run.turn != turn {
+            return Err(sailry_protocol::Fault::invalid(
+                "turn continuation belongs to another read",
+            ));
+        }
+        // An empty final chunk means the loaded entries already begin the turn.
+        if chunk.entries.is_empty() && chunk.next_before.is_some()
+            || chunk.entries.iter().any(|entry| {
+                entry.turn != turn || before.is_some_and(|before| entry.sequence >= before)
+            })
+            || chunk.next_before.is_some_and(|next| {
+                chunk
+                    .entries
+                    .first()
+                    .is_none_or(|entry| entry.sequence != next)
+            })
+        {
+            return Err(sailry_protocol::Fault::invalid(
+                "turn continuation did not advance within its boundary",
+            ));
+        }
+        Ok(chunk)
+    }
+
+    /// Complete every missing turn of a page validated by `read_page`. Turns load
+    /// concurrently; each turn's continuations stay ordered by their cursors.
+    pub(super) async fn complete_history(&self, mut history: History) -> Result<History, Fault> {
+        let session = history.page.session;
+        let revision = history.page.revision;
+        let starts: Vec<_> = history
+            .missing
+            .iter()
+            .map(|&turn| {
+                let earliest = history
+                    .page
+                    .entries
+                    .iter()
+                    .find(|entry| entry.turn == turn)
+                    .map(|entry| entry.sequence);
+                (turn, earliest)
+            })
+            .collect();
+        let reads = starts.into_iter().map(|(turn, earliest)| async move {
+            let mut chunks = Vec::new();
+            let mut before = earliest;
             loop {
-                let Output::TurnHistory(chunk) = self
-                    .execute(self.prepare(Command::ReadTurn {
-                        session: history.page.session,
-                        turn,
-                        expected_revision: history.page.revision,
-                        before,
-                        limit: 100,
-                    }))
-                    .await?
-                else {
-                    return Err(sailry_protocol::Fault::invalid(
-                        "turn continuation response expected",
-                    ));
-                };
-                if chunk.run.session != history.page.session || chunk.run.turn != turn {
-                    return Err(sailry_protocol::Fault::invalid(
-                        "turn continuation belongs to another read",
-                    ));
-                }
-                if chunk.entries.is_empty()
-                    || chunk.entries.iter().any(|entry| {
-                        entry.turn != turn || before.is_some_and(|before| entry.sequence >= before)
-                    })
-                    || chunk.next_before.is_some_and(|next| {
-                        chunk
-                            .entries
-                            .first()
-                            .is_none_or(|entry| entry.sequence != next)
-                    })
-                {
-                    return Err(sailry_protocol::Fault::invalid(
-                        "turn continuation did not advance within its boundary",
-                    ));
-                }
-                history.sequence = history.sequence.max(chunk.sequence);
+                let chunk = self
+                    .read_turn(session, turn, revision, before, TURN_PAGE)
+                    .await?;
                 let next = chunk.next_before;
-                merge_turn(&mut history.page, chunk)?;
-                let Some(next) = next else {
-                    break;
-                };
-                before = Some(next);
+                chunks.push(chunk);
+                match next {
+                    Some(next) => before = Some(next),
+                    None => break Ok::<_, Fault>(chunks),
+                }
+            }
+        });
+        for chunks in futures::future::try_join_all(reads).await? {
+            for chunk in chunks {
+                history.sequence = history.sequence.max(chunk.sequence);
+                merge_turn(&mut history.page, chunk, false)?;
             }
         }
         history.missing.clear();
@@ -119,7 +164,14 @@ impl Client {
     }
 }
 
-fn merge_turn(page: &mut Page, chunk: TurnHistory) -> Result<(), Fault> {
+/// Entries per turn continuation; each response remains bounded by frame bytes.
+pub(super) const TURN_PAGE: u16 = 500;
+
+pub(super) fn merge_turn(
+    page: &mut Page,
+    chunk: TurnHistory,
+    keep_current: bool,
+) -> Result<(), Fault> {
     let incoming = Page {
         session: chunk.run.session,
         revision: chunk.revision,
@@ -132,7 +184,7 @@ fn merge_turn(page: &mut Page, chunk: TurnHistory) -> Result<(), Fault> {
         queue: Default::default(),
         next_before: None,
     };
-    merge(page, incoming, false)
+    merge(page, incoming, keep_current)
 }
 
 /// Older transport results must never roll back state already received on the stream.

@@ -41,60 +41,60 @@ impl Sources {
             }
         }
         let mut sources = Self::default();
-        if requests.is_empty() {
-            return Ok(sources);
-        }
-        let bounds: Vec<Value> = bounds
-            .into_iter()
-            .map(|(turn, sequence)| serde_json::json!({"turn":turn,"sequence":sequence}))
-            .collect();
-        // Read call records once for this page, including earlier ambiguous IDs.
-        let mut statement = db
-            .prepare(
-                "SELECT e.sequence,e.turn,e.body FROM agent_events e
-             JOIN json_each(?1) bound ON e.turn=json_extract(bound.value,'$.turn')
-                AND e.sequence<=json_extract(bound.value,'$.sequence')
-             WHERE EXISTS(SELECT 1 FROM json_each(e.body,'$.content') part
-                WHERE json_extract(part.value,'$.type')='tool_request')
-             ORDER BY e.sequence",
-            )
-            .await
-            .map_err(storage_error)?;
-        let mut rows = statement
-            .query([encode(&bounds)?])
-            .await
-            .map_err(storage_error)?;
-        while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let sequence = row.get::<i64>(0).map_err(storage_error)? as u64;
-            let turn = row
-                .get::<String>(1)
-                .map_err(storage_error)?
-                .parse()
+        // Read only this page's call identities through each turn's (turn, sequence) index,
+        // including earlier ambiguous IDs. Unrelated tool requests are never decoded.
+        for (turn, bound) in bounds {
+            let ids: std::collections::BTreeSet<&str> = requests
+                .iter()
+                .filter(|(current, ..)| *current == turn)
+                .map(|(_, _, id, _)| id.as_str())
+                .collect();
+            let mut statement = db
+                .prepare(
+                    "SELECT e.sequence,e.body FROM agent_events e
+                     WHERE e.turn=?1 AND e.sequence<=?2 AND EXISTS(
+                        SELECT 1 FROM json_each(e.body,'$.content') part
+                        WHERE json_extract(part.value,'$.type')='tool_request'
+                          AND json_extract(part.value,'$.id') IN (SELECT value FROM json_each(?3)))
+                     ORDER BY e.sequence",
+                )
+                .await
                 .map_err(storage_error)?;
-            let event: Record =
-                serde_json::from_slice(&row.get::<Vec<u8>>(2).map_err(storage_error)?)
-                    .map_err(storage_error)?;
-            for block in event
-                .message()
-                .into_iter()
-                .flat_map(|message| &message.content)
-            {
-                let identity = match &block.kind {
-                    BlockKind::ToolRequest(request) => {
-                        Some((request.id.clone(), request.name.clone()))
+            let mut rows = statement
+                .query(params![
+                    turn.to_string(),
+                    i64::try_from(bound).map_err(storage_error)?,
+                    String::from_utf8(encode(&ids)?).map_err(storage_error)?
+                ])
+                .await
+                .map_err(storage_error)?;
+            while let Some(row) = rows.next().await.map_err(storage_error)? {
+                let sequence = row.get::<i64>(0).map_err(storage_error)? as u64;
+                let event: Record =
+                    serde_json::from_slice(&row.get::<Vec<u8>>(1).map_err(storage_error)?)
+                        .map_err(storage_error)?;
+                for block in event
+                    .message()
+                    .into_iter()
+                    .flat_map(|message| &message.content)
+                {
+                    let identity = match &block.kind {
+                        BlockKind::ToolRequest(request) => {
+                            Some((request.id.clone(), request.name.clone()))
+                        }
+                        _ => None,
+                    };
+                    let Some((id, name)) = identity else {
+                        continue;
+                    };
+                    let key = (turn, event.provenance.branch.clone(), id, name);
+                    if !requests.contains(&key) {
+                        continue;
                     }
-                    _ => None,
-                };
-                let Some((id, name)) = identity else {
-                    continue;
-                };
-                let key = (turn, event.provenance.branch.clone(), id, name);
-                if !requests.contains(&key) {
-                    continue;
-                }
-                if let Some(mut raw) = call(db, turn, &event, block).await? {
-                    raw.source = Some(sequence);
-                    sources.calls.entry(key).or_default().push(raw);
+                    if let Some(mut raw) = call(db, turn, &event, block).await? {
+                        raw.source = Some(sequence);
+                        sources.calls.entry(key).or_default().push(raw);
+                    }
                 }
             }
         }
@@ -430,15 +430,26 @@ async fn source(
     id: &str,
     name: &str,
 ) -> Result<Option<Raw>, Fault> {
+    // The serialized identity must occur in the stored body; a byte search rejects
+    // unrelated events before JSON is parsed. Long turns otherwise parse every event.
+    let token = serde_json::to_vec(id).map_err(storage_error)?;
     let mut statement = db.prepare(
         "SELECT sequence,body FROM agent_events WHERE turn=?1 AND sequence<=?2
+         AND (typeof(body)!='blob' OR instr(body,?6)>0)
          AND json_extract(body,'$.provenance.branch')=?3 AND EXISTS(
             SELECT 1 FROM json_each(body,'$.content') part
             WHERE json_extract(part.value,'$.type')='tool_request' AND json_extract(part.value,'$.id')=?4 AND json_extract(part.value,'$.name')=?5)
          ORDER BY sequence DESC"
     ).await.map_err(storage_error)?;
     let mut rows = statement
-        .query(params![turn.to_string(), sequence as i64, branch, id, name])
+        .query(params![
+            turn.to_string(),
+            sequence as i64,
+            branch,
+            id,
+            name,
+            token
+        ])
         .await
         .map_err(storage_error)?;
     let mut found = None;

@@ -623,7 +623,9 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                           as String? ??
                                       context.tr('conversationFailed'),
                                 ),
-                              if (_page['next_before'] != null)
+                              if (_page['next_before'] != null ||
+                                  (_snapshot['missing'] as List? ?? const [])
+                                      .isNotEmpty)
                                 TextButton(
                                   onPressed: view['loading_older'] == true
                                       ? null

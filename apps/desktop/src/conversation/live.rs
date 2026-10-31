@@ -739,6 +739,7 @@ impl Render for View {
                                         && index == 0
                                         && view.history.snapshot.as_ref().is_none_or(|snapshot| {
                                             snapshot.page.next_before.is_none()
+                                                && snapshot.missing.is_empty()
                                         }),
                                     |row| row.pt_6(),
                                 )

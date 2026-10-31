@@ -367,3 +367,59 @@ fn bounds_finalized_seals_without_eviction() {
     assert_eq!(feeds.sequence(session), sequence);
     assert!(feeds.0.lock().unwrap()[&session].drafts.is_empty());
 }
+
+#[test]
+fn skips_unchanged_background_tasks() {
+    use sailry_protocol::conversation::background::{Kind, State, Task};
+    let (feeds, node, session, draft) = streaming();
+    let mut task = Task {
+        id: "command:fixture".into(),
+        session,
+        turn: draft.turn,
+        kind: Kind::Command {
+            id: sailry_protocol::RequestId::new(),
+        },
+        title: "Build 中文".into(),
+        revision: 1,
+        state: State::Running,
+        outcome: None,
+        started_ms: 1,
+        finished_ms: None,
+        summary: None,
+        delivery: None,
+        recovered: false,
+        suppressed: false,
+    };
+    let start = feeds.sequence(session);
+    for _ in 0..3 {
+        feeds.publish(node, session, Change::Background(task.clone()));
+    }
+    assert_eq!(feeds.sequence(session), start + 1);
+    task.revision = 2;
+    feeds.publish(node, session, Change::Background(task.clone()));
+    assert_eq!(feeds.sequence(session), start + 2);
+    // A reset starts a new generation that republishes current task state.
+    feeds.reset(session);
+    let reset = feeds.sequence(session);
+    feeds.publish(node, session, Change::Background(task));
+    assert_eq!(feeds.sequence(session), reset + 1);
+}
+
+#[test]
+fn hidden_entry_supersedes_draft() {
+    let (feeds, node, session, draft) = streaming();
+    feeds.delta(node, session, draft.clone()).unwrap();
+    feeds.publish(
+        node,
+        session,
+        Change::Hidden {
+            turn: draft.turn,
+            id: draft.id.clone(),
+        },
+    );
+    assert!(feeds.0.lock().unwrap()[&session].drafts.is_empty());
+    // Late chunks of a committed entry are no longer streamed.
+    let sequence = feeds.sequence(session);
+    feeds.delta(node, session, draft).unwrap();
+    assert_eq!(feeds.sequence(session), sequence);
+}

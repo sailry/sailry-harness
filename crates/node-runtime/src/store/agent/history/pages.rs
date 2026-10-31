@@ -53,7 +53,7 @@ pub(in crate::store) async fn read(
     .collect::<Result<Vec<_>, _>>()?;
     let more = runs.len() > usize::from(limit);
     runs.truncate(usize::from(limit));
-    let next_before = more.then(|| runs.last().expect("nonempty turn page").turn);
+    let mut next_before = more.then(|| runs.last().expect("nonempty turn page").turn);
     if before.is_none() {
         // Preserve active and queue lifecycle metadata without counting it as older messages.
         let mut active = db.prepare(
@@ -85,35 +85,34 @@ pub(in crate::store) async fn read(
     runs.sort_by_key(|run| run.sequence);
     let turns: Vec<_> = runs.iter().map(|run| run.turn).collect();
     let (entries, _) = entries(db, session, &turns, None, 100).await?;
+    if let Some(cursor) = trim(&mut runs, &entries) {
+        next_before = Some(cursor);
+    }
     let mut page = page(db, session, runs, entries, next_before).await?;
     fit(&mut page, 0, true)?;
     let turns: Vec<_> = page.runs.iter().map(|run| run.turn).collect();
-    let starts: BTreeMap<TurnId, u64> = {
-        let mut query = db
-            .prepare(
-                &format!("SELECT e.turn,MIN(e.sequence) FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn
-             WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND {VISIBLE_EVENT} GROUP BY e.turn"),
-            ).await
-            .map_err(storage_error)?;
+    // The first visible event of each turn decides whether the page holds it completely.
+    let mut starts = BTreeMap::<TurnId, u64>::new();
+    let first = format!(
+        "SELECT e.sequence FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn
+         WHERE h.session=?1 AND e.turn=?2 AND {VISIBLE_EVENT} ORDER BY e.sequence LIMIT 1"
+    );
+    for turn in &turns {
+        let mut query = db.prepare(&first).await.map_err(storage_error)?;
         {
-            let mut rows = query
-                .query(params![session.to_string(), encode(&turns)?])
+            match query
+                .query_row(params![session.to_string(), turn.to_string()])
                 .await
-                .map_err(storage_error)?;
-            let mut values = Vec::new();
-            while let Some(row) = rows.next().await.map_err(storage_error)? {
-                let mapped: turso::Result<_> =
-                    (|row: &turso::Row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)))(&row);
-                values.push(mapped);
+            {
+                Ok(row) => {
+                    let sequence: i64 = row.get(0).map_err(storage_error)?;
+                    starts.insert(*turn, sequence as u64);
+                }
+                Err(turso::Error::QueryReturnedNoRows) => {}
+                Err(error) => return Err(storage_error(error)),
             }
-            values.into_iter()
         }
-        .map(|row| {
-            let (turn, sequence) = row.map_err(storage_error)?;
-            Ok((turn.parse().map_err(storage_error)?, sequence as u64))
-        })
-        .collect::<Result<_, Fault>>()?
-    };
+    }
     let missing = turns
         .into_iter()
         .filter(|turn| {
@@ -139,7 +138,8 @@ pub(in crate::store) async fn turn(
     before: Option<u64>,
     limit: u16,
 ) -> Result<TurnHistory, Fault> {
-    let limit = bounded_limit(limit)?;
+    bounded_limit(limit)?;
+    let limit = limit.min(MAX_TURN_LIMIT);
     if before.is_some_and(|value| value > i64::MAX as u64) {
         return Err(sailry_protocol::Fault::invalid(
             "turn history cursor is invalid",
@@ -169,6 +169,36 @@ pub(in crate::store) async fn turn(
     })
 }
 
+/// Closed turns older than the oldest loaded entry would appear empty above a partially
+/// loaded turn. Leave them to the next page so at most the oldest kept turn is partial.
+/// Returns the new older-page cursor when turns were removed.
+fn trim(runs: &mut Vec<Run>, entries: &[Entry]) -> Option<TurnId> {
+    let active =
+        |status: Status| matches!(status, Status::Queued | Status::Running | Status::Stopping);
+    let oldest = runs
+        .iter()
+        .filter(|run| entries.iter().any(|entry| entry.turn == run.turn))
+        .map(|run| run.sequence)
+        .min()?;
+    let newest = runs
+        .iter()
+        .filter(|run| run.sequence < oldest && !active(run.status))
+        .map(|run| run.sequence)
+        .max()?;
+    // An active turn between removed turns would hide them from the turn cursor.
+    if runs
+        .iter()
+        .any(|run| active(run.status) && run.sequence < newest)
+    {
+        return None;
+    }
+    runs.retain(|run| run.sequence >= oldest || active(run.status));
+    runs.first().map(|run| run.turn)
+}
+
+/// Turn continuations may return larger pages; frame bytes still bound each response.
+const MAX_TURN_LIMIT: u16 = 1000;
+
 fn bounded_limit(limit: u16) -> Result<u16, Fault> {
     if limit == 0 {
         return Err(sailry_protocol::Fault::invalid(
@@ -185,18 +215,33 @@ async fn entries(
     before: Option<u64>,
     limit: u16,
 ) -> Result<(Vec<Entry>, bool), Fault> {
-    let mut query = db
-        .prepare(
-            &format!("SELECT e.sequence,e.turn,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-         WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3
-         AND {VISIBLE_EVENT} ORDER BY h.sequence DESC LIMIT ?4"),
-        ).await
-        .map_err(storage_error)?;
+    // A single turn is read through its (turn, sequence) index; a recent page scans
+    // the conversation backwards and stops at its limit.
+    let (sql, scope) = match turns {
+        [turn] => (
+            format!(
+                "SELECT e.sequence,e.turn,e.body FROM agent_events e
+                 JOIN conversation_events h ON h.session=?1 AND h.sequence=e.sequence
+                 WHERE e.turn=?2 AND e.sequence<?3
+                 AND {VISIBLE_EVENT} ORDER BY e.sequence DESC LIMIT ?4"
+            ),
+            turn.to_string(),
+        ),
+        _ => (
+            format!(
+                "SELECT e.sequence,e.turn,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+                 WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3
+                 AND {VISIBLE_EVENT} ORDER BY h.sequence DESC LIMIT ?4"
+            ),
+            String::from_utf8(encode(&turns)?).map_err(storage_error)?,
+        ),
+    };
+    let mut query = db.prepare(&sql).await.map_err(storage_error)?;
     let rows = {
         let mut rows = query
             .query(params![
                 session.to_string(),
-                encode(&turns)?,
+                scope,
                 before.unwrap_or(i64::MAX as u64) as i64,
                 i64::from(limit) + 1
             ])

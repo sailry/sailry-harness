@@ -1,9 +1,12 @@
 use crate::Apply;
 use sailry_protocol::{
-    conversation::{Change, Draft, Page, Part, Snapshot, Status},
+    conversation::{Change, Draft, Entry, Page, Part, Snapshot, Status, TurnHistory},
     *,
 };
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 pub(super) mod approvals;
 pub(super) mod background;
 pub(super) mod children;
@@ -20,6 +23,9 @@ pub struct Projection {
     recovery: bool,
     artifact_cursor: u64,
     live_start: Option<u64>,
+    // Visibility changes received while older history was still being read.
+    hidden: BTreeSet<String>,
+    revealed: BTreeMap<String, Entry>,
 }
 
 impl Projection {
@@ -32,6 +38,8 @@ impl Projection {
             recovery: true,
             artifact_cursor: 0,
             live_start: None,
+            hidden: BTreeSet::new(),
+            revealed: BTreeMap::new(),
         }
     }
 
@@ -81,11 +89,6 @@ impl Projection {
             self.recovery = true;
             return Ok(Apply::Recover);
         }
-        if !history.missing.is_empty() {
-            return Err(sailry_protocol::Fault::invalid(
-                "history still contains incomplete turns",
-            ));
-        }
         if let Some(before) = before {
             if snapshot.page.next_before != Some(before) {
                 return Ok(Apply::Ignored);
@@ -104,12 +107,110 @@ impl Projection {
             }
         }
         let next = history.page.next_before;
-        super::history::merge(Arc::make_mut(&mut snapshot.page), history.page, true)?;
+        let mut page = history.page;
+        page.entries
+            .retain(|entry| !self.hidden.contains(&entry.id));
+        super::history::merge(Arc::make_mut(&mut snapshot.page), page, true)?;
         if before.is_some() {
             Arc::make_mut(&mut snapshot.page).next_before = next;
         }
-        snapshot.missing.clear();
+        // Partial turns from this page continue through `merge_turn`.
+        for turn in history.missing {
+            if !snapshot.missing.contains(&turn) {
+                snapshot.missing.push(turn);
+            }
+        }
+        self.settle();
         Ok(Apply::Applied)
+    }
+
+    /// Merge an older continuation of a partially loaded turn.
+    pub(super) fn merge_turn(
+        &mut self,
+        generation: u64,
+        mut chunk: TurnHistory,
+    ) -> Result<Apply, Fault> {
+        if generation != self.generation {
+            return Ok(Apply::Ignored);
+        }
+        if self.recovery {
+            return Ok(Apply::Recover);
+        }
+        let Some(snapshot) = self.snapshot.as_mut() else {
+            return Ok(Apply::Recover);
+        };
+        if chunk.sequence > snapshot.sequence {
+            return Ok(Apply::Ignored);
+        }
+        if chunk.revision != snapshot.page.revision {
+            self.recovery = true;
+            return Ok(Apply::Recover);
+        }
+        let turn = chunk.run.turn;
+        if !snapshot.missing.contains(&turn) {
+            return Ok(Apply::Ignored);
+        }
+        let complete = chunk.next_before.is_none();
+        chunk
+            .entries
+            .retain(|entry| !self.hidden.contains(&entry.id));
+        super::history::merge_turn(Arc::make_mut(&mut snapshot.page), chunk, true)?;
+        if complete {
+            snapshot.missing.retain(|current| *current != turn);
+        }
+        self.settle();
+        Ok(Apply::Applied)
+    }
+
+    /// Insert revealed entries once their turn's loaded range contains them. Inserting
+    /// earlier would leave a hole that the next continuation cursor skips.
+    fn settle(&mut self) {
+        let Some(snapshot) = self.snapshot.as_mut() else {
+            return;
+        };
+        let pending = std::mem::take(&mut self.revealed);
+        for (id, entry) in pending {
+            if snapshot.page.entries.iter().any(|current| current.id == id) {
+                continue;
+            }
+            let loaded = snapshot.page.runs.iter().any(|run| run.turn == entry.turn)
+                && (!snapshot.missing.contains(&entry.turn)
+                    || snapshot
+                        .page
+                        .entries
+                        .iter()
+                        .find(|current| current.turn == entry.turn)
+                        .is_some_and(|first| first.sequence < entry.sequence));
+            if !loaded
+                || snapshot
+                    .page
+                    .entries
+                    .iter()
+                    .any(|current| current.sequence == entry.sequence)
+            {
+                // Older pages or continuations read later contain the entry.
+                if !loaded {
+                    self.revealed.insert(id, entry);
+                }
+                continue;
+            }
+            let page = Arc::make_mut(&mut snapshot.page);
+            let index = page
+                .entries
+                .partition_point(|current| current.sequence < entry.sequence);
+            if index == page.entries.len() {
+                self.live_start.get_or_insert(entry.sequence);
+            }
+            snapshot
+                .drafts
+                .retain(|draft| draft.turn != entry.turn || draft.id != entry.id);
+            if entry.author == "user"
+                && let Some(run) = page.runs.iter_mut().find(|run| run.turn == entry.turn)
+            {
+                run.input = None;
+            }
+            page.entries.insert(index, entry);
+        }
     }
 
     pub fn apply(&mut self, generation: u64, update: Update) -> Result<Apply, Fault> {
@@ -167,6 +268,8 @@ impl Projection {
                     .checked_add(1)
                     .ok_or_else(|| Fault::invalid("artifact cursor exhausted"))?;
                 self.live_start = None;
+                self.hidden.clear();
+                self.revealed.clear();
                 self.snapshot = Some(*snapshot);
                 self.recovery = false;
                 Ok(Apply::Applied)
@@ -252,6 +355,39 @@ impl Projection {
                         {
                             run.input = None;
                         }
+                    }
+                    Change::Revealed(entry) => {
+                        if entry.sequence == 0 || entry.id.is_empty() {
+                            return Err(Fault::invalid("revealed entry is invalid"));
+                        }
+                        if let Some(previous) = snapshot
+                            .page
+                            .entries
+                            .iter()
+                            .find(|previous| previous.id == entry.id)
+                        {
+                            if previous != &entry {
+                                return Err(sailry_protocol::Fault::invalid(
+                                    "conversation event identity changed",
+                                ));
+                            }
+                        } else {
+                            self.hidden.remove(&entry.id);
+                            self.revealed.insert(entry.id.clone(), entry);
+                            snapshot.sequence = frame.sequence;
+                            self.settle();
+                            return Ok(Apply::Applied);
+                        }
+                    }
+                    Change::Hidden { turn, id } => {
+                        let page = Arc::make_mut(&mut snapshot.page);
+                        page.entries
+                            .retain(|entry| entry.turn != turn || entry.id != id);
+                        snapshot
+                            .drafts
+                            .retain(|draft| draft.turn != turn || draft.id != id);
+                        self.revealed.remove(&id);
+                        self.hidden.insert(id);
                     }
                     Change::Run(mut run) => {
                         if !valid_run(&run, self.session) {

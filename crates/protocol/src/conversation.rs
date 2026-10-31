@@ -551,6 +551,13 @@ pub enum Change {
     Artifact(crate::artifact::Summary),
     /// Published only after the canonical event transaction commits.
     Entry(Entry),
+    /// A committed entry became visible; insert it in sequence order.
+    Revealed(Entry),
+    /// A committed entry became hidden; remove it without resetting the stream.
+    Hidden {
+        turn: TurnId,
+        id: String,
+    },
     Statistics(Box<Statistics>),
     Run(Run),
     Queue(Queue),
@@ -600,5 +607,39 @@ mod input {
             serde_json::to_value(Input::from("text")).unwrap()["attachments"],
             serde_json::json!([])
         );
+    }
+}
+
+#[cfg(test)]
+mod visibility_changes {
+    use super::*;
+
+    #[test]
+    fn round_trips_wire_shape() {
+        let turn = TurnId::new();
+        let hidden = Change::Hidden {
+            turn,
+            id: "entry 中文".into(),
+        };
+        let wire = serde_json::to_value(&hidden).unwrap();
+        assert_eq!(wire["kind"], "hidden");
+        assert_eq!(wire["data"]["id"], "entry 中文");
+        assert_eq!(wire["data"]["turn"], turn.to_string());
+        assert_eq!(serde_json::from_value::<Change>(wire).unwrap(), hidden);
+        let revealed = Change::Revealed(Entry {
+            sequence: 3,
+            id: "revealed".into(),
+            turn,
+            author: "assistant".into(),
+            branch: "main".into(),
+            timestamp_ms: 1,
+            parts: vec![Part::Text("visible".into())],
+            citations: Vec::new(),
+            search_suggestions: None,
+            usage: None,
+        });
+        let wire = serde_json::to_value(&revealed).unwrap();
+        assert_eq!(wire["kind"], "revealed");
+        assert_eq!(serde_json::from_value::<Change>(wire).unwrap(), revealed);
     }
 }
