@@ -41,7 +41,6 @@ pub(super) fn search<'a>(
     if options.query.is_empty() || options.limit == 0 {
         return Err(invalid());
     }
-    let page_limit = options.limit.min(MAX_SEARCH_MATCHES);
     let globs = walk::globs(&options.globs)?;
     let mut types = TypesBuilder::new();
     types.add_defaults();
@@ -75,6 +74,21 @@ pub(super) fn search<'a>(
     listing
         .entries
         .sort_by(|left, right| left.path.cmp(&right.path));
+    scan(root, options, control, &matcher, listing)
+}
+
+fn scan(
+    root: super::Scope<'_>,
+    options: &FileSearch,
+    control: &Control,
+    matcher: &RegexMatcher,
+    listing: walk::Listing,
+) -> Result<SearchResults, Fault> {
+    // Policy rejection is fatal; filesystem access can still fail during scanning.
+    for entry in &listing.entries {
+        root.components(&entry.path, false)?;
+    }
+    let page_limit = options.limit.min(MAX_SEARCH_MATCHES);
     let next = AtomicUsize::new(0);
     let workers = std::thread::available_parallelism()
         .map(usize::from)
@@ -100,7 +114,7 @@ pub(super) fn search<'a>(
                             &entry.path,
                             options.mode,
                             retained,
-                            &matcher,
+                            matcher,
                             &mut searcher,
                             control,
                         );
@@ -137,7 +151,13 @@ pub(super) fn search<'a>(
                 Ok(None) => result.skipped += 1,
                 Err(error) => {
                     result.skipped += 1;
-                    result.partial |= matches!(error.code, ErrorCode::Cancelled | ErrorCode::Busy);
+                    result.partial |= matches!(
+                        error.code,
+                        ErrorCode::NotFound
+                            | ErrorCode::PermissionDenied
+                            | ErrorCode::Cancelled
+                            | ErrorCode::Busy
+                    );
                     diagnose(&mut result, &listing.entries[index].path, &error.message);
                 }
             }
@@ -193,7 +213,7 @@ pub(super) fn search<'a>(
                             .saturating_add(page_limit)
                             .saturating_sub(position)
                             .min(count);
-                    match read_page(root, &scan, range, &matcher, &mut searcher, control) {
+                    match read_page(root, &scan, range, matcher, &mut searcher, control) {
                         Ok(rows) => result.matches.extend(rows),
                         Err(error) => {
                             result.skipped += 1;

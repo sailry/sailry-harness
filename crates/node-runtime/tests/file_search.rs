@@ -140,6 +140,26 @@ async fn shares_read_only_search() {
                 .code,
             ErrorCode::NotFound
         );
+        for (path, expected) in [
+            ("missing", ErrorCode::NotFound),
+            ("missing/nested", ErrorCode::NotFound),
+            ("notes.md/child", ErrorCode::InvalidRequest),
+            ("../outside", ErrorCode::InvalidRequest),
+            (".git", ErrorCode::PermissionDenied),
+        ] {
+            let error = client
+                .execute(client.prepare(Command::SearchFiles {
+                    worktree,
+                    options: FileSearch {
+                        query: "needle".into(),
+                        path: path.into(),
+                        ..Default::default()
+                    },
+                }))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, expected, "{path}");
+        }
         assert!(
             search(client, worktree, "no such text", false, false, vec![])
                 .await
@@ -190,6 +210,16 @@ async fn shares_read_only_search() {
         .unwrap(),
         1
     );
+    std::fs::rename(&root, temp.path().join("relocated-project")).unwrap();
+    for client in [&local, &remote] {
+        assert_eq!(
+            search(client, worktree, "needle", false, false, vec![])
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+    }
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
 }

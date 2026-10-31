@@ -22,6 +22,115 @@ fn options() -> FileSearch {
 }
 
 #[test]
+fn rejects_missing_inputs() {
+    let root = directory();
+    for path in ["missing", "missing/nested"] {
+        let error = search(
+            root.path(),
+            &FileSearch {
+                path: path.into(),
+                ..options()
+            },
+            &control(),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::NotFound);
+    }
+    let missing = root.path().join("missing-root");
+    assert_eq!(
+        search(missing.as_path(), &options(), &control())
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+}
+
+#[test]
+fn reports_files_removed_after_listing() {
+    let root = directory();
+    let matcher = RegexMatcherBuilder::new().build("hit").unwrap();
+    for mode in [SearchMode::Content, SearchMode::Files, SearchMode::Count] {
+        for offset in [0, 1] {
+            std::fs::write(root.path().join("a.txt"), "hit\n").unwrap();
+            std::fs::write(root.path().join("b.txt"), "hit\nhit\n").unwrap();
+            let listing = walk::collect(root.path(), "", &control()).unwrap();
+            std::fs::remove_file(root.path().join("a.txt")).unwrap();
+            let result = scan(
+                root.path().into(),
+                &FileSearch {
+                    mode,
+                    offset,
+                    limit: 1,
+                    ..options()
+                },
+                &control(),
+                &matcher,
+                listing,
+            )
+            .unwrap();
+            assert!(result.partial, "{result:?}");
+            assert!(result.truncated);
+            assert!(result.next_offset.is_none());
+            assert_eq!(result.scanned_files, 2);
+            assert_eq!(result.skipped, 1);
+            assert!(result.diagnostics.iter().any(|item| item.path == "a.txt"));
+            if mode == SearchMode::Content {
+                assert_eq!(result.matches.len(), usize::from(offset == 0));
+            }
+        }
+    }
+}
+
+#[test]
+fn preserves_protected_path_failures() {
+    let root = directory();
+    let matcher = RegexMatcherBuilder::new().build("hit").unwrap();
+    let error = scan(
+        root.path().into(),
+        &options(),
+        &control(),
+        &matcher,
+        walk::Listing {
+            entries: vec![walk::Entry {
+                path: ".sailry/worktrees/child/private.txt".into(),
+                modified: std::time::SystemTime::UNIX_EPOCH,
+            }],
+            report: walk::Report::default(),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::PermissionDenied);
+}
+
+#[cfg(unix)]
+#[test]
+fn reports_unreadable_files() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = directory();
+    let denied = root.path().join("denied.txt");
+    std::fs::write(&denied, "hit\n").unwrap();
+    std::fs::write(root.path().join("visible.txt"), "hit\n").unwrap();
+    std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o0)).unwrap();
+    let inaccessible = std::fs::File::open(&denied).is_err();
+    let result = search(root.path(), &options(), &control());
+    std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o600)).unwrap();
+    if !inaccessible {
+        return;
+    }
+    let result = result.unwrap();
+    assert!(result.partial);
+    assert!(result.truncated);
+    assert!(result.next_offset.is_none());
+    assert_eq!(result.scanned_files, 2);
+    assert_eq!(result.skipped, 1);
+    assert_eq!(result.matches.len(), 1);
+    assert_eq!(result.matches[0].path, "visible.txt");
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].path, "denied.txt");
+}
+
+#[test]
 fn interrupts_before_traversal() {
     let root = directory();
     let control = control();

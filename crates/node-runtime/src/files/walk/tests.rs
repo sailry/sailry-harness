@@ -301,6 +301,78 @@ fn visits_more_than_ten_thousand_entries() {
 }
 
 #[test]
+fn reports_entries_removed_during_traversal() {
+    let root = directory();
+    std::fs::write(root.path().join("a.rs"), "").unwrap();
+    std::fs::write(root.path().join("b.rs"), "").unwrap();
+    let mut paths = Vec::new();
+    let report = traverse(
+        root.path(),
+        "",
+        true,
+        &control(),
+        &mut |_, _, relative, _| {
+            paths.push(relative.to_owned());
+            std::fs::remove_file(root.path().join("b.rs")).unwrap();
+            Ok(true)
+        },
+        &mut |_, _| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(paths, ["a.rs"]);
+    assert!(report.partial);
+    assert!(report.truncated);
+    assert_eq!(report.skipped, 1);
+    assert_eq!(report.diagnostics.len(), 1);
+    assert_eq!(report.diagnostics[0].path, "b.rs");
+}
+
+#[cfg(unix)]
+#[test]
+fn reports_unreadable_subdirectories() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = directory();
+    let denied = root.path().join("denied");
+    std::fs::create_dir(&denied).unwrap();
+    std::fs::write(denied.join("private.rs"), "").unwrap();
+    std::fs::write(root.path().join("visible.rs"), "").unwrap();
+    std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o0)).unwrap();
+    let inaccessible = std::fs::read_dir(&denied).is_err();
+    let result = find(root.path(), &["**/*.rs".into()], &control());
+    let scoped = super::find(
+        root.path(),
+        &["**/*.rs".into()],
+        "denied",
+        500,
+        0,
+        &control(),
+    );
+    std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o700)).unwrap();
+    if !inaccessible {
+        return;
+    }
+    let result = result.unwrap();
+    assert_eq!(result.paths, ["visible.rs"]);
+    assert!(result.partial);
+    assert!(result.truncated);
+    assert!(result.next_offset.is_none());
+    assert_eq!(result.skipped, 1);
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(result.diagnostics[0].path, "denied");
+    let scoped = scoped.unwrap();
+    assert!(scoped.paths.is_empty());
+    assert!(scoped.partial);
+    assert!(scoped.next_offset.is_none());
+    assert!(
+        scoped
+            .diagnostics
+            .iter()
+            .any(|entry| entry.path == "denied")
+    );
+}
+
+#[test]
 fn interrupted_walk_has_no_safe_continuation() {
     let root = directory();
     for name in ["a.rs", "b.rs", "c.rs"] {

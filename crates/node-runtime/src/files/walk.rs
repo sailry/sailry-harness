@@ -159,8 +159,10 @@ fn traverse<'a>(
             "Git metadata cannot be searched; use the Git branches tool for remote names and URLs",
         ));
     }
-    let mut directory = path::root(root.path())?;
     let mut report = Report::default();
+    let Some(mut directory) = readable(path::root(root.path()), scope, &mut report)? else {
+        return Ok(report);
+    };
     let mut layers = Vec::new();
     let mut prefix = String::new();
     for (index, part) in parts.iter().enumerate() {
@@ -169,11 +171,18 @@ fn traverse<'a>(
         {
             layers.push(layer);
         }
-        let metadata = directory.symlink_metadata(part).map_err(io_error)?;
         let relative = if prefix.is_empty() {
             (*part).into()
         } else {
             format!("{prefix}/{part}")
+        };
+        let Some(metadata) = readable(
+            directory.symlink_metadata(part).map_err(io_error),
+            &relative,
+            &mut report,
+        )?
+        else {
+            return Ok(report);
         };
         if metadata.is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
             return Err(Fault::invalid(
@@ -191,7 +200,11 @@ fn traverse<'a>(
             report.visited += 1;
             return Ok(report);
         }
-        directory = path::descend(directory, &[part])?;
+        let Some(child) = readable(path::descend(directory, &[part]), &relative, &mut report)?
+        else {
+            return Ok(report);
+        };
+        directory = child;
         prefix = relative;
     }
     let result = Walker {
@@ -205,6 +218,9 @@ fn traverse<'a>(
     }
     .descend(&directory, &prefix, parts.len());
     match result {
+        Err(error) if error.code == ErrorCode::PermissionDenied => {
+            report.diagnostic(scope, &error.message);
+        }
         Err(error)
             if respect_ignores && matches!(error.code, ErrorCode::Cancelled | ErrorCode::Busy) =>
         {
@@ -217,6 +233,22 @@ fn traverse<'a>(
         Ok(_) => {}
     }
     Ok(report)
+}
+
+/// Called only for filesystem access after scope policy validation.
+fn readable<T>(
+    result: Result<T, Fault>,
+    path: &str,
+    report: &mut Report,
+) -> Result<Option<T>, Fault> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.code == ErrorCode::PermissionDenied => {
+            report.diagnostic(path, &error.message);
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 struct Walker<'a, F, D> {
@@ -257,16 +289,17 @@ where
         for entry in directory.entries().map_err(io_error)? {
             control.check()?;
             self.report.visited += 1;
-            let name = match entry
-                .ok()
-                .and_then(|entry| entry.file_name().into_string().ok())
-            {
-                Some(name) => name,
-                None => {
-                    self.report.diagnostic(
-                        prefix,
-                        "directory entry is unreadable or its name is not UTF-8",
-                    );
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    self.report.diagnostic(prefix, &io_error(error).message);
+                    continue;
+                }
+            };
+            let name = match entry.file_name().into_string() {
+                Ok(name) => name,
+                Err(_) => {
+                    self.report.diagnostic(prefix, "entry name is not UTF-8");
                     continue;
                 }
             };
@@ -289,6 +322,7 @@ where
             } else {
                 format!("{prefix}/{name}")
             };
+            path::components_with(&relative, false, self.access)?;
             let result: Result<bool, Fault> = (|| {
                 let metadata = directory.symlink_metadata(&name).map_err(io_error)?;
                 if metadata.is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
@@ -297,10 +331,6 @@ where
                 }
                 if respect_ignores && ignores::excludes(&self.layers, &relative, metadata.is_dir())
                 {
-                    return Ok(true);
-                }
-                if path::components_with(&relative, false, self.access).is_err() {
-                    self.report.diagnostic(&relative, "unsupported entry path");
                     return Ok(true);
                 }
                 if metadata.is_dir() {

@@ -319,6 +319,36 @@ async fn pages_encoded_text_despite_skipped_files() {
     assert!(!failed);
     std::fs::write(directory.join("f-gb18030.txt"), encoded).unwrap();
     std::fs::write(directory.join("g-bom.txt"), "\u{feff}中文 UTF-8\n").unwrap();
+    if inaccessible {
+        for client in fixture.clients() {
+            let page = query(
+                &fixture,
+                &client,
+                FileSearch {
+                    query: "中文".into(),
+                    path: "encoded".into(),
+                    limit: 2,
+                    ..Default::default()
+                },
+            )
+            .await;
+            assert!(page.partial);
+            assert!(page.truncated);
+            assert!(page.next_offset.is_none());
+            assert_eq!(page.scanned_files, 7);
+            assert_eq!(page.skipped, 4);
+            assert!(page.diagnostics.iter().any(|entry| {
+                entry.path == "encoded/d-denied.txt"
+                    && entry.message.contains("filesystem operation failed")
+            }));
+            assert!(!page.matches.is_empty());
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
     for client in fixture.clients() {
         let options = FileSearch {
             query: "中文".into(),
@@ -358,7 +388,7 @@ async fn pages_encoded_text_despite_skipped_files() {
             assert_eq!(page.next_offset, next);
             assert_eq!(page.truncated, next.is_some());
             assert_eq!(page.scanned_files, 7);
-            assert_eq!(page.skipped, 3 + usize::from(inaccessible));
+            assert_eq!(page.skipped, 3);
             assert_eq!(page.diagnostics.len(), page.skipped - 1);
             assert!(
                 page.diagnostics
@@ -382,12 +412,6 @@ async fn pages_encoded_text_despite_skipped_files() {
                         .any(|entry| { entry.path == path && entry.message.contains(message) })
                 );
             }
-            if inaccessible {
-                assert!(page.diagnostics.iter().any(|entry| {
-                    entry.path == "encoded/d-denied.txt"
-                        && entry.message.contains("filesystem operation failed")
-                }));
-            }
         }
         let anchored = query(
             &fixture,
@@ -404,11 +428,6 @@ async fn pages_encoded_text_despite_skipped_files() {
         assert_eq!(anchored.matches[0].path, "encoded/e-gbk.txt");
         assert_eq!(anchored.matches[0].line_number, 2);
         assert_eq!(anchored.matches[0].line, "中文 second");
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
     fixture.close().await;
 }
