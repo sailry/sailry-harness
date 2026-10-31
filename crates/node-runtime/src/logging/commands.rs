@@ -50,6 +50,7 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
     };
     let mut entry = Entry::new(Area::Command, Phase::Begin);
     entry.command = Some(kind);
+    entry.operation = Some(kind);
     entry.context = Context {
         node: Some(node),
         caller: Some(caller),
@@ -150,5 +151,15 @@ pub(crate) fn rejected(span: &mut Span, fault: &Fault) {
     {
         span.entry.context.plugin_version = Some(plugin.version.clone());
     }
-    span.finish(Phase::Failed, Some(fault.code));
+    if matches!(
+        fault.code,
+        sailry_protocol::ErrorCode::NotFound | sailry_protocol::ErrorCode::InvalidRequest
+    ) && !matches!(
+        &fault.details,
+        Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+    ) {
+        span.finish_warn(Phase::Failed, Some(fault.code));
+    } else {
+        span.finish(Phase::Failed, Some(fault.code));
+    }
 }

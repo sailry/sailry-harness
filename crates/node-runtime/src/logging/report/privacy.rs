@@ -143,7 +143,7 @@ pub(super) fn event(
         },
         logger: Some("sailry".into()),
         platform: "native".into(),
-        message: Some(message),
+        message: Some(message.clone()),
         release: Some(metadata.release.clone().into()),
         environment: Some(metadata.channel.into()),
         fingerprint: vec![fingerprint.finalize().to_hex().to_string().into()].into(),
@@ -161,6 +161,7 @@ pub(super) fn event(
     if !explicit {
         safe.exception = vec![Exception {
             ty: if panic { "panic" } else { "SailryError" }.into(),
+            value: Some(message),
             stacktrace,
             mechanism: Some(Mechanism {
                 ty: if panic { "panic" } else { "tracing" }.into(),

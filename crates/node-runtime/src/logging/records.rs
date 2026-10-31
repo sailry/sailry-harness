@@ -326,6 +326,12 @@ impl Span {
         }
     }
     pub fn finish(&mut self, phase: Phase, code: Option<ErrorCode>) {
+        self.finish_with(phase, code, false);
+    }
+    pub(super) fn finish_warn(&mut self, phase: Phase, code: Option<ErrorCode>) {
+        self.finish_with(phase, code, true);
+    }
+    fn finish_with(&mut self, phase: Phase, code: Option<ErrorCode>, warn: bool) {
         if self.finished {
             return;
         }
@@ -335,7 +341,9 @@ impl Span {
         // Ordinary successful reads carry no new diagnostic fact. Keep slow
         // completions, every failure and uncertain/cancelled outcomes visible.
         if !self.routine || !matches!(phase, Phase::Completed) || self.elapsed_us() >= 100_000 {
-            if self.debug && matches!(phase, Phase::Completed) && code.is_none() {
+            if warn {
+                self.entry.emit_warn();
+            } else if self.debug && matches!(phase, Phase::Completed) && code.is_none() {
                 self.entry.emit_debug();
             } else {
                 self.entry.emit();

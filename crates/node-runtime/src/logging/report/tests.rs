@@ -199,7 +199,102 @@ async fn captures_errors_and_thread_panics() {
     assert!(error.get("contexts").is_none());
     assert_eq!(panic["event"]["exception"]["values"][0]["type"], "panic");
     assert_eq!(panic["event"]["message"], "runtime.panic:internal");
+    assert_eq!(
+        panic["event"]["exception"]["values"][0]["value"],
+        "runtime.panic:internal"
+    );
     assert_eq!(error["message"], "model.operation:unavailable");
+    assert_eq!(
+        error["exception"]["values"][0]["value"],
+        "model.operation:unavailable"
+    );
+    assert!(report.close(Duration::from_secs(1)));
+    assert!(server.empty());
+}
+
+#[test]
+fn titles_use_only_public_fields() {
+    for (fields, title) in [
+        (
+            json!({"area":"model", "operation":"conversation", "code":"unavailable"}),
+            "model.conversation:unavailable",
+        ),
+        (json!({}), "runtime.operation:internal"),
+        (
+            json!({"area":"/Users/PRIVATE_USER", "operation":"PRIVATE_OPERATION", "code":"https://private.invalid/?token=PRIVATE_KEY"}),
+            "runtime.operation:internal",
+        ),
+    ] {
+        let mut fields = fields.as_object().unwrap().clone();
+        fields.insert("phase".into(), "failed".into());
+        let event = Event {
+            logger: Some("sailry".into()),
+            level: sentry::protocol::Level::Error,
+            message: Some("PRIVATE_MESSAGE".into()),
+            exception: vec![Exception {
+                ty: "PRIVATE_TYPE".into(),
+                value: Some("PRIVATE_ERROR /Users/PRIVATE_USER token=PRIVATE_KEY".into()),
+                ..Default::default()
+            }]
+            .into(),
+            contexts: [(
+                "Rust Tracing Fields".into(),
+                Context::Other(fields.into_iter().collect()),
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        let safe = privacy::event(event, &Control::fixture(true, true).metadata(), false).unwrap();
+        assert_eq!(safe.message.as_deref(), Some(title));
+        assert_eq!(safe.exception[0].ty, "SailryError");
+        assert_eq!(safe.exception[0].value.as_deref(), Some(title));
+        let serialized = serde_json::to_string(&safe).unwrap();
+        for forbidden in ["PRIVATE_", "/Users/", "https://", "token="] {
+            assert!(!serialized.contains(forbidden), "{serialized}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn keeps_request_rejections_as_breadcrumbs() {
+    use sailry_protocol::{Command, ErrorCode, NodeId, Request};
+
+    let mut server = server::Server::new().await;
+    let report = Report::create(Control::fixture(true, true), Some(&server.dsn)).unwrap();
+    let hub = Arc::new(Hub::new(
+        Some(report.client.clone()),
+        Arc::new(Default::default()),
+    ));
+    let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(report.layer()));
+    let node = NodeId([1; 32]);
+    Hub::run(hub, || {
+        tracing::dispatcher::with_default(&dispatch, || {
+            for code in [
+                ErrorCode::NotFound,
+                ErrorCode::InvalidRequest,
+                ErrorCode::Internal,
+            ] {
+                let request = Request::new(node, Command::ListSsh);
+                let mut span = super::super::commands::begin(node, node, &request).unwrap();
+                super::super::commands::rejected(&mut span, &Fault::new(code, "PRIVATE_FAILURE"));
+            }
+        })
+    });
+    let envelope = server.next().await;
+    let event = &envelope["event"];
+    assert_eq!(
+        event["exception"]["values"][0]["value"],
+        "command.list_ssh:internal"
+    );
+    let breadcrumbs = event["breadcrumbs"]["values"].as_array().unwrap();
+    assert_eq!(breadcrumbs.len(), 2);
+    for (breadcrumb, code) in breadcrumbs.iter().zip(["not_found", "invalid_request"]) {
+        assert_eq!(breadcrumb["level"], "warning");
+        assert_eq!(breadcrumb["data"]["code"], code);
+        assert_eq!(breadcrumb["data"]["operation"], "list_ssh");
+    }
+    assert!(!envelope.to_string().contains("PRIVATE_"));
     assert!(report.close(Duration::from_secs(1)));
     assert!(server.empty());
 }
@@ -322,6 +417,10 @@ async fn retains_verified_plugin_metadata() {
     assert_eq!(envelope["event"]["extra"]["package"], "web-search");
     assert_eq!(envelope["event"]["extra"]["plugin_version"], version);
     assert_eq!(envelope["event"]["extra"]["code"], "invalid_request");
+    assert_eq!(
+        envelope["event"]["exception"]["values"][0]["value"],
+        "command.plugin_command:invalid_request"
+    );
     assert!(!envelope.to_string().contains("PRIVATE_"));
     assert!(!envelope.to_string().contains(&node.to_string()));
     assert!(report.close(Duration::from_secs(1)));

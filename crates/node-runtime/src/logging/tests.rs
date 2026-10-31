@@ -424,6 +424,47 @@ fn retains_read_failures_and_slow_completions() {
 }
 
 #[test]
+fn records_request_rejection_severity() {
+    use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Request};
+
+    let capture = Capture::default();
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::registry().with(
+            tracing_subscriber::fmt::layer()
+                .event_format(format::Safe {
+                    application: "host",
+                    sink: capture.clone(),
+                })
+                .with_writer(std::io::sink),
+        ),
+    );
+    tracing::dispatcher::with_default(&dispatch, || {
+        let node = NodeId([1; 32]);
+        for code in [
+            ErrorCode::NotFound,
+            ErrorCode::InvalidRequest,
+            ErrorCode::Internal,
+        ] {
+            let request = Request::new(node, Command::ListSsh);
+            let mut span = commands::begin(node, node, &request).unwrap();
+            commands::rejected(&mut span, &Fault::new(code, "PRIVATE_MESSAGE"));
+        }
+    });
+    let records = capture.0.lock().unwrap();
+    assert_eq!(records.len(), 3);
+    for (record, level) in records.iter().zip([
+        tracing::Level::WARN,
+        tracing::Level::WARN,
+        tracing::Level::ERROR,
+    ]) {
+        assert_eq!(record.level, level);
+        assert!(record.line.contains("phase=failed"));
+        assert!(record.line.contains("operation=list_ssh"));
+        assert!(!record.line.contains("PRIVATE_"));
+    }
+}
+
+#[test]
 fn retains_cancelled_cleanup_uncertainty() {
     let directory = tempfile::tempdir().unwrap();
     let (writer, worker) = writer(
