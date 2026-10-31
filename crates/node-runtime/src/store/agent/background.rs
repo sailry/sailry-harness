@@ -20,6 +20,8 @@ pub(in crate::store) use records::{dismiss, list};
 #[serde(deny_unknown_fields)]
 pub(in crate::store) struct Record {
     task: Task,
+    #[serde(default)]
+    follow_up: bool,
     stdout: Option<String>,
     stderr: Option<String>,
     response: Option<String>,

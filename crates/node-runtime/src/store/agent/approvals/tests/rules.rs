@@ -902,6 +902,7 @@ async fn validates_prepared_prefix_before_claim() {
         timeout_ms: 1000,
         pty: false,
         background: false,
+        follow_up: false,
         attachments: vec![],
     };
     assert_eq!(

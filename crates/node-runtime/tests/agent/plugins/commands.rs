@@ -152,6 +152,7 @@ async fn reuses_approved_arguments() {
                     timeout_ms: 120000,
                     pty: false,
                     background: false,
+                    follow_up: false,
                     attachments: vec![],
                 })
                 .with_plugin(plugin::Context {

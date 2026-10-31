@@ -212,6 +212,7 @@ async fn rejects_captured_mutating_requests() {
                 timeout_ms: 1000,
                 pty: false,
                 background: false,
+                follow_up: false,
                 attachments: vec![],
             },
             Command::UseBrowser {

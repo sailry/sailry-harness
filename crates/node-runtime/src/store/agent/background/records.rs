@@ -32,6 +32,7 @@ fn running(
             recovered: false,
             suppressed: false,
         },
+        follow_up: false,
         stdout: None,
         stderr: None,
         response: None,
@@ -74,6 +75,7 @@ pub(in crate::store) async fn command_started(
         command,
         description,
         background: true,
+        follow_up,
         ..
     } = &request.command
     else {
@@ -98,6 +100,7 @@ pub(in crate::store) async fn command_started(
         preview(description.as_deref().unwrap_or(command), 200),
         now(),
     );
+    record.follow_up = *follow_up;
     save(db, &mut record).await?;
     Ok(Some(record.task))
 }

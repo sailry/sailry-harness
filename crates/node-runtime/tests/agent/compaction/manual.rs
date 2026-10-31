@@ -846,6 +846,7 @@ async fn preserves_cancelled_configuration() {
                 timeout_ms: 1000,
                 pty: false,
                 background: false,
+                follow_up: false,
                 attachments: vec![],
             }))
             .await

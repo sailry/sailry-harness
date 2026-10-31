@@ -151,6 +151,7 @@ async fn permits_reads_and_rejects_resource_writes() {
                 timeout_ms: 1000,
                 pty: false,
                 background: false,
+                follow_up: false,
                 attachments: vec![],
             },
             Action::ControlCommands,

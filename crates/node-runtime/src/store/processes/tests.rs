@@ -106,6 +106,7 @@ async fn resolves_the_admitted_worktree() {
                 timeout_ms: 1000,
                 pty: false,
                 background: false,
+                follow_up: false,
                 attachments: vec![],
             },
         ),

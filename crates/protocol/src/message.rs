@@ -837,6 +837,9 @@ pub enum Command {
         cwd: String,
         timeout_ms: u64,
         background: bool,
+        /// Requests an automatic conversation reply after a background command finishes.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        follow_up: bool,
         #[serde(default)]
         pty: bool,
         /// Files from this turn's visible history, staged only for this command.

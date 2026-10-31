@@ -4,6 +4,9 @@ use sailry_protocol::process::{Completion, Outcome};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
+#[path = "process/follow_up.rs"]
+mod follow_up;
+
 pub(super) struct Fixture {
     pub(super) directory: tempfile::TempDir,
     pub(super) root: PathBuf,
@@ -100,6 +103,7 @@ impl Fixture {
             timeout_ms: 60_000,
             pty: false,
             background: false,
+            follow_up: false,
             attachments: Vec::new(),
         })
     }
@@ -295,6 +299,7 @@ async fn bounds_approved_results() {
                     timeout_ms: 1000,
                     pty: false,
                     background: false,
+                    follow_up: false,
                     attachments: Vec::new(),
                 })
                 .with_plugin(plugin::Context {
@@ -736,6 +741,7 @@ async fn delivers_completion_without_consuming_controller_reads() {
             cwd: String::new(),
             timeout_ms: 10_000,
             background: true,
+            follow_up: true,
             pty: false,
             attachments: Vec::new(),
         });

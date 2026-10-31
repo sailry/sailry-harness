@@ -73,6 +73,7 @@ fn prepared(turn: TurnId, access: Access) -> Command {
         timeout_ms: 1000,
         pty: false,
         background: false,
+        follow_up: false,
         attachments: vec![],
     }
 }

@@ -42,6 +42,7 @@ pub(super) async fn prepare(database: &Database, request: &Request) -> Result<Pr
         background,
         pty,
         attachments,
+        ..
     } = &request.command
     else {
         return Err(Fault::new(

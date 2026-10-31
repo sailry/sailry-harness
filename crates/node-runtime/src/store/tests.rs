@@ -331,6 +331,7 @@ async fn interrupted_command_preserves_uncertainty() {
         timeout_ms: 1_000,
         pty: false,
         background: false,
+        follow_up: false,
         attachments: Vec::new(),
     });
     let path = node.profile().to_owned();

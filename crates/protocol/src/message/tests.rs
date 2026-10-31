@@ -5,6 +5,50 @@ fn unknown(data: Value) -> Value {
     json!({ "kind": "future_result", "data": data })
 }
 
+mod process {
+    use super::*;
+
+    #[test]
+    fn follow_up_is_opt_in() {
+        let turn = TurnId::new();
+        let encoded = format!(
+            r#"{{"kind":"run_command","data":{{"turn":"{turn}","command":"true","access":"workspace","description":null,"cwd":"","timeout_ms":1000,"background":true,"pty":false,"attachments":[]}}}}"#,
+        );
+        let command: Command = serde_json::from_str(&encoded).unwrap();
+        assert!(matches!(
+            &command,
+            Command::RunCommand {
+                follow_up: false,
+                ..
+            }
+        ));
+        // Omitted defaults retain the canonical bytes used by durable request digests.
+        assert_eq!(serde_json::to_string(&command).unwrap(), encoded);
+        let mut value = serde_json::to_value(&command).unwrap();
+        for follow_up in [false, true] {
+            value["data"]["follow_up"] = json!(follow_up);
+            let command: Command = serde_json::from_value(value.clone()).unwrap();
+            assert!(
+                matches!(&command, Command::RunCommand { follow_up: actual, .. } if *actual == follow_up)
+            );
+            let captured = serde_json::to_value(&command).unwrap();
+            assert_eq!(
+                captured["data"].get("follow_up"),
+                follow_up.then_some(&Value::Bool(true))
+            );
+            assert_eq!(
+                serde_json::from_value::<Command>(captured).unwrap(),
+                command
+            );
+        }
+        for invalid in [Value::Null, json!("true"), json!(1)] {
+            value["data"]["follow_up"] = invalid;
+            assert!(serde_json::from_value::<Command>(value.clone()).is_err());
+        }
+        assert_eq!(crate::VERSION, 1);
+    }
+}
+
 mod mcp {
     use super::*;
 

@@ -771,8 +771,11 @@ their approvals retain the child identity and are presented in the main session.
 
 Background child and command completions have durable, session-owned evidence.
 An idle main session continues through the ordinary queue using its current
-configuration when background work completes, without an enable switch.
-Busy sessions collect a bounded batch on their next eligible input. Pending
+configuration when a background child completes or a command explicitly requests
+`follow_up`. Commands default to retaining completion evidence without starting
+a model reply. Busy sessions collect a bounded batch on their next eligible input;
+automatic completion input includes only children and commands that opted in.
+User-initiated input can collect any pending completion evidence. Pending
 consent, paused queues and removed or archived owners prevent automatic input;
 restart preserves evidence without restarting work or automatically continuing.
 Reservations become delivered only when their marked input is appended to the

@@ -5,6 +5,8 @@ use sailry_protocol::process::{Access, Capture, Info, Snapshot};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
+mod follow_up;
+
 async fn pending(fixture: &Fixture, turn: TurnId, output: &str) -> String {
     let transaction = turso::transaction::Transaction::new_unchecked(
         &fixture.database.connection,
@@ -30,6 +32,7 @@ async fn pending(fixture: &Fixture, turn: TurnId, output: &str) -> String {
             recovered: false,
             suppressed: false,
         },
+        follow_up: true,
         stdout: Some(output.into()),
         stderr: None,
         response: None,
@@ -342,7 +345,7 @@ async fn rejects_forged_canonical_confirmation() {
     );
 }
 
-async fn command(fixture: &Fixture, turn: TurnId) -> (Request, Snapshot) {
+async fn command(fixture: &Fixture, turn: TurnId, follow_up: bool) -> (Request, Snapshot) {
     let transaction = turso::transaction::Transaction::new_unchecked(
         &fixture.database.connection,
         turso::transaction::TransactionBehavior::Concurrent,
@@ -359,6 +362,7 @@ async fn command(fixture: &Fixture, turn: TurnId) -> (Request, Snapshot) {
             cwd: ".".into(),
             timeout_ms: 1000,
             background: true,
+            follow_up,
             pty: false,
             attachments: vec![],
         },
@@ -398,7 +402,7 @@ async fn terminal_read_wins_late_completion() {
         .await
         .unwrap();
     let invocation = claim(&mut fixture).await;
-    let (request, snapshot) = command(&fixture, invocation.turn.id).await;
+    let (request, snapshot) = command(&fixture, invocation.turn.id, true).await;
     let changed = {
         let transaction = turso::transaction::Transaction::new_unchecked(
             &fixture.database.connection,
@@ -478,7 +482,7 @@ async fn records_failures_before_process_start() {
             Outcome::Cancelled,
         ),
     ] {
-        let (request, _) = command(&fixture, queued).await;
+        let (request, _) = command(&fixture, queued, true).await;
         let returned = {
             let transaction = turso::transaction::Transaction::new_unchecked(
                 &fixture.database.connection,
@@ -510,7 +514,7 @@ async fn records_failures_before_process_start() {
 async fn recovers_running_commands_without_replay() {
     let mut fixture = Fixture::new().await;
     let source = fixture.completed(&["Started work"]).await;
-    let (request, _) = command(&fixture, source).await;
+    let (request, _) = command(&fixture, source, true).await;
     {
         let transaction = turso::transaction::Transaction::new_unchecked(
             &fixture.database.connection,
@@ -643,6 +647,14 @@ async fn explicit_input_preserves_speech_before_delivery() {
     let mut fixture = Fixture::new().await;
     let source = fixture.completed(&["Earlier task"]).await;
     let id = pending(&fixture, source, "Untrusted result text").await;
+    let mut record = get(&fixture.database.connection, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    record.follow_up = false;
+    save(&fixture.database.connection, &mut record)
+        .await
+        .unwrap();
     let user = fixture.queued().await;
     assert!(schedule(&fixture).await.is_none());
     runs::start(&fixture.database.connection, user)

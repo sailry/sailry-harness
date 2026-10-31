@@ -284,6 +284,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
                 "command":{"type":"string"}, "access":{"type":["string","null"],"enum":["workspace","unrestricted",null],"description":"Workspace access is confined and has no network on macOS/Linux. Unrestricted access needs fresh approval in Ask/Project and runs automatically in Full."}, "description":{"type":["string","null"]}, "cwd":{"type":"string"},
                 "timeout_ms":{"type":"integer", "minimum":1, "maximum":9_007_199_254_740_991u64},
                 "background":{"type":"boolean"},
+                "follow_up":{"type":"boolean", "default":false},
                 "pty":{"type":"boolean", "default":false},
                 "attachments":{"type":"array", "items":{"type":"string"}, "uniqueItems":true}
             }),
@@ -496,6 +497,8 @@ pub(super) fn command(
                 timeout_ms: u64,
                 background: bool,
                 #[serde(default)]
+                follow_up: bool,
+                #[serde(default)]
                 pty: bool,
                 attachments: Vec<sailry_protocol::AttachmentId>,
             }
@@ -511,6 +514,7 @@ pub(super) fn command(
                 timeout_ms: launch.timeout_ms,
                 pty: launch.pty,
                 background: launch.background,
+                follow_up: launch.follow_up,
                 attachments: launch.attachments,
             });
         }
@@ -967,6 +971,36 @@ mod tests {
             assert!(command(operation, json!({"id":sailry_protocol::RequestId::new(),"session":sailry_protocol::SessionId::new()}), &scope).is_err());
         }
         assert!(command(Operation::StopCommand, json!({}), &scope).is_err());
+    }
+
+    #[test]
+    fn follow_up_requires_boolean_opt_in() {
+        let scope = scope();
+        let schema = parameters(Operation::RunCommand);
+        let validator = jsonschema::draft202012::options().build(&schema).unwrap();
+        assert_eq!(schema["properties"]["follow_up"]["default"], json!(false));
+        let mut arguments = json!({"command":"true", "access":"workspace", "description":null, "cwd":"", "timeout_ms":1000, "background":true, "attachments":[]});
+        assert!(validator.is_valid(&arguments));
+        assert!(matches!(
+            command(Operation::RunCommand, arguments.clone(), &scope).unwrap(),
+            Command::RunCommand {
+                follow_up: false,
+                ..
+            }
+        ));
+        for follow_up in [false, true] {
+            arguments["follow_up"] = json!(follow_up);
+            assert!(validator.is_valid(&arguments));
+            assert!(matches!(
+                command(Operation::RunCommand, arguments.clone(), &scope).unwrap(),
+                Command::RunCommand { follow_up: actual, .. } if actual == follow_up
+            ));
+        }
+        for invalid in [Value::Null, json!("true"), json!(1)] {
+            arguments["follow_up"] = invalid;
+            assert!(!validator.is_valid(&arguments));
+            assert!(command(Operation::RunCommand, arguments.clone(), &scope).is_err());
+        }
     }
 
     #[test]

@@ -193,6 +193,7 @@ async fn reads_copies_and_restores_receipts() {
                     timeout_ms: 120000,
                     pty: false,
                     background: false,
+                    follow_up: false,
                     attachments: vec![input_file.id],
                 })
                 .with_plugin(plugin::Context {
