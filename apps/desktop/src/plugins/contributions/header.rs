@@ -13,7 +13,6 @@ pub(crate) struct Popover {
     open: bool,
     held: bool,
     hovered: bool,
-    focus: FocusHandle,
     timer: Option<Task<()>>,
 }
 
@@ -22,16 +21,14 @@ impl Popover {
         entry: Entry,
         panel: Entity<Panel>,
         _window: &mut Window,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) -> Self {
-        let focus = cx.focus_handle();
         Self {
             entry,
             panel,
             open: false,
             held: false,
             hovered: false,
-            focus,
             timer: None,
         }
     }
@@ -93,12 +90,12 @@ impl Render for Popover {
             .icon(self.entry.icon().unwrap_or_else(|| controls::icon(None)))
             .accessibility_label(self.entry.text())
             .disabled(!self.entry.state.enabled)
-            .selected(self.open)
-            .track_focus(&self.focus);
+            .selected(self.open);
+        // The surface focuses its own content on open, as the native header popovers do.
+        // Sharing the trigger's handle moved focus onto the trigger and drew its ring.
         crate::theme::popover(popover::Popover::new("header-contribution-popover"), cx)
             .open(self.open)
             .anchor(Anchor::TopRight)
-            .track_focus(&self.focus)
             .p_0()
             .trigger(
                 button

@@ -264,8 +264,13 @@ impl Registry {
                         }),
                 );
         } else {
+            // Header icons match the native square ghost header buttons beside them.
+            let header = entry.declaration.slot == Slot::Header;
             button = button
-                .when(form != Form::Project, |button| button.rounded_full())
+                .when(form != Form::Project && !header, |button| {
+                    button.rounded_full()
+                })
+                .when(header, |button| button.small())
                 .icon(control_icon)
                 .dropdown_caret(entry.state.dropdown && !matches!(form, Form::Icons | Form::Model))
                 .when(matches!(form, Form::Toolbar | Form::Project), |button| {

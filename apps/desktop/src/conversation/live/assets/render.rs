@@ -167,11 +167,16 @@ impl Assets {
             progress = progress.child(empty("chat_assets_no_progress", cx));
         }
         body = body.child(progress).child(Separator::horizontal());
-        let mut output = section("output", "chat_assets_output");
-        let mut sources = section("sources", "chat_assets_sources");
+        // Live state renders at once; only the Node inventory sections wait for the request.
+        let mut output = pending(section("output", "chat_assets_output"), self.loading);
+        let mut sources = pending(section("sources", "chat_assets_sources"), self.loading);
         let mut output_count = 0;
         let mut source_count = overview.sources.len();
-        for (group, index, target) in sailry_client::conversation::unique_assets(&self.groups) {
+        let groups = self
+            .loaded
+            .as_ref()
+            .map_or(&[][..], |loaded| loaded.groups.as_slice());
+        for (group, index, target) in sailry_client::conversation::unique_assets(groups) {
             let row = self.asset(group, index, target, cx);
             if group.kind == Kind::Artifact {
                 output = output.child(row);
@@ -224,7 +229,12 @@ impl Assets {
                         })),
                 );
             body = body.child(retry);
-        } else if self.before.is_some() && !self.loading {
+        } else if self
+            .loaded
+            .as_ref()
+            .is_some_and(|loaded| loaded.before.is_some())
+            && !self.loading
+        {
             body = body.child(
                 Button::new("asset-more")
                     .ghost()
@@ -240,19 +250,7 @@ impl Assets {
             .child(
                 div()
                     .relative()
-                    .child(body.vertical_scrollbar(&self.scroll))
-                    .when(self.loading, |content| {
-                        content.child(
-                            div()
-                                .absolute()
-                                .inset_0()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .bg(cx.theme().popover.opacity(0.7))
-                                .child(Spinner::new()),
-                        )
-                    }),
+                    .child(body.vertical_scrollbar(&self.scroll)),
             );
         div()
             .debug_selector(move || format!("overview-{selector}"))
@@ -359,6 +357,18 @@ fn section(id: &'static str, label: &'static str) -> Div {
         .w_full()
         .min_w_0()
         .child(div().text_sm().font_semibold().child(tr(label)))
+}
+
+/// Marks a section whose rows are still being read without hiding loaded rows.
+fn pending(section: Div, loading: bool) -> Div {
+    section.when(loading, |section| {
+        section.child(
+            h_flex()
+                .debug_selector(|| "asset-loading".into())
+                .py_1()
+                .child(Spinner::new().small()),
+        )
+    })
 }
 
 fn empty(label: &'static str, cx: &App) -> Div {

@@ -2,8 +2,10 @@
 use super::*;
 use crate::content::images::{ImageSource, Images};
 use sailry_protocol::conversation::assets::{Group, Kind, Query, Target};
+mod cache;
 mod overview;
 mod render;
+use cache::{Cache, Loaded};
 
 impl View {
     pub(crate) fn open_file_image(
@@ -32,12 +34,10 @@ pub(crate) struct Assets {
     binding: Binding,
     session: Option<SessionId>,
     stamp: Option<(u64, u64)>,
-    loaded_revision: Option<u64>,
-    loaded_head: Option<u64>,
+    loaded: Option<Loaded>,
+    cache: Cache,
     images: Entity<Images>,
     scroll: ScrollHandle,
-    groups: Vec<Group>,
-    before: Option<u64>,
     loading: bool,
     failed: bool,
     retry_more: bool,
@@ -60,16 +60,19 @@ impl Assets {
         revision: u64,
         document: &sailry_protocol::artifact::Summary,
     ) -> bool {
+        let listed = |group: &Group| {
+            group.kind == Kind::Artifact
+                && group.turn == document.turn
+                && group
+                    .items
+                    .iter()
+                    .any(|target| matches!(target, Target::Document(value) if value == document))
+        };
         document.valid()
             && self.binding.client.target() == target
             && self.session == Some(session)
-            && self.loaded_revision == Some(revision)
-            && self.groups.iter().any(|group| {
-                group.kind == Kind::Artifact
-                    && group.turn == document.turn
-                    && group.items.iter().any(
-                        |target| matches!(target, Target::Document(value) if value == document),
-                    )
+            && self.loaded.as_ref().is_some_and(|loaded| {
+                loaded.revision == revision && loaded.groups.iter().any(listed)
             })
     }
 
@@ -90,10 +93,8 @@ impl Assets {
             images,
             scroll: ScrollHandle::new(),
             stamp: None,
-            loaded_revision: None,
-            loaded_head: None,
-            groups: Vec::new(),
-            before: None,
+            loaded: None,
+            cache: Cache::default(),
             loading: false,
             failed: false,
             retry_more: false,
@@ -113,26 +114,42 @@ impl Assets {
         cx: &mut Context<Self>,
     ) {
         self.images = images.clone();
-        if self.session == session
-            && self.stamp == stamp
-            && self.binding.client.target() == binding.client.target()
-        {
+        let target = binding.client.target();
+        let previous = self.binding.client.target();
+        if self.session == session && self.stamp == stamp && previous == target {
             return;
         }
         self.stop.cancel();
+        self.task = None;
+        self.loading = false;
+        self.failed = false;
+        if self.session != session || previous != target {
+            if let (Some(id), Some(loaded)) = (self.session, self.loaded.take()) {
+                self.cache.put(previous, id, loaded);
+            }
+            self.loaded = session.and_then(|id| self.cache.take(target, id));
+        }
         self.binding = binding.clone();
         self.session = session;
         self.stamp = stamp;
-        self.groups.clear();
-        self.before = None;
-        self.loaded_revision = None;
-        self.loaded_head = None;
-        self.loading = false;
-        self.failed = false;
-        if self.open {
+        if self
+            .loaded
+            .as_ref()
+            .is_some_and(|loaded| !loaded.reusable(stamp))
+        {
+            self.loaded = None;
+        }
+        if self.open && !self.current() {
             self.load(false, window, cx);
         }
         cx.notify();
+    }
+
+    /// Whether the shown inventory already covers the owner's newest history.
+    fn current(&self) -> bool {
+        self.loaded
+            .as_ref()
+            .is_some_and(|loaded| loaded.current(self.stamp))
     }
 
     fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -141,7 +158,10 @@ impl Assets {
         }
         self.open = open;
         if open {
-            self.load(false, window, cx);
+            // A cached inventory renders at once; only newer history triggers a refresh.
+            if !self.current() {
+                self.load(false, window, cx);
+            }
         } else {
             self.stop.cancel();
             self.task = None;
@@ -156,7 +176,11 @@ impl Assets {
         let Some(session) = self.session else {
             return;
         };
-        let before = if more { self.before } else { None };
+        let before = if more {
+            self.loaded.as_ref().and_then(|loaded| loaded.before)
+        } else {
+            None
+        };
         self.loading = true;
         self.failed = false;
         self.retry_more = more;
@@ -190,16 +214,21 @@ impl Assets {
                             .is_none_or(|(revision, _)| revision == page.revision)
                             && (!more
                                 || panel
-                                    .loaded_revision
-                                    .is_none_or(|revision| revision == page.revision)) =>
+                                    .loaded
+                                    .as_ref()
+                                    .is_none_or(|loaded| loaded.revision == page.revision)) =>
                     {
-                        if !more {
-                            panel.groups.clear();
-                        }
-                        panel.loaded_revision = Some(page.revision);
-                        panel.loaded_head = head;
-                        panel.groups.extend(page.groups);
-                        panel.before = page.next_before;
+                        let mut groups = match panel.loaded.take() {
+                            Some(loaded) if more => loaded.groups,
+                            _ => Vec::new(),
+                        };
+                        groups.extend(page.groups);
+                        panel.loaded = Some(Loaded {
+                            revision: page.revision,
+                            head,
+                            groups,
+                            before: page.next_before,
+                        });
                     }
                     _ => {
                         panel.failed = true;

@@ -27,6 +27,75 @@ pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
     items
 }
 
+/// Projects only the parts `items` reads, in the same order as the history projection.
+/// The full projection resolves every tool result's request with a per-turn scan, which
+/// made asset pages quadratic in long turns; inventory needs only images and text.
+pub(super) async fn entry(
+    db: &Connection,
+    sequence: u64,
+    turn: TurnId,
+    event: &Record,
+) -> Result<Entry, Fault> {
+    let references = super::super::references::project(event)?;
+    let input = event.metadata.input.as_ref();
+    let skipped = usize::from(!references.is_empty())
+        + usize::from(input.is_some_and(|input| input.notice_part.is_some()));
+    let hidden = event.provenance.author == "system"
+        && event.context().is_some_and(|context| context.captured);
+    let capability = input.and_then(|input| input.capability_part);
+    let mut parts = Vec::new();
+    if !hidden {
+        if let Some(message) = event.message() {
+            for index in skipped..message.part_count {
+                if Some(index) == capability {
+                    continue;
+                }
+                let Some(block) = message.content.iter().find(|block| block.index == index) else {
+                    continue;
+                };
+                match &block.kind {
+                    BlockKind::Text { text } => parts.push(Part::Text(text.clone())),
+                    BlockKind::Image { asset } => parts.push(Part::Image(
+                        super::super::images::inline(db, turn, event, index, asset).await?,
+                    )),
+                    BlockKind::File { file }
+                        if crate::agent::attachments::is_reference(&file.uri) =>
+                    {
+                        let id = crate::agent::attachments::id(&file.uri)?;
+                        let attachment =
+                            crate::store::attachments::turns::get(db, turn, id).await?;
+                        if file.mime.as_deref() != Some(attachment.spec.media_type.as_str()) {
+                            return Err(Fault::invalid("attachment media type mismatch"));
+                        }
+                        parts.push(Part::Attachment(attachment));
+                    }
+                    BlockKind::ToolResponse(response) => parts.push(Part::ToolResult {
+                        id: Some(response.id.clone()),
+                        name: response.name.clone(),
+                        summary: Default::default(),
+                        images: super::super::images::project(db, turn, event, index, response)
+                            .await?,
+                    }),
+                    _ => {}
+                }
+            }
+        }
+        parts.extend(references.into_iter().map(Part::Reference));
+    }
+    Ok(Entry {
+        sequence,
+        turn,
+        id: event.id.clone(),
+        author: event.provenance.author.clone(),
+        branch: event.provenance.branch.clone(),
+        timestamp_ms: event.created.timestamp_millis(),
+        parts,
+        citations: Vec::new(),
+        search_suggestions: None,
+        usage: None,
+    })
+}
+
 pub(super) async fn publications(
     db: &Connection,
     items: &mut Vec<Target>,

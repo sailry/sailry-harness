@@ -59,6 +59,9 @@ pub(in crate::store) async fn read(
     let mut scanned = 0;
     let mut bytes = 0;
     let mut last = None;
+    // Long turns repeat one run and checkout for many events.
+    let mut worktrees: std::collections::HashMap<TurnId, (WorktreeId, Option<String>)> =
+        std::collections::HashMap::new();
     while let Some(row) = rows.next().await.map_err(storage_error)? {
         if scanned == 256
             || bytes >= 4 * 1024 * 1024
@@ -83,20 +86,14 @@ pub(in crate::store) async fn read(
         if query.kind.is_some_and(|filter| filter != kind) {
             continue;
         }
-        let entry = history::project(db, sequence, turn, &event).await?;
-        let run = runs::visible(db, session, turn).await?;
-        let root: Option<String> = {
-            let mut statement = db
-                .prepare("SELECT path FROM worktrees WHERE id=?1")
-                .await
-                .map_err(storage_error)?;
-            match statement.query_row([run.worktree.to_string()]).await {
-                Ok(row) => {
-                    let mapped: turso::Result<_> = row.get(0);
-                    Some(mapped.map_err(storage_error)?)
-                }
-                Err(turso::Error::QueryReturnedNoRows) => None,
-                Err(error) => return Err(storage_error(error)),
+        let entry = extract::entry(db, sequence, turn, &event).await?;
+        let (worktree, root) = match worktrees.get(&turn) {
+            Some(value) => value.clone(),
+            None => {
+                let worktree = runs::visible(db, session, turn).await?.worktree;
+                let value = (worktree, checkout(db, worktree).await?);
+                worktrees.insert(turn, value.clone());
+                value
             }
         };
         let mut items = extract::items(&entry, root.as_deref());
@@ -105,7 +102,7 @@ pub(in crate::store) async fn read(
             page.groups.push(Group {
                 sequence,
                 turn,
-                worktree: run.worktree,
+                worktree,
                 timestamp_ms: entry.timestamp_ms,
                 kind,
                 items,
@@ -113,4 +110,19 @@ pub(in crate::store) async fn read(
         }
     }
     Ok(page)
+}
+
+async fn checkout(db: &Connection, worktree: WorktreeId) -> Result<Option<String>, Fault> {
+    let mut statement = db
+        .prepare("SELECT path FROM worktrees WHERE id=?1")
+        .await
+        .map_err(storage_error)?;
+    match statement.query_row([worktree.to_string()]).await {
+        Ok(row) => {
+            let mapped: turso::Result<_> = row.get(0);
+            Ok(Some(mapped.map_err(storage_error)?))
+        }
+        Err(turso::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(storage_error(error)),
+    }
 }

@@ -1,11 +1,11 @@
 use super::*;
 use crate::{
-    agent::canonical::{BlockKind, Record, Role, ToolFormat},
+    agent::canonical::{Attachment, BlockKind, Record, Role, ToolFormat},
     store::agent::{
         blobs,
         tests::{
             command,
-            fixture::{Fixture, message, response},
+            fixture::{Fixture, message, request, response},
         },
     },
 };
@@ -128,6 +128,92 @@ async fn includes_inputs_and_inline_images() {
         .len(),
         1
     );
+}
+
+#[tokio::test]
+async fn lean_projection_matches_history() {
+    let mut fixture = Fixture::new().await;
+    let mut image = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgb8(2, 2)
+        .write_to(&mut image, image::ImageFormat::Png)
+        .unwrap();
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
+    let asset = blobs::put(&transaction, "image/png", &image.into_inner())
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+    let mut capture = response("capture", "screenshot", serde_json::json!({"ok": true}));
+    capture.attachments.push(Attachment::Inline {
+        asset: asset.clone(),
+    });
+    fixture
+        .append([
+            message(
+                "user",
+                Role::User,
+                vec![BlockKind::Text {
+                    text: "See [Input](input.txt)".into(),
+                }],
+            ),
+            message(
+                "assistant",
+                Role::Assistant,
+                vec![BlockKind::ToolRequest(request(
+                    "capture",
+                    "screenshot",
+                    serde_json::json!({}),
+                ))],
+            ),
+            message(
+                "assistant",
+                Role::Assistant,
+                vec![BlockKind::ToolResponse(capture)],
+            ),
+            message(
+                "assistant",
+                Role::Assistant,
+                vec![
+                    BlockKind::Image { asset },
+                    BlockKind::Text {
+                        text: "[Report](report.md)".into(),
+                    },
+                ],
+            ),
+        ])
+        .await;
+    let db = &fixture.database.connection;
+    let mut statement = db.prepare(history::EVENTS_QUERY).await.unwrap();
+    let mut rows = statement
+        .query(params![fixture.session.to_string(), i64::MAX, 100])
+        .await
+        .unwrap();
+    let mut images = 0;
+    let mut compared = 0;
+    while let Some(row) = rows.next().await.unwrap() {
+        let sequence = row.get::<i64>(0).unwrap() as u64;
+        let turn: TurnId = row.get::<String>(1).unwrap().parse().unwrap();
+        let event: Record = serde_json::from_slice(&row.get::<Vec<u8>>(2).unwrap()).unwrap();
+        let full = history::project(db, sequence, turn, &event).await.unwrap();
+        let lean = extract::entry(db, sequence, turn, &event).await.unwrap();
+        let items = extract::items(&lean, Some("/project"));
+        assert_eq!(extract::items(&full, Some("/project")), items);
+        assert_eq!(
+            (full.sequence, full.turn, full.timestamp_ms, &full.author),
+            (lean.sequence, lean.turn, lean.timestamp_ms, &lean.author)
+        );
+        images += items
+            .iter()
+            .filter(|item| matches!(item, Target::Image(_)))
+            .count();
+        compared += 1;
+    }
+    assert!(compared >= 4);
+    assert_eq!(images, 2);
 }
 
 #[tokio::test]
