@@ -17,6 +17,8 @@ pub(super) struct Contribution {
     pub instruction: String,
     /// Per-turn plugin script text, delivered as turn context.
     pub context: String,
+    /// Discrete plugin script parts. The Node persists each once per conversation.
+    pub parts: Vec<String>,
     pub callbacks: Vec<(
         i16,
         Arc<
@@ -129,6 +131,7 @@ pub(super) async fn bind(
         bound.tools.extend(scripts.tools);
         bound.callbacks.extend(scripts.callbacks);
         bound.instructions = scripts.instructions;
+        bound.parts = scripts.parts;
         connection_diagnostics = diagnostics;
     }
     assistants::apply(invocation, &mut bound)?;

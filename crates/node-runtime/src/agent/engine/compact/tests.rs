@@ -95,6 +95,7 @@ async fn yields_managed_context_after_previous_error() {
         stop: stop.clone(),
         deferred: Default::default(),
         images: vec![],
+        parts: vec![],
         sources: Default::default(),
     });
     let previous = TurnId::new();

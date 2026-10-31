@@ -89,6 +89,7 @@ pub(super) async fn bind(
         contribution
             .instructions
             .insert(package.summary.name.clone(), initialized.instruction);
+        contribution.parts.extend(initialized.parts);
         parameters.extend(
             initialized
                 .parameters

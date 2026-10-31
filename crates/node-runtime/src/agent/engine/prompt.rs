@@ -30,6 +30,8 @@ pub(super) struct Prompt {
     pub instruction: String,
     /// Turn-scoped title state and plugin script context.
     pub context: String,
+    /// Plugin parts, each persisted once while visible in the conversation.
+    pub parts: Vec<String>,
 }
 
 #[async_trait]
@@ -81,6 +83,7 @@ impl Operation<Session, Effect> for Prompt {
                 .into_iter()
                 .map(|(_, text)| text),
         );
+        parts.extend(self.parts.iter().cloned());
         Ok(parts)
     }
 }
@@ -94,6 +97,8 @@ pub(super) struct Preparer {
     pub stop: CancellationToken,
     pub deferred: BTreeSet<String>,
     pub images: Vec<(Vec<String>, usize)>,
+    /// Plugin parts that `pending` skips once a persisted context holds them.
+    pub parts: Vec<String>,
     pub sources: crate::agent::model::observation::Sources,
 }
 #[async_trait]
@@ -115,7 +120,11 @@ impl InferenceRequestPreparer<Session> for Preparer {
         let retained = owners::collect(&session.records);
         let skills = retained.skill_parts();
         let owners = retained.parts();
-        let owned: Vec<_> = owners.iter().map(|(_, part)| part.as_str()).collect();
+        let owned: Vec<_> = owners
+            .iter()
+            .map(|(_, part)| part.as_str())
+            .chain(self.parts.iter().map(String::as_str))
+            .collect();
         let mut input = input;
         input.moim_parts = pending(conversation, &owned, std::mem::take(&mut input.moim_parts));
         let mut contexts: Vec<_> = conversation
@@ -234,8 +243,9 @@ fn prepare(
 
 /// Parts for a new persisted turn context, or none when history already holds
 /// them. As in Goose, each turn states the session once and repeats it only when
-/// it changes, so each request extends the previous one. Retained owner parts
-/// repeat only after compaction hides their earlier copy.
+/// it changes, so each request extends the previous one. Owned parts, retained
+/// owner context and plugin parts, repeat only after compaction hides their
+/// earlier copy.
 fn pending(conversation: &Conversation, owned: &[&str], parts: Vec<String>) -> Vec<String> {
     let persisted = |message: &&Message| message.is_turn_context() && message.is_agent_visible();
     let visible: Vec<_> = conversation
@@ -258,7 +268,7 @@ fn pending(conversation: &Conversation, owned: &[&str], parts: Vec<String>) -> V
     let Some(candidate) = context(&parts).map(|message| message.as_concat_text()) else {
         return Vec::new();
     };
-    let changed = last.is_none_or(|last| state(&last) != state(&candidate));
+    let changed = last.is_none_or(|last| state(&last, owned) != state(&candidate, owned));
     if changed || parts.iter().any(|part| owned.contains(&part.as_str())) {
         parts
     } else {
@@ -266,11 +276,14 @@ fn pending(conversation: &Conversation, owned: &[&str], parts: Vec<String>) -> V
     }
 }
 
-/// Session state of a context, without its retained owner parts.
-fn state(text: &str) -> &str {
+/// Session state of a context, without its owned parts, which follow it.
+fn state<'a>(text: &'a str, owned: &[&str]) -> &'a str {
     let text = text.strip_suffix("\n</turn-context>").unwrap_or(text);
-    let end = text
-        .find(&format!("\n{}", owners::PREFIX))
+    let end = owned
+        .iter()
+        .filter_map(|part| text.find(&format!("\n{part}")))
+        .chain(text.find(&format!("\n{}", owners::PREFIX)))
+        .min()
         .unwrap_or(text.len());
     text[..end].trim_end_matches('\n')
 }
@@ -299,6 +312,7 @@ pub(crate) async fn prepared(session: &Session) -> PreparedInferenceRequest {
     let prompt = Prompt {
         instruction: "Fixture instructions".into(),
         context: String::new(),
+        parts: Vec::new(),
     };
     prepare(
         InferenceInput {
@@ -388,6 +402,8 @@ mod tests {
         const ENVIRONMENT: &str = "Session environment";
         const SKILL: &str = "Retained owner context: skill:fixture:SKILL.md\nBody";
         const PLAN: &str = "Retained owner context: plan\nSteps";
+        const MEMORY: &str = "Relevant memory: {\"id\":\"one\"}";
+        const OTHER: &str = "Relevant memory: {\"id\":\"two\"}";
 
         fn persisted(parts: &[&str]) -> Message {
             context(
@@ -402,7 +418,7 @@ mod tests {
         fn select(messages: Vec<Message>, parts: &[&str]) -> Vec<String> {
             pending(
                 &Conversation::new_unvalidated(messages),
-                &[SKILL, PLAN],
+                &[SKILL, PLAN, MEMORY, OTHER],
                 parts.iter().map(|part| (*part).to_owned()).collect(),
             )
         }
@@ -459,6 +475,58 @@ mod tests {
             let owners = vec![Message::user().with_text("Task"), persisted(&[SKILL])];
             assert!(select(owners.clone(), &[SKILL]).is_empty());
             assert_eq!(select(owners, &[ENVIRONMENT, SKILL]), [ENVIRONMENT]);
+        }
+
+        #[test]
+        fn states_plugin_parts_once_per_conversation() {
+            let history = vec![
+                Message::user().with_text("Task"),
+                persisted(&[ENVIRONMENT, MEMORY]),
+                Message::assistant().with_text("Done"),
+                Message::user().with_text("Next task"),
+            ];
+            assert_eq!(
+                select(history.clone(), &[ENVIRONMENT, MEMORY]),
+                [ENVIRONMENT]
+            );
+            assert_eq!(
+                select(history.clone(), &[ENVIRONMENT, MEMORY, OTHER]),
+                [ENVIRONMENT, OTHER]
+            );
+            assert_eq!(
+                select(history, &[ENVIRONMENT, OTHER, MEMORY]),
+                [ENVIRONMENT, OTHER]
+            );
+        }
+
+        #[test]
+        fn keeps_state_beside_plugin_parts() {
+            let history = vec![
+                Message::user().with_text("Task"),
+                persisted(&[ENVIRONMENT, MEMORY]),
+            ];
+            assert!(select(history.clone(), &[ENVIRONMENT, MEMORY]).is_empty());
+            assert_eq!(
+                select(history.clone(), &[ENVIRONMENT, MEMORY, OTHER]),
+                [ENVIRONMENT, OTHER]
+            );
+            assert_eq!(
+                select(history, &["Moved environment", MEMORY]),
+                ["Moved environment"]
+            );
+        }
+
+        #[test]
+        fn restores_hidden_plugin_parts() {
+            let mut hidden = persisted(&[ENVIRONMENT, MEMORY]);
+            hidden.metadata = hidden.metadata.with_agent_invisible();
+            assert_eq!(
+                select(
+                    vec![Message::user().with_text("Task"), hidden],
+                    &[ENVIRONMENT, MEMORY]
+                ),
+                [ENVIRONMENT, MEMORY]
+            );
         }
 
         #[test]

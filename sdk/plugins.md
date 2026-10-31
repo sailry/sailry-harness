@@ -798,6 +798,15 @@ can write the package's private storage with an identity derived from the turn
 evaluation reuses its request. Planning turns still reject these writes; treat
 any write failure as optional and continue.
 
+`initialize` returns `{tools, instruction, parts?, parameters?}`. Both `instruction`
+and `parts` become agent-only turn context, never part of the system prompt; put fixed
+guidance in the package's `instructions` so the system prompt stays byte-stable.
+`parts` lists up to 8 nonempty strings, 32 KiB of UTF-8 in total, and repeats are
+removed. The Node persists a part only when no agent-visible turn context of the
+conversation already holds that exact text, so an unchanged part is stated once and
+appears again only after compaction hides its earlier copy. A turn that needs no
+context returns an empty `instruction` and no parts.
+
 Packages that submit automatic input with `ContinueTurn` can declare
 `continuation_marker` in `extensions.dev.sailry.platform`, using a localized
 `label` and optional `locales` map. Node captures the package reference and marker

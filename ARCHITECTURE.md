@@ -396,9 +396,11 @@ system prompt. Environment, title, plugin turn state, plans, loaded skill resour
 and turn budgets form an agent-only turn context message. As in Goose, the
 canonical writer persists it and inference appends a new one only when session
 state changes, so each request extends the previous request and provider prompt
-caches cover the history. Retained owner parts are repeated only after compaction
-hides their earlier copy. Adapted payload estimates attribute sources only for a
-newly appended context within the verified terminal text and captured ranges.
+caches cover the history. Retained owner parts and the parts a package returns from
+`turn.initialize` are repeated only after compaction hides their earlier copy;
+package instructions stay in the stable system prompt. Adapted payload estimates
+attribute sources only for a newly appended context within the verified terminal
+text and captured ranges.
 Compaction still reads full canonical tool results. These sources are not copied
 into or validated against summary text. Selected capabilities retain their input
 ownership rather than becoming policy for a later task.

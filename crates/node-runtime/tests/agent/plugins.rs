@@ -256,14 +256,20 @@ async fn scopes_tool_switches_to_the_execution_node() {
             let request = requests.last().unwrap();
             let instructions = node_context(request, "Work mode");
             assert!(!instructions.contains("Use update_plan for substantial multi-step tasks"));
-            // The memory policy comes from its turn initializer, once per turn context.
+            // The memory policy is a package instruction in the system prompt, never turn context.
             let memory_rule = "Memory holds lasting user preferences, corrections and decisions";
-            assert_eq!(instructions.matches(memory_rule).count(), 0);
+            assert_eq!(
+                instructions.matches(memory_rule).count(),
+                usize::from(enabled)
+            );
             for request in [&requests[start], request] {
                 assert_eq!(
-                    turn_context(request).matches(memory_rule).count(),
+                    node_context(request, "Work mode")
+                        .matches(memory_rule)
+                        .count(),
                     usize::from(enabled)
                 );
+                assert!(!turn_context(request).contains(memory_rule));
             }
             assert!(
                 request["messages"][0]

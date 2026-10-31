@@ -67,6 +67,8 @@ pub(super) struct Run<'a> {
     pub summary: model::Binding,
     pub instruction: String,
     pub context: String,
+    /// Plugin parts persisted once per conversation, after the turn context.
+    pub parts: Vec<String>,
     pub catalog: catalog::Catalog,
     pub callbacks: Vec<Arc<dyn goose_agent::operation::Operation<Session, Effect>>>,
     pub images: Vec<(Vec<String>, usize)>,
@@ -87,6 +89,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         summary,
         instruction,
         context: turn_context,
+        parts,
         catalog,
         callbacks,
         images,
@@ -120,6 +123,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         stop: stop.clone(),
         deferred,
         images,
+        parts: parts.clone(),
         sources: binding.sources.clone(),
     });
     let tool_pairs = Arc::new(tool_pairs::ToolPairs::new(
@@ -157,6 +161,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
             Step::Operation(Arc::new(prompt::Prompt {
                 instruction,
                 context: turn_context,
+                parts,
             })),
             Step::Operation(Arc::new(
                 ToolOperation::new().with_provider(Arc::new(catalog)),

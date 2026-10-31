@@ -44,6 +44,38 @@ async fn install(fixture: &Fixture) {
     support::install(&fixture.client, fixture.session.worktree, "memory").await;
 }
 
+const POLICY: &str = "Memory holds lasting user preferences, corrections and decisions";
+const CUE: &str = "If this states a lasting preference or correction, save it with save_memory.";
+
+fn system_text(request: &serde_json::Value) -> String {
+    request["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
+        .map(|message| message_text(&message["content"]))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+async fn run_turn(fixture: &Fixture, message: &str) {
+    let Output::QueuedTurn(turn) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: message.into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
+    assert_eq!(run.status, Status::Completed, "{:?}", run.error);
+}
+
 #[tokio::test]
 async fn preserves_reads_in_plan() {
     for remote in [false, true] {
@@ -331,11 +363,14 @@ async fn curates_scoped_memory() {
         {
             let requests = server.requests.lock().unwrap();
             let prompt = requests[0]["messages"].to_string();
-            assert!(prompt.contains(&id.to_string()));
+            // Nothing matches the message, so no entry or title is listed; only the cue.
+            assert!(!prompt.contains(&id.to_string()));
             assert!(!prompt.contains(&foreign_id.to_string()));
-            // Unrelated entries are listed by title; only matching bodies are injected.
-            assert!(prompt.contains("Existing feedback"));
+            assert!(!prompt.contains("Existing feedback"));
             assert!(!prompt.contains("Original feedback"));
+            let context = turn_context(&requests[0]);
+            assert!(context.contains(CUE));
+            assert!(!context.contains("Relevant memory"));
         }
         let entries = support::run::<Vec<Entry>>(
             &fixture.client,
@@ -438,11 +473,11 @@ async fn applies_tool_settings() {
                         assert!(tools.iter().all(|tool| tool["function"]["name"] != name
                             && tool["function"]["name"] != plugin_tool("memory", name)));
                     }
+                    // The oversized body never fits, and there is no title index.
                     let context = turn_context(request);
-                    assert_eq!(
-                        context.matches(&id.to_string()).count(),
-                        usize::from(enabled)
-                    );
+                    assert!(!context.contains(&id.to_string()));
+                    assert!(!context.contains(POLICY));
+                    assert_eq!(system_text(request).contains(POLICY), enabled);
                     assert!(
                         request["messages"]
                             .as_array()
@@ -455,7 +490,7 @@ async fn applies_tool_settings() {
                     );
                 }
                 let prompt = requests[0]["messages"].to_string();
-                assert_eq!(prompt.contains(&id.to_string()), enabled);
+                assert!(!prompt.contains(&id.to_string()));
             }
             if enabled {
                 let results: Vec<_> = results(&fixture.client, &page).await;
@@ -719,11 +754,90 @@ async fn leaves_tool_use_optional() {
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 1);
-            let prompt = requests[0].to_string();
-            assert!(prompt.contains("Memory holds lasting user preferences"));
-            assert!(prompt.contains("Save with save_memory"));
-            assert!(!prompt.contains("Relevant memories"));
+            let system = system_text(&requests[0]);
+            assert!(system.contains(POLICY));
+            assert!(system.contains("When save_memory is available, save a lasting preference"));
+            let context = turn_context(&requests[0]);
+            assert!(!context.contains(POLICY));
+            assert!(!context.contains("save_memory"));
+            assert!(!context.contains("Relevant memory"));
         }
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn keeps_system_prompt_across_messages() {
+    const BODY: &str = "Use tabs in Go files";
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let fixture = fixture(remote, &server).await;
+        install(&fixture).await;
+        support::save_settings(
+            &fixture.client,
+            support::Settings {
+                auto_write: true,
+                ..support::settings(&fixture.client).await.unwrap()
+            },
+        )
+        .await
+        .unwrap();
+        support::put(
+            &fixture.client,
+            Entry {
+                summary: Summary {
+                    id: MemoryId::new(),
+                    project: fixture.session.project,
+                    title: "Go formatting".into(),
+                    kind: Kind::User,
+                    revision: 0,
+                    updated_at_ms: 0,
+                    archived: false,
+                },
+                body: BODY.into(),
+            },
+            0,
+        )
+        .await
+        .unwrap();
+        let messages = [
+            "Format the Go files",
+            "Always run the unit tests first",
+            "Explain the stack trace",
+            "Format more Go files",
+            "Never skip the unit tests",
+        ];
+        for message in messages {
+            run_turn(&fixture, message).await;
+        }
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), messages.len());
+        let system = system_text(&requests[0]);
+        assert!(system.contains(POLICY));
+        assert!(!system.contains(BODY) && !system.contains(CUE));
+        for request in requests.iter() {
+            assert_eq!(system_text(request), system);
+        }
+        let count = |request: &serde_json::Value, text: &str| {
+            request["messages"].to_string().matches(text).count()
+        };
+        // A matching message adds its body once; a cue message adds the cue once.
+        let first = turn_context(&requests[0]);
+        assert!(first.contains("Relevant memory") && first.contains(BODY));
+        assert!(!first.contains(CUE));
+        let second = turn_context(&requests[1]);
+        assert!(second.contains(CUE) && !second.contains("Relevant memory"));
+        let third = turn_context(&requests[2]);
+        assert!(!third.contains(CUE) && !third.contains("Relevant memory"));
+        // Neither the same body nor the same cue is stated again in this conversation.
+        for request in &requests[3..] {
+            assert_eq!(count(request, BODY), 1);
+        }
+        assert_eq!(count(&requests[4], CUE), 1);
+        assert!(!turn_context(&requests[3]).contains(BODY));
+        assert!(!turn_context(&requests[4]).contains(CUE));
+        drop(requests);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

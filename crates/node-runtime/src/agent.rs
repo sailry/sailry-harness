@@ -576,6 +576,7 @@ async fn execute_with(
         summary,
         instruction,
         context,
+        parts: extensions.parts,
         catalog,
         callbacks,
         images: extensions.images,

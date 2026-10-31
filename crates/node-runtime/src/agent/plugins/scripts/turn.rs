@@ -11,6 +11,10 @@ use std::{
 };
 mod catalog;
 
+/// Discrete context parts one initializer may return, and their combined UTF-8 size.
+const MAX_PARTS: usize = 8;
+const MAX_PARTS_BYTES: usize = 32 * 1024;
+
 pub(super) struct Turn {
     pub state: Mutex<Value>,
     ingress: Arc<Ingress>,
@@ -26,6 +30,8 @@ pub(super) struct Initialized {
     pub owner: Arc<Turn>,
     pub tools: Vec<String>,
     pub instruction: String,
+    /// Distinct parts, each persisted at most once while visible in the conversation.
+    pub parts: Vec<String>,
     pub parameters: BTreeMap<String, Value>,
 }
 
@@ -33,6 +39,8 @@ pub(super) struct Initialized {
 #[serde(deny_unknown_fields)]
 struct Selection {
     instruction: String,
+    #[serde(default)]
+    parts: Vec<String>,
     tools: Vec<String>,
     #[serde(default)]
     parameters: BTreeMap<String, Value>,
@@ -53,7 +61,26 @@ impl Selection {
                 "plugin turn selected an unavailable tool or invalid schema",
             ));
         }
+        if self.parts.len() > MAX_PARTS
+            || self.parts.iter().any(|part| part.trim().is_empty())
+            || self.parts.iter().map(String::len).sum::<usize>() > MAX_PARTS_BYTES
+        {
+            return Err(sailry_protocol::Fault::invalid(
+                "plugin turn returned invalid context parts",
+            ));
+        }
         Ok(())
+    }
+
+    /// The returned parts in order, without repeats.
+    fn distinct(&self) -> Vec<String> {
+        let mut parts: Vec<String> = Vec::new();
+        for part in &self.parts {
+            if !parts.contains(part) {
+                parts.push(part.clone());
+            }
+        }
+        parts
     }
 }
 
@@ -117,6 +144,7 @@ impl Turn {
         result.validate(&tools)?;
         Ok(Initialized {
             owner,
+            parts: result.distinct(),
             tools: result.tools,
             instruction: result.instruction,
             parameters: result.parameters,
@@ -324,6 +352,44 @@ mod tests {
         selection.parameters.remove("execute");
         selection.tools.push("unavailable".into());
         assert!(selection.validate(&available).is_err());
+    }
+
+    #[test]
+    fn parts_are_bounded_text() {
+        let available = vec!["query".to_owned()];
+        let selection = |parts: Value| -> Selection {
+            serde_json::from_value(json!({"tools":["query"],"instruction":"","parts":parts}))
+                .unwrap()
+        };
+        let absent: Selection =
+            serde_json::from_value(json!({"tools":["query"],"instruction":""})).unwrap();
+        absent.validate(&available).unwrap();
+        assert!(absent.distinct().is_empty());
+        let repeated = selection(json!(["First", "Second", "First"]));
+        repeated.validate(&available).unwrap();
+        assert_eq!(repeated.distinct(), ["First", "Second"]);
+        selection(json!(vec!["x"; MAX_PARTS]))
+            .validate(&available)
+            .unwrap();
+        selection(json!(["a".repeat(MAX_PARTS_BYTES)]))
+            .validate(&available)
+            .unwrap();
+        for invalid in [
+            json!(vec!["x"; MAX_PARTS + 1]),
+            json!([""]),
+            json!([" \n"]),
+            json!(["a".repeat(MAX_PARTS_BYTES + 1)]),
+            json!([
+                "a".repeat(MAX_PARTS_BYTES / 2 + 1),
+                "b".repeat(MAX_PARTS_BYTES / 2)
+            ]),
+        ] {
+            assert!(selection(invalid).validate(&available).is_err());
+        }
+        assert!(
+            serde_json::from_value::<Selection>(json!({"tools":[],"instruction":"","parts":[1]}))
+                .is_err()
+        );
     }
 
     #[test]

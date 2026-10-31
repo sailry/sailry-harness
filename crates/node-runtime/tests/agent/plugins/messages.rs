@@ -9,10 +9,23 @@ export function initialize({tools,message}) {
 export function note() { return {noted:true}; }
 "#;
 
+const PARTS: &str = r#"
+export function initialize({tools,message}) {
+  const names = message?.startsWith("parts:") ? message.slice(6).split("|") : [];
+  return {tools, instruction:"", parts:names.map(name => `Fixture part ${name}`)};
+}
+export function note() { return {noted:true}; }
+"#;
+const MARK: &str = "Fixture part ";
+
 async fn install(fixture: &process::Fixture, declared: bool) {
+    install_source(fixture, declared, SOURCE).await;
+}
+
+async fn install_source(fixture: &process::Fixture, declared: bool, source: &str) {
     let root = fixture.root.join("package");
     std::fs::create_dir_all(root.join("dev.sailry.platform/host")).unwrap();
-    std::fs::write(root.join("dev.sailry.platform/host/main.js"), SOURCE).unwrap();
+    std::fs::write(root.join("dev.sailry.platform/host/main.js"), source).unwrap();
     let mut actions = vec!["storage.read"];
     if declared {
         actions.push("conversation.message.read");
@@ -87,5 +100,89 @@ async fn shares_capped_text_only_when_declared() {
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();
         }
+    }
+}
+
+/// Runs one turn, then reports its request's latest persisted context and how
+/// often a fixture part appears anywhere in that request.
+async fn turn(fixture: &process::Fixture, server: &Server, message: &str) -> (String, usize) {
+    let Output::QueuedTurn(queued) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: message.into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    let page = finished(&fixture.client, fixture.session.id, queued.id).await;
+    let run = page.runs.iter().find(|run| run.turn == queued.id).unwrap();
+    assert_eq!(run.status, Status::Completed, "{page:?}");
+    let requests = server.requests.lock().unwrap();
+    let request = requests.last().unwrap();
+    let latest = turn_contexts(request).last().copied().unwrap_or_default();
+    (
+        latest.to_owned(),
+        request["messages"].to_string().matches(MARK).count(),
+    )
+}
+
+#[tokio::test]
+async fn states_each_part_once_per_conversation() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
+        install_source(&fixture, true, PARTS).await;
+        let (latest, total) = turn(&fixture, &server, "parts:alpha|beta").await;
+        assert!(latest.contains("Fixture part alpha"), "{latest}");
+        assert!(latest.contains("Fixture part beta"), "{latest}");
+        assert_eq!(total, 2);
+        // A repeated part is skipped and a new one is added beside it.
+        let (latest, total) = turn(&fixture, &server, "parts:alpha|gamma").await;
+        assert!(latest.contains("Fixture part gamma"), "{latest}");
+        assert!(!latest.contains("Fixture part alpha"), "{latest}");
+        assert_eq!(total, 3);
+        let (_, total) = turn(&fixture, &server, "parts:gamma|beta|alpha").await;
+        assert_eq!(total, 3);
+        let (_, total) = turn(&fixture, &server, "no parts").await;
+        assert_eq!(total, 3);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn keeps_system_prompt_across_part_changes() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
+        install_source(&fixture, true, PARTS).await;
+        for message in ["parts:alpha", "parts:beta|gamma", "no parts", "parts:alpha"] {
+            turn(&fixture, &server, message).await;
+        }
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 4);
+        let system = |request: &serde_json::Value| -> String {
+            request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
+                .map(|message| message_text(&message["content"]))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let first = system(&requests[0]);
+        assert!(!first.is_empty());
+        assert!(!first.contains(MARK));
+        for request in requests.iter() {
+            assert_eq!(system(request), first);
+        }
+        drop(requests);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
     }
 }

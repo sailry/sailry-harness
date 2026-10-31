@@ -7,6 +7,10 @@ export type ConversationEntry = Entry & { restored: boolean };
  * config is null unless the package declares conversation.read. message is the user's text,
  * capped at 4 KiB UTF-8, and null unless the package declares conversation.message.read. */
 export type TurnInput = { project: string | null; tools: string[]; mode: "plan" | "code"; config: Json; options: Record<string, Json>; session_revision: string | null; message: string | null };
+/** Turn initialization result. instruction is per-turn context text. parts are separate context pieces,
+ * at most 8 nonempty strings and 32 KiB UTF-8 in total. The Node adds a part only when no agent-visible
+ * context of the conversation already holds that exact text, so unchanged parts are not repeated. */
+export type TurnOutput = { tools: string[]; instruction: string; parts?: string[]; parameters?: Record<string, Json> };
 export function context(): Json;
 /** Registered projects and worktrees only; requires projects.read and an unscoped context. */
 export function readProjectCatalog(): Promise<Json>;
