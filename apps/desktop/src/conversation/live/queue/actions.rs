@@ -1,5 +1,7 @@
 use super::*;
 
+mod guide;
+
 #[derive(Clone)]
 pub(super) struct Attempt {
     pub(super) request: Request,
@@ -63,9 +65,27 @@ impl Panel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.blocked() || !self.allows(&command) {
+        if !self.allows(&command) {
             return;
         }
+        if let Command::GuideQueuedTurn {
+            turn,
+            expected_revision,
+            ..
+        } = &command
+        {
+            self.deferred_guide = Some((*turn, *expected_revision));
+            self.flush_guide(window, cx);
+            cx.notify();
+            return;
+        }
+        if self.blocked() {
+            return;
+        }
+        self.start(command, window, cx);
+    }
+
+    fn start(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
         let attempt = Attempt {
             request: self.binding.client.prepare(command),
             message: None,
@@ -136,6 +156,7 @@ impl Panel {
                         if !matches!(valid, Ok(true)) {
                             let _ = panel.update_in(cx, |panel, window, cx| {
                                 panel.pending = false;
+                                cx.defer_in(window, |panel, window, cx| panel.flush_guide(window, cx));
                                 panel.retry = None;
                                 panel.error = Some("reference_stale");
                                 panel.sync_editing(window, cx);
@@ -151,6 +172,7 @@ impl Panel {
             };
             let _ = panel.update_in(cx, |panel, window, cx| {
                 panel.pending = false;
+                cx.defer_in(window, |panel, window, cx| panel.flush_guide(window, cx));
                 match result {
                     Ok(Ok(Output::QueuedMessage(message))) => {
                         panel.retry = None;
@@ -192,6 +214,7 @@ impl Panel {
                         });
                     }
                     Ok(Ok(Output::Queue(update))) => {
+                        panel.queue = update.queue.clone();
                         let extracted = panel.retry.as_ref().filter(|attempt| attempt.extract).and_then(|attempt| attempt.message.clone());
                         panel.retry = None;
                         if let Some(message) = extracted {

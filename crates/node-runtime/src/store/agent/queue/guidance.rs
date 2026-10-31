@@ -121,6 +121,16 @@ pub(in crate::store) async fn tag(
     let target = recipient(db, target, None).await?;
     compatible(db, &source, &target).await?;
     let items = read(db, source.session).await?.items;
+    attach(db, &source, &target, &items).await
+}
+
+/// Attach runs already checked in the current write transaction.
+async fn attach(
+    db: &Connection,
+    source: &Run,
+    target: &Run,
+    items: &[Pending],
+) -> Result<(), Fault> {
     let mut others = items.iter().filter(|item| item.turn != source.turn);
     let before = if let Some(last) = items
         .iter()
@@ -140,7 +150,7 @@ pub(in crate::store) async fn tag(
     .await
     .map_err(storage_error)?;
     runs::start(db, source.turn).await?;
-    reorder(db, source.session, source.turn, before).await?;
+    reorder_items(db, source.session, source.turn, before, items.to_vec()).await?;
     pause(db, source.session, false).await
 }
 
@@ -163,21 +173,23 @@ pub(super) async fn select(
             "guidance belongs to another execution scope",
         ));
     }
-    let recipients: std::collections::BTreeSet<_> = read(db, source.session)
-        .await?
-        .items
-        .into_iter()
-        .filter_map(|item| item.guidance)
-        .collect();
+    let mut items = read(db, source.session).await?.items;
+    let recipients: std::collections::BTreeSet<_> =
+        items.iter().filter_map(|item| item.guidance).collect();
     for recipient in recipients {
         let run = runs::get(db, recipient).await?;
         if !matches!(run.status, Status::Running | Status::Stopping) {
             clear(db, source.session, Some(recipient)).await?;
+            for item in &mut items {
+                if item.guidance == Some(recipient) {
+                    item.guidance = None;
+                }
+            }
         }
     }
     if same_capture(db, &source, &target).await? {
-        runs::retry(db, source.turn).await?;
-        tag(db, source.turn, target.turn).await?;
+        let source = runs::retry(db, source.turn).await?;
+        attach(db, &source, &target, &items).await?;
     } else {
         // An input with different settings remains an ordinary queued turn.
         // Its capture, edited message and queue position remain unchanged.
@@ -245,8 +257,10 @@ pub(in crate::store) async fn guide(
     }
     let session = super::super::super::commands::session(db, target.session).await?;
     let turn = create(db, caller, request, session, message, true).await?;
-    if same_capture(db, &runs::get(db, turn.id).await?, &target).await? {
-        tag(db, turn.id, target.turn).await?;
+    let source = runs::get(db, turn.id).await?;
+    if same_capture(db, &source, &target).await? {
+        let items = read(db, source.session).await?.items;
+        attach(db, &source, &target, &items).await?;
     }
     Ok((
         Output::QueuedTurn(turn.clone()),

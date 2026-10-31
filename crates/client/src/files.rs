@@ -89,6 +89,7 @@ impl Client {
         let _closing = Closing(updates.clone());
         let mut revision = 0u64;
         let mut references = 0u64;
+        let mut previous_references = None;
         let mut delay = Duration::from_millis(250);
         loop {
             let stream = tokio::select! {
@@ -98,48 +99,42 @@ impl Client {
                 stream = self.transport.subscribe(topic.clone()) => stream,
             };
             let failure = match stream {
-                Ok(mut stream) => {
-                    let mut previous_references = None;
-                    loop {
-                        let update = tokio::select! {
-                            biased;
-                            _ = stop.cancelled() => return Ok(()),
-                            _ = updates.closed() => return Ok(()),
-                            update = stream.next() => update,
-                        };
-                        match update {
-                            Ok(Update::FilesChanged {
-                                node,
-                                worktree: owner,
-                                references: current_references,
-                            }) if node == self.target() && owner == worktree => {
-                                revision = revision.checked_add(1).ok_or_else(|| {
-                                    Fault::new(ErrorCode::Internal, "file view revision exhausted")
+                Ok(mut stream) => loop {
+                    let update = tokio::select! {
+                        biased;
+                        _ = stop.cancelled() => return Ok(()),
+                        _ = updates.closed() => return Ok(()),
+                        update = stream.next() => update,
+                    };
+                    match update {
+                        Ok(Update::FilesChanged {
+                            node,
+                            worktree: owner,
+                            references: current_references,
+                        }) if node == self.target() && owner == worktree => {
+                            revision = revision.checked_add(1).ok_or_else(|| {
+                                Fault::new(ErrorCode::Internal, "file view revision exhausted")
+                            })?;
+                            if previous_references != Some(current_references) {
+                                references = references.checked_add(1).ok_or_else(|| {
+                                    Fault::new(ErrorCode::Internal, "repository revision exhausted")
                                 })?;
-                                if previous_references != Some(current_references) {
-                                    references = references.checked_add(1).ok_or_else(|| {
-                                        Fault::new(
-                                            ErrorCode::Internal,
-                                            "repository revision exhausted",
-                                        )
-                                    })?;
-                                    previous_references = Some(current_references);
-                                }
-                                updates.send_replace(FileView {
-                                    revision,
-                                    references,
-                                    connected: true,
-                                    error: None,
-                                });
-                                delay = Duration::from_millis(250);
+                                previous_references = Some(current_references);
                             }
-                            Ok(_) => {
-                                break Fault::invalid("unexpected file subscription update");
-                            }
-                            Err(error) => break error,
+                            updates.send_replace(FileView {
+                                revision,
+                                references,
+                                connected: true,
+                                error: None,
+                            });
+                            delay = Duration::from_millis(250);
                         }
+                        Ok(_) => {
+                            break Fault::invalid("unexpected file subscription update");
+                        }
+                        Err(error) => break error,
                     }
-                }
+                },
                 Err(error) => error,
             };
             updates.send_replace(FileView {
@@ -161,3 +156,6 @@ impl Client {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

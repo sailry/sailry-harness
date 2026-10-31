@@ -401,7 +401,17 @@ async fn reorder(
     turn: TurnId,
     before: Option<TurnId>,
 ) -> Result<(), Fault> {
-    let mut items = read(db, session).await?.items;
+    let items = read(db, session).await?.items;
+    reorder_items(db, session, turn, before, items).await
+}
+
+async fn reorder_items(
+    db: &Connection,
+    session: SessionId,
+    turn: TurnId,
+    before: Option<TurnId>,
+    mut items: Vec<Pending>,
+) -> Result<(), Fault> {
     let source = items
         .iter()
         .position(|item| item.turn == turn)

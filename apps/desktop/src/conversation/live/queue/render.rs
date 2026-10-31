@@ -102,7 +102,14 @@ impl Panel {
                         "chat_queue_guide"
                     }))
                     .accessibility_label(tr("chat_queue_guide"))
-                    .disabled(self.blocked() || self.guidance_blocked || item.guidance.is_some())
+                    .loading(
+                        self.deferred_guide
+                            .is_some_and(|(selected, _)| selected == turn)
+                            || self.retry.as_ref().is_some_and(|attempt| {
+                                matches!(attempt.request.command, Command::GuideQueuedTurn { turn: selected, .. } if selected == turn)
+                            }),
+                    )
+                    .disabled(!self.connected || item.guidance.is_some())
                     .debug_selector(move || format!("queue-guide-{turn}"))
                     .on_click(cx.listener(move |panel, _, window, cx| {
                         cx.stop_propagation();

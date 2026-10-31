@@ -100,6 +100,100 @@ mod cache {
     }
 
     #[tokio::test]
+    async fn distinguishes_settled_and_retryable_runs() {
+        use sailry_protocol::conversation::observation::Phases;
+        let mut fixture = Fixture::new().await;
+        let cache = Cache::default();
+        let phases = Phases {
+            active_us: Some(10),
+            ..Default::default()
+        };
+        let mut response = event(10, 4);
+        response
+            .metadata
+            .execution
+            .get_or_insert_with(Default::default)
+            .phases = Some(phases.clone());
+        // Pending input is consumed by the canonical user record, not by claim or finish.
+        let input = message(
+            "user",
+            canonical::Role::User,
+            vec![canonical::BlockKind::Text {
+                text: "Count settled phases".into(),
+            }],
+        );
+        let settled = fixture.append([input, response]).await;
+        assert_eq!(
+            runs::get(&fixture.database.connection, settled)
+                .await
+                .unwrap()
+                .status,
+            Status::Completed
+        );
+        let pending: bool = fixture
+            .database
+            .connection
+            .query(
+                "SELECT EXISTS(SELECT 1 FROM agent_pending WHERE turn=?1)",
+                [settled.to_string()],
+            )
+            .await
+            .unwrap()
+            .next()
+            .await
+            .unwrap()
+            .unwrap()
+            .get(0)
+            .unwrap();
+        assert!(!pending);
+        let initial = checked(&cache, &fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        assert_eq!(initial.observations.phases, phases);
+        let stamp = super::super::cache::stamp(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        assert_eq!(
+            cache.find(fixture.session, &stamp).unwrap().finished,
+            [settled].into()
+        );
+        let retryable = fixture.queued().await;
+        let mut failed = runs::get(&fixture.database.connection, retryable)
+            .await
+            .unwrap();
+        failed.status = Status::Failed;
+        runs::put(&fixture.database.connection, &failed)
+            .await
+            .unwrap();
+        let failed = checked(&cache, &fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        assert_eq!(failed.observations.phases, Phases::default());
+        assert_eq!(
+            cache.find(fixture.session, &stamp).unwrap().finished,
+            [settled].into()
+        );
+        runs::start(&fixture.database.connection, retryable)
+            .await
+            .unwrap();
+        let retried = checked(&cache, &fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        assert_eq!(retried.observations.phases, phases);
+        runs::stop(&fixture.database.connection, retryable)
+            .await
+            .unwrap();
+        let stopped = checked(&cache, &fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        assert_eq!(stopped.observations.phases, Phases::default());
+        assert_eq!(
+            cache.find(fixture.session, &stamp).unwrap().finished,
+            [settled, retryable].into()
+        );
+    }
+
+    #[tokio::test]
     async fn retains_prepared_entries_explicitly() {
         let mut fixture = Fixture::new().await;
         let cache = Cache::default();

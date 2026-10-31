@@ -14,6 +14,7 @@ const ENTRIES: usize = 32;
 #[derive(Default)]
 pub(in crate::store) struct Cache {
     entries: std::sync::Mutex<VecDeque<Entry>>,
+    pub(super) publication: publication::State,
     #[cfg(test)]
     misses: std::sync::atomic::AtomicUsize,
 }

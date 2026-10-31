@@ -441,13 +441,14 @@ pub(in crate::store) async fn package(database: &mut Database, name: &str) {
     if let Ok(sessions) = super::continuation::sessions(&database.connection, name).await {
         for session in sessions {
             database.feeds.reset(session);
+            super::statistics::publish(database, session).await;
         }
     }
 }
 
 pub(in crate::store) async fn command(database: &mut Database, output: &Output) {
     if let Output::Session(session) = output {
-        statistics(database, session.id).await;
+        super::statistics::publish(database, session.id).await;
     }
     if matches!(output, Output::Provider(_)) {
         let sessions = database
@@ -459,7 +460,7 @@ pub(in crate::store) async fn command(database: &mut Database, output: &Output) 
             .copied()
             .collect::<Vec<_>>();
         for session in sessions {
-            statistics(database, session).await;
+            super::statistics::publish(database, session).await;
         }
     }
 
@@ -497,6 +498,7 @@ pub(in crate::store) async fn command(database: &mut Database, output: &Output) 
     }
     if let Output::Rewound(rewind) = output {
         database.feeds.reset(rewind.session);
+        super::statistics::publish(database, rewind.session).await;
         return;
     }
     if let Output::Question(question) = output {
@@ -544,7 +546,7 @@ pub(in crate::store) async fn command(database: &mut Database, output: &Output) 
             sessions.insert(current.session);
         }
         for session in sessions {
-            statistics(database, session).await;
+            super::statistics::publish(database, session).await;
         }
         if let Ok(tasks) = super::background::list(&database.connection, update.session).await {
             super::background::publish(database, tasks).await;
@@ -584,7 +586,7 @@ pub(in crate::store) async fn command(database: &mut Database, output: &Output) 
 pub(in crate::store) async fn run(database: &Database, current: Run) {
     let session = current.session;
     hydrate(database, current).await;
-    statistics(database, session).await;
+    super::statistics::publish(database, session).await;
 }
 
 async fn hydrate(database: &Database, current: Run) {
@@ -593,17 +595,6 @@ async fn hydrate(database: &Database, current: Run) {
         Ok(current) => database
             .feeds
             .publish(database.node, session, Change::Run(current)),
-        Err(_) => database.feeds.reset(session),
-    }
-}
-
-async fn statistics(database: &Database, session: SessionId) {
-    match super::statistics::current(&database.statistics, &database.connection, session).await {
-        Ok(statistics) => database.feeds.publish(
-            database.node,
-            session,
-            Change::Statistics(Box::new(statistics)),
-        ),
         Err(_) => database.feeds.reset(session),
     }
 }

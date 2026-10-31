@@ -8,6 +8,8 @@ use std::collections::BTreeSet;
 mod cache;
 mod compaction;
 mod observations;
+mod publication;
+pub(in crate::store) use publication::publish;
 pub(in crate::store) mod report;
 pub(in crate::store) use cache::Cache;
 
@@ -18,6 +20,7 @@ struct Canonical {
     observations: Summary,
     observation_state: observations::State,
     phased: BTreeSet<TurnId>,
+    finished: BTreeSet<TurnId>,
     metrics: Metrics,
     delegated: Metrics,
     observation: Option<Observation>,
@@ -29,7 +32,7 @@ struct Canonical {
 pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fault> {
     check_session(db, session).await?;
     let canonical = canonical(db, session).await?;
-    finish(db, session, &canonical).await
+    Ok(finish(db, session, &canonical).await?.0)
 }
 
 /// Reuses unchanged canonical aggregates. Callers retain the entry once its snapshot is committed.
@@ -40,18 +43,22 @@ pub(super) async fn prepare(
 ) -> Result<(Statistics, cache::Entry), Fault> {
     check_session(db, session).await?;
     let stamp = cache::stamp(db, session).await?;
-    let canonical = match cache.find(session, &stamp) {
+    let mut canonical = match cache.find(session, &stamp) {
         Some(canonical) => canonical,
         None => std::sync::Arc::new(match cache.previous(session, &stamp) {
             Some((after, previous)) => advance(db, session, after, Some(&previous)).await?,
             None => canonical(db, session).await?,
         }),
     };
-    let statistics = finish(db, session, &canonical).await?;
+    let (statistics, finished) = finish(db, session, &canonical).await?;
+    if canonical.finished != finished {
+        std::sync::Arc::make_mut(&mut canonical).finished = finished;
+    }
     Ok((statistics, cache::Entry::new(session, stamp, canonical)))
 }
 
 /// Reads statistics from a committed snapshot and retains its canonical aggregates.
+#[cfg(test)]
 pub(super) async fn current(
     cache: &Cache,
     db: &Connection,
@@ -91,15 +98,17 @@ async fn advance(
         previous.and_then(|value| value.observation.clone()),
     )
     .await?;
-    let context_estimate = if observation
+    let context_estimate = if let Some(observation) = observation
         .as_ref()
-        .is_some_and(|value| value.summary || value.estimate.is_some())
+        .filter(|value| value.summary || value.estimate.is_some())
     {
-        context_usage(db, session).await?.map(|usage| {
-            usage
-                .tokens
-                .saturating_add(crate::agent::estimate_context(&usage.pending))
-        })
+        context_usage_from(db, session, observation)
+            .await?
+            .map(|usage| {
+                usage
+                    .tokens
+                    .saturating_add(crate::agent::estimate_context(&usage.pending))
+            })
     } else {
         None
     };
@@ -119,6 +128,9 @@ async fn advance(
         observations,
         observation_state,
         phased,
+        finished: previous
+            .map(|value| value.finished.clone())
+            .unwrap_or_default(),
         metrics,
         delegated,
         observation,
@@ -131,7 +143,7 @@ async fn finish(
     db: &Connection,
     session: SessionId,
     canonical: &Canonical,
-) -> Result<Statistics, Fault> {
+) -> Result<(Statistics, BTreeSet<TurnId>), Fault> {
     let turns = {
         let mut statement = db.prepare("SELECT count(*) FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 AND t.kind='task'
          AND EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn)").await.map_err(storage_error)?;
@@ -145,6 +157,7 @@ async fn finish(
         observations,
         observation_state: _,
         phased,
+        finished,
         metrics,
         delegated,
         observation,
@@ -152,24 +165,29 @@ async fn finish(
         last_compaction,
     } = canonical;
     let budget = compaction::budget(db, session).await?;
-    let observations = observations::complete(db, session, observations.clone(), phased).await?;
-    Ok(Statistics {
-        observations,
-        turns: turns as u64,
-        responses: metrics.responses,
-        usage: metrics.tokens.clone(),
-        context_tokens: observation.as_ref().and_then(|value| value.tokens),
-        context_estimate: *context_estimate,
-        context_limit: observation.as_ref().and_then(|value| value.context_limit),
-        context_model: observation.as_ref().and_then(|value| value.model.clone()),
-        context_timestamp_ms: observation.as_ref().and_then(|value| value.timestamp_ms),
-        budget,
-        last_compaction: last_compaction.clone(),
-        first_token_us: observation.as_ref().and_then(|value| value.first_token_us),
-        cost: metrics.cost.clone(),
-        generation: metrics.generation.clone(),
-        delegated: delegated.clone(),
-    })
+    let mut finished = finished.clone();
+    let observations =
+        observations::complete(db, session, observations.clone(), phased, &mut finished).await?;
+    Ok((
+        Statistics {
+            observations,
+            turns: turns as u64,
+            responses: metrics.responses,
+            usage: metrics.tokens.clone(),
+            context_tokens: observation.as_ref().and_then(|value| value.tokens),
+            context_estimate: *context_estimate,
+            context_limit: observation.as_ref().and_then(|value| value.context_limit),
+            context_model: observation.as_ref().and_then(|value| value.model.clone()),
+            context_timestamp_ms: observation.as_ref().and_then(|value| value.timestamp_ms),
+            budget,
+            last_compaction: last_compaction.clone(),
+            first_token_us: observation.as_ref().and_then(|value| value.first_token_us),
+            cost: metrics.cost.clone(),
+            generation: metrics.generation.clone(),
+            delegated: delegated.clone(),
+        },
+        finished,
+    ))
 }
 
 pub(super) async fn parents(db: &Connection, turn: TurnId) -> Result<Vec<SessionId>, Fault> {
@@ -205,6 +223,7 @@ struct Observation {
     first_token_us: Option<u64>,
 }
 
+#[cfg(test)]
 pub(super) async fn context_usage(
     db: &Connection,
     session: SessionId,
@@ -212,6 +231,14 @@ pub(super) async fn context_usage(
     let Some(observation) = observation(db, session).await? else {
         return Ok(None);
     };
+    context_usage_from(db, session, &observation).await
+}
+
+async fn context_usage_from(
+    db: &Connection,
+    session: SessionId,
+    observation: &Observation,
+) -> Result<Option<ContextUsage>, Fault> {
     let (sequence, tokens, summary) = match observation.tokens {
         Some(tokens) => (observation.sequence, tokens, None),
         None if observation.estimate.is_some() => {
@@ -265,6 +292,7 @@ pub(super) async fn context_usage(
     }))
 }
 
+#[cfg(test)]
 async fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation>, Fault> {
     advance_observation(db, session, 0, None).await
 }

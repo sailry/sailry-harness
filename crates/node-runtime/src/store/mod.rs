@@ -877,6 +877,7 @@ impl Store {
                 }
             };
             let storage = Arc::new(database.into_storage());
+            storage.statistics.configure(operations.tasks.clone());
             assert!(
                 storage_ready.set(storage.clone()).is_ok(),
                 "storage initializes once"

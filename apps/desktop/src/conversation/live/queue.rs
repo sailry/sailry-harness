@@ -19,6 +19,7 @@ pub(super) struct Panel {
     queue: Queue,
     connected: bool,
     guidance_blocked: bool,
+    deferred_guide: Option<(TurnId, u64)>,
     guidance_pending: Rc<Cell<bool>>,
     edit_pending: Rc<Cell<bool>>,
     editing: Option<Editing>,
@@ -94,6 +95,20 @@ impl Panel {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        if let Some(view) = owner.upgrade() {
+            cx.observe(&view, |panel, view, cx| {
+                if panel.deferred_guide.is_none() {
+                    return;
+                }
+                let panel = cx.weak_entity();
+                cx.defer(move |cx| {
+                    let _ = view.update(cx, |view, cx| {
+                        panel.update(cx, |panel, cx| panel.sync(view, cx))
+                    });
+                });
+            })
+            .detach();
+        }
         crate::feedback::observe_with(
             window,
             cx,
@@ -140,6 +155,7 @@ impl Panel {
             queue: Queue::default(),
             connected: false,
             guidance_blocked: false,
+            deferred_guide: None,
             guidance_pending,
             edit_pending,
             editing: None,
@@ -169,6 +185,11 @@ impl Panel {
                 .outgoing
                 .as_ref()
                 .is_some_and(|message| !message.input.attachments.is_empty());
+        if (self.session != view.session() || self.recipient != recipient)
+            && self.deferred_guide.take().is_some()
+        {
+            self.error = Some("queue_changed");
+        }
         if self.session != view.session()
             || self.recipient != recipient
             || self.child != view.readonly()
@@ -191,6 +212,15 @@ impl Panel {
                 self.queue = queue.clone();
             }
             cx.notify();
+        }
+        if self.deferred_guide.is_some() && !self.blocked() && !self.guidance_blocked {
+            let panel = cx.weak_entity();
+            let window = view.history_window;
+            cx.defer(move |cx| {
+                let _ = cx.update_window(window, |_, window, cx| {
+                    panel.update(cx, |panel, cx| panel.flush_guide(window, cx))
+                });
+            });
         }
     }
 

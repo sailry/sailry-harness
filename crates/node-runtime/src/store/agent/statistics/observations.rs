@@ -101,35 +101,49 @@ pub(super) struct State {
 #[cfg(test)]
 pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault> {
     let (summary, phased) = canonical(db, session).await?;
-    complete(db, session, summary, &phased).await
+    complete(db, session, summary, &phased, &mut BTreeSet::new()).await
 }
 
 /// Phase totals stay valid only while every finished turn recorded phases.
-/// Run states change without new events, so this check is never cached.
+/// Finished runs without retained input cannot resume. Check only other turns;
+/// retained failures remain live because retry can change their status without events.
 pub(super) async fn complete(
     db: &Connection,
     session: SessionId,
     mut summary: Summary,
     phased: &BTreeSet<TurnId>,
+    finished: &mut BTreeSet<TurnId>,
 ) -> Result<Summary, Fault> {
     let mut statement = db
-        .prepare("SELECT h.turn FROM conversation_turns h JOIN agent_runs r ON r.turn=h.turn WHERE h.session=?1 AND json_extract(r.body,'$.status') IN ('completed','failed','cancelled','interrupted')")
+        .prepare("WITH remaining AS MATERIALIZED (
+            SELECT turn FROM conversation_turns WHERE session=?1
+            AND turn NOT IN (SELECT value FROM json_each(?2)))
+            SELECT h.turn,NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=h.turn)
+            FROM remaining h JOIN agent_runs r ON r.turn=h.turn
+            WHERE json_extract(r.body,'$.status') IN ('completed','failed','cancelled','interrupted')")
         .await
         .map_err(storage_error)?;
     let mut rows = statement
-        .query([session.to_string()])
+        .query(params![
+            session.to_string(),
+            serde_json::to_string(finished).map_err(storage_error)?
+        ])
         .await
         .map_err(storage_error)?;
+    let mut complete = finished.is_subset(phased);
     while let Some(row) = rows.next().await.map_err(storage_error)? {
         let turn: TurnId = row
             .get::<String>(0)
             .map_err(storage_error)?
             .parse()
             .map_err(storage_error)?;
-        if !phased.contains(&turn) {
-            summary.phases = Default::default();
-            break;
+        complete &= phased.contains(&turn);
+        if row.get::<bool>(1).map_err(storage_error)? {
+            finished.insert(turn);
         }
+    }
+    if !complete {
+        summary.phases = Default::default();
     }
     Ok(summary)
 }
