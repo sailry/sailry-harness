@@ -3,7 +3,7 @@ use super::*;
 use sailry_protocol::{
     SessionId,
     conversation::{Entry, Part, Run, Status, compaction::Failure},
-    notification::{Cause, Details, Diagnostic, Draft, Kind, Task, Terminal},
+    notification::{Cause, Details, Diagnostic, Draft, Kind, Task},
 };
 
 pub(in crate::store) async fn power(db: &Connection, code: i64) -> Result<Event, Fault> {
@@ -147,41 +147,6 @@ async fn stopped(db: &Connection, turn: sailry_protocol::TurnId) -> Result<bool,
         }
     }
     Ok(false)
-}
-
-pub(in crate::store) async fn terminal(
-    db: &Connection,
-    previous: &sailry_protocol::terminal::Info,
-    current: &sailry_protocol::terminal::Info,
-) -> Result<Option<Event>, Fault> {
-    use sailry_protocol::terminal::Status;
-    if previous.status != Status::Running || current.worktree.is_none() {
-        return Ok(None);
-    }
-    let (code, failed) = match current.status {
-        Status::Exited { code } => (Some(code), code != 0),
-        Status::Failed { .. } => (None, true),
-        _ => return Ok(None),
-    };
-    let notice = insert(
-        db,
-        String::new(),
-        Draft {
-            title: current.title.clone().unwrap_or_default(),
-            message: String::new(),
-            kind: if failed { Kind::Error } else { Kind::Success },
-            session: None,
-            presentation: None,
-            details: Some(Details::Terminal(Terminal {
-                id: current.id,
-                code,
-                failed,
-            })),
-        },
-        chrono::Utc::now().timestamp_millis(),
-    )
-    .await?;
-    Ok(Some(Event::NotificationChanged(notice)))
 }
 
 #[cfg(test)]

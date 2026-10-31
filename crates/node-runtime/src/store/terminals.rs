@@ -217,7 +217,7 @@ impl Database {
     ) -> Result<(), Fault> {
         let publication = self.publication.clone();
         let transaction = super::database::conflict::begin(&self.connection).await?;
-        let previous = read(&transaction, info.id).await?;
+        // Exits publish only the terminal event; controllers own the close and feedback.
         let envelope = if let Some(event) = record_update(&transaction, info, true).await? {
             super::database::record(&transaction, self.node, vec![event])
                 .await?
@@ -225,31 +225,10 @@ impl Database {
         } else {
             None
         };
-        let notice = if envelope.is_some() {
-            (match previous.as_ref() {
-                Some(value) => Some(
-                    async {
-                        let previous = value;
-                        super::notifications::system::terminal(&transaction, previous, info).await
-                    }
-                    .await,
-                ),
-                None => None,
-            })
-            .transpose()?
-            .flatten()
-        } else {
-            None
-        };
-        let notices =
-            super::database::record(&transaction, self.node, notice.into_iter().collect()).await?;
         let publication = publication.lock().await;
         crate::store::database::conflict::commit(transaction).await?;
         if let Some(event) = envelope {
             publication.send(events, event);
-        }
-        for notice in notices {
-            publication.send(events, notice);
         }
         Ok(())
     }
