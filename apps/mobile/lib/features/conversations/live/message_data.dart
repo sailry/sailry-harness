@@ -18,8 +18,11 @@ typedef InputContent = ({
   bool canonical,
 });
 
-List<InputContent> turnInputs(Map<String, dynamic> view, Object? turn) => [
-  for (final input in objects(object(view['inputs'])[turn]))
+List<InputContent> turnInputs(Map<String, dynamic> view, Object? turn) =>
+    inputContents(object(view['inputs'])[turn]);
+
+List<InputContent> inputContents(Object? inputs) => [
+  for (final input in objects(inputs))
     (
       text: text(object(input['message'])['text']),
       attachments: objects(input['attachments']),
@@ -34,15 +37,26 @@ List<(Map<String, dynamic>, int, Map<String, dynamic>)> displayRows(
   Object? turn,
 ) {
   final snapshot = object(view['snapshot']);
-  final entries = {
-    for (final entry in objects(object(snapshot['page'])['entries']))
-      entry['id']: entry,
-  };
-  final drafts = {
-    for (final entry in objects(snapshot['drafts'])) entry['id']: entry,
-  };
+  return selectedRows(
+    object(view['rows'])[turn],
+    entries: {
+      for (final entry in objects(object(snapshot['page'])['entries']))
+        entry['id']: entry,
+    },
+    drafts: {
+      for (final entry in objects(snapshot['drafts'])) entry['id']: entry,
+    },
+  );
+}
+
+/// Resolves one turn's selected rows against entries and drafts keyed by id.
+List<(Map<String, dynamic>, int, Map<String, dynamic>)> selectedRows(
+  Object? selected, {
+  required Map<Object?, Map<String, dynamic>> entries,
+  required Map<Object?, Map<String, dynamic>> drafts,
+}) {
   final rows = <(Map<String, dynamic>, int, Map<String, dynamic>)>[];
-  for (final row in objects(object(view['rows'])[turn])) {
+  for (final row in objects(selected)) {
     final source = object(row['source']);
     final entry = (row['draft'] == true ? drafts : entries)[source['entry']]!;
     final part = {...object(row['part']), 'work': row['work']};

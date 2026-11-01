@@ -29,20 +29,27 @@ import 'background_data.dart';
 import 'progress.dart';
 import 'sources.dart';
 import 'references.dart';
-import 'message_data.dart';
 import 'turn_actions.dart';
 import 'turn_changes.dart';
 import 'files.dart';
 import 'artifacts.dart';
 import 'publications.dart';
+import 'transcript_alignment.dart';
+import 'transcript_index.dart';
 import '../../resources/artifact/submission.dart';
 
 /// Renders complete Rust Client projections. Call association and streaming
 /// replacement are owned by Client, never reconstructed by the mobile UI.
+///
+/// Turns are built lazily from the newest, so opening a long conversation lays
+/// out only the visible turns.
 class LiveTimeline extends StatefulWidget {
   const LiveTimeline({
     super.key,
     required this.view,
+    required this.controller,
+    required this.padding,
+    this.older = const [],
     required this.session,
     required this.host,
     required this.command,
@@ -58,6 +65,11 @@ class LiveTimeline extends StatefulWidget {
     required this.updates,
   });
   final Map<String, dynamic> view;
+  final ScrollController controller;
+  final EdgeInsets padding;
+
+  /// Keyed items shown above the oldest loaded turn.
+  final List<Widget> older;
   final Map<String, dynamic> session;
   final HostConnection host;
   final ConversationCommand command;
@@ -80,10 +92,18 @@ class LiveTimeline extends StatefulWidget {
 
 class _LiveTimelineState extends State<LiveTimeline> {
   final _documents = <String, FileDocument>{};
+  TranscriptIndex? _index;
+
+  TranscriptIndex get _transcript {
+    final index = _index;
+    if (index != null && identical(index.view, widget.view)) return index;
+    return _index = TranscriptIndex(widget.view);
+  }
 
   @override
   Widget build(BuildContext context) {
     final view = widget.view;
+    final transcript = _transcript;
     final session = widget.session;
     final host = widget.host;
     final command = widget.command;
@@ -92,13 +112,9 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final turnKey = widget.turnKey;
     final canRestore = widget.canRestore;
     final canChangeHistory = widget.canChangeHistory;
-    final snapshot = object(view['snapshot']);
-    final page = object(snapshot['page']);
-    final entries = objects(page['entries']);
-    final calls = objects(view['calls']);
-    final children = object(object(view['children'])['sessions']);
-    final drafts = objects(snapshot['drafts']);
-    final runs = objects(page['runs']);
+    final page = transcript.page;
+    final children = transcript.children;
+    final runs = transcript.runs;
     final colors = Theme.of(context).colorScheme;
     final connected = host.connected && view['connected'] == true;
     Widget part(
@@ -113,12 +129,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
       final data = part['data'];
       switch (part['kind']) {
         case 'text':
-          final worktree =
-              (runs
-                          .where((run) => run['turn'] == entry['turn'])
-                          .firstOrNull?['worktree'] ??
-                      session['worktree'])
-                  as String;
+          final worktree = transcript.worktree(entry['turn'], session);
           return Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: MarkdownContent(
@@ -203,10 +214,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
           );
         case 'tool_call':
         case 'tool_result':
-          final call = calls.where((call) {
-            final source = object(call['source']);
-            return source['entry'] == entry['id'] && source['index'] == index;
-          }).firstOrNull;
+          final call = transcript.call(entry['id'], index);
           if (call == null) return const SizedBox.shrink();
           return ToolRecord(
             key: ValueKey((
@@ -232,7 +240,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             documents: _documents,
             references: [object(data)],
             host: host,
-            worktree: turnWorktree(page, session, entry['turn']),
+            worktree: transcript.worktree(entry['turn'], session),
           );
         default:
           return const SizedBox.shrink();
@@ -240,32 +248,22 @@ class _LiveTimelineState extends State<LiveTimeline> {
     }
 
     Widget turn(Map<String, dynamic> run) {
-      final rows = [
-        ...entries.where((entry) => entry['turn'] == run['turn']),
-        ...drafts.where((entry) => entry['turn'] == run['turn']),
-      ];
+      final rows = transcript.entriesOf(run['turn']);
+      final turnCalls = transcript.callsOf(run['turn']);
+      final worktree = transcript.worktree(run['turn'], session);
       final active = activeRun(run);
-      final visible = displayRows(view, run['turn']);
-      final inputs = turnInputs(view, run['turn']);
+      final visible = transcript.rowsOf(run['turn']);
+      final inputs = transcript.inputsOf(run['turn']);
       final last = visible.lastOrNull;
-      final waiting = calls.any(
+      final waiting = turnCalls.any(
         (call) =>
-            call['turn'] == run['turn'] &&
-            (object(call['approval'])['state'] == 'pending' ||
-                object(object(call['question'])['state'])['kind'] == 'pending'),
+            object(call['approval'])['state'] == 'pending' ||
+            object(object(call['question'])['state'])['kind'] == 'pending',
       );
-      final running = calls.any(
-        (call) => call['turn'] == run['turn'] && call['state'] == 'running',
-      );
+      final running = turnCalls.any((call) => call['state'] == 'running');
       final lastCall = last == null
           ? null
-          : calls
-                .where(
-                  (call) =>
-                      object(call['source'])['entry'] == last.$1['id'] &&
-                      object(call['source'])['index'] == last.$2,
-                )
-                .firstOrNull;
+          : transcript.call(last.$1['id'], last.$2);
       final continuingTools =
           connected &&
           run['status'] == 'running' &&
@@ -283,26 +281,13 @@ class _LiveTimelineState extends State<LiveTimeline> {
           ? 'conversationCompacting'
           : waiting
           ? 'conversationWaiting'
-          : continuingTools ||
-                running ||
-                children.values
-                    .map(
-                      (reference) => objects(
-                        page['children'],
-                      )[object(reference)['index'] as int],
-                    )
-                    .any(
-                      (child) =>
-                          object(child['origin'])['turn'] == run['turn'] &&
-                          activeRun(object(child['run'])),
-                    )
+          : continuingTools || running || transcript.hasActiveChild(run['turn'])
           ? null
           : last?.$3['kind'] == 'text'
           ? 'conversationGenerating'
           : 'thinkingNow';
       final split = visible.lastIndexWhere((row) => row.$3['work'] == true) + 1;
-      final latestTurn =
-          run == runs.where((run) => run['kind'] != 'compaction').lastOrNull;
+      final latestTurn = identical(run, transcript.latest);
       // Older settled answers trade text selection for long-press actions.
       final pressable = !active && !latestTurn && onTurnAction != null;
       final steps = <Widget>[];
@@ -310,21 +295,13 @@ class _LiveTimelineState extends State<LiveTimeline> {
       final cards = <Widget>[];
       Widget? live;
       var count = 0;
-      final progressCall = calls
-          .where(
-            (call) => call['turn'] == run['turn'] && call['progress'] != null,
-          )
+      final progressCall = turnCalls
+          .where((call) => call['progress'] != null)
           .lastOrNull;
       var progressShown = false;
       for (final (position, row) in visible.indexed) {
         final (entry, index, value) = row;
-        final call = calls
-            .where(
-              (call) =>
-                  object(call['source'])['entry'] == entry['id'] &&
-                  object(call['source'])['index'] == index,
-            )
-            .firstOrNull;
+        final call = transcript.call(entry['id'], index);
         final childReferences = objects(call?['children']);
         if (call?['progress'] != null && progressShown) continue;
         final continuing = continuingTools && row == last;
@@ -332,7 +309,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
         final pending = work && call != null && pendingTool(call);
         final childRuns = [
           for (final reference in childReferences)
-            objects(page['children'])[reference['index'] as int],
+            transcript.childRecords[reference['index'] as int],
         ];
         final rendered = call?['progress'] != null
             ? ToolHeading(
@@ -441,7 +418,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                           MessageReferences(
                             documents: _documents,
                             host: host,
-                            worktree: turnWorktree(page, session, run['turn']),
+                            worktree: worktree,
                             references: input.references,
                           ),
                         for (final attachment in input.attachments)
@@ -485,7 +462,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
           ),
           PublicationDetails(
             key: ValueKey('publications-${run['turn']}'),
-            calls: calls.where((call) => call['turn'] == run['turn']).toList(),
+            calls: turnCalls,
             enabled: connected,
             load: widget.toolOutput,
             builder: (context, published) => Column(
@@ -495,7 +472,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                   key: ValueKey('files-${run['turn']}'),
                   files: publishedFiles(published, run['turn'] as String),
                   host: host,
-                  worktree: turnWorktree(page, session, run['turn']),
+                  worktree: worktree,
                   enabled: connected,
                   documents: _documents,
                 ),
@@ -520,14 +497,14 @@ class _LiveTimelineState extends State<LiveTimeline> {
               !noticeTurn(run) &&
               !widget.sending &&
               latestTurn &&
-              calls.any((call) => call['turn'] == run['turn']))
+              turnCalls.isNotEmpty)
             TurnChanges(
               key: ValueKey('changes-${run['turn']}'),
               host: host,
               canRestore: canRestore,
               session: session['id'] as String,
               turn: run['turn'] as String,
-              worktree: turnWorktree(page, session, run['turn']),
+              worktree: worktree,
             ),
           for (final entry in rows.where((entry) => entry['author'] != 'user'))
             EntrySources(key: ValueKey('sources-${entry['id']}'), entry: entry),
@@ -561,28 +538,65 @@ class _LiveTimelineState extends State<LiveTimeline> {
       );
     }
 
+    final pending = pendingBackground(page);
+    final older = widget.older;
+    // Index 0 is the bottom of the reversed transcript.
+    final positions = <Key, int>{
+      const ValueKey('pending-background'): 0,
+      for (final (position, run) in runs.indexed)
+        _turnItemKey(run): runs.length - position,
+      for (final (position, item) in older.indexed)
+        if (item.key case final Key key) key: runs.length + 1 + position,
+    };
     return VisualScope(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final run in runs)
-            KeyedSubtree(
-              key:
-                  turnKey?.call(run['turn'] as String) ?? ValueKey(run['turn']),
-              child: turn(run),
+      child: CustomScrollView(
+        controller: widget.controller,
+        reverse: true,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        slivers: [
+          SliverAlignEnd(
+            sliver: SliverPadding(
+              padding: widget.padding,
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, position) {
+                    if (position == 0) {
+                      // Undelivered results wait after the latest turn for the next one.
+                      return BackgroundNotices(
+                        key: const ValueKey('pending-background'),
+                        items: pending,
+                        children: children,
+                        pending: true,
+                        onOpenChild: onOpenChild,
+                      );
+                    }
+                    if (position > runs.length) {
+                      return older[position - runs.length - 1];
+                    }
+                    final run = runs[runs.length - position];
+                    return KeyedSubtree(
+                      key: _turnItemKey(run),
+                      child: KeyedSubtree(
+                        key:
+                            turnKey?.call(run['turn'] as String) ??
+                            ValueKey(run['turn']),
+                        child: turn(run),
+                      ),
+                    );
+                  },
+                  childCount: runs.length + 1 + older.length,
+                  findChildIndexCallback: (key) => positions[key],
+                ),
+              ),
             ),
-          // Undelivered results wait after the latest turn for the next one.
-          BackgroundNotices(
-            items: pendingBackground(page),
-            children: children,
-            pending: true,
-            onOpenChild: onOpenChild,
           ),
         ],
       ),
     );
   }
 }
+
+Key _turnItemKey(Map<String, dynamic> run) => ValueKey(('turn', run['turn']));
 
 bool _modelRetry(Map<String, dynamic> part) {
   final data = object(part['data']);

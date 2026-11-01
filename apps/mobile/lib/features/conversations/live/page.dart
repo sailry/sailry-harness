@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 import 'package:sailry_bridge/api/conversation.dart';
@@ -80,6 +81,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   final _edits = <String, String>{};
   final _turnKeys = <String, GlobalKey>{};
   ({String turn, int revision})? _reveal;
+  bool _seeking = false;
   late final _artifactActions = ArtifactActions(
     submit: _sendArtifact,
     check: _checkSend,
@@ -97,12 +99,22 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   );
   Object? _error;
   bool _watching = false;
+  Animation<double>? _entrance;
 
-  Map<String, dynamic> get _session =>
-      objects(
-        widget.host.snapshot['sessions'],
-      ).where((item) => item['id'] == widget.sessionId).firstOrNull ??
-      widget.initialSession;
+  /// Whether the push transition has finished. The transcript is held until
+  /// then so the first snapshot never stalls the route animation.
+  bool _settled = false;
+
+  Map<String, dynamic> get _session {
+    final sessions = widget.host.snapshot['sessions'];
+    if (sessions is List) {
+      for (final item in sessions) {
+        if (item is Map && item['id'] == widget.sessionId) return object(item);
+      }
+    }
+    return widget.initialSession;
+  }
+
   Map<String, dynamic> get _snapshot => object(_view.value['snapshot']);
   Map<String, dynamic> get _page => object(_snapshot['page']);
   List<Map<String, dynamic>> get _active => objects(
@@ -115,6 +127,28 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
     _submission.addListener(_rebuild);
     unawaited(_acknowledge());
     unawaited(_watch());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_settled) return;
+    final animation = ModalRoute.of(context)?.animation;
+    if (identical(animation, _entrance)) return;
+    _entrance?.removeStatusListener(_entered);
+    _entrance = animation;
+    if (animation == null || animation.isCompleted) {
+      _settled = true;
+    } else {
+      animation.addStatusListener(_entered);
+    }
+  }
+
+  void _entered(AnimationStatus status) {
+    if (!status.isCompleted || !mounted) return;
+    _entrance?.removeStatusListener(_entered);
+    _entrance = null;
+    setState(() => _settled = true);
   }
 
   Future<void> _acknowledge() async {
@@ -145,7 +179,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
       _updates = updates;
       _toolSelection.reset();
       while (!_closed) {
-        final value = object(jsonDecode(await updates.next()));
+        final value = await _decode(await updates.next());
         if (_closed || !mounted) break;
         final following =
             !_scroll.hasClients || _scroll.position.extentBefore < 60;
@@ -163,10 +197,8 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
           break;
         }
         _artifactActions.changed();
-        _turnKeys.removeWhere(
-          (turn, _) =>
-              !objects(_page['runs']).any((run) => run['turn'] == turn),
-        );
+        final turns = {for (final run in objects(_page['runs'])) run['turn']};
+        _turnKeys.removeWhere((turn, _) => !turns.contains(turn));
         _revealMessage();
         if (widget.submitInitial &&
             !_initialSubmitted &&
@@ -195,6 +227,14 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
       }
     }
   }
+
+  /// Large snapshots decode on a worker isolate; the result is transferred
+  /// back without copying. Updates stay strictly ordered by the caller's loop.
+  static Future<Map<String, dynamic>> _decode(String payload) async => object(
+    payload.length < 32 * 1024
+        ? jsonDecode(payload)
+        : await Isolate.run(() => jsonDecode(payload)),
+  );
 
   void _trackTools(Object owner, List<Map<String, dynamic>> calls, bool retry) {
     final selection = _toolSelection.update(owner, calls, retry: retry);
@@ -229,6 +269,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   @override
   void dispose() {
     _closed = true;
+    _entrance?.removeStatusListener(_entered);
     final updates = _updates;
     if (updates != null) unawaited(updates.close());
     _submission.removeListener(_rebuild);
@@ -579,69 +620,69 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                             ),
                           ],
                         )
-                      : Align(
-                          alignment: Alignment.topCenter,
-                          child: ListView(
-                            shrinkWrap: true,
-                            controller: _scroll,
-                            reverse: true,
-                            keyboardDismissBehavior:
-                                ScrollViewKeyboardDismissBehavior.onDrag,
-                            padding: EdgeInsets.fromLTRB(
-                              20,
-                              hasBanner
-                                  ? 0
-                                  : ConversationFrame.contentInset(context),
-                              20,
-                              bottomInset + 8,
-                            ),
-                            children: [
-                              LiveTimeline(
-                                key: ValueKey((
-                                  widget.host.id,
-                                  widget.sessionId,
-                                )),
-                                view: view,
-                                session: _session,
-                                host: widget.host,
-                                command: _command,
-                                toolOutput: _trackTools,
-                                onOpenChild: _openChild,
-                                onTurnAction: _canUseHistory
-                                    ? _turnAction
-                                    : null,
-                                canChangeHistory: _canChangeHistory,
-                                sending: _sending || _pendingSend != null,
-                                artifactActions: _artifactActions,
-                                artifactChanges: _view,
-                                updates: _view,
-                                canRestore: () => _canChangeHistory,
-                                turnKey: (turn) =>
-                                    _turnKeys.putIfAbsent(turn, GlobalKey.new),
-                              ),
-                              if (view['older_error'] != null)
-                                Text(
-                                  object(view['older_error'])['message']
-                                          as String? ??
-                                      context.tr('conversationFailed'),
-                                ),
-                              if (_page['next_before'] != null ||
-                                  (_snapshot['missing'] as List? ?? const [])
-                                      .isNotEmpty)
-                                TextButton(
-                                  onPressed: view['loading_older'] == true
-                                      ? null
-                                      : () async {
-                                          try {
-                                            await _updates?.loadOlder();
-                                          } catch (error) {
-                                            _failure(error);
-                                          }
-                                        },
-                                  child: Text(context.tr('conversationOlder')),
-                                ),
-                            ],
+                      : !_settled
+                      ? Padding(
+                          padding: EdgeInsets.only(
+                            top: ConversationFrame.contentInset(context),
+                            bottom: bottomInset,
                           ),
+                          child: LoadingOverlay(
+                            loading: true,
+                            label: context.tr('conversationLoading'),
+                            child: const SizedBox.expand(),
+                          ),
+                        )
+                      : LiveTimeline(
+                          key: ValueKey((widget.host.id, widget.sessionId)),
+                          controller: _scroll,
+                          padding: EdgeInsets.fromLTRB(
+                            20,
+                            hasBanner
+                                ? 0
+                                : ConversationFrame.contentInset(context),
+                            20,
+                            bottomInset + 8,
+                          ),
+                          older: [
+                            if (view['older_error'] != null)
+                              Text(
+                                key: const ValueKey('older-error'),
+                                object(view['older_error'])['message']
+                                        as String? ??
+                                    context.tr('conversationFailed'),
+                              ),
+                            if (_page['next_before'] != null ||
+                                (_snapshot['missing'] as List? ?? const [])
+                                    .isNotEmpty)
+                              TextButton(
+                                key: const ValueKey('older'),
+                                onPressed: view['loading_older'] == true
+                                    ? null
+                                    : () async {
+                                        try {
+                                          await _updates?.loadOlder();
+                                        } catch (error) {
+                                          _failure(error);
+                                        }
+                                      },
+                                child: Text(context.tr('conversationOlder')),
+                              ),
+                          ],
+                          view: view,
+                          session: _session,
+                          host: widget.host,
+                          command: _command,
+                          toolOutput: _trackTools,
+                          onOpenChild: _openChild,
+                          onTurnAction: _canUseHistory ? _turnAction : null,
+                          canChangeHistory: _canChangeHistory,
+                          sending: _sending || _pendingSend != null,
+                          artifactActions: _artifactActions,
+                          artifactChanges: _view,
+                          updates: _view,
+                          canRestore: () => _canChangeHistory,
+                          turnKey: (turn) =>
+                              _turnKeys.putIfAbsent(turn, GlobalKey.new),
                         ),
                 ),
               ],

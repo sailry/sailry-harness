@@ -68,9 +68,11 @@ Map<String, dynamic> mergeToolDetails(
       object(object(next['snapshot'])['page'])['session']) {
     return next;
   }
-  final existing = <String, Map<String, dynamic>>{
-    for (final call in objects(previous['calls']))
-      if (call['detail_key'] case final String key) key: call,
+  // Read the previous calls in place; copying each one costs every update.
+  final existing = <String, Map>{
+    for (final call in previous['calls'] as List? ?? const [])
+      if (call is Map)
+        if (call['detail_key'] case final String key) key: call,
   };
   for (final value in next['calls'] as List? ?? const []) {
     if (value is! Map<String, dynamic> ||

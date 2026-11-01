@@ -217,17 +217,47 @@ extension _HistoryActions on _LiveConversationPageState {
       }
       return;
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _reveal != target) return;
-      final targetContext = _turnKeys[target.turn]?.currentContext;
-      if (targetContext != null) {
-        _reveal = null;
-        Scrollable.ensureVisible(
-          targetContext,
-          alignment: .2,
-          duration: const Duration(milliseconds: 250),
-        );
-      }
-    });
+    if (_seeking) return;
+    _seeking = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _seek());
+  }
+
+  /// Turns are built lazily, so an unbuilt target is approached one viewport
+  /// per frame until it is laid out, then revealed precisely. One step runs
+  /// per frame so no turn between the two positions is skipped unbuilt.
+  void _seek() {
+    _seeking = false;
+    final target = _reveal;
+    if (!mounted || target == null) return;
+    final targetContext = _turnKeys[target.turn]?.currentContext;
+    if (targetContext != null) {
+      _reveal = null;
+      Scrollable.ensureVisible(
+        targetContext,
+        alignment: .2,
+        duration: const Duration(milliseconds: 250),
+      );
+      return;
+    }
+    if (!_scroll.hasClients) return;
+    final runs = objects(_page['runs']);
+    final goal = runs.indexWhere((run) => run['turn'] == target.turn);
+    final shown = runs.indexWhere(
+      (run) => _turnKeys[run['turn']]?.currentContext != null,
+    );
+    if (goal < 0) return;
+    final position = _scroll.position;
+    // Older turns sit at larger offsets in the reversed transcript.
+    final step = shown < 0 || goal < shown
+        ? position.viewportDimension
+        : -position.viewportDimension;
+    final next = (position.pixels + step).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if (next == position.pixels) return;
+    position.jumpTo(next);
+    _seeking = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _seek());
   }
 }
