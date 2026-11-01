@@ -2156,6 +2156,9 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String get conversationStep => '1단계';
+
+  @override
   String get backgroundWaiting => '처리 대기 중';
 
   @override

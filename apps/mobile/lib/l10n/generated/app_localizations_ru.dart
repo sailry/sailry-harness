@@ -2194,6 +2194,9 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
+  String get conversationStep => '1 шаг';
+
+  @override
   String get backgroundWaiting => 'Ожидает';
 
   @override

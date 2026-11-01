@@ -2195,6 +2195,9 @@ class AppLocalizationsPt extends AppLocalizations {
   }
 
   @override
+  String get conversationStep => '1 etapa';
+
+  @override
   String get backgroundWaiting => 'Aguardando';
 
   @override

@@ -2154,6 +2154,9 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get conversationStep => '1 ステップ';
+
+  @override
   String get backgroundWaiting => '処理待ち';
 
   @override

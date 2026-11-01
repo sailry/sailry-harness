@@ -831,6 +831,7 @@
   "backgroundUnknown": "Résultat incertain",
   "backgroundPending": "Résultats en attente",
   "conversationSteps": "{count} étapes",
+  "conversationStep": "1 étape",
   "backgroundWaiting": "En attente",
   "activityProgress": "Progression",
   "activityBackground": "Tâches en arrière-plan",

@@ -831,6 +831,7 @@
   "backgroundUnknown": "結果不確定",
   "backgroundPending": "背景結果待處理",
   "conversationSteps": "{count} 個步驟",
+  "conversationStep": "1 個步驟",
   "backgroundWaiting": "等待處理",
   "activityProgress": "任務進度",
   "activityBackground": "背景任務",

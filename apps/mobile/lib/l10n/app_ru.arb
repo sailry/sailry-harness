@@ -831,6 +831,7 @@
   "backgroundUnknown": "Результат неизвестен",
   "backgroundPending": "Фоновые результаты готовы",
   "conversationSteps": "Шагов: {count}",
+  "conversationStep": "1 шаг",
   "backgroundWaiting": "Ожидает",
   "activityProgress": "Прогресс",
   "activityBackground": "Фоновые задачи",

@@ -854,6 +854,7 @@
       }
     }
   },
+  "conversationStep": "1 step",
   "backgroundWaiting": "Waiting",
   "activityProgress": "Progress",
   "activityBackground": "Background tasks",

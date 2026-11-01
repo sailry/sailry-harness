@@ -2207,6 +2207,9 @@ class AppLocalizationsFr extends AppLocalizations {
   }
 
   @override
+  String get conversationStep => '1 étape';
+
+  @override
   String get backgroundWaiting => 'En attente';
 
   @override

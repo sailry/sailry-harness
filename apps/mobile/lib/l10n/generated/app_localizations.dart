@@ -4314,6 +4314,12 @@ abstract class AppLocalizations {
   /// **'{count} steps'**
   String conversationSteps(String count);
 
+  /// No description provided for @conversationStep.
+  ///
+  /// In en, this message translates to:
+  /// **'1 step'**
+  String get conversationStep;
+
   /// No description provided for @backgroundWaiting.
   ///
   /// In en, this message translates to:

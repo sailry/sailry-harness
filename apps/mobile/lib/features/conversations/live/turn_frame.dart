@@ -106,9 +106,11 @@ class _TurnFrameState extends State<TurnFrame> {
         if (widget.count > 0) ...[
           StepDisclosure(
             key: ValueKey('work-${widget.run['turn']}'),
-            label: context
-                .tr('conversationSteps')
-                .replaceAll('{count}', '${widget.count}'),
+            label: widget.count == 1
+                ? context.tr('conversationStep')
+                : context
+                      .tr('conversationSteps')
+                      .replaceAll('{count}', '${widget.count}'),
             detail: !active || widget.connected
                 ? elapsed(widget.run, DateTime.now().millisecondsSinceEpoch)
                 : null,

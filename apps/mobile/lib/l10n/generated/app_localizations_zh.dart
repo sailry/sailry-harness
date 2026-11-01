@@ -2147,6 +2147,9 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get conversationStep => '1 个步骤';
+
+  @override
   String get backgroundWaiting => '等待处理';
 
   @override
@@ -4303,6 +4306,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String conversationSteps(String count) {
     return '$count 個步驟';
   }
+
+  @override
+  String get conversationStep => '1 個步驟';
 
   @override
   String get backgroundWaiting => '等待處理';

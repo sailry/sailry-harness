@@ -831,6 +831,7 @@
   "backgroundUnknown": "結果は不確定",
   "backgroundPending": "バックグラウンドの結果を処理できます",
   "conversationSteps": "{count} ステップ",
+  "conversationStep": "1 ステップ",
   "backgroundWaiting": "処理待ち",
   "activityProgress": "進捗",
   "activityBackground": "バックグラウンドタスク",

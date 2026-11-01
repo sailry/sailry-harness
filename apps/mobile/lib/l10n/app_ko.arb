@@ -831,6 +831,7 @@
   "backgroundUnknown": "결과 불확실",
   "backgroundPending": "백그라운드 결과 대기 중",
   "conversationSteps": "{count}단계",
+  "conversationStep": "1단계",
   "backgroundWaiting": "처리 대기 중",
   "activityProgress": "진행 상황",
   "activityBackground": "백그라운드 작업",
