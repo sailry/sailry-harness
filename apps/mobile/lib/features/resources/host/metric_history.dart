@@ -3,8 +3,12 @@ import 'dart:math' as math;
 import '../../../runtime/json.dart';
 import '../../conversations/live/recency.dart';
 
-/// Polls every five seconds, so thirteen samples span the last minute.
-const historyCapacity = 13;
+/// Node only reports rates when consecutive detailed reads are under five
+/// seconds apart, so polling stays well inside that window.
+const samplePeriod = Duration(seconds: 3);
+
+/// Twenty-one samples at [samplePeriod] span the last minute.
+const historyCapacity = 21;
 
 /// Visible process rows after sorting and filtering.
 const processLimit = 12;

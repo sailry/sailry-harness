@@ -58,9 +58,20 @@ class _HostsPageState extends State<HostsPage> {
       _timer = null;
       return;
     }
-    if (changed || _metrics.isEmpty) unawaited(_refresh());
     // Session updates must not restart the interval and starve sampling.
-    _timer ??= Timer.periodic(const Duration(seconds: 5), (_) => _refresh());
+    if (_timer != null) return;
+    _timer = Timer.periodic(samplePeriod, (_) => _refresh());
+    // Node derives rates from the gap since its previous detailed read, so a
+    // fresh start reads twice in quick succession to show rates right away.
+    final generation = _generation;
+    unawaited(
+      _refresh().then((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 1100));
+        if (mounted && _timer != null && generation == _generation) {
+          await _refresh();
+        }
+      }),
+    );
   }
 
   Future<void> _refresh() async {
