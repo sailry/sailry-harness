@@ -1,0 +1,4 @@
+composer_team_lead: "Lead"
+composer_team_default: "Default team"
+composer_team_manage: "Manage teams"
+composer_team_unknown: "Removed team"

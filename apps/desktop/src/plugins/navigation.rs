@@ -262,6 +262,10 @@ impl Shell {
                 });
                 return;
             }
+            Event::TeamSettings(node) => {
+                self.open_team_settings(node, window, cx);
+                return;
+            }
             Event::DictationSettings => {
                 self.open_dictation_settings(window, cx);
                 return;

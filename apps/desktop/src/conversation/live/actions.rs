@@ -9,6 +9,11 @@ pub(super) enum Action {
     Document(tokio::sync::watch::Sender<Option<bool>>),
     Resend(TurnId),
     Configure,
+    /// The team changed; a team with a fixed lead model then switches the lead.
+    Team(Option<sailry_protocol::role::Model>),
+    Member,
+    /// Brings a new session to its draft team before the first turn.
+    Roster(Input, Vec<super::model_controls::team::Step>),
     Move(WorktreeId),
     ForkAt(WorktreeId),
     Compact(Option<String>),
@@ -199,6 +204,45 @@ impl View {
             self.config = Some(config);
             cx.notify();
         }
+    }
+
+    /// Applies the draft team one revision at a time, then admits the first turn.
+    fn start_turn(
+        &mut self,
+        session: &Session,
+        message: Input,
+        mut steps: Vec<super::model_controls::team::Step>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        while !steps.is_empty() {
+            let step = steps.remove(0);
+            if let Some(command) = step.command(session.id, session.revision, &session.roles) {
+                self.execute(command, Action::Roster(message, steps), window, cx);
+                return;
+            }
+        }
+        if !self.references_valid(&message.references) {
+            self.error = Some("reference_stale");
+            self.outgoing = None;
+            self.fail_submission("reference_stale", window, cx);
+            self.sync_rows(cx);
+            cx.notify();
+            return;
+        }
+        if self.prepare_attachments(message.clone(), window, cx) {
+            return;
+        }
+        self.execute(
+            Command::SubmitTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: self.normalized_input(message.clone()),
+            },
+            Action::Send(message),
+            window,
+            cx,
+        );
     }
 
     pub(super) fn stop(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -436,27 +480,18 @@ impl View {
                             let Action::Create(message) = action else {
                                 unreachable!()
                             };
-                            if !view.references_valid(&message.references) {
-                                view.error = Some("reference_stale");
-                                view.outgoing = None;
-                                view.fail_submission("reference_stale", window, cx);
-                                view.sync_rows(cx);
-                                cx.notify();
-                                return;
-                            }
-                            if view.prepare_attachments(message.clone(), window, cx) {
-                                return;
-                            }
-                            view.execute(
-                                Command::SubmitTurn {
-                                    session: session.id,
-                                    expected_revision: session.revision,
-                                    message: view.normalized_input(message.clone()),
-                                },
-                                Action::Send(message),
-                                window,
-                                cx,
+                            let steps = view.team_draft.steps(
+                                view.node
+                                    .snapshot
+                                    .as_ref()
+                                    .map(|snapshot| snapshot.teams.as_slice())
+                                    .unwrap_or_default(),
                             );
+                            view.start_turn(&session, message, steps, window, cx);
+                        } else if let Action::Roster(message, steps) = action {
+                            view.start_turn(&current, message, steps, window, cx);
+                        } else if let Action::Team(Some(model)) = &action {
+                            view.apply_lead(model, window, cx);
                         }
                     }
                     Ok(Ok(Output::QueuedTurn(turn))) => {
@@ -536,10 +571,16 @@ impl View {
                             view.retry = None;
                             if matches!(
                                 action,
-                                Action::Send(_) | Action::Create(_) | Action::Document(..)
+                                Action::Send(_)
+                                    | Action::Create(_)
+                                    | Action::Roster(..)
+                                    | Action::Document(..)
                             ) {
                                 view.outgoing = None;
-                                if matches!(action, Action::Send(_) | Action::Create(_)) {
+                                if matches!(
+                                    action,
+                                    Action::Send(_) | Action::Create(_) | Action::Roster(..)
+                                ) {
                                     view.fail_submission(view.error.unwrap(), window, cx);
                                 }
                             }

@@ -6,6 +6,7 @@
 //! this content fit", so each frame records the rendered widths and the
 //! unconstrained text widths; the next render decides from them. The decision
 //! uses widths that are the same with or without the collapse, so it is stable.
+//! A team chip shows only the team name, so it drops the effort widths.
 use gpui_kit::*;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -51,6 +52,15 @@ pub(super) struct Fit(Cell<Widths>);
 impl Fit {
     pub(super) fn compact(&self, cap: Pixels) -> bool {
         self.0.get().compact(cap)
+    }
+
+    /// Drops effort widths while no effort label is rendered, so a stale label
+    /// cannot collapse the next model chip.
+    pub(super) fn forget_effort(&self) {
+        let mut widths = self.0.get();
+        widths.effort = px(0.);
+        widths.label = px(0.);
+        self.0.set(widths);
     }
 
     /// An overlay that records its parent's width as `part`. `text` is the
@@ -147,6 +157,14 @@ mod tests {
         assert!(widths(250., 120., 120., 16., 30.).compact(px(260.)));
         // Enough room to restore it.
         assert!(!widths(240., 120., 120., 16., 30.).compact(px(260.)));
+    }
+
+    #[test]
+    fn team_chip_drops_effort_widths() {
+        let fit = Fit(Cell::new(widths(250., 120., 120., 16., 30.)));
+        assert!(fit.compact(px(260.)));
+        fit.forget_effort();
+        assert!(!fit.compact(px(260.)));
     }
 
     #[test]

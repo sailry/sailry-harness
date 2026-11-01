@@ -112,7 +112,7 @@ impl View {
             )
             .on_open_change(move |open, window, cx| {
                 if *open {
-                    model.update(cx, |panel, cx| panel.back(window, cx));
+                    model.update(cx, |panel, cx| panel.open(true, window, cx));
                     opening.update(cx, |panel, cx| panel.show(Page::Settings, window, cx));
                 }
             })

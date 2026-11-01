@@ -1,0 +1,4 @@
+composer_team_lead: "リーダー"
+composer_team_default: "デフォルトチーム"
+composer_team_manage: "チームを管理"
+composer_team_unknown: "削除されたチーム"

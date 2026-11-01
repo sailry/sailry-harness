@@ -53,6 +53,7 @@ pub(super) fn forward(chat: &Entity<Chat>, owner: WeakEntity<super::super::Panel
             event,
             Event::PluginMounted(_)
                 | Event::Settings(_)
+                | Event::TeamSettings(_)
                 | Event::DictationSettings
                 | Event::Link(_, _)
                 | Event::File(_)

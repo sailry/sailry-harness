@@ -1,5 +1,6 @@
 use super::*;
 mod remember;
+mod roster;
 
 impl View {
     pub(super) fn available_features(

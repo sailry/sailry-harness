@@ -64,6 +64,7 @@ impl View {
             next.config_owner = self.config_owner;
             next.draft_mode = self.draft_mode;
             next.draft_permission = self.draft_permission;
+            next.team_draft = self.team_draft.clone();
         }
         next.hosts = self.hosts.clone();
         next.references.selected = self.references.selected.clone();

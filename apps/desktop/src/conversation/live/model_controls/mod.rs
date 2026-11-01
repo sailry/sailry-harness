@@ -14,6 +14,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 mod badge;
 pub(super) mod features;
 mod fit;
+pub(super) mod team;
 #[cfg(test)]
 mod tests;
 mod track;
@@ -43,16 +44,30 @@ impl View {
     }
 
     fn sync_model_controls(&self, cx: &mut Context<Self>) -> bool {
-        let selected = self.config.as_ref().and_then(|config| {
-            Some(super::super::models::Selection {
-                channel: *self
-                    .provider_ids
-                    .get(&(self.config_owner, config.provider))?,
-                model: config.model.clone(),
-            })
-        });
+        let roster = self.team_roster();
+        // A member that left the roster hands the controls back to the lead.
+        let member = self
+            .model_controls
+            .read(cx)
+            .member
+            .filter(|role| roster.contains(*role));
+        let edited = member.map(|role| self.member_settings(role));
+        let target = self.binding.client.target();
+        let selected = match &edited {
+            Some(edited) => edited.selection.clone(),
+            None => self.config.as_ref().and_then(|config| {
+                Some(super::super::models::Selection {
+                    channel: *self
+                        .provider_ids
+                        .get(&(self.config_owner, config.provider))?,
+                    model: config.model.clone(),
+                })
+            }),
+        };
         let channels = self
             .model_sources()
+            // Member models use the execution Node's providers.
+            .filter(|(node, _)| member.is_none() || *node == target)
             .filter_map(|(node, provider)| {
                 let id = self.provider_ids.get(&(node, provider.id))?;
                 let mut channel = crate::settings::channel(*id, provider);
@@ -96,42 +111,73 @@ impl View {
                 Some(channel)
             })
             .collect::<Vec<_>>();
-        let choices = self.available_efforts();
-        let model = self.model_label();
-        let effort = self
-            .config
-            .as_ref()
-            .map_or(Effort::Default, |config| config.effort);
         let blocked = self.configuration_blocked();
         let available = channels
             .iter()
             .any(|channel| channel.enabled && !channel.models.is_empty());
+        let selected_features = self
+            .config
+            .as_ref()
+            .map(|config| config.features.clone())
+            .unwrap_or_default();
+        let settings = match edited {
+            Some(edited) => Settings {
+                model: edited.label,
+                choices: edited.choices,
+                effort: edited.effort,
+                // Member models carry no feature choices.
+                features: Vec::new(),
+                selected: Default::default(),
+                resettable: edited.overridden,
+                ..self.base_settings(roster, member, blocked)
+            },
+            None => {
+                let effort = self
+                    .config
+                    .as_ref()
+                    .map_or(Effort::Default, |config| config.effort);
+                Settings {
+                    model: self.model_label(),
+                    choices: self.available_efforts(),
+                    effort,
+                    features: self.available_features(),
+                    resettable: effort != self.default_effort() || !selected_features.is_empty(),
+                    selected: selected_features,
+                    ..self.base_settings(roster, None, blocked)
+                }
+            }
+        };
+        let effort = settings.effort;
         self.model_picker.update(cx, |picker, cx| {
             picker.set(channels, selected, cx);
             picker.popover = None;
             picker.composer(effort, blocked || !self.can_pick_model(), cx);
         });
         let panel = self.model_controls.clone();
-        panel.update(cx, |panel, cx| {
-            panel.sync(
-                Settings {
-                    model,
-                    choices,
-                    effort,
-                    default: self.default_effort(),
-                    features: self.available_features(),
-                    selected: self
-                        .config
-                        .as_ref()
-                        .map(|config| config.features.clone())
-                        .unwrap_or_default(),
-                    busy: blocked || !self.can_pick_model(),
-                    connected: self.configuration().connected,
-                },
-                cx,
-            )
-        });
+        panel.update(cx, |panel, cx| panel.sync(settings, cx));
         available
+    }
+
+    /// Settings shared by every avatar; the caller fills in the edited model.
+    fn base_settings(
+        &self,
+        roster: team::Roster,
+        member: Option<sailry_protocol::RoleId>,
+        blocked: bool,
+    ) -> Settings {
+        Settings {
+            model: SharedString::default(),
+            choices: Vec::new(),
+            effort: Effort::Default,
+            features: Vec::new(),
+            selected: Default::default(),
+            resettable: false,
+            roster,
+            member,
+            busy: blocked || !self.can_pick_model(),
+            pending: self.pending,
+            connected: self.configuration().connected,
+        }
     }
 
     pub(super) fn model_settings(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -150,6 +196,11 @@ impl View {
     pub(super) fn model_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         let available = self.sync_model_controls(cx);
         let model = self.model_label();
+        let roster = self.team_roster();
+        let named = match roster.chip() {
+            team::Chip::Model => None,
+            team::Chip::Team { team, overridden } => Some((team.clone(), overridden)),
+        };
         let provider = self.config.as_ref().and_then(|config| {
             let name = self
                 .providers()
@@ -178,6 +229,15 @@ impl View {
             .as_ref()
             .map_or(Effort::Default, |config| config.effort);
         let choices = self.available_efforts();
+        // A team chip names the team; the lead's model and effort move to its tooltip.
+        let lead = if choices.is_empty() {
+            model.to_string()
+        } else {
+            format!("{} · {}", model, crate::reasoning::label(effort))
+        };
+        if named.is_some() {
+            fit.forget_effort();
+        }
         let segments = self
             .contributions
             .read(cx)
@@ -196,11 +256,22 @@ impl View {
         .into_iter()
         .filter(|choice| !self.icon_context || choice.icon.is_some())
         .partition(|choice| choice.fast);
-        let mut accessibility_label = format!("{}: {}", tr("composer_model_settings"), model);
+        let mut accessibility_label = match &named {
+            Some((team, _)) => format!(
+                "{}: {} · {}",
+                tr("composer_model_settings"),
+                team.name,
+                lead
+            ),
+            None => format!("{}: {}", tr("composer_model_settings"), model),
+        };
         for choice in fast_badges.iter().chain(&feature_badges) {
             accessibility_label.push_str(" · ");
             accessibility_label.push_str(choice.label.as_ref());
         }
+        let team_avatar = named
+            .as_ref()
+            .map(|(team, overridden)| team::chip_avatar(Some(team), *overridden, cx));
         let badge = |choice: features::Choice| {
             let text = choice.icon.is_none();
             let label = choice.label;
@@ -228,6 +299,7 @@ impl View {
             .flex_shrink_1()
             .debug_selector(|| "live-chat-model".into())
             .accessibility_label(accessibility_label)
+            .when(named.is_some(), |button| button.tooltip(lead.clone()))
             .child(
                 h_flex()
                     .min_w_0()
@@ -235,7 +307,7 @@ impl View {
                     .text_sm()
                     .line_height(px(20.))
                     .when_some(
-                        provider.filter(|_| !self.icon_context),
+                        provider.filter(|_| !self.icon_context && named.is_none()),
                         |row, (badge, name)| {
                             row.child(
                                 div()
@@ -258,42 +330,63 @@ impl View {
                         },
                     )
                     .children(fast_badges.into_iter().map(&badge))
-                    .child(
-                        div()
-                            .relative()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis_middle()
-                            .child(model.clone())
-                            .child(fit.probe(fit::Part::Model, Some(model.clone()), view)),
-                    )
-                    .when(!choices.is_empty(), |row| {
-                        let label = crate::reasoning::label(effort);
-                        let tip = label.clone();
-                        row.child(
-                            div()
-                                .id("live-chat-effort")
-                                .debug_selector(|| "live-chat-effort".into())
-                                .relative()
-                                .flex_shrink_0()
-                                .text_color(cx.theme().muted_foreground)
-                                .map(|effort| {
-                                    if compact {
-                                        effort
-                                            .child(
-                                                Icon::new(gpui_kit::assets::IconName::Brain)
-                                                    .size_4(),
-                                            )
-                                            .tooltip(move |window, cx| {
-                                                Tooltip::new(tip.clone()).build(window, cx)
-                                            })
-                                    } else {
-                                        effort.child(label.clone())
-                                    }
-                                })
-                                .child(fit.probe(fit::Part::Effort, Some(label), view)),
-                        )
+                    .map(|row| match &named {
+                        Some((team, _)) => row
+                            .child(div().flex_shrink_0().children(team_avatar))
+                            .child(
+                                div()
+                                    .relative()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis_middle()
+                                    .child(team.name.clone())
+                                    .child(fit.probe(
+                                        fit::Part::Model,
+                                        Some(team.name.clone()),
+                                        view,
+                                    )),
+                            ),
+                        None => row
+                            .child(
+                                div()
+                                    .relative()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis_middle()
+                                    .child(model.clone())
+                                    .child(fit.probe(fit::Part::Model, Some(model.clone()), view)),
+                            )
+                            .when(!choices.is_empty(), |row| {
+                                let label = crate::reasoning::label(effort);
+                                let tip = label.clone();
+                                row.child(
+                                    div()
+                                        .id("live-chat-effort")
+                                        .debug_selector(|| "live-chat-effort".into())
+                                        .relative()
+                                        .flex_shrink_0()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .map(|effort| {
+                                            if compact {
+                                                effort
+                                                    .child(
+                                                        Icon::new(
+                                                            gpui_kit::assets::IconName::Brain,
+                                                        )
+                                                        .size_4(),
+                                                    )
+                                                    .tooltip(move |window, cx| {
+                                                        Tooltip::new(tip.clone()).build(window, cx)
+                                                    })
+                                            } else {
+                                                effort.child(label.clone())
+                                            }
+                                        })
+                                        .child(fit.probe(fit::Part::Effort, Some(label), view)),
+                                )
+                            }),
                     })
                     .children(feature_badges.into_iter().map(badge))
                     .children(segments.into_iter().filter(|_| !self.icon_context)),
@@ -319,14 +412,7 @@ impl View {
             .p_3()
             .trigger(button)
             .on_open_change(move |open, window, cx| {
-                opening.update(cx, |panel, cx| {
-                    panel.models = false;
-                    panel.dragging = false;
-                    if *open {
-                        panel.focus.focus(window, cx);
-                    }
-                    cx.notify();
-                });
+                opening.update(cx, |panel, cx| panel.open(*open, window, cx));
             })
             .content(move |_, _, _| panel.clone());
         chip.child(popover).into_any_element()
@@ -343,16 +429,29 @@ impl View {
     }
 }
 
+/// Controls for the selected avatar: the lead's configuration or one member's model.
 #[derive(Clone, PartialEq)]
 struct Settings {
     model: SharedString,
     choices: Vec<Effort>,
     effort: Effort,
-    default: Effort,
     features: Vec<sailry_protocol::conversation::features::Feature>,
     selected: std::collections::BTreeMap<String, String>,
+    resettable: bool,
+    roster: team::Roster,
+    /// The edited member; None edits the lead.
+    member: Option<sailry_protocol::RoleId>,
     busy: bool,
+    /// A command is in flight; team and member changes wait for it.
+    pending: bool,
     connected: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Layer {
+    Main,
+    Models,
+    Teams,
 }
 
 pub(super) struct Panel {
@@ -363,7 +462,9 @@ pub(super) struct Panel {
     slider: Entity<SliderState>,
     focus: FocusHandle,
     settings: Option<Settings>,
-    models: bool,
+    layer: Layer,
+    /// The selected avatar; None is the lead.
+    member: Option<sailry_protocol::RoleId>,
     dragging: bool,
     fit: std::rc::Rc<fit::Fit>,
 }
@@ -411,7 +512,8 @@ impl Panel {
             slider,
             focus: cx.focus_handle(),
             settings: None,
-            models: false,
+            layer: Layer::Main,
+            member: None,
             dragging: false,
             fit: Default::default(),
         }
@@ -419,14 +521,36 @@ impl Panel {
 
     fn sync(&mut self, mut settings: Settings, cx: &mut Context<Self>) {
         settings.choices.sort_by_key(|choice| order(*choice));
+        if self.member != settings.member {
+            self.member = settings.member;
+            self.dragging = false;
+            cx.notify();
+        }
         if self.settings.as_ref() != Some(&settings) {
             self.settings = Some(settings);
             cx.notify();
         }
     }
 
-    pub(super) fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.models = false;
+    pub(super) fn member(&self) -> Option<sailry_protocol::RoleId> {
+        self.member
+    }
+
+    /// Each opening starts on the first layer with the lead selected.
+    pub(super) fn open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.layer = Layer::Main;
+        self.dragging = false;
+        if open {
+            self.focus.focus(window, cx);
+            if self.member.take().is_some() {
+                let _ = self.owner.update(cx, |_, cx| cx.notify());
+            }
+        }
+        cx.notify();
+    }
+
+    fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.layer = Layer::Main;
         self.dragging = false;
         self.focus.focus(window, cx);
         cx.notify();
@@ -442,9 +566,11 @@ impl Panel {
         let Some(effort) = settings.choices.get(index).copied() else {
             return;
         };
-        let _ = self
-            .owner
-            .update(cx, |view, cx| view.select_effort(effort, window, cx));
+        let member = settings.member;
+        let _ = self.owner.update(cx, |view, cx| match member {
+            Some(role) => view.select_member_effort(role, effort, window, cx),
+            None => view.select_effort(effort, window, cx),
+        });
         cx.notify();
     }
 
@@ -452,7 +578,11 @@ impl Panel {
         let Some(settings) = &self.settings else {
             return;
         };
-        if self.models || settings.busy || !settings.connected || settings.choices.len() < 2 {
+        if self.layer != Layer::Main
+            || settings.busy
+            || !settings.connected
+            || settings.choices.len() < 2
+        {
             return;
         }
         let current = self.slider.read(cx).value().end() as usize;
@@ -479,7 +609,10 @@ impl Render for Panel {
         let size = crate::model_picker::panel_size(window);
         let height = transition(
             "model-controls-height",
-            if self.models { size.height } else { px(104.) },
+            match self.layer {
+                Layer::Main => px(104. + team::ROW_HEIGHT),
+                Layer::Models | Layer::Teams => size.height,
+            },
             Transition::new(cx.theme().motion_tokens().duration_normal)
                 .easing(cx.theme().motion_tokens().easing_move.clone()),
             window,
@@ -496,8 +629,14 @@ impl Render for Panel {
             .items_center()
             .text_sm()
             .gap_2();
-        if self.models {
-            return body.child(self.picker.clone()).into_any_element();
+        match self.layer {
+            Layer::Main => {}
+            Layer::Models => return body.child(self.picker.clone()).into_any_element(),
+            Layer::Teams => {
+                return body
+                    .child(self.team_list(&settings, size, cx))
+                    .into_any_element();
+            }
         }
         let current = settings
             .choices
@@ -547,7 +686,8 @@ impl Render for Panel {
                 })
                 .collect::<Vec<_>>()
         });
-        let locked = settings.busy || !settings.connected;
+        let member = settings.member;
+        let locked = settings.busy || !settings.connected || (member.is_some() && settings.pending);
         let owner = self.owner.clone();
         let reset = Button::new("model-controls-reset")
             .rounded_full()
@@ -558,12 +698,18 @@ impl Render for Panel {
             .accessibility_label(tr("composer_effort_reset"))
             .tooltip(tr("composer_effort_reset"))
             .debug_selector(|| "model-controls-reset".into())
-            .disabled(
-                locked || (settings.effort == settings.default && settings.selected.is_empty()),
-            )
+            .disabled(locked || !settings.resettable)
             .on_click(move |_, window, cx| {
-                let _ = owner.update(cx, |view, cx| view.reset_model_settings(window, cx));
+                let _ = owner.update(cx, |view, cx| match member {
+                    Some(role) => view.select_member_model(role, None, window, cx),
+                    None => view.reset_model_settings(window, cx),
+                });
             });
+        let row = self.team_row(
+            &settings,
+            settings.busy || settings.pending || !settings.connected,
+            cx,
+        );
         let controls = v_flex()
             .w_full()
             .flex_shrink_0()
@@ -589,10 +735,11 @@ impl Render for Panel {
                                     .items_center()
                                     .gap_1()
                                     .when(
-                                        !settings
-                                            .features
-                                            .iter()
-                                            .any(|feature| feature.id == "speed"),
+                                        member.is_none()
+                                            && !settings
+                                                .features
+                                                .iter()
+                                                .any(|feature| feature.id == "speed"),
                                         |row| row.child(features::unsupported()),
                                     )
                                     .children(settings.features.iter().map(|feature| {
@@ -623,7 +770,7 @@ impl Render for Panel {
                                     .h_6()
                                     .items_center()
                                     .gap_1()
-                                    .children(contributions)
+                                    .when(member.is_none(), |row| row.children(contributions))
                                     .child(reset),
                             ),
                     )
@@ -644,10 +791,10 @@ impl Render for Panel {
                                     .child(settings.model),
                             )
                             .child(Icon::new(IconName::ChevronRight).size_3())
-                            .disabled(settings.busy)
+                            .disabled(settings.busy || (member.is_some() && settings.pending))
                             .debug_selector(|| "model-controls-choose".into())
                             .on_click(cx.listener(|panel, _, _, cx| {
-                                panel.models = true;
+                                panel.layer = Layer::Models;
                                 panel.picker.update(cx, |picker, cx| picker.reveal(cx));
                                 cx.notify();
                             })),
@@ -658,10 +805,10 @@ impl Render for Panel {
                 &self.focus,
                 settings.choices.len(),
                 highest,
-                settings.busy || !settings.connected || settings.choices.len() < 2,
+                locked || settings.choices.len() < 2,
                 cx,
             ));
-        body.child(controls).into_any_element()
+        body.child(row).child(controls).into_any_element()
     }
 }
 

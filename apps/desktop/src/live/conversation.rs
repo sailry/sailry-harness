@@ -25,6 +25,18 @@ impl State {
 }
 
 impl Shell {
+    pub(crate) fn open_team_settings(
+        &mut self,
+        node: sailry_protocol::NodeId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.navigate(Page::Settings, window, cx);
+        self.settings_target = Some(node);
+        self.settings
+            .update(cx, |settings, cx| settings.select(Section::Teams, cx));
+    }
+
     pub(crate) fn open_dictation_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.navigate(Page::Settings, window, cx);
         self.settings_target = None;
@@ -334,6 +346,9 @@ impl Shell {
                     shell
                         .settings
                         .update(cx, |settings, cx| settings.select(Section::Providers, cx));
+                }
+                Event::TeamSettings(node) => {
+                    shell.open_team_settings(*node, window, cx);
                 }
                 Event::DictationSettings => {
                     shell.open_dictation_settings(window, cx);

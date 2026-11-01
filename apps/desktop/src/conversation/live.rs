@@ -98,6 +98,8 @@ pub(crate) enum Event {
     ArtifactExternal(WorktreeId, String),
     ArtifactEdit(WorktreeId, String),
     Settings(NodeId),
+    /// Opens Settings › Teams for the execution Node.
+    TeamSettings(NodeId),
     DictationSettings,
     Link(Option<WorktreeId>, SharedString),
     Subagent(SessionId),
@@ -135,6 +137,7 @@ pub(crate) struct View {
     python: sailry_client::python::View,
     config: Option<SessionConfig>,
     config_owner: NodeId,
+    team_draft: model_controls::team::Draft,
     input: Entity<TextareaState>,
     restored_input: Option<gpui_kit::base::input::InputContent>,
     submissions: submission::State,
@@ -361,16 +364,28 @@ impl View {
         cx.subscribe_in(
             &model_picker,
             window,
-            |view, _, event: &crate::model_picker::Picked, window, cx| {
-                view.select_model(&event.selection, event.effort, window, cx);
+            |view, _, event: &crate::model_picker::Picked, window, cx| match view
+                .model_controls
+                .read(cx)
+                .member()
+            {
+                Some(role) => {
+                    view.pick_member_model(role, &event.selection, event.effort, window, cx)
+                }
+                None => view.select_model(&event.selection, event.effort, window, cx),
             },
         )
         .detach();
         cx.subscribe_in(
             &model_picker,
             window,
-            |view, _, event: &crate::model_picker::EffortPicked, window, cx| {
-                view.select_effort(event.0, window, cx);
+            |view, _, event: &crate::model_picker::EffortPicked, window, cx| match view
+                .model_controls
+                .read(cx)
+                .member()
+            {
+                Some(role) => view.select_member_effort(role, event.0, window, cx),
+                None => view.select_effort(event.0, window, cx),
             },
         )
         .detach();
@@ -448,6 +463,7 @@ impl View {
                 .and_then(|session| session.config.assistant.clone()),
             config: session.as_ref().map(|session| session.config.clone()),
             config_owner: binding.client.target(),
+            team_draft: Default::default(),
             binding,
             hosts: Vec::new(),
             draft_mode: remembered.as_ref().map(|selection| selection.mode),
