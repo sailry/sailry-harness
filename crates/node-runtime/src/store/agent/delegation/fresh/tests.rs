@@ -414,3 +414,117 @@ async fn preserves_roles_across_reopen() {
         current.roles
     );
 }
+
+#[tokio::test]
+async fn prefers_member_model() {
+    use crate::store::agent::tests::command;
+    let mut fixture = setup().await;
+    let provider_id = ProviderId::new();
+    let provider: Provider = serde_json::from_value(json!({"id":provider_id,"revision":0,"name":"Members","api":"chat_completions","authentication":"api_key","endpoint":"http://127.0.0.1:9/v1","enabled":true,"models":[{"id":"fixture","context":4096,"output":512},{"id":"chosen","context":4096,"output":512}],"default_model":"fixture","credential":null,"preset":null})).unwrap();
+    let Output::Provider(_) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::PutProvider {
+            provider,
+            expected_revision: 0,
+        },
+    )
+    .await
+    else {
+        panic!("provider expected")
+    };
+    let mut role = profile(&mut fixture).await;
+    role.model = Some(role::Model {
+        provider: provider_id,
+        model: "fixture".into(),
+        effort: None,
+    });
+    let Output::Role(role) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::PutRole {
+            expected_revision: role.revision,
+            role,
+        },
+    )
+    .await
+    else {
+        panic!("role expected")
+    };
+    let session = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    let Output::Session(session) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SetSessionRoles {
+            session: session.id,
+            expected_revision: session.revision,
+            roles: vec![role.reference()],
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    let first = start(&mut fixture).await;
+    let child = invoke(
+        &mut fixture,
+        first,
+        json!({"role":"review","task":"Inspect"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(child.turn.config.provider, provider_id);
+    assert_eq!(child.turn.config.model, "fixture");
+    super::super::fixture::finish(&mut fixture, child.turn.id).await;
+    let chosen = role::Model {
+        provider: provider_id,
+        model: "chosen".into(),
+        effort: None,
+    };
+    let Output::Session(session) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SetSessionMemberModel {
+            session: session.id,
+            expected_revision: session.revision,
+            role: role.id,
+            model: Some(chosen.clone()),
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    assert_eq!(session.roles.models.get(&role.id), Some(&chosen));
+    assert_eq!(session.roles.profiles, [role.clone()]);
+    let child = invoke(
+        &mut fixture,
+        first,
+        json!({"role":"review","task":"Inspect"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(child.turn.config.provider, provider_id);
+    assert_eq!(child.turn.config.model, "fixture");
+    super::super::fixture::finish(&mut fixture, child.turn.id).await;
+    super::super::fixture::finish(&mut fixture, first).await;
+    let second = start(&mut fixture).await;
+    let child = invoke(
+        &mut fixture,
+        second,
+        json!({"role":"review","task":"Inspect"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(child.turn.config.provider, provider_id);
+    assert_eq!(child.turn.config.model, "chosen");
+    assert!(
+        crate::store::sessions::roles::for_turn(&fixture.database.connection, first)
+            .await
+            .unwrap()
+            .models
+            .is_empty()
+    );
+}

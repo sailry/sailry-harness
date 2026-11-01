@@ -188,7 +188,12 @@ pub(super) fn validate_model(
     Ok(())
 }
 
-pub(super) async fn remove(db: &Connection, id: RoleId, expected: u64) -> Result<(), Fault> {
+/// Returns the teams whose members were pruned in the same transaction.
+pub(super) async fn remove(
+    db: &Connection,
+    id: RoleId,
+    expected: u64,
+) -> Result<Vec<sailry_protocol::team::Profile>, Fault> {
     let role = get(db, id)
         .await?
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "role does not exist"))?;
@@ -201,5 +206,5 @@ pub(super) async fn remove(db: &Connection, id: RoleId, expected: u64) -> Result
     db.execute("DELETE FROM roles WHERE id=?1", [id.to_string()])
         .await
         .map_err(storage_error)?;
-    Ok(())
+    super::teams::prune(db, id).await
 }

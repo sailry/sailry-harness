@@ -72,7 +72,8 @@ pub(super) async fn capture(
     let mut provider: Option<Provider> = body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?;
-    if let Some(model) = role.as_ref().and_then(|role| role.model.as_ref()) {
+    // A member override precedes the captured role model; neither inherits the parent model.
+    if let Some(model) = role.as_ref().and_then(|role| roster.model(role)) {
         let selected = roster
             .providers
             .iter()

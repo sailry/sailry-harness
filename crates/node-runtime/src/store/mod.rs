@@ -44,6 +44,7 @@ mod sandbox;
 mod search;
 mod sessions;
 mod ssh;
+mod teams;
 mod telemetry;
 mod terminals;
 mod transfers;

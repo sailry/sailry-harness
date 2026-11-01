@@ -525,10 +525,30 @@ pub(super) fn execute<'a>(
             expected_revision,
         } => defer(move || async move {
             super::roles::approvals::check(db, request).await?;
-            super::roles::remove(db, *role, *expected_revision).await?;
+            let teams = super::roles::remove(db, *role, *expected_revision).await?;
             Ok((
                 Output::Roles(super::roles::list(db).await?),
-                Some(Event::RoleRemoved { id: *role }),
+                Some(Event::RoleRemoved { id: *role, teams }),
+            ))
+        }),
+        Command::ListTeams => {
+            defer(move || async move { Ok((Output::Teams(super::teams::list(db).await?), None)) })
+        }
+        Command::SaveTeam {
+            team,
+            expected_revision,
+        } => defer(move || async move {
+            let team = super::teams::put(db, team, *expected_revision).await?;
+            Ok((Output::Team(team.clone()), Some(Event::TeamChanged(team))))
+        }),
+        Command::RemoveTeam {
+            team,
+            expected_revision,
+        } => defer(move || async move {
+            super::teams::remove(db, *team, *expected_revision).await?;
+            Ok((
+                Output::Teams(super::teams::list(db).await?),
+                Some(Event::TeamRemoved { id: *team }),
             ))
         }),
         Command::ResolveQuestion {
@@ -1296,7 +1316,33 @@ pub(super) fn execute<'a>(
             let mut session = session(db, *id).await?;
             super::sessions::writable(&session)?;
             check_revision(session.revision, *expected_revision)?;
-            session.roles = super::sessions::roles::select(db, node, roles).await?;
+            session.roles = super::sessions::roles::select(db, node, roles, session.roles).await?;
+            revise_session(db, session).await
+        }),
+        Command::SetSessionTeam {
+            session: id,
+            expected_revision,
+            team,
+        } => defer(move || async move {
+            let mut session = session(db, *id).await?;
+            super::sessions::writable(&session)?;
+            check_revision(session.revision, *expected_revision)?;
+            session.roles =
+                super::sessions::roles::team(db, node, team.as_ref(), Default::default()).await?;
+            revise_session(db, session).await
+        }),
+        Command::SetSessionMemberModel {
+            session: id,
+            expected_revision,
+            role,
+            model,
+        } => defer(move || async move {
+            let mut session = session(db, *id).await?;
+            super::sessions::writable(&session)?;
+            check_revision(session.revision, *expected_revision)?;
+            session.roles =
+                super::sessions::roles::assign(db, node, session.roles, *role, model.clone())
+                    .await?;
             revise_session(db, session).await
         }),
         Command::CompactContext {
@@ -1589,6 +1635,7 @@ async fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         provider_quotas: super::providers::quota::list(db, node).await?,
         model_catalog: super::providers::catalog::status(db).await?,
         roles: super::roles::list(db).await?,
+        teams: super::teams::list(db).await?,
         ssh: super::ssh::list(db).await?,
         databases: super::databases::list(db).await?,
         plugins: super::plugins::list(db).await?,

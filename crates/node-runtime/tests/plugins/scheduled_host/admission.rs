@@ -25,6 +25,8 @@ async fn start_captures_defaults_once() {
             config: None,
             title: "Atomic start".into(),
             message: conversation::Input::default(),
+            team: None,
+            models: Default::default(),
         };
         let invalid = client
             .prepare(Command::StartSession(draft.clone()))

@@ -8,6 +8,8 @@ use std::time::Duration;
 mod defaults;
 #[path = "roles/sessions.rs"]
 mod sessions;
+#[path = "roles/teams.rs"]
+mod teams;
 
 fn profile(key: &str) -> role::Profile {
     role::Profile {

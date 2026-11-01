@@ -76,6 +76,7 @@ async fn rejects_rotating_grant_copies() {
                     instructions: "Review the task".into(),
                 }],
                 providers: vec![provider.clone()],
+                ..Default::default()
             };
             bundle.role_credentials = vec![role::ProviderSecret {
                 provider: provider.id,

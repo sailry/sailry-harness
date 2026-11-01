@@ -2,10 +2,12 @@
 use super::*;
 use crate::store::{agent::providers, database::Database};
 
+/// Replace the roster while retaining the team, lead instructions and remaining overrides.
 pub(in crate::store) async fn select(
     db: &Connection,
     node: NodeId,
     references: &[role::Reference],
+    previous: role::Snapshot,
 ) -> Result<role::Snapshot, Fault> {
     let ids: std::collections::BTreeSet<_> = references.iter().map(|role| role.id).collect();
     if ids.len() != references.len() {
@@ -19,7 +21,20 @@ pub(in crate::store) async fn select(
         crate::store::commands::check_revision(profile.revision, reference.revision)?;
         profiles.push(profile);
     }
-    capture(db, node, profiles).await
+    let mut models = previous.models;
+    models.retain(|role, _| ids.contains(role));
+    complete(
+        db,
+        node,
+        role::Snapshot {
+            profiles,
+            providers: vec![],
+            team: previous.team,
+            instructions: previous.instructions,
+            models,
+        },
+    )
+    .await
 }
 
 pub(in crate::store) async fn capture(
@@ -27,24 +42,91 @@ pub(in crate::store) async fn capture(
     node: NodeId,
     profiles: Vec<role::Profile>,
 ) -> Result<role::Snapshot, Fault> {
+    complete(
+        db,
+        node,
+        role::Snapshot {
+            profiles,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+/// Capture an exact team revision, or the whole catalog for the Default team.
+pub(in crate::store) async fn team(
+    db: &Connection,
+    node: NodeId,
+    reference: Option<&team::Reference>,
+    models: std::collections::BTreeMap<RoleId, role::Model>,
+) -> Result<role::Snapshot, Fault> {
     let mut snapshot = role::Snapshot {
-        profiles,
-        providers: vec![],
+        models,
+        ..Default::default()
     };
-    for profile in &snapshot.profiles {
-        if let Some(model) = &profile.model
-            && !snapshot
-                .providers
-                .iter()
-                .any(|provider| provider.id == model.provider)
-        {
-            let mut provider = providers::get(db, model.provider).await?.ok_or_else(|| {
-                Fault::new(ErrorCode::NotConfigured, "role provider is unavailable")
-            })?;
-            crate::store::providers::presets::capture(db, &mut provider).await?;
-            crate::providers::login::capture(&mut provider)?;
-            snapshot.providers.push(provider);
+    match reference {
+        None => snapshot.profiles = crate::store::roles::list(db).await?,
+        Some(reference) => {
+            let team = crate::store::teams::get(db, reference.id)
+                .await?
+                .ok_or_else(|| Fault::new(ErrorCode::NotFound, "team does not exist"))?;
+            crate::store::commands::check_revision(team.revision, reference.revision)?;
+            for member in &team.members {
+                snapshot.profiles.push(
+                    crate::store::roles::get(db, *member)
+                        .await?
+                        .ok_or_else(|| Fault::new(ErrorCode::NotFound, "role does not exist"))?,
+                );
+            }
+            snapshot.team = Some(*reference);
+            snapshot.instructions = team.instructions;
         }
+    }
+    complete(db, node, snapshot).await
+}
+
+/// Set or clear one member override for future delegation.
+pub(in crate::store) async fn assign(
+    db: &Connection,
+    node: NodeId,
+    mut snapshot: role::Snapshot,
+    role: RoleId,
+    model: Option<role::Model>,
+) -> Result<role::Snapshot, Fault> {
+    if !snapshot.profiles.iter().any(|profile| profile.id == role) {
+        return Err(Fault::new(
+            ErrorCode::NotFound,
+            "role is not in the session roster",
+        ));
+    }
+    match model {
+        Some(model) => snapshot.models.insert(role, model),
+        None => snapshot.models.remove(&role),
+    };
+    complete(db, node, snapshot).await
+}
+
+/// Capture current providers for every role model and member override.
+async fn complete(
+    db: &Connection,
+    node: NodeId,
+    mut snapshot: role::Snapshot,
+) -> Result<role::Snapshot, Fault> {
+    snapshot.providers.clear();
+    let required: std::collections::BTreeSet<_> = snapshot
+        .profiles
+        .iter()
+        .filter_map(|profile| profile.model.as_ref())
+        .chain(snapshot.models.values())
+        .map(|model| model.provider)
+        .collect();
+    for id in required {
+        let mut provider = providers::get(db, id)
+            .await?
+            .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "role provider is unavailable"))?;
+        crate::store::providers::presets::capture(db, &mut provider).await?;
+        crate::providers::login::capture(&mut provider)?;
+        snapshot.providers.push(provider);
     }
     validate(db, node, &snapshot).await?;
     Ok(snapshot)
@@ -55,15 +137,18 @@ async fn validate(db: &Connection, node: NodeId, snapshot: &role::Snapshot) -> R
     for provider in &snapshot.providers {
         providers::validate(db, node, provider).await?;
     }
-    for profile in &snapshot.profiles {
-        if let Some(model) = &profile.model {
-            let provider = snapshot
-                .providers
-                .iter()
-                .find(|provider| provider.id == model.provider)
-                .expect("snapshot provider references were validated");
-            crate::store::roles::validate_model(provider, model)?;
-        }
+    for model in snapshot
+        .profiles
+        .iter()
+        .filter_map(|profile| profile.model.as_ref())
+        .chain(snapshot.models.values())
+    {
+        let provider = snapshot
+            .providers
+            .iter()
+            .find(|provider| provider.id == model.provider)
+            .expect("snapshot provider references were validated");
+        crate::store::roles::validate_model(provider, model)?;
     }
     Ok(())
 }
@@ -171,10 +256,13 @@ pub(in crate::store) async fn import(
             .await?;
             provider.credential = Some(CredentialRef { node, id });
         }
-        for profile in &mut snapshot.profiles {
-            if let Some(model) = &mut profile.model
-                && model.provider == original
-            {
+        for model in snapshot
+            .profiles
+            .iter_mut()
+            .filter_map(|profile| profile.model.as_mut())
+            .chain(snapshot.models.values_mut())
+        {
+            if model.provider == original {
                 model.provider = provider.id;
             }
         }

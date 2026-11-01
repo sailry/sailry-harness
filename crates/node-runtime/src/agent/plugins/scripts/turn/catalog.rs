@@ -59,7 +59,7 @@ pub(super) fn input(
         .map(|profile| {
             let mut summary = role_summary(profile);
             summary["tools"] = json!(role_tools(
-                profile.model.as_ref(),
+                invocation.turn.roles.model(profile),
                 &invocation.turn.roles.providers,
             ));
             summary

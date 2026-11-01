@@ -218,6 +218,7 @@ async fn refreshes_roles_without_changing_captured_configuration() {
             instructions: String::new(),
         }],
         providers: vec![admitted.clone()],
+        ..Default::default()
     };
     roster.validate().unwrap();
     configured.consent.as_mut().unwrap().scopes = Scopes {

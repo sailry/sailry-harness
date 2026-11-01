@@ -2,18 +2,18 @@ use super::*;
 
 const MESSAGE: &str = "Remain queued 中文 🙂";
 
-async fn execute(client: &Client, command: Command) -> Output {
+pub(super) async fn execute(client: &Client, command: Command) -> Output {
     client.execute(client.prepare(command)).await.unwrap()
 }
 
-async fn snapshot(client: &Client) -> sailry_protocol::Snapshot {
+pub(super) async fn snapshot(client: &Client) -> sailry_protocol::Snapshot {
     let Output::Snapshot(snapshot) = execute(client, Command::Snapshot).await else {
         panic!("snapshot expected")
     };
     snapshot
 }
 
-async fn provider(client: &Client, secret: Option<&str>) -> Provider {
+pub(super) async fn provider(client: &Client, secret: Option<&str>) -> Provider {
     let Output::Provider(provider) = execute(
         client,
         Command::SaveProvider {
@@ -61,7 +61,11 @@ async fn provider(client: &Client, secret: Option<&str>) -> Provider {
     provider
 }
 
-async fn create(client: &Client, root: &std::path::Path, provider: &Provider) -> Session {
+pub(super) async fn create(
+    client: &Client,
+    root: &std::path::Path,
+    provider: &Provider,
+) -> Session {
     let Output::Project(project) = execute(
         client,
         Command::RegisterProject {
@@ -118,7 +122,7 @@ async fn fixed(client: &Client, provider: &Provider, key: &str) -> role::Profile
     put(client, role, 0).await.unwrap()
 }
 
-async fn queue(client: &Client, session: &Session) -> QueuedTurn {
+pub(super) async fn queue(client: &Client, session: &Session) -> QueuedTurn {
     let Output::QueuedTurn(turn) = execute(
         client,
         Command::QueueTurn {

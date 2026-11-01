@@ -432,6 +432,12 @@ async fn execute_with(
             ));
         }
     }
+    // Frozen on the session revision, so the lead prompt stays stable across turns.
+    let lead = invocation.turn.roles.instructions.trim();
+    if invocation.child.is_none() && !lead.is_empty() {
+        policy.push_str("\n\nTeam instructions\n");
+        policy.push_str(lead);
+    }
     let mut extensions = plugins::bind(
         ingress,
         tasks,

@@ -18,7 +18,7 @@ pub(in crate::store) async fn start(
             )
         })?,
     };
-    let roles = roles::capture(db, node, super::super::roles::list(db).await?).await?;
+    let roles = roles::team(db, node, draft.team.as_ref(), draft.models.clone()).await?;
     let (Output::Session(session), _) = create(
         db,
         node,

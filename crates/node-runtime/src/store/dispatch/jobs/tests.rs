@@ -27,6 +27,8 @@ async fn ordinary_callbacks_retain_exact_authority() {
                 config: None,
                 title: "Scheduled".into(),
                 message: "Initial".to_owned().into(),
+                team: None,
+                models: Default::default(),
             },
         )),
         bindings: std::collections::BTreeMap::from([(
