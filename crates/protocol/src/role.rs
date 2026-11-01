@@ -1,6 +1,7 @@
 //! Node-owned named roles. Session execution freezes the selected definitions separately.
 use crate::{Effort, Fault, ProviderId, RoleId};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// The execution-Node catalog revision explicitly selected by a controller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,9 +15,23 @@ pub struct Reference {
 pub struct Snapshot {
     pub profiles: Vec<Profile>,
     pub providers: Vec<crate::conversation::Provider>,
+    /// The selected team revision; None is the Default team with the whole catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<crate::team::Reference>,
+    /// Frozen lead instructions from the selected team; empty adds nothing.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub instructions: String,
+    /// Per-conversation member models; they never modify the role catalog.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub models: BTreeMap<RoleId, Model>,
 }
 
 impl Snapshot {
+    /// The override, else the captured role model; None follows the lead's model.
+    pub fn model(&self, profile: &Profile) -> Option<&Model> {
+        self.models.get(&profile.id).or(profile.model.as_ref())
+    }
+
     pub fn validate(&self) -> Result<(), Fault> {
         use std::collections::BTreeSet;
         let mut ids = BTreeSet::new();
@@ -32,6 +47,14 @@ impl Snapshot {
             if let Some(model) = &profile.model {
                 required.insert(model.provider);
             }
+        }
+        for (role, model) in &self.models {
+            if !ids.contains(role) || model.model.trim().is_empty() {
+                return Err(crate::Fault::invalid(
+                    "member models must select a nonempty model for a session role",
+                ));
+            }
+            required.insert(model.provider);
         }
         let providers: BTreeSet<_> = self.providers.iter().map(|provider| provider.id).collect();
         if providers.len() != self.providers.len() || providers != required {
@@ -90,13 +113,7 @@ impl Profile {
     }
 
     pub fn validate(&self) -> Result<(), Fault> {
-        let key = self.key.as_bytes();
-        if !key.first().is_some_and(u8::is_ascii_lowercase)
-            || !key.last().is_some_and(u8::is_ascii_alphanumeric)
-            || !key.iter().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_-".contains(byte)
-            })
-        {
+        if !key(&self.key) {
             return Err(crate::Fault::invalid(
                 "role key must use lowercase letters, digits, underscores or hyphens",
             ));
@@ -104,10 +121,7 @@ impl Profile {
         if self.name.trim().is_empty() || self.max_turns == Some(0) {
             return Err(crate::Fault::invalid("role text or turn limit is invalid"));
         }
-        if self.appearance.as_ref().is_some_and(|appearance| {
-            !crate::projects::ICONS.contains(&appearance.icon.as_str())
-                || !crate::projects::COLORS.contains(&appearance.color.as_str())
-        }) {
+        if !appearance(self.appearance.as_ref()) {
             return Err(crate::Fault::invalid("role appearance is invalid"));
         }
         if self
@@ -141,6 +155,23 @@ impl Profile {
         }
         Ok(())
     }
+}
+
+/// Selection keys shared by roles and teams.
+pub(crate) fn key(value: &str) -> bool {
+    let key = value.as_bytes();
+    key.first().is_some_and(u8::is_ascii_lowercase)
+        && key.last().is_some_and(u8::is_ascii_alphanumeric)
+        && key
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_-".contains(byte))
+}
+
+pub(crate) fn appearance(value: Option<&crate::projects::Appearance>) -> bool {
+    value.is_none_or(|appearance| {
+        crate::projects::ICONS.contains(&appearance.icon.as_str())
+            && crate::projects::COLORS.contains(&appearance.color.as_str())
+    })
 }
 
 #[cfg(test)]

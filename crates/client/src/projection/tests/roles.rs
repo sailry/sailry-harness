@@ -49,7 +49,16 @@ fn updates_identity_and_order() {
         [role.clone(), other.clone()]
     );
     projection
-        .apply(1, update(4, Event::RoleRemoved { id: role.id }))
+        .apply(
+            1,
+            update(
+                4,
+                Event::RoleRemoved {
+                    id: role.id,
+                    teams: vec![],
+                },
+            ),
+        )
         .unwrap();
     assert_eq!(projection.snapshot().unwrap().roles, [other]);
 }

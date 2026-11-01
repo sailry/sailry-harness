@@ -246,6 +246,8 @@ where
                         config: config.map(|config| *config),
                         title,
                         message,
+                        team: None,
+                        models: Default::default(),
                     })
                 }
             };

@@ -17,6 +17,7 @@ fn catalog_reads_ignore_conversation_traffic() {
             2,
             Event::RoleRemoved {
                 id: sailry_protocol::RoleId::new(),
+                teams: vec![],
             },
             &roles[..],
         ),

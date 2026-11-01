@@ -166,6 +166,7 @@ mod snapshot {
         let mut snapshot = Snapshot {
             profiles: vec![role.clone()],
             providers: vec![],
+            ..Default::default()
         };
         snapshot.validate().unwrap();
         assert_eq!(

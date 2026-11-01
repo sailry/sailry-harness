@@ -69,6 +69,7 @@ identifier!(
     ArtifactId,
     CredentialId,
     RoleId,
+    TeamId,
     SshId,
     DatabaseId,
     ProviderId,

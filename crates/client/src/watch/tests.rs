@@ -138,6 +138,7 @@ fn snapshot(node: NodeId, cursor: u64) -> Snapshot {
         provider_quotas: vec![],
         model_catalog: Default::default(),
         roles: vec![],
+        teams: vec![],
         ssh: vec![],
         databases: vec![],
         plugins: vec![],

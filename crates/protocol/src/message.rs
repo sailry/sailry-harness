@@ -639,6 +639,16 @@ pub enum Command {
         role: crate::RoleId,
         expected_revision: u64,
     },
+    /// Stored teams only; the virtual Default team selects the whole role catalog.
+    ListTeams,
+    SaveTeam {
+        team: crate::team::Profile,
+        expected_revision: u64,
+    },
+    RemoveTeam {
+        team: crate::TeamId,
+        expected_revision: u64,
+    },
     ListProviders,
     /// Explicit API-key read for the provider editor; never returns login tokens.
     ReadProviderKey {
@@ -1583,6 +1593,20 @@ pub enum Command {
         expected_revision: u64,
         roles: Vec<crate::role::Reference>,
     },
+    /// Capture a team's members and lead instructions; None selects the Default team.
+    /// Clears member models and affects future admission only.
+    SetSessionTeam {
+        session: SessionId,
+        expected_revision: u64,
+        team: Option<crate::team::Reference>,
+    },
+    /// Set or clear one member's model for future delegation in this session.
+    SetSessionMemberModel {
+        session: SessionId,
+        expected_revision: u64,
+        role: crate::RoleId,
+        model: Option<crate::role::Model>,
+    },
     QueueTurn {
         session: SessionId,
         expected_revision: u64,
@@ -1650,6 +1674,7 @@ impl Command {
                 | Self::ReadPluginConnection { .. }
                 | Self::ReadPluginView { .. }
                 | Self::ListRoles
+                | Self::ListTeams
                 | Self::ListProviders
                 | Self::ReadProviderKey { .. }
                 | Self::ListChannelPresets { .. }
@@ -1816,6 +1841,8 @@ pub struct Snapshot {
     pub provider_quotas: Vec<crate::conversation::quota::Snapshot>,
     pub model_catalog: crate::conversation::catalog::Status,
     pub roles: Vec<crate::role::Profile>,
+    #[serde(default)]
+    pub teams: Vec<crate::team::Profile>,
     pub ssh: Vec<crate::ssh::Profile>,
     pub databases: Vec<crate::database::Profile>,
     pub plugins: Vec<crate::plugin::Summary>,
@@ -1958,6 +1985,8 @@ pub enum Output {
     Plugins(Vec<crate::plugin::Summary>),
     Role(crate::role::Profile),
     Roles(Vec<crate::role::Profile>),
+    Team(crate::team::Profile),
+    Teams(Vec<crate::team::Profile>),
     CommandResult(crate::process::Completion),
     CommandStarted(crate::process::Info),
     CommandInputAccepted {
@@ -2216,8 +2245,15 @@ pub enum Event {
     DatabaseRemoved {
         id: crate::DatabaseId,
     },
+    /// Teams whose members were pruned in the same transaction, at their new revisions.
     RoleRemoved {
         id: crate::RoleId,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        teams: Vec<crate::team::Profile>,
+    },
+    TeamChanged(crate::team::Profile),
+    TeamRemoved {
+        id: crate::TeamId,
     },
     ProviderChanged(crate::conversation::Provider),
     /// Invalidates public credential metadata; authorization values stay on the Node.

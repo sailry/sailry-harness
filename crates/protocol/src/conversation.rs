@@ -42,6 +42,12 @@ pub struct Start {
     pub config: Option<crate::SessionConfig>,
     pub title: String,
     pub message: Input,
+    /// None selects the Default team with the whole role catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<crate::team::Reference>,
+    /// Member model overrides for the selected team's roles.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub models: std::collections::BTreeMap<crate::RoleId, crate::role::Model>,
 }
 
 impl From<String> for Input {

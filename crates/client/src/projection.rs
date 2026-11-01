@@ -222,7 +222,14 @@ impl Projection {
                             .roles
                             .sort_by(|left, right| left.key.cmp(&right.key));
                     }
-                    Event::RoleRemoved { id } => snapshot.roles.retain(|item| item.id != id),
+                    Event::RoleRemoved { id, teams } => {
+                        snapshot.roles.retain(|item| item.id != id);
+                        for team in teams {
+                            replace_team(&mut snapshot.teams, team);
+                        }
+                    }
+                    Event::TeamChanged(team) => replace_team(&mut snapshot.teams, team),
+                    Event::TeamRemoved { id } => snapshot.teams.retain(|item| item.id != id),
                     Event::SshChanged(profile) => {
                         snapshot.ssh.retain(|item| item.id != profile.id);
                         snapshot.ssh.push(profile);
@@ -408,6 +415,16 @@ fn update_session(sessions: &mut Vec<Session>, session: Session) {
     } else {
         sessions.insert(0, session);
     }
+}
+
+/// Teams keep the Node's key order, matching ListTeams and the snapshot.
+fn replace_team(
+    teams: &mut Vec<sailry_protocol::team::Profile>,
+    team: sailry_protocol::team::Profile,
+) {
+    teams.retain(|item| item.id != team.id);
+    teams.push(team);
+    teams.sort_by(|left, right| left.key.cmp(&right.key));
 }
 
 fn advance_credentials(cursor: &mut u64) -> Result<(), Fault> {
