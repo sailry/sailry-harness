@@ -816,7 +816,7 @@ async fn retains_guidance_at_iteration_limit() {
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
         release.cancel();
         fixture.child.wait_count(2).await;
-        let page = finished(&fixture.client, child.id, guided.id).await;
+        let page = finished(&fixture.client, child.id, recipient.turn).await;
         assert_eq!(status(&page, recipient.turn), Status::Completed);
         assert_eq!(status(&page, guided.id), Status::Continued);
         assert_eq!(
