@@ -38,6 +38,7 @@ pub(crate) mod extensions;
 mod power;
 mod shortcuts;
 mod skills;
+mod teams;
 mod telemetry;
 mod terminal;
 pub(super) mod upload;
@@ -101,6 +102,7 @@ pub enum Section {
     Skills,
     Connections,
     Connectors,
+    Teams,
     Shortcuts,
     Dictation,
     Permissions,
@@ -126,6 +128,7 @@ impl Section {
             &[
                 Self::Providers,
                 Self::Connectors,
+                Self::Teams,
                 Self::Plugins,
                 Self::Skills,
                 Self::Knowledge,
@@ -157,6 +160,7 @@ impl Section {
             Self::Backup | Self::Decision => 300,
             Self::Appearance | Self::Connections => 200,
             Self::Connectors => 150,
+            Self::Teams => 155,
             Self::Plugins => 160,
             Self::Skills => 170,
             Self::Conversation => 300,
@@ -188,6 +192,7 @@ impl Section {
             Self::Skills => "settings_skills",
             Self::Connections => "settings_connections",
             Self::Connectors => "settings_connectors",
+            Self::Teams => "settings_teams",
             Self::Shortcuts => "settings_shortcuts",
             Self::Dictation => "settings_dictation",
             Self::Permissions => "settings_permissions",
@@ -213,6 +218,7 @@ impl Section {
             Self::Skills => IconName::Bot,
             Self::Connections => IconName::Network,
             Self::Connectors => return gpui_kit::assets::IconName::Plug.into(),
+            Self::Teams => return gpui_kit::assets::IconName::Users.into(),
             Self::Shortcuts => IconName::ALargeSmall,
             Self::Dictation => IconName::ALargeSmall,
             Self::Permissions => IconName::Settings2,
@@ -254,6 +260,7 @@ pub struct Workspace {
     extensions: extensions::State,
     roles: Vec<roles::Role>,
     role_catalog: roles::Catalog,
+    teams: teams::State,
     skills: Vec<skills::Skill>,
     skill_state: skills::State,
     plugins: Vec<plugins::Plugin>,
@@ -373,6 +380,7 @@ impl Workspace {
             extensions: Default::default(),
             roles: vec![roles::Role::example()],
             role_catalog: roles::Catalog::default(),
+            teams: teams::State::new(cx),
             skills: skills::Skill::examples(),
             skill_state: skills::State::new(window, cx),
             plugins: vec![plugins::Plugin::example()],
@@ -441,6 +449,7 @@ impl Render for Workspace {
         let content = match self.section {
             Section::Connections => self.connections.clone().into_any_element(),
             Section::Connectors => self.connectors(window, cx),
+            Section::Teams => self.team_page(cx),
             Section::Providers => self.providers(window, cx),
             Section::Plugin => self.plugin_settings(window, cx),
             Section::General => self.preferences(window, cx),

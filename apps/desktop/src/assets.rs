@@ -157,6 +157,7 @@ gpui_kit::assets::icon_assets!(
         Cloud,
         Database,
         Users,
+        Crown,
         Shield,
         Wrench,
         Server,
@@ -670,6 +671,7 @@ mod tests {
             "icons/plug.svg",
             "icons/brain-circuit.svg",
             "icons/zap.svg",
+            "icons/crown.svg",
         ] {
             let expected = SettingsAssets.load(path).unwrap().unwrap();
             assert_eq!(Assets.load(path).unwrap().unwrap(), expected);
