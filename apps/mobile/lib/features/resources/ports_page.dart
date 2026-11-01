@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:sailry_bridge/api/commands.dart';
 
 import '../../l10n/strings.dart';
 import '../../runtime/session.dart';
@@ -11,6 +9,7 @@ import '../../runtime/json.dart';
 import '../../runtime/notices.dart';
 import '../../ui/kit.dart';
 import 'port_preview.dart';
+import 'session_services.dart';
 
 class PortsPage extends StatefulWidget {
   const PortsPage({super.key, required this.host, this.session});
@@ -23,48 +22,23 @@ class PortsPage extends StatefulWidget {
 class _PortsPageState extends State<PortsPage> {
   final _port = TextEditingController();
   late final _mappings = widget.host.ports;
-  CommandUpdates? _updates;
-  Map<String, dynamic> _services = {};
+  late final _services = widget.session == null
+      ? null
+      : SessionServices(widget.host, widget.session!);
   String? _error;
   bool _busy = false;
   bool _previewOpen = false;
-  bool _watching = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.session != null) unawaited(_watchServices());
-  }
-
-  Future<void> _watchServices() async {
-    if (_watching) return;
-    _watching = true;
-    CommandUpdates? updates;
-    try {
-      updates = await widget.host.connection.watchCommands(
-        session: widget.session!,
-      );
-      if (!mounted) return;
-      _updates = updates;
-      while (mounted) {
-        final view = object(jsonDecode(await updates.next()));
-        if (!mounted) return;
-        setState(() => _services = view);
-      }
-    } catch (_) {
-      if (mounted) setState(() => _services = {'connected': false});
-    } finally {
-      _watching = false;
-      _updates = null;
-      if (updates != null) await updates.close().whenComplete(updates.dispose);
-    }
+    unawaited(_services?.watch());
   }
 
   @override
   void dispose() {
     _port.dispose();
-    final updates = _updates;
-    if (updates != null) unawaited(updates.close());
+    _services?.dispose();
     super.dispose();
   }
 
@@ -121,43 +95,34 @@ class _PortsPageState extends State<PortsPage> {
     }
   }
 
-  List<Widget> _serviceRows() {
-    final seen = <int>{};
-    return [
-      for (final command in objects(_services['items']))
-        for (final service in objects(command['services']))
-          if (service['port'] is int && seen.add(service['port'] as int))
-            ListTile(
-              key: ValueKey('service-${service['port']}'),
-              title: Text(
-                _mappings.entries[service['port']]?.listening.value == true
-                    ? '${service['port']} → ${_mappings.entries[service['port']]!.local}'
-                    : '${service['port']}',
-              ),
-              subtitle: Text(text(service['url'])),
-              trailing: IconButton(
-                tooltip: context.tr('resourceServiceOpen'),
-                icon: const AppIcon('link'),
-                onPressed:
-                    _busy || _mappings.busy || _services['connected'] != true
-                    ? null
-                    : () => _open(
-                        source: {
-                          'session': widget.session,
-                          'command': command['id'],
-                          'service': service,
-                        },
-                      ),
-              ),
-            ),
-    ];
-  }
+  List<Widget> _serviceRows() => [
+    for (final source in _services!.sources())
+      if (object(source['service']) case final service)
+        ListTile(
+          key: ValueKey('service-${service['port']}'),
+          title: Text(
+            _mappings.entries[service['port']]?.listening.value == true
+                ? '${service['port']} → ${_mappings.entries[service['port']]!.local}'
+                : '${service['port']}',
+          ),
+          subtitle: Text(text(service['url'])),
+          trailing: IconButton(
+            tooltip: context.tr('resourceServiceOpen'),
+            icon: const AppIcon('link'),
+            onPressed:
+                _busy || _mappings.busy || _services.value['connected'] != true
+                ? null
+                : () => _open(source: source),
+          ),
+        ),
+  ];
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _mappings,
+    listenable: Listenable.merge([_mappings, ?_services]),
     builder: (context, _) {
-      final rows = _serviceRows();
+      final services = _services?.value ?? const {};
+      final rows = _services == null ? const <Widget>[] : _serviceRows();
       return PageFrame(
         title: context.tr('ports'),
         loading: _busy || _mappings.busy,
@@ -173,11 +138,11 @@ class _PortsPageState extends State<PortsPage> {
                       context.tr('resourceSessionServices'),
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    if (_services.isEmpty)
+                    if (services.isEmpty)
                       const LinearProgressIndicator()
-                    else if (_services['connected'] != true)
+                    else if (services['connected'] != true)
                       TextButton(
-                        onPressed: _watchServices,
+                        onPressed: _services?.watch,
                         child: Text(context.tr('resourceServicesUnavailable')),
                       )
                     else if (rows.isEmpty)

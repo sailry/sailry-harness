@@ -13,6 +13,7 @@ import '../../resources/resources_page.dart';
 import '../../resources/ports_page.dart';
 import '../message_composer.dart';
 import '../conversation_frame.dart';
+import 'activity_strip.dart';
 import 'attachments.dart';
 import 'configuration.dart';
 import 'connection_status.dart';
@@ -646,62 +647,75 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
               ],
             ),
           ),
-          composer: delegated
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (objects(queue['items']).isNotEmpty)
-                      QueueSummary(queue: queue, onOpen: _queue),
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        20,
-                        12,
-                        20,
-                        MediaQuery.paddingOf(context).bottom + 12,
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              context.tr('conversationChildReadonly'),
-                            ),
+          composer: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ActivityStrip(
+                key: ValueKey(('activity', widget.host.id, widget.sessionId)),
+                host: widget.host,
+                session: _session,
+                updates: _view,
+                onOpenChild: _openChild,
+              ),
+              delegated
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (objects(queue['items']).isNotEmpty)
+                          QueueSummary(queue: queue, onOpen: _queue),
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            20,
+                            12,
+                            20,
+                            MediaQuery.paddingOf(context).bottom + 12,
                           ),
-                          if (_active.isNotEmpty)
-                            FilledButton(
-                              onPressed: connected ? _stop : null,
-                              child: Text(context.tr('stop')),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                )
-              : MessageComposer(
-                  controller: _draft,
-                  attachments: _attachments.isEmpty
-                      ? null
-                      : DraftAttachments(
-                          attachments: _attachments,
-                          onRemove: (attachment) =>
-                              setState(() => _attachments.remove(attachment)),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  context.tr('conversationChildReadonly'),
+                                ),
+                              ),
+                              if (_active.isNotEmpty)
+                                FilledButton(
+                                  onPressed: connected ? _stop : null,
+                                  child: Text(context.tr('stop')),
+                                ),
+                            ],
+                          ),
                         ),
-                  attached: false,
-                  busy: _active.isNotEmpty,
-                  enabled:
-                      connected &&
-                      !_historyBusy &&
-                      _historyPending == null &&
-                      !_sending &&
-                      _pendingSend == null &&
-                      _session['archived'] != true,
-                  onAttachment: (_) => _attach(),
-                  onVoice: _voice,
-                  onStop: _stop,
-                  onSend: _send,
-                  priority: objects(queue['items']).isEmpty
-                      ? null
-                      : QueueSummary(queue: queue, onOpen: _queue),
-                ),
+                      ],
+                    )
+                  : MessageComposer(
+                      controller: _draft,
+                      attachments: _attachments.isEmpty
+                          ? null
+                          : DraftAttachments(
+                              attachments: _attachments,
+                              onRemove: (attachment) => setState(
+                                () => _attachments.remove(attachment),
+                              ),
+                            ),
+                      attached: false,
+                      busy: _active.isNotEmpty,
+                      enabled:
+                          connected &&
+                          !_historyBusy &&
+                          _historyPending == null &&
+                          !_sending &&
+                          _pendingSend == null &&
+                          _session['archived'] != true,
+                      onAttachment: (_) => _attach(),
+                      onVoice: _voice,
+                      onStop: _stop,
+                      onSend: _send,
+                      priority: objects(queue['items']).isEmpty
+                          ? null
+                          : QueueSummary(queue: queue, onOpen: _queue),
+                    ),
+            ],
+          ),
         );
       },
     );
