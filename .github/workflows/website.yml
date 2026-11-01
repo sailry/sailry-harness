@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'assets/catalogs/**'
       - 'docs/**'
       - 'sdk/plugins.md'
       - 'CHANGELOG.md'

@@ -8,7 +8,7 @@ use std::{collections::BTreeSet, sync::Mutex, time::Duration};
 
 // Source data preserves Codux's relay_presets.json at
 // c9632fabe312e95809bae7ed73b520622ab68233 in crates/codux-remote-transport.
-const URL: &str = "https://raw.githubusercontent.com/sailry/sailry-harness/main/assets/catalogs/network-presets.json";
+const URL: &str = "https://sailry.dev/catalogs/network-presets.json";
 const BYTE_LIMIT: usize = 128 * 1024;
 const PRESET_LIMIT: usize = 32;
 
@@ -73,7 +73,7 @@ impl Directory {
         {
             let cached = self.cached.lock().map_err(|_| unavailable())?;
             // Overlapping requests share the completed refresh, while a later
-            // explicit refresh still reads GitHub again.
+            // explicit refresh still reads the source again.
             if cached.completed != completed {
                 return Ok(cached.listing());
             }

@@ -7,7 +7,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-const URL: &str = "https://raw.githubusercontent.com/sailry/sailry-harness/main/assets/catalogs/model-presets.json";
+const URL: &str = "https://sailry.dev/catalogs/model-presets.json";
 const BUNDLED: &[u8] = include_bytes!("../../../../assets/catalogs/model-presets.json");
 const BYTE_LIMIT: usize = 1024 * 1024;
 const TTL: Duration = Duration::from_secs(15 * 60);
