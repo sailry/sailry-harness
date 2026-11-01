@@ -38,36 +38,24 @@ class _ProviderPageState extends State<ProviderPage> {
     super.dispose();
   }
 
-  Future<void> _fetch() async {
-    final picked = await showDiscoverySheet(context, _controller);
-    if (picked == null || !mounted) return;
-    await attempt(
-      context,
-      () => _controller.save(
-        mergeDiscovered(_controller.provider, picked.models, picked.references),
-      ),
-    );
-  }
+  Future<void> _fetch() => showDiscoverySheet(context, _controller);
 
-  Future<void> _add() async {
-    final id = await editText(
-      context,
-      title: context.tr('providerModelId'),
-      check: (id) => findModel(_controller.provider, id) == null
-          ? null
-          : 'providerModelExists',
-    );
-    if (id == null || !mounted) return;
-    final references = await _controller.references([id]);
-    if (!mounted) return;
-    final model = {'id': id};
-    await attempt(
-      context,
-      () => _controller.save(
-        mergeDiscovered(_controller.provider, [model], references),
-      ),
-    );
-  }
+  Future<void> _add() => editText(
+    context,
+    title: context.tr('providerModelId'),
+    check: (id) => findModel(_controller.provider, id) == null
+        ? null
+        : 'providerModelExists',
+    onSave: (id) async {
+      final references = await _controller.references([id]);
+      if (!mounted) return false;
+      return _controller.save(
+        mergeDiscovered(_controller.provider, [
+          {'id': id},
+        ], references),
+      );
+    },
+  );
 
   Future<void> _remove() async {
     final name = text(_controller.provider['name']);

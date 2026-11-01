@@ -120,7 +120,7 @@ void main() {
   });
 
   group('hunkLines', () {
-    test('drops file metadata and keeps hunk numbering', () {
+    test('drops file headers and keeps hunk numbering', () {
       final rows = hunkLines(
         'diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n'
         '@@ -4,2 +4,2 @@\n-old\n+new\n same\n\\ No newline at end of file',
@@ -132,6 +132,66 @@ void main() {
         'context',
       ]);
       expect((rows[1].before, rows[2].after), (4, 4));
+    });
+
+    test('retains change metadata without hunks', () {
+      for (final (patch, expected) in [
+        (
+          'diff --git a/run b/run\nold mode 100644\nnew mode 100755\n',
+          ['old mode 100644', 'new mode 100755'],
+        ),
+        (
+          'diff --git a/image.png b/image.png\nindex 123..456 100644\n'
+              'Binary files a/image.png and b/image.png differ\n',
+          ['Binary files a/image.png and b/image.png differ'],
+        ),
+        (
+          'diff --git a/empty b/empty\nnew file mode 100644\n'
+              'index 0000000..e69de29\n',
+          ['new file mode 100644'],
+        ),
+        (
+          'diff --git a/empty b/empty\ndeleted file mode 100644\n'
+              'index e69de29..0000000\n',
+          ['deleted file mode 100644'],
+        ),
+        (
+          'diff --git a/old b/new\nsimilarity index 100%\n'
+              'rename from old\nrename to new\n',
+          ['similarity index 100%', 'rename from old', 'rename to new'],
+        ),
+      ]) {
+        final rows = hunkLines(patch);
+        expect(rows.map((row) => row.text), expected, reason: patch);
+        expect(rows.every((row) => row.kind == 'header'), isTrue);
+        expect(
+          rows.every((row) => row.before == null && row.after == null),
+          isTrue,
+        );
+      }
+    });
+
+    test('retains modes alongside numbered content changes', () {
+      final rows = hunkLines(
+        'diff --git a/run b/run\nold mode 100644\nnew mode 100755\n'
+        'index 123..456\n--- a/run\n+++ b/run\n'
+        '@@ -4 +8 @@\n-old\n+new\n',
+      );
+      expect(rows.map((row) => row.text), [
+        'old mode 100644',
+        'new mode 100755',
+        '@@ -4 +8 @@',
+        '-old',
+        '+new',
+      ]);
+      expect(rows.map((row) => row.kind), [
+        'header',
+        'header',
+        'header',
+        'removed',
+        'added',
+      ]);
+      expect((rows[3].before, rows[4].after), (4, 8));
     });
   });
 

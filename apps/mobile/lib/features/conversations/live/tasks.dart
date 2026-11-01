@@ -83,10 +83,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     Map<String, dynamic> terminal,
   ) async {
     try {
-      await host.command('close_terminal', {
-        'worktree': terminal['worktree'],
-        'terminal': terminal['id'],
-      });
+      await closeTerminal(host, terminal);
     } catch (error) {
       _error(error);
     }
@@ -107,10 +104,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       context,
       NewConversationPage(
         host: selected,
-        initialProject:
-            _projectHost == selected.id && _project != unassignedProject
-            ? _project
-            : null,
+        initialProject: _projectHost == selected.id ? _project : null,
       ),
     );
   }

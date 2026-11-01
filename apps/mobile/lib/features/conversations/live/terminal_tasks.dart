@@ -24,6 +24,17 @@ String terminalStatus(Map<String, dynamic> terminal) {
   };
 }
 
+Future<void> closeTerminal(
+  HostConnection host,
+  Map<String, dynamic> terminal,
+) async {
+  final ssh = terminal['ssh'] != null;
+  await host.command(ssh ? 'close_ssh_terminal' : 'close_terminal', {
+    if (!ssh) 'worktree': terminal['worktree'],
+    'terminal': terminal['id'],
+  });
+}
+
 class TerminalTask extends StatelessWidget {
   const TerminalTask({
     super.key,

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart' show HostConnection;
+import 'api.dart' as provider_api;
 import 'rules.dart';
 
 /// One provider being edited on its execution Node. Saves are serialized and
@@ -12,11 +13,33 @@ class ProviderController extends ChangeNotifier {
   final HostConnection host;
   Json _provider;
   bool _busy = false;
+  bool _disposed = false;
 
   Json get provider => _provider;
   bool get busy => _busy;
   String get id => text(_provider['id']);
   int get revision => number(_provider['revision']).toInt();
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  /// Endpoint editing follows this Node's effective preset route. Listing the
+  /// directory uses its local declarations and cached partners only.
+  Future<bool> editableEndpoint() async {
+    final known = provider_api.editableEndpoint(_provider, const []);
+    if (known != null) return known;
+    final output = await host.command('list_channel_presets', {
+      'refresh_partners': false,
+    });
+    return provider_api.editableEndpoint(
+          _provider,
+          objects(object(output['data'])['entries']),
+        ) ??
+        false;
+  }
 
   /// Lists providers; Desktop-created presets and logins are included.
   static Future<List<Json>> list(HostConnection host) async =>
@@ -101,7 +124,7 @@ class ProviderController extends ChangeNotifier {
   }
 
   Future<bool> _run(Future<void> Function() action) async {
-    if (_busy) return false;
+    if (_busy || _disposed) return false;
     _busy = true;
     notifyListeners();
     try {
@@ -109,7 +132,7 @@ class ProviderController extends ChangeNotifier {
       return true;
     } finally {
       _busy = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 }

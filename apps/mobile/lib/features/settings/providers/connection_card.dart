@@ -13,7 +13,7 @@ import 'rules.dart';
 const _masked = '••••••••';
 
 /// Connection fields of a provider; each row edits and saves one field.
-/// Preset providers keep the API and endpoint their preset defines.
+/// Preset providers keep their API and the endpoint policy of their route.
 class ConnectionCard extends StatefulWidget {
   const ConnectionCard({
     super.key,
@@ -31,13 +31,30 @@ class _ConnectionCardState extends State<ConnectionCard> {
   /// Revealed key, held only while this card shows it.
   String? _key;
   bool _reading = false;
+  bool _endpointEditable = false;
 
   ProviderController get _controller => widget.controller;
   Json get _provider => _controller.provider;
 
-  Future<void> _save(Json next, {String? secret}) async {
+  @override
+  void initState() {
+    super.initState();
+    _loadEndpoint();
+  }
+
+  Future<void> _loadEndpoint() async {
+    try {
+      final editable = await _controller.editableEndpoint();
+      if (mounted) setState(() => _endpointEditable = editable);
+    } catch (error) {
+      if (mounted) showFailure(context, error);
+    }
+  }
+
+  Future<bool> _save(Json next, {String? secret}) async {
+    if (!mounted) return false;
     setState(() => _key = null);
-    await attempt(context, () => _controller.save(next, secret: secret));
+    return _controller.save(next, secret: secret);
   }
 
   Future<String?> _readKey() async {
@@ -62,53 +79,51 @@ class _ConnectionCardState extends State<ConnectionCard> {
     if (mounted && key != null) setState(() => _key = key);
   }
 
-  Future<void> _editName() async {
-    final name = await editText(
-      context,
-      title: context.tr('configName'),
-      initial: text(_provider['name']),
-      check: (value) => widget.names.contains(value) ? 'configDuplicate' : null,
-    );
-    if (name != null && name != _provider['name'] && mounted) {
-      await _save({..._provider, 'name': name});
-    }
-  }
+  Future<void> _editName() => editText(
+    context,
+    title: context.tr('configName'),
+    initial: text(_provider['name']),
+    check: (value) => widget.names.contains(value) ? 'configDuplicate' : null,
+    onSave: (name) async =>
+        name == _provider['name'] || await _save({..._provider, 'name': name}),
+  );
 
-  Future<void> _editApi() async {
-    final api = await pickApi(context, text(_provider['api']));
-    if (api == null || api == _provider['api'] || !mounted) return;
-    await _save({
-      ..._provider,
-      'api': api,
-      'endpoint': provider_api.fixedEndpoint(api) ?? _provider['endpoint'],
-    });
-  }
+  Future<void> _editApi() => pickApi(
+    context,
+    text(_provider['api']),
+    onSave: (api) async =>
+        api == _provider['api'] ||
+        await _save({
+          ..._provider,
+          'api': api,
+          'endpoint': provider_api.fixedEndpoint(api) ?? _provider['endpoint'],
+        }),
+  );
 
-  Future<void> _editEndpoint() async {
-    final endpoint = await editText(
-      context,
-      title: context.tr('configEndpoint'),
-      initial: text(_provider['endpoint']),
-    );
-    if (endpoint != null && endpoint != _provider['endpoint'] && mounted) {
-      await _save({..._provider, 'endpoint': endpoint});
-    }
-  }
+  Future<void> _editEndpoint() => editText(
+    context,
+    title: context.tr('configEndpoint'),
+    initial: text(_provider['endpoint']),
+    onSave: (endpoint) async =>
+        endpoint == _provider['endpoint'] ||
+        await _save({..._provider, 'endpoint': endpoint}),
+  );
 
   Future<void> _editKey() async {
     final current = _key ?? await _readKey();
     if (current == null || !mounted) return;
-    final key = await editText(
+    await editText(
       context,
       title: context.tr('settingsApiKey'),
       initial: current,
       optional: true,
       secret: true,
-    );
-    if (key == null || key == current || !mounted) return;
-    await _save(
-      key.isEmpty ? {..._provider, 'credential': null} : _provider,
-      secret: key.isEmpty ? null : key,
+      onSave: (key) async =>
+          key == current ||
+          await _save(
+            key.isEmpty ? {..._provider, 'credential': null} : _provider,
+            secret: key.isEmpty ? null : key,
+          ),
     );
   }
 
@@ -137,7 +152,10 @@ class _ConnectionCardState extends State<ConnectionCard> {
         FieldRow(
           label: context.tr('configEndpoint'),
           value: text(provider['endpoint']),
-          onTap: idle && !preset && provider_api.fixedEndpoint(api) == null
+          onTap:
+              idle &&
+                  (provider_api.editableEndpoint(provider, const []) ??
+                      _endpointEditable)
               ? _editEndpoint
               : null,
         ),
@@ -162,7 +180,10 @@ class _ConnectionCardState extends State<ConnectionCard> {
           label: context.tr('settingsEnabled'),
           value: provider['enabled'] != false,
           onChanged: idle
-              ? (enabled) => _save({...provider, 'enabled': enabled})
+              ? (enabled) => attempt(
+                  context,
+                  () => _save({...provider, 'enabled': enabled}),
+                )
               : null,
         ),
       ],

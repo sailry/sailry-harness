@@ -191,10 +191,21 @@ class _DiffFileState extends State<DiffFile> {
   }
 }
 
-/// Hunk rows for a unified view, without file metadata or newline markers.
+const _fileHeaders = [
+  'diff --git ',
+  'index ',
+  '--- ',
+  '+++ ',
+  r'\ No newline at end of file',
+];
+
+/// Hunk rows and change metadata, without repeated file headers or newline markers.
 List<DiffLine> hunkLines(String patch, {bool added = false}) => [
   for (final line in parseLines(patch, added: added))
-    if (line.kind != 'header' || line.text.startsWith('@@')) line,
+    if (line.kind != 'header' ||
+        line.text.isNotEmpty &&
+            !_fileHeaders.any((prefix) => line.text.startsWith(prefix)))
+      line,
 ];
 
 /// Unified diff rows with one line-number gutter and tinted changes.

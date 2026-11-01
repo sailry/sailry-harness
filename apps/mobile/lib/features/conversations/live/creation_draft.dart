@@ -11,6 +11,8 @@ class CreationDraft extends ChangeNotifier {
   }
 
   final HostConnection host;
+
+  /// Null uses the default project; an empty ID selects unassigned chats.
   final String? initialProject;
   Map<String, dynamic>? project;
   Map<String, dynamic>? worktree;
@@ -60,10 +62,14 @@ class CreationDraft extends ChangeNotifier {
 
   void _sync() {
     final projects = objects(host.snapshot['projects']);
-    project =
-        projects.where((item) => item['id'] == project?['id']).firstOrNull ??
-        projects.where((item) => item['id'] == initialProject).firstOrNull ??
-        projects.firstOrNull;
+    project = projects
+        .where((item) => item['id'] == project?['id'])
+        .firstOrNull;
+    if (project == null && initialProject != '') {
+      project =
+          projects.where((item) => item['id'] == initialProject).firstOrNull ??
+          projects.firstOrNull;
+    }
     worktree =
         worktrees.where((tree) => tree['id'] == worktree?['id']).firstOrNull ??
         worktrees.firstOrNull;

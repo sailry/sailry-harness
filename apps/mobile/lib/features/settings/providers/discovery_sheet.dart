@@ -8,14 +8,11 @@ import 'controller.dart';
 import 'parts.dart';
 import 'rules.dart';
 
-/// Discovered models picked for adding, with their catalog references.
-typedef Discovered = ({List<Json> models, Map<String, Json> references});
-
-/// Lists the models the saved provider reports and returns the picked ones.
-Future<Discovered?> showDiscoverySheet(
+/// Keeps discovered selections until the Node saves them.
+Future<void> showDiscoverySheet(
   BuildContext context,
   ProviderController controller,
-) => showAppSheet<Discovered>(
+) => showAppSheet<void>(
   context,
   context.tr('providerFetchTitle'),
   scroll: false,
@@ -34,6 +31,7 @@ class _DiscoveryState extends State<_Discovery> {
   List<Json>? _models;
   Map<String, Json> _references = {};
   Object? _error;
+  bool _saving = false;
   final _picked = <String>{};
   final _search = TextEditingController();
   late final Set<Object?> _added = {
@@ -82,6 +80,27 @@ class _DiscoveryState extends State<_Discovery> {
     ];
   }
 
+  Future<void> _save() async {
+    if (_saving || _picked.isEmpty) return;
+    final route = ModalRoute.of(context);
+    setState(() => _saving = true);
+    final saved = await attempt(
+      context,
+      () => widget.controller.save(
+        mergeDiscovered(widget.controller.provider, [
+          for (final model in _models ?? const <Json>[])
+            if (_picked.contains(model['id'])) model,
+        ], _references),
+      ),
+    );
+    if (!mounted) return;
+    if (saved && route?.isCurrent == true) {
+      Navigator.pop(context);
+    } else {
+      setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final found = _models;
@@ -104,84 +123,80 @@ class _DiscoveryState extends State<_Discovery> {
         if (!_added.contains(model['id'])) text(model['id']),
     ];
     final all = open.isNotEmpty && open.every(_picked.contains);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                context
-                    .tr('providerFetched')
-                    .replaceAll('{count}', '${found.length}'),
-                style: dimText(context),
-              ),
-            ),
-            TextButton(
-              onPressed: open.isEmpty
-                  ? null
-                  : () => setState(
-                      () =>
-                          all ? _picked.removeAll(open) : _picked.addAll(open),
-                    ),
-              child: Text(
-                context.tr(all ? 'providerSelectNone' : 'providerSelectAll'),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        TextField(
-          controller: _search,
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: context.tr('providerSearch'),
-            prefixIcon: const Padding(
-              padding: EdgeInsets.all(10),
-              child: AppIcon('search', size: 18),
-            ),
-            prefixIconConstraints: const BoxConstraints(minWidth: 38),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Flexible(
-          child: ListView(
-            shrinkWrap: true,
+    return LoadingOverlay(
+      loading: _saving,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
             children: [
-              for (final model in _visible)
-                _Candidate(
-                  model: model,
-                  reference: _references[text(model['id'])],
-                  added: _added.contains(model['id']),
-                  picked: _picked.contains(model['id']),
-                  onChanged: (picked) => setState(
-                    () => picked
-                        ? _picked.add(text(model['id']))
-                        : _picked.remove(model['id']),
-                  ),
+              Expanded(
+                child: Text(
+                  context
+                      .tr('providerFetched')
+                      .replaceAll('{count}', '${found.length}'),
+                  style: dimText(context),
                 ),
+              ),
+              TextButton(
+                onPressed: open.isEmpty
+                    ? null
+                    : () => setState(
+                        () => all
+                            ? _picked.removeAll(open)
+                            : _picked.addAll(open),
+                      ),
+                child: Text(
+                  context.tr(all ? 'providerSelectNone' : 'providerSelectAll'),
+                ),
+              ),
             ],
           ),
-        ),
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: _picked.isEmpty
-              ? null
-              : () => Navigator.pop(context, (
-                  models: [
-                    for (final model in found)
-                      if (_picked.contains(model['id'])) model,
-                  ],
-                  references: _references,
-                )),
-          child: Text(
-            context
-                .tr('providerAddCount')
-                .replaceAll('{count}', '${_picked.length}'),
+          const SizedBox(height: 4),
+          TextField(
+            controller: _search,
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: context.tr('providerSearch'),
+              prefixIcon: const Padding(
+                padding: EdgeInsets.all(10),
+                child: AppIcon('search', size: 18),
+              ),
+              prefixIconConstraints: const BoxConstraints(minWidth: 38),
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final model in _visible)
+                  _Candidate(
+                    model: model,
+                    reference: _references[text(model['id'])],
+                    added: _added.contains(model['id']),
+                    picked: _picked.contains(model['id']),
+                    onChanged: (picked) => setState(
+                      () => picked
+                          ? _picked.add(text(model['id']))
+                          : _picked.remove(model['id']),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _saving || _picked.isEmpty ? null : _save,
+            child: Text(
+              context
+                  .tr('providerAddCount')
+                  .replaceAll('{count}', '${_picked.length}'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -26,48 +26,43 @@ class _ModelPageState extends State<ModelPage> {
   ProviderController get _controller => widget.controller;
 
   Future<bool> _save(Json model) async {
+    if (!mounted) return false;
     final problem = limitsProblem(model);
     if (!accept(context, problem)) return false;
-    final saved = await attempt(
-      context,
-      () => _controller.save(replaceModel(_controller.provider, _id, model)),
+    final saved = await _controller.save(
+      replaceModel(_controller.provider, _id, model),
     );
     if (saved && mounted) setState(() => _id = text(model['id']));
     return saved;
   }
 
-  Future<void> _editId(Json model) async {
-    final id = await editText(
-      context,
-      title: context.tr('providerModelId'),
-      initial: _id,
-      check: (id) => id != _id && findModel(_controller.provider, id) != null
-          ? 'providerModelExists'
-          : null,
-    );
-    if (id != null && id != _id && mounted) await _save(renameModel(model, id));
-  }
+  Future<void> _editId(Json model) => editText(
+    context,
+    title: context.tr('providerModelId'),
+    initial: _id,
+    check: (id) => id != _id && findModel(_controller.provider, id) != null
+        ? 'providerModelExists'
+        : null,
+    onSave: (id) async => id == _id || await _save(renameModel(model, id)),
+  );
 
-  Future<void> _editName(Json model) async {
-    final name = await editText(
-      context,
-      title: context.tr('providerDisplayName'),
-      initial: text(model['display_name']),
-      optional: true,
-    );
-    if (name == null || name == text(model['display_name']) || !mounted) {
-      return;
-    }
-    await _save(
-      name.isEmpty
-          ? ({...model}..remove('display_name'))
-          : {...model, 'display_name': name},
-    );
-  }
+  Future<void> _editName(Json model) => editText(
+    context,
+    title: context.tr('providerDisplayName'),
+    initial: text(model['display_name']),
+    optional: true,
+    onSave: (name) async =>
+        name == text(model['display_name']) ||
+        await _save(
+          name.isEmpty
+              ? ({...model}..remove('display_name'))
+              : {...model, 'display_name': name},
+        ),
+  );
 
   Future<void> _editTokens(Json model, String field, String label) async {
     final current = model[field];
-    final value = await editText(
+    await editText(
       context,
       title: context.tr(label),
       initial: current is num ? '${current.toInt()}' : '',
@@ -76,11 +71,11 @@ class _ModelPageState extends State<ModelPage> {
       hint: field == 'compaction_tokens' ? context.tr('providerDefault') : null,
       check: (value) =>
           parseTokens(value) == null ? 'providerNumberInvalid' : null,
+      onSave: (value) async {
+        final tokens = parseTokens(value);
+        return tokens == current || await _save({...model, field: tokens});
+      },
     );
-    if (value == null || !mounted) return;
-    final tokens = parseTokens(value);
-    if (tokens == current) return;
-    await _save({...model, field: tokens});
   }
 
   Future<void> _remove(Json model) async {
@@ -157,7 +152,10 @@ class _ModelPageState extends State<ModelPage> {
                     label: context.tr(capabilityLabel(name)),
                     value: model[name] == true,
                     onChanged: idle
-                        ? (value) => _save(setCapability(model, name, value))
+                        ? (value) => attempt(
+                            context,
+                            () => _save(setCapability(model, name, value)),
+                          )
                         : null,
                   ),
               ],
@@ -166,7 +164,9 @@ class _ModelPageState extends State<ModelPage> {
               ReasoningCard(
                 api: text(provider['api']),
                 model: model,
-                onChanged: idle ? _save : null,
+                onChanged: idle
+                    ? (model) => attempt(context, () => _save(model))
+                    : null,
               ),
             ActionCard(
               label: context.tr(

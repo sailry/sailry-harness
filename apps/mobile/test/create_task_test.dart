@@ -38,6 +38,70 @@ void main() {
     expect(draft.created!['worktree'], 'node-workspace');
   });
 
+  test('project scope survives resource updates', () async {
+    for (final (initial, project, worktree) in <(String?, String?, String?)>[
+      (null, 'project-a', 'tree-a'),
+      ('', null, null),
+    ]) {
+      Map<String, dynamic>? requested;
+      final host = HostConnection.test(
+        id: 'host',
+        label: 'Host',
+        snapshot: snapshot('a'),
+        command: (kind, data) async {
+          expect(kind, 'create_session');
+          requested = data;
+          return {'data': admitted(data!)};
+        },
+      );
+      final draft = CreationDraft(host, initialProject: initial);
+      addTearDown(draft.dispose);
+      addTearDown(host.dispose);
+      expect(draft.project?['id'], project);
+      expect(draft.worktree?['id'], worktree);
+      host.snapshot = snapshot('a')
+        ..['projects'] = [
+          {'id': 'project-b'},
+          {'id': 'project-a'},
+        ]
+        ..['worktrees'] = [
+          {'id': 'tree-b', 'project': 'project-b'},
+          {'id': 'tree-a', 'project': 'project-a'},
+        ];
+      host.notifyListeners();
+      expect(draft.project?['id'], project);
+      expect(draft.worktree?['id'], worktree);
+      await draft.send(hasInput: true);
+      expect(requested!['project'], project);
+      expect(requested!['worktree'], worktree);
+    }
+  });
+
+  test('explicit project overrides the chats default', () async {
+    Map<String, dynamic>? requested;
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      snapshot: snapshot('a'),
+      command: (_, data) async {
+        requested = data;
+        return {'data': admitted(data!)};
+      },
+    );
+    final draft = CreationDraft(host, initialProject: '');
+    addTearDown(draft.dispose);
+    addTearDown(host.dispose);
+    draft.project = {'id': 'project-a'};
+    draft.worktree = {'id': 'tree-a', 'project': 'project-a'};
+    host.snapshot = snapshot('a');
+    host.notifyListeners();
+    expect(draft.project?['id'], 'project-a');
+    expect(draft.worktree?['id'], 'tree-a');
+    await draft.send(hasInput: true);
+    expect(requested!['project'], 'project-a');
+    expect(requested!['worktree'], 'tree-a');
+  });
+
   test('late resources capture defaults once', () async {
     Map<String, dynamic>? requested;
     final host = HostConnection.test(
