@@ -14,6 +14,19 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use turso::Connection;
 
+fn diagnostic(error: &gdk::ErrorContent) -> &str {
+    let message = error.message.as_str();
+    // GDK's from_provider_error adds this instruction to typed network errors.
+    // Keep the provider diagnostic intact and leave ordinary text blocks alone.
+    if error.kind == gdk::MessageErrorKind::Other && message.starts_with("Network error: ") {
+        message
+            .strip_suffix("\n\nPlease resend your message to try again.")
+            .unwrap_or(message)
+    } else {
+        message
+    }
+}
+
 pub(crate) fn provider_usage(
     source: &goose_provider_types::conversation::token_usage::ProviderUsage,
 ) -> Result<Usage, Fault> {
@@ -201,7 +214,7 @@ pub(crate) async fn capture(
                     code: serde_json::to_value(error.kind)
                         .ok()
                         .and_then(|value| value.as_str().map(str::to_owned)),
-                    message: error.message.clone(),
+                    message: diagnostic(error).to_owned(),
                 });
                 message.finish = Some(Finish::Failed);
                 continue;

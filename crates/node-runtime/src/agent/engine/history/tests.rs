@@ -34,6 +34,60 @@ async fn database() -> (turso::Database, Connection) {
 }
 
 #[tokio::test]
+async fn removes_synthetic_resend_instruction() {
+    use goose_provider_types::errors::ProviderError;
+
+    let (_database, db) = database().await;
+    for reason in [
+        "Could not connect to example.test — check your network connection and try again.",
+        "Request timed out — check your network connection and try again.",
+        "Provider diagnostic\n\nPlease resend your message to try again.",
+    ] {
+        let error = ProviderError::NetworkError(reason.into());
+        let source = gdk::Message::from_provider_error(&error).with_generated_id();
+        let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
+            .await
+            .unwrap();
+        let stored = record.message().unwrap();
+        assert_eq!(stored.finish, Some(Finish::Failed));
+        let failure = stored.error.as_ref().unwrap();
+        assert_eq!(failure.code.as_deref(), Some("other"));
+        assert_eq!(failure.message, error.to_string());
+        let mut expected = source;
+        let MessageContent::Error(failure) = &mut expected.content[0] else {
+            panic!("provider error expected")
+        };
+        failure.message = error.to_string();
+        assert_eq!(project(&db, &record).await.unwrap().unwrap(), expected);
+    }
+}
+
+#[tokio::test]
+async fn preserves_other_failure_content() {
+    let (_database, db) = database().await;
+    let text = "Network error: quoted diagnostic\n\nPlease resend your message to try again.";
+    for source in [
+        gdk::Message::user().with_text(text),
+        gdk::Message::assistant().with_text(text),
+        gdk::Message::assistant().with_error(gdk::MessageErrorKind::Authentication, text),
+        gdk::Message::assistant().with_error(
+            gdk::MessageErrorKind::Other,
+            "Other diagnostic\n\nPlease resend your message to try again.",
+        ),
+        gdk::Message::assistant().with_error(
+            gdk::MessageErrorKind::Other,
+            format!("{text}\nAdditional provider details"),
+        ),
+    ] {
+        let source = source.with_generated_id();
+        let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
+            .await
+            .unwrap();
+        assert_eq!(project(&db, &record).await.unwrap().unwrap(), source);
+    }
+}
+
+#[tokio::test]
 async fn preserves_prompt_context() {
     let (_database, db) = database().await;
     for retained in [vec![], vec!["part-one".to_owned(), "part-two".to_owned()]] {
