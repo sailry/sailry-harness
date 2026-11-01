@@ -125,8 +125,12 @@ impl Worker {
         }
     }
 
-    pub fn submit(&mut self, execution: Execution) -> Result<(), Box<Execution>> {
+    pub fn submit(&mut self, mut execution: Execution) -> Result<(), Box<Execution>> {
         let script = matches!(execution.input, Input::Script(_));
+        let read_only = matches!(
+            execution.request.command,
+            Command::ReadPluginCallback { .. }
+        );
         if self.closed.is_cancelled() {
             return Err(Box::new(execution));
         }
@@ -160,7 +164,8 @@ impl Worker {
         let completed = self.completed.clone();
         self.runtime.spawn(async move {
             let input = execution.input;
-            let operation = async {
+            let result = {
+                let operation = async {
                 match input {
                     Input::Text { provider, config, prompt } => tokio::select! {
                         biased;
@@ -176,9 +181,24 @@ impl Worker {
                     Input::Cancel(_) => cancelled.map(|request| Output::PluginCallStopping { request })
                         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "plugin callback is not running")),
                 }
+                };
+                let result = AssertUnwindSafe(operation).catch_unwind();
+                tokio::pin!(result);
+                let result = if read_only {
+                    tokio::select! {
+                        result = &mut result => result,
+                        _ = execution.reply.closed() => {
+                            // A nondurable read has no effects to preserve after its
+                            // observer leaves. Durable callbacks keep running.
+                            stop.cancel();
+                            result.await
+                        },
+                    }
+                } else {
+                    result.await
+                };
+                result.unwrap_or_else(|_| Err(Fault::new(ErrorCode::OutcomeUnknown, "plugin operation result is unknown")))
             };
-            let result = AssertUnwindSafe(operation).catch_unwind().await
-                .unwrap_or_else(|_| Err(Fault::new(ErrorCode::OutcomeUnknown, "plugin operation result is unknown")));
             let _ = completed.send(Job::PluginExecution(Box::new(Completed {
                 caller: execution.caller, request: execution.request, result, reply: execution.reply,
             }))).await;

@@ -77,6 +77,8 @@ mod skills;
 mod source;
 #[path = "plugins/standalone_mcp.rs"]
 mod standalone_mcp;
+#[path = "plugins/status.rs"]
+mod status;
 #[path = "plugins/storage.rs"]
 mod storage;
 #[path = "plugins/support.rs"]

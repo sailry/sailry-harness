@@ -373,6 +373,7 @@ pub(crate) struct Ingress {
     feeds: agent::Feeds,
     pub(crate) dispatch: Arc<crate::dispatch::Controls>,
     pub(crate) plugins: crate::plugins::Host,
+    pub(crate) status: Arc<plugins::status::Service>,
     installations: Arc<installations::Registry>,
     pub(crate) login_service: crate::providers::login::Service,
     closed: CancellationToken,
@@ -534,6 +535,7 @@ impl Store {
             model_clients: Arc::default(),
             feeds: Default::default(),
             plugins: crate::plugins::Host::new(profile.clone()).with_github(skills),
+            status: Arc::default(),
             installations: Arc::default(),
             closed,
             dispatch: Arc::new(crate::dispatch::Controls::default()),
@@ -1552,6 +1554,9 @@ impl Handler for Ingress {
                 return Ok(self
                     .commands
                     .subscribe(self.node, session, self.closed.clone()));
+            }
+            if let sailry_protocol::Topic::Status(scope) = topic {
+                return self.status.subscribe(self.clone(), scope).await;
             }
             if matches!(topic, sailry_protocol::Topic::Python) {
                 return Ok(python::subscribe(

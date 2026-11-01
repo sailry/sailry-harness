@@ -179,7 +179,21 @@ pub(super) async fn run(
     stop: CancellationToken,
 ) -> Result<Output, Fault> {
     let runtime = tokio::runtime::Handle::current();
-    tokio::task::spawn_blocking(move || {
+    let invalidation = match &request.command {
+        Command::CallPlugin { handler, .. }
+            if info
+                .extension
+                .as_ref()
+                .and_then(|extension| extension.host.as_ref())
+                .and_then(|host| host.status.as_ref())
+                .and_then(|status| status.invoke.as_ref())
+                == Some(handler) =>
+        {
+            Some((ingress.status.clone(), info.summary.name.clone()))
+        }
+        _ => None,
+    };
+    let result = tokio::task::spawn_blocking(move || {
         let read_only = matches!(request.command, Command::ReadPluginCallback { .. });
         let (Command::CallPlugin { handler, input }
         | Command::ReadPluginCallback { handler, input }) = request.command
@@ -215,5 +229,10 @@ pub(super) async fn run(
         .map(Output::PluginResult)
     })
     .await
-    .map_err(|_| Fault::new(ErrorCode::OutcomeUnknown, "plugin callback worker failed"))?
+    .map_err(|_| Fault::new(ErrorCode::OutcomeUnknown, "plugin callback worker failed"))
+    .and_then(std::convert::identity);
+    if let Some((status, name)) = invalidation {
+        status.invalidate(&name);
+    }
+    result
 }

@@ -7,6 +7,7 @@ use sailry_protocol::{
 use serde_json::{Map, Value};
 mod cards;
 mod providers;
+mod status;
 
 pub(super) const SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
 // Tool schemas, localized metadata and result projections share one manifest.
@@ -135,18 +136,13 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             )
                             && sailry_protocol::plugin::valid_icon(&parsed.icon)
                             && sailry_protocol::plugin::ui::valid(&parsed.ui)
+                            && status::valid(&parsed)
                             && cards::valid(&parsed)
                             && parsed.storage.as_ref().is_none_or(|storage| super::storage::validate(storage).is_ok())
                             && parsed.ui.iter().all(|entry| entry.command.as_ref().is_none_or(|command| {
                                 command.kind != sailry_protocol::plugin::ui::CommandKind::Message
                                     || parsed.host.as_ref().is_some_and(|host| host.commands.iter().any(|route| route.name == command.name))
                             }))
-                            && (parsed.ui.is_empty()
-                                || parsed
-                                    .desktop
-                                    .as_ref()
-                                    .is_some_and(|desktop| desktop.ui_entry.is_some())
-                                )
                             && parsed.tools.len() <= 256
                             && parsed.tools.iter().enumerate().all(|(index, tool)| {
                                 tool.valid() && tool.operation.is_none_or(|operation|operation.current())

@@ -21,6 +21,7 @@ mod script;
 pub(super) mod services;
 pub(super) mod settings;
 mod skills;
+pub(crate) mod status;
 pub(in crate::store) mod storage;
 pub(super) mod transaction;
 pub(super) mod updates;
