@@ -98,9 +98,10 @@ class Repository:
 
 
 class Checks:
-    def __init__(self, revision, conclusion="success"):
+    def __init__(self, revision, conclusion="success", gate="success"):
         self.run = {"id": 41, "head_sha": revision, "head_branch": "main", "event": "push",
                     "status": "completed", "conclusion": conclusion}
+        self.gate = gate
         self.remote_revision = revision
         self.published = {"id": 7, "tag_name": f"v{VERSION}", "draft": False, "prerelease": False,
                           "published_at": "2026-11-01T00:00:00Z", "assets": []}
@@ -114,7 +115,8 @@ class Checks:
                 raise AssertionError("Checks must be queried for the selected product source")
             return {"workflow_runs": [self.run]}
         if "/actions/runs/41/jobs?" in endpoint:
-            return {"jobs": [{"name": name, "status": "completed", "conclusion": "success"}
+            return {"jobs": [{"name": name, "status": "completed",
+                              "conclusion": self.gate if name == "Mobile ready" else "success"}
                              for name in (*release.publication.PREREQUISITES["mobile"], "Mobile ready")]}
         if endpoint.endswith("/actions/runs/41"):
             return self.run
@@ -194,13 +196,13 @@ class Admission(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "exact commit"):
                     release.admit(fixture.source, fixture.tooling)
 
-    def test_requires_published_tags_and_full_source_checks(self):
+    def test_requires_published_tags_and_product_checks(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Repository(Path(temporary))
             git(fixture.tooling, "tag", f"v{VERSION}", fixture.revision)
             environment = {**fixture.environment, "SOURCE_COMMIT": "", "RELEASE_TAG": f"v{VERSION}"}
             for failure in ("checks", "missing", "draft", "moved"):
-                client = Checks(fixture.revision, "failure" if failure == "checks" else "success")
+                client = Checks(fixture.revision, gate="failure" if failure == "checks" else "success")
                 if failure == "missing":
                     client.published = None
                 elif failure == "draft":
@@ -226,6 +228,15 @@ class Admission(unittest.TestCase):
             self.assertEqual(values["revision"], fixture.revision)
             self.assertEqual(values["workflow_revision"], fixture.workflow)
 
+    def test_admits_despite_unrelated_check_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Repository(Path(temporary))
+            with patch.dict(os.environ, fixture.environment, clear=True), \
+                    patch.object(release.publication, "GitHub", return_value=Checks(fixture.revision, "failure")):
+                release.admit(fixture.source, fixture.tooling)
+            values = dict(row.split("=", 1) for row in Path(fixture.environment["GITHUB_OUTPUT"]).read_text().splitlines())
+            self.assertEqual(values["revision"], fixture.revision)
+
     def test_rejects_mismatched_checkouts_and_off_main_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Repository(Path(temporary))
@@ -246,8 +257,8 @@ class Admission(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Repository(Path(temporary))
             with patch.dict(os.environ, fixture.environment, clear=True), \
-                    patch.object(release.publication, "GitHub", return_value=Checks(fixture.revision, "failure")):
-                with self.assertRaisesRegex(ValueError, "successful full run"):
+                    patch.object(release.publication, "GitHub", return_value=Checks(fixture.revision, gate="failure")):
+                with self.assertRaisesRegex(ValueError, "successful Mobile readiness"):
                     release.admit(fixture.source, fixture.tooling)
             self.assertFalse(Path(fixture.environment["GITHUB_OUTPUT"]).exists())
 

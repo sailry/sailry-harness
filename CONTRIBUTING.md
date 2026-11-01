@@ -95,6 +95,9 @@ just test-ui        # Desktop logic and service-contract tests
 `just test-backend` and `just test-ui` use CI's nextest profile. Install the pinned runner with
 `cargo install --locked cargo-nextest --version 0.9.143` if it is not available.
 This selects nextest's execution settings, not Cargo's release build profile.
+Standard test commands skip provider backoff waits against fixture servers;
+the GDK's paused-clock tests verify retry timing. For focused direct Cargo runs,
+set `GOOSE_PROVIDER_SKIP_BACKOFF=true` to use the same fixture behavior.
 The backend check then builds the optional production test host and runs package
 tests with that host explicitly selected, including raw-schema parameter matrices.
 
@@ -124,6 +127,10 @@ worktrees or stash changes. Local builds and tests share the repository's root
 by default; CI defaults to two Cargo jobs. `CARGO_BUILD_JOBS` remains an explicit
 override and is passed through to Cargo, including `default` and negative values.
 The recipes and CI share command definitions; these entries do not install hooks.
+Changes limited to the release workflows and covered publication helpers run
+Source checks, including signing, release metadata and update-feed fixtures.
+Product source, dependency, toolchain and build-input changes retain their
+affected product checks; unknown paths select all checks.
 
 Select checks from affected behavior and dependency boundaries. Reuse passing
 results while their inputs remain unchanged. Explain which tests ran and any
@@ -278,8 +285,9 @@ an ancestor of the pinned main workflow commit. The entry generates notes and
 publishes the version release before independently starting
 [Desktop](.github/workflows/release.yml),
 [Host](.github/workflows/release-host.yml), Mobile and the changelog. Version
-publication does not wait for product Checks; every product build retains its
-full exact-source main Checks and product readiness gates. The release can contain
+publication does not wait for product Checks; every product build requires its
+exact-source readiness gate, including strict lint and shared Node checks. Other
+products' jobs can finish independently. The release can contain
 only notes while these builds are running.
 
 Desktop and Host recovery workflows select `main` and supply the exact version
@@ -335,8 +343,8 @@ can retry those follow-ups for a published version tag.
 
 The independent [Mobile packages workflow](.github/workflows/release-mobile.yml)
 accepts dispatch from `main`. Its optional `tag` input selects the exact source of
-an already published version release. It waits for successful full main Checks
-and Mobile readiness at that source before making signing credentials available.
+an already published version release. It waits for Mobile readiness at that exact
+source before making signing credentials available.
 A dispatch without a tag can instead supply `source_commit`, the full
 40-character SHA of an ancestor of the workflow commit; leaving both inputs empty
 builds the workflow's source. A tag and source override cannot be combined. This

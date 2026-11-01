@@ -287,7 +287,9 @@ class Workflow(unittest.TestCase):
         shared = ci.fixture_names(ROOT, "shared")
         self.assertNotIn("test_android_package", shared)
         self.assertNotIn("test_host_install", shared)
-        self.assertIn("test_release_versions", shared)
+        for name in ("test_release_versions", "test_start_release", "test_release_notes",
+                     "test_publish_packages", "test_publish_update_feed", "test_mobile_release"):
+            self.assertIn(name, shared)
         self.assertIn("test_onnx_runtime", shared)
         self.assertIn("scripts/check-locales.py --product desktop", workflow)
         self.assertIn("scripts/check-locales.py --product mobile", workflow)

@@ -72,7 +72,7 @@ def admit(source=None, tooling=None):
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         for key, value in values.items():
             output.write(f"{key}={value}\n")
-    print(f"Verified Mobile product source {revision} in full Checks run {checked}: {version}+{code}; "
+    print(f"Verified Mobile product source {revision} in Checks run {checked}: {version}+{code}; "
           f"workflow tooling {values['workflow_revision']}")
 
 

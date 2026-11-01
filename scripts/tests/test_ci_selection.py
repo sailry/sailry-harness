@@ -77,6 +77,43 @@ class Selection(unittest.TestCase):
         paths = ["apps/desktop/src/main.rs", "services/pairing-relay/package.json", "README.md"]
         self.assertEqual(ci.select_paths(paths), {"desktop", "services"})
 
+    def test_release_changes_use_source_checks(self):
+        paths = (
+            ".github/workflows/release-version.yml", ".github/workflows/release.yml",
+            ".github/workflows/release-host.yml", ".github/workflows/release-mobile.yml",
+            ".github/workflows/release-desktop-formal.yml", ".github/workflows/changelog.yml",
+            ".github/workflows/update-feed.yml",
+            "scripts/start-release.py", "scripts/release-notes.py", "scripts/check-release.py",
+            "scripts/publish-packages.py", "scripts/publish-update-feed.py",
+            "scripts/package/publication.py", "scripts/package/mobile-release.py", "scripts/package/ios-signing.py",
+            "scripts/tests/test_mobile_release.py", "scripts/tests/test_publish_update_feed.py",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertEqual(ci.select_paths([path]), set())
+        self.assertEqual(ci.select_paths(paths), set())
+
+    def test_release_changes_preserve_product_selection(self):
+        for path, expected in (
+            ("apps/desktop/src/main.rs", {"desktop"}),
+            ("apps/host/src/main.rs", {"host"}),
+            ("apps/mobile/lib/main.dart", {"mobile", "android"}),
+            ("crates/node-runtime/src/store.rs", {"shared", "desktop", "host", "mobile_ffi"}),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(ci.select_paths([*ci.SOURCE_ONLY, path]), expected)
+
+    def test_release_whitelist_excludes_build_inputs(self):
+        for path in (
+            "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml",
+            ".github/workflows/ci.yml", ".github/workflows/release-new.yml",
+            ".github/workflows/release-mobile.yml.backup", ".github/actions/rust-cache/action.yml",
+            ".github/actions/native-cache/action.yml", "scripts/package/versions.py",
+            "scripts/package/mobile-build.py", "scripts/check-mobile-android.sh",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(ci.select_paths([*ci.SOURCE_ONLY, path]), ci.LANES)
+
     def test_selects_registered_fixture_owners(self):
         for owner, names in ci.FIXTURES.items():
             for name in names:
@@ -231,6 +268,17 @@ class Lint(unittest.TestCase):
 
 
 class Commands(unittest.TestCase):
+    def test_skips_fixture_backoff_without_mutating_environment(self):
+        for configured, expected in (({}, "true"), ({"GOOSE_PROVIDER_SKIP_BACKOFF": "false"}, "false")):
+            environment = {"FIXTURE_SETTING": "preserved", **configured}
+            with patch.object(ci, "check_commands", return_value=[{"argv": ["fixture"], "cwd": "."}]), \
+                    patch.object(ci, "parser_environment", side_effect=lambda root, env, libraries: dict(env)), \
+                    patch.object(ci.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                self.assertEqual(ci.run_check("backend", env=environment), 0)
+                self.assertEqual(run.call_args.kwargs["env"], {**environment, "GOOSE_PROVIDER_SKIP_BACKOFF": expected})
+                self.assertEqual(environment, {"FIXTURE_SETTING": "preserved", **configured})
+
     def test_uses_cargo_default_locally(self):
         for name in ("backend", "desktop", "host", "desktop-production", "host-production",
                      "desktop-lifecycle", "host-mac", "databases", "mobile-contract", "lint", "tests"):

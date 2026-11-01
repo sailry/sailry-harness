@@ -416,6 +416,7 @@ class Readiness(unittest.TestCase):
         names = set(re.findall(r"^    name: (.+)$", workflow, re.MULTILINE))
         for component, prerequisites in publication.PREREQUISITES.items():
             with self.subTest(component=component):
+                self.assertIn("Rust strict lint", prerequisites)
                 self.assertLessEqual(set(prerequisites) | {f"{component.title()} ready"}, names)
 
     def run_fixture(self, gate="success", event="push", branch="main", sha=COMMIT, overall="failure"):
@@ -424,7 +425,7 @@ class Readiness(unittest.TestCase):
             {"workflow_runs": [{"id": 42, "head_sha": sha, "head_branch": branch,
                                 "event": event, "conclusion": overall}]},
             {"jobs": [{"name": name, "status": "completed", "conclusion": "success"}
-                      for name in ("Source", "Shared Node", "Desktop")] +
+                      for name in publication.PREREQUISITES["desktop"]] +
                      [{"name": "Desktop ready", "status": "completed", "conclusion": gate}]},
         ]
         return client
@@ -452,6 +453,9 @@ class Readiness(unittest.TestCase):
 
     def test_product_success_admits_despite_other_product_failure(self):
         client = self.run_fixture()
+        runs, jobs = list(client.api.side_effect)
+        jobs["jobs"].append({"name": "Mobile", "status": "completed", "conclusion": "failure"})
+        client.api.side_effect = [runs, jobs]
         self.assertEqual(publication.readiness(client, REPOSITORY, COMMIT, "desktop"), 42)
         self.assertIn("head_sha=" + COMMIT, client.api.call_args_list[0].args[1])
         self.assertIn("filter=latest", client.api.call_args_list[1].args[1])
@@ -475,7 +479,7 @@ class Readiness(unittest.TestCase):
                                               REPOSITORY, COMMIT, "desktop"), 42)
 
     def test_requires_actual_prerequisites_with_success_gate(self):
-        for name in ("Source", "Shared Node", "Desktop"):
+        for name in publication.PREREQUISITES["desktop"]:
             for conclusion in ("failure", "skipped"):
                 client = self.run_fixture()
                 runs, jobs = list(client.api.side_effect)
@@ -485,6 +489,20 @@ class Readiness(unittest.TestCase):
                 client.api.side_effect = [runs, jobs]
                 with self.subTest(name=name, conclusion=conclusion), self.assertRaises(ValueError):
                     publication.readiness(client, REPOSITORY, COMMIT, "desktop")
+
+    def test_does_not_combine_different_runs(self):
+        client = self.run_fixture()
+        runs, jobs = list(client.api.side_effect)
+        runs["workflow_runs"].append({**runs["workflow_runs"][0], "id": 43})
+        client.api.side_effect = [
+            runs,
+            {"jobs": [job for job in jobs["jobs"] if job["name"] != "Desktop ready"]},
+            {"jobs": [job for job in jobs["jobs"] if job["name"] == "Desktop ready"]},
+        ]
+        with patch.object(publication, "checked_source", return_value=None), self.assertRaises(ValueError):
+            publication.readiness(client, REPOSITORY, COMMIT, "desktop")
+        self.assertIn("/runs/42/jobs?", client.api.call_args_list[1].args[1])
+        self.assertIn("/runs/43/jobs?", client.api.call_args_list[2].args[1])
 
     def test_tag_must_match_checkout_and_product(self):
         with patch.object(publication.versions, "product", return_value=(TAG[1:], 1)), \

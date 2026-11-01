@@ -433,40 +433,78 @@ class GateWaiting(unittest.TestCase):
         self.client = Mock()
         self.pending = {"id": 7, "head_sha": "a" * 40, "head_branch": "main", "event": "push", "status": "queued"}
 
-    def test_waits_for_queued_exact_source(self):
-        completed = iter(["in_progress", "completed"])
+    def jobs(self, component):
+        return [{"name": name, "status": "completed", "conclusion": "success"}
+                for name in (*self.gate.PREREQUISITES[component], f"{component.title()} ready")]
+
+    def checks(self, jobs, **changes):
+        run = {**self.pending, **changes}
         def api(method, path):
+            if "/actions/workflows/ci.yml/runs?" in path:
+                return {"workflow_runs": [run]}
+            if "/actions/runs/7/jobs?" in path:
+                return {"jobs": jobs}
             if path.endswith("/actions/runs/7"):
-                return {**self.pending, "status": next(completed), "conclusion": "success"}
-            return {"jobs": []} if "/jobs?" in path else {"workflow_runs": [self.pending]}
+                return run
+            raise AssertionError(f"Unexpected readiness request: {method} {path}")
         self.client.api.side_effect = api
-        with patch.object(self.gate, "ready_run", side_effect=[None, 7, 7]) as ready, \
+
+    def test_waits_for_queued_exact_source(self):
+        self.checks([], status="in_progress")
+        with patch.object(self.gate, "ready_run", side_effect=[None, 7]) as ready, \
                 patch.object(self.gate.time, "sleep") as sleep:
             self.assertEqual(self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop"), 7)
-        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual(sleep.call_count, 1)
         self.assertEqual(sleep.call_args.args, (60,))
         self.assertEqual(ready.call_args.args[2:], ("a" * 40, "desktop"))
 
+    def test_admits_before_unrelated_checks_succeed(self):
+        for component in self.gate.PREREQUISITES:
+            for status, conclusion in (("in_progress", None), ("completed", "failure")):
+                jobs = self.jobs(component) + [{"name": "Other product", "status": status, "conclusion": conclusion}]
+                self.checks(jobs, status=status, conclusion=conclusion)
+                with self.subTest(component=component, status=status), \
+                        patch.object(self.gate, "checked_source") as source, \
+                        patch.object(self.gate.time, "sleep") as sleep:
+                    self.assertEqual(self.gate.wait_ready(self.client, "fixture/product", "a" * 40, component), 7)
+                source.assert_not_called()
+                sleep.assert_not_called()
+
     def test_rejects_terminal_failure_or_cancellation(self):
         for conclusion in ("failure", "cancelled", "success"):
-            self.client.api.return_value = {"workflow_runs": [{**self.pending, "status": "completed", "conclusion": conclusion}]}
-            with self.subTest(conclusion=conclusion), patch.object(self.gate, "ready_run", return_value=None), \
+            self.checks([], status="completed", conclusion=conclusion)
+            with self.subTest(conclusion=conclusion), \
                     patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
                 self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
             sleep.assert_not_called()
-        self.client.api.side_effect = lambda method, path: (
-            {**self.pending, "status": "completed", "conclusion": "failure"}
-            if path.endswith("/actions/runs/7") else {"workflow_runs": [{**self.pending, "status": "completed"}]})
-        with patch.object(self.gate, "ready_run", return_value=7), \
-                patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
-            self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
-        sleep.assert_not_called()
-        for name in ("Source", "Rust strict lint"):
-            self.client.api.side_effect = lambda method, path: (
-                {"jobs": [{"name": name, "status": "completed", "conclusion": "failure"}]}
-                if "/jobs?" in path else {"workflow_runs": [self.pending]})
-            with patch.object(self.gate, "ready_run", return_value=None), \
-                    patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
+
+    def test_rejects_failed_product_jobs(self):
+        for component in self.gate.PREREQUISITES:
+            for name in (*self.gate.PREREQUISITES[component], f"{component.title()} ready"):
+                for conclusion in ("failure", "skipped"):
+                    jobs = self.jobs(component)
+                    next(job for job in jobs if job["name"] == name)["conclusion"] = conclusion
+                    self.checks(jobs, status="in_progress")
+                    with self.subTest(component=component, name=name, conclusion=conclusion), \
+                            patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
+                        self.gate.wait_ready(self.client, "fixture/product", "a" * 40, component)
+                    sleep.assert_not_called()
+
+    def test_rejects_missing_product_jobs(self):
+        for component in self.gate.PREREQUISITES:
+            for name in (*self.gate.PREREQUISITES[component], f"{component.title()} ready"):
+                jobs = [job for job in self.jobs(component) if job["name"] != name]
+                self.checks(jobs, status="completed", conclusion="success")
+                with self.subTest(component=component, name=name), \
+                        patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
+                    self.gate.wait_ready(self.client, "fixture/product", "a" * 40, component)
+                sleep.assert_not_called()
+
+    def test_rejects_mismatched_ready_run(self):
+        for change in ({"id": 8}, {"head_sha": "b" * 40}, {"head_branch": "topic"}, {"event": "pull_request"}):
+            self.client.api.return_value = {**self.pending, **change}
+            with self.subTest(change=change), patch.object(self.gate, "ready_run", return_value=7), \
+                    patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "does not match"):
                 self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
             sleep.assert_not_called()
 

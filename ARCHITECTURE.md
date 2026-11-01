@@ -1029,9 +1029,10 @@ peer trust survives restart. Host release archives are independent from Desktop;
 the official installer verifies tag-bound assets and starts systemd or launchd.
 A version workflow validates an exact product tag against trusted main history,
 generates its notes and publishes the version release before dispatching Desktop,
-Host, Mobile and changelog workflows independently. Each product waits for full
-main Checks to complete successfully at its exact source and validates its own
-readiness before building distribution packages. A newly published release can
+Host, Mobile and changelog workflows independently. Each product waits for its
+readiness gate at its exact source in main Checks, including strict lint and shared
+Node checks, before building distribution packages. Unrelated product jobs can
+finish independently. A newly published release can
 initially contain only notes; its packages appear as each product finishes.
 Desktop appends explicitly named ad-hoc macOS arm64 and x64 packages, then starts
 formal signing from its preserved native artifacts. Formal signing adds signed

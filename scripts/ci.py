@@ -36,18 +36,18 @@ FIXTURES = {
     "shared": {
         "test_ci_local", "test_ci_resources", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
         "test_names", "test_ocu_helper", "test_onnx_runtime", "test_llama_runtime", "test_code_parsers", "test_public_source", "test_publish_packages",
-        "test_python_launcher", "test_python_runtime", "test_release_notes",
+        "test_python_launcher", "test_python_runtime", "test_release_notes", "test_mobile_release", "test_publish_update_feed",
         "test_release_versions", "test_start_release", "test_suites", "test_debug_symbols", "test_telemetry_env",
     },
     "desktop": {
-        "test_app_icons", "test_desktop_launch", "test_publish_update_feed",
+        "test_app_icons", "test_desktop_launch",
         "test_theme_audit", "test_ui_tasks",
     },
     "host": {
         "test_host_build", "test_host_install", "test_host_service", "test_host_tasks", "test_host_update",
         "test_linux_sysroot", "test_host_compatibility",
     },
-    "mobile": {"test_android_package", "test_mobile_release"},
+    "mobile": {"test_android_package"},
 }
 DOCS = {
     "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CONTRIBUTING.md",
@@ -55,6 +55,16 @@ DOCS = {
     "services/pairing-relay/README.md", "tests/fixtures/README.md",
     "COMMERCIAL.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
     "docs/models.md", "docs/hosts.md", "docs/projects.md",
+}
+# These release tools have source fixtures and do not change compiled product inputs.
+SOURCE_ONLY = {
+    ".github/workflows/release-version.yml", ".github/workflows/release.yml",
+    ".github/workflows/release-host.yml", ".github/workflows/release-mobile.yml",
+    ".github/workflows/release-desktop-formal.yml", ".github/workflows/changelog.yml",
+    ".github/workflows/update-feed.yml",
+    "scripts/start-release.py", "scripts/release-notes.py", "scripts/check-release.py",
+    "scripts/publish-packages.py", "scripts/publish-update-feed.py",
+    "scripts/package/publication.py", "scripts/package/mobile-release.py", "scripts/package/ios-signing.py",
 }
 LINT_PACKAGES = {
     "shared": (
@@ -91,6 +101,9 @@ def select_paths(paths):
     for path in paths:
         if (path in DOCS or path.startswith(("third_party_licenses/", "assets/readme/"))
                 or (path.startswith("sdk/") and path.endswith(".md"))):
+            continue
+        if path in SOURCE_ONLY:
+            # Source always checks these tools, including when no product lane runs.
             continue
         if path in fixtures:
             # Source always runs its fixtures; product fixtures run with their owner.
@@ -329,6 +342,9 @@ def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None
     commands = check_commands(name, jobs, root, selection, env, threads)
     if name in {"tests", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
         env = parser_environment(root, env, libraries=True)
+        # Fixture servers verify recovery without waiting minutes for each failure.
+        # The GDK's paused-clock tests verify the fixed production retry timing.
+        env.setdefault("GOOSE_PROVIDER_SKIP_BACKOFF", "true")
     elif name in {"lint", "desktop-production", "host-production"}:
         env = parser_environment(root, env, libraries=False)
     for command in commands:

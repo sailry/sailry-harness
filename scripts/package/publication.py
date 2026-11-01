@@ -14,9 +14,9 @@ import zipfile
 import versions
 
 PREREQUISITES = {
-    "desktop": ("Source", "Shared Node", "Desktop"),
-    "host": ("Source", "Shared Node", "Host"),
-    "mobile": ("Source", "Shared Node", "Mobile", "Mobile Android"),
+    "desktop": ("Source", "Rust strict lint", "Shared Node", "Desktop"),
+    "host": ("Source", "Rust strict lint", "Shared Node", "Host"),
+    "mobile": ("Source", "Rust strict lint", "Shared Node", "Mobile", "Mobile Android"),
 }
 
 
@@ -206,7 +206,7 @@ def readiness(client, repository, commit, component):
         if run is not None:
             print(f"Reused product Checks for unchanged source {source}; only signing tools differ")
             return run
-    raise ValueError(f"The release product needs a successful {component.title()} ready gate from full main Checks")
+    raise ValueError(f"The release product needs a successful {component.title()} ready gate from main Checks")
 
 
 def wait_ready(client, repository, commit, component):
@@ -219,28 +219,27 @@ def wait_ready(client, repository, commit, component):
                     or checked.get("head_branch") != "main"
                     or checked.get("event") not in {"push", "workflow_dispatch"}):
                 raise ValueError("The ready Checks run does not match the release source")
-            if checked.get("status") == "completed" and checked.get("conclusion") == "success":
-                return ready
+            return ready
         payload = client.api("GET", f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}&per_page=100")
         runs = [run for run in payload["workflow_runs"]
                 if run.get("head_sha") == commit and run.get("head_branch") == "main"
                 and run.get("event") in {"push", "workflow_dispatch"}]
-        required = {*PREREQUISITES[component], f"{component.title()} ready", "Rust strict lint"}
+        required = {*PREREQUISITES[component], f"{component.title()} ready"}
         pending = False
         for run in runs:
             if run.get("status") == "completed":
                 continue
             jobs = client.api("GET", f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
             blocked = any(job.get("name") in required and job.get("status") == "completed"
-                          and job.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}
+                          and job.get("conclusion") != "success"
                           for job in jobs)
             pending |= not blocked
         if runs and not pending:
-            raise ValueError(f"The exact-source Checks ended without a successful full run and {component.title()} readiness")
+            raise ValueError(f"The exact-source Checks ended without successful {component.title()} readiness")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("The exact-source release gate did not become ready within five hours")
-        print(f"Waiting for successful full Checks and {component.title()} readiness at exact source {commit}", flush=True)
+        print(f"Waiting for {component.title()} readiness at exact source {commit}", flush=True)
         time.sleep(min(60, remaining))
 
 
