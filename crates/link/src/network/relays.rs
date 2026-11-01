@@ -15,6 +15,16 @@ impl RelaySelection {
         self.map().map(|_| ())
     }
 
+    /// Resolve the same relay URLs used by the live transport without changing it.
+    pub fn urls(&self) -> Result<Vec<String>, Fault> {
+        Ok(self
+            .map()?
+            .urls::<Vec<_>>()
+            .into_iter()
+            .map(|url| url.to_string())
+            .collect())
+    }
+
     pub(super) fn map(&self) -> Result<RelayMap, Fault> {
         let Self::Custom(urls) = self else {
             return Ok(RelayMode::Default.relay_map());

@@ -3,6 +3,9 @@ use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::{Command, ErrorCode, NodeId, Output, network::Selection};
 
+#[path = "network/presets.rs"]
+mod presets;
+
 #[tokio::test]
 async fn reads_same_endpoint_and_rejects_direct_changes() {
     for remote in [false, true] {

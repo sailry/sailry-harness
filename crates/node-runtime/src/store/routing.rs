@@ -54,7 +54,9 @@ pub(super) fn route(command: &Command) -> Route {
     }
     match command {
         Command::CompleteBrowser { .. } => Route::Browser,
-        Command::ReadNetworkSettings => Route::ReadNetwork,
+        Command::ReadNetworkSettings
+        | Command::ListNetworkPresets { .. }
+        | Command::ProbeNetwork { .. } => Route::ReadNetwork,
         Command::SendDiagnostics => Route::Diagnostics,
         Command::ReadInstallations { .. } => Route::ReadInstallations,
         Command::DismissInstallation { .. } => Route::DismissInstallation,
@@ -318,7 +320,10 @@ pub(super) fn effect(command: &Command) -> Option<Effect> {
         return Some(Effect::Inline);
     }
     let effect = match command {
-        Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. } => Effect::Network,
+        Command::ReadNetworkSettings
+        | Command::ListNetworkPresets { .. }
+        | Command::ProbeNetwork { .. }
+        | Command::SaveNetworkSettings { .. } => Effect::Network,
         Command::BeginProviderLogin { .. }
         | Command::CompleteProviderLogin { .. }
         | Command::CancelProviderLogin { .. }
@@ -485,6 +490,10 @@ mod tests {
             Command::ReadHostMetrics { detailed: true },
             Command::RefreshModelCatalog,
             Command::ReadNetworkSettings,
+            Command::ListNetworkPresets { refresh: true },
+            Command::ProbeNetwork {
+                selection: sailry_protocol::network::Selection::Iroh,
+            },
             Command::ReadInstallations {
                 requests: Vec::new(),
             },

@@ -734,6 +734,15 @@ impl Node {
         self.ingress.presets.fixture(endpoint)
     }
 
+    /// Routes network preset refreshes to an explicit loopback catalog.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_network_presets_fixture(
+        &self,
+        endpoint: &str,
+    ) -> Result<(), sailry_protocol::Fault> {
+        self.ingress.network_presets.fixture(endpoint)
+    }
+
     /// Routes model metadata requests to an explicit loopback test catalog.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_model_catalog_fixture(
@@ -797,6 +806,7 @@ impl Node {
             let binding = async {
                 match network_roots {
                     Some(roots) => {
+                        ingress.network_probes.roots(roots.clone());
                         sailry_link::Link::bind_with_roots(
                             &identity,
                             network,

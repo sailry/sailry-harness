@@ -155,6 +155,34 @@ fn validates_urls() {
     }
 }
 
+#[test]
+fn resolves_transport_urls() {
+    let defaults = RelaySelection::Default.urls().unwrap();
+    assert!(!defaults.is_empty());
+    assert_eq!(
+        defaults,
+        RelayMode::Default
+            .relay_map()
+            .urls::<Vec<_>>()
+            .into_iter()
+            .map(|url| url.to_string())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        RelaySelection::Custom(vec!["https://relay.example:8443".into()])
+            .urls()
+            .unwrap(),
+        ["https://relay.example:8443/"]
+    );
+    assert_eq!(
+        RelaySelection::Custom(vec!["http://relay.example".into()])
+            .urls()
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+}
+
 #[tokio::test]
 async fn handshakes_and_preserves_local_and_remote_access() {
     let mut fixtures = RelayFixture::start_many(2).await;

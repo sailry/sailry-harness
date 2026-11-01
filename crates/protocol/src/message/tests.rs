@@ -5,6 +5,58 @@ fn unknown(data: Value) -> Value {
     json!({ "kind": "future_result", "data": data })
 }
 
+mod network {
+    use super::*;
+
+    #[test]
+    fn round_trips_discovery_reads() {
+        let selection = crate::network::Selection::Custom {
+            relays: vec!["https://relay.example".into()],
+        };
+        for command in [
+            Command::ListNetworkPresets { refresh: false },
+            Command::ListNetworkPresets { refresh: true },
+            Command::ProbeNetwork {
+                selection: selection.clone(),
+            },
+        ] {
+            assert!(!command.durable());
+            assert_eq!(
+                serde_json::from_value::<Command>(serde_json::to_value(&command).unwrap()).unwrap(),
+                command
+            );
+        }
+        for output in [
+            Output::NetworkPresets(crate::network::Listing {
+                presets: vec![crate::network::Preset {
+                    id: "example".into(),
+                    label: crate::plugin::desktop::Navigation {
+                        label: "Example".into(),
+                        icon: None,
+                        locales: Default::default(),
+                    },
+                    selection: selection.clone(),
+                }],
+                unavailable: false,
+            }),
+            Output::NetworkLatency(crate::network::Latency {
+                selection: selection.clone(),
+                millis: Some(17),
+            }),
+            Output::NetworkLatency(crate::network::Latency {
+                selection,
+                millis: None,
+            }),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<Output>(serde_json::to_value(&output).unwrap()).unwrap(),
+                output
+            );
+        }
+        assert_eq!(crate::VERSION, 1);
+    }
+}
+
 mod process {
     use super::*;
 

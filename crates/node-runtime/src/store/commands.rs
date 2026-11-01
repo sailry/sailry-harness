@@ -287,14 +287,15 @@ pub(super) fn execute<'a>(
         Command::SaveTerminalSettings(settings) => {
             defer(move || async move { super::terminals::settings::save(db, settings).await })
         }
-        Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. } => {
-            defer(move || async move {
-                Err(Fault::new(
-                    ErrorCode::Internal,
-                    "network configuration requires the Link worker",
-                ))
-            })
-        }
+        Command::ReadNetworkSettings
+        | Command::ListNetworkPresets { .. }
+        | Command::ProbeNetwork { .. }
+        | Command::SaveNetworkSettings { .. } => defer(move || async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "network configuration requires the Link worker",
+            ))
+        }),
         Command::ReadSandboxSettings => defer(move || async move {
             Ok((
                 Output::SandboxSettings(super::sandbox::read(db).await?),

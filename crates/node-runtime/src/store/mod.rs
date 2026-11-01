@@ -338,6 +338,8 @@ pub(crate) struct Ingress {
     host: Arc<crate::host::Host>,
     discovery: crate::providers::Discovery,
     pub(crate) presets: Arc<crate::providers::presets::Directory>,
+    pub(crate) network_presets: Arc<network::presets::Directory>,
+    pub(crate) network_probes: Arc<network::probes::Probes>,
     catalog: crate::providers::catalog::Catalog,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) authorization_endpoint: Arc<std::sync::Mutex<Option<String>>>,
@@ -493,6 +495,8 @@ impl Store {
             host: crate::host::Host::new(),
             discovery: crate::providers::Discovery::new(),
             presets: Arc::default(),
+            network_presets: Arc::default(),
+            network_probes: Arc::default(),
             catalog,
             files: crate::files::Files::new().with_ocr(ocr.clone()),
             #[cfg(any(test, feature = "test-support"))]

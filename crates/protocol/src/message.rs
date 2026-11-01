@@ -937,6 +937,12 @@ pub enum Command {
     },
     SendDiagnostics,
     ReadNetworkSettings,
+    ListNetworkPresets {
+        refresh: bool,
+    },
+    ProbeNetwork {
+        selection: crate::network::Selection,
+    },
     SaveNetworkSettings {
         expected_revision: u64,
         selection: crate::network::Selection,
@@ -1680,6 +1686,8 @@ impl Command {
                 | Self::ReadTelemetrySettings
                 | Self::SendDiagnostics
                 | Self::ReadNetworkSettings
+                | Self::ListNetworkPresets { .. }
+                | Self::ProbeNetwork { .. }
                 | Self::ReadSandboxSettings
                 | Self::ReadSearchSettings
                 | Self::ReadBackupSettings
@@ -2001,6 +2009,8 @@ pub enum Output {
     TelemetrySettings(crate::telemetry::Settings),
     DiagnosticsSent,
     NetworkSettings(crate::network::Settings),
+    NetworkPresets(crate::network::Listing),
+    NetworkLatency(crate::network::Latency),
     SandboxSettings(crate::sandbox::Settings),
     SearchSettings(crate::search::Settings),
     BackupSettings(crate::backup::Settings),

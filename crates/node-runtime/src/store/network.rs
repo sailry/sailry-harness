@@ -1,4 +1,7 @@
 //! Durable relay changes apply to the Node's existing endpoint after admission.
+pub(crate) mod presets;
+pub(crate) mod probes;
+
 use super::{
     Ingress, Job,
     database::{Database, encode, storage_error},
@@ -103,18 +106,33 @@ impl Ingress {
                 "network configuration requires a controller",
             ));
         }
-        let storage = self.storage.get().ok_or_else(super::unavailable)?;
-        let link = storage
-            .network_link
-            .lock()
-            .unwrap()
-            .clone()
-            .ok_or_else(super::unavailable)?;
-        let settings = storage
-            .read(move |connection| Box::pin(async move { read(connection, &link).await }))
-            .await?;
+        let output = match &request.command {
+            Command::ListNetworkPresets { refresh } => {
+                Output::NetworkPresets(self.network_presets.read(*refresh, &self.closed).await?)
+            }
+            Command::ProbeNetwork { selection } => {
+                Output::NetworkLatency(self.network_probes.read(selection, &self.closed).await?)
+            }
+            Command::ReadNetworkSettings => {
+                let storage = self.storage.get().ok_or_else(super::unavailable)?;
+                let link = storage
+                    .network_link
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .ok_or_else(super::unavailable)?;
+                Output::NetworkSettings(
+                    storage
+                        .read(move |connection| {
+                            Box::pin(async move { read(connection, &link).await })
+                        })
+                        .await?,
+                )
+            }
+            _ => return Err(Fault::invalid("network read command expected")),
+        };
         let (reply, completion) = oneshot::channel();
-        let _ = reply.send(Ok(Output::NetworkSettings(settings)));
+        let _ = reply.send(Ok(output));
         Ok(Admission {
             receipt: Receipt {
                 id: request.id,

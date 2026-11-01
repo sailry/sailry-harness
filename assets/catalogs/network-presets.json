@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "global",
+      "label": {
+        "label": "Global",
+        "locales": {
+          "en": "Global",
+          "zh": "全球",
+          "zh-TW": "全球",
+          "de": "Global",
+          "es": "Global",
+          "fr": "Mondial",
+          "ja": "グローバル",
+          "ko": "글로벌",
+          "pt-BR": "Global",
+          "ru": "Глобальная сеть"
+        }
+      },
+      "selection": { "kind": "iroh" }
+    },
+    {
+      "id": "china-tencent",
+      "label": {
+        "label": "China (Tencent Cloud)",
+        "locales": {
+          "en": "China (Tencent Cloud)",
+          "zh": "中国（腾讯云）",
+          "zh-TW": "中國（騰訊雲）",
+          "de": "China (Tencent Cloud)",
+          "es": "China (Tencent Cloud)",
+          "fr": "Chine (Tencent Cloud)",
+          "ja": "中国（Tencent Cloud）",
+          "ko": "중국 (Tencent Cloud)",
+          "pt-BR": "China (Tencent Cloud)",
+          "ru": "Китай (Tencent Cloud)"
+        }
+      },
+      "selection": {
+        "kind": "custom",
+        "relays": ["https://iroh-service.dux.plus"]
+      }
+    },
+    {
+      "id": "china-aliyun",
+      "label": {
+        "label": "China (Alibaba Cloud)",
+        "locales": {
+          "en": "China (Alibaba Cloud)",
+          "zh": "中国（阿里云）",
+          "zh-TW": "中國（阿里雲）",
+          "de": "China (Alibaba Cloud)",
+          "es": "China (Alibaba Cloud)",
+          "fr": "Chine (Alibaba Cloud)",
+          "ja": "中国（Alibaba Cloud）",
+          "ko": "중국 (Alibaba Cloud)",
+          "pt-BR": "China (Alibaba Cloud)",
+          "ru": "Китай (Alibaba Cloud)"
+        }
+      },
+      "selection": {
+        "kind": "custom",
+        "relays": ["https://aliyun-1.iroh.jujiang.me"]
+      }
+    }
+  ]
+}

@@ -18,3 +18,34 @@ pub struct Settings {
     pub effective: Option<Selection>,
     pub address: String,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Preset {
+    pub id: String,
+    pub label: crate::plugin::desktop::Navigation,
+    pub selection: Selection,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Catalog {
+    pub version: u32,
+    pub presets: Vec<Preset>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Listing {
+    pub presets: Vec<Preset>,
+    pub unavailable: bool,
+}
+
+/// HTTPS service response time, separate from a paired connection's RTT.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Latency {
+    pub selection: Selection,
+    /// No value means no successful response was measured.
+    pub millis: Option<u64>,
+}
