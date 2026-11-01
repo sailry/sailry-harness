@@ -74,8 +74,9 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
   bool retry(Map<String, dynamic> entry) => _requests.containsKey(_key(entry));
 
   bool enabled(Map<String, dynamic> entry) {
-    if (_closed || !connected || _running.containsKey(_key(entry)))
+    if (_closed || !connected || _running.containsKey(_key(entry))) {
       return false;
+    }
     if (retry(entry)) return true;
     final selected = current(entry);
     final state = object(selected?['state']);
