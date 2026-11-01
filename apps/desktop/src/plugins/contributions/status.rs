@@ -151,6 +151,10 @@ impl Feed {
         self.source(key).is_some()
     }
 
+    pub(super) fn uncertain(&self, key: &Key) -> bool {
+        self.pending.get(key).is_some_and(|pending| !pending.active)
+    }
+
     fn entry(&self, source: &feed::Entry) -> Entry {
         let key = self.key(source);
         present(
@@ -158,7 +162,7 @@ impl Feed {
             key.clone(),
             self.view.borrow().connected,
             self.open.get(&key) == Some(&true),
-            self.pending.get(&key).is_some_and(|pending| pending.active),
+            self.pending.get(&key),
         )
     }
 
@@ -175,10 +179,17 @@ impl Feed {
     }
 }
 
-fn present(source: &feed::Entry, key: Key, connected: bool, open: bool, active: bool) -> Entry {
+fn present(
+    source: &feed::Entry,
+    key: Key,
+    connected: bool,
+    open: bool,
+    pending: Option<&Pending>,
+) -> Entry {
     let mut state = source.state.clone();
-    state.visible |= open;
-    state.enabled &= connected && !active;
+    // Recovery reuses the admitted request after its effects hide or disable the action.
+    state.visible |= open || pending.is_some();
+    state.enabled = connected && pending.map_or(state.enabled, |pending| !pending.active);
     if source.declaration.kind == Kind::Popover {
         state.value = open.into();
     }
@@ -186,7 +197,15 @@ fn present(source: &feed::Entry, key: Key, connected: bool, open: bool, active: 
         key,
         declaration: source.declaration.clone(),
         state,
-        retry: false,
+        retry: pending.is_some_and(|pending| !pending.active),
+    }
+}
+
+pub(super) fn intent_value(kind: Kind, value: Value) -> Value {
+    if kind == Kind::Popover && value == Value::Bool(true) {
+        Value::Null
+    } else {
+        value
     }
 }
 

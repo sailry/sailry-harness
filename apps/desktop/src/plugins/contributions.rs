@@ -398,7 +398,13 @@ impl Registry {
             .intent(intent, cx)
             .ok_or_else(|| "contribution is unavailable".to_owned())?;
         if entry.declaration.slot == Slot::Status {
-            return self.invoke_status(&entry.key, ui::EventKind::Invoke, value, window, cx);
+            return self.invoke_status(
+                &entry.key,
+                ui::EventKind::Invoke,
+                status::intent_value(entry.declaration.kind, value),
+                window,
+                cx,
+            );
         }
         let result = self
             .current(&entry.key)
@@ -644,6 +650,20 @@ impl Registry {
     }
 
     pub(super) fn retry(&mut self, key: &Key, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(feed) = &self.status
+            && feed.contains(key)
+        {
+            if feed.uncertain(key) {
+                self.invoke(
+                    key,
+                    ui::EventKind::Invoke,
+                    serde_json::Value::Null,
+                    window,
+                    cx,
+                );
+            }
+            return;
+        }
         let Some(mounted) = self.current(key) else {
             return;
         };

@@ -116,11 +116,13 @@ impl Registry {
                         key.package.name, key.id
                     )))
                     .small()
-                    .disabled(
+                    .disabled(if entry.declaration.slot == Slot::Status {
+                        !entry.state.enabled
+                    } else {
                         !self
                             .current(&key)
-                            .is_some_and(|mounted| mounted.panel.read(cx).connected),
-                    )
+                            .is_some_and(|mounted| mounted.panel.read(cx).connected)
+                    })
                     .on_click(
                         cx.listener(move |registry, _, window, cx| {
                             registry.retry(&key, window, cx)

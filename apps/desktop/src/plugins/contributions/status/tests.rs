@@ -30,15 +30,37 @@ fn key(source: &feed::Entry) -> Key {
     }
 }
 
+fn pending(key: &Key) -> Pending {
+    Pending {
+        request: Request::new(
+            key.node,
+            Command::CallPlugin {
+                handler: "activate".into(),
+                input: json!({"id": key.id}),
+            },
+        )
+        .with_plugin(Context {
+            invocation: None,
+            turn: None,
+            surface: Surface::Composer,
+            package: key.package.clone(),
+            worktree: key.worktree,
+            session: key.session,
+        }),
+        active: true,
+        task: None,
+    }
+}
+
 #[test]
 fn open_preserves_hidden_popover_and_node_state() {
     let source = source();
     let key = key(&source);
-    let closed = present(&source, key.clone(), true, false, false);
+    let closed = present(&source, key.clone(), true, false, None);
     assert!(!closed.state.visible);
     assert!(closed.state.enabled);
     assert_eq!(closed.state.value, false);
-    let open = present(&source, key, true, true, false);
+    let open = present(&source, key, true, true, None);
     assert!(open.state.visible);
     assert!(open.state.enabled);
     assert_eq!(open.state.value, true);
@@ -53,18 +75,45 @@ fn open_preserves_hidden_popover_and_node_state() {
 fn connection_and_flight_control_enabled_state() {
     let mut source = source();
     let key = key(&source);
+    let pending = pending(&key);
     for (connected, active) in [(false, false), (false, true), (true, true)] {
-        let entry = present(&source, key.clone(), connected, true, active);
+        let entry = present(
+            &source,
+            key.clone(),
+            connected,
+            true,
+            active.then_some(&pending),
+        );
         assert!(entry.state.visible);
         assert!(!entry.state.enabled);
     }
     assert!(
-        present(&source, key.clone(), true, true, false)
+        present(&source, key.clone(), true, true, None)
             .state
             .enabled
     );
     source.state.enabled = false;
-    assert!(!present(&source, key, true, true, false).state.enabled);
+    assert!(!present(&source, key, true, true, None).state.enabled);
+}
+
+#[tokio::test]
+async fn intent_opens_hidden_popover_from_command_result() {
+    let source = source();
+    let entry = present(&source, key(&source), true, false, None);
+    assert!(!entry.state.visible);
+    assert!(entry.state.enabled);
+    let value = intent_value(entry.declaration.kind, true.into());
+    assert!(value.is_null());
+    let bridge = Bridge::new(vec![entry.declaration]);
+    bridge
+        .forward(&entry.key.id, ui::EventKind::Invoke, value)
+        .unwrap();
+    let event = bridge.next().await.unwrap();
+    assert_eq!(event.id, entry.key.id);
+    assert_eq!(event.kind, ui::EventKind::Invoke);
+    assert!(event.value.is_null());
+    assert_eq!(intent_value(Kind::Button, true.into()), true);
+    assert_eq!(intent_value(Kind::Popover, false.into()), false);
 }
 
 #[test]
@@ -132,32 +181,14 @@ fn uncertain_action_retains_exact_request_for_retry() {
     source.invoke = Some("activate".into());
     source.state.visible = true;
     let identity = key(&source);
-    let request = Request::new(
-        identity.node,
-        Command::CallPlugin {
-            handler: "activate".into(),
-            input: json!({"id": identity.id}),
-        },
-    )
-    .with_plugin(Context {
-        invocation: None,
-        turn: None,
-        surface: Surface::Composer,
-        package: identity.package,
-        worktree: identity.worktree,
-        session: identity.session,
-    });
-    let mut pending = Pending {
-        request: request.clone(),
-        active: true,
-        task: None,
-    };
+    let mut pending = pending(&identity);
+    let request = pending.request.clone();
     assert!(pending.retry().is_err());
     assert!(pending.complete(&Err(Fault::new(ErrorCode::OutcomeUnknown, "unknown"))));
     assert!(!pending.active);
     assert_eq!(pending.retry().unwrap(), request);
     assert!(
-        present(&source, key(&source), true, true, pending.active)
+        present(&source, key(&source), true, true, Some(&pending))
             .state
             .enabled
     );
@@ -170,4 +201,58 @@ fn uncertain_action_retains_exact_request_for_retry() {
         assert!(!pending.complete(&result));
         assert!(!pending.active);
     }
+}
+
+#[test]
+fn uncertain_hidden_action_remains_recoverable() {
+    let mut source = source();
+    source.declaration.kind = Kind::Button;
+    source.invoke = Some("activate".into());
+    source.state.visible = true;
+    let key = key(&source);
+    let mut pending = pending(&key);
+    let request = pending.request.clone();
+    source.state.visible = false;
+    assert!(pending.complete(&Err(Fault::new(ErrorCode::OutcomeUnknown, "unknown"))));
+    let entry = present(&source, key.clone(), true, false, Some(&pending));
+    assert!(entry.state.visible);
+    assert!(entry.state.enabled);
+    assert!(entry.retry);
+    assert_eq!(pending.retry().unwrap(), request);
+    assert!(!source.state.visible);
+    let fresh = present(&source, key.clone(), true, false, None);
+    assert!(!fresh.state.visible);
+    pending.active = true;
+    let active = present(&source, key.clone(), true, false, Some(&pending));
+    assert!(active.state.visible);
+    assert!(!active.state.enabled);
+    assert!(!active.retry);
+    assert!(pending.retry().is_err());
+    pending.active = false;
+    let disconnected = present(&source, key, false, false, Some(&pending));
+    assert!(disconnected.state.visible);
+    assert!(!disconnected.state.enabled);
+    assert!(disconnected.retry);
+}
+
+#[test]
+fn uncertain_disabled_action_remains_recoverable() {
+    let mut source = source();
+    source.declaration.kind = Kind::Button;
+    source.invoke = Some("activate".into());
+    source.state.visible = true;
+    let key = key(&source);
+    let mut pending = pending(&key);
+    let request = pending.request.clone();
+    source.state.enabled = false;
+    assert!(pending.complete(&Err(Fault::new(ErrorCode::OutcomeUnknown, "unknown"))));
+    let entry = present(&source, key.clone(), true, false, Some(&pending));
+    assert!(entry.state.visible);
+    assert!(entry.state.enabled);
+    assert!(entry.retry);
+    assert_eq!(pending.retry().unwrap(), request);
+    assert!(!source.state.enabled);
+    let fresh = present(&source, key, true, false, None);
+    assert!(!fresh.state.enabled);
+    assert!(!fresh.retry);
 }
