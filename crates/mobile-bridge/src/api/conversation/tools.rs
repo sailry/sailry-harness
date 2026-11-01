@@ -33,6 +33,12 @@ pub(super) fn references(
                 selected.entry == call.source.entry && selected.index == call.source.index
             })
         })
+        .filter(|call| {
+            call.approval_pending(&snapshot.page)
+                || call
+                    .summary(&snapshot.page)
+                    .is_some_and(|summary| summary.published)
+        })
         .filter_map(|call| call.detail_reference(&snapshot.page))
         .collect()
 }

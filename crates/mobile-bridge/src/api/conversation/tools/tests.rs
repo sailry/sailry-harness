@@ -5,11 +5,12 @@ use sailry_client::{
 };
 use sailry_link::{Admission, Pending, Subscription, Transport};
 use sailry_protocol::{
-    Command, ErrorCode, Fault, NodeId, Output, Receipt, Request, SessionId, Topic, TurnId,
-    conversation::{Entry, Page, Part, Snapshot},
+    ApprovalId, Command, ErrorCode, Fault, NodeId, Output, Receipt, Request, SessionId, Topic,
+    TurnId,
+    conversation::{Approval, ApprovalSource, ApprovalState, Entry, Page, Part, Snapshot},
     tool::{
         Failure, Presentation,
-        detail::{Detail, Summary},
+        detail::{Detail, Reference as DetailReference, Summary},
     },
 };
 use std::sync::Arc;
@@ -131,6 +132,37 @@ fn summary(view: &mut View) -> &mut Summary {
     summary
 }
 
+fn pending(view: &mut View) {
+    let snapshot = Arc::make_mut(view.snapshot.as_mut().unwrap());
+    let page = Arc::make_mut(&mut snapshot.page);
+    Arc::make_mut(&mut page.entries).truncate(1);
+    let Part::ToolCall { summary, .. } = &mut Arc::make_mut(&mut page.entries)[0].parts[0] else {
+        unreachable!()
+    };
+    summary.revision = "a".repeat(64);
+    let call = &mut Arc::make_mut(&mut view.calls)[0];
+    call.response = None;
+    call.state = State::Waiting;
+    let approval = Approval {
+        id: ApprovalId::new(),
+        session: page.session,
+        turn: call.turn,
+        entry: call.source.entry.clone(),
+        index: call.source.index,
+        state: ApprovalState::Pending,
+        source: ApprovalSource::User,
+        choice: None,
+        reason: None,
+        prefix: None,
+        can_remember: false,
+        startup: None,
+        ssh: None,
+        access: None,
+    };
+    call.approval = Some(approval.clone());
+    page.approvals.push(approval);
+}
+
 #[test]
 fn preserves_bounded_facts_without_raw_values() {
     let (mut view, detail) = fixture(
@@ -226,9 +258,10 @@ fn failure_does_not_select_success_preview() {
 }
 
 struct Backend {
-    reference: sailry_protocol::tool::detail::Reference,
+    reference: DetailReference,
     detail: Arc<Detail>,
     total: Option<usize>,
+    requests: std::sync::Mutex<Vec<DetailReference>>,
 }
 
 impl Transport for Backend {
@@ -240,9 +273,27 @@ impl Transport for Backend {
     }
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
-            let Command::ReadToolDetail { cursor, limit, .. } = request.command else {
+            let Command::ReadToolDetail {
+                session,
+                turn,
+                entry,
+                index,
+                call,
+                expected_revision,
+                cursor,
+                limit,
+            } = request.command
+            else {
                 panic!("tool detail request expected")
             };
+            self.requests.lock().unwrap().push(DetailReference {
+                session,
+                turn,
+                entry,
+                index,
+                call,
+                revision: expected_revision,
+            });
             let text = serde_json::to_string(&self.detail).unwrap();
             let offset = cursor.unwrap_or(0);
             let mut end = offset.saturating_add(limit).min(text.len());
@@ -272,38 +323,55 @@ impl Transport for Backend {
     }
 }
 
-#[tokio::test]
-async fn sends_selected_details_once_per_revision() {
+fn subscription(
+    view: View,
+    backend: Arc<Backend>,
+) -> (
+    tokio::sync::watch::Sender<View>,
+    crate::api::conversation::ConversationUpdates,
+) {
     use crate::api::conversation::ConversationUpdates;
     use sailry_link::CancellationToken;
     use tokio::sync::{Mutex, mpsc, watch};
-    let (view, detail) = fixture(
+
+    let client = Arc::new(Client::new(backend));
+    let (sender, receiver) = watch::channel(view);
+    let (older, _requests) = mpsc::channel(1);
+    let details = Tracker::new(client, tokio::runtime::Handle::current());
+    let detail_changes = Mutex::new(details.subscribe());
+    (
+        sender,
+        ConversationUpdates {
+            details,
+            detail_changes,
+            selected: Default::default(),
+            sent: Default::default(),
+            current: receiver.clone(),
+            receiver: Mutex::new(receiver),
+            stop: CancellationToken::new(),
+            task: tokio::spawn(std::future::pending()),
+            older,
+        },
+    )
+}
+
+#[tokio::test]
+async fn sends_selected_details_once_per_revision() {
+    let (mut view, detail) = fixture(
         Presentation::Details,
         json!("Original output".repeat(10_000)),
     );
-    let backend = Backend {
+    summary(&mut view).published = true;
+    let backend = Arc::new(Backend {
         reference: view.calls[0]
             .detail_reference(&view.snapshot.as_ref().unwrap().page)
             .unwrap(),
         detail,
         total: None,
-    };
-    let client = Arc::new(Client::new(Arc::new(backend)));
-    let (sender, receiver) = watch::channel(view);
-    let (older, _requests) = mpsc::channel(1);
-    let details = Tracker::new(client.clone(), tokio::runtime::Handle::current());
-    let detail_changes = Mutex::new(details.subscribe());
-    let updates = Arc::new(ConversationUpdates {
-        details,
-        detail_changes,
-        selected: Default::default(),
-        sent: Default::default(),
-        current: receiver.clone(),
-        receiver: Mutex::new(receiver),
-        stop: CancellationToken::new(),
-        task: tokio::spawn(std::future::pending()),
-        older,
+        requests: Default::default(),
     });
+    let (sender, updates) = subscription(view, backend.clone());
+    let updates = Arc::new(updates);
     let pending = {
         let updates = updates.clone();
         tokio::spawn(async move { updates.next().await })
@@ -323,6 +391,8 @@ async fn sends_selected_details_once_per_revision() {
         "Original output".repeat(10_000)
     );
     assert_eq!(packet["result"], "Original output".repeat(10_000));
+    let reads = backend.requests.lock().unwrap().len();
+    assert!(reads > 1);
     let key = value["calls"][0]["detail_key"].clone();
     let reference: sailry_protocol::tool::detail::Reference =
         serde_json::from_str(key.as_str().unwrap()).unwrap();
@@ -340,6 +410,16 @@ async fn sends_selected_details_once_per_revision() {
     assert!(repeated["calls"][0].get("detail").is_none());
     assert_eq!(repeated["calls"][0]["detail_key"], key);
     updates
+        .track_tools(
+            json!({
+                "items":[{"entry":"request","index":0}],
+                "retry":[{"entry":"request","index":0}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+    assert_eq!(backend.requests.lock().unwrap().len(), reads);
+    updates
         .track_tools(json!({"items":[]}).to_string())
         .unwrap();
     let released: Value = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
@@ -356,6 +436,7 @@ async fn sends_selected_details_once_per_revision() {
         restored["calls"][0]["detail"]["result"],
         "Original output".repeat(10_000)
     );
+    assert_eq!(backend.requests.lock().unwrap().len(), reads);
     updates.close();
     assert!(updates.next().await.is_err());
     assert!(
@@ -367,42 +448,9 @@ async fn sends_selected_details_once_per_revision() {
 
 #[tokio::test]
 async fn refreshes_approval_facts_without_resending_details() {
-    use sailry_protocol::{
-        ApprovalId,
-        conversation::{Approval, ApprovalSource, ApprovalState},
-        process::Access,
-    };
+    use sailry_protocol::process::Access;
     let (mut current, mut detail) = fixture(Presentation::Details, Value::Null);
-    let snapshot = Arc::make_mut(current.snapshot.as_mut().unwrap());
-    let page = Arc::make_mut(&mut snapshot.page);
-    std::sync::Arc::make_mut(&mut page.entries).truncate(1);
-    let Part::ToolCall { summary, .. } =
-        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
-    else {
-        unreachable!()
-    };
-    summary.revision = "a".repeat(64);
-    let call = &mut Arc::make_mut(&mut current.calls)[0];
-    call.response = None;
-    call.state = State::Waiting;
-    let approval = Approval {
-        id: ApprovalId::new(),
-        session: page.session,
-        turn: call.turn,
-        entry: call.source.entry.clone(),
-        index: call.source.index,
-        state: ApprovalState::Pending,
-        source: ApprovalSource::User,
-        choice: None,
-        reason: None,
-        prefix: None,
-        can_remember: false,
-        startup: None,
-        ssh: None,
-        access: None,
-    };
-    call.approval = Some(approval.clone());
-    page.approvals.push(approval);
+    pending(&mut current);
     let full = display::Resolved {
         label: None,
         input: display::Input {
@@ -423,11 +471,14 @@ async fn refreshes_approval_facts_without_resending_details() {
         diagnostics: vec![],
     };
     Arc::make_mut(&mut detail).resolved = Some(full);
-    let reference = call.detail_reference(page).unwrap();
+    let reference = current.calls[0]
+        .detail_reference(&current.snapshot.as_ref().unwrap().page)
+        .unwrap();
     let client = Arc::new(Client::new(Arc::new(Backend {
         reference: reference.clone(),
         detail,
         total: None,
+        requests: Default::default(),
     })));
     let tracker = Tracker::new(client, tokio::runtime::Handle::current());
     assert!(current.calls[0].approval_pending(&current.snapshot.as_ref().unwrap().page));
@@ -481,35 +532,84 @@ async fn refreshes_approval_facts_without_resending_details() {
 }
 
 #[tokio::test]
+async fn drops_approval_selection_when_results_arrive() {
+    let (mut returned, mut detail) = fixture(Presentation::Details, json!("Unneeded output"));
+    let result = returned.calls[0]
+        .detail_reference(&returned.snapshot.as_ref().unwrap().page)
+        .unwrap();
+    let mut current = returned.clone();
+    pending(&mut current);
+    let reference = current.calls[0]
+        .detail_reference(&current.snapshot.as_ref().unwrap().page)
+        .unwrap();
+    let captured = Arc::make_mut(&mut detail);
+    captured.arguments = json!({"command":"Captured command"});
+    captured.result = None;
+    let backend = Arc::new(Backend {
+        reference: reference.clone(),
+        detail,
+        total: None,
+        requests: Default::default(),
+    });
+    let (sender, updates) = subscription(current.clone(), backend.clone());
+    let selected = json!({"entry":"request","index":0});
+    updates
+        .track_tools(json!({"items":[selected.clone()]}).to_string())
+        .unwrap();
+    assert!(matches!(
+        updates.details.wait(&reference).await,
+        sailry_client::conversation::details::State::Ready(_)
+    ));
+    let first: Value = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
+    assert_eq!(
+        first["calls"][0]["detail"]["arguments"],
+        json!({"command":"Captured command"})
+    );
+    assert_eq!(*backend.requests.lock().unwrap(), [reference.clone()]);
+
+    let mut approval = current.calls[0].approval.clone().unwrap();
+    approval.state = ApprovalState::Approved;
+    Arc::make_mut(&mut returned.calls)[0].approval = Some(approval.clone());
+    let snapshot = Arc::make_mut(returned.snapshot.as_mut().unwrap());
+    snapshot.sequence += 1;
+    Arc::make_mut(&mut snapshot.page).approvals.push(approval);
+    sender.send_replace(returned);
+
+    // The Rust rebind runs before Dart receives this page and can clear its
+    // mounted approval selection. It must not follow that source to the result.
+    let next: Value = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
+    assert_eq!(updates.selected.lock().unwrap().len(), 1);
+    assert!(next["calls"][0]["detail_state"].is_null());
+    assert!(next["calls"][0]["detail"].is_null());
+    assert!(matches!(
+        updates.details.wait(&result).await,
+        sailry_client::conversation::details::State::Superseded
+    ));
+    updates
+        .track_tools(json!({"items":[selected.clone()],"retry":[selected]}).to_string())
+        .unwrap();
+    assert!(matches!(
+        updates.details.wait(&result).await,
+        sailry_client::conversation::details::State::Superseded
+    ));
+    assert_eq!(*backend.requests.lock().unwrap(), [reference]);
+    updates.close();
+}
+
+#[tokio::test]
 async fn selection_exposes_limits_and_releases_details() {
-    use crate::api::conversation::ConversationUpdates;
-    use sailry_link::CancellationToken;
-    use tokio::sync::{Mutex, mpsc, watch};
-    let (view, detail) = fixture(Presentation::Details, json!("Original output"));
+    let (mut view, detail) = fixture(Presentation::Details, json!("Original output"));
+    summary(&mut view).published = true;
     let reference = view.calls[0]
         .detail_reference(&view.snapshot.as_ref().unwrap().page)
         .unwrap();
-    let backend = Backend {
+    let backend = Arc::new(Backend {
         reference: reference.clone(),
         detail,
         total: Some(sailry_client::conversation::details::MAX_BYTES + 1),
-    };
-    let client = Arc::new(Client::new(Arc::new(backend)));
-    let (_sender, receiver) = watch::channel(view);
-    let (older, _requests) = mpsc::channel(1);
-    let details = Tracker::new(client.clone(), tokio::runtime::Handle::current());
-    let detail_changes = Mutex::new(details.subscribe());
-    let updates = ConversationUpdates {
-        details,
-        detail_changes,
-        selected: Default::default(),
-        sent: Default::default(),
-        current: receiver.clone(),
-        receiver: Mutex::new(receiver),
-        stop: CancellationToken::new(),
-        task: tokio::spawn(std::future::pending()),
-        older,
-    };
+        requests: Default::default(),
+    });
+    let (_sender, updates) = subscription(view, backend.clone());
     updates
         .track_tools(json!({"items":[{"entry":"request","index":0}]}).to_string())
         .unwrap();
@@ -532,6 +632,24 @@ async fn selection_exposes_limits_and_releases_details() {
         summary["calls"][0]["approval_view"]
     );
     assert_eq!(value["detail_errors"].as_array().unwrap().len(), 1);
+    assert_eq!(*backend.requests.lock().unwrap(), [reference.clone()]);
+    updates
+        .track_tools(
+            json!({
+                "items":[{"entry":"request","index":0}],
+                "retry":[{"entry":"request","index":0}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+    assert!(matches!(
+        updates.details.wait(&reference).await,
+        sailry_client::conversation::details::State::TooLarge(Limit::Transfer)
+    ));
+    assert_eq!(
+        *backend.requests.lock().unwrap(),
+        [reference.clone(), reference]
+    );
     updates
         .track_tools(json!({"items":[]}).to_string())
         .unwrap();
