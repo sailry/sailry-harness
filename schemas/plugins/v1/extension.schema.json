@@ -728,6 +728,14 @@
       },
       "type": "object"
     },
+    "Change": {
+      "enum": [
+        "package",
+        "conversation",
+        "repository"
+      ],
+      "type": "string"
+    },
     "Choice": {
       "additionalProperties": false,
       "properties": {
@@ -2350,6 +2358,17 @@
           },
           "type": "array"
         },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Status"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Node-computed state for the package's Status contributions."
+        },
         "turn": {
           "anyOf": [
             {
@@ -3425,6 +3444,33 @@
         "item"
       ],
       "type": "string"
+    },
+    "Status": {
+      "additionalProperties": false,
+      "properties": {
+        "changes": {
+          "description": "Node signals that re-evaluate the read export for a subscribed scope.",
+          "items": {
+            "$ref": "#/$defs/Change"
+          },
+          "type": "array"
+        },
+        "invoke": {
+          "description": "Optional durable export receiving Button invocations from any controller.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "read": {
+          "description": "A read-only export returning Status states for the captured scope.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "read"
+      ],
+      "type": "object"
     },
     "StorageCollection": {
       "additionalProperties": false,

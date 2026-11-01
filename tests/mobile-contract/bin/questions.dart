@@ -137,7 +137,7 @@ Future<void> main() async {
         call['source']['index'] == first['index'],
     'shared pending question references its exact canonical call',
   );
-  final spec = (await detail(updates, call))['arguments'];
+  final spec = (await detail(connection, call))['arguments'];
   check(
     spec['prompt'] == '补充要求 中文 🙂' &&
         spec['input']['multiline'] == true &&
@@ -209,7 +209,7 @@ Future<void> main() async {
   );
   final calls = finished['calls'] as List;
   final results = [
-    for (final call in calls) (await detail(updates, call))['result'],
+    for (final call in calls) (await detail(connection, call))['result'],
   ];
   check(
     calls.length == 4 &&
@@ -265,7 +265,7 @@ Future<void> main() async {
     }
   }).timeout(const Duration(seconds: 10));
   final closed = (cancelled['calls'] as List).single;
-  final result = (await detail(updates, closed))['result'];
+  final result = (await detail(connection, closed))['result'];
   check(
     closed['state'] == 'returned' &&
         closed['question']['state']['kind'] == 'cancelled' &&

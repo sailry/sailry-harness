@@ -17,6 +17,7 @@ fn source(fixture: &Fixture, name: &str, suffix: &str) {
     let extension = &mut manifest["extensions"]["dev.sailry.platform"];
     extension.as_object_mut().unwrap().remove("desktop");
     extension.as_object_mut().unwrap().remove("ui");
+    extension["host"].as_object_mut().unwrap().remove("status");
     extension["host"]["commands"][0]["name"] = json!(name);
     for tool in extension["tools"].as_array_mut().unwrap() {
         tool["display"]["label"] = json!(format!("Record{suffix}"));

@@ -110,10 +110,15 @@ void main() {
           _ => TaskGroup.today,
         },
       );
-      expect(groups, [
-        (TaskGroup.active, ['b1', 'b2']),
-        (TaskGroup.today, ['c1']),
-        (TaskGroup.earlier, ['a1', 'a2']),
+      expect(groups.map((section) => section.$1), [
+        TaskGroup.active,
+        TaskGroup.today,
+        TaskGroup.earlier,
+      ]);
+      expect(groups.map((section) => section.$2), [
+        ['b1', 'b2'],
+        ['c1'],
+        ['a1', 'a2'],
       ]);
     });
   });

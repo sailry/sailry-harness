@@ -58,7 +58,7 @@ Future<void> main() async {
   }))['data'];
   final waiting = await until(updates, hasPending);
   final question = pending(waiting);
-  final proposed = await detailAt(updates, waiting, question);
+  final proposed = await detailAt(connection, waiting, question);
   check(
     proposed['arguments']['input']['kind'] == 'plan',
     'plan uses the canonical question specification',
@@ -120,7 +120,7 @@ Future<void> main() async {
         configured['revision'],
     'original planning revision remains immutable',
   );
-  final acceptedCall = await detailAt(updates, finished, question);
+  final acceptedCall = await detailAt(connection, finished, question);
   check(
     acceptedCall['result']['coding_turn'] == accepted['turn']['id'],
     'accepted plan is persisted as a canonical tool result',

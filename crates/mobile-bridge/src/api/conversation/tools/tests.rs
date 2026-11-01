@@ -565,7 +565,10 @@ async fn drops_approval_selection_when_results_arrive() {
         first["calls"][0]["detail"]["arguments"],
         json!({"command":"Captured command"})
     );
-    assert_eq!(*backend.requests.lock().unwrap(), [reference.clone()]);
+    assert_eq!(
+        backend.requests.lock().unwrap().as_slice(),
+        std::slice::from_ref(&reference)
+    );
 
     let mut approval = current.calls[0].approval.clone().unwrap();
     approval.state = ApprovalState::Approved;
@@ -632,7 +635,10 @@ async fn selection_exposes_limits_and_releases_details() {
         summary["calls"][0]["approval_view"]
     );
     assert_eq!(value["detail_errors"].as_array().unwrap().len(), 1);
-    assert_eq!(*backend.requests.lock().unwrap(), [reference.clone()]);
+    assert_eq!(
+        backend.requests.lock().unwrap().as_slice(),
+        std::slice::from_ref(&reference)
+    );
     updates
         .track_tools(
             json!({

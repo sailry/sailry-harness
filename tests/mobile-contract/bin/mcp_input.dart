@@ -70,7 +70,7 @@ Future<void> main() async {
   final call = (waiting['calls'] as List).singleWhere(
     (call) => call['question']?['id'] == question['id'],
   );
-  final input = (await detail(updates, call))['arguments']['input'];
+  final input = (await detail(connection, call))['arguments']['input'];
   check(
     url
         ? input['kind'] == 'url' &&
@@ -139,7 +139,7 @@ Future<void> main() async {
   final firstResult = (completed['calls'] as List).firstWhere(
     (call) => call['name'] != 'mcp_elicitation',
   );
-  final raw = (await detail(updates, firstResult))['result'];
+  final raw = (await detail(connection, firstResult))['result'];
   final output = raw['structuredContent'];
   check(
     canonicalJson(raw['content']) ==
@@ -159,7 +159,7 @@ Future<void> main() async {
     (call) => call['name'] != 'mcp_elicitation',
   );
   check(
-    canonicalJson((await detail(updates, restoredCall))['result']) ==
+    canonicalJson((await detail(connection, restoredCall))['result']) ==
         canonicalJson(raw),
     'reopen preserves the original MCP content and structured result',
   );

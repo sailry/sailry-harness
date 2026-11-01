@@ -5,7 +5,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/commands.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, detail, execute, until;
+import 'conversation.dart' show check, execute, trackedDetail, until;
 import 'approvals.dart' show hasPending, pending;
 import 'ports.dart' show released;
 
@@ -59,7 +59,7 @@ Future<void> main() async {
         call['source']['entry'] == approval['entry'] &&
         call['source']['index'] == approval['index'],
   );
-  final arguments = (await detail(history, call))['arguments'];
+  final arguments = (await trackedDetail(history, call))['arguments'];
   check(
     approval['source'] == 'user' &&
         approval['access'] == 'unrestricted' &&

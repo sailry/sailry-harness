@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, detail, execute, until;
+import 'conversation.dart' show check, detail, execute, trackedDetail, until;
 
 bool hasPending(Map<String, dynamic> snapshot) =>
     (snapshot['page']['approvals'] as List).any(
@@ -83,7 +83,11 @@ Future<void> main() async {
         first['index'] == call['source']['index'],
     'approval and call reference the same canonical part',
   );
-  final arguments = (await detail(updates, call))['arguments'];
+  final arguments = (await trackedDetail(
+    updates,
+    call,
+    first: updates.next(),
+  ).timeout(const Duration(seconds: 2)))['arguments'];
   final fullText = List.filled(
     100,
     '完整的审批正文 🙂\nA literal sample: ```rust\nlet value = 1;\n```\n',
@@ -181,7 +185,7 @@ Future<void> main() async {
         calls.every((call) => call['state'] == 'returned'),
     'approval decisions remain distinct from returned tool state',
   );
-  final outputs = [for (final call in calls) await detail(updates, call)];
+  final outputs = [for (final call in calls) await detail(connection, call)];
   check(
     outputs[0]['result']['kind'] == 'file_written',
     'approved write returns actual service result',
@@ -236,7 +240,7 @@ Future<void> main() async {
         call['source']['entry'] == stopped['entry'] &&
         call['source']['index'] == stopped['index'],
   );
-  final result = (await detail(updates, stoppedCall))['result'];
+  final result = (await detail(connection, stoppedCall))['result'];
   check(
     stoppedCall['state'] == 'returned' &&
         stoppedCall['approval']['id'] == stopped['id'] &&

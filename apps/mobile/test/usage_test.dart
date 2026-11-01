@@ -3,12 +3,15 @@ import 'package:sailry_mobile/features/settings/usage_data.dart';
 
 const _hour = 3600000;
 
-Map<String, dynamic> point(DateTime start, {int responses = 0, Map? tokens}) =>
-    {
-      'start_ms': start.millisecondsSinceEpoch,
-      'metrics': {'responses': responses, 'tokens': tokens},
-      'models': <String, dynamic>{},
-    };
+Map<String, dynamic> point(
+  DateTime start, {
+  int responses = 0,
+  Map<String, dynamic>? tokens,
+}) => {
+  'start_ms': start.millisecondsSinceEpoch,
+  'metrics': {'responses': responses, 'tokens': tokens},
+  'models': <String, dynamic>{},
+};
 
 Map<String, dynamic> usage(int input, int cached, int output) => {
   'input': input,
@@ -22,8 +25,8 @@ Map<String, dynamic> modelGroup(
   String model, {
   String? name,
   int responses = 1,
-  Map? tokens,
-  Map? cost,
+  Map<String, dynamic>? tokens,
+  Map<String, dynamic>? cost,
 }) => {
   'key': {
     'kind': 'model',

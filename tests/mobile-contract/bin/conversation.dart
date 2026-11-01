@@ -336,6 +336,14 @@ Future<Fixture> create(
         inputs.single['canonical'] == true,
     'Client inputs select canonical content over FFI',
   );
+  final completedRead = (partial['calls'] as List).singleWhere(
+    (call) => call['id'] == 'ffi-call',
+  );
+  await updates.trackTools(
+    selection: jsonEncode({
+      'items': [completedRead['source']],
+    }),
+  );
   fixture.release.complete();
   final complete = await until(
     updates,
@@ -384,6 +392,14 @@ Future<Fixture> create(
     call['hidden'] == false && call['details'] == false,
     'summary reads retain activity without ordinary disclosure',
   );
+  check(
+    call['published'] == false &&
+        (complete['calls'] as List).every(
+          (call) => call['detail_state'] == null && call['detail'] == null,
+        ) &&
+        (complete['detail_errors'] as List).isEmpty,
+    'ordinary completed tools do not fetch tracked details',
+  );
   final title = (complete['calls'] as List).singleWhere(
     (call) => call['id'] == 'ffi-title',
   );
@@ -401,15 +417,10 @@ Future<Fixture> create(
             null,
     'canonical projection retains a bounded detail reference',
   );
-  final pending = updates.next();
-  final selected = await detail(
-    updates,
-    call,
-    first: pending,
-  ).timeout(const Duration(seconds: 2));
+  final selected = await detail(connection, call);
   check(
-    selected['output']['preview'].contains('中文 tool result 🙂'),
-    'pending observation does not block shared selected output',
+    selected['resolved']['output']['preview'].contains('中文 tool result 🙂'),
+    'explicit detail reads preserve the resolved output',
   );
   check(
     jsonEncode(selected['result']['data']['lines']) ==
@@ -449,42 +460,25 @@ Future<void> restore(Connection connection, Fixture fixture) async {
   final call = (snapshot['calls'] as List).singleWhere(
     (call) => call['id'] == 'ffi-call',
   );
-  await updates.trackTools(
-    selection: jsonEncode({
-      'items': [call['source']],
-    }),
-  );
-  final detail = await Future(() async {
-    while (true) {
-      final view = jsonDecode(await updates.next());
-      final current = (view['calls'] as List).singleWhere(
-        (value) => value['id'] == 'ffi-call',
-      );
-      check(
-        (view['detail_errors'] as List).isEmpty,
-        'tracked details load without errors',
-      );
-      if (current['detail_state']?['kind'] == 'ready') {
-        return current['detail'];
-      }
-    }
-  }).timeout(const Duration(seconds: 2));
+  final restoredDetail = await detail(connection, call);
   check(
-    detail['output']['preview'].contains('中文 tool result 🙂'),
-    'tracked details cross the native bridge and remote Node',
+    restoredDetail['resolved']['output']['preview'].contains(
+      '中文 tool result 🙂',
+    ),
+    'explicit details cross the native bridge and remote Node',
   );
   check(
-    jsonEncode(detail['result']['data']['lines']) ==
+    jsonEncode(restoredDetail['result']['data']['lines']) ==
         jsonEncode([
           {'number': 1, 'text': '中文 tool result 🙂'},
         ]),
-    'tracked details preserve the complete canonical result',
+    'explicit details preserve the complete canonical result',
   );
-  await updates.trackTools(selection: jsonEncode({'items': []}));
-  final released = await until(updates, (_) => true);
   check(
-    (released['calls'] as List).every((call) => call['detail'] == null),
-    'unmounted references release their projected details',
+    (snapshot['calls'] as List).every(
+      (call) => call['detail_state'] == null && call['detail'] == null,
+    ),
+    'reopened ordinary tools retain their bounded projection',
   );
   check(fixture.requests == 2, 'recovery does not call model or tool again');
   checkStatistics(snapshot['snapshot']);
@@ -510,7 +504,7 @@ void checkStatistics(Map<String, dynamic> snapshot) {
 }
 
 Future<Map<String, dynamic>> detailAt(
-  ConversationUpdates updates,
+  Connection connection,
   Map<String, dynamic> view,
   Map<String, dynamic> reference,
 ) {
@@ -521,14 +515,65 @@ Future<Map<String, dynamic>> detailAt(
   final call = (view['calls'] as List).cast<Map<String, dynamic>>().singleWhere(
     (call) => matches(call['source']) || matches(call['response']),
   );
-  return detail(updates, call);
+  return detail(connection, call);
 }
 
 Future<Map<String, dynamic>> detail(
+  Connection connection,
+  Map<String, dynamic> call,
+) async {
+  final reference =
+      jsonDecode(call['detail_key'] as String) as Map<String, dynamic>;
+  const pageBytes = 64 * 1024;
+  final text = StringBuffer();
+  var offset = 0;
+  int? total;
+  while (true) {
+    final output = await execute(connection, 'read_tool_detail', {
+      'session': reference['session'],
+      'turn': reference['turn'],
+      'entry': reference['entry'],
+      'index': reference['index'],
+      'call': reference['call'],
+      'expected_revision': reference['revision'],
+      'cursor': offset == 0 ? null : offset,
+      'limit': pageBytes,
+    });
+    check(output['kind'] == 'tool_detail', 'canonical tool detail is returned');
+    final page = output['data'] as Map<String, dynamic>;
+    final chunk = page['text'] as String;
+    final bytes = utf8.encode(chunk).length;
+    check(
+      canonicalJson(page['reference']) == canonicalJson(reference) &&
+          page['offset'] == offset &&
+          bytes <= pageBytes &&
+          (total == null || page['total_bytes'] == total),
+      'detail pages retain their reference and byte offsets',
+    );
+    total = page['total_bytes'] as int;
+    offset += bytes;
+    check(
+      offset <= total &&
+          page['next_offset'] == (offset < total ? offset : null) &&
+          (offset == total || bytes > 0),
+      'detail paging preserves complete UTF-8 content',
+    );
+    text.write(chunk);
+    if (page['next_offset'] == null) {
+      return jsonDecode(text.toString()) as Map<String, dynamic>;
+    }
+  }
+}
+
+Future<Map<String, dynamic>> trackedDetail(
   ConversationUpdates updates,
   Map<String, dynamic> call, {
   Future<String>? first,
 }) async {
+  check(
+    call['approval']?['state'] == 'pending' || call['published'] == true,
+    'tracked details belong to a pending approval or publication',
+  );
   await updates.trackTools(
     selection: jsonEncode({
       'items': [call['source']],

@@ -235,7 +235,7 @@ Future<void> main() async {
   );
   messages(page, 46, 45, 'ffi-history');
   for (final call in all['calls'] as List) {
-    final selected = await detail(updates, call as Map<String, dynamic>);
+    final selected = await detail(connection, call as Map<String, dynamic>);
     final file = selected['result']['data'];
     check(
       call['state'] == 'returned' &&

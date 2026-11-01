@@ -139,7 +139,7 @@ Future<void> main() async {
     for (final call in (parentView['calls'] as List).where(
       (call) => call['name'] == env['SAILRY_SPAWN_TOOL'],
     ))
-      (call: call, detail: await detail(parentUpdates, call)),
+      (call: call, detail: await detail(connection, call)),
   ];
   final admissions = [for (final spawn in spawns) spawn.detail['result']];
   check(
@@ -202,10 +202,9 @@ Future<void> main() async {
       'ancestry references a canonical parent call',
     );
     final view = index == 0 ? firstView : secondView;
-    final childUpdates = index == 0 ? firstUpdates : secondUpdates;
     final approval = pending(view);
     final write = part(view, approval);
-    final proposal = await detailAt(childUpdates, view, approval);
+    final proposal = await detailAt(connection, view, approval);
     check(
       write['id'] == 'call-fixture-1' &&
           write['name'] == env['SAILRY_WRITE_TOOL'],
@@ -220,7 +219,7 @@ Future<void> main() async {
           call['id'] == 'call-fixture-0' &&
           call['name'] == env['SAILRY_READ_TOOL'],
     );
-    final result = (await detail(childUpdates, read))['result'];
+    final result = (await detail(connection, read))['result'];
     check(
       result['kind'] == 'file_lines' &&
           result['data']['offset'] == 0 &&
@@ -339,7 +338,7 @@ Future<void> main() async {
     for (final call in (parentDone['calls'] as List).where(
       (call) => call['name'] == env['SAILRY_SPAWN_TOOL'],
     ))
-      (await detail(parentUpdates, call))['result'],
+      (await detail(connection, call))['result'],
   ];
   check(
     canonicalJson(returned) == canonicalJson(admissions),

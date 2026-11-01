@@ -4,7 +4,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' show denied, hasPending, pending;
-import 'conversation.dart' show canonicalJson, check, detail, execute, until;
+import 'conversation.dart'
+    show canonicalJson, check, detail, execute, trackedDetail, until;
 import 'attachments/support.dart'
     show uploadAttachment, prepareDownload, downloadAttachment;
 
@@ -78,7 +79,7 @@ Future<void> main() async {
     'unrestricted execution requires a fresh decision',
   );
   final proposed = call(waiting, 0);
-  final source = await detail(updates, proposed);
+  final source = await trackedDetail(updates, proposed);
   final text = List.filled(
     100,
     '完整输出 中文 🙂\n```rust\nlet value = 1;\n```\n',
@@ -173,7 +174,7 @@ Future<void> main() async {
     downloaded.join(',') == '0,255,1,2',
     'command input does not change the original attachment',
   );
-  final completed = (await detail(updates, call(next, 0)))['result']['data'];
+  final completed = (await detail(connection, call(next, 0)))['result']['data'];
   check(
     completed['outcome']['kind'] == 'exited' &&
         completed['outcome']['data'] == 7,
@@ -206,7 +207,7 @@ Future<void> main() async {
         pending(third)['access'] == 'unrestricted',
     'unrestricted denial targets a fresh pending call',
   );
-  final timedOut = (await detail(updates, call(third, 1)))['result']['data'];
+  final timedOut = (await detail(connection, call(third, 1)))['result']['data'];
   check(
     timedOut['outcome']['kind'] == 'timed_out' &&
         timedOut['stdout']['text'] == 'before timeout\n',
@@ -222,7 +223,7 @@ Future<void> main() async {
     (snapshot) => snapshot['page']['runs'].single['status'] == 'completed',
   );
   final rejected = call(finished, 2);
-  final rejection = (await detail(updates, rejected))['result'];
+  final rejection = (await detail(connection, rejected))['result'];
   check(
     rejected['approval']['state'] == 'denied' && denied(rejection),
     'denied command is not reported as an executed command',
@@ -297,7 +298,7 @@ Future<void> main() async {
     (snapshot) => snapshot['page']['runs'].single['status'] == 'cancelled',
   );
   final interruptedCall = call(stopped, 0);
-  final interruption = (await detail(updates, interruptedCall))['result'];
+  final interruption = (await detail(connection, interruptedCall))['result'];
   check(
     interruptedCall['state'] == 'returned' &&
         canonicalJson(interruption) ==

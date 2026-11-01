@@ -181,8 +181,8 @@ Future<void> main() async {
         null,
     'the evidence read retains its call identity',
   );
-  final originalGoal = (await detail(updates, reader))['result']['goal'];
-  final output = await detail(updates, writer);
+  final originalGoal = (await detail(connection, reader))['result']['goal'];
+  final output = await detail(connection, writer);
   final goal = output['result']['goal'];
   check(
     originalGoal['state'] == 'active' &&
@@ -236,7 +236,7 @@ Future<void> main() async {
         call['name'] == env['SAILRY_UPDATE_GOAL'] &&
         call['turn'] == completion['data']['id'],
   );
-  final completed = (await detail(updates, replacement))['result']['goal'];
+  final completed = (await detail(connection, replacement))['result']['goal'];
   check(
     completed['id'] != goal['id'] &&
         completed['revision'] == '4' &&

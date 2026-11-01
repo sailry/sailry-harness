@@ -136,7 +136,7 @@ Future<void> main() async {
               : hasPending(snapshot)),
     );
     final workspace = waiting['snapshot']['page']['approvals'][1];
-    final workspaceDetail = await detailAt(updates, waiting, workspace);
+    final workspaceDetail = await detailAt(connection, waiting, workspace);
     check(
       workspace['source'] == 'sandbox' &&
           workspace['state'] == 'approved' &&
@@ -148,7 +148,7 @@ Future<void> main() async {
     final command = mode == 'full'
         ? waiting['snapshot']['page']['approvals'][2]
         : pending(waiting);
-    final commandDetail = await detailAt(updates, waiting, command);
+    final commandDetail = await detailAt(connection, waiting, command);
     check(
       part(waiting, command)['name'] == env['SAILRY_RUN_TOOL'] &&
           commandDetail['arguments']['access'] == 'unrestricted' &&

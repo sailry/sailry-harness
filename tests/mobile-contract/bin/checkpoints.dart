@@ -54,7 +54,7 @@ Future<void> main() async {
   );
   final proposals = [
     for (final call in completed['calls'])
-      (await detail(updates, call))['arguments'],
+      (await detail(connection, call))['arguments'],
   ];
 
   Future<Map<String, dynamic>> page(

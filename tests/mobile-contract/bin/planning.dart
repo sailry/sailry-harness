@@ -116,7 +116,7 @@ Future<void> main() async {
       final question = pending(waiting);
       final call = part(waiting, question);
       final arguments = (await detailAt(
-        updates,
+        connection,
         waiting,
         question,
       ))['arguments'];
@@ -217,7 +217,7 @@ Future<void> main() async {
       final review = (completed['calls'] as List).singleWhere(
         (call) => call['name'] == 'ask_user',
       );
-      final result = (await detail(updates, review))['result'];
+      final result = (await detail(connection, review))['result'];
       check(
         result['coding_turn'] == coding!['id'],
         'the plan result retains its exact coding turn',

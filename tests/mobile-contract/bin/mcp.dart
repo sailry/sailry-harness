@@ -4,7 +4,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' as approvals;
-import 'conversation.dart' show canonicalJson, check, detail, execute, until;
+import 'conversation.dart'
+    show canonicalJson, check, detail, execute, trackedDetail, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -66,7 +67,7 @@ Future<void> main() async {
   final pending = approvals.pending(waiting);
   final calls = waiting['calls'] as List;
   check(calls.length == 2, 'read completes before the write approval');
-  final read = await detail(updates, calls[0]);
+  final read = await detail(connection, calls[0]);
   final output = read['result']['structuredContent'];
   check(
     canonicalJson(read['result']['content']) ==
@@ -88,7 +89,7 @@ Future<void> main() async {
     'server receives declared data paths without model credentials',
   );
   final fullText = List.filled(1500, '完整 MCP 内容🙂').join();
-  final proposal = await detail(updates, calls[1]);
+  final proposal = await trackedDetail(updates, calls[1]);
   check(
     proposal['arguments']['value'] == fullText,
     'full proposed MCP arguments cross FFI',
@@ -162,7 +163,7 @@ Future<void> main() async {
   );
   final results = <dynamic>[];
   for (final call in completed) {
-    results.add((await detail(updates, call))['result']);
+    results.add((await detail(connection, call))['result']);
   }
   check(
     results[1]['structuredContent']['value'] == fullText,
@@ -181,7 +182,7 @@ Future<void> main() async {
   for (var index = 0; index < completed.length; index++) {
     check(
       canonicalJson(
-            (await detail(updates, restored['calls'][index]))['result'],
+            (await detail(connection, restored['calls'][index]))['result'],
           ) ==
           canonicalJson(results[index]),
       'reopen preserves complete MCP raw content and error envelopes',
@@ -226,7 +227,10 @@ Future<void> main() async {
     (snapshot) =>
         (snapshot['page']['runs'] as List).single['status'] == 'cancelled',
   );
-  final interrupted = (await detail(updates, cancelled['calls'][1]))['result'];
+  final interrupted = (await detail(
+    connection,
+    cancelled['calls'][1],
+  ))['result'];
   check(
     cancelled['calls'][1]['state'] == 'returned' &&
         cancelled['calls'][1]['approval']['state'] == 'cancelled' &&

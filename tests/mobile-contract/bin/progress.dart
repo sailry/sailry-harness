@@ -65,7 +65,7 @@ Future<void> main() async {
       call['grouping'] == 'standalone',
       'Node grouping reaches the mobile Client',
     );
-    final expected = (await detail(updates, call))['result']['progress'];
+    final expected = (await detail(connection, call))['result']['progress'];
     final actual = call['progress'];
     check(
       actual['title'] == expected['title'] &&
