@@ -2013,16 +2013,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsUnknown => '결과 확인되지 않음; 확인하려면 새로 고침';
 
   @override
-  String get settingsRetry => '다시 시도';
-
-  @override
   String get settingsLoading => '로딩 중';
 
   @override
   String get settingsRequired => '값 입력';
-
-  @override
-  String get settingsModels => '모델 ID, 줄당 하나';
 
   @override
   String get settingsApi => 'API 포맷';
@@ -2040,6 +2034,177 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsEnabled => '활성화';
 
   @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => '플러그인';
+
+  @override
+  String get providerNew => '새 서비스';
+
+  @override
+  String get providerEmpty => '모델 서비스 없음';
+
+  @override
+  String get providerDesktopHint =>
+      '프리셋과 계정 로그인은 데스크톱에서 추가하며 여기서도 모델을 편집할 수 있습니다';
+
+  @override
+  String get providerConnection => '연결';
+
+  @override
+  String get providerKeyUnset => '설정 안 됨';
+
+  @override
+  String get providerShowKey => '키 표시';
+
+  @override
+  String get providerHideKey => '키 숨기기';
+
+  @override
+  String providerModelCount(String count) {
+    return '모델 $count개';
+  }
+
+  @override
+  String get providerFetch => '가져오기';
+
+  @override
+  String get providerFetchTitle => '모델 가져오기';
+
+  @override
+  String providerFetched(String count) {
+    return '$count개 반환됨';
+  }
+
+  @override
+  String get providerSelectAll => '모두 선택';
+
+  @override
+  String get providerSelectNone => '모두 해제';
+
+  @override
+  String get providerSearch => '모델 검색';
+
+  @override
+  String get providerAdded => '추가됨';
+
+  @override
+  String providerContext(String tokens) {
+    return '컨텍스트 $tokens';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return '$count개 추가';
+  }
+
+  @override
+  String get providerModelId => '모델 ID';
+
+  @override
+  String get providerModelExists => '이미 추가된 모델';
+
+  @override
+  String get providerDisplayName => '표시 이름';
+
+  @override
+  String get providerDefault => '기본';
+
+  @override
+  String get providerBasic => '기본 정보';
+
+  @override
+  String get providerContextTitle => '컨텍스트';
+
+  @override
+  String get providerContextLength => '컨텍스트 길이';
+
+  @override
+  String get providerMaxOutput => '최대 출력';
+
+  @override
+  String get providerCompaction => '자동 압축';
+
+  @override
+  String get providerCapabilities => '기능';
+
+  @override
+  String get providerVision => '이미지 입력';
+
+  @override
+  String get providerTools => '도구 호출';
+
+  @override
+  String get providerReasoning => '추론';
+
+  @override
+  String get providerEfforts => '추론 강도';
+
+  @override
+  String get providerEffortChoices => '선택 가능';
+
+  @override
+  String get effortNone => '끄기';
+
+  @override
+  String get effortMinimal => '최소';
+
+  @override
+  String get effortLow => '낮음';
+
+  @override
+  String get effortMedium => '중간';
+
+  @override
+  String get effortHigh => '높음';
+
+  @override
+  String get effortXhigh => '매우 높음';
+
+  @override
+  String get effortMax => '최대';
+
+  @override
+  String get effortDynamic => '동적';
+
+  @override
+  String get providerSetDefault => '기본 모델로 설정';
+
+  @override
+  String get providerIsDefault => '기본 모델';
+
+  @override
+  String get providerDeleteModel => '모델 삭제';
+
+  @override
+  String get providerDelete => '서비스 삭제';
+
+  @override
+  String get providerNumberInvalid => '양의 정수를 입력하세요';
+
+  @override
+  String get providerLimitsInvalid => '최대 출력은 컨텍스트 길이를 넘을 수 없습니다';
+
+  @override
   String get settingsDriver => '서비스';
 
   @override
@@ -2047,9 +2212,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsArchived => '보관함';
-
-  @override
-  String get settingsEmpty => '기록 없음';
 
   @override
   String get settingsUsageUnknown => '알 수 없음';

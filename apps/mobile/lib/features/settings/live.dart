@@ -67,40 +67,6 @@ Widget settingsError(String? error) => error == null
         child: Semantics(liveRegion: true, child: Text(error)),
       );
 
-Future<bool> confirmRemoval(BuildContext context, String name) async =>
-    await showAppSheet<bool>(
-      context,
-      context.tr('delete'),
-      child: Builder(
-        builder: (context) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(context.tr('configDelete').replaceAll('{name}', name)),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: Text(context.tr('cancel')),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: Text(context.tr('delete')),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    ) ==
-    true;
-
 /// A settings sheet captures its execution host; switching the shell's host never
 /// redirects an in-progress save to another Node.
 typedef SettingsHost = HostConnection;

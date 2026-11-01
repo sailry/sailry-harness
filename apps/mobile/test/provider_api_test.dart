@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sailry_mobile/features/settings/provider_api.dart' as api;
+import 'package:sailry_mobile/features/settings/providers/api.dart' as api;
 
 void main() {
   test('opaque provider APIs retain their identity', () {

@@ -2060,16 +2060,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Ergebnis nicht bestätigt; aktualisieren, um zu überprüfen';
 
   @override
-  String get settingsRetry => 'Erneut versuchen';
-
-  @override
   String get settingsLoading => 'Wird geladen';
 
   @override
   String get settingsRequired => 'Geben Sie einen Wert ein';
-
-  @override
-  String get settingsModels => 'Modell-IDs, eine pro Zeile';
 
   @override
   String get settingsApi => 'API-Format';
@@ -2087,6 +2081,178 @@ class AppLocalizationsDe extends AppLocalizations {
   String get settingsEnabled => 'Aktiviert';
 
   @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => 'Plug-in';
+
+  @override
+  String get providerNew => 'Neuer Dienst';
+
+  @override
+  String get providerEmpty => 'Keine Dienste';
+
+  @override
+  String get providerDesktopHint =>
+      'Voreinstellungen und Kontoanmeldungen am Desktop hinzufügen; ihre Modelle lassen sich hier bearbeiten';
+
+  @override
+  String get providerConnection => 'Verbindung';
+
+  @override
+  String get providerKeyUnset => 'Nicht festgelegt';
+
+  @override
+  String get providerShowKey => 'Schlüssel anzeigen';
+
+  @override
+  String get providerHideKey => 'Schlüssel verbergen';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count Modelle';
+  }
+
+  @override
+  String get providerFetch => 'Abrufen';
+
+  @override
+  String get providerFetchTitle => 'Modelle abrufen';
+
+  @override
+  String providerFetched(String count) {
+    return '$count gefunden';
+  }
+
+  @override
+  String get providerSelectAll => 'Alle auswählen';
+
+  @override
+  String get providerSelectNone => 'Auswahl aufheben';
+
+  @override
+  String get providerSearch => 'Modelle suchen';
+
+  @override
+  String get providerAdded => 'Hinzugefügt';
+
+  @override
+  String providerContext(String tokens) {
+    return '$tokens Kontext';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return '$count hinzufügen';
+  }
+
+  @override
+  String get providerModelId => 'Modell-ID';
+
+  @override
+  String get providerModelExists => 'Modell bereits vorhanden';
+
+  @override
+  String get providerDisplayName => 'Anzeigename';
+
+  @override
+  String get providerDefault => 'Standard';
+
+  @override
+  String get providerBasic => 'Allgemein';
+
+  @override
+  String get providerContextTitle => 'Kontext';
+
+  @override
+  String get providerContextLength => 'Kontextlänge';
+
+  @override
+  String get providerMaxOutput => 'Max. Ausgabe';
+
+  @override
+  String get providerCompaction => 'Auto-Komprimierung';
+
+  @override
+  String get providerCapabilities => 'Fähigkeiten';
+
+  @override
+  String get providerVision => 'Bildeingabe';
+
+  @override
+  String get providerTools => 'Tool-Aufrufe';
+
+  @override
+  String get providerReasoning => 'Denken';
+
+  @override
+  String get providerEfforts => 'Denkaufwand';
+
+  @override
+  String get providerEffortChoices => 'Verfügbar';
+
+  @override
+  String get effortNone => 'Aus';
+
+  @override
+  String get effortMinimal => 'Minimal';
+
+  @override
+  String get effortLow => 'Niedrig';
+
+  @override
+  String get effortMedium => 'Mittel';
+
+  @override
+  String get effortHigh => 'Hoch';
+
+  @override
+  String get effortXhigh => 'Sehr hoch';
+
+  @override
+  String get effortMax => 'Max';
+
+  @override
+  String get effortDynamic => 'Dynamisch';
+
+  @override
+  String get providerSetDefault => 'Als Standardmodell festlegen';
+
+  @override
+  String get providerIsDefault => 'Standardmodell';
+
+  @override
+  String get providerDeleteModel => 'Modell löschen';
+
+  @override
+  String get providerDelete => 'Dienst löschen';
+
+  @override
+  String get providerNumberInvalid => 'Positive ganze Zahl eingeben';
+
+  @override
+  String get providerLimitsInvalid =>
+      'Max. Ausgabe darf die Kontextlänge nicht überschreiten';
+
+  @override
   String get settingsDriver => 'Dienst';
 
   @override
@@ -2094,9 +2260,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settingsArchived => 'Archiviert';
-
-  @override
-  String get settingsEmpty => 'Keine Aufzeichnungen gefunden';
 
   @override
   String get settingsUsageUnknown => 'Unbekannt';

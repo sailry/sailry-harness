@@ -2064,16 +2064,10 @@ class AppLocalizationsFr extends AppLocalizations {
       'Résultat non confirmé; actualiser pour vérifier';
 
   @override
-  String get settingsRetry => 'Réessayer';
-
-  @override
   String get settingsLoading => 'Chargement';
 
   @override
   String get settingsRequired => 'Entrez une valeur';
-
-  @override
-  String get settingsModels => 'Identifiant du modèle, un par ligne';
 
   @override
   String get settingsApi => 'Format API';
@@ -2091,6 +2085,178 @@ class AppLocalizationsFr extends AppLocalizations {
   String get settingsEnabled => 'Activé';
 
   @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => 'Plug-in';
+
+  @override
+  String get providerNew => 'Nouveau service';
+
+  @override
+  String get providerEmpty => 'Aucun service';
+
+  @override
+  String get providerDesktopHint =>
+      'Ajoutez les préréglages et connexions de compte sur Desktop ; leurs modèles restent modifiables ici';
+
+  @override
+  String get providerConnection => 'Connexion';
+
+  @override
+  String get providerKeyUnset => 'Non défini';
+
+  @override
+  String get providerShowKey => 'Afficher la clé';
+
+  @override
+  String get providerHideKey => 'Masquer la clé';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count modèles';
+  }
+
+  @override
+  String get providerFetch => 'Récupérer';
+
+  @override
+  String get providerFetchTitle => 'Récupérer les modèles';
+
+  @override
+  String providerFetched(String count) {
+    return '$count renvoyés';
+  }
+
+  @override
+  String get providerSelectAll => 'Tout sélectionner';
+
+  @override
+  String get providerSelectNone => 'Tout désélectionner';
+
+  @override
+  String get providerSearch => 'Rechercher des modèles';
+
+  @override
+  String get providerAdded => 'Ajouté';
+
+  @override
+  String providerContext(String tokens) {
+    return 'Contexte $tokens';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return 'Ajouter $count';
+  }
+
+  @override
+  String get providerModelId => 'ID du modèle';
+
+  @override
+  String get providerModelExists => 'Modèle déjà ajouté';
+
+  @override
+  String get providerDisplayName => 'Nom affiché';
+
+  @override
+  String get providerDefault => 'Par défaut';
+
+  @override
+  String get providerBasic => 'Général';
+
+  @override
+  String get providerContextTitle => 'Contexte';
+
+  @override
+  String get providerContextLength => 'Longueur du contexte';
+
+  @override
+  String get providerMaxOutput => 'Sortie max.';
+
+  @override
+  String get providerCompaction => 'Compaction auto';
+
+  @override
+  String get providerCapabilities => 'Capacités';
+
+  @override
+  String get providerVision => 'Entrée image';
+
+  @override
+  String get providerTools => 'Appels d’outils';
+
+  @override
+  String get providerReasoning => 'Raisonnement';
+
+  @override
+  String get providerEfforts => 'Effort de raisonnement';
+
+  @override
+  String get providerEffortChoices => 'Disponibles';
+
+  @override
+  String get effortNone => 'Désactivé';
+
+  @override
+  String get effortMinimal => 'Minimal';
+
+  @override
+  String get effortLow => 'Faible';
+
+  @override
+  String get effortMedium => 'Moyen';
+
+  @override
+  String get effortHigh => 'Élevé';
+
+  @override
+  String get effortXhigh => 'Très élevé';
+
+  @override
+  String get effortMax => 'Max';
+
+  @override
+  String get effortDynamic => 'Dynamique';
+
+  @override
+  String get providerSetDefault => 'Définir comme modèle par défaut';
+
+  @override
+  String get providerIsDefault => 'Modèle par défaut';
+
+  @override
+  String get providerDeleteModel => 'Supprimer le modèle';
+
+  @override
+  String get providerDelete => 'Supprimer le service';
+
+  @override
+  String get providerNumberInvalid => 'Saisissez un entier positif';
+
+  @override
+  String get providerLimitsInvalid =>
+      'La sortie max. ne peut pas dépasser le contexte';
+
+  @override
   String get settingsDriver => 'Service';
 
   @override
@@ -2098,9 +2264,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get settingsArchived => 'Archivé';
-
-  @override
-  String get settingsEmpty => 'Aucun enregistrement';
 
   @override
   String get settingsUsageUnknown => 'Inconnu';

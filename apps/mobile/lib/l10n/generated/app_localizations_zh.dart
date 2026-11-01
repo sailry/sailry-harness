@@ -2004,16 +2004,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsUnknown => '结果未确认，请先刷新查看';
 
   @override
-  String get settingsRetry => '重试';
-
-  @override
   String get settingsLoading => '正在读取';
 
   @override
   String get settingsRequired => '请填写内容';
-
-  @override
-  String get settingsModels => '模型 ID，每行一个';
 
   @override
   String get settingsApi => 'API 格式';
@@ -2031,6 +2025,176 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsEnabled => '启用';
 
   @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => '插件';
+
+  @override
+  String get providerNew => '新建服务';
+
+  @override
+  String get providerEmpty => '暂无模型服务';
+
+  @override
+  String get providerDesktopHint => '预设服务和账号登录在桌面端添加，这里也会列出并可编辑模型';
+
+  @override
+  String get providerConnection => '连接';
+
+  @override
+  String get providerKeyUnset => '未设置';
+
+  @override
+  String get providerShowKey => '显示密钥';
+
+  @override
+  String get providerHideKey => '隐藏密钥';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count 个模型';
+  }
+
+  @override
+  String get providerFetch => '获取';
+
+  @override
+  String get providerFetchTitle => '获取模型';
+
+  @override
+  String providerFetched(String count) {
+    return '接口返回 $count 个';
+  }
+
+  @override
+  String get providerSelectAll => '全选';
+
+  @override
+  String get providerSelectNone => '取消全选';
+
+  @override
+  String get providerSearch => '搜索模型';
+
+  @override
+  String get providerAdded => '已添加';
+
+  @override
+  String providerContext(String tokens) {
+    return '$tokens 上下文';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return '添加 $count 个';
+  }
+
+  @override
+  String get providerModelId => '模型 ID';
+
+  @override
+  String get providerModelExists => '模型已存在';
+
+  @override
+  String get providerDisplayName => '显示名称';
+
+  @override
+  String get providerDefault => '默认';
+
+  @override
+  String get providerBasic => '基本';
+
+  @override
+  String get providerContextTitle => '上下文';
+
+  @override
+  String get providerContextLength => '上下文长度';
+
+  @override
+  String get providerMaxOutput => '最大输出';
+
+  @override
+  String get providerCompaction => '自动压缩';
+
+  @override
+  String get providerCapabilities => '能力';
+
+  @override
+  String get providerVision => '图片输入';
+
+  @override
+  String get providerTools => '工具调用';
+
+  @override
+  String get providerReasoning => '思考';
+
+  @override
+  String get providerEfforts => '思考强度';
+
+  @override
+  String get providerEffortChoices => '可选强度';
+
+  @override
+  String get effortNone => '关闭';
+
+  @override
+  String get effortMinimal => '最小';
+
+  @override
+  String get effortLow => '低';
+
+  @override
+  String get effortMedium => '中';
+
+  @override
+  String get effortHigh => '高';
+
+  @override
+  String get effortXhigh => '超高';
+
+  @override
+  String get effortMax => '最大';
+
+  @override
+  String get effortDynamic => '动态';
+
+  @override
+  String get providerSetDefault => '设为默认模型';
+
+  @override
+  String get providerIsDefault => '默认模型';
+
+  @override
+  String get providerDeleteModel => '删除模型';
+
+  @override
+  String get providerDelete => '删除服务';
+
+  @override
+  String get providerNumberInvalid => '请输入正整数';
+
+  @override
+  String get providerLimitsInvalid => '最大输出不能超过上下文长度';
+
+  @override
   String get settingsDriver => '服务';
 
   @override
@@ -2038,9 +2202,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsArchived => '已归档';
-
-  @override
-  String get settingsEmpty => '暂无记录';
 
   @override
   String get settingsUsageUnknown => '未知';
@@ -4339,16 +4500,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get settingsUnknown => '結果未確認，請先重新整理檢視';
 
   @override
-  String get settingsRetry => '重試';
-
-  @override
   String get settingsLoading => '正在讀取';
 
   @override
   String get settingsRequired => '請填寫內容';
-
-  @override
-  String get settingsModels => '模型 ID，每行一個';
 
   @override
   String get settingsApi => 'API 格式';
@@ -4366,6 +4521,176 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get settingsEnabled => '啟用';
 
   @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => '外掛';
+
+  @override
+  String get providerNew => '新增服務';
+
+  @override
+  String get providerEmpty => '尚無模型服務';
+
+  @override
+  String get providerDesktopHint => '預設服務和帳號登入在桌面端新增，這裡也會列出並可編輯模型';
+
+  @override
+  String get providerConnection => '連線';
+
+  @override
+  String get providerKeyUnset => '未設定';
+
+  @override
+  String get providerShowKey => '顯示金鑰';
+
+  @override
+  String get providerHideKey => '隱藏金鑰';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count 個模型';
+  }
+
+  @override
+  String get providerFetch => '取得';
+
+  @override
+  String get providerFetchTitle => '取得模型';
+
+  @override
+  String providerFetched(String count) {
+    return '介面回傳 $count 個';
+  }
+
+  @override
+  String get providerSelectAll => '全選';
+
+  @override
+  String get providerSelectNone => '取消全選';
+
+  @override
+  String get providerSearch => '搜尋模型';
+
+  @override
+  String get providerAdded => '已新增';
+
+  @override
+  String providerContext(String tokens) {
+    return '$tokens 上下文';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return '新增 $count 個';
+  }
+
+  @override
+  String get providerModelId => '模型 ID';
+
+  @override
+  String get providerModelExists => '模型已存在';
+
+  @override
+  String get providerDisplayName => '顯示名稱';
+
+  @override
+  String get providerDefault => '預設';
+
+  @override
+  String get providerBasic => '基本';
+
+  @override
+  String get providerContextTitle => '上下文';
+
+  @override
+  String get providerContextLength => '上下文長度';
+
+  @override
+  String get providerMaxOutput => '最大輸出';
+
+  @override
+  String get providerCompaction => '自動壓縮';
+
+  @override
+  String get providerCapabilities => '能力';
+
+  @override
+  String get providerVision => '圖片輸入';
+
+  @override
+  String get providerTools => '工具呼叫';
+
+  @override
+  String get providerReasoning => '思考';
+
+  @override
+  String get providerEfforts => '思考強度';
+
+  @override
+  String get providerEffortChoices => '可選強度';
+
+  @override
+  String get effortNone => '關閉';
+
+  @override
+  String get effortMinimal => '最小';
+
+  @override
+  String get effortLow => '低';
+
+  @override
+  String get effortMedium => '中';
+
+  @override
+  String get effortHigh => '高';
+
+  @override
+  String get effortXhigh => '超高';
+
+  @override
+  String get effortMax => '最大';
+
+  @override
+  String get effortDynamic => '動態';
+
+  @override
+  String get providerSetDefault => '設為預設模型';
+
+  @override
+  String get providerIsDefault => '預設模型';
+
+  @override
+  String get providerDeleteModel => '刪除模型';
+
+  @override
+  String get providerDelete => '刪除服務';
+
+  @override
+  String get providerNumberInvalid => '請輸入正整數';
+
+  @override
+  String get providerLimitsInvalid => '最大輸出不能超過上下文長度';
+
+  @override
   String get settingsDriver => '服務';
 
   @override
@@ -4373,9 +4698,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsArchived => '已歸檔';
-
-  @override
-  String get settingsEmpty => '暫無記錄';
 
   @override
   String get settingsUsageUnknown => '未知';

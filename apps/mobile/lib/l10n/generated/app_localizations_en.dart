@@ -2033,16 +2033,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsUnknown => 'Outcome unconfirmed; refresh to check';
 
   @override
-  String get settingsRetry => 'Retry';
-
-  @override
   String get settingsLoading => 'Loading';
 
   @override
   String get settingsRequired => 'Enter a value';
-
-  @override
-  String get settingsModels => 'Model IDs, one per line';
 
   @override
   String get settingsApi => 'API format';
@@ -2060,6 +2054,177 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsEnabled => 'Enabled';
 
   @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => 'Plugin';
+
+  @override
+  String get providerNew => 'New provider';
+
+  @override
+  String get providerEmpty => 'No providers';
+
+  @override
+  String get providerDesktopHint =>
+      'Add presets and account logins on Desktop; their models are editable here';
+
+  @override
+  String get providerConnection => 'Connection';
+
+  @override
+  String get providerKeyUnset => 'Not set';
+
+  @override
+  String get providerShowKey => 'Show key';
+
+  @override
+  String get providerHideKey => 'Hide key';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count models';
+  }
+
+  @override
+  String get providerFetch => 'Fetch';
+
+  @override
+  String get providerFetchTitle => 'Fetch models';
+
+  @override
+  String providerFetched(String count) {
+    return '$count returned';
+  }
+
+  @override
+  String get providerSelectAll => 'Select all';
+
+  @override
+  String get providerSelectNone => 'Deselect all';
+
+  @override
+  String get providerSearch => 'Search models';
+
+  @override
+  String get providerAdded => 'Added';
+
+  @override
+  String providerContext(String tokens) {
+    return '$tokens context';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return 'Add $count';
+  }
+
+  @override
+  String get providerModelId => 'Model ID';
+
+  @override
+  String get providerModelExists => 'Model already added';
+
+  @override
+  String get providerDisplayName => 'Display name';
+
+  @override
+  String get providerDefault => 'Default';
+
+  @override
+  String get providerBasic => 'Basic';
+
+  @override
+  String get providerContextTitle => 'Context';
+
+  @override
+  String get providerContextLength => 'Context length';
+
+  @override
+  String get providerMaxOutput => 'Max output';
+
+  @override
+  String get providerCompaction => 'Auto-compaction';
+
+  @override
+  String get providerCapabilities => 'Capabilities';
+
+  @override
+  String get providerVision => 'Image input';
+
+  @override
+  String get providerTools => 'Tool calls';
+
+  @override
+  String get providerReasoning => 'Reasoning';
+
+  @override
+  String get providerEfforts => 'Reasoning effort';
+
+  @override
+  String get providerEffortChoices => 'Available';
+
+  @override
+  String get effortNone => 'Off';
+
+  @override
+  String get effortMinimal => 'Minimal';
+
+  @override
+  String get effortLow => 'Low';
+
+  @override
+  String get effortMedium => 'Medium';
+
+  @override
+  String get effortHigh => 'High';
+
+  @override
+  String get effortXhigh => 'Extra high';
+
+  @override
+  String get effortMax => 'Max';
+
+  @override
+  String get effortDynamic => 'Dynamic';
+
+  @override
+  String get providerSetDefault => 'Set as default model';
+
+  @override
+  String get providerIsDefault => 'Default model';
+
+  @override
+  String get providerDeleteModel => 'Delete model';
+
+  @override
+  String get providerDelete => 'Delete provider';
+
+  @override
+  String get providerNumberInvalid => 'Enter a positive whole number';
+
+  @override
+  String get providerLimitsInvalid => 'Max output can\'t exceed context length';
+
+  @override
   String get settingsDriver => 'Service';
 
   @override
@@ -2067,9 +2232,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsArchived => 'Archived';
-
-  @override
-  String get settingsEmpty => 'No records';
 
   @override
   String get settingsUsageUnknown => 'Unknown';

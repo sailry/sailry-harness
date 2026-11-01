@@ -16,6 +16,7 @@
     "battery": "ui/battery-full",
     "bell": "notifications/bell",
     "branch": "newicons/hierarchy2",
+    "bulb": "ui/lightbulb",
     "chart": "business/chart-bar",
     "chat": "messages/chat-round-line",
     "check": "ui/check",
@@ -35,6 +36,7 @@
     "folder": "folders/folder",
     "globe": "map/globe",
     "grid": "ui/grid",
+    "image": "video/image",
     "info": "ui/info-circle",
     "keyboard": "devices/keyboard",
     "laptop": "devices/laptop",
@@ -56,6 +58,7 @@
     "sun": "weather/sun",
     "task": "notes/clipboard-check",
     "terminal": "it/terminal-square",
+    "tool": "ui/puzzle-piece",
     "trash": "ui/trash",
     "user": "users/user",
     "wifi": "ui/wifi"

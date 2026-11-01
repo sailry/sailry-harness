@@ -9,7 +9,7 @@ import '../updates/presentation.dart';
 import '../updates/service.dart';
 import 'live.dart';
 import 'speech_sheet.dart';
-import 'setting_records.dart';
+import 'providers/provider_list.dart';
 import 'usage_page.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -40,7 +40,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void _providers() {
     final host = AppSession.maybeOf(context)?.selectedHost;
     if (host?.connected == true) {
-      showSettingRecords(context, host: host!);
+      pushPage(context, ProvidersPage(host: host!));
     }
   }
 
