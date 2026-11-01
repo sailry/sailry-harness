@@ -51,6 +51,7 @@ pub(crate) fn open(window: &mut Window, cx: &mut App) {
     };
     let owner = cx.new(|cx| {
         let pairing = cx.new(|cx| crate::settings::Pairing::new(window, cx));
+        pairing.update(cx, |pairing, cx| pairing.prepare_network(window, cx));
         let installer = cx.new(|cx| Installer::new(services, None, window, cx));
         installer.update(cx, |installer, cx| {
             installer.network_draft = Some(pairing.clone());

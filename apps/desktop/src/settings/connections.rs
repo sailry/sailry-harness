@@ -29,8 +29,7 @@ pub struct Connections {
     stop: Option<CancellationToken>,
     task: Option<Task<()>>,
     claim: sailry_client::pairing::Claim,
-    relay_select: Entity<SelectState<Vec<relay::Network>>>,
-    relay_address: Entity<InputState>,
+    relay: Entity<relay::Picker>,
     relay_feedback: Option<&'static str>,
     sharing: bool,
     checking: bool,
@@ -81,7 +80,24 @@ impl Connections {
         .detach();
         let pin = cx.new(|cx| OtpState::new(6, window, cx));
         cx.observe(&pin, |_, _, cx| cx.notify()).detach();
-        let (relay_select, relay_address) = relay::fields(window, cx);
+        let selection = cx
+            .try_global::<Services>()
+            .and_then(|services| services.link.relay_selection().ok().flatten());
+        let relay = cx.new(|cx| relay::Picker::new(selection, window, cx));
+        cx.observe(&relay, |_, _, cx| cx.notify()).detach();
+        cx.subscribe(&relay, |view, _, event, cx| {
+            if view.sharing {
+                match event {
+                    relay::Change::Selection => view.share(cx),
+                    relay::Change::Address if view.custom_relay(cx) => {
+                        view.start_share(std::time::Duration::from_millis(650), cx);
+                    }
+                    _ => {}
+                }
+            }
+            cx.notify();
+        })
+        .detach();
         Self {
             endpoint: crate::preferences::data(cx).pairing,
             pin,
@@ -95,8 +111,7 @@ impl Connections {
             stop: None,
             task: None,
             claim: Default::default(),
-            relay_select,
-            relay_address,
+            relay,
             relay_feedback: None,
             sharing: false,
             checking: false,
@@ -120,6 +135,7 @@ impl Connections {
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.cancel(cx);
         self.sharing = false;
+        self.relay.update(cx, |picker, _| picker.close());
         if let Some(stop) = self.watch_stop.take() {
             stop.cancel();
         }

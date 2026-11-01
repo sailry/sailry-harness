@@ -17,6 +17,7 @@ impl Connections {
         }
         self.cancel(cx);
         self.sharing = true;
+        self.prepare_network(window, cx);
         let owner = cx.entity().downgrade();
         let closing = owner.clone();
         window.open_dialog(cx, move |dialog, window, cx| {
@@ -33,6 +34,7 @@ impl Connections {
                         let _ = closing.update(cx, |this, cx| {
                             this.cancel(cx);
                             this.sharing = false;
+                            this.relay.update(cx, |picker, _| picker.close());
                             this.dialog = None;
                             cx.notify();
                         });
@@ -65,7 +67,7 @@ impl Connections {
     }
 
     pub(crate) fn target_network_fields(&self, disabled: bool, cx: &App) -> Div {
-        relay::controls(&self.relay_select, &self.relay_address, disabled, cx)
+        relay::controls(&self.relay, disabled, cx)
     }
 
     pub(crate) fn target_network(&self, cx: &App) -> Option<sailry_protocol::network::Selection> {

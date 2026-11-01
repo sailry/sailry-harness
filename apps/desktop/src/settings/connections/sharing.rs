@@ -16,7 +16,7 @@ async fn prepare(
     else {
         return Err(Fault::invalid("network settings response expected"));
     };
-    let selection = edit::preserve_relays(edit::desired(selection), &current);
+    let selection = edit::desired(selection);
     if current.selection.as_ref() == Some(&selection)
         && current.effective.as_ref() == Some(&selection)
     {

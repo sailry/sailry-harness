@@ -16,9 +16,8 @@ pub(crate) fn open(target: NodeId, window: &mut Window, cx: &mut App) {
         return;
     };
     let form = cx.new(|cx| {
-        let (select, address) = relay::fields_for(None, window, cx);
-        cx.observe(&select, |_, _, cx| cx.notify()).detach();
-        cx.observe(&address, |_, _, cx| cx.notify()).detach();
+        let picker = cx.new(|cx| relay::Picker::new(None, window, cx));
+        cx.observe(&picker, |_, _, cx| cx.notify()).detach();
         crate::feedback::observe(window, cx, |form: &Editor, _| {
             form.error.into_iter().collect()
         });
@@ -27,8 +26,7 @@ pub(crate) fn open(target: NodeId, window: &mut Window, cx: &mut App) {
             target,
             client: None,
             saved: None,
-            select,
-            address,
+            picker,
             pending: false,
             request: None,
             closed: false,
@@ -42,7 +40,12 @@ pub(crate) fn open(target: NodeId, window: &mut Window, cx: &mut App) {
             .form_title(tr("host_network_edit"), cx)
             .w(px(400.).min(window.viewport_size().width - px(48.)))
             .overlay_closable(false)
-            .on_close(move |_, _, cx| closing.update(cx, |form, _| form.closed = true))
+            .on_close(move |_, _, cx| {
+                closing.update(cx, |form, cx| {
+                    form.closed = true;
+                    form.picker.update(cx, |picker, _| picker.close());
+                })
+            })
             .child(form.clone())
     });
 }
@@ -52,8 +55,7 @@ struct Editor {
     target: NodeId,
     client: Option<Arc<Client>>,
     saved: Option<Settings>,
-    select: Entity<SelectState<Vec<relay::Network>>>,
-    address: Entity<InputState>,
+    picker: Entity<relay::Picker>,
     pending: bool,
     request: Option<Request>,
     closed: bool,
@@ -72,19 +74,6 @@ pub(super) fn transport(selection: &Selection) -> RelaySelection {
         Selection::Iroh => RelaySelection::Default,
         Selection::Custom { relays } => RelaySelection::Custom(relays.clone()),
     }
-}
-
-pub(super) fn preserve_relays(selected: Selection, current: &Settings) -> Selection {
-    // Preserve an existing relay set when its displayed first address is unchanged.
-    if let (Selection::Custom { relays }, Some(Selection::Custom { relays: previous })) =
-        (&selected, &current.effective)
-        && relays.first() == previous.first()
-    {
-        return Selection::Custom {
-            relays: previous.clone(),
-        };
-    }
-    selected
 }
 
 async fn read(client: &Client) -> Result<Settings, Fault> {
@@ -261,23 +250,13 @@ impl Editor {
                     Ok(Ok((client, settings))) => {
                         let selected = settings.effective.as_ref().or(settings.selection.as_ref());
                         if let Some(selected) = selected {
-                            let custom = matches!(selected, Selection::Custom { .. });
-                            form.select.update(cx, |state, cx| {
-                                state.set_selected_index(
-                                    Some(IndexPath::new(usize::from(custom))),
-                                    window,
-                                    cx,
-                                );
+                            form.picker.update(cx, |picker, cx| {
+                                picker.set_selection(selected.clone(), window, cx)
                             });
-                            let value = match selected {
-                                Selection::Iroh => String::new(),
-                                Selection::Custom { relays } => {
-                                    relays.first().cloned().unwrap_or_default()
-                                }
-                            };
-                            form.address
-                                .update(cx, |input, cx| input.set_value(value, window, cx));
                         }
+                        form.picker.update(cx, |picker, cx| {
+                            picker.bind(client.clone(), form.services.runtime.clone(), window, cx)
+                        });
                         form.client = Some(client);
                         if settings.effective.is_none() {
                             form.error = Some("host_network_unavailable");
@@ -301,7 +280,7 @@ impl Editor {
             self.load(window, cx);
             return;
         };
-        let Some(selected) = relay::selection(&self.select, &self.address, cx) else {
+        let Some(selected) = self.picker.read(cx).selection(cx) else {
             self.error = Some("pairing_relay_invalid");
             cx.notify();
             return;
@@ -311,7 +290,7 @@ impl Editor {
             cx.notify();
             return;
         }
-        let selected = preserve_relays(desired(selected), &saved);
+        let selected = desired(selected);
         let inspect = self.request.is_some();
         let request = self
             .request
@@ -391,8 +370,7 @@ impl Render for Editor {
                 body.child(Spinner::new())
             })
             .child(relay::controls(
-                &self.select,
-                &self.address,
+                &self.picker,
                 self.pending || self.request.is_some() || !editable,
                 cx,
             ))
@@ -425,41 +403,8 @@ impl Render for Editor {
 
 #[cfg(test)]
 mod tests {
-    use super::{preserve_relays, resolved};
-    use sailry_protocol::{
-        ErrorCode, Fault, RequestOutcome,
-        network::{Selection, Settings},
-    };
-
-    #[test]
-    fn retains_undisplayed_relays_until_address_changes() {
-        let previous = Selection::Custom {
-            relays: vec![
-                "https://first.example".into(),
-                "https://second.example".into(),
-            ],
-        };
-        let settings = Settings {
-            revision: 1,
-            selection: Some(previous.clone()),
-            effective: Some(previous.clone()),
-            address: String::new(),
-        };
-        assert_eq!(
-            preserve_relays(
-                Selection::Custom {
-                    relays: vec!["https://first.example".into()]
-                },
-                &settings
-            ),
-            previous
-        );
-        let changed = Selection::Custom {
-            relays: vec!["https://changed.example".into()],
-        };
-        assert_eq!(preserve_relays(changed.clone(), &settings), changed);
-        assert_eq!(preserve_relays(Selection::Iroh, &settings), Selection::Iroh);
-    }
+    use super::resolved;
+    use sailry_protocol::{ErrorCode, Fault, RequestOutcome};
 
     #[test]
     fn distinguishes_final_failure_from_uncertain_admission() {
