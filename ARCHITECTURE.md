@@ -1038,9 +1038,11 @@ archives independently. Published tags and existing asset bytes are preserved;
 release immutability remains disabled while these assets are appended. Host
 installation is available once its assets appear. An independent Mobile workflow
 requires successful full main Checks and Mobile readiness for its exact source,
-then builds signed Android APKs and iOS IPAs. Version tags upload iOS builds to
-App Store Connect for TestFlight; manual dispatch can select a platform and keep
-the IPA as an artifact without uploading. Apple processing, export compliance
+then builds signed Android APKs and iOS IPAs. Manual dispatch from main can select
+an already checked ancestor commit while packaging tooling stays pinned to the
+workflow commit; package metadata records both revisions. Version tags upload
+iOS builds to App Store Connect for TestFlight; manual dispatch can select a
+platform and keep the IPA as an artifact without uploading. Apple processing, export compliance
 and tester-group access remain App Store Connect steps.
 The release-only `sailry-release` tool owns Desktop archive and catalog signing;
 it is not linked into Desktop, Host or Node. Desktop discovers published releases

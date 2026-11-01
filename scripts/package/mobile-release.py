@@ -17,28 +17,50 @@ import versions
 def context(version, revision, environment):
     event = environment.get("GITHUB_EVENT_NAME")
     reference = environment.get("GITHUB_REF")
-    if not re.fullmatch(r"[0-9a-f]{40}", revision) or environment.get("GITHUB_SHA") != revision:
-        raise ValueError("The Mobile checkout must match the workflow's exact source")
+    requested = environment.get("SOURCE_COMMIT", "")
+    workflow = environment.get("WORKFLOW_REVISION", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", workflow) or workflow != environment.get("GITHUB_SHA"):
+        raise ValueError("The Mobile workflow tooling must match its trusted event commit")
+    if requested and not re.fullmatch(r"[0-9a-f]{40}", requested):
+        raise ValueError("The Mobile source input must be a full commit SHA")
+    if not re.fullmatch(r"[0-9a-f]{40}", revision) or revision != (requested or environment.get("GITHUB_SHA")):
+        raise ValueError("The Mobile checkout must match the selected source commit")
     if event == "workflow_dispatch" and reference == "refs/heads/main":
-        return
-    if event in {"push", "workflow_dispatch"} and reference == f"refs/tags/v{version}":
-        return
+        return workflow
+    if not requested and event in {"push", "workflow_dispatch"} and reference == f"refs/tags/v{version}":
+        return workflow
     raise ValueError("Dispatch Mobile packages from main or use the matching version tag")
 
 
-def admit():
-    version, code = versions.product(versions.ROOT)
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    context(version, revision, os.environ)
+def candidate(source, tooling, environment):
+    version, code = versions.product(source)
+    def head(root):
+        return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    revision = head(source)
+    workflow = context(version, revision, environment)
+    if head(tooling) != workflow:
+        raise ValueError("The Mobile tooling checkout must match the pinned workflow commit")
+    if environment.get("SOURCE_COMMIT"):
+        result = subprocess.run(["git", "-C", str(tooling), "merge-base", "--is-ancestor", revision, workflow],
+                                capture_output=True)
+        if result.returncode:
+            raise ValueError("The selected Mobile source must be an ancestor of the main workflow commit")
+    return {"version": version, "apple_version": versions.apple(version), "build_number": code,
+            "revision": revision, "workflow_revision": workflow}
+
+
+def admit(source=None, tooling=None):
+    source = source or versions.ROOT
+    values = candidate(source, tooling or versions.ROOT, os.environ)
+    version, code, revision = values["version"], values["build_number"], values["revision"]
     if os.environ["GITHUB_REF"].startswith("refs/tags/"):
-        publication.tagged_commit(f"v{version}")
+        publication.tagged_commit(f"v{version}", source)
     checked = publication.wait_ready(publication.GitHub(), os.environ["GITHUB_REPOSITORY"], revision, "mobile")
-    values = {"version": version, "apple_version": versions.apple(version),
-              "build_number": code, "revision": revision}
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         for key, value in values.items():
             output.write(f"{key}={value}\n")
-    print(f"Verified Mobile source {revision} in full Checks run {checked}: {version}+{code}")
+    print(f"Verified Mobile product source {revision} in full Checks run {checked}: {version}+{code}; "
+          f"workflow tooling {values['workflow_revision']}")
 
 
 def private_file(path, data):
@@ -73,17 +95,20 @@ def install_android():
         raise
 
 
-def package(source, output, platform, version, code, revision):
+def package(path, output, platform, source=None, tooling=None):
+    values = candidate(source or versions.ROOT, tooling or versions.ROOT, os.environ)
+    version = values["version"]
     extension, target = {"android": ("apk", "android-arm64"), "ios": ("ipa", "ios")}[platform]
-    if source.suffix != f".{extension}" or not source.is_file() or not source.stat().st_size:
+    if path.suffix != f".{extension}" or not path.is_file() or not path.stat().st_size:
         raise ValueError("The signed Mobile package is missing or empty")
     output.mkdir(parents=True, exist_ok=True)
     destination = output / f"Sailry-{version}-{target}.{extension}"
     if destination.exists():
         raise ValueError("The Mobile package output already exists")
-    shutil.copyfile(source, destination)
+    shutil.copyfile(path, destination)
     metadata = output / "release.json"
-    metadata.write_text(json.dumps({"version": version, "build_number": code, "source_revision": revision,
+    metadata.write_text(json.dumps({"version": version, "build_number": values["build_number"],
+                                    "source_revision": values["revision"], "workflow_revision": values["workflow_revision"],
                                     "platform": platform, "asset": destination.name}, indent=2) + "\n")
     with (output / "SHA256SUMS").open("w") as checksums:
         for path in (destination, metadata):
@@ -95,6 +120,7 @@ def package(source, output, platform, version, code, revision):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, help="Exact product checkout when using separate workflow tooling")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("admit")
     commands.add_parser("install-android")
@@ -105,7 +131,7 @@ def main():
     artifact.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "admit":
-        admit()
+        admit(args.source)
     elif args.command == "install-android":
         install_android()
     elif args.command == "cleanup-android":
@@ -113,10 +139,7 @@ def main():
         if stage.exists():
             shutil.rmtree(stage)
     else:
-        version, code = versions.product(versions.ROOT)
-        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        context(version, revision, os.environ)
-        print(package(args.input, args.output, args.platform, version, code, revision))
+        print(package(args.input, args.output, args.platform, args.source))
 
 
 if __name__ == "__main__":

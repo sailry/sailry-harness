@@ -214,7 +214,8 @@ APK and checks its native libraries; iOS builds an unsigned application. Both
 mobile builds check the Rust dependency boundary. Actions and toolchains are
 pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
 job to succeed; skipped or cancelled jobs
-do not establish acceptance. Signed release packaging builds exact version tags.
+do not establish acceptance. Signed release packaging builds exact version tags;
+Mobile also accepts an explicitly selected, checked main commit.
 
 Node integration features share eight compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the
@@ -326,12 +327,20 @@ handoffs. Manual dispatch can retry those follow-ups for a published version tag
 The independent [Mobile packages workflow](.github/workflows/release-mobile.yml)
 runs for `v*` tags or manual dispatch from `main` or the matching version tag.
 It waits for successful full main Checks and Mobile readiness at the exact source
-before making signing credentials available. Manual dispatch selects `both`,
-`android` or `ios`; disabling `upload_testflight` preserves the signed IPA without
-uploading it. Version tags build both platforms and upload the iOS package.
-Android produces a signed ARM64 APK. Both jobs retain packages, source metadata
-and SHA-256 checksums as Actions artifacts for 30 days, independently of Desktop
-publication. These builds do not establish real-device acceptance.
+before making signing credentials available. Manual dispatch from `main` accepts
+an optional `source_commit` input containing the full 40-character SHA of an
+ancestor of the workflow commit. Leaving it empty builds the workflow's source;
+tag runs always build the exact matching tag and reject source overrides. This
+allows a newer packaging workflow to use an already checked product commit
+without treating the tooling commit as checked. Product build scripts, locked
+dependencies and versions come from the selected source. Distribution helpers
+and cache actions are sparsely checked out at `github.workflow_sha`; package
+metadata records product and workflow revisions separately.
+Manual dispatch selects `both`, `android` or `ios`; disabling `upload_testflight`
+preserves the signed IPA without uploading it. Version tags build both platforms
+and upload the iOS package. Android produces a signed ARM64 APK. Both jobs retain
+packages, source metadata and SHA-256 checksums as Actions artifacts for 30 days,
+independently of Desktop publication. These builds do not establish real-device acceptance.
 
 Mobile distribution uses these additional repository secrets:
 

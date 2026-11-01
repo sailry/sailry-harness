@@ -31,6 +31,10 @@ def profiles():
     return Path.home() / "Library/Developer/Xcode/UserData/Provisioning Profiles"
 
 
+def runner_project(source):
+    return source / "apps/mobile/ios/Runner.xcodeproj/project.pbxproj" if source is not None else PROJECT
+
+
 def run(program, *arguments):
     result = subprocess.run([program, *map(str, arguments)], capture_output=True)
     if result.returncode:
@@ -90,7 +94,7 @@ def configure_project(project, team, identity, identifier):
     })
 
 
-def install():
+def install(source=None):
     names = ("IOS_CERTIFICATE_P12", "IOS_CERTIFICATE_PASSWORD", "IOS_PROVISIONING_PROFILE", "APPLE_TEAM_ID")
     if not all(os.environ.get(name) for name in names):
         raise ValueError("The iOS distribution signing secrets are not configured")
@@ -128,10 +132,11 @@ def install():
         else:
             private_file(installed, supplied_profile.read_bytes())
             private_file(directory / "installed-profile", identifier.encode())
-        project = plistlib.loads(run("plutil", "-convert", "xml1", "-o", "-", PROJECT))
+        project_path = runner_project(source)
+        project = plistlib.loads(run("plutil", "-convert", "xml1", "-o", "-", project_path))
         configure_project(project, team, identity, identifier)
-        private_file(directory / "project.pbxproj", PROJECT.read_bytes())
-        PROJECT.write_bytes(plistlib.dumps(project, fmt=plistlib.FMT_XML, sort_keys=False))
+        private_file(directory / "project.pbxproj", project_path.read_bytes())
+        project_path.write_bytes(plistlib.dumps(project, fmt=plistlib.FMT_XML, sort_keys=False))
         options = directory / "ExportOptions.plist"
         private_file(options, plistlib.dumps({
             "method": "app-store-connect", "destination": "export", "teamID": team,
@@ -144,17 +149,17 @@ def install():
         certificate.unlink()
         print("Installed the matching iOS Distribution identity and App Store profile")
     except BaseException:
-        cleanup()
+        cleanup(source)
         raise
 
 
-def cleanup():
+def cleanup(source=None):
     directory = stage()
     if not directory.exists():
         return
     failed = False
     if (directory / "project.pbxproj").exists():
-        PROJECT.write_bytes((directory / "project.pbxproj").read_bytes())
+        runner_project(source).write_bytes((directory / "project.pbxproj").read_bytes())
     if (directory / "installed-profile").exists():
         identifier = (directory / "installed-profile").read_text()
         if str(uuid.UUID(identifier)) != identifier.lower():
@@ -180,9 +185,9 @@ def ipa(path):
     return candidates[0].resolve()
 
 
-def verify(path):
+def verify(path, source=None):
     path = ipa(path)
-    version, code = versions.product(versions.ROOT)
+    version, code = versions.product(source or versions.ROOT)
     with tempfile.TemporaryDirectory(dir=stage()) as temporary:
         directory = Path(temporary)
         run("ditto", "-x", "-k", path, directory)
@@ -245,15 +250,19 @@ def upload(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, help="Exact product checkout when using separate workflow tooling")
     parser.add_argument("command", choices=("install", "cleanup", "verify", "upload"))
     parser.add_argument("ipa", type=Path, nargs="?")
     args = parser.parse_args()
     if args.command in {"verify", "upload"}:
         if args.ipa is None:
             parser.error("An exported IPA path is required")
-        (verify if args.command == "verify" else upload)(args.ipa)
+        if args.command == "verify":
+            verify(args.ipa, args.source)
+        else:
+            upload(args.ipa)
     else:
-        (install if args.command == "install" else cleanup)()
+        (install if args.command == "install" else cleanup)(args.source)
 
 
 if __name__ == "__main__":

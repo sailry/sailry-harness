@@ -5,6 +5,10 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
+      source_commit:
+        description: 'Optional full SHA of a checked main commit (dispatch from main only)'
+        type: string
+        default: ''
       platform:
         description: 'Mobile packages to build from main or a version tag'
         type: choice
@@ -24,6 +28,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  SOURCE_COMMIT: ${{ inputs.source_commit }}
+  WORKFLOW_REVISION: ${{ github.workflow_sha }}
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
   CARGO_PROFILE_DEV_DEBUG: '0'
@@ -43,11 +49,24 @@ jobs:
       apple_version: ${{ steps.source.outputs.apple_version }}
       build_number: ${{ steps.source.outputs.build_number }}
       revision: ${{ steps.source.outputs.revision }}
+      workflow_revision: ${{ steps.source.outputs.workflow_revision }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
+          ref: ${{ inputs.source_commit || github.sha }}
           persist-credentials: false
           fetch-depth: 0
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          fetch-depth: 0
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -55,7 +74,7 @@ jobs:
         id: source
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/package/mobile-release.py admit
+        run: python3 .workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" admit
 
   android:
     name: Signed Android APK
@@ -71,6 +90,17 @@ jobs:
           ref: ${{ needs.readiness.outputs.revision }}
           persist-credentials: false
           submodules: recursive
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          fetch-depth: 0
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -94,7 +124,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes ripgrep
       - name: Rust dependency caches
-        uses: ./.github/actions/rust-cache
+        uses: ./.workflow-tools/.github/actions/rust-cache
       - name: Pinned Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get --enforce-lockfile
@@ -105,7 +135,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_SIGNING_SHA256: ${{ vars.ANDROID_SIGNING_SHA256 }}
-        run: python3 scripts/package/mobile-release.py install-android
+        run: python3 .workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" install-android
       - name: Build signed ARM64 APK
         working-directory: apps/mobile
         env:
@@ -123,9 +153,9 @@ jobs:
           ANDROID_SIGNING_SHA256: ${{ vars.ANDROID_SIGNING_SHA256 }}
         run: |
           bash scripts/check-mobile-android.sh --apk apps/mobile/build/app/outputs/flutter-apk/app-release.apk
-          python3 scripts/package/verify-android.py apps/mobile/build/app/outputs/flutter-apk/app-release.apk \
+          python3 .workflow-tools/scripts/package/verify-android.py apps/mobile/build/app/outputs/flutter-apk/app-release.apk \
             --version "$RELEASE_VERSION" --code "$RELEASE_CODE" --certificate "$ANDROID_SIGNING_SHA256"
-          python3 scripts/package/mobile-release.py package --platform android \
+          python3 .workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" package --platform android \
             --input apps/mobile/build/app/outputs/flutter-apk/app-release.apk --output dist/mobile-android
       - name: Preserve signed APK and checksums
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -137,7 +167,7 @@ jobs:
           retention-days: 30
       - name: Remove Android signing files
         if: always()
-        run: python3 scripts/package/mobile-release.py cleanup-android
+        run: python3 .workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" cleanup-android
 
   ios:
     name: Signed iOS IPA and TestFlight
@@ -155,6 +185,17 @@ jobs:
           ref: ${{ needs.readiness.outputs.revision }}
           persist-credentials: false
           submodules: recursive
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          fetch-depth: 0
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -173,7 +214,7 @@ jobs:
           rustup target add aarch64-apple-ios
           brew install ripgrep
       - name: Rust dependency caches
-        uses: ./.github/actions/rust-cache
+        uses: ./.workflow-tools/.github/actions/rust-cache
       - name: Pinned Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get --enforce-lockfile
@@ -190,7 +231,7 @@ jobs:
           IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
-        run: python3 scripts/package/ios-signing.py install
+        run: python3 .workflow-tools/scripts/package/ios-signing.py --source "$GITHUB_WORKSPACE" install
       - name: Verify iOS Rust boundary
         run: bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge --dependencies-only
       - name: Archive and export signed iOS IPA
@@ -201,9 +242,10 @@ jobs:
             -exportPath "$PWD/apps/mobile/build/ios/ipa" -exportOptionsPlist "$IOS_EXPORT_OPTIONS"
       - name: Verify and stage the iOS IPA
         run: |
-          python3 scripts/package/ios-signing.py verify apps/mobile/build/ios/ipa
+          python3 .workflow-tools/scripts/package/ios-signing.py --source "$GITHUB_WORKSPACE" verify apps/mobile/build/ios/ipa
           task_ipa=(apps/mobile/build/ios/ipa/*.ipa)
-          python3 scripts/package/mobile-release.py package --platform ios --input "${task_ipa[0]}" --output dist/mobile-ios
+          python3 .workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" package \
+            --platform ios --input "${task_ipa[0]}" --output dist/mobile-ios
       - name: Preserve signed IPA and checksums
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -218,7 +260,7 @@ jobs:
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
           APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
-        run: python3 scripts/package/ios-signing.py upload "$IOS_IPA_PATH"
+        run: python3 .workflow-tools/scripts/package/ios-signing.py --source "$GITHUB_WORKSPACE" upload "$IOS_IPA_PATH"
       - name: Remove iOS signing files
         if: always()
-        run: python3 scripts/package/ios-signing.py cleanup
+        run: python3 .workflow-tools/scripts/package/ios-signing.py --source "$GITHUB_WORKSPACE" cleanup

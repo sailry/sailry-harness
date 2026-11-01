@@ -59,33 +59,137 @@ def project():
     }}
 
 
+def git(root, *arguments):
+    return subprocess.run(["git", "-C", str(root), *arguments], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def write_versions(root, version, code):
+    for app in ("desktop", "host", "mobile"):
+        (root / "apps" / app).mkdir(parents=True, exist_ok=True)
+    for app in ("desktop", "host"):
+        (root / "apps" / app / "Cargo.toml").write_text(f'[package]\nversion = "{version}"\n')
+    (root / "apps/mobile/pubspec.yaml").write_text(f"version: {version}+{code}\n")
+
+
+class Repository:
+    def __init__(self, directory):
+        self.tooling = directory / "tooling"
+        self.tooling.mkdir()
+        git(self.tooling, "init", "--initial-branch=main", "--template=")
+        git(self.tooling, "config", "user.name", "Fixture")
+        git(self.tooling, "config", "user.email", "fixture@example.invalid")
+        git(self.tooling, "config", "commit.gpgsign", "false")
+        write_versions(self.tooling, VERSION, 9)
+        project_path = signing.runner_project(self.tooling)
+        project_path.parent.mkdir(parents=True)
+        project_path.write_bytes(plistlib.dumps(project()))
+        git(self.tooling, "add", ".")
+        git(self.tooling, "commit", "-m", "Checked product")
+        self.revision = git(self.tooling, "rev-parse", "HEAD")
+        self.source = directory / "product"
+        git(self.tooling, "worktree", "add", "--detach", str(self.source), self.revision)
+        write_versions(self.tooling, "0.2.0-alpha.1", 10)
+        git(self.tooling, "commit", "-a", "-m", "New workflow tooling")
+        self.workflow = git(self.tooling, "rev-parse", "HEAD")
+        self.environment = {"GITHUB_SHA": self.workflow, "WORKFLOW_REVISION": self.workflow,
+                            "SOURCE_COMMIT": self.revision, "GITHUB_EVENT_NAME": "workflow_dispatch",
+                            "GITHUB_REF": "refs/heads/main", "GITHUB_REPOSITORY": "fixture/product",
+                            "GITHUB_OUTPUT": str(directory / "output")}
+
+
+class Checks:
+    def __init__(self, revision, conclusion="success"):
+        self.run = {"id": 41, "head_sha": revision, "head_branch": "main", "event": "push",
+                    "status": "completed", "conclusion": conclusion}
+
+    def api(self, method, endpoint):
+        if "/actions/workflows/ci.yml/runs?" in endpoint:
+            if f"head_sha={self.run['head_sha']}&" not in endpoint:
+                raise AssertionError("Checks must be queried for the selected product source")
+            return {"workflow_runs": [self.run]}
+        if "/actions/runs/41/jobs?" in endpoint:
+            return {"jobs": [{"name": name, "status": "completed", "conclusion": "success"}
+                             for name in (*release.publication.PREREQUISITES["mobile"], "Mobile ready")]}
+        if endpoint.endswith("/actions/runs/41"):
+            return self.run
+        raise AssertionError(f"Unexpected Checks API request: {method} {endpoint}")
+
+
 class Admission(unittest.TestCase):
     def test_accepts_main_dispatch_and_matching_tags(self):
-        base = {"GITHUB_SHA": REVISION, "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
+        base = {"GITHUB_SHA": REVISION, "WORKFLOW_REVISION": REVISION,
+                "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
         release.context(VERSION, REVISION, base)
         for event in ("push", "workflow_dispatch"):
             release.context(VERSION, REVISION, {**base, "GITHUB_EVENT_NAME": event, "GITHUB_REF": f"refs/tags/v{VERSION}"})
 
     def test_rejects_other_branches_sources_and_versions(self):
-        base = {"GITHUB_SHA": REVISION, "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
+        base = {"GITHUB_SHA": REVISION, "WORKFLOW_REVISION": REVISION,
+                "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
         for change in ({"GITHUB_REF": "refs/heads/topic"}, {"GITHUB_REF": "refs/tags/v0.1.0-alpha.8"},
                        {"GITHUB_EVENT_NAME": "pull_request"}, {"GITHUB_EVENT_NAME": "push"},
-                       {"GITHUB_SHA": "b" * 40}, {"GITHUB_SHA": ""}):
+                       {"GITHUB_SHA": "b" * 40}, {"GITHUB_SHA": ""}, {"SOURCE_COMMIT": "main"},
+                       {"SOURCE_COMMIT": REVISION[:8]}, {"WORKFLOW_REVISION": "b" * 40}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 release.context(VERSION, REVISION, {**base, **change})
 
-    def test_checks_before_emitting_distribution_metadata(self):
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "output"
-            environment = {"GITHUB_SHA": REVISION, "GITHUB_EVENT_NAME": "workflow_dispatch",
-                           "GITHUB_REF": "refs/heads/main", "GITHUB_REPOSITORY": "fixture/product", "GITHUB_OUTPUT": str(output)}
+    def test_rejects_source_overrides_on_version_tags(self):
+        for event in ("push", "workflow_dispatch"):
+            with self.subTest(event=event), self.assertRaises(ValueError):
+                release.context(VERSION, REVISION, {"GITHUB_SHA": REVISION, "WORKFLOW_REVISION": REVISION,
+                                                   "GITHUB_EVENT_NAME": event, "GITHUB_REF": f"refs/tags/v{VERSION}",
+                                                   "SOURCE_COMMIT": REVISION})
+
+    def test_admits_checked_ancestor_using_newer_tooling(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Repository(Path(temporary))
+            with patch.dict(os.environ, fixture.environment, clear=True), \
+                    patch.object(release.publication, "GitHub", return_value=Checks(fixture.revision)):
+                release.admit(fixture.source, fixture.tooling)
+            values = dict(row.split("=", 1) for row in Path(fixture.environment["GITHUB_OUTPUT"]).read_text().splitlines())
+            self.assertEqual(values["revision"], fixture.revision)
+            self.assertEqual(values["workflow_revision"], fixture.workflow)
+            self.assertNotEqual(fixture.revision, fixture.workflow)
+            self.assertEqual((values["version"], values["apple_version"], values["build_number"]), (VERSION, "0.1.0", "9"))
+
+    def test_requires_the_exact_product_tag_commit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Repository(Path(temporary))
+            git(fixture.tooling, "switch", "--detach", fixture.revision)
+            git(fixture.tooling, "tag", f"v{VERSION}", fixture.revision)
+            environment = {**fixture.environment, "GITHUB_SHA": fixture.revision, "WORKFLOW_REVISION": fixture.revision,
+                           "SOURCE_COMMIT": "", "GITHUB_EVENT_NAME": "push", "GITHUB_REF": f"refs/tags/v{VERSION}"}
             with patch.dict(os.environ, environment, clear=True), \
-                    patch.object(release.versions, "product", return_value=(VERSION, 9)), \
-                    patch.object(release.subprocess, "check_output", return_value=REVISION), \
-                    patch.object(release.publication, "wait_ready", side_effect=ValueError("Checks failed")):
-                with self.assertRaises(ValueError):
-                    release.admit()
-            self.assertFalse(output.exists())
+                    patch.object(release.publication, "GitHub", return_value=Checks(fixture.revision)):
+                release.admit(fixture.source, fixture.tooling)
+                git(fixture.tooling, "tag", "-f", f"v{VERSION}", fixture.workflow)
+                with self.assertRaisesRegex(ValueError, "exact commit"):
+                    release.admit(fixture.source, fixture.tooling)
+
+    def test_rejects_mismatched_checkouts_and_off_main_sources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Repository(Path(temporary))
+            for change in ({"SOURCE_COMMIT": fixture.workflow}, {"SOURCE_COMMIT": ""},
+                           {"GITHUB_REF": "refs/heads/topic"},
+                           {"GITHUB_SHA": fixture.revision, "WORKFLOW_REVISION": fixture.revision}):
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    release.candidate(fixture.source, fixture.tooling, {**fixture.environment, **change})
+            git(fixture.source, "switch", "-c", "topic")
+            (fixture.source / "topic").write_text("Unmerged source\n")
+            git(fixture.source, "add", "topic")
+            git(fixture.source, "commit", "-m", "Topic source")
+            revision = git(fixture.source, "rev-parse", "HEAD")
+            with self.assertRaisesRegex(ValueError, "ancestor"):
+                release.candidate(fixture.source, fixture.tooling, {**fixture.environment, "SOURCE_COMMIT": revision})
+
+    def test_checks_before_emitting_distribution_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Repository(Path(temporary))
+            with patch.dict(os.environ, fixture.environment, clear=True), \
+                    patch.object(release.publication, "GitHub", return_value=Checks(fixture.revision, "failure")):
+                with self.assertRaisesRegex(ValueError, "successful full run"):
+                    release.admit(fixture.source, fixture.tooling)
+            self.assertFalse(Path(fixture.environment["GITHUB_OUTPUT"]).exists())
 
 
 class Profiles(unittest.TestCase):
@@ -125,6 +229,39 @@ class ProjectSigning(unittest.TestCase):
         value["objects"]["release"]["buildSettings"]["PRODUCT_BUNDLE_IDENTIFIER"] = "com.codux.mobile"
         with self.assertRaises(ValueError):
             signing.configure_project(value, TEAM, FINGERPRINT, IDENTIFIER)
+
+    def test_configures_and_restores_the_selected_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            fixture = Repository(directory)
+            selected = signing.runner_project(fixture.source)
+            tooling = signing.runner_project(fixture.tooling)
+            original, untouched = selected.read_bytes(), tooling.read_bytes()
+            environment = {"RUNNER_TEMP": temporary, "GITHUB_ENV": str(directory / "environment"), "APPLE_TEAM_ID": TEAM,
+                           "IOS_CERTIFICATE_P12": base64.b64encode(b"private fixture").decode(),
+                           "IOS_CERTIFICATE_PASSWORD": "fixture-secret", "IOS_PROVISIONING_PROFILE": base64.b64encode(b"profile").decode()}
+            def execute(program, *arguments):
+                if program == "plutil":
+                    return Path(arguments[-1]).read_bytes()
+                if arguments[:3] == ("cms", "-D", "-i"):
+                    return plistlib.dumps(profile())
+                if arguments[:2] == ("list-keychains", "-d"):
+                    return b'"/fixture/login.keychain-db"\n'
+                if arguments[0] == "find-identity":
+                    return f'1) {FINGERPRINT} "Apple Distribution: Fixture"\n'.encode()
+                return b""
+            with patch.dict(os.environ, environment, clear=True), patch.object(signing, "PROJECT", tooling), \
+                    patch.object(signing, "run", side_effect=execute), \
+                    patch.object(signing, "profiles", return_value=directory / "profiles"), \
+                    patch.object(signing.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+                signing.install(fixture.source)
+                configured = plistlib.loads(selected.read_bytes())
+                self.assertEqual(configured["objects"]["release"]["buildSettings"]["CODE_SIGN_STYLE"], "Manual")
+                self.assertEqual(tooling.read_bytes(), untouched)
+                signing.cleanup(fixture.source)
+            self.assertEqual(selected.read_bytes(), original)
+            self.assertEqual(tooling.read_bytes(), untouched)
+            self.assertFalse((directory / "sailry-ios").exists())
 
 
 class SigningCleanup(unittest.TestCase):
@@ -182,22 +319,54 @@ class SigningCleanup(unittest.TestCase):
 
 
 class Artifacts(unittest.TestCase):
+    def test_verifies_selected_ios_versions_with_newer_tooling(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source, tooling = directory / "product", directory / "tooling"
+            write_versions(source, VERSION, 9)
+            write_versions(tooling, "0.2.0-alpha.1", 10)
+            archive = directory / "input.ipa"
+            archive.write_bytes(b"signed IPA fixture")
+            (directory / "sailry-ios").mkdir()
+            def execute(program, *arguments):
+                if program == "ditto":
+                    app = Path(arguments[-1]) / "Payload/Sailry.app"
+                    app.mkdir(parents=True)
+                    (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": signing.BUNDLE,
+                                                                   "CFBundleShortVersionString": "0.1.0", "CFBundleVersion": "9"}))
+                elif program == "security":
+                    return plistlib.dumps(profile())
+                elif arguments[0] == "--display":
+                    prefix = arguments[1].removeprefix("--extract-certificates=")
+                    Path(f"{prefix}0").write_bytes(CERTIFICATE)
+                return b""
+            environment = {"RUNNER_TEMP": temporary, "GITHUB_ENV": str(directory / "environment"), "APPLE_TEAM_ID": TEAM,
+                           "IOS_SIGNING_IDENTITY": FINGERPRINT, "IOS_PROFILE_UUID": IDENTIFIER}
+            with patch.dict(os.environ, environment, clear=True), patch.object(signing.versions, "ROOT", tooling), \
+                    patch.object(signing, "run", side_effect=execute):
+                signing.verify(archive, source)
+            self.assertEqual((directory / "environment").read_text(), f"IOS_IPA_PATH={archive.resolve()}\n")
+
     def test_preserves_bytes_and_exact_source_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             source = directory / "input.apk"
             source.write_bytes(b"signed package fixture")
-            destination = release.package(source, directory / "output", "android", VERSION, 9, REVISION)
+            fixture = Repository(directory)
+            output = directory / "packages"
+            with patch.dict(os.environ, fixture.environment, clear=True):
+                destination = release.package(source, output, "android", fixture.source, fixture.tooling)
             self.assertEqual(destination.read_bytes(), source.read_bytes())
             metadata = json.loads((destination.parent / "release.json").read_text())
-            self.assertEqual(metadata["source_revision"], REVISION)
+            self.assertEqual(metadata["source_revision"], fixture.revision)
+            self.assertEqual(metadata["workflow_revision"], fixture.workflow)
             self.assertEqual(metadata["version"], VERSION)
             self.assertEqual(metadata["build_number"], 9)
             for row in (destination.parent / "SHA256SUMS").read_text().splitlines():
                 digest, filename = row.split("  ")
                 self.assertEqual(hashlib.sha256((destination.parent / filename).read_bytes()).hexdigest(), digest)
-            with self.assertRaises(ValueError):
-                release.package(source, destination.parent, "android", VERSION, 9, REVISION)
+            with patch.dict(os.environ, fixture.environment, clear=True), self.assertRaises(ValueError):
+                release.package(source, destination.parent, "android", fixture.source, fixture.tooling)
 
 
 if __name__ == "__main__":

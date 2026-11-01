@@ -322,7 +322,7 @@ class ReleaseWorkflows(unittest.TestCase):
     def test_mobile_packages_require_readiness_and_distribution_signing(self):
         workflow = self.workflow("release-mobile")
         self.assertIn("workflow_dispatch", workflow)
-        self.assertIn("scripts/package/mobile-release.py admit", workflow)
+        self.assertIn('.workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" admit', workflow)
         self.assertIn("needs: readiness", workflow)
         self.assertIn("IOS_PROVISIONING_PROFILE", workflow)
         self.assertIn("ANDROID_SIGNING_SHA256", workflow)
