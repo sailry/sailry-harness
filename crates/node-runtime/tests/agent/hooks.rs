@@ -507,6 +507,35 @@ async fn cancels_and_bounds_hook_processes() {
                 execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
             }
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            let details = tool_details(&fixture.client, &page).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let late = fixture.root.join("late.txt").exists();
+            let forbidden = fixture.root.join("forbidden.txt").exists();
+            let directory = fixture.directory.path().to_path_buf();
+            fixture.node.shutdown().await.unwrap();
+            fixture.controller.close().await.unwrap();
+            let (database, db) =
+                crate::database_fixture::open(&directory.join("node/storage/node.turso"), true)
+                    .await;
+            let hooks = receipts(&db, fixture.session.id).await;
+            crate::database_fixture::close(database, db).await;
+            let context = format!(
+                "remote={remote}, cancel={cancel}, runs={:?}, tools={details:?}, hooks={hooks:?}",
+                page.runs
+            );
+            assert_eq!(hooks.len(), 1, "{context}");
+            let (phase, ordinal, outcome, _) = &hooks[0];
+            assert_eq!(phase, Phase::BeforeTool.name(), "{context}");
+            assert_eq!(*ordinal, 0, "{context}");
+            assert_eq!(
+                *outcome,
+                Ok(if cancel {
+                    Outcome::Cancelled
+                } else {
+                    Outcome::TimedOut
+                }),
+                "{context}"
+            );
             if cancel {
                 assert_eq!(
                     page.runs
@@ -514,24 +543,24 @@ async fn cancels_and_bounds_hook_processes() {
                         .find(|run| run.turn == turn.id)
                         .unwrap()
                         .status,
-                    Status::Cancelled
+                    Status::Cancelled,
+                    "{context}"
                 );
             } else {
                 assert!(
-                    tool_details(&fixture.client, &page)
-                        .await
-                        .iter()
-                        .any(|(_, detail)| {
-                            let result = detail.result.as_ref().unwrap();
-                            result.to_string().contains("TimedOut")
-                        })
+                    details.iter().any(|(_, detail)| {
+                        detail
+                            .result
+                            .as_ref()
+                            .expect(&context)
+                            .to_string()
+                            .contains("TimedOut")
+                    }),
+                    "{context}"
                 );
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            assert!(!fixture.root.join("late.txt").exists());
-            assert!(!fixture.root.join("forbidden.txt").exists());
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
+            assert!(!late, "{context}");
+            assert!(!forbidden, "{context}");
         }
     }
 }
