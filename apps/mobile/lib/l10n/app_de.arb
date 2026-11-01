@@ -550,7 +550,6 @@
   "activity": "Aktivität",
   "processes": "Prozesse",
   "network": "Netz",
-  "details": "Details",
   "relay": "Relais",
   "retry": "Erneut versuchen",
   "pairTitle": "Einen Host verbinden",
@@ -625,8 +624,6 @@
   "hasControl": "Input Control",
   "releaseControl": "Steuerung freigeben",
   "usageSubtitle": "Sailry nur Chats",
-  "week": "In dieser Woche",
-  "month": "In diesem Monat",
   "tokens": "Tokens",
   "requests": "Responses",
   "usageCoverage": "{priced} / {total} Antworten bewertet",
@@ -641,12 +638,11 @@
     }
   },
   "usageEmpty": "Keine Nutzungsdaten",
-  "estimatedCost": "Geschätzte Kosten",
+  "estimatedCost": "Geschätzte Kosten (USD)",
   "partial": "Teildaten",
   "input": "Eingabe",
   "output": "Ausgabe",
   "cached": "Cache-Treffer",
-  "modelUsage": "Modellverteilung",
   "hostUsage": "Host-Nutzung",
   "recentRequests": "Die letzten Antworten",
   "allUsage": "Details zur Verwendung",
@@ -788,13 +784,51 @@
   "settingsArchived": "Archiviert",
   "settingsEmpty": "Keine Aufzeichnungen gefunden",
   "settingsUsageUnknown": "Unbekannt",
-  "settingsUsagePartial": "Einige Hosts sind nicht verfügbar",
+  "settingsUsagePartial": "Einige Hosts sind nicht aktuell",
   "settingsUsageCache": "Gecacht",
-  "settingsUsageInput": "Nicht gecachte Eingabe",
+  "settingsUsageInput": "Nicht gecacht",
   "settingsUsageOutput": "Ausgabe",
-  "settingsUsageDaily": "Täglich",
-  "settingsUsageWeekly": "Wöchentlich",
-  "settingsUtc": "UTC",
+  "usageRange24h": "24 Stunden",
+  "usageRange7d": "7 Tage",
+  "usageRange30d": "30 Tage",
+  "usageRange90d": "90 Tage",
+  "usageRange1y": "1 Jahr",
+  "usageReasoning": "Reasoning",
+  "usageHitRate": "Cache-Trefferquote",
+  "usageSpeed": "Durchschnittstempo",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "Teilweise",
+  "usageTrend": "Token-Verlauf",
+  "usageLocalTime": "Ortszeit",
+  "usageActiveDays": "{count} aktive Tage",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "Aufschlüsselung",
+  "usageProvider": "Anbieter",
+  "usageShowAll": "Alle anzeigen",
+  "usageCollapse": "Weniger anzeigen",
+  "usageUnassigned": "Nicht zugeordnet",
+  "usageHit": "Treffer {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "{count} Antworten",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "artifactContents": "Inhalt",
   "artifactZoomIn": "Vergrößern",
   "artifactZoomOut": "Verkleinern",

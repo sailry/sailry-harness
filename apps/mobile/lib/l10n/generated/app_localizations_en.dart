@@ -1415,9 +1415,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get network => 'Network';
 
   @override
-  String get details => 'Details';
-
-  @override
   String get relay => 'Relay';
 
   @override
@@ -1612,12 +1609,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get usageSubtitle => 'Sailry chats only';
 
   @override
-  String get week => 'This week';
-
-  @override
-  String get month => 'This month';
-
-  @override
   String get tokens => 'Tokens';
 
   @override
@@ -1632,7 +1623,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get usageEmpty => 'No usage data';
 
   @override
-  String get estimatedCost => 'Estimated cost';
+  String get estimatedCost => 'Estimated cost (USD)';
 
   @override
   String get partial => 'Partial data';
@@ -1645,9 +1636,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cached => 'Cache hits';
-
-  @override
-  String get modelUsage => 'Model distribution';
 
   @override
   String get hostUsage => 'Host usage';
@@ -2043,25 +2031,82 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsUsageUnknown => 'Unknown';
 
   @override
-  String get settingsUsagePartial => 'Some hosts are unavailable';
+  String get settingsUsagePartial => 'Some hosts are out of date';
 
   @override
   String get settingsUsageCache => 'Cached';
 
   @override
-  String get settingsUsageInput => 'Uncached input';
+  String get settingsUsageInput => 'Uncached';
 
   @override
   String get settingsUsageOutput => 'Output';
 
   @override
-  String get settingsUsageDaily => 'Daily';
+  String get usageRange24h => '24 hours';
 
   @override
-  String get settingsUsageWeekly => 'Weekly';
+  String get usageRange7d => '7 days';
 
   @override
-  String get settingsUtc => 'UTC';
+  String get usageRange30d => '30 days';
+
+  @override
+  String get usageRange90d => '90 days';
+
+  @override
+  String get usageRange1y => '1 year';
+
+  @override
+  String get usageReasoning => 'Reasoning';
+
+  @override
+  String get usageHitRate => 'Cache hit rate';
+
+  @override
+  String get usageSpeed => 'Average speed';
+
+  @override
+  String get usageSpeedUnit => 'tok/s';
+
+  @override
+  String get usageCostPartial => 'Partial';
+
+  @override
+  String get usageTrend => 'Token trend';
+
+  @override
+  String get usageLocalTime => 'Local time';
+
+  @override
+  String usageActiveDays(String count) {
+    return '$count active days';
+  }
+
+  @override
+  String get usageBreakdown => 'Breakdown';
+
+  @override
+  String get usageProvider => 'Provider';
+
+  @override
+  String get usageShowAll => 'Show all';
+
+  @override
+  String get usageCollapse => 'Show less';
+
+  @override
+  String get usageUnassigned => 'Unassigned';
+
+  @override
+  String usageHit(String value) {
+    return 'Hit $value';
+  }
+
+  @override
+  String usageResponseCount(String count) {
+    return '$count responses';
+  }
 
   @override
   String get artifactContents => 'Contents';

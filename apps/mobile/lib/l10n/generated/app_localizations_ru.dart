@@ -1423,9 +1423,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get network => 'Сеть';
 
   @override
-  String get details => 'Подробности';
-
-  @override
   String get relay => 'Релейная связь';
 
   @override
@@ -1621,12 +1618,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get usageSubtitle => 'Sailry только чаты';
 
   @override
-  String get week => 'На этой неделе';
-
-  @override
-  String get month => 'В этом месяце';
-
-  @override
   String get tokens => 'Tokens';
 
   @override
@@ -1641,7 +1632,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get usageEmpty => 'Данные об использовании отсутствуют';
 
   @override
-  String get estimatedCost => 'Сметные расходы';
+  String get estimatedCost => 'Оценка стоимости (USD)';
 
   @override
   String get partial => 'Частичные данные';
@@ -1654,9 +1645,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get cached => 'Поиски в кэше';
-
-  @override
-  String get modelUsage => 'Распределение по модели';
 
   @override
   String get hostUsage => 'Использование хоста';
@@ -2061,25 +2049,82 @@ class AppLocalizationsRu extends AppLocalizations {
   String get settingsUsageUnknown => 'Неизвестно';
 
   @override
-  String get settingsUsagePartial => 'Некоторые узлы недоступны';
+  String get settingsUsagePartial => 'Данные некоторых хостов устарели';
 
   @override
   String get settingsUsageCache => 'Кэшированный';
 
   @override
-  String get settingsUsageInput => 'Некэшированный ввод';
+  String get settingsUsageInput => 'Без кэша';
 
   @override
   String get settingsUsageOutput => 'Вывод';
 
   @override
-  String get settingsUsageDaily => 'Ежедневно';
+  String get usageRange24h => '24 часа';
 
   @override
-  String get settingsUsageWeekly => 'Еженедельно';
+  String get usageRange7d => '7 дней';
 
   @override
-  String get settingsUtc => 'UTC';
+  String get usageRange30d => '30 дней';
+
+  @override
+  String get usageRange90d => '90 дней';
+
+  @override
+  String get usageRange1y => '1 год';
+
+  @override
+  String get usageReasoning => 'Рассуждение';
+
+  @override
+  String get usageHitRate => 'Доля попаданий в кэш';
+
+  @override
+  String get usageSpeed => 'Средняя скорость';
+
+  @override
+  String get usageSpeedUnit => 'tok/s';
+
+  @override
+  String get usageCostPartial => 'Частично';
+
+  @override
+  String get usageTrend => 'Динамика токенов';
+
+  @override
+  String get usageLocalTime => 'Местное время';
+
+  @override
+  String usageActiveDays(String count) {
+    return 'Активных дней: $count';
+  }
+
+  @override
+  String get usageBreakdown => 'Распределение';
+
+  @override
+  String get usageProvider => 'Провайдер';
+
+  @override
+  String get usageShowAll => 'Показать все';
+
+  @override
+  String get usageCollapse => 'Свернуть';
+
+  @override
+  String get usageUnassigned => 'Без привязки';
+
+  @override
+  String usageHit(String value) {
+    return 'Попадания $value';
+  }
+
+  @override
+  String usageResponseCount(String count) {
+    return 'Ответов: $count';
+  }
 
   @override
   String get artifactContents => 'Содержание';

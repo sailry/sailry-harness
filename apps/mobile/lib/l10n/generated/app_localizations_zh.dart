@@ -1394,9 +1394,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get network => '网络';
 
   @override
-  String get details => '详情';
-
-  @override
   String get relay => '中继';
 
   @override
@@ -1591,12 +1588,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get usageSubtitle => '仅 Sailry 会话';
 
   @override
-  String get week => '本周';
-
-  @override
-  String get month => '本月';
-
-  @override
   String get tokens => 'Tokens';
 
   @override
@@ -1611,7 +1602,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get usageEmpty => '暂无用量数据';
 
   @override
-  String get estimatedCost => '估算费用';
+  String get estimatedCost => '估算费用（USD）';
 
   @override
   String get partial => '部分数据';
@@ -1624,9 +1615,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get cached => '缓存命中';
-
-  @override
-  String get modelUsage => '模型分布';
 
   @override
   String get hostUsage => '主机用量';
@@ -2014,25 +2002,82 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsUsageUnknown => '未知';
 
   @override
-  String get settingsUsagePartial => '部分主机暂不可用';
+  String get settingsUsagePartial => '部分主机数据未更新';
 
   @override
   String get settingsUsageCache => '缓存';
 
   @override
-  String get settingsUsageInput => '未缓存输入';
+  String get settingsUsageInput => '未缓存';
 
   @override
   String get settingsUsageOutput => '输出';
 
   @override
-  String get settingsUsageDaily => '每日';
+  String get usageRange24h => '24 小时';
 
   @override
-  String get settingsUsageWeekly => '每周';
+  String get usageRange7d => '7 天';
 
   @override
-  String get settingsUtc => 'UTC';
+  String get usageRange30d => '30 天';
+
+  @override
+  String get usageRange90d => '90 天';
+
+  @override
+  String get usageRange1y => '1 年';
+
+  @override
+  String get usageReasoning => '推理';
+
+  @override
+  String get usageHitRate => '缓存命中率';
+
+  @override
+  String get usageSpeed => '平均速度';
+
+  @override
+  String get usageSpeedUnit => 'tok/s';
+
+  @override
+  String get usageCostPartial => '部分';
+
+  @override
+  String get usageTrend => 'Token 趋势';
+
+  @override
+  String get usageLocalTime => '按本地时间';
+
+  @override
+  String usageActiveDays(String count) {
+    return '$count 个活跃日';
+  }
+
+  @override
+  String get usageBreakdown => '分布';
+
+  @override
+  String get usageProvider => '供应商';
+
+  @override
+  String get usageShowAll => '显示全部';
+
+  @override
+  String get usageCollapse => '收起';
+
+  @override
+  String get usageUnassigned => '未归类';
+
+  @override
+  String usageHit(String value) {
+    return '命中 $value';
+  }
+
+  @override
+  String usageResponseCount(String count) {
+    return '$count 响应';
+  }
 
   @override
   String get artifactContents => '目录';
@@ -3510,9 +3555,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get network => '網路';
 
   @override
-  String get details => '詳情';
-
-  @override
   String get relay => '中繼';
 
   @override
@@ -3707,12 +3749,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get usageSubtitle => '僅 Sailry 會話';
 
   @override
-  String get week => '本週';
-
-  @override
-  String get month => '本月';
-
-  @override
   String get tokens => 'Tokens';
 
   @override
@@ -3727,7 +3763,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get usageEmpty => '暫無用量資料';
 
   @override
-  String get estimatedCost => '估算費用';
+  String get estimatedCost => '估算費用（USD）';
 
   @override
   String get partial => '部分資料';
@@ -3740,9 +3776,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get cached => '快取命中';
-
-  @override
-  String get modelUsage => '模型分佈';
 
   @override
   String get hostUsage => '主機用量';
@@ -4130,25 +4163,82 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get settingsUsageUnknown => '未知';
 
   @override
-  String get settingsUsagePartial => '部分主機暫不可用';
+  String get settingsUsagePartial => '部分主機資料未更新';
 
   @override
   String get settingsUsageCache => '快取';
 
   @override
-  String get settingsUsageInput => '未快取輸入';
+  String get settingsUsageInput => '未快取';
 
   @override
   String get settingsUsageOutput => '輸出';
 
   @override
-  String get settingsUsageDaily => '每日';
+  String get usageRange24h => '24 小時';
 
   @override
-  String get settingsUsageWeekly => '每週';
+  String get usageRange7d => '7 天';
 
   @override
-  String get settingsUtc => 'UTC';
+  String get usageRange30d => '30 天';
+
+  @override
+  String get usageRange90d => '90 天';
+
+  @override
+  String get usageRange1y => '1 年';
+
+  @override
+  String get usageReasoning => '推理';
+
+  @override
+  String get usageHitRate => '快取命中率';
+
+  @override
+  String get usageSpeed => '平均速度';
+
+  @override
+  String get usageSpeedUnit => 'tok/s';
+
+  @override
+  String get usageCostPartial => '部分';
+
+  @override
+  String get usageTrend => 'Token 趨勢';
+
+  @override
+  String get usageLocalTime => '依本地時間';
+
+  @override
+  String usageActiveDays(String count) {
+    return '$count 個活躍日';
+  }
+
+  @override
+  String get usageBreakdown => '分布';
+
+  @override
+  String get usageProvider => '供應商';
+
+  @override
+  String get usageShowAll => '顯示全部';
+
+  @override
+  String get usageCollapse => '收合';
+
+  @override
+  String get usageUnassigned => '未分類';
+
+  @override
+  String usageHit(String value) {
+    return '命中 $value';
+  }
+
+  @override
+  String usageResponseCount(String count) {
+    return '$count 響應';
+  }
 
   @override
   String get artifactContents => '目錄';

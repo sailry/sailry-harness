@@ -550,7 +550,6 @@
   "activity": "활동",
   "processes": "프로세스",
   "network": "네트워크",
-  "details": "상세 정보",
   "relay": "중계",
   "retry": "다시 시도",
   "pairTitle": "호스트 연결",
@@ -625,8 +624,6 @@
   "hasControl": "입력 제어",
   "releaseControl": "릴리스 제어",
   "usageSubtitle": "Sailry 채팅만",
-  "week": "이번 주",
-  "month": "이달",
   "tokens": "Tokens",
   "requests": "Responses",
   "usageCoverage": "{priced} / {total} 응답 가격",
@@ -641,12 +638,11 @@
     }
   },
   "usageEmpty": "사용량 데이터 없음",
-  "estimatedCost": "예상 비용",
+  "estimatedCost": "예상 비용(USD)",
   "partial": "부분 데이터",
   "input": "입력",
   "output": "출력",
   "cached": "캐시 히트",
-  "modelUsage": "모델 분포",
   "hostUsage": "호스트 사용량",
   "recentRequests": "최근 응답",
   "allUsage": "사용 정보",
@@ -788,13 +784,51 @@
   "settingsArchived": "보관함",
   "settingsEmpty": "기록 없음",
   "settingsUsageUnknown": "알 수 없음",
-  "settingsUsagePartial": "일부 호스트를 사용할 수 없습니다",
+  "settingsUsagePartial": "일부 호스트 데이터가 최신이 아닙니다",
   "settingsUsageCache": "캐시됨",
-  "settingsUsageInput": "캐시되지 않은 입력",
+  "settingsUsageInput": "캐시 안 됨",
   "settingsUsageOutput": "출력",
-  "settingsUsageDaily": "매일",
-  "settingsUsageWeekly": "주간",
-  "settingsUtc": "UTC",
+  "usageRange24h": "24시간",
+  "usageRange7d": "7일",
+  "usageRange30d": "30일",
+  "usageRange90d": "90일",
+  "usageRange1y": "1년",
+  "usageReasoning": "추론",
+  "usageHitRate": "캐시 적중률",
+  "usageSpeed": "평균 속도",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "일부",
+  "usageTrend": "토큰 추이",
+  "usageLocalTime": "현지 시간",
+  "usageActiveDays": "활동일 {count}일",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "분포",
+  "usageProvider": "제공자",
+  "usageShowAll": "모두 보기",
+  "usageCollapse": "접기",
+  "usageUnassigned": "미분류",
+  "usageHit": "적중 {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "응답 {count}개",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "artifactContents": "목차",
   "artifactZoomIn": "확대",
   "artifactZoomOut": "축소",

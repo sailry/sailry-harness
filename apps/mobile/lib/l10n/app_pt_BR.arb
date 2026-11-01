@@ -19,5 +19,8 @@
   "backgroundTimedOut": "Tempo esgotado",
   "backgroundInterrupted": "Interrompido",
   "backgroundUnknown": "Resultado incerto",
-  "backgroundPending": "Resultados pendentes"
+  "backgroundPending": "Resultados pendentes",
+  "usageHitRate": "Taxa de acerto do cache",
+  "usageLocalTime": "Horário local",
+  "usageProvider": "Provedor"
 }

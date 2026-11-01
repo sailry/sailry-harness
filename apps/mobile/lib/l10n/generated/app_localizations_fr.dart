@@ -1436,9 +1436,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get network => 'Réseau';
 
   @override
-  String get details => 'Détails';
-
-  @override
   String get relay => 'Relais';
 
   @override
@@ -1635,12 +1632,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get usageSubtitle => 'Sailry chats seulement';
 
   @override
-  String get week => 'Cette semaine';
-
-  @override
-  String get month => 'Ce mois-ci';
-
-  @override
   String get tokens => 'Tokens';
 
   @override
@@ -1655,7 +1646,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get usageEmpty => 'Aucune donnée d\'utilisation';
 
   @override
-  String get estimatedCost => 'Coût estimatif';
+  String get estimatedCost => 'Coût estimé (USD)';
 
   @override
   String get partial => 'Données partielles';
@@ -1668,9 +1659,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get cached => 'Hits de cache';
-
-  @override
-  String get modelUsage => 'Distribution du modèle';
 
   @override
   String get hostUsage => 'Utilisation de l &apos; hôte';
@@ -2074,25 +2062,82 @@ class AppLocalizationsFr extends AppLocalizations {
   String get settingsUsageUnknown => 'Inconnu';
 
   @override
-  String get settingsUsagePartial => 'Certains hôtes sont indisponibles';
+  String get settingsUsagePartial => 'Certains hôtes ne sont pas à jour';
 
   @override
   String get settingsUsageCache => 'En cache';
 
   @override
-  String get settingsUsageInput => 'Entrée non mise en cache';
+  String get settingsUsageInput => 'Hors cache';
 
   @override
   String get settingsUsageOutput => 'Sortie';
 
   @override
-  String get settingsUsageDaily => 'Quotidien';
+  String get usageRange24h => '24 heures';
 
   @override
-  String get settingsUsageWeekly => 'Hebdomadaire';
+  String get usageRange7d => '7 jours';
 
   @override
-  String get settingsUtc => 'UTC';
+  String get usageRange30d => '30 jours';
+
+  @override
+  String get usageRange90d => '90 jours';
+
+  @override
+  String get usageRange1y => '1 an';
+
+  @override
+  String get usageReasoning => 'Raisonnement';
+
+  @override
+  String get usageHitRate => 'Taux de succès du cache';
+
+  @override
+  String get usageSpeed => 'Vitesse moyenne';
+
+  @override
+  String get usageSpeedUnit => 'tok/s';
+
+  @override
+  String get usageCostPartial => 'Partiel';
+
+  @override
+  String get usageTrend => 'Évolution des tokens';
+
+  @override
+  String get usageLocalTime => 'Heure locale';
+
+  @override
+  String usageActiveDays(String count) {
+    return '$count jours actifs';
+  }
+
+  @override
+  String get usageBreakdown => 'Répartition';
+
+  @override
+  String get usageProvider => 'Fournisseur';
+
+  @override
+  String get usageShowAll => 'Tout afficher';
+
+  @override
+  String get usageCollapse => 'Afficher moins';
+
+  @override
+  String get usageUnassigned => 'Non attribué';
+
+  @override
+  String usageHit(String value) {
+    return 'Succès $value';
+  }
+
+  @override
+  String usageResponseCount(String count) {
+    return '$count réponses';
+  }
 
   @override
   String get artifactContents => 'Sommaire';

@@ -406,13 +406,51 @@
   "settingsArchived": "已归档",
   "settingsEmpty": "暂无记录",
   "settingsUsageUnknown": "未知",
-  "settingsUsagePartial": "部分主机暂不可用",
+  "settingsUsagePartial": "部分主机数据未更新",
   "settingsUsageCache": "缓存",
-  "settingsUsageInput": "未缓存输入",
+  "settingsUsageInput": "未缓存",
   "settingsUsageOutput": "输出",
-  "settingsUsageDaily": "每日",
-  "settingsUsageWeekly": "每周",
-  "settingsUtc": "UTC",
+  "usageRange24h": "24 小时",
+  "usageRange7d": "7 天",
+  "usageRange30d": "30 天",
+  "usageRange90d": "90 天",
+  "usageRange1y": "1 年",
+  "usageReasoning": "推理",
+  "usageHitRate": "缓存命中率",
+  "usageSpeed": "平均速度",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "部分",
+  "usageTrend": "Token 趋势",
+  "usageLocalTime": "按本地时间",
+  "usageActiveDays": "{count} 个活跃日",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "分布",
+  "usageProvider": "供应商",
+  "usageShowAll": "显示全部",
+  "usageCollapse": "收起",
+  "usageUnassigned": "未归类",
+  "usageHit": "命中 {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "{count} 响应",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "refresh": "刷新",
   "loading": "正在加载",
   "home": "会话",
@@ -584,7 +622,6 @@
   "activity": "任务活动",
   "processes": "进程",
   "network": "网络",
-  "details": "详情",
   "relay": "中继",
   "retry": "重试",
   "pairTitle": "连接一台主机",
@@ -659,8 +696,6 @@
   "hasControl": "输入控制中",
   "releaseControl": "释放控制",
   "usageSubtitle": "仅 Sailry 会话",
-  "week": "本周",
-  "month": "本月",
   "tokens": "Tokens",
   "requests": "响应",
   "usageCoverage": "已计价 {priced} / {total} 次响应",
@@ -675,12 +710,11 @@
     }
   },
   "usageEmpty": "暂无用量数据",
-  "estimatedCost": "估算费用",
+  "estimatedCost": "估算费用（USD）",
   "partial": "部分数据",
   "input": "输入",
   "output": "输出",
   "cached": "缓存命中",
-  "modelUsage": "模型分布",
   "hostUsage": "主机用量",
   "recentRequests": "最近响应",
   "allUsage": "用量详情",

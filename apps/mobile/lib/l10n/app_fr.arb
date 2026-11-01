@@ -550,7 +550,6 @@
   "activity": "Activité",
   "processes": "Processus",
   "network": "Réseau",
-  "details": "Détails",
   "relay": "Relais",
   "retry": "Réessayer",
   "pairTitle": "Connecter un hôte",
@@ -625,8 +624,6 @@
   "hasControl": "Contrôle des entrées",
   "releaseControl": "Contrôle des rejets",
   "usageSubtitle": "Sailry chats seulement",
-  "week": "Cette semaine",
-  "month": "Ce mois-ci",
   "tokens": "Tokens",
   "requests": "Responses",
   "usageCoverage": "{priced} / {total} réponses tarifées",
@@ -641,12 +638,11 @@
     }
   },
   "usageEmpty": "Aucune donnée d'utilisation",
-  "estimatedCost": "Coût estimatif",
+  "estimatedCost": "Coût estimé (USD)",
   "partial": "Données partielles",
   "input": "Entrée",
   "output": "Sortie",
   "cached": "Hits de cache",
-  "modelUsage": "Distribution du modèle",
   "hostUsage": "Utilisation de l &apos; hôte",
   "recentRequests": "Réponses récentes",
   "allUsage": "Détails d'utilisation",
@@ -788,13 +784,51 @@
   "settingsArchived": "Archivé",
   "settingsEmpty": "Aucun enregistrement",
   "settingsUsageUnknown": "Inconnu",
-  "settingsUsagePartial": "Certains hôtes sont indisponibles",
+  "settingsUsagePartial": "Certains hôtes ne sont pas à jour",
   "settingsUsageCache": "En cache",
-  "settingsUsageInput": "Entrée non mise en cache",
+  "settingsUsageInput": "Hors cache",
   "settingsUsageOutput": "Sortie",
-  "settingsUsageDaily": "Quotidien",
-  "settingsUsageWeekly": "Hebdomadaire",
-  "settingsUtc": "UTC",
+  "usageRange24h": "24 heures",
+  "usageRange7d": "7 jours",
+  "usageRange30d": "30 jours",
+  "usageRange90d": "90 jours",
+  "usageRange1y": "1 an",
+  "usageReasoning": "Raisonnement",
+  "usageHitRate": "Taux de succès du cache",
+  "usageSpeed": "Vitesse moyenne",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "Partiel",
+  "usageTrend": "Évolution des tokens",
+  "usageLocalTime": "Heure locale",
+  "usageActiveDays": "{count} jours actifs",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "Répartition",
+  "usageProvider": "Fournisseur",
+  "usageShowAll": "Tout afficher",
+  "usageCollapse": "Afficher moins",
+  "usageUnassigned": "Non attribué",
+  "usageHit": "Succès {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "{count} réponses",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "artifactContents": "Sommaire",
   "artifactZoomIn": "Agrandir",
   "artifactZoomOut": "Réduire",

@@ -1398,9 +1398,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get network => '네트워크';
 
   @override
-  String get details => '상세 정보';
-
-  @override
   String get relay => '중계';
 
   @override
@@ -1595,12 +1592,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get usageSubtitle => 'Sailry 채팅만';
 
   @override
-  String get week => '이번 주';
-
-  @override
-  String get month => '이달';
-
-  @override
   String get tokens => 'Tokens';
 
   @override
@@ -1615,7 +1606,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get usageEmpty => '사용량 데이터 없음';
 
   @override
-  String get estimatedCost => '예상 비용';
+  String get estimatedCost => '예상 비용(USD)';
 
   @override
   String get partial => '부분 데이터';
@@ -1628,9 +1619,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get cached => '캐시 히트';
-
-  @override
-  String get modelUsage => '모델 분포';
 
   @override
   String get hostUsage => '호스트 사용량';
@@ -2023,25 +2011,82 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsUsageUnknown => '알 수 없음';
 
   @override
-  String get settingsUsagePartial => '일부 호스트를 사용할 수 없습니다';
+  String get settingsUsagePartial => '일부 호스트 데이터가 최신이 아닙니다';
 
   @override
   String get settingsUsageCache => '캐시됨';
 
   @override
-  String get settingsUsageInput => '캐시되지 않은 입력';
+  String get settingsUsageInput => '캐시 안 됨';
 
   @override
   String get settingsUsageOutput => '출력';
 
   @override
-  String get settingsUsageDaily => '매일';
+  String get usageRange24h => '24시간';
 
   @override
-  String get settingsUsageWeekly => '주간';
+  String get usageRange7d => '7일';
 
   @override
-  String get settingsUtc => 'UTC';
+  String get usageRange30d => '30일';
+
+  @override
+  String get usageRange90d => '90일';
+
+  @override
+  String get usageRange1y => '1년';
+
+  @override
+  String get usageReasoning => '추론';
+
+  @override
+  String get usageHitRate => '캐시 적중률';
+
+  @override
+  String get usageSpeed => '평균 속도';
+
+  @override
+  String get usageSpeedUnit => 'tok/s';
+
+  @override
+  String get usageCostPartial => '일부';
+
+  @override
+  String get usageTrend => '토큰 추이';
+
+  @override
+  String get usageLocalTime => '현지 시간';
+
+  @override
+  String usageActiveDays(String count) {
+    return '활동일 $count일';
+  }
+
+  @override
+  String get usageBreakdown => '분포';
+
+  @override
+  String get usageProvider => '제공자';
+
+  @override
+  String get usageShowAll => '모두 보기';
+
+  @override
+  String get usageCollapse => '접기';
+
+  @override
+  String get usageUnassigned => '미분류';
+
+  @override
+  String usageHit(String value) {
+    return '적중 $value';
+  }
+
+  @override
+  String usageResponseCount(String count) {
+    return '응답 $count개';
+  }
 
   @override
   String get artifactContents => '목차';

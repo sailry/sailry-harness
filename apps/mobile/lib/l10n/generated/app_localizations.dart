@@ -2832,12 +2832,6 @@ abstract class AppLocalizations {
   /// **'Network'**
   String get network;
 
-  /// No description provided for @details.
-  ///
-  /// In en, this message translates to:
-  /// **'Details'**
-  String get details;
-
   /// No description provided for @relay.
   ///
   /// In en, this message translates to:
@@ -3222,18 +3216,6 @@ abstract class AppLocalizations {
   /// **'Sailry chats only'**
   String get usageSubtitle;
 
-  /// No description provided for @week.
-  ///
-  /// In en, this message translates to:
-  /// **'This week'**
-  String get week;
-
-  /// No description provided for @month.
-  ///
-  /// In en, this message translates to:
-  /// **'This month'**
-  String get month;
-
   /// No description provided for @tokens.
   ///
   /// In en, this message translates to:
@@ -3261,7 +3243,7 @@ abstract class AppLocalizations {
   /// No description provided for @estimatedCost.
   ///
   /// In en, this message translates to:
-  /// **'Estimated cost'**
+  /// **'Estimated cost (USD)'**
   String get estimatedCost;
 
   /// No description provided for @partial.
@@ -3287,12 +3269,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Cache hits'**
   String get cached;
-
-  /// No description provided for @modelUsage.
-  ///
-  /// In en, this message translates to:
-  /// **'Model distribution'**
-  String get modelUsage;
 
   /// No description provided for @hostUsage.
   ///
@@ -4059,7 +4035,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsUsagePartial.
   ///
   /// In en, this message translates to:
-  /// **'Some hosts are unavailable'**
+  /// **'Some hosts are out of date'**
   String get settingsUsagePartial;
 
   /// No description provided for @settingsUsageCache.
@@ -4071,7 +4047,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsUsageInput.
   ///
   /// In en, this message translates to:
-  /// **'Uncached input'**
+  /// **'Uncached'**
   String get settingsUsageInput;
 
   /// No description provided for @settingsUsageOutput.
@@ -4080,23 +4056,125 @@ abstract class AppLocalizations {
   /// **'Output'**
   String get settingsUsageOutput;
 
-  /// No description provided for @settingsUsageDaily.
+  /// No description provided for @usageRange24h.
   ///
   /// In en, this message translates to:
-  /// **'Daily'**
-  String get settingsUsageDaily;
+  /// **'24 hours'**
+  String get usageRange24h;
 
-  /// No description provided for @settingsUsageWeekly.
+  /// No description provided for @usageRange7d.
   ///
   /// In en, this message translates to:
-  /// **'Weekly'**
-  String get settingsUsageWeekly;
+  /// **'7 days'**
+  String get usageRange7d;
 
-  /// No description provided for @settingsUtc.
+  /// No description provided for @usageRange30d.
   ///
   /// In en, this message translates to:
-  /// **'UTC'**
-  String get settingsUtc;
+  /// **'30 days'**
+  String get usageRange30d;
+
+  /// No description provided for @usageRange90d.
+  ///
+  /// In en, this message translates to:
+  /// **'90 days'**
+  String get usageRange90d;
+
+  /// No description provided for @usageRange1y.
+  ///
+  /// In en, this message translates to:
+  /// **'1 year'**
+  String get usageRange1y;
+
+  /// No description provided for @usageReasoning.
+  ///
+  /// In en, this message translates to:
+  /// **'Reasoning'**
+  String get usageReasoning;
+
+  /// No description provided for @usageHitRate.
+  ///
+  /// In en, this message translates to:
+  /// **'Cache hit rate'**
+  String get usageHitRate;
+
+  /// No description provided for @usageSpeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Average speed'**
+  String get usageSpeed;
+
+  /// No description provided for @usageSpeedUnit.
+  ///
+  /// In en, this message translates to:
+  /// **'tok/s'**
+  String get usageSpeedUnit;
+
+  /// No description provided for @usageCostPartial.
+  ///
+  /// In en, this message translates to:
+  /// **'Partial'**
+  String get usageCostPartial;
+
+  /// No description provided for @usageTrend.
+  ///
+  /// In en, this message translates to:
+  /// **'Token trend'**
+  String get usageTrend;
+
+  /// No description provided for @usageLocalTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Local time'**
+  String get usageLocalTime;
+
+  /// No description provided for @usageActiveDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} active days'**
+  String usageActiveDays(String count);
+
+  /// No description provided for @usageBreakdown.
+  ///
+  /// In en, this message translates to:
+  /// **'Breakdown'**
+  String get usageBreakdown;
+
+  /// No description provided for @usageProvider.
+  ///
+  /// In en, this message translates to:
+  /// **'Provider'**
+  String get usageProvider;
+
+  /// No description provided for @usageShowAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Show all'**
+  String get usageShowAll;
+
+  /// No description provided for @usageCollapse.
+  ///
+  /// In en, this message translates to:
+  /// **'Show less'**
+  String get usageCollapse;
+
+  /// No description provided for @usageUnassigned.
+  ///
+  /// In en, this message translates to:
+  /// **'Unassigned'**
+  String get usageUnassigned;
+
+  /// No description provided for @usageHit.
+  ///
+  /// In en, this message translates to:
+  /// **'Hit {value}'**
+  String usageHit(String value);
+
+  /// No description provided for @usageResponseCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} responses'**
+  String usageResponseCount(String count);
 
   /// No description provided for @artifactContents.
   ///

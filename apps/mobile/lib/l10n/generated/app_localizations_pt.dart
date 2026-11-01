@@ -1425,9 +1425,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get network => 'Rede';
 
   @override
-  String get details => 'Detalhes';
-
-  @override
   String get relay => 'Relé';
 
   @override
@@ -1623,12 +1620,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get usageSubtitle => 'Sailry chats somente';
 
   @override
-  String get week => 'Esta semana';
-
-  @override
-  String get month => 'Este mês';
-
-  @override
   String get tokens => 'Tokens';
 
   @override
@@ -1643,7 +1634,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get usageEmpty => 'Sem dados de uso';
 
   @override
-  String get estimatedCost => 'Custo estimado';
+  String get estimatedCost => 'Custo estimado (USD)';
 
   @override
   String get partial => 'Dados parciais';
@@ -1656,9 +1647,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get cached => 'Hits de cache';
-
-  @override
-  String get modelUsage => 'Distribuição do modelo';
 
   @override
   String get hostUsage => 'Uso do host';
@@ -2062,25 +2050,82 @@ class AppLocalizationsPt extends AppLocalizations {
   String get settingsUsageUnknown => 'Desconhecido';
 
   @override
-  String get settingsUsagePartial => 'Alguns hosts estão indisponíveis';
+  String get settingsUsagePartial => 'Alguns hosts não estão atualizados';
 
   @override
   String get settingsUsageCache => 'Em cache';
 
   @override
-  String get settingsUsageInput => 'Entrada sem cache';
+  String get settingsUsageInput => 'Sem cache';
 
   @override
   String get settingsUsageOutput => 'Saída';
 
   @override
-  String get settingsUsageDaily => 'Diariamente';
+  String get usageRange24h => '24 horas';
 
   @override
-  String get settingsUsageWeekly => 'Semanal';
+  String get usageRange7d => '7 dias';
 
   @override
-  String get settingsUtc => 'UTC';
+  String get usageRange30d => '30 dias';
+
+  @override
+  String get usageRange90d => '90 dias';
+
+  @override
+  String get usageRange1y => '1 ano';
+
+  @override
+  String get usageReasoning => 'Raciocínio';
+
+  @override
+  String get usageHitRate => 'Taxa de acerto da cache';
+
+  @override
+  String get usageSpeed => 'Velocidade média';
+
+  @override
+  String get usageSpeedUnit => 'tok/s';
+
+  @override
+  String get usageCostPartial => 'Parcial';
+
+  @override
+  String get usageTrend => 'Tendência de tokens';
+
+  @override
+  String get usageLocalTime => 'Hora local';
+
+  @override
+  String usageActiveDays(String count) {
+    return '$count dias ativos';
+  }
+
+  @override
+  String get usageBreakdown => 'Distribuição';
+
+  @override
+  String get usageProvider => 'Fornecedor';
+
+  @override
+  String get usageShowAll => 'Mostrar tudo';
+
+  @override
+  String get usageCollapse => 'Mostrar menos';
+
+  @override
+  String get usageUnassigned => 'Não atribuído';
+
+  @override
+  String usageHit(String value) {
+    return 'Acerto $value';
+  }
+
+  @override
+  String usageResponseCount(String count) {
+    return '$count respostas';
+  }
 
   @override
   String get artifactContents => 'Conteúdo';
@@ -2171,6 +2216,15 @@ class AppLocalizationsPt extends AppLocalizations {
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).
 class AppLocalizationsPtBr extends AppLocalizationsPt {
   AppLocalizationsPtBr() : super('pt_BR');
+
+  @override
+  String get usageHitRate => 'Taxa de acerto do cache';
+
+  @override
+  String get usageLocalTime => 'Horário local';
+
+  @override
+  String get usageProvider => 'Provedor';
 
   @override
   String get artifactContents => 'Conteúdo';

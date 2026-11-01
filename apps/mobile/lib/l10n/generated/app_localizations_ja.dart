@@ -1396,9 +1396,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get network => 'ネットワーク';
 
   @override
-  String get details => '詳細';
-
-  @override
   String get relay => 'リレー';
 
   @override
@@ -1593,12 +1590,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get usageSubtitle => 'Sailry チャットだけ';
 
   @override
-  String get week => 'この週';
-
-  @override
-  String get month => 'この月';
-
-  @override
   String get tokens => 'Tokens';
 
   @override
@@ -1613,7 +1604,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get usageEmpty => '使用データなし';
 
   @override
-  String get estimatedCost => '推定費用';
+  String get estimatedCost => '推定費用（USD）';
 
   @override
   String get partial => '部分データ';
@@ -1626,9 +1617,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get cached => 'キャッシュヒット';
-
-  @override
-  String get modelUsage => 'モデル分布';
 
   @override
   String get hostUsage => 'ホスト利用率';
@@ -2021,25 +2009,82 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsUsageUnknown => '不明';
 
   @override
-  String get settingsUsagePartial => 'いくつかのホストは利用できません';
+  String get settingsUsagePartial => '一部のホストのデータが最新ではありません';
 
   @override
   String get settingsUsageCache => 'キャッシュ';
 
   @override
-  String get settingsUsageInput => '未キャッシュ入力';
+  String get settingsUsageInput => '未キャッシュ';
 
   @override
   String get settingsUsageOutput => '出力';
 
   @override
-  String get settingsUsageDaily => 'デイリー';
+  String get usageRange24h => '24 時間';
 
   @override
-  String get settingsUsageWeekly => '週間';
+  String get usageRange7d => '7 日';
 
   @override
-  String get settingsUtc => 'UTC';
+  String get usageRange30d => '30 日';
+
+  @override
+  String get usageRange90d => '90 日';
+
+  @override
+  String get usageRange1y => '1 年';
+
+  @override
+  String get usageReasoning => '推論';
+
+  @override
+  String get usageHitRate => 'キャッシュヒット率';
+
+  @override
+  String get usageSpeed => '平均速度';
+
+  @override
+  String get usageSpeedUnit => 'tok/s';
+
+  @override
+  String get usageCostPartial => '一部';
+
+  @override
+  String get usageTrend => 'トークン推移';
+
+  @override
+  String get usageLocalTime => '現地時間';
+
+  @override
+  String usageActiveDays(String count) {
+    return 'アクティブ日数 $count';
+  }
+
+  @override
+  String get usageBreakdown => '内訳';
+
+  @override
+  String get usageProvider => 'プロバイダー';
+
+  @override
+  String get usageShowAll => 'すべて表示';
+
+  @override
+  String get usageCollapse => '折りたたむ';
+
+  @override
+  String get usageUnassigned => '未分類';
+
+  @override
+  String usageHit(String value) {
+    return 'ヒット $value';
+  }
+
+  @override
+  String usageResponseCount(String count) {
+    return '$count 件の応答';
+  }
 
   @override
   String get artifactContents => '目次';

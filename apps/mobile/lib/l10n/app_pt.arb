@@ -550,7 +550,6 @@
   "activity": "Atividade",
   "processes": "Processos",
   "network": "Rede",
-  "details": "Detalhes",
   "relay": "Relé",
   "retry": "Tentar novamente",
   "pairTitle": "Conectar um host",
@@ -625,8 +624,6 @@
   "hasControl": "Controle de entrada",
   "releaseControl": "Controle de liberação",
   "usageSubtitle": "Sailry chats somente",
-  "week": "Esta semana",
-  "month": "Este mês",
   "tokens": "Tokens",
   "requests": "Responses",
   "usageCoverage": "{priced} / {total} respostas com preço",
@@ -641,12 +638,11 @@
     }
   },
   "usageEmpty": "Sem dados de uso",
-  "estimatedCost": "Custo estimado",
+  "estimatedCost": "Custo estimado (USD)",
   "partial": "Dados parciais",
   "input": "Entrada",
   "output": "Saída",
   "cached": "Hits de cache",
-  "modelUsage": "Distribuição do modelo",
   "hostUsage": "Uso do host",
   "recentRequests": "Respostas recentes",
   "allUsage": "Detalhes do uso",
@@ -788,13 +784,51 @@
   "settingsArchived": "Arquivado",
   "settingsEmpty": "Não há registros",
   "settingsUsageUnknown": "Desconhecido",
-  "settingsUsagePartial": "Alguns hosts estão indisponíveis",
+  "settingsUsagePartial": "Alguns hosts não estão atualizados",
   "settingsUsageCache": "Em cache",
-  "settingsUsageInput": "Entrada sem cache",
+  "settingsUsageInput": "Sem cache",
   "settingsUsageOutput": "Saída",
-  "settingsUsageDaily": "Diariamente",
-  "settingsUsageWeekly": "Semanal",
-  "settingsUtc": "UTC",
+  "usageRange24h": "24 horas",
+  "usageRange7d": "7 dias",
+  "usageRange30d": "30 dias",
+  "usageRange90d": "90 dias",
+  "usageRange1y": "1 ano",
+  "usageReasoning": "Raciocínio",
+  "usageHitRate": "Taxa de acerto da cache",
+  "usageSpeed": "Velocidade média",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "Parcial",
+  "usageTrend": "Tendência de tokens",
+  "usageLocalTime": "Hora local",
+  "usageActiveDays": "{count} dias ativos",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "Distribuição",
+  "usageProvider": "Fornecedor",
+  "usageShowAll": "Mostrar tudo",
+  "usageCollapse": "Mostrar menos",
+  "usageUnassigned": "Não atribuído",
+  "usageHit": "Acerto {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "{count} respostas",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "artifactContents": "Conteúdo",
   "artifactZoomIn": "Ampliar",
   "artifactZoomOut": "Reduzir",

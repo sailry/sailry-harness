@@ -550,7 +550,6 @@
   "activity": "Activity",
   "processes": "Processes",
   "network": "Network",
-  "details": "Details",
   "relay": "Relay",
   "retry": "Retry",
   "pairTitle": "Connect a host",
@@ -625,8 +624,6 @@
   "hasControl": "Input control",
   "releaseControl": "Release control",
   "usageSubtitle": "Sailry chats only",
-  "week": "This week",
-  "month": "This month",
   "tokens": "Tokens",
   "requests": "Responses",
   "usageCoverage": "{priced} / {total} responses priced",
@@ -641,12 +638,11 @@
     }
   },
   "usageEmpty": "No usage data",
-  "estimatedCost": "Estimated cost",
+  "estimatedCost": "Estimated cost (USD)",
   "partial": "Partial data",
   "input": "Input",
   "output": "Output",
   "cached": "Cache hits",
-  "modelUsage": "Model distribution",
   "hostUsage": "Host usage",
   "recentRequests": "Recent responses",
   "allUsage": "Usage details",
@@ -788,13 +784,51 @@
   "settingsArchived": "Archived",
   "settingsEmpty": "No records",
   "settingsUsageUnknown": "Unknown",
-  "settingsUsagePartial": "Some hosts are unavailable",
+  "settingsUsagePartial": "Some hosts are out of date",
   "settingsUsageCache": "Cached",
-  "settingsUsageInput": "Uncached input",
+  "settingsUsageInput": "Uncached",
   "settingsUsageOutput": "Output",
-  "settingsUsageDaily": "Daily",
-  "settingsUsageWeekly": "Weekly",
-  "settingsUtc": "UTC",
+  "usageRange24h": "24 hours",
+  "usageRange7d": "7 days",
+  "usageRange30d": "30 days",
+  "usageRange90d": "90 days",
+  "usageRange1y": "1 year",
+  "usageReasoning": "Reasoning",
+  "usageHitRate": "Cache hit rate",
+  "usageSpeed": "Average speed",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "Partial",
+  "usageTrend": "Token trend",
+  "usageLocalTime": "Local time",
+  "usageActiveDays": "{count} active days",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "Breakdown",
+  "usageProvider": "Provider",
+  "usageShowAll": "Show all",
+  "usageCollapse": "Show less",
+  "usageUnassigned": "Unassigned",
+  "usageHit": "Hit {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "{count} responses",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "artifactContents": "Contents",
   "artifactZoomIn": "Zoom in",
   "artifactZoomOut": "Zoom out",

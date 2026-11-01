@@ -550,7 +550,6 @@
   "activity": "Активность",
   "processes": "Процессы",
   "network": "Сеть",
-  "details": "Подробности",
   "relay": "Релейная связь",
   "retry": "Повторить",
   "pairTitle": "Подключение узла",
@@ -625,8 +624,6 @@
   "hasControl": "Контроль ввода",
   "releaseControl": "Контроль выбросов",
   "usageSubtitle": "Sailry только чаты",
-  "week": "На этой неделе",
-  "month": "В этом месяце",
   "tokens": "Tokens",
   "requests": "Responses",
   "usageCoverage": "{priced} / {total} ответов",
@@ -641,12 +638,11 @@
     }
   },
   "usageEmpty": "Данные об использовании отсутствуют",
-  "estimatedCost": "Сметные расходы",
+  "estimatedCost": "Оценка стоимости (USD)",
   "partial": "Частичные данные",
   "input": "Ввод",
   "output": "Вывод",
   "cached": "Поиски в кэше",
-  "modelUsage": "Распределение по модели",
   "hostUsage": "Использование хоста",
   "recentRequests": "Последние ответы",
   "allUsage": "Детали использования",
@@ -788,13 +784,51 @@
   "settingsArchived": "Архивировано",
   "settingsEmpty": "Нет записей",
   "settingsUsageUnknown": "Неизвестно",
-  "settingsUsagePartial": "Некоторые узлы недоступны",
+  "settingsUsagePartial": "Данные некоторых хостов устарели",
   "settingsUsageCache": "Кэшированный",
-  "settingsUsageInput": "Некэшированный ввод",
+  "settingsUsageInput": "Без кэша",
   "settingsUsageOutput": "Вывод",
-  "settingsUsageDaily": "Ежедневно",
-  "settingsUsageWeekly": "Еженедельно",
-  "settingsUtc": "UTC",
+  "usageRange24h": "24 часа",
+  "usageRange7d": "7 дней",
+  "usageRange30d": "30 дней",
+  "usageRange90d": "90 дней",
+  "usageRange1y": "1 год",
+  "usageReasoning": "Рассуждение",
+  "usageHitRate": "Доля попаданий в кэш",
+  "usageSpeed": "Средняя скорость",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "Частично",
+  "usageTrend": "Динамика токенов",
+  "usageLocalTime": "Местное время",
+  "usageActiveDays": "Активных дней: {count}",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "Распределение",
+  "usageProvider": "Провайдер",
+  "usageShowAll": "Показать все",
+  "usageCollapse": "Свернуть",
+  "usageUnassigned": "Без привязки",
+  "usageHit": "Попадания {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "Ответов: {count}",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "artifactContents": "Содержание",
   "artifactZoomIn": "Увеличить",
   "artifactZoomOut": "Уменьшить",

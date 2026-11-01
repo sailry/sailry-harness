@@ -406,13 +406,51 @@
   "settingsArchived": "已歸檔",
   "settingsEmpty": "暫無記錄",
   "settingsUsageUnknown": "未知",
-  "settingsUsagePartial": "部分主機暫不可用",
+  "settingsUsagePartial": "部分主機資料未更新",
   "settingsUsageCache": "快取",
-  "settingsUsageInput": "未快取輸入",
+  "settingsUsageInput": "未快取",
   "settingsUsageOutput": "輸出",
-  "settingsUsageDaily": "每日",
-  "settingsUsageWeekly": "每週",
-  "settingsUtc": "UTC",
+  "usageRange24h": "24 小時",
+  "usageRange7d": "7 天",
+  "usageRange30d": "30 天",
+  "usageRange90d": "90 天",
+  "usageRange1y": "1 年",
+  "usageReasoning": "推理",
+  "usageHitRate": "快取命中率",
+  "usageSpeed": "平均速度",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "部分",
+  "usageTrend": "Token 趨勢",
+  "usageLocalTime": "依本地時間",
+  "usageActiveDays": "{count} 個活躍日",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "分布",
+  "usageProvider": "供應商",
+  "usageShowAll": "顯示全部",
+  "usageCollapse": "收合",
+  "usageUnassigned": "未分類",
+  "usageHit": "命中 {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "{count} 響應",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "refresh": "重新整理",
   "loading": "正在載入",
   "home": "會話",
@@ -584,7 +622,6 @@
   "activity": "任務活動",
   "processes": "程序",
   "network": "網路",
-  "details": "詳情",
   "relay": "中繼",
   "retry": "重試",
   "pairTitle": "連線一臺主機",
@@ -659,8 +696,6 @@
   "hasControl": "輸入控制中",
   "releaseControl": "釋放控制",
   "usageSubtitle": "僅 Sailry 會話",
-  "week": "本週",
-  "month": "本月",
   "tokens": "Tokens",
   "requests": "響應",
   "usageCoverage": "已計價 {priced} / {total} 次響應",
@@ -675,12 +710,11 @@
     }
   },
   "usageEmpty": "暫無用量資料",
-  "estimatedCost": "估算費用",
+  "estimatedCost": "估算費用（USD）",
   "partial": "部分資料",
   "input": "輸入",
   "output": "輸出",
   "cached": "快取命中",
-  "modelUsage": "模型分佈",
   "hostUsage": "主機用量",
   "recentRequests": "最近響應",
   "allUsage": "用量詳情",

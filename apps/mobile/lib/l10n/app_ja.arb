@@ -550,7 +550,6 @@
   "activity": "アクティビティ",
   "processes": "プロセス",
   "network": "ネットワーク",
-  "details": "詳細",
   "relay": "リレー",
   "retry": "再試行",
   "pairTitle": "ホストに接続",
@@ -625,8 +624,6 @@
   "hasControl": "入力制御",
   "releaseControl": "リリース制御",
   "usageSubtitle": "Sailry チャットだけ",
-  "week": "この週",
-  "month": "この月",
   "tokens": "Tokens",
   "requests": "Responses",
   "usageCoverage": "{priced} / {total} 応答価格",
@@ -641,12 +638,11 @@
     }
   },
   "usageEmpty": "使用データなし",
-  "estimatedCost": "推定費用",
+  "estimatedCost": "推定費用（USD）",
   "partial": "部分データ",
   "input": "入力",
   "output": "出力",
   "cached": "キャッシュヒット",
-  "modelUsage": "モデル分布",
   "hostUsage": "ホスト利用率",
   "recentRequests": "最近の応答",
   "allUsage": "使用例",
@@ -788,13 +784,51 @@
   "settingsArchived": "アーカイブ",
   "settingsEmpty": "記録なし",
   "settingsUsageUnknown": "不明",
-  "settingsUsagePartial": "いくつかのホストは利用できません",
+  "settingsUsagePartial": "一部のホストのデータが最新ではありません",
   "settingsUsageCache": "キャッシュ",
-  "settingsUsageInput": "未キャッシュ入力",
+  "settingsUsageInput": "未キャッシュ",
   "settingsUsageOutput": "出力",
-  "settingsUsageDaily": "デイリー",
-  "settingsUsageWeekly": "週間",
-  "settingsUtc": "UTC",
+  "usageRange24h": "24 時間",
+  "usageRange7d": "7 日",
+  "usageRange30d": "30 日",
+  "usageRange90d": "90 日",
+  "usageRange1y": "1 年",
+  "usageReasoning": "推論",
+  "usageHitRate": "キャッシュヒット率",
+  "usageSpeed": "平均速度",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "一部",
+  "usageTrend": "トークン推移",
+  "usageLocalTime": "現地時間",
+  "usageActiveDays": "アクティブ日数 {count}",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "内訳",
+  "usageProvider": "プロバイダー",
+  "usageShowAll": "すべて表示",
+  "usageCollapse": "折りたたむ",
+  "usageUnassigned": "未分類",
+  "usageHit": "ヒット {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "{count} 件の応答",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "artifactContents": "目次",
   "artifactZoomIn": "拡大",
   "artifactZoomOut": "縮小",

@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import '../../l10n/strings.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
+import '../conversations/live/project_bar.dart';
 import 'live.dart';
 import 'usage_data.dart';
+import 'usage_sections.dart';
 import 'usage_watch.dart';
 
 class UsagePage extends StatefulWidget {
@@ -20,11 +20,26 @@ class UsagePage extends StatefulWidget {
 class _UsagePageState extends State<UsagePage> {
   String? _host;
   String? _project;
-  String _period = 'week';
-  bool _weekly = false;
+  UsageRange _range = UsageRange.month;
+  UsageBreakdown _breakdown = UsageBreakdown.model;
+
+  /// Latest grouping the shown report can render while a regrouped report loads.
+  UsageBreakdown _fallback = UsageBreakdown.model;
+  bool _expanded = false;
+
+  /// Query of the active subscription.
+  Map<String, dynamic>? _query;
   Map<String, dynamic>? _report;
+
+  /// Query and range the shown report was read with.
+  Map<String, dynamic>? _shown;
+  UsageRange _shownRange = UsageRange.month;
   String? _error;
+
+  /// Set only after the combined view stays incomplete, so hosts reporting
+  /// one after another do not make the note flicker.
   bool _partial = false;
+  Timer? _settling;
   UsageWatch? _watch;
   int _generation = 0;
   String? _binding;
@@ -46,20 +61,36 @@ class _UsagePageState extends State<UsagePage> {
   @override
   void dispose() {
     _generation++;
+    _settling?.cancel();
     final watch = _watch;
     if (watch != null) unawaited(watch.close());
     super.dispose();
   }
 
-  Future<void> _load() async {
+  /// Opens a subscription for the current choices. [keep] retains the shown
+  /// report until the new one arrives, for range and grouping changes.
+  Future<void> _load({bool keep = false}) async {
     final generation = ++_generation;
+    _settling?.cancel();
+    _settling = null;
     final previous = _watch;
     _watch = null;
     if (previous != null) await previous.close();
     final session = _session;
     if (!mounted || generation != _generation) return;
+    final range = _range;
+    final query = usageQuery(
+      range,
+      DateTime.now(),
+      dimension: usageDimension(_breakdown),
+      project: _project,
+    );
     setState(() {
-      _report = null;
+      _query = query;
+      if (!keep) {
+        _report = null;
+        _shown = null;
+      }
       _error = null;
       _partial = false;
     });
@@ -70,19 +101,6 @@ class _UsagePageState extends State<UsagePage> {
             : session.host(_host)?.connected != true)) {
       return;
     }
-    final now = DateTime.now().toUtc();
-    final end = DateTime.utc(now.year, now.month, now.day + 1);
-    final start = end.subtract(Duration(days: _period == 'week' ? 7 : 30));
-    final query = <String, dynamic>{
-      'start_ms': start.millisecondsSinceEpoch,
-      'end_ms': end.millisecondsSinceEpoch,
-      'dimension': 'model',
-      'projects': [?_project],
-      'worktrees': [],
-      'providers': [],
-      'models': [],
-      'before': null,
-    };
     try {
       final host = session.host(_host);
       final watch = await widget.watch(session, host, query);
@@ -94,23 +112,58 @@ class _UsagePageState extends State<UsagePage> {
       while (mounted && generation == _generation) {
         final view = object(jsonDecode(await watch.next()));
         if (!mounted || generation != _generation) break;
+        final report = view[host == null ? 'summary' : 'report'];
         setState(() {
-          _report = host == null
-              ? object(view['summary'])
-              : view['report'] == null
-              ? null
-              : object(view['report']);
-          _partial = host == null && view['complete'] == false;
+          if (report is Map<String, dynamic>) {
+            _report = report;
+            _shown = query;
+            _shownRange = range;
+          }
           _error = view['error'] == null
               ? null
               : context.tr('settingsLoadFailed');
         });
+        if (host == null) _settle(view['complete'] != false, generation);
       }
     } catch (error) {
       if (mounted && generation == _generation) {
         setState(() => _error = failure(error, translate: context.tr));
       }
     }
+  }
+
+  void _settle(bool complete, int generation) {
+    if (complete) {
+      _settling?.cancel();
+      _settling = null;
+      if (_partial) setState(() => _partial = false);
+      return;
+    }
+    if (_partial || _settling != null) return;
+    _settling = Timer(const Duration(milliseconds: 1500), () {
+      _settling = null;
+      if (mounted && generation == _generation) {
+        setState(() => _partial = true);
+      }
+    });
+  }
+
+  void _selectRange(UsageRange range) {
+    if (range == _range) return;
+    setState(() => _range = range);
+    _load(keep: true);
+  }
+
+  void _group(UsageBreakdown breakdown) {
+    if (breakdown == _breakdown) return;
+    if (usageDimension(_breakdown) == _shown?['dimension']) {
+      _fallback = _breakdown;
+    }
+    setState(() {
+      _breakdown = breakdown;
+      _expanded = false;
+    });
+    if (usageDimension(breakdown) != _query?['dimension']) _load(keep: true);
   }
 
   Future<void> _pickHost() async {
@@ -125,6 +178,7 @@ class _UsagePageState extends State<UsagePage> {
           children: [
             ListTile(
               title: Text(context.tr('allHosts')),
+              trailing: _host == null ? const AppIcon('check') : null,
               onTap: () => Navigator.pop(context, ''),
             ),
             for (final host in session.hosts)
@@ -166,6 +220,9 @@ class _UsagePageState extends State<UsagePage> {
                 ListTile(
                   title: Text(string(project['name'])),
                   subtitle: Text(host.label),
+                  trailing: _project == project['id']
+                      ? const AppIcon('check')
+                      : null,
                   onTap: () =>
                       Navigator.pop(context, (host.id, string(project['id']))),
                 ),
@@ -183,38 +240,52 @@ class _UsagePageState extends State<UsagePage> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final host = _session?.host(_host);
+    final session = _session;
+    final host = session?.host(_host);
     final project = objects(
       host?.snapshot['projects'],
     ).where((project) => project['id'] == _project).firstOrNull;
-    final totals = object(_report?['totals']);
-    final tokens = totals['tokens'] == null
-        ? null
-        : TokenStack.from(object(totals['tokens']));
-    final responses = integer(totals['responses']);
-    final added = _session?.hosts.isNotEmpty == true;
+    final report = _report;
+    final overview = UsageOverview(object(report?['totals']));
+    final added = session?.hosts.isNotEmpty == true;
     final connected = _host == null
-        ? _session?.hosts.any((host) => host.connected) == true
+        ? session?.hosts.any((host) => host.connected) == true
         : host?.connected == true;
-    final cost = object(totals['cost']);
-    final days = objects(_report?['days']);
-    final buckets = usageBuckets(days, weekly: _weekly);
-    final groups = objects(_report?['groups'])
-        .map(
-          (entry) =>
-              entry.containsKey('group') ? object(entry['group']) : entry,
-        )
-        .toList();
+    final shown = _shown;
+    final query = _query;
+    // The shown report covers another window until the new range arrives.
+    final moving =
+        shown != null &&
+        query != null &&
+        (shown['start_ms'] != query['start_ms'] ||
+            shown['end_ms'] != query['end_ms']);
+    final regrouping =
+        shown != null && shown['dimension'] != usageDimension(_breakdown);
+    final rows = report == null
+        ? const <UsageRow>[]
+        : usageRows(
+            objects(report['groups']),
+            regrouping ? _fallback : _breakdown,
+            projects: {
+              for (final source in session?.hosts ?? const <HostConnection>[])
+                for (final item in objects(source.snapshot['projects']))
+                  string(item['id']): string(item['name']),
+            },
+            unassigned: context.tr('usageUnassigned'),
+          );
     return PageFrame(
-      loading: connected && _report == null && _error == null,
+      loading: connected && report == null && _error == null,
       title: context.tr('usage'),
       failure: !connected
           ? HostState(added: added)
           : _error == null
           ? null
           : FailureState(icon: 'chart', message: _error!, onRetry: _load),
-      empty: connected && _report != null && responses == 0 && _error == null
+      empty:
+          connected &&
+              report != null &&
+              overview.responses == 0 &&
+              _error == null
           ? EmptyState(icon: 'chart', message: context.tr('usageEmpty'))
           : null,
       actions: [
@@ -224,453 +295,71 @@ class _UsagePageState extends State<UsagePage> {
               '${context.tr('selectHost')}: ${host?.label ?? context.tr('allHosts')}',
           onPressed: added ? _pickHost : null,
         ),
-        if (_partial && responses > 0)
-          RoundButton(
-            icon: 'info',
-            tooltip: context.tr('details'),
-            onPressed: () => showAppSheet(
-              context,
-              context.tr('usage'),
-              child: Text(context.tr('settingsUsagePartial')),
-            ),
-          ),
       ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SelectorCard(
-            title: string(project?['name']).isEmpty
-                ? context.tr('allProjects')
-                : string(project?['name']),
-            subtitle: host?.label ?? context.tr('allHosts'),
+          ProjectBar(
+            project: project,
+            detail: host?.label ?? context.tr('allHosts'),
             onTap: _pickProject,
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              for (final period in ['week', 'month'])
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text(context.tr(period)),
-                    selected: _period == period,
-                    showCheckmark: false,
-                    onSelected: (_) {
-                      setState(() => _period = period);
-                      _load();
-                    },
-                  ),
-                ),
-            ],
+          const SizedBox(height: 10),
+          UsageSegments<UsageRange>(
+            key: const ValueKey('usage-range'),
+            values: UsageRange.values,
+            selected: _range,
+            label: (range) => context.tr(range.label),
+            onChanged: _selectRange,
           ),
-          if (_report != null && responses > 0) ...[
-            const SizedBox(height: 12),
-            Surface(
+          if (report != null && overview.responses > 0) ...[
+            const SizedBox(height: 20),
+            AnimatedOpacity(
+              opacity: moving ? .55 : 1,
+              duration: const Duration(milliseconds: 150),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    context.tr('tokens'),
-                    style: TextStyle(color: colors.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    tokens != null
-                        ? '${tokens.total}'
-                        : responses == 0
-                        ? '0'
-                        : context.tr('settingsUsageUnknown'),
-                    key: const ValueKey('usage-total'),
-                    style: const TextStyle(
-                      fontSize: 48,
-                      height: 1.1,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _Metric(
-                          value: '$responses',
-                          label: context.tr('requests'),
-                        ),
-                      ),
-                      Expanded(
-                        child: _Metric(
-                          value: cost.isEmpty
-                              ? context.tr('settingsUsageUnknown')
-                              : '\$${(integer(cost['usd_micros']) / 1000000).toStringAsFixed(4)}',
-                          label: context.tr('estimatedCost'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      for (final weekly in [false, true])
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            key: ValueKey(
-                              weekly ? 'usage-weekly' : 'usage-daily',
-                            ),
-                            label: Text(
-                              context.tr(
-                                weekly
-                                    ? 'settingsUsageWeekly'
-                                    : 'settingsUsageDaily',
-                              ),
-                            ),
-                            selected: _weekly == weekly,
-                            showCheckmark: false,
-                            onSelected: (_) => setState(() => _weekly = weekly),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _UsageBars(buckets: buckets),
-                  Wrap(
-                    spacing: 12,
-                    children: [
-                      for (final item in [
-                        ('settingsUsageCache', colors.secondary),
-                        ('settingsUsageInput', colors.tertiary),
-                        ('settingsUsageOutput', colors.primary),
-                      ])
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.circle, size: 8, color: item.$2),
-                            const SizedBox(width: 4),
-                            Text(context.tr(item.$1)),
-                          ],
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    context
-                        .tr('usageCoverage')
-                        .replaceAll('{priced}', '${integer(cost['responses'])}')
-                        .replaceAll('{total}', '$responses'),
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: colors.onSurfaceVariant,
-                    ),
+                  UsageSummary(overview: overview, stale: _partial),
+                  const SizedBox(height: 28),
+                  UsageTrend(
+                    report: report,
+                    range: _shownRange,
+                    offset: integer(shown?['utc_offset_minutes']),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            _SectionTitle(
-              context.tr('activity'),
-              detail: context.tr('settingsUtc'),
-            ),
-            const SizedBox(height: 12),
-            Surface(
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(context.tr('requests')),
-                      Text('$responses'),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final size = (constraints.maxWidth - 14 * 4) / 15;
-                      final maximum = days.fold<int>(
-                        1,
-                        (max, day) => math.max(
-                          max,
-                          integer(object(day['metrics'])['responses']),
-                        ),
-                      );
-                      return Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: [
-                          for (final day in days)
-                            Builder(
-                              builder: (context) {
-                                final count = integer(
-                                  object(day['metrics'])['responses'],
-                                );
-                                final date =
-                                    DateTime.fromMillisecondsSinceEpoch(
-                                      integer(day['start_ms']),
-                                      isUtc: true,
-                                    );
-                                return Tooltip(
-                                  message: '${usageDate(date)} · $count',
-                                  child: Container(
-                                    width: size,
-                                    height: size,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(3),
-                                      color: count == 0
-                                          ? colors.surfaceContainerHigh
-                                          : colors.tertiary.withValues(
-                                              alpha: .2 + .8 * count / maximum,
-                                            ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                  if (days.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        for (final day in [days.first, days.last])
-                          Text(
-                            usageDate(
-                              DateTime.fromMillisecondsSinceEpoch(
-                                integer(day['start_ms']),
-                                isUtc: true,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            _SectionTitle(context.tr('modelUsage')),
-            const SizedBox(height: 12),
-            if (groups.isEmpty)
-              EmptyState(icon: 'chart', message: context.tr('usageEmpty'))
-            else
-              Surface(
-                child: Column(
-                  children: [
-                    for (final group in groups)
-                      Builder(
-                        builder: (context) {
-                          final name = string(
-                            object(object(group['key'])['data'])['model'],
-                          );
-                          final groupTokens = TokenStack.from(
-                            object(object(group['metrics'])['tokens']),
-                          );
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: _ModelShare(
-                              name: name,
-                              share: (tokens?.total ?? 0) == 0
-                                  ? 0
-                                  : groupTokens.total / tokens!.total,
-                            ),
-                          );
-                        },
-                      ),
-                  ],
+            const SizedBox(height: 28),
+            UsageHeading(
+              context.tr('usageBreakdown'),
+              trailing: SizedBox(
+                width: 200,
+                child: UsageSegments<UsageBreakdown>(
+                  key: const ValueKey('usage-breakdown'),
+                  values: UsageBreakdown.values,
+                  selected: _breakdown,
+                  label: (breakdown) => switch (breakdown) {
+                    UsageBreakdown.model => context.tr('model'),
+                    UsageBreakdown.provider => context.tr('usageProvider'),
+                    UsageBreakdown.project => context.tr('project'),
+                  },
+                  onChanged: _group,
                 ),
               ),
+            ),
+            AnimatedOpacity(
+              opacity: moving || regrouping ? .55 : 1,
+              duration: const Duration(milliseconds: 150),
+              child: UsageRows(
+                rows: rows,
+                expanded: _expanded,
+                onToggle: () => setState(() => _expanded = !_expanded),
+              ),
+            ),
           ],
         ],
       ),
-    );
-  }
-}
-
-class _Metric extends StatelessWidget {
-  const _Metric({required this.value, required this.label});
-  final String value;
-  final String label;
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(value, style: Theme.of(context).textTheme.titleMedium),
-      Text(
-        label,
-        style: TextStyle(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-          fontSize: 14,
-        ),
-      ),
-    ],
-  );
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.title, {this.detail});
-  final String title;
-  final String? detail;
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: Text(title, style: Theme.of(context).textTheme.titleMedium),
-      ),
-      if (detail != null)
-        Text(
-          detail!,
-          style: TextStyle(
-            fontSize: 14,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-    ],
-  );
-}
-
-class _UsageBars extends StatelessWidget {
-  const _UsageBars({required this.buckets});
-  final List<UsageBucket> buckets;
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 140,
-      child: BarChart(
-        BarChartData(
-          minY: 0,
-          maxY: buckets.fold<double>(
-            1,
-            (max, bucket) =>
-                math.max(max, (bucket.tokens?.total ?? 0).toDouble()),
-          ),
-          borderData: FlBorderData(show: false),
-          gridData: const FlGridData(show: false),
-          barTouchData: BarTouchData(
-            touchTooltipData: BarTouchTooltipData(
-              fitInsideHorizontally: true,
-              fitInsideVertically: true,
-              getTooltipItem: (group, _, rod, _) {
-                final bucket = buckets[group.x];
-                final tokens = bucket.tokens;
-                return BarTooltipItem(
-                  '${usageDate(bucket.start)}${bucket.end != bucket.start ? '–${usageDate(bucket.end)}' : ''} UTC\n${tokens == null ? context.tr('settingsUsageUnknown') : '${context.tr('settingsUsageCache')}: ${tokens.cache}\n${context.tr('settingsUsageInput')}: ${tokens.input}\n${context.tr('settingsUsageOutput')}: ${tokens.output}'}',
-                  TextStyle(color: colors.onInverseSurface),
-                );
-              },
-            ),
-          ),
-          titlesData: FlTitlesData(
-            leftTitles: const AxisTitles(),
-            rightTitles: const AxisTitles(),
-            topTitles: const AxisTitles(),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 30,
-                getTitlesWidget: (value, _) {
-                  final index = value.toInt();
-                  if (index < 0 ||
-                      index >= buckets.length ||
-                      index % math.max(1, (buckets.length / 5).ceil()) != 0) {
-                    return const SizedBox.shrink();
-                  }
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      usageDate(buckets[index].start),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colors.onSurfaceVariant,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-          barGroups: [
-            for (var i = 0; i < buckets.length; i++)
-              BarChartGroupData(
-                x: i,
-                barRods: [
-                  BarChartRodData(
-                    toY: (buckets[i].tokens?.total ?? 0).toDouble(),
-                    width: buckets.length > 10 ? 6 : 20,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(4),
-                    ),
-                    rodStackItems: [
-                      if (buckets[i].tokens case final tokens?) ...[
-                        BarChartRodStackItem(
-                          0,
-                          tokens.cache.toDouble(),
-                          colors.secondary,
-                        ),
-                        BarChartRodStackItem(
-                          tokens.cache.toDouble(),
-                          (tokens.cache + tokens.input).toDouble(),
-                          colors.tertiary,
-                        ),
-                        BarChartRodStackItem(
-                          (tokens.cache + tokens.input).toDouble(),
-                          tokens.total.toDouble(),
-                          colors.primary,
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-          ],
-        ),
-        duration: const Duration(milliseconds: 220),
-      ),
-    );
-  }
-}
-
-class _ModelShare extends StatelessWidget {
-  const _ModelShare({required this.name, required this.share});
-  final String name;
-  final double share;
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        CircleAvatar(
-          radius: 16,
-          backgroundColor: colors.surfaceContainerHigh,
-          foregroundColor: colors.onSurface,
-          child: Text(
-            name.isEmpty ? '?' : name[0],
-            style: const TextStyle(fontSize: 14),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 6),
-              LinearProgressIndicator(
-                value: share.clamp(0, 1),
-                minHeight: 4,
-                borderRadius: BorderRadius.circular(4),
-                color: colors.tertiary,
-                backgroundColor: colors.surfaceContainerHigh,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        Text(
-          '${(share * 100).round()}%',
-          style: TextStyle(color: colors.onSurfaceVariant),
-        ),
-      ],
     );
   }
 }
