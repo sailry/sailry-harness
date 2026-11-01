@@ -116,7 +116,8 @@ void main() {
     final merged = mergeToolDetails(view(call), view(next));
     final current = (merged['calls'] as List).single as Map<String, dynamic>;
     final before = jsonEncode(current);
-    expect(toolArguments(current, const {}), same(arguments));
+    expect(current['detail'], same(call['detail']));
+    expect(toolArguments(current, const {}), equals(arguments));
     expect(current['approval_view'], {'unrestricted': true});
     expect(detailAllowsDecision(current, 'approve'), isTrue);
     expect(jsonEncode(current), before);
@@ -156,7 +157,7 @@ void main() {
       'details': false,
     };
     final before = jsonEncode([call, page]);
-    expect(toolArguments(call, page), same(spec));
+    expect(toolArguments(call, page), equals(spec));
     expect(toolDetail(call), isNull);
     expect(jsonEncode([call, page]), before);
     for (final source in [
