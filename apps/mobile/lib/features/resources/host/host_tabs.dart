@@ -83,24 +83,35 @@ class HostTabsHeader extends SliverPersistentHeaderDelegate {
       );
     }
 
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: ColoredBox(
-          color: overlaps
-              ? colors.surface.withValues(alpha: .86)
-              : Colors.transparent,
-          child: Row(
-            children: [
-              button(HostTab.projects, context.tr('project'), projects),
-              const SizedBox(width: 4),
-              button(HostTab.processes, context.tr('hostProcesses'), processes),
-              const Spacer(),
-              if (tab == HostTab.processes)
-                _SortMenu(byMemory: byMemory, onSort: onSort)
-              else
-                Text(context.tr('hostSortRecent'), style: mutedStyle(context)),
-            ],
+    // The header must fill its declared extent, or the sliver geometry is
+    // invalid and the lists below it never lay out.
+    return SizedBox.expand(
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: ColoredBox(
+            color: overlaps
+                ? colors.surface.withValues(alpha: .86)
+                : Colors.transparent,
+            child: Row(
+              children: [
+                button(HostTab.projects, context.tr('project'), projects),
+                const SizedBox(width: 4),
+                button(
+                  HostTab.processes,
+                  context.tr('hostProcesses'),
+                  processes,
+                ),
+                const Spacer(),
+                if (tab == HostTab.processes)
+                  _SortMenu(byMemory: byMemory, onSort: onSort)
+                else
+                  Text(
+                    context.tr('hostSortRecent'),
+                    style: mutedStyle(context),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
