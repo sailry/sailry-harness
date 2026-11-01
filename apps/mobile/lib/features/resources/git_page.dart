@@ -7,6 +7,15 @@ import '../../runtime/json.dart';
 import '../../runtime/notices.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
+import '../../ui/pill_tabs.dart';
+import '../../ui/toast.dart';
+import 'git/branch_card.dart';
+import 'git/branch_list.dart';
+import 'git/change_row.dart';
+import 'git/commit_bar.dart';
+import 'git/diff_sheet.dart';
+import 'git/history_row.dart';
+import 'git/model.dart';
 import 'workspace.dart';
 
 class GitPage extends StatefulWidget {
@@ -19,6 +28,8 @@ class GitPage extends StatefulWidget {
 
 class _GitPageState extends State<GitPage> {
   late String? _hostId = widget.hostId;
+  final _message = TextEditingController();
+  CommitChoice _choice = (skipHooks: false, push: false);
   ResourceTarget? _target;
   String? _identity;
   Map<String, dynamic> _status = {};
@@ -51,11 +62,21 @@ class _GitPageState extends State<GitPage> {
     }
   }
 
+  @override
+  void dispose() {
+    _message.dispose();
+    super.dispose();
+  }
+
   Map<String, dynamic> get _guard => {
     'expected_index': _status['index_revision'],
     'expected_head': _status['head'],
     'expected_branch': _status['branch'],
   };
+
+  void _toast(Object error) {
+    if (mounted) showFailure(context, error);
+  }
 
   Future<void> _load({bool refresh = true}) async {
     final target = _target;
@@ -75,11 +96,13 @@ class _GitPageState extends State<GitPage> {
         _log = {};
       }
       if (_status['kind'] == 'directory') return;
-      if (_tab == 'branches' && _branches.isEmpty) {
+      // The branch card needs upstream sync on every tab.
+      if (_branches.isEmpty) {
         final branches = await target.host.command('list_git_branches', data);
         if (!mounted || generation != _generation) return;
         _branches = object(branches['data']);
-      } else if (_tab == 'history' && _log.isEmpty) {
+      }
+      if (_tab == 'history' && _log.isEmpty) {
         final log = await target.host.command('read_git_log', {
           ...data,
           'limit': 100,
@@ -106,39 +129,38 @@ class _GitPageState extends State<GitPage> {
     }
   }
 
-  Future<void> _mutate(String kind, Map<String, dynamic> data) async {
-    if (!_canWrite) return;
+  /// Returns whether the Node accepted the mutation.
+  Future<bool> _mutate(String kind, Map<String, dynamic> data) async {
+    if (!_canWrite) return false;
     final target = _target!;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
+    setState(() => _busy = true);
     try {
       final result = await target.host.command(kind, {
         if (kind != 'create_managed_worktree')
           'worktree': target.worktree['id'],
         ...data,
       });
-      if (!mounted) return;
+      if (!mounted) return true;
       final followUp = object(result['data'])['follow_up'];
       await _load();
       if (mounted && followUp != null) {
-        setState(() => _error = text(object(followUp)['message']));
+        showToast(context, text(object(followUp)['message']));
       }
+      return true;
     } on CommandFailure catch (error) {
       if (mounted) {
-        setState(() {
-          _pending = error.code == 'outcome_unknown' ? error.request : null;
-          _error = failureText(error, translate: context.tr);
-        });
+        setState(
+          () =>
+              _pending = error.code == 'outcome_unknown' ? error.request : null,
+        );
       }
+      _toast(error);
     } catch (error) {
-      if (mounted) {
-        setState(() => _error = failureText(error, translate: context.tr));
-      }
+      _toast(error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+    return false;
   }
 
   Future<void> _retry() async {
@@ -152,27 +174,43 @@ class _GitPageState extends State<GitPage> {
       setState(() => _pending = null);
       await _load();
     } on CommandFailure catch (error) {
-      if (mounted) {
-        setState(() {
-          if (error.code != 'outcome_unknown') _pending = null;
-          _error = failureText(error, translate: context.tr);
-        });
+      if (mounted && error.code != 'outcome_unknown') {
+        setState(() => _pending = null);
       }
+      _toast(error);
     } catch (error) {
-      if (mounted) {
-        setState(() => _error = failureText(error, translate: context.tr));
-      }
+      _toast(error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _diff(Map<String, dynamic> entry, bool staged) async {
+  Future<bool> _confirm(String title, String message) async =>
+      await showAppDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(context.tr('cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(context.tr('confirm')),
+            ),
+          ],
+        ),
+      ) ==
+      true;
+
+  Future<void> _diff(Entry entry, bool staged) async {
     final target = _target;
     if (target == null) return;
     final identity = _identity;
-    final index = _status['index_revision'];
-    final head = _status['head'];
+    // Index actions apply to the revision the user reviewed.
+    final guard = _guard;
     try {
       final path = text(entry['path']);
       final result = await target.host.command('read_git_diff', {
@@ -181,103 +219,78 @@ class _GitPageState extends State<GitPage> {
         'scope': staged ? 'staged' : 'unstaged',
       });
       if (!mounted || identity != _identity) return;
-      final diff = object(result['data']);
-      final apply = await showAppSheet<bool>(
+      final action = await showDiffSheet(
         context,
-        path,
-        child: Builder(
-          builder: (context) => Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DiffView(diff: diff),
-              const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: _canWrite
-                    ? () => Navigator.pop(context, true)
-                    : null,
-                child: Text(context.tr(staged ? 'unstage' : 'stage')),
-              ),
-            ],
-          ),
-        ),
+        entry: entry,
+        staged: staged,
+        diff: object(result['data']),
+        enabled: _canWrite,
       );
-      if (mounted && identity == _identity && apply == true) {
+      if (!mounted || identity != _identity || action == null) return;
+      if (action == DiffAction.toggle) {
         await _mutate('update_git_index', {
           'paths': [path],
           'operation': staged ? 'unstage' : 'stage',
-          'expected_index': index,
-          'expected_head': head,
+          'expected_index': guard['expected_index'],
+          'expected_head': guard['expected_head'],
         });
+        return;
       }
+      final trash = discardKind(entry) == DiscardKind.trash;
+      final name = path.split('/').last;
+      if (!await _confirm(
+        context.tr(trash ? 'fileTrash' : 'discard'),
+        context
+            .tr(trash ? 'gitTrashConfirm' : 'gitDiscardConfirm')
+            .replaceAll('{name}', name),
+      )) {
+        return;
+      }
+      if (!mounted || identity != _identity) return;
+      await _mutate('run_git_action', {
+        ...guard,
+        'action': {
+          trash ? 'trash' : 'discard': {
+            'paths': [path],
+          },
+        },
+      });
     } catch (error) {
-      if (mounted) {
-        setState(() => _error = failureText(error, translate: context.tr));
-      }
+      _toast(error);
     }
   }
 
   Future<void> _commit() async {
-    final message = await askResourceText(
-      context,
-      'commitMessage',
-      multiline: true,
-    );
-    if (!mounted || message == null) return;
-    await _mutate('create_git_commit', {
+    final message = _message.text.trim();
+    if (message.isEmpty) return;
+    final committed = await _mutate('create_git_commit', {
       ..._guard,
       'message': message,
       'amend': false,
-      'options': {
-        'signoff': false,
-        'skip_hooks': false,
-        'tracked': false,
-        'all': false,
-        'after': 'none',
-        'push_remote': null,
-      },
-    });
-  }
-
-  Future<void> _actions() async {
-    final action = await showAppSheet<String>(
-      context,
-      context.tr('gitActions'),
-      child: Builder(
-        builder: (context) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final item in [
-              ('fetch', 'gitFetch'),
-              ('pull', 'gitPull'),
-              ('push', 'gitPush'),
-            ])
-              ListTile(
-                title: Text(context.tr(item.$2)),
-                onTap: () => Navigator.pop(context, item.$1),
-              ),
-          ],
-        ),
+      'options': commitOptions(
+        skipHooks: _choice.skipHooks,
+        push: _choice.push,
       ),
-    );
-    if (!mounted || action == null) return;
-    await _mutate('run_git_action', {
-      ..._guard,
-      'action': switch (action) {
-        'fetch' => {
-          'fetch': {'remote': null, 'prune': false, 'all': false},
-        },
-        'pull' => {
-          'pull': {'rebase': false, 'remote': null, 'branch': null},
-        },
-        _ => {
-          'push': {'remote': null, 'publish': false, 'force': false},
-        },
-      },
     });
+    if (committed && mounted) _message.clear();
   }
 
-  Future<void> _branch(Map<String, dynamic> branch) async {
+  Future<void> _action(String action) => _mutate('run_git_action', {
+    ..._guard,
+    'action': switch (action) {
+      'fetch' => {
+        'fetch': {'remote': null, 'prune': false, 'all': false},
+      },
+      'pull' => {
+        'pull': {'rebase': false, 'remote': null, 'branch': null},
+      },
+      _ => {
+        'push': {'remote': null, 'publish': false, 'force': false},
+      },
+    },
+  });
+
+  Future<void> _branch(Entry branch) async {
     if (branch['current'] == true || branch['remote'] == true) return;
     final name = text(branch['name']);
     final action = await showAppSheet<String>(
@@ -301,32 +314,17 @@ class _GitPageState extends State<GitPage> {
       ),
     );
     if (!mounted || action == null) return;
-    final confirmed = await showAppDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          context.tr(
-            {
-              'switch': 'gitSwitch',
-              'merge': 'gitMerge',
-              'delete': 'gitDeleteBranch',
-            }[action]!,
-          ),
-        ),
-        content: Text(name),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(context.tr('cancel')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(context.tr('confirm')),
-          ),
-        ],
+    final confirmed = await _confirm(
+      context.tr(
+        {
+          'switch': 'gitSwitch',
+          'merge': 'gitMerge',
+          'delete': 'gitDeleteBranch',
+        }[action]!,
       ),
+      name,
     );
-    if (!mounted || confirmed != true) return;
+    if (!mounted || !confirmed) return;
     await _mutate('${action}_git_branch', {
       'name': name,
       'commit': branch['commit'],
@@ -354,7 +352,7 @@ class _GitPageState extends State<GitPage> {
     );
   }
 
-  Future<void> _history(Map<String, dynamic> entry) async {
+  Future<void> _history(Entry entry) async {
     try {
       final result = await _target!.host.command('read_git_commit', {
         'worktree': _target!.worktree['id'],
@@ -379,9 +377,7 @@ class _GitPageState extends State<GitPage> {
         ),
       );
     } catch (error) {
-      if (mounted) {
-        setState(() => _error = failureText(error, translate: context.tr));
-      }
+      _toast(error);
     }
   }
 
@@ -404,9 +400,7 @@ class _GitPageState extends State<GitPage> {
         _log = log;
       });
     } catch (error) {
-      if (mounted) {
-        setState(() => _error = failureText(error, translate: context.tr));
-      }
+      _toast(error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -414,44 +408,43 @@ class _GitPageState extends State<GitPage> {
 
   @override
   Widget build(BuildContext context) {
+    final target = _target;
+    final connected = target != null && target.host.connected;
     final entries = objects(_status['entries']);
-    final colors = Theme.of(context).colorScheme;
-    final added = entries.fold<num>(
-      0,
-      (sum, entry) => sum + number(object(entry['diff'])['additions']),
-    );
-    final removed = entries.fold<num>(
-      0,
-      (sum, entry) => sum + number(object(entry['diff'])['deletions']),
-    );
-    final empty = _target == null
+    final groups = groupChanges(entries);
+    final sync = object(_branches['sync']);
+    final branchSync = _branches.isEmpty
+        ? null
+        : (
+            upstream: sync['upstream'] as String?,
+            ahead: number(sync['ahead']).toInt(),
+            behind: number(sync['behind']).toInt(),
+          );
+    final repository =
+        connected && _status.isNotEmpty && _status['kind'] != 'directory';
+    final empty = target == null
         ? 'resourceNoWorkspace'
-        : !_target!.host.connected
+        : !target.host.connected
         ? 'hostDisconnected'
-        : _busy || _error != null || _pending != null
+        : _busy || _error != null
         ? null
         : _status['kind'] == 'directory'
         ? 'resourceGitNotRepository'
         : _tab == 'changes' && entries.isEmpty
         ? 'noChanges'
-        : _tab == 'branches' && objects(_branches['entries']).isEmpty ||
-              _tab == 'history' && objects(_log['entries']).isEmpty
+        : _tab == 'history' && objects(_log['entries']).isEmpty
         ? 'resourceEmpty'
         : null;
     return PageFrame(
       loading: _busy,
       title: context.tr('git'),
-      failure: _target != null && !_target!.host.connected
+      failure: target != null && !target.host.connected
           ? const HostState(added: true)
           : _error != null
           ? FailureState(
               icon: 'branch',
               message: _error!,
-              onRetry: _busy
-                  ? null
-                  : _pending == null
-                  ? _load
-                  : _retry,
+              onRetry: _busy ? null : _load,
             )
           : null,
       empty: empty == null
@@ -464,161 +457,125 @@ class _GitPageState extends State<GitPage> {
           onPressed: _busy ? null : _load,
         ),
       ],
+      bottom: repository && _tab == 'changes' && groups.staged.isNotEmpty
+          ? CommitBar(
+              controller: _message,
+              count: groups.staged.length,
+              choice: _choice,
+              onChoice: (choice) => setState(() => _choice = choice),
+              onCommit: _canWrite ? _commit : null,
+            )
+          : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (_target != null && _target!.host.connected) ...[
-            if (_pending != null)
-              FilledButton(
-                onPressed: _busy ? null : _retry,
-                child: Text(context.tr('retry')),
-              ),
-            if (_status['kind'] != 'directory') ...[
-              Surface(
-                radius: 16,
-                onTap: _canWrite ? _actions : null,
-                child: Row(
-                  children: [
-                    const AppIcon('branch'),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        text(_status['branch'], text(_status['head'])),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Text('+$added', style: TextStyle(color: colors.tertiary)),
-                    const SizedBox(width: 8),
-                    Text(
-                      '−$removed',
-                      style: TextStyle(color: colors.secondary),
-                    ),
-                  ],
+          if (connected && _pending != null) ...[
+            Text(context.tr('failureUnknown')),
+            const SizedBox(height: 8),
+            FilledButton(
+              onPressed: _busy ? null : _retry,
+              child: Text(context.tr('retry')),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (repository) ...[
+            BranchCard(
+              branch: text(_status['branch'], shortHash(text(_status['head']))),
+              sync: branchSync,
+              onBranch: _busy ? null : () => _selectTab('branches'),
+              onAction: _canWrite ? _action : null,
+            ),
+            const SizedBox(height: 14),
+            PillTabs<String>(
+              tabs: [
+                (
+                  value: 'changes',
+                  label: context.tr('changes'),
+                  count: entries.length,
                 ),
-              ),
-              const SizedBox(height: 16),
-              SegmentedButton<String>(
-                showSelectedIcon: false,
-                segments: [
-                  for (final item in [
-                    ('changes', 'changes'),
-                    ('branches', 'gitBranches'),
-                    ('history', 'gitHistory'),
-                  ])
-                    ButtonSegment(
-                      value: item.$1,
-                      label: Text(context.tr(item.$2)),
+                (
+                  value: 'branches',
+                  label: context.tr('gitBranches'),
+                  count: null,
+                ),
+                (
+                  value: 'history',
+                  label: context.tr('gitHistory'),
+                  count: null,
+                ),
+              ],
+              selected: _tab,
+              onSelected: _busy ? null : _selectTab,
+            ),
+            const SizedBox(height: 6),
+            if (_tab == 'changes')
+              for (final (staged, items) in [
+                (false, groups.unstaged),
+                (true, groups.staged),
+              ])
+                if (items.isNotEmpty) ...[
+                  _GroupTitle(
+                    context.tr(staged ? 'staged' : 'gitUnstaged'),
+                    items.length,
+                  ),
+                  for (final (index, entry) in items.indexed)
+                    ChangeRow(
+                      entry: entry,
+                      staged: staged,
+                      divider: index < items.length - 1,
+                      onTap: _busy ? null : () => _diff(entry, staged),
                     ),
                 ],
-                selected: {_tab},
-                onSelectionChanged: (value) => _selectTab(value.single),
-                style: SegmentedButton.styleFrom(
-                  side: BorderSide.none,
-                  selectedBackgroundColor: colors.surfaceContainerHigh,
-                  backgroundColor: Colors.transparent,
-                ),
+            if (_tab == 'branches' && _branches.isNotEmpty)
+              BranchList(
+                branches: objects(_branches['entries']),
+                truncated: _branches['truncated'] == true,
+                onBranch: _canWrite ? _branch : null,
+                onCreate: _canWrite && _status['head'] != null
+                    ? _createBranch
+                    : null,
+                onWorktree:
+                    _canWrite &&
+                        _status['head'] != null &&
+                        target.worktree['project'] != null
+                    ? () => _createBranch(worktree: true)
+                    : null,
               ),
-              const SizedBox(height: 16),
-              if (_tab == 'changes' && entries.isNotEmpty) ...[
-                for (final staged in [false, true])
-                  ExpansionTile(
-                    key: ValueKey('live-git-$staged'),
-                    initiallyExpanded: true,
-                    tilePadding: EdgeInsets.zero,
-                    title: Text(context.tr(staged ? 'staged' : 'workingTree')),
-                    children: [
-                      for (final entry in entries.where(
-                        (entry) => staged
-                            ? entry['staged'] != null
-                            : entry['unstaged'] != null ||
-                                  entry['untracked'] == true ||
-                                  entry['conflicted'] == true,
-                      ))
-                        ListTile(
-                          leading: const AppIcon('file'),
-                          title: Text(text(entry['path'])),
-                          trailing: const AppIcon('chevron'),
-                          onTap: _busy ? null : () => _diff(entry, staged),
-                        ),
-                    ],
-                  ),
-                FilledButton(
-                  onPressed:
-                      _canWrite &&
-                          entries.any((entry) => entry['staged'] != null)
-                      ? _commit
-                      : null,
-                  child: Text(context.tr('commit')),
+            if (_tab == 'history') ...[
+              for (final (index, entry) in objects(_log['entries']).indexed)
+                HistoryRow(
+                  entry: entry,
+                  branch: _status['branch'] as String?,
+                  now: DateTime.now(),
+                  divider: index < objects(_log['entries']).length - 1,
+                  onTap: _busy ? null : () => _history(entry),
                 ),
-              ],
-              if (_tab == 'branches') ...[
-                if (objects(_branches['entries']).isNotEmpty)
-                  Surface(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Column(
-                      children: [
-                        for (final branch in objects(_branches['entries']))
-                          ListTile(
-                            leading: const AppIcon('branch'),
-                            title: Text(text(branch['name'])),
-                            subtitle: branch['current'] == true
-                                ? Text(context.tr('gitCurrent'))
-                                : null,
-                            trailing: AppIcon(
-                              branch['current'] == true ? 'check' : 'chevron',
-                            ),
-                            onTap: _canWrite ? () => _branch(branch) : null,
-                          ),
-                      ],
-                    ),
-                  ),
-                OutlinedButton.icon(
-                  onPressed: _canWrite && _status['head'] != null
-                      ? _createBranch
-                      : null,
-                  icon: const AppIcon('plus'),
-                  label: Text(context.tr('gitCreateBranch')),
+              if (_log['next'] != null)
+                TextButton(
+                  onPressed: _busy ? null : _more,
+                  child: Text(context.tr('resourceMore')),
                 ),
-                OutlinedButton.icon(
-                  onPressed:
-                      _canWrite &&
-                          _status['head'] != null &&
-                          _target!.worktree['project'] != null
-                      ? () => _createBranch(worktree: true)
-                      : null,
-                  icon: const AppIcon('branch'),
-                  label: Text(context.tr('resourceWorktreeCreate')),
-                ),
-                if (_branches['truncated'] == true)
-                  Text(context.tr('resourcePartial')),
-              ],
-              if (_tab == 'history') ...[
-                if (objects(_log['entries']).isNotEmpty)
-                  Surface(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Column(
-                      children: [
-                        for (final entry in objects(_log['entries']))
-                          ListTile(
-                            leading: const AppIcon('clock'),
-                            title: Text(text(entry['message'])),
-                            subtitle: Text(text(entry['id'])),
-                            trailing: const AppIcon('chevron'),
-                            onTap: _busy ? null : () => _history(entry),
-                          ),
-                      ],
-                    ),
-                  ),
-                if (_log['next'] != null)
-                  TextButton(
-                    onPressed: _busy ? null : _more,
-                    child: Text(context.tr('resourceMore')),
-                  ),
-              ],
             ],
           ],
         ],
       ),
+    );
+  }
+}
+
+class _GroupTitle extends StatelessWidget {
+  const _GroupTitle(this.label, this.count);
+  final String label;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final dim = Theme.of(
+      context,
+    ).colorScheme.onSurfaceVariant.withValues(alpha: .65);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14, bottom: 2),
+      child: Text('$label  $count', style: TextStyle(fontSize: 13, color: dim)),
     );
   }
 }

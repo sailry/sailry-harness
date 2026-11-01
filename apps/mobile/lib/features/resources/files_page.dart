@@ -8,7 +8,8 @@ import '../../ui/kit.dart';
 import 'workspace.dart';
 import 'file_page.dart';
 import 'file_navigation.dart';
-import 'file_location.dart';
+import 'files/breadcrumb.dart';
+import 'files/entry_row.dart';
 
 class FilesPage extends StatefulWidget {
   const FilesPage({
@@ -113,9 +114,7 @@ class _FilesPageState extends State<FilesPage> {
       if (!mounted || identity != _identity) return;
       await _load();
     } catch (error) {
-      if (mounted && identity == _identity) {
-        setState(() => _error = failureText(error, translate: context.tr));
-      }
+      if (mounted && identity == _identity) showFailure(context, error);
     } finally {
       if (mounted && identity == _identity) setState(() => _opening = null);
     }
@@ -163,9 +162,7 @@ class _FilesPageState extends State<FilesPage> {
       );
       if (mounted && identity == _identity && path != null) await _open(path);
     } catch (error) {
-      if (mounted && identity == _identity) {
-        setState(() => _error = failureText(error, translate: context.tr));
-      }
+      if (mounted && identity == _identity) showFailure(context, error);
     }
   }
 
@@ -174,6 +171,10 @@ class _FilesPageState extends State<FilesPage> {
     final target = _target;
     final entries = objects(_listing?['entries']);
     final next = _listing?['next'];
+    final enabled = !_busy && _opening == null;
+    final dim = Theme.of(
+      context,
+    ).colorScheme.onSurfaceVariant.withValues(alpha: .65);
     return PageFrame(
       loading: _busy,
       title: context.tr('files'),
@@ -187,11 +188,6 @@ class _FilesPageState extends State<FilesPage> {
           : null,
       actions: [
         RoundButton(
-          icon: 'search',
-          tooltip: context.tr('searchFiles'),
-          onPressed: _busy ? null : _search,
-        ),
-        RoundButton(
           icon: 'refresh',
           tooltip: context.tr('refresh'),
           onPressed: _busy ? null : _load,
@@ -201,66 +197,56 @@ class _FilesPageState extends State<FilesPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (target != null && target.host.connected) ...[
-            FileLocation(
+            SearchBarButton(
+              label: context.tr('searchFiles'),
+              onTap: _busy ? null : _search,
+            ),
+            const SizedBox(height: 12),
+            Breadcrumb(
               directory: _directory,
-              enabled: !_busy && _opening == null,
+              root: worktreeLabel(target.worktree).isEmpty
+                  ? context.tr('resourceRoot')
+                  : worktreeLabel(target.worktree),
+              enabled: enabled,
               onNavigate: _navigate,
             ),
             const SizedBox(height: 8),
             if (_error != null)
               FailureState(icon: 'folder', message: _error!, onRetry: _load)
-            else if (entries.isNotEmpty)
-              Surface(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Column(
-                  children: [
-                    for (var i = 0; i < entries.length; i++) ...[
-                      if (i > 0) const Divider(),
-                      ListTile(
-                        leading: AppIcon(
-                          entries[i]['kind'] == 'directory' ? 'folder' : 'file',
-                        ),
-                        title: Text(
-                          text(entries[i]['name']),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: entries[i]['kind'] == 'directory'
-                            ? const AppIcon('chevron', size: 14)
-                            : Text(
-                                fileSize(entries[i]['size'] as int?),
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onSurfaceVariant,
-                                    ),
-                              ),
-                        onTap: _busy || _opening != null
-                            ? null
-                            : () {
-                                final path = [
-                                  _directory,
-                                  text(entries[i]['name']),
-                                ].where((part) => part.isNotEmpty).join('/');
-                                if (entries[i]['kind'] == 'directory') {
-                                  _navigate(path);
-                                } else {
-                                  _open(path);
-                                }
-                              },
-                      ),
-                    ],
-                  ],
+            else
+              for (final (index, entry) in entries.indexed)
+                FileEntryRow(
+                  name: text(entry['name']),
+                  directory: entry['kind'] == 'directory',
+                  size: fileSize(entry['size'] as int?),
+                  divider: index < entries.length - 1,
+                  onTap: enabled
+                      ? () {
+                          final path = [
+                            _directory,
+                            text(entry['name']),
+                          ].where((part) => part.isNotEmpty).join('/');
+                          if (entry['kind'] == 'directory') {
+                            _navigate(path);
+                          } else {
+                            _open(path);
+                          }
+                        }
+                      : null,
                 ),
-              ),
             if (_error == null && next != null)
               TextButton(
                 onPressed: _busy ? null : () => _load(after: object(next)),
                 child: Text(context.tr('resourceMore')),
               )
             else if (_error == null && _listing?['truncated'] == true)
-              Text(context.tr('resourcePartial')),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  context.tr('resourcePartial'),
+                  style: TextStyle(fontSize: 12, color: dim),
+                ),
+              ),
           ],
         ],
       ),

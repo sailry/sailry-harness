@@ -4,7 +4,7 @@ import 'package:sailry_mobile/content/markdown.dart';
 import 'package:sailry_mobile/content/transfers.dart';
 import '../../l10n/strings.dart';
 import 'package:sailry_mobile/ui/kit.dart';
-import 'package:sailry_mobile/features/resources/file_location.dart';
+import 'package:sailry_mobile/features/resources/files/breadcrumb.dart';
 import 'workspace.dart';
 
 class FilesPage extends StatefulWidget {
@@ -187,8 +187,9 @@ class _FilesPageState extends State<FilesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          FileLocation(
+          Breadcrumb(
             directory: _directory,
+            root: context.tr('resourceRoot'),
             onNavigate: (path) => setState(() => _directory = path),
           ),
           const SizedBox(height: 8),

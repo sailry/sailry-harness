@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../content/code.dart';
 import '../../content/external_file.dart';
 import '../../content/image_preview.dart';
 import '../../content/images.dart';
@@ -13,7 +14,11 @@ import '../../runtime/json.dart';
 import '../../runtime/notices.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
+import '../../ui/pill_tabs.dart';
+import '../../ui/theme.dart';
+import '../../ui/toast.dart';
 import 'file_draft.dart';
+import 'files/code_view.dart';
 
 /// Retained by the browser so navigating back never discards a draft or retry ID.
 class FileDocument {
@@ -46,10 +51,15 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
   bool _busy = false;
   bool _mutating = false;
   bool _editing = false;
+  bool _source = false;
+
+  /// Load failure while nothing is shown; other failures use toasts.
   String? _error;
   FileDraft? get _draft => widget.document.draft;
   String get _name => widget.path.split('/').last;
+  String get _directory => splitPath(widget.path).directory;
   String get _mime => mediaType(widget.path);
+  bool get _markdown => _mime == 'text/markdown';
   bool get _isImage => _mime.startsWith('image/');
   bool get _isText =>
       _draft != null ||
@@ -73,6 +83,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
   Future<void> _run(
     Future<void> Function() action, {
     bool mutating = false,
+    bool load = false,
   }) async {
     setState(() {
       _busy = true;
@@ -83,11 +94,14 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
       await action();
     } catch (error) {
       if (mounted) {
-        setState(
-          () => _error = error is FileOpenFailure
-              ? context.tr(error.messageKey)
-              : failureText(error, translate: context.tr),
-        );
+        final message = error is FileOpenFailure
+            ? context.tr(error.messageKey)
+            : failureText(error, translate: context.tr);
+        if (load && _draft == null && _image == null) {
+          setState(() => _error = message);
+        } else {
+          showToast(context, message);
+        }
       }
     } finally {
       if (mounted) {
@@ -125,7 +139,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
         _editing = _draft!.dirty || _draft!.pending != null;
       }
     }
-  });
+  }, load: true);
 
   Future<void> _openLink(Uri uri) async {
     final tree = objects(
@@ -140,7 +154,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
           : '',
     );
     if (path == null) {
-      setState(() => _error = context.tr('fileLinkUnavailable'));
+      showToast(context, context.tr('fileLinkUnavailable'));
       return;
     }
     if (path == widget.path) return;
@@ -174,8 +188,10 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
       if (mounted) _editing = false;
     } catch (error) {
       if (mounted) {
-        _error =
-            '${context.tr('resourceSaveError')}\n${failureText(error, translate: context.tr)}';
+        showToast(
+          context,
+          '${context.tr('resourceSaveError')}\n${failureText(error, translate: context.tr)}',
+        );
       }
     }
   }, mutating: true);
@@ -255,96 +271,182 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
     }, mutating: true);
   }
 
-  @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: !_mutating,
-    child: PageFrame(
-      loading: _busy,
-      title: _name,
-      scroll: false,
-      backEnabled: !_mutating,
-      actions: [
-        if (_isText || _isImage)
-          RoundButton(
-            icon: 'refresh',
-            tooltip: context.tr('refresh'),
-            onPressed: _busy || _pending ? null : _reload,
-          ),
-        if (_isText)
-          RoundButton(
-            icon: _editing ? 'check' : 'edit',
-            tooltip: context.tr(
-              _editing ? (_draft?.pending == null ? 'save' : 'retry') : 'edit',
-            ),
-            onPressed:
-                _busy ||
-                    widget.document.trashRequest != null ||
-                    _draft?.editable != true
-                ? null
-                : _editing
-                ? (_draft!.dirty || _draft!.pending != null ? _save : null)
-                : () => setState(() => _editing = true),
-          ),
-        Builder(
-          builder: (context) => RoundButton(
-            icon: 'send',
-            tooltip: context.tr('send'),
-            onPressed: _busy || _pending
-                ? null
-                : () {
-                    final box = context.findRenderObject()! as RenderBox;
-                    _export(
-                      share: true,
-                      origin: box.localToGlobal(Offset.zero) & box.size,
-                    );
-                  },
-          ),
-        ),
-        RoundButton(
-          icon: 'trash',
-          tooltip: context.tr(
-            widget.document.trashRequest == null ? 'delete' : 'retry',
-          ),
-          onPressed: _busy || _draft?.pending != null ? null : _trash,
-        ),
-      ],
-      child: SafeArea(
-        top: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+  Future<void> _more(Rect origin) async {
+    final action = await showAppSheet<String>(
+      context,
+      context.tr('more'),
+      child: Builder(
+        builder: (context) => Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (_error != null)
-              Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+            for (final (key, icon, label, enabled) in [
+              (
+                'refresh',
+                'refresh',
+                'refresh',
+                (_isText || _isImage) && !_pending,
               ),
-            if (widget.document.trashRequest != null)
-              Text(context.tr('fileTrashUncertain')),
-            if (_draft?.dirty == true || _editing)
-              Row(
-                children: [
-                  if (_draft?.dirty == true)
-                    Expanded(child: Text(context.tr('unsaved')))
-                  else
-                    const Spacer(),
-                  if (_editing)
-                    TextButton(
-                      onPressed: _busy || _pending
-                          ? null
-                          : () => setState(() => _editing = false),
-                      child: Text(context.tr('preview')),
-                    ),
-                ],
+              ('share', 'send', 'fileShare', !_pending),
+              ('open', 'link', 'fileOpenExternal', !_pending),
+              (
+                'trash',
+                'trash',
+                widget.document.trashRequest == null ? 'fileTrash' : 'retry',
+                _draft?.pending == null,
               ),
-            if (_draft?.truncated == true) Text(context.tr('resourcePartial')),
-            Expanded(child: _body()),
+            ])
+              if (enabled)
+                ListTile(
+                  leading: AppIcon(icon),
+                  title: Text(context.tr(label)),
+                  textColor: key == 'trash'
+                      ? Theme.of(context).colorScheme.error
+                      : null,
+                  onTap: () => Navigator.pop(context, key),
+                ),
           ],
         ),
       ),
-    ),
-  );
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'refresh':
+        await _reload();
+      case 'share':
+        await _export(share: true, origin: origin);
+      case 'open':
+        await _export(share: false);
+      case 'trash':
+        await _trash();
+    }
+  }
+
+  void _edit() {
+    if (!_editing) {
+      setState(() => _editing = true);
+    } else if (_draft!.dirty || _draft!.pending != null) {
+      _save();
+    } else {
+      setState(() => _editing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return PopScope(
+      canPop: !_mutating,
+      child: PageFrame(
+        loading: _busy,
+        title: _name,
+        subtitle: _directory.isEmpty
+            ? null
+            : Text(
+                _directory,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  color: colors.onSurfaceVariant.withValues(alpha: .65),
+                ),
+              ),
+        titleAccessory: _draft?.dirty == true
+            ? Tooltip(
+                message: context.tr('unsaved'),
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: SailryTheme.statusColor(context, StatusTone.warning),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              )
+            : null,
+        scroll: false,
+        padding: EdgeInsets.zero,
+        backEnabled: !_mutating,
+        actions: [
+          if (_isText)
+            RoundButton(
+              icon: _editing ? 'check' : 'edit',
+              tooltip: context.tr(
+                _editing
+                    ? (_draft?.pending == null ? 'save' : 'retry')
+                    : 'edit',
+              ),
+              onPressed:
+                  _busy ||
+                      widget.document.trashRequest != null ||
+                      _draft?.editable != true
+                  ? null
+                  : _edit,
+            ),
+          Builder(
+            builder: (context) => RoundButton(
+              icon: 'more',
+              tooltip: context.tr('more'),
+              onPressed: _busy
+                  ? null
+                  : () {
+                      final box = context.findRenderObject()! as RenderBox;
+                      _more(box.localToGlobal(Offset.zero) & box.size);
+                    },
+            ),
+          ),
+        ],
+        child: SafeArea(
+          top: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (widget.document.trashRequest != null)
+                _Note(context.tr('fileTrashUncertain')),
+              if (_draft?.truncated == true)
+                _Note(context.tr('resourcePartial')),
+              if (_markdown && _draft != null && !_editing)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: PillTabs<bool>(
+                      tabs: [
+                        (
+                          value: false,
+                          label: context.tr('preview'),
+                          count: null,
+                        ),
+                        (
+                          value: true,
+                          label: context.tr('fileSource'),
+                          count: null,
+                        ),
+                      ],
+                      selected: _source,
+                      onSelected: (value) => setState(() => _source = value),
+                    ),
+                  ),
+                ),
+              Expanded(child: _body()),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _body() {
+    if (_error != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: FailureState(
+          icon: 'file',
+          message: _error!,
+          onRetry: _busy ? null : _load,
+        ),
+      );
+    }
     if (_isImage) {
       return _image == null
           ? const SizedBox()
@@ -360,47 +462,59 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
     }
     if (_draft == null) return const SizedBox();
     if (_editing) {
-      return TextField(
-        key: const ValueKey('resource-file-input'),
-        controller: _controller,
-        enabled: !_busy && !_pending,
-        expands: true,
-        minLines: null,
-        maxLines: null,
-        textAlignVertical: TextAlignVertical.top,
-        autocorrect: false,
-        enableSuggestions: false,
-        style: const TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 14,
-          height: 1.6,
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: TextField(
+          key: const ValueKey('resource-file-input'),
+          controller: _controller,
+          enabled: !_busy && !_pending,
+          expands: true,
+          minLines: null,
+          maxLines: null,
+          textAlignVertical: TextAlignVertical.top,
+          autocorrect: false,
+          enableSuggestions: false,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 14,
+            height: 1.6,
+          ),
+          onChanged: (value) => setState(() => _draft!.text = value),
         ),
-        onChanged: (value) => setState(() => _draft!.text = value),
       );
     }
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: _mime == 'text/markdown'
-          ? MarkdownContent(
-              _draft!.text,
-              onOpenFile: _openLink,
-              imageBuilder: (uri, _, _) => contentImage(
-                widget.host,
-                widget.worktree,
-                uri,
-                directory: widget.path.contains('/')
-                    ? widget.path.substring(0, widget.path.lastIndexOf('/'))
-                    : '',
-              ),
-            )
-          : SelectableText(
-              _draft!.text,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 14,
-                height: 1.7,
-              ),
-            ),
-    );
+    if (_markdown && !_source) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+        child: MarkdownContent(
+          _draft!.text,
+          onOpenFile: _openLink,
+          imageBuilder: (uri, _, _) => contentImage(
+            widget.host,
+            widget.worktree,
+            uri,
+            directory: _directory,
+          ),
+        ),
+      );
+    }
+    return CodeView(_draft!.text, language: languageFor(widget.path));
   }
+}
+
+class _Note extends StatelessWidget {
+  const _Note(this.message);
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+    child: Text(
+      message,
+      style: TextStyle(
+        fontSize: 12,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    ),
+  );
 }
