@@ -4512,12 +4512,6 @@ abstract class AppLocalizations {
   /// **'GPU'**
   String get hostMetricGpu;
 
-  /// No description provided for @hostCoreHint.
-  ///
-  /// In en, this message translates to:
-  /// **'{count} cores, hold one for details'**
-  String hostCoreHint(String count);
-
   /// No description provided for @hostMemoryUsed.
   ///
   /// In en, this message translates to:

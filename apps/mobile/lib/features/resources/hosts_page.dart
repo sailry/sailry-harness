@@ -60,35 +60,36 @@ class _HostsPageState extends State<HostsPage> {
     // Session updates must not restart the interval and starve sampling.
     if (_timer != null) return;
     _timer = Timer.periodic(samplePeriod, (_) => _refresh());
-    // Node derives rates from the gap since its previous detailed read, so a
-    // fresh start reads twice in quick succession to show rates right away.
-    final generation = _generation;
-    unawaited(
-      _refresh().then((_) async {
-        await Future<void>.delayed(const Duration(milliseconds: 1100));
-        if (mounted && _timer != null && generation == _generation) {
-          await _refresh();
-        }
-      }),
-    );
+    unawaited(_refresh());
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool retry = false}) async {
     final host = _host;
     if (_reading || host == null || !host.connected) return;
     _reading = true;
     final generation = _generation;
+    var again = false;
     try {
       final response = await host.command('read_host_metrics', {
         'detailed': true,
       });
       if (mounted && _host == host && generation == _generation) {
         final metrics = object(response['data']);
-        setState(() {
-          _metrics = metrics;
-          _history.add(MetricSample.read(metrics, linkLatency(host.transport)));
-          _error = null;
-        });
+        // Node only reports rates when its previous detailed read is under
+        // five seconds old. After a pause, read again shortly instead of
+        // charting a gap.
+        again = !retry && metrics['network'] is! Map;
+        if (!again || _metrics.isEmpty) {
+          setState(() {
+            _metrics = metrics;
+            if (!again) {
+              _history.add(
+                MetricSample.read(metrics, linkLatency(host.transport)),
+              );
+            }
+            _error = null;
+          });
+        }
       }
     } catch (failure) {
       if (mounted && _host == host && generation == _generation) {
@@ -96,6 +97,12 @@ class _HostsPageState extends State<HostsPage> {
       }
     } finally {
       if (generation == _generation) _reading = false;
+    }
+    if (again) {
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      if (mounted && _timer != null && generation == _generation) {
+        await _refresh(retry: true);
+      }
     }
   }
 

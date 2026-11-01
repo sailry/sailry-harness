@@ -2283,11 +2283,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get hostMetricGpu => 'GPU';
 
   @override
-  String hostCoreHint(String count) {
-    return '$count コア、長押しで各コアを表示';
-  }
-
-  @override
   String get hostMemoryUsed => '使用中';
 
   @override

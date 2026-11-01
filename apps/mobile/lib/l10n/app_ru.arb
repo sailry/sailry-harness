@@ -906,7 +906,6 @@
   "hostChartStart": "60 с назад",
   "hostChartNow": "Сейчас",
   "hostMetricGpu": "GPU",
-  "hostCoreHint": "Ядер: {count}, удерживайте ядро для подробностей",
   "hostMemoryUsed": "Занято",
   "hostMemoryCache": "Кэш",
   "hostMemorySwap": "Подкачка",

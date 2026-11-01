@@ -2285,11 +2285,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get hostMetricGpu => 'GPU';
 
   @override
-  String hostCoreHint(String count) {
-    return '$count코어, 길게 눌러 코어별 보기';
-  }
-
-  @override
   String get hostMemoryUsed => '사용 중';
 
   @override

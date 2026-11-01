@@ -163,13 +163,16 @@ class _AreaPainter extends CustomPainter {
           ? item.values.sublist(item.values.length - slots)
           : item.values;
       final offset = slots - values.length;
-      // Missing samples split the series instead of drawing through a gap.
+      // A short gap (a missed read) is bridged; longer outages split runs.
       final runs = <List<Offset>>[[]];
+      var missing = 0;
       for (final (index, value) in values.indexed) {
         if (value == null) {
-          if (runs.last.isNotEmpty) runs.add([]);
+          missing++;
           continue;
         }
+        if (missing > 2 && runs.last.isNotEmpty) runs.add([]);
+        missing = 0;
         final x = size.width * (index + offset) / (slots - 1);
         final y = bottom - chart * (value / ceiling).clamp(0, 1);
         runs.last.add(Offset(x, y));
@@ -335,7 +338,7 @@ class CoreGrid extends StatelessWidget {
             for (final share in shares)
               Tooltip(
                 message: percent(share),
-                triggerMode: TooltipTriggerMode.longPress,
+                triggerMode: TooltipTriggerMode.tap,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(3),
                   child: SizedBox(

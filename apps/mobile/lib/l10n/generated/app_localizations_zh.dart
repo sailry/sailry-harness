@@ -2276,11 +2276,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get hostMetricGpu => 'GPU';
 
   @override
-  String hostCoreHint(String count) {
-    return '$count 核，按住查看单核';
-  }
-
-  @override
   String get hostMemoryUsed => '已用';
 
   @override
@@ -4614,11 +4609,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get hostMetricGpu => 'GPU';
-
-  @override
-  String hostCoreHint(String count) {
-    return '$count 核，按住檢視單核';
-  }
 
   @override
   String get hostMemoryUsed => '已用';

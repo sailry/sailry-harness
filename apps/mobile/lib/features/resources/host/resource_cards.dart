@@ -115,13 +115,7 @@ class CpuCard extends StatelessWidget {
           if (cores.isNotEmpty) ...[
             const SizedBox(height: 2),
             CoreGrid(shares: cores),
-            const SizedBox(height: 8),
-            Text(
-              context
-                  .tr('hostCoreHint')
-                  .replaceAll('{count}', '${cores.length}'),
-              style: dimStyle(context),
-            ),
+            const SizedBox(height: 4),
           ],
         ],
       ),

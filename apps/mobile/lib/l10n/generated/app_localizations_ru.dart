@@ -2323,11 +2323,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get hostMetricGpu => 'GPU';
 
   @override
-  String hostCoreHint(String count) {
-    return 'Ядер: $count, удерживайте ядро для подробностей';
-  }
-
-  @override
   String get hostMemoryUsed => 'Занято';
 
   @override

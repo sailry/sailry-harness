@@ -906,7 +906,6 @@
   "hostChartStart": "60 秒前",
   "hostChartNow": "現在",
   "hostMetricGpu": "GPU",
-  "hostCoreHint": "{count} コア、長押しで各コアを表示",
   "hostMemoryUsed": "使用中",
   "hostMemoryCache": "キャッシュ",
   "hostMemorySwap": "スワップ",

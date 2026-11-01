@@ -995,14 +995,6 @@
   "hostChartStart": "60s ago",
   "hostChartNow": "Now",
   "hostMetricGpu": "GPU",
-  "hostCoreHint": "{count} cores, hold one for details",
-  "@hostCoreHint": {
-    "placeholders": {
-      "count": {
-        "type": "String"
-      }
-    }
-  },
   "hostMemoryUsed": "Used",
   "hostMemoryCache": "Cached",
   "hostMemorySwap": "Swap",

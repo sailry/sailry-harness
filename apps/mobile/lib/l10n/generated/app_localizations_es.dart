@@ -2329,11 +2329,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get hostMetricGpu => 'GPU';
 
   @override
-  String hostCoreHint(String count) {
-    return '$count núcleos, mantén pulsado uno para ver detalles';
-  }
-
-  @override
   String get hostMemoryUsed => 'En uso';
 
   @override

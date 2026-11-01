@@ -906,7 +906,6 @@
   "hostChartStart": "60 秒前",
   "hostChartNow": "現在",
   "hostMetricGpu": "GPU",
-  "hostCoreHint": "{count} 核，按住檢視單核",
   "hostMemoryUsed": "已用",
   "hostMemoryCache": "快取",
   "hostMemorySwap": "交換",

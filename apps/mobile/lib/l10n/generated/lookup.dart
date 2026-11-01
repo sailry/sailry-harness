@@ -750,7 +750,6 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'hostChartStart' => strings.hostChartStart,
   'hostChartNow' => strings.hostChartNow,
   'hostMetricGpu' => strings.hostMetricGpu,
-  'hostCoreHint' => strings.hostCoreHint('{count}'),
   'hostMemoryUsed' => strings.hostMemoryUsed,
   'hostMemoryCache' => strings.hostMemoryCache,
   'hostMemorySwap' => strings.hostMemorySwap,

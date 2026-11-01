@@ -906,7 +906,6 @@
   "hostChartStart": "Vor 60 s",
   "hostChartNow": "Jetzt",
   "hostMetricGpu": "GPU",
-  "hostCoreHint": "{count} Kerne, für Details gedrückt halten",
   "hostMemoryUsed": "Belegt",
   "hostMemoryCache": "Cache",
   "hostMemorySwap": "Swap",
