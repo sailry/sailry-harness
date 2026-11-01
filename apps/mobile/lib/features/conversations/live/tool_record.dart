@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import '../../../content/code.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
@@ -134,21 +133,48 @@ class _ToolRecordState extends State<ToolRecord> {
     final approvalView = object(call['approval_view']);
     final enabled = widget.enabled && !_busy;
     final colors = Theme.of(context).colorScheme;
-    Widget card(List<Widget> children) => Container(
-      margin: const EdgeInsets.only(top: 4, bottom: 8),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
-      decoration: BoxDecoration(
-        color: colors.onSurface.withValues(alpha: .05),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: DefaultTextStyle.merge(
-        style: const TextStyle(fontSize: transcriptFontSize),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children,
+    // One glass card; code reads as plain monospace text inside it rather
+    // than a second framed block.
+    Widget card(List<Widget> children) => Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 10),
+      child: Surface(
+        radius: 18,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+        child: DefaultTextStyle.merge(
+          style: TextStyle(
+            fontSize: transcriptFontSize,
+            height: 1.5,
+            color: colors.onSurface,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            spacing: 8,
+            children: children,
+          ),
         ),
       ),
     );
+    Widget code(String value) => ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 220),
+      child: SingleChildScrollView(
+        child: SelectableText(
+          value,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 13,
+            height: 1.5,
+          ),
+        ),
+      ),
+    );
+    Widget actions(List<Widget> buttons) => Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        spacing: 8,
+        children: [for (final button in buttons) Expanded(child: button)],
+      ),
+    );
+    final muted = TextStyle(color: colors.onSurfaceVariant);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -160,62 +186,47 @@ class _ToolRecordState extends State<ToolRecord> {
           card([
             if (approvalView['description'] != null)
               approvalView['code'] == true
-                  ? CodeBlock(
-                      capturedLabel(context, approvalView['description']),
-                    )
+                  ? code(capturedLabel(context, approvalView['description']))
                   : SelectableText(
                       capturedLabel(context, approvalView['description']),
                     )
             else if (toolDetail(call) != null)
-              CodeBlock(
-                const JsonEncoder.withIndent('  ').convert(arguments),
-                language: 'json',
-                title: context.tr('toolArguments'),
-              ),
+              code(const JsonEncoder.withIndent('  ').convert(arguments)),
             if (approvalView['context'] != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: SelectableText(text(approvalView['context'])),
-              ),
+              SelectableText(text(approvalView['context']), style: muted),
             for (final prompt in objects(approvalView['notices']))
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: SelectableText(capturedLabel(context, prompt)),
-              ),
+              SelectableText(capturedLabel(context, prompt), style: muted),
             if (approvalView['unrestricted'] == true)
-              Text(context.tr('conversationFull')),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (detailFailed(widget.call))
-                  TextButton(
-                    onPressed: enabled ? () => _select(retry: true) : null,
-                    child: Text(context.tr('retry')),
-                  ),
-                TextButton(
-                  onPressed:
-                      enabled && detailAllowsDecision(widget.call, 'deny')
-                      ? () => _approve('deny')
-                      : null,
-                  child: Text(context.tr('deny')),
+              Text(context.tr('conversationFull'), style: muted),
+            if (detailFailed(widget.call))
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: enabled ? () => _select(retry: true) : null,
+                  child: Text(context.tr('retry')),
                 ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed:
-                      enabled && detailAllowsDecision(widget.call, 'approve')
-                      ? () => _approve('approve')
-                      : null,
-                  child: Text(context.tr('allowShort')),
-                ),
-              ],
-            ),
+              ),
+            actions([
+              FilledButton.tonal(
+                onPressed: enabled && detailAllowsDecision(widget.call, 'deny')
+                    ? () => _approve('deny')
+                    : null,
+                child: Text(context.tr('deny')),
+              ),
+              FilledButton(
+                onPressed:
+                    enabled && detailAllowsDecision(widget.call, 'approve')
+                    ? () => _approve('approve')
+                    : null,
+                child: Text(context.tr('allowShort')),
+              ),
+            ]),
           ]),
         if (pendingQuestion)
           card([
             Text(arguments['prompt'] as String? ?? ''),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
+            actions([
+              FilledButton(
                 onPressed: enabled
                     ? () => showAppSheet(
                         context,
@@ -230,7 +241,7 @@ class _ToolRecordState extends State<ToolRecord> {
                     : null,
                 child: Text(context.tr('reply')),
               ),
-            ),
+            ]),
           ]),
       ],
     );

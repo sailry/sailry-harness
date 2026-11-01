@@ -5,6 +5,7 @@ import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
+import '../../../ui/theme.dart';
 import '../../resources/file_navigation.dart';
 import '../../resources/file_page.dart';
 import 'presentation.dart';
@@ -163,6 +164,16 @@ class _TurnChangesState extends State<TurnChanges> {
   late final review = ChangeReview(widget.host, widget.session, widget.turn);
   bool _open = false;
   @override
+  void initState() {
+    super.initState();
+    // Like Desktop, read the diff up front and show the card only when the
+    // turn changed files.
+    Future.microtask(() {
+      if (mounted) review.load();
+    });
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     review.translate = context.tr;
@@ -187,30 +198,66 @@ class _TurnChangesState extends State<TurnChanges> {
         0,
         (total, file) => total + number(file['deletions']).toInt(),
       );
-      return OutlinedButton.icon(
-        icon: const AppIcon('file', size: 16),
-        label: Text(
-          review.diff == null
-              ? context.tr('turnChanges')
-              : '${context.tr('turnChangesCount').replaceAll('{count}', '${files.length}')}  +$added −$removed',
+      final diff = review.diff;
+      if (diff == null || (files.isEmpty && diff['partial'] != true)) {
+        return const SizedBox.shrink();
+      }
+      final colors = Theme.of(context).colorScheme;
+      return Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 8),
+        child: Surface(
+          key: const ValueKey('turn-changes'),
+          radius: 16,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          onTap: _open
+              ? null
+              : () async {
+                  _open = true;
+                  try {
+                    await pushPage(
+                      context,
+                      _ChangesPage(
+                        review: review,
+                        worktree: widget.worktree,
+                        canRestore: () => widget.canRestore?.call() ?? false,
+                      ),
+                    );
+                  } finally {
+                    _open = false;
+                  }
+                },
+          child: Row(
+            children: [
+              AppIcon('file', size: 16, color: colors.onSurfaceVariant),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  context
+                      .tr('turnChangesCount')
+                      .replaceAll('{count}', '${files.length}'),
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+              Text(
+                '+$added',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: SailryTheme.statusColor(context, StatusTone.success),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '−$removed',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: SailryTheme.statusColor(context, StatusTone.danger),
+                ),
+              ),
+              const SizedBox(width: 6),
+              AppIcon('chevron', size: 14, color: colors.onSurfaceVariant),
+            ],
+          ),
         ),
-        onPressed: _open
-            ? null
-            : () async {
-                _open = true;
-                try {
-                  await pushPage(
-                    context,
-                    _ChangesPage(
-                      review: review,
-                      worktree: widget.worktree,
-                      canRestore: () => widget.canRestore?.call() ?? false,
-                    ),
-                  );
-                } finally {
-                  _open = false;
-                }
-              },
       );
     },
   );
