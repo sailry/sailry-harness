@@ -98,7 +98,7 @@ async fn reads_from_execution_node_without_changes() {
         ];
         for command in &commands {
             let mut request = client.prepare(command.clone());
-            request.target = NodeId::new();
+            request.target = controller.id();
             assert_eq!(
                 client.execute(request).await.unwrap_err().code,
                 ErrorCode::WrongTarget
