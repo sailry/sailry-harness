@@ -182,7 +182,6 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     final existing = host(id);
     if (existing != null) {
       selectHost(id);
-      unawaited(existing.watch());
       return existing;
     }
     final connection = await owner.connect(address: address);
@@ -214,7 +213,10 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void selectHost(String id) {
-    if (host(id) == null || _selected == id) return;
+    final target = host(id);
+    if (target == null) return;
+    if (target._connection != null) unawaited(target.watch());
+    if (_selected == id) return;
     _selected = id;
     _changed();
   }
@@ -376,6 +378,7 @@ class HostConnection extends ChangeNotifier {
     if (_closed || _watching) return;
     _watching = true;
     Updates? owned;
+    Object? observedError;
     try {
       final updates = await connection.watch();
       if (_closed) {
@@ -394,7 +397,9 @@ class HostConnection extends ChangeNotifier {
         snapshot = object(view['snapshot']);
         connected = view['connected'] == true;
         transport = connected ? object(view['connection']) : {};
-        error = view['error'];
+        final fault = view['error'];
+        observedError = fault is Map ? fault : null;
+        error = fault;
         notifications = objects(view['notifications']);
         childTargets = object(view['child_targets']);
         notifyListeners();
@@ -404,7 +409,9 @@ class HostConnection extends ChangeNotifier {
       if (!_closed) {
         connected = false;
         transport = {};
-        error = failure;
+        error = failure.toString() == 'channel closed' && observedError != null
+            ? observedError
+            : failure;
         notifyListeners();
       }
     } finally {

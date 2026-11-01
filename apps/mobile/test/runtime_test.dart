@@ -85,6 +85,7 @@ class Subscription extends Fake implements Updates {
   int disposals = 0;
   int reads = 0;
   String? initial;
+  Object? failure;
   final stopped = Completer<String>();
   @override
   Future<String> next() {
@@ -94,6 +95,7 @@ class Subscription extends Fake implements Updates {
       initial = null;
       return Future.value(result);
     }
+    if (failure != null) return Future.error(failure!);
     return stopped.future;
   }
 
@@ -571,6 +573,97 @@ void main() {
     expect(channel.subscription.reads, 0);
     host.dispose();
   });
+
+  test('selection restarts a stopped watcher', () async {
+    for (final selected in [false, true]) {
+      final channel = Channel();
+      channel.subscription.failure = 'channel closed';
+      final host = HostConnection.test(
+        id: 'host',
+        label: 'Host',
+        connection: channel,
+        command: (_, _) async => {},
+      );
+      await host.watch();
+      expect(host.connected, isFalse);
+      expect(channel.watches, 1);
+      final recovered = Subscription()
+        ..initial = jsonEncode({
+          'connected': true,
+          'snapshot': {
+            'sessions': [
+              {'id': 'session'},
+            ],
+          },
+        });
+      channel.pendingWatch = Future.value(recovered);
+      final other = HostConnection.test(id: 'other', label: 'Other');
+      final session = AppSession.test(
+        hosts: selected ? [host, other] : [other, host],
+        controller: Owner(),
+      );
+      final ready = Completer<void>();
+      void connected() {
+        if (host.connected && !ready.isCompleted) ready.complete();
+      }
+
+      host.addListener(connected);
+      session.selectHost(host.id);
+      await ready.future;
+      host.removeListener(connected);
+      expect(session.selectedHost, same(host));
+      expect(session.host(host.id), same(host));
+      expect(channel.watches, 2);
+      expect(host.error, isNull);
+      expect(host.snapshot['sessions'], [
+        {'id': 'session'},
+      ]);
+      session.selectHost(host.id);
+      session.selectHost(host.id);
+      expect(channel.watches, 2);
+      await session.close();
+      session.dispose();
+      expect(recovered.closes, 1);
+      expect(channel.closes, 1);
+    }
+  });
+
+  test('typed faults survive channel closure', () async {
+    final fault = {
+      'code': 'version_mismatch',
+      'message': 'Product versions differ',
+    };
+    final channel = Channel();
+    channel.subscription
+      ..initial = jsonEncode({'connected': false, 'error': fault})
+      ..failure = 'channel closed';
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      connection: channel,
+      command: (_, _) async => {},
+    );
+    await host.watch();
+    expect(host.error, fault);
+    expect(channel.watches, 1);
+    channel.pendingWatch = Future.value(
+      Subscription()..failure = 'channel closed',
+    );
+    await host.watch();
+    expect(host.error, 'channel closed');
+    final invalid = const FormatException('Invalid snapshot');
+    channel.pendingWatch = Future.value(
+      Subscription()
+        ..initial = jsonEncode({'connected': false, 'error': fault})
+        ..failure = invalid,
+    );
+    await host.watch();
+    expect(host.error, same(invalid));
+    expect(channel.watches, 3);
+    await host.close();
+    host.dispose();
+  });
+
   test('uncertain commands await explicit retry', () async {
     final channel = Channel()..uncertain = true;
     final host = HostConnection.test(
