@@ -28,7 +28,7 @@ def workflow_source():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 
     def expand(match):
-        commands = ci.check_commands(match.group(1), "1")
+        commands = ci.check_commands(match.group(1), "1", selection=ci.outputs(ci.LANES))
         return "\n".join(shlex.join(["python3" if value == sys.executable else value
                                        for value in command["argv"]]) for command in commands)
 
@@ -163,6 +163,88 @@ class CheckResults(unittest.TestCase):
                     self.assertNotEqual(self.summarize(results, product).returncode, 0)
 
 
+class SharedCommands(unittest.TestCase):
+    def packages(self, command):
+        return [command[index + 1] for index, value in enumerate(command) if value == "-p"]
+
+    def test_limits_the_selected_package_union(self):
+        for selected in ({"shared"}, {"host"}, {"shared", "host"}):
+            with self.subTest(selected=selected):
+                scope = ci.outputs(selected | {"desktop", "mobile", "mobile_ffi", "android", "services"})
+                commands = ci.check_commands("shared", "2", selection=scope, threads="7")
+                run = commands[0]["argv"]
+                expected = [*(ci.LINT_PACKAGES["shared"] if "shared" in selected else ()),
+                            *(ci.LINT_PACKAGES["host"] if "host" in selected else ())]
+                self.assertEqual(self.packages(run), expected)
+                self.assertEqual(len(commands), 3 if "shared" in selected else 1)
+                self.assertIn("--test-threads=7", run)
+                self.assertIn("--timings", run)
+                self.assertEqual(run[run.index("--build-jobs") + 1], "2")
+                if selected == {"host"}:
+                    self.assertEqual(run[run.index("--test") + 1], "lifecycle")
+                    self.assertEqual(commands, ci.check_commands("host-mac", "2", threads="7"))
+                    self.assertNotIn("--filterset", run)
+                elif "host" in selected:
+                    self.assertEqual(run[run.index("--filterset") + 1],
+                                     "not (package(sailry-host) and not binary(lifecycle))")
+                    self.assertNotIn("--test", run)
+                else:
+                    self.assertNotIn("--filterset", run)
+
+    def test_keeps_plugin_and_database_graphs_identical(self):
+        for selected in ({"shared"}, {"shared", "host"}):
+            with self.subTest(selected=selected):
+                selection = ci.outputs(selected)
+                ordinary = ci.check_commands("shared", "2", selection=selection)
+                databases = ci.check_commands("shared-databases", "2", selection=selection)
+                self.assertEqual(len(databases), 1)
+                run, build, contracts = [item["argv"] for item in ordinary]
+                database = databases[0]["argv"]
+                self.assertEqual(self.packages(run), self.packages(build))
+                self.assertEqual(self.packages(run), self.packages(database))
+                self.assertEqual(run[run.index("--profile") + 1], "ci")
+                self.assertEqual(build[build.index("--profile") + 1], "test")
+                self.assertEqual(database[database.index("--profile") + 1], "databases")
+                self.assertEqual(database[database.index("--filterset") + 1], "binary(databases)")
+                self.assertEqual(database[database.index("--run-ignored") + 1], "only")
+                self.assertIn("--test-threads=1", database)
+                self.assertNotIn("--run-ignored", run)
+                self.assertEqual(build[build.index("--features") + 1], "sailry-node-runtime/test-support")
+                self.assertEqual(build[build.index("--example") + 1], "plugin-test-host")
+                self.assertEqual(contracts[1], "scripts/test-plugins.py")
+
+    def test_rejects_invalid_or_empty_selection(self):
+        for name in ("shared", "shared-databases"):
+            for selection in (None, {}, ci.outputs(set()), ci.outputs({"desktop"}),
+                              {**ci.outputs({"shared"}), "host": True},
+                              {**ci.outputs({"shared"}), "host": "invalid"}):
+                with self.subTest(name=name, selection=selection), self.assertRaises(ValueError):
+                    ci.check_commands(name, selection=selection)
+        with self.assertRaises(ValueError):
+            ci.check_commands("shared-databases", selection=ci.outputs({"host"}))
+
+    def test_reads_scope_from_the_cli(self):
+        selection = ci.outputs({"shared", "host"})
+        for name in ("shared", "shared-databases"):
+            with self.subTest(name=name), patch.dict(os.environ, {"CHECK_SCOPE": json.dumps(selection)}), \
+                    patch.object(sys, "argv", ["ci.py", "check", name]), \
+                    patch.object(ci, "run_check", return_value=0) as run:
+                with self.assertRaises(SystemExit) as outcome:
+                    ci.main()
+                self.assertEqual(outcome.exception.code, 0)
+                run.assert_called_once_with(name, selection=selection)
+
+    def test_prepares_the_native_test_environment(self):
+        for name in ("shared", "shared-databases"):
+            with self.subTest(name=name), \
+                    patch.object(ci, "check_commands", return_value=[{"argv": ["fixture"], "cwd": "."}]), \
+                    patch.object(ci, "parser_environment", return_value={}) as prepare, \
+                    patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+                self.assertEqual(ci.run_check(name), 0)
+                prepare.assert_called_once_with(ROOT, None, libraries=True)
+                self.assertEqual(run.call_args.kwargs["env"]["GOOSE_PROVIDER_SKIP_BACKOFF"], "true")
+
+
 class Workflow(unittest.TestCase):
     def test_gates_runtime_and_service_checks(self):
         workflow = workflow_source()
@@ -262,9 +344,11 @@ class Workflow(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04", host)
         self.assertIn("bubblewrap libx11-dev libxi-dev libxtst-dev", host)
         self.assertIn("cargo nextest run --locked -p sailry-host --timings", host)
-        self.assertIn("cargo nextest run --locked -p sailry-host --test lifecycle --timings", shared)
-        for title, lane in (("Shared unit and local/remote integration", "shared"),
-                            ("Isolated database engines", "shared"), ("Host macOS lifecycle", "host"),
+        self.assertIn("-p sailry-host --timings", shared)
+        self.assertIn("not (package(sailry-host) and not binary(lifecycle))", shared)
+        combined = shared.split("      - name: Shared and macOS Host contracts\n", 1)[1].split("      - ", 1)[0]
+        self.assertNotIn("if: ", combined)
+        for title, lane in (("Isolated database engines", "shared"),
                             ("Host without test features", "host")):
             step = shared.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
             self.assertIn(f"if: needs.source.outputs.{lane} == 'true'", step)
@@ -274,11 +358,17 @@ class Workflow(unittest.TestCase):
     def test_database_reuses_shared_package_graph(self):
         workflow = workflow_source()
         shared = job_section(workflow, "shared")
+        self.assertIn("CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}", shared)
+        self.assertNotIn("scripts/ci.py check host-mac", (ROOT / ".github/workflows/ci.yml").read_text())
         commands = [line for line in shared.splitlines() if "cargo nextest run" in line and "-p sailry-node-runtime" in line]
         self.assertEqual(len(commands), 2)
         packages = [re.findall(r"-p ([\w-]+)", command) for command in commands]
         self.assertEqual(packages[0], packages[1])
         self.assertIn("sailry-release", packages[1])
+        self.assertIn("sailry-host", packages[1])
+        self.assertIn("binary(lifecycle)", commands[0])
+        self.assertIn("binary(databases)", commands[1])
+        self.assertIn("cargo check --locked -p sailry-host", shared)
 
     def test_source_fixtures_follow_product_owners(self):
         workflow = workflow_source()

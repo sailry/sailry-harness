@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,45 @@ class Selection(unittest.TestCase):
     def test_combines_changes(self):
         paths = ["apps/desktop/src/main.rs", "services/pairing-relay/package.json", "README.md"]
         self.assertEqual(ci.select_paths(paths), {"desktop", "services"})
+
+    def test_standalone_node_tests_select_shared(self):
+        for path in (
+            "agent.rs", "agent/delegation/guidance.rs", "agent/providers/native/retry.rs",
+            "suites/resources.rs", "memory.rs", "memory/archive.rs", "new_feature/case.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(ci.select_paths([f"crates/node-runtime/tests/{path}"]), {"shared"})
+        self.assertEqual(ci.select_paths([
+            "crates/node-runtime/tests/agent/delegation/guidance.rs", "apps/mobile/lib/main.dart",
+        ]), {"shared", "mobile", "android"})
+        self.assertEqual(ci.select_paths([
+            "crates/node-runtime/tests/agent/delegation/guidance.rs", "crates/node-runtime/src/agent.rs",
+        ]), {"shared", "desktop", "host", "mobile_ffi"})
+
+    def test_exported_fixtures_preserve_consumers(self):
+        for path in (
+            "agent_support/new_reply.rs", "discovery_support/mod.rs", "support/database/native.rs",
+            "ssh/server/process.rs", "databases/servers.rs", "logging/parse.rs", "plugins/support.rs",
+            "ports/server.rs", "agent/providers/native/server.rs", "agent/providers/native/server/frames.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(ci.select_paths([f"crates/node-runtime/tests/{path}"]),
+                                 {"shared", "desktop", "host", "mobile_ffi"})
+
+    def test_covers_actual_fixture_imports(self):
+        fixture_root = ROOT / "crates/node-runtime/tests"
+        for consumer, lane in (("apps/desktop", "desktop"), ("apps/host", "host"),
+                               ("crates/mobile-bridge", "mobile_ffi")):
+            imports = set()
+            for source in (ROOT / consumer).rglob("*.rs"):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if target.is_relative_to(fixture_root):
+                        imports.add(target.relative_to(ROOT).as_posix())
+            self.assertTrue(imports, consumer)
+            for path in imports:
+                with self.subTest(consumer=consumer, path=path):
+                    self.assertIn(lane, ci.select_paths([path]))
 
     def test_release_changes_use_source_checks(self):
         paths = (

@@ -83,6 +83,16 @@ DEPENDENTS = (
     (("tools/release/",), {"shared"}),
     (("apps/desktop/", "crates/content/"), {"desktop"}),
     (("apps/host/",), {"host"}),
+    # Other products import these fixtures directly. Keep their containing
+    # modules conservative so new helper files also exercise every consumer.
+    (("crates/node-runtime/tests/agent_support/", "crates/node-runtime/tests/discovery_support/",
+      "crates/node-runtime/tests/support/", "crates/node-runtime/tests/ssh/",
+      "crates/node-runtime/tests/databases/", "crates/node-runtime/tests/logging/",
+      "crates/node-runtime/tests/plugins/", "crates/node-runtime/tests/ports/",
+      "crates/node-runtime/tests/agent/providers/native/server.rs",
+      "crates/node-runtime/tests/agent/providers/native/server/"),
+     {"shared", "desktop", "host", "mobile_ffi"}),
+    (("crates/node-runtime/tests/",), {"shared"}),
     (("crates/node-runtime/", "crates/embedding/", "crates/ocr/", "crates/decision/"),
      {"shared", "desktop", "host", "mobile_ffi"}),
     (("crates/protocol/", "crates/link/", "crates/client/",
@@ -282,19 +292,35 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
     }
     if name == "lint":
         return [{"argv": lint_command(selection, jobs), "cwd": "."}]
-    if name == "tests":
+    if name in {"tests", "shared", "shared-databases"}:
         # One build for every selected product avoids rebuilding the graph per feature set.
-        if not isinstance(selection, dict) or set(selection) != LANES:
+        if (not isinstance(selection, dict) or set(selection) != LANES
+                or any(value not in {"true", "false"} for value in selection.values())):
             raise ValueError("Missing test selection")
-        scope = tested_products({lane for lane in LANES if selection[lane] == "true"},
-                           platform.system() if system is None else system)
+        lanes = {lane for lane in LANES if selection[lane] == "true"}
+        test_system = platform.system() if system is None else system
+        if name != "tests":
+            # The macOS Shared job covers only Node and Host lifecycle contracts.
+            lanes.intersection_update({"shared", "host"})
+            test_system = "Darwin"
+        scope = tested_products(lanes, test_system)
         selected, expression = tested_packages(scope)
         if not selected:
             raise ValueError("No product tests selected")
+        if name == "shared-databases" and "shared" not in scope:
+            raise ValueError("Database tests require the shared package selection")
+        if name == "shared" and scope == {"host-mac"}:
+            return [{"argv": argv, "cwd": cwd} for argv, cwd in commands["host-mac"]]
         selected = [part for package in selected for part in ("-p", package)]
-        run = ["cargo", "nextest", "run", "--locked", *selected, "--timings", *nextest_jobs,
-               "--profile", "ci", f"--test-threads={threads}", *(["--filterset", expression] if expression else [])]
-        steps = [(run, ".")] + (plugin_contracts(selected) if "shared" in scope else [])
+        if name == "shared-databases":
+            run = ["cargo", "nextest", "run", "--locked", *selected, *nextest_jobs,
+                   "--profile", "databases", "--run-ignored", "only", "--filterset", "binary(databases)",
+                   "--test-threads=1"]
+            steps = [(run, ".")]
+        else:
+            run = ["cargo", "nextest", "run", "--locked", *selected, "--timings", *nextest_jobs,
+                   "--profile", "ci", f"--test-threads={threads}", *(["--filterset", expression] if expression else [])]
+            steps = [(run, ".")] + (plugin_contracts(selected) if "shared" in scope else [])
         return [{"argv": argv, "cwd": cwd} for argv, cwd in steps]
     if name == "scripts":
         listed = subprocess.run(
@@ -340,7 +366,7 @@ def parser_environment(root, env, libraries):
 
 def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None):
     commands = check_commands(name, jobs, root, selection, env, threads)
-    if name in {"tests", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
+    if name in {"tests", "shared", "shared-databases", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
         env = parser_environment(root, env, libraries=True)
         # Fixture servers verify recovery without waiting minutes for each failure.
         # The GDK's paused-clock tests verify the fixed production retry timing.
@@ -589,7 +615,8 @@ def main():
         raise SystemExit(local(sys.argv[2:]))
     elif len(sys.argv) == 3 and sys.argv[1] == "check":
         try:
-            selection = json.loads(os.environ.get("CHECK_SCOPE", json.dumps(outputs(LANES)))) if sys.argv[2] == "lint" else None
+            selection = (json.loads(os.environ.get("CHECK_SCOPE", json.dumps(outputs(LANES))))
+                         if sys.argv[2] in {"lint", "shared", "shared-databases"} else None)
             raise SystemExit(run_check(sys.argv[2], selection=selection))
         except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
             raise SystemExit(str(error)) from error

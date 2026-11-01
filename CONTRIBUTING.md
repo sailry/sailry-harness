@@ -131,6 +131,9 @@ Changes limited to the release workflows and covered publication helpers run
 Source checks, including signing, release metadata and update-feed fixtures.
 Product source, dependency, toolchain and build-input changes retain their
 affected product checks; unknown paths select all checks.
+Standalone Node integration-test changes select Shared Node. Exported fixture
+modules still select Desktop, Host and Mobile FFI because those products import
+the helpers directly.
 
 Select checks from affected behavior and dependency boundaries. Reuse passing
 results while their inputs remain unchanged. Explain which tests ran and any
@@ -257,12 +260,15 @@ cache producer; Mobile reuses that source cache. Sccache caches eligible library
 metadata. Downloaded speech and decision libraries share a target-specific cache
 keyed by their pinned identities. Only successful jobs on `main` save complete
 library archives; pull requests only restore them.
-Rust compilation uses one Cargo job to bound memory on the standard macOS runner.
+Rust compilation uses two Cargo jobs to bound memory on the standard macOS runner.
 These CLI limits preserve the shared dependency cache identity. Backend tests run
 four isolated processes concurrently to bound real-Node fixture contention.
-The isolated database
-step selects the already-built database suite using the same backend package
-graph, avoiding a second compilation with different feature unification.
+When both are selected, Shared Node and macOS Host lifecycle tests use one Cargo
+package graph and one JUnit report; Host lifecycle tests remain serialized.
+Plugin contracts and the isolated database step reuse that same package graph,
+avoiding a second compilation with different feature unification. Host-only
+changes keep the dedicated lifecycle target. Production checks still verify the
+shipped feature set separately from test-support builds.
 
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. Real GGUF goldens, cancellation and

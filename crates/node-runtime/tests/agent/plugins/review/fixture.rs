@@ -4,8 +4,8 @@ pub(super) const PACKAGE: &str = "code-review";
 
 pub(super) async fn start(remote: bool) -> (Fixture, plugin::Info) {
     let server = Server::turn_tools(vec![]).await;
-    let mut fixture = Fixture::packages(remote, &server, &["code-review"]).await;
-    let Output::Plugin(current) = execute(
+    let mut fixture = Fixture::packages(remote, &server, &[PACKAGE]).await;
+    let Output::Plugin(mut package) = execute(
         &fixture.client,
         Command::ReadPlugin {
             name: PACKAGE.into(),
@@ -14,17 +14,6 @@ pub(super) async fn start(remote: bool) -> (Fixture, plugin::Info) {
     .await
     else {
         panic!("plugin expected")
-    };
-    let Output::Plugin(mut package) = execute(
-        &fixture.client,
-        Command::InstallBundledPlugin {
-            name: PACKAGE.into(),
-            expected_revision: current.summary.revision,
-        },
-    )
-    .await
-    else {
-        panic!("installed plugin expected")
     };
     assert!(package.issues.is_empty(), "{:?}", package.issues);
     if !package.summary.enabled {

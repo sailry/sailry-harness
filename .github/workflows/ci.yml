@@ -151,6 +151,7 @@ jobs:
     timeout-minutes: 240
     env:
       CARGO_BUILD_JOBS: '2'
+      CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -192,18 +193,14 @@ jobs:
         uses: ./.github/actions/native-cache
         with:
           target: aarch64-apple-darwin
-      - name: Shared unit and local/remote integration
-        if: needs.source.outputs.shared == 'true'
-        run: python3 scripts/ci-run.py -- python3 scripts/ci.py check backend
+      - name: Shared and macOS Host contracts
+        run: python3 scripts/ci-run.py -- python3 scripts/ci.py check shared
       - name: Isolated database engines
         if: needs.source.outputs.shared == 'true'
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
-          python3 scripts/ci.py check databases
-      - name: Host macOS lifecycle
-        if: needs.source.outputs.host == 'true'
-        run: python3 scripts/ci.py check host-mac
+          python3 scripts/ci.py check shared-databases
       - name: Host without test features
         if: needs.source.outputs.host == 'true'
         run: python3 scripts/ci.py check host-production
