@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, until;
+import 'conversation.dart' show check, statistics, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -74,12 +74,13 @@ Future<void> main() async {
             run['status'] == 'completed',
       ),
     );
+    final usage = await statistics(updates, finished, turns: 2, responses: 4);
     check(
-      finished['snapshot']['statistics']['turns'] == 2,
+      usage['snapshot']['statistics']['turns'] == 2,
       'maintenance does not add a user turn',
     );
     check(
-      finished['snapshot']['statistics']['responses'] == 4,
+      usage['snapshot']['statistics']['responses'] == 4,
       'summary usage remains counted',
     );
   }

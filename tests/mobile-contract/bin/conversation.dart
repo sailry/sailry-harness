@@ -70,9 +70,27 @@ Future<Map<String, dynamic>> observe(
     }
   }).timeout(
     const Duration(seconds: 10),
-    onTimeout: () =>
-        throw StateError('Conversation deadline: ${last?["page"]?["runs"]}'),
+    onTimeout: () => throw StateError(
+      'Conversation deadline: runs=${last?["page"]?["runs"]}, '
+      'statistics=${last?["statistics"]}',
+    ),
   );
+}
+
+Future<Map<String, dynamic>> statistics(
+  ConversationUpdates updates,
+  Map<String, dynamic> view, {
+  required int turns,
+  required int responses,
+}) async {
+  bool ready(Map<String, dynamic> snapshot) {
+    final value = snapshot['statistics'];
+    return value['turns'] == turns && value['responses'] == responses;
+  }
+
+  // Run completion and derived usage arrive in separate conversation frames.
+  if (ready(view['snapshot'])) return view;
+  return until(updates, ready);
 }
 
 class Fixture {
@@ -351,7 +369,8 @@ Future<Fixture> create(
         ),
     'Client rows replace transient output over FFI',
   );
-  checkStatistics(complete['snapshot']);
+  final usage = await statistics(updates, complete, turns: 1, responses: 1);
+  checkStatistics(usage['snapshot']);
   final call = (complete['calls'] as List).singleWhere(
     (call) => call['id'] == 'ffi-call',
   );
