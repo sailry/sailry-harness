@@ -10,6 +10,7 @@ import 'conversation.dart';
 import 'login.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'ports.dart';
+import 'status.dart';
 import 'terminal.dart';
 import 'transfers/download.dart';
 import 'transfers/upload.dart';
@@ -44,6 +45,9 @@ abstract class Connection implements RustOpaqueInterface {
   /// Keep this serialized request unchanged when retrying an uncertain result.
   Future<String> prepare({required String command});
 
+  /// Keep this serialized request unchanged for an explicit uncertain-outcome retry.
+  Future<String> prepareStatus({required String scope, required String entry});
+
   /// Search committed text through the shared Client; closing cancels this read-only query.
   Future<String> searchConversation({
     required String session,
@@ -67,6 +71,8 @@ abstract class Connection implements RustOpaqueInterface {
 
   /// Observe an existing attempt; BeginProviderLogin remains an explicit durable command.
   Future<LoginUpdates> watchLogin({required String attempt});
+
+  Future<StatusUpdates> watchStatus({required String scope});
 
   Future<TerminalUpdates> watchTerminal({required String terminal});
 

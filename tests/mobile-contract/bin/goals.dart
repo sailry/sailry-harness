@@ -2,8 +2,102 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
+import 'package:sailry_bridge/api/connection.dart';
+import 'package:sailry_bridge/api/status.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'conversation.dart' show check, detail, execute, until;
+
+Map<String, dynamic>? contribution(Map<String, dynamic> view, String name) =>
+    (view['entries'] as List)
+        .cast<Map<String, dynamic>>()
+        .where((entry) => entry['package']['name'] == name)
+        .firstOrNull;
+
+List<String> segments(Map<String, dynamic>? entry) =>
+    ((entry?['state']['segments'] as List?) ?? [])
+        .map((segment) => segment['label']['label'] as String)
+        .toList();
+
+Future<Map<String, dynamic>> statusView(
+  StatusUpdates updates,
+  bool Function(Map<String, dynamic>) ready,
+) => Future(() async {
+  while (true) {
+    final view = jsonDecode(await updates.next()) as Map<String, dynamic>;
+    check(view['error'] == null, 'status observer must remain available');
+    check((view['failures'] as List).isEmpty, 'status exports must succeed');
+    if (view['connected'] == true && ready(view)) return view;
+  }
+}).timeout(const Duration(seconds: 10));
+
+Future<void> headlessStatus(
+  Connection connection,
+  Map<String, dynamic> session,
+) async {
+  final scope = {'worktree': session['worktree'], 'session': session['id']};
+  check(scope['worktree'] != null, 'session status retains its worktree');
+  final updates = await connection.watchStatus(scope: jsonEncode(scope));
+  try {
+    final initial = await statusView(
+      updates,
+      (view) => segments(contribution(view, 'git')).join(' ') == '+1 -0',
+    );
+    check(
+      contribution(initial, 'goals')?['state']['visible'] == false,
+      'an unused goal stays hidden without Desktop',
+    );
+    const description = 'Inspect status 中文 🙂';
+    await execute(connection, 'submit_turn', {
+      'session': session['id'],
+      'expected_revision': session['revision'],
+      'message': {'text': '/goal $description', 'attachments': []},
+    });
+    final active = await statusView(
+      updates,
+      (view) => contribution(view, 'goals')?['state']['visible'] == true,
+    );
+    final goal = contribution(active, 'goals')!;
+    check(
+      segments(goal).join(' ') == 'Goal Running' &&
+          goal['state']['details'].single['value'] == description &&
+          goal['state']['label']['locales']['zh-CN'] == '目标',
+      'the Host supplies persisted goal labels and description',
+    );
+    final file = (await execute(connection, 'read_file', {
+      'worktree': session['worktree'],
+      'path': 'status.txt',
+    }))['data'];
+    await execute(connection, 'write_file', {
+      'worktree': session['worktree'],
+      'path': 'status.txt',
+      'text': 'base\none\ntwo\n',
+      'expected_revision': file['revision'],
+    });
+    final changed = await statusView(
+      updates,
+      (view) => segments(contribution(view, 'git')).join(' ') == '+2 -0',
+    );
+    check(
+      contribution(changed, 'git')!['state']['details'].any(
+        (detail) =>
+            detail['label']['label'] == 'Added' && detail['value'] == '2',
+      ),
+      'a Node file write refreshes actual Git status details',
+    );
+    await execute(connection, 'submit_turn', {
+      'session': session['id'],
+      'expected_revision': session['revision'],
+      'message': {'text': '/goal clear', 'attachments': []},
+    });
+    await statusView(
+      updates,
+      (view) => contribution(view, 'goals')?['state']['visible'] == false,
+    );
+  } finally {
+    await updates.close();
+    updates.dispose();
+  }
+}
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -29,6 +123,25 @@ Future<void> main() async {
   final original = (snapshot['sessions'] as List).singleWhere(
     (item) => item['id'] == session,
   );
+  Future<void> close() async {
+    await updates.close();
+    updates.dispose();
+    await connection.close();
+    connection.dispose();
+    await controller.close();
+    controller.dispose();
+  }
+
+  if (env['SAILRY_STATUS_ONLY'] == '1') {
+    try {
+      await headlessStatus(connection, original as Map<String, dynamic>);
+    } finally {
+      await close();
+      RustLib.dispose();
+    }
+    print('Dart FFI headless Git and goal status passed');
+    return;
+  }
   final request = await connection.prepare(
     command: jsonEncode({
       'kind': 'submit_turn',
@@ -89,15 +202,6 @@ Future<void> main() async {
         output['content']['blocks'][1]['path'] == '/goal/description',
     'the native message projection preserves goal status and description',
   );
-  Future<void> close() async {
-    await updates.close();
-    updates.dispose();
-    await connection.close();
-    connection.dispose();
-    await controller.close();
-    controller.dispose();
-  }
-
   await close();
   controller = await Controller.open(path: path, internet: false, relays: []);
   connection = await controller.connect(address: address);

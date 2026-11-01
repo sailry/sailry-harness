@@ -4,6 +4,26 @@ use sailry_node_runtime::Node;
 use sailry_protocol::conversation::{Part, Status};
 use sailry_protocol::{Command, Output};
 
+async fn enable(client: &Client, name: &str) {
+    let Output::Plugin(package) = client
+        .execute(client.prepare(Command::ReadPlugin { name: name.into() }))
+        .await
+        .unwrap()
+    else {
+        panic!("package expected")
+    };
+    if !package.summary.enabled {
+        client
+            .execute(client.prepare(Command::SetPluginEnabled {
+                name: name.into(),
+                expected_revision: package.summary.revision,
+                enabled: true,
+            }))
+            .await
+            .unwrap();
+    }
+}
+
 #[test]
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
 fn restores_goal_revisions() {
@@ -22,24 +42,7 @@ fn restores_goal_revisions() {
         "ffi-goals",
     ));
     runtime.block_on(async {
-        let client = Client::new(node.local());
-        let Output::Plugin(package) = client
-            .execute(client.prepare(Command::ReadPlugin {
-                name: "goals".into(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("package expected")
-        };
-        client
-            .execute(client.prepare(Command::SetPluginEnabled {
-                name: "goals".into(),
-                expected_revision: package.summary.revision,
-                enabled: true,
-            }))
-            .await
-            .unwrap();
+        enable(&Client::new(node.local()), "goals").await;
     });
     let invitation = node.link().invite().unwrap();
     let child = super::command("goals.dart", directory.path(), invitation.ticket())
@@ -74,4 +77,67 @@ fn restores_goal_revisions() {
     );
     runtime.block_on(node.shutdown()).unwrap();
     assert_eq!(server.requests.lock().unwrap().len(), 8);
+}
+
+#[test]
+#[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
+fn serves_headless_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let project = directory.path().join("project");
+    std::fs::create_dir(&project).unwrap();
+    std::fs::write(project.join("status.txt"), "base\n").unwrap();
+    for args in [
+        vec!["init", "--quiet"],
+        vec!["add", "status.txt"],
+        vec![
+            "-c",
+            "user.name=Status Fixture",
+            "-c",
+            "user.email=status@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "Initial fixture",
+        ],
+    ] {
+        let output = std::process::Command::new("git")
+            .current_dir(&project)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    std::fs::write(project.join("status.txt"), "base\none\n").unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let release = sailry_link::CancellationToken::new();
+    let server = runtime.block_on(support::Server::markdown_held(
+        "Status fixture is waiting".into(),
+        release.clone(),
+    ));
+    let (node, sessions) = runtime.block_on(tools::sessions(
+        directory.path(),
+        &server.endpoint,
+        "ffi-status",
+    ));
+    runtime.block_on(async {
+        let client = Client::new(node.local());
+        enable(&client, "goals").await;
+        enable(&client, "git").await;
+    });
+    let invitation = node.link().invite().unwrap();
+    let child = super::command("goals.dart", directory.path(), invitation.ticket())
+        .env("SAILRY_SESSION", sessions[0].to_string())
+        .env("SAILRY_STATUS_ONLY", "1")
+        .spawn()
+        .unwrap();
+    let status = super::wait(child);
+    release.cancel();
+    runtime.block_on(node.shutdown()).unwrap();
+    assert!(status.success());
 }

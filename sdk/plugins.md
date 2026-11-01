@@ -20,7 +20,7 @@ share the scoped request contract with bounded snapshot observations.
 | Captured session | `readSession()`, `readConversation(before?, limit?)`, `readConversationRuns(before?, limit?)`, `readConversationRun(turn, revision?)`, `nextConversation(cursor?, projection?)`, `sendMessage(input, revision)`, `stopTurn(turn)`, `setSessionConfig(config, revision)` |
 | Node HTTP | `requestHttp(request)` |
 | Captured Git | `inspectGit()`, `prepareGitIndex(draft)`, `prepareGitCommit(draft)` |
-| Declarative UI | `publishContributions(states)`, `nextContributionEvent()` |
+| Declarative UI | `publishContributions(states)`, `nextContributionEvent()`, `closeContribution(id)` |
 | Low-level context, resources and UI | Existing `sailry` exports: `context`, `theme`, `Header`, `Image`, `Conversation`, `header_action`, `next_change` |
 
 `nextConversation(cursor, 'runs')` observes connection, subscription generation and
@@ -649,11 +649,64 @@ Conversation components are available in workspace and resource panels, includin
 
 ## Contributions and operations
 
-Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `model`, `context`, `statistics`, `footer`, `provider`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics hover surface; the compact statistics menu remains accessible by keyboard. A `statistics` metric may declare a handler to render its package-owned details in that surface; passive metrics keep their flat declared details. A package declares at most one custom detail surface.
+Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `model`, `context`, `status`, `statistics`, `footer`, `provider`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Except for Node-owned Status state, publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics hover surface; the compact statistics menu remains accessible by keyboard. A `statistics` metric may declare a handler to render its package-owned details in that surface; passive metrics keep their flat declared details. A package declares at most one custom detail surface.
 Composer placement uses the same declarations for the toolbar and settings:
 below 680 logical pixels secondary composer controls move into settings; below
 440 context controls move there as well. Indicators remain beside the explicit
 model selector and send control. Placement does not change contribution values.
+
+The `status` slot supports Buttons and Popovers computed by the execution Node,
+including with no Desktop connected. A Host package declaring Status entries must
+declare `host.status` and require Sailry `0.1.0-alpha.9` or later:
+
+```json
+{
+  "handlers": ["badge", "act"],
+  "read_only": ["badge"],
+  "status": {
+    "read": "badge",
+    "invoke": "act",
+    "changes": ["package", "conversation", "repository"]
+  }
+}
+```
+
+`read` names a declared read-only export. It receives `{}` with the ordinary
+captured Composer context (`package`, `worktree`, `session`, `turn: null`,
+`invocation: null`) and returns an array of
+[`StatusState`](../crates/node-runtime/src/plugins/script/api.d.ts) objects.
+Omitted Status declarations become hidden. The Node validates declared ids,
+uniqueness, the 32-entry limit and a 64 KiB serialized state limit. Status state
+uses localized `label` and `segments`; `details: [{label, value, progress?}]`
+supplies Desktop tooltips and Mobile sheets. Detail values are at most 4096 UTF-8
+bytes and optional `progress` is a finite percentage from 0 through 100. Keep
+`value` null and omit `scope`, `choices` and `reply_to`; Popover open state is
+controller presentation, not package data. `publishContributions` rejects Status
+ids because the Node owns those states.
+
+`changes` selects the package's private-value/settings changes, the captured
+session's run/tool changes, or the captured worktree's filesystem/Git changes.
+Conversation and repository signals are ignored without their corresponding
+scope. Inventory changes always refresh the package set. The Node shares and
+coalesces reads across controllers, retains the last valid state after a read
+failure, and recomputes on resubscription after restart.
+
+Optional `invoke` names a declared export outside `read_only`. A Status Button
+uses it through durable admission with `{id: "<contribution-id>"}` in the same
+captured scope; its return value may be any JSON. Completion refreshes the
+package's Status state. Controllers retain the request identifier for an explicit
+retry after an uncertain outcome and never replay the action automatically.
+The contribution's `handler` remains its Desktop event name. Without `invoke`,
+Desktop forwards its ordinary click/open events to `desktop.ui_entry`; a Status
+Popover still requires that entry for its package-owned panel. A Button without
+an invoke export or Desktop entry is display-only. Mobile presents the localized
+details, with an action only for Buttons declaring `invoke`.
+
+Desktop keeps Popover open state local. Status events need no state publication
+or `reply_to`. Use `closeContribution(id)` after a confirmed package action when
+the panel should close; it accepts only this mounted package's Status Popover id,
+closes that controller's panel, and neither publishes Status state nor invokes an
+action. Unsubmitted Composer drafts do not change Node-owned Status state.
 
 A composer `indicator` publishes `{percent, loading, tone, hint, open}`. `percent`
 may be null for an unknown measurement; `open` defaults to false. With an optional

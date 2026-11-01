@@ -12,12 +12,13 @@ import '../../resources/session_services.dart';
 import '../../terminal/terminal_page.dart';
 import 'presentation.dart';
 import 'progress.dart';
+import 'status_chips.dart';
+import 'status_feed.dart';
 import 'terminal_tasks.dart';
 import 'tool_row.dart';
 import 'turn_frame.dart';
 
-/// Core activity still running for a conversation. Plugin status contributions
-/// need the desktop script runtime and are not shown here.
+/// Core activity still running for a conversation.
 class _Activity {
   _Activity(
     HostConnection host,
@@ -97,28 +98,34 @@ class _ActivityStripState extends State<ActivityStrip> {
     widget.host,
     widget.session['id'] as String,
   );
+  late final _status = StatusFeed(widget.host, widget.session);
 
   @override
   void initState() {
     super.initState();
     widget.host.addListener(_resume);
     unawaited(_services.watch());
+    unawaited(_status.watch());
   }
 
   // A failed subscription resumes once the host is connected again.
   void _resume() {
-    if (widget.host.connected) unawaited(_services.watch());
+    if (widget.host.connected) {
+      unawaited(_services.watch());
+      unawaited(_status.watch());
+    }
   }
 
   @override
   void dispose() {
     widget.host.removeListener(_resume);
     _services.dispose();
+    _status.dispose();
     super.dispose();
   }
 
   Listenable get _changes =>
-      Listenable.merge([widget.host, widget.updates, _services]);
+      Listenable.merge([widget.host, widget.updates, _services, _status]);
 
   _Activity _activity() =>
       _Activity(widget.host, widget.session, widget.updates.value, _services);
@@ -142,7 +149,9 @@ class _ActivityStripState extends State<ActivityStrip> {
     listenable: _changes,
     builder: (context, _) {
       final activity = _activity();
-      if (activity.isEmpty) return const SizedBox.shrink();
+      if (activity.isEmpty && _status.entries.isEmpty) {
+        return const SizedBox.shrink();
+      }
       final colors = Theme.of(context).colorScheme;
       final progress = activity.progress;
       final ports = activity.ports;
@@ -153,6 +162,7 @@ class _ActivityStripState extends State<ActivityStrip> {
           child: Row(
             spacing: 8,
             children: [
+              if (_status.entries.isNotEmpty) StatusChips(feed: _status),
               if (progress != null)
                 _Chip(
                   label: context.tr('activityProgress'),

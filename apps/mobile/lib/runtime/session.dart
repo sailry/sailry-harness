@@ -288,14 +288,16 @@ class HostConnection extends ChangeNotifier {
   // ignore: prefer_initializing_formals
   HostConnection.test({
     required this.id,
-    required String this._label,
+    required String label,
     this.snapshot = const {},
     this.childTargets = const {},
     this.connected = true,
-    required CommandHandler command,
-    this._connection,
+    CommandHandler? command,
+    Connection? connection,
     this.address = '',
-  }) : _handler = command;
+  }) : _label = label,
+       _connection = connection,
+       _handler = command;
 
   PortMappings? _ports;
   PortMappings get ports => _ports ??= PortMappings(() => connection);

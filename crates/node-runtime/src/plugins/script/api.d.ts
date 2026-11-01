@@ -11,6 +11,26 @@ export type TurnInput = { project: string | null; tools: string[]; mode: "plan" 
  * at most 8 nonempty strings and 32 KiB UTF-8 in total. The Node adds a part only when no agent-visible
  * context of the conversation already holds that exact text, so unchanged parts are not repeated. */
 export type TurnOutput = { tools: string[]; instruction: string; parts?: string[]; parameters?: Record<string, Json> };
+/** host.status.read receives {} in the captured Composer scope, with null turn/invocation.
+ * Return StatusState[] for this package's declared Status ids; omitted ids become hidden.
+ * The Node owns these states and rejects duplicates, invalid ids, more than 32 entries,
+ * or more than 64 KiB of serialized state. Desktop cannot publish Status ids.
+ * Labels are localized data. Keep value null and omit scope, choices and reply_to. */
+export type StatusState = {
+  id: string;
+  label?: {label: string; locales?: Record<string, string>} | null;
+  icon?: string | null;
+  visible?: boolean;
+  enabled?: boolean;
+  loading?: boolean;
+  value?: null;
+  segments?: {
+    label: {label: string; locales?: Record<string, string>};
+    tone: "accent" | "muted" | "success" | "warning" | "danger";
+  }[];
+  /** Values are at most 4096 UTF-8 bytes; progress is a finite percentage in [0, 100]. */
+  details?: {label: {label: string; locales?: Record<string, string>}; value: string; progress?: number | null}[];
+};
 export function context(): Json;
 /** Registered projects and worktrees only; requires projects.read and an unscoped context. */
 export function readProjectCatalog(): Promise<Json>;

@@ -117,6 +117,29 @@ impl Connection {
         ))
     }
 
+    pub async fn watch_status(&self, scope: String) -> Result<StatusUpdates, String> {
+        if self.stop.is_cancelled() {
+            return Err("connection is closed".into());
+        }
+        let scope = serde_json::from_str(&scope).map_err(error)?;
+        Ok(StatusUpdates::new(
+            self.client.clone(),
+            scope,
+            self.stop.child_token(),
+        ))
+    }
+
+    /// Keep this serialized request unchanged for an explicit uncertain-outcome retry.
+    pub fn prepare_status(&self, scope: String, entry: String) -> Result<String, String> {
+        if self.stop.is_cancelled() {
+            return Err("connection is closed".into());
+        }
+        let scope = serde_json::from_str(&scope).map_err(error)?;
+        let entry = serde_json::from_str(&entry).map_err(error)?;
+        let request = self.client.prepare_status(&scope, &entry).map_err(error)?;
+        serde_json::to_string(&request).map_err(error)
+    }
+
     pub async fn forward_service(
         &self,
         source: String,

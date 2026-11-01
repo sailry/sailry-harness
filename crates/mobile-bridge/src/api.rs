@@ -8,6 +8,7 @@ pub(crate) mod overview;
 pub(crate) mod ports;
 pub mod rules;
 pub(crate) mod speech;
+pub(crate) mod status;
 pub(crate) mod terminal;
 #[cfg(test)]
 mod tests;
@@ -21,6 +22,7 @@ pub use login::LoginUpdates;
 pub use overview::OverviewUpdates;
 pub use ports::Forwarding;
 pub use speech::SpeechInput;
+pub use status::StatusUpdates;
 pub use terminal::TerminalUpdates;
 pub use transfers::{Digest, Download, Upload};
 pub use usage::UsageUpdates;
