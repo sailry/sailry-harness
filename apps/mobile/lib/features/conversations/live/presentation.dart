@@ -60,6 +60,19 @@ StatusTone tone(Map<String, dynamic> session) {
   };
 }
 
+/// The task list's status dot; completed runs show only until they are read.
+StatusTone? listTone(Map<String, dynamic> session) {
+  final activity = object(session['activity']);
+  if (activity['waiting'] != null) return StatusTone.warning;
+  return switch (object(activity['run'])['status']) {
+    'running' || 'queued' || 'stopping' => StatusTone.running,
+    'failed' || 'interrupted' => StatusTone.danger,
+    'completed' when object(activity['attention'])['unread'] == true =>
+      StatusTone.success,
+    _ => null,
+  };
+}
+
 String runLabel(String? status, {Translator translate = tr}) =>
     translate(switch (status) {
       'running' => 'running',

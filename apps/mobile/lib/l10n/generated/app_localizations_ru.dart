@@ -980,6 +980,21 @@ class AppLocalizationsRu extends AppLocalizations {
   String get allWorktrees => 'Все рабочие деревья';
 
   @override
+  String get tasksActive => 'В работе';
+
+  @override
+  String get tasksToday => 'Сегодня';
+
+  @override
+  String get yesterday => 'Вчера';
+
+  @override
+  String get tasksThisWeek => 'На этой неделе';
+
+  @override
+  String get tasksEarlier => 'Ранее';
+
+  @override
   String get filterProjects => 'Фильтр проектов';
 
   @override

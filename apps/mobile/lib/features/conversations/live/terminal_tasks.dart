@@ -25,9 +25,15 @@ String terminalStatus(Map<String, dynamic> terminal) {
 }
 
 class TerminalTask extends StatelessWidget {
-  const TerminalTask({super.key, required this.host, required this.terminal});
+  const TerminalTask({
+    super.key,
+    required this.host,
+    required this.terminal,
+    this.divider = true,
+  });
   final HostConnection host;
   final Map<String, dynamic> terminal;
+  final bool divider;
 
   @override
   Widget build(BuildContext context) {
@@ -41,37 +47,30 @@ class TerminalTask extends StatelessWidget {
     final kind = object(terminal['status'])['kind'];
     final failed =
         kind == 'failed' || kind == 'exited' && status != 'completed';
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: TaskRow(
-        key: ValueKey('terminal-task-${terminal['id']}'),
-        icon: const AppIcon('terminal', size: 26),
-        title: terminalTitle(terminal, translate: context.tr),
-        preview: text(project?['name'], context.tr('terminal')),
-        status: context.tr(
-          !host.connected
-              ? 'offline'
-              : failed
-              ? 'conversationFailedStatus'
-              : status == 'idle'
-              ? 'stoppedStatus'
-              : status,
-        ),
-        tone: !host.connected
-            ? StatusTone.neutral
-            : status == 'completed'
-            ? StatusTone.success
-            : status == 'idle'
-            ? StatusTone.danger
-            : StatusTone.running,
-        onTap: () => pushPage(
-          context,
-          TerminalPage(
-            hostId: host.id,
-            terminalId: text(terminal['id']),
-            worktreeId: terminal['worktree'] as String?,
-            title: terminalTitle(terminal, translate: context.tr),
-          ),
+    // Terminals carry no Node timestamp or unread state; only live and
+    // failed processes get a dot.
+    final tone = !host.connected
+        ? null
+        : status == 'running'
+        ? StatusTone.running
+        : failed
+        ? StatusTone.danger
+        : null;
+    return TaskRow(
+      key: ValueKey('terminal-task-${terminal['id']}'),
+      icon: const AppIcon('terminal', size: 26),
+      title: terminalTitle(terminal, translate: context.tr),
+      preview: text(project?['name'], context.tr('terminal')),
+      status: context.tr(failed ? 'conversationFailedStatus' : 'running'),
+      tone: tone,
+      divider: divider,
+      onTap: () => pushPage(
+        context,
+        TerminalPage(
+          hostId: host.id,
+          terminalId: text(terminal['id']),
+          worktreeId: terminal['worktree'] as String?,
+          title: terminalTitle(terminal, translate: context.tr),
         ),
       ),
     );

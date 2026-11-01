@@ -1968,6 +1968,36 @@ abstract class AppLocalizations {
   /// **'All worktrees'**
   String get allWorktrees;
 
+  /// No description provided for @tasksActive.
+  ///
+  /// In en, this message translates to:
+  /// **'In progress'**
+  String get tasksActive;
+
+  /// No description provided for @tasksToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get tasksToday;
+
+  /// No description provided for @yesterday.
+  ///
+  /// In en, this message translates to:
+  /// **'Yesterday'**
+  String get yesterday;
+
+  /// No description provided for @tasksThisWeek.
+  ///
+  /// In en, this message translates to:
+  /// **'This week'**
+  String get tasksThisWeek;
+
+  /// No description provided for @tasksEarlier.
+  ///
+  /// In en, this message translates to:
+  /// **'Earlier'**
+  String get tasksEarlier;
+
   /// No description provided for @filterProjects.
   ///
   /// In en, this message translates to:

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 
@@ -13,6 +15,8 @@ import '../../terminal/terminal_page.dart';
 import 'create.dart';
 import 'task.dart';
 import 'presentation.dart';
+import 'project_bar.dart';
+import 'recency.dart';
 import 'terminal_tasks.dart';
 
 class LiveTasksPage extends StatefulWidget {
@@ -36,6 +40,22 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   late String _filter = widget.initialFilter;
   String _search = '';
   bool _searching = false;
+  Timer? _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    // One page clock refreshes relative row times and day sections.
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted && TickerMode.valuesOf(context).enabled) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    super.dispose();
+  }
 
   Future<void> _terminal() async {
     final host = widget.session.selectedHost;
@@ -155,6 +175,8 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
               (host, session),
       ];
       final colors = Theme.of(context).colorScheme;
+      final now = DateTime.now();
+      final groups = groupTasks(tasks, (task) => sessionGroup(task.$2, now));
       final terminals = objects(selected?.snapshot['terminals']).where((
         terminal,
       ) {
@@ -259,14 +281,8 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 ),
                 const SizedBox(height: 16),
               ],
-              SelectorCard(
-                title:
-                    selectedProject?['name'] as String? ??
-                    context.tr('allProjects'),
-                leading: selectedProject == null
-                    ? null
-                    : ProjectIcon(project: selectedProject),
-                subtitle: context.tr('allWorktrees'),
+              ProjectBar(
+                project: selectedProject,
                 onTap: () => showAppSheet(
                   context,
                   context.tr('filterProjects'),
@@ -312,7 +328,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   for (final filter in [
@@ -352,65 +368,89 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                     ),
                 ],
               ),
-              const SizedBox(height: 18),
-              for (final (host, session) in tasks)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 9),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: Slidable(
-                      key: ValueKey('${host.id}-${session['id']}'),
-                      endActionPane: ActionPane(
-                        motion: const DrawerMotion(),
-                        extentRatio: .46,
-                        children: [
-                          SlidableAction(
-                            onPressed: host.connected
-                                ? (_) => _archive(host, session)
-                                : null,
-                            backgroundColor: colors.secondaryContainer,
-                            foregroundColor: colors.onSecondaryContainer,
-                            icon: Icons.archive_outlined,
-                            label: context.tr(
-                              session['archived'] == true
-                                  ? 'restore'
-                                  : 'archiveShort',
-                            ),
+              const SizedBox(height: 8),
+              for (final (group, items) in groups) ...[
+                _GroupTitle(context.tr(group.key)),
+                for (final (index, (host, session)) in items.indexed)
+                  Slidable(
+                    key: ValueKey('${host.id}-${session['id']}'),
+                    endActionPane: ActionPane(
+                      motion: const DrawerMotion(),
+                      extentRatio: .46,
+                      children: [
+                        SlidableAction(
+                          onPressed: host.connected
+                              ? (_) => _archive(host, session)
+                              : null,
+                          backgroundColor: colors.secondaryContainer,
+                          foregroundColor: colors.onSecondaryContainer,
+                          icon: Icons.archive_outlined,
+                          label: context.tr(
+                            session['archived'] == true
+                                ? 'restore'
+                                : 'archiveShort',
                           ),
-                          SlidableAction(
-                            onPressed: host.connected
-                                ? (_) => _delete(host, session)
-                                : null,
-                            backgroundColor: colors.error,
-                            foregroundColor: colors.onError,
-                            icon: Icons.delete_outline,
-                            label: context.tr('delete'),
-                          ),
-                        ],
-                      ),
-                      child: ConversationTask(
-                        key: ValueKey('preview-${host.id}-${session['id']}'),
-                        host: host,
-                        session: session,
-                        project:
-                            projects
-                                .where(
-                                  (project) =>
-                                      project['id'] == session['project'],
-                                )
-                                .firstOrNull ??
-                            {},
-                      ),
+                        ),
+                        SlidableAction(
+                          onPressed: host.connected
+                              ? (_) => _delete(host, session)
+                              : null,
+                          backgroundColor: colors.error,
+                          foregroundColor: colors.onError,
+                          icon: Icons.delete_outline,
+                          label: context.tr('delete'),
+                        ),
+                      ],
+                    ),
+                    child: ConversationTask(
+                      key: ValueKey('preview-${host.id}-${session['id']}'),
+                      host: host,
+                      session: session,
+                      now: now,
+                      divider: index < items.length - 1,
+                      project:
+                          projects
+                              .where(
+                                (project) =>
+                                    project['id'] == session['project'],
+                              )
+                              .firstOrNull ??
+                          {},
                     ),
                   ),
-                ),
-              if (selected != null)
-                for (final terminal in terminals)
-                  TerminalTask(host: selected, terminal: terminal),
+              ],
+              if (selected != null && terminals.isNotEmpty) ...[
+                _GroupTitle(context.tr('terminal')),
+                for (final (index, terminal) in terminals.indexed)
+                  TerminalTask(
+                    host: selected,
+                    terminal: terminal,
+                    divider: index < terminals.length - 1,
+                  ),
+              ],
             ],
           ),
         ),
       );
     },
+  );
+}
+
+class _GroupTitle extends StatelessWidget {
+  const _GroupTitle(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 14, bottom: 2),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontSize: 13,
+        color: Theme.of(
+          context,
+        ).colorScheme.onSurfaceVariant.withValues(alpha: .65),
+      ),
+    ),
   );
 }

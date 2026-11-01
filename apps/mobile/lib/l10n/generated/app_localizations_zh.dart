@@ -956,6 +956,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get allWorktrees => '全部工作树';
 
   @override
+  String get tasksActive => '进行中';
+
+  @override
+  String get tasksToday => '今天';
+
+  @override
+  String get yesterday => '昨天';
+
+  @override
+  String get tasksThisWeek => '本周';
+
+  @override
+  String get tasksEarlier => '更早';
+
+  @override
   String get filterProjects => '筛选项目';
 
   @override
@@ -3097,6 +3112,21 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get allWorktrees => '全部工作樹';
+
+  @override
+  String get tasksActive => '進行中';
+
+  @override
+  String get tasksToday => '今天';
+
+  @override
+  String get yesterday => '昨天';
+
+  @override
+  String get tasksThisWeek => '本週';
+
+  @override
+  String get tasksEarlier => '更早';
 
   @override
   String get filterProjects => '篩選專案';

@@ -975,6 +975,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get allWorktrees => 'All worktrees';
 
   @override
+  String get tasksActive => 'In progress';
+
+  @override
+  String get tasksToday => 'Today';
+
+  @override
+  String get yesterday => 'Yesterday';
+
+  @override
+  String get tasksThisWeek => 'This week';
+
+  @override
+  String get tasksEarlier => 'Earlier';
+
+  @override
   String get filterProjects => 'Filter projects';
 
   @override

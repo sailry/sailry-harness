@@ -960,6 +960,21 @@ class AppLocalizationsKo extends AppLocalizations {
   String get allWorktrees => '모든 작업 트리';
 
   @override
+  String get tasksActive => '진행 중';
+
+  @override
+  String get tasksToday => '오늘';
+
+  @override
+  String get yesterday => '어제';
+
+  @override
+  String get tasksThisWeek => '이번 주';
+
+  @override
+  String get tasksEarlier => '이전';
+
+  @override
   String get filterProjects => '프로젝트 필터';
 
   @override

@@ -7,10 +7,10 @@ import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/project_icon.dart';
-import '../../../ui/theme.dart';
 import '../task_row.dart';
 import 'page.dart';
 import 'presentation.dart';
+import 'recency.dart';
 
 /// A one-line presentation of committed messages; tool output stays in the turn.
 String messagePreview(
@@ -44,10 +44,16 @@ class ConversationTask extends StatefulWidget {
     required this.host,
     required this.session,
     required this.project,
+    required this.now,
+    this.divider = true,
   });
   final HostConnection host;
   final Map<String, dynamic> session;
   final Map<String, dynamic> project;
+
+  /// Shared page clock so row times and list sections agree.
+  final DateTime now;
+  final bool divider;
 
   @override
   State<ConversationTask> createState() => _ConversationTaskState();
@@ -144,38 +150,45 @@ class _ConversationTaskState extends State<ConversationTask> {
   }
 
   @override
-  Widget build(BuildContext context) => TaskRow(
-    unread:
-        object(object(widget.session['activity'])['attention'])['unread'] ==
-        true,
-    loading:
-        widget.host.connected &&
-        (status(widget.session) == 'running' ||
-            object(object(widget.session['activity'])['run'])['status'] ==
-                'queued' ||
-            number(object(widget.session['activity'])['queued']) > 0),
-    icon: ProjectIcon(project: widget.project, size: 26),
-    title: title(widget.session, translate: context.tr),
-    preview: _preview?.isNotEmpty == true
-        ? _preview!
-        : _failed
-        ? context.tr('conversationPreviewUnavailable')
-        : _preview != null
-        ? context.tr('conversationNoMessages')
-        : widget.host.connected
-        ? ''
-        : context.tr('conversationOffline'),
-    status: widget.host.connected
-        ? label(widget.session, translate: context.tr)
-        : context.tr('offline'),
-    tone: widget.host.connected ? tone(widget.session) : StatusTone.neutral,
-    onTap: () => pushPage(
-      context,
-      LiveConversationPage(
-        host: widget.host,
-        sessionId: widget.session['id'] as String,
-        initialSession: widget.session,
+  Widget build(BuildContext context) {
+    final connected = widget.host.connected;
+    final session = widget.session;
+    final tone = connected ? listTone(session) : null;
+    final time = runTime(session);
+    return TaskRow(
+      icon: ProjectIcon(project: widget.project, size: 26),
+      title: title(session, translate: context.tr),
+      preview: _preview?.isNotEmpty == true
+          ? _preview!
+          : _failed
+          ? context.tr('conversationPreviewUnavailable')
+          : _preview != null
+          ? context.tr('conversationNoMessages')
+          : connected
+          ? ''
+          : context.tr('conversationOffline'),
+      time: time == null
+          ? null
+          : timeLabel(
+              time,
+              widget.now,
+              locale: dateLocale(Localizations.localeOf(context)),
+              yesterday: context.tr('yesterday'),
+            ),
+      status: label(session, translate: context.tr),
+      tone: tone,
+      dim:
+          tone == null &&
+          object(object(session['activity'])['attention'])['unread'] != true,
+      divider: widget.divider,
+      onTap: () => pushPage(
+        context,
+        LiveConversationPage(
+          host: widget.host,
+          sessionId: widget.session['id'] as String,
+          initialSession: widget.session,
+        ),
       ),
-    ),
-  );
+    );
+  }
 }

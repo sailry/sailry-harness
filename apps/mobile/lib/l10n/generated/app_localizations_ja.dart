@@ -958,6 +958,21 @@ class AppLocalizationsJa extends AppLocalizations {
   String get allWorktrees => 'すべてのワークトリー';
 
   @override
+  String get tasksActive => '進行中';
+
+  @override
+  String get tasksToday => '今日';
+
+  @override
+  String get yesterday => '昨日';
+
+  @override
+  String get tasksThisWeek => '今週';
+
+  @override
+  String get tasksEarlier => 'それ以前';
+
+  @override
   String get filterProjects => 'フィルタプロジェクト';
 
   @override

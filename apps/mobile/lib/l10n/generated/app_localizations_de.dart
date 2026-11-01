@@ -985,6 +985,21 @@ class AppLocalizationsDe extends AppLocalizations {
   String get allWorktrees => 'Alle Arbeitsbäume anzeigen';
 
   @override
+  String get tasksActive => 'Laufend';
+
+  @override
+  String get tasksToday => 'Heute';
+
+  @override
+  String get yesterday => 'Gestern';
+
+  @override
+  String get tasksThisWeek => 'Diese Woche';
+
+  @override
+  String get tasksEarlier => 'Früher';
+
+  @override
   String get filterProjects => 'Projekte nach Filtern';
 
   @override
