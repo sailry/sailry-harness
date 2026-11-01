@@ -30,16 +30,19 @@ fn preserves_original_services() {
     assert_eq!(catalog.presets.len(), 3);
     assert_eq!(catalog.presets[0].id, "global");
     assert_eq!(catalog.presets[0].selection, Selection::Iroh);
-    for (preset, id, url) in [
+    assert_eq!(catalog.presets[0].label.label("zh-CN"), "全球");
+    for (preset, id, url, label) in [
         (
             &catalog.presets[1],
             "china-tencent",
             "https://iroh-service.dux.plus",
+            "中国（腾讯云）",
         ),
         (
             &catalog.presets[2],
             "china-aliyun",
             "https://aliyun-1.iroh.jujiang.me",
+            "中国（阿里云）",
         ),
     ] {
         assert_eq!(preset.id, id);
@@ -49,7 +52,7 @@ fn preserves_original_services() {
                 relays: vec![url.into()]
             }
         );
-        assert_ne!(preset.label.label("zh"), preset.label.label("en"));
+        assert_eq!(preset.label.label("zh-CN"), label);
     }
 }
 

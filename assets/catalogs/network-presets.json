@@ -8,6 +8,7 @@
         "locales": {
           "en": "Global",
           "zh": "全球",
+          "zh-CN": "全球",
           "zh-TW": "全球",
           "de": "Global",
           "es": "Global",
@@ -27,6 +28,7 @@
         "locales": {
           "en": "China (Tencent Cloud)",
           "zh": "中国（腾讯云）",
+          "zh-CN": "中国（腾讯云）",
           "zh-TW": "中國（騰訊雲）",
           "de": "China (Tencent Cloud)",
           "es": "China (Tencent Cloud)",
@@ -49,6 +51,7 @@
         "locales": {
           "en": "China (Alibaba Cloud)",
           "zh": "中国（阿里云）",
+          "zh-CN": "中国（阿里云）",
           "zh-TW": "中國（阿里雲）",
           "de": "China (Alibaba Cloud)",
           "es": "China (Alibaba Cloud)",
