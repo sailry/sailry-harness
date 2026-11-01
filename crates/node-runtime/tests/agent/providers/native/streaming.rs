@@ -12,7 +12,12 @@ async fn distinguishes_eof_from_transport_failure() {
             ModelApi::Anthropic,
             ModelApi::Gemini,
         ] {
-            for broken_transport in [false, true] {
+            let endings: &[(bool, bool)] = if api == ModelApi::Responses {
+                &[(false, false), (true, false), (false, true)]
+            } else {
+                &[(false, false), (true, false)]
+            };
+            for &(broken_transport, terminator) in endings {
                 let events = match api {
                     ModelApi::ChatCompletions => vec![json!({
                         "id":"partial","object":"chat.completion.chunk","created":1,"model":"fixture-a",
@@ -32,10 +37,13 @@ async fn distinguishes_eof_from_transport_failure() {
                     })],
                     _ => unreachable!(),
                 };
-                let body = events
+                let mut body = events
                     .into_iter()
                     .map(|event| format!("data: {event}\n\n"))
                     .collect::<String>();
+                if terminator {
+                    body.push_str("data: [DONE]\n\n");
+                }
                 let raw = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len() + if broken_transport { 100 } else { 0 },
@@ -45,7 +53,8 @@ async fn distinguishes_eof_from_transport_failure() {
                 let turn = fixture.submit("Keep partial output on interruption").await;
                 let page = finished(&fixture.client, fixture.session.id, turn).await;
                 let run = page.runs.last().unwrap();
-                let (status, outcome) = if broken_transport {
+                let failed = broken_transport || api == ModelApi::Responses;
+                let (status, outcome) = if failed {
                     (
                         Status::Failed,
                         sailry_protocol::conversation::observation::Outcome::Failed,
@@ -58,10 +67,10 @@ async fn distinguishes_eof_from_transport_failure() {
                 };
                 assert_eq!(
                     run.status, status,
-                    "{api:?}, remote={remote}, transport={broken_transport}: {:?}",
+                    "{api:?}, remote={remote}, transport={broken_transport}, terminator={terminator}: {:?}",
                     page.runs
                 );
-                assert_eq!(run.error.is_some(), broken_transport);
+                assert_eq!(run.error.is_some(), failed);
                 assert!(
                     completion::response(&page).contains("Partial answer"),
                     "{api:?}: {:?}",

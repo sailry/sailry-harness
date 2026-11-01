@@ -1,6 +1,7 @@
 use super::*;
 
 pub const PRIVATE_SENTINEL: &str = "PRIVATE_SUMMARY_PROVIDER_BODY_SENTINEL";
+pub const PARTIAL_SUMMARY: &str = "Discarded partial summary";
 const PAIR_SUMMARY: &str = "The tool request and response completed.";
 
 pub fn is_tool_pair(body: &Value) -> bool {
@@ -95,6 +96,26 @@ pub async fn respond_usage(
         json!({"role":"assistant","content":if summary { handoff(text) } else { "Verified response".into() }})
     };
     reply_usage(stream, body, delta, read, Some(input_tokens)).await
+}
+
+pub(super) async fn interrupt_summary(mut stream: TcpStream, body: &Value) -> std::io::Result<()> {
+    let chunk = json!({"id":"interrupted-summary", "object":"chat.completion.chunk",
+        "created":1, "model":body["model"],
+        "choices":[{"index":0,"delta":{"role":"assistant","content":PARTIAL_SUMMARY},"finish_reason":null}]});
+    let usage = json!({"id":"interrupted-summary", "object":"chat.completion.chunk",
+        "created":1, "model":body["model"], "choices":[],
+        "usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}});
+    let payload = format!("data: {chunk}\n\ndata: {usage}\n\n");
+    stream
+        .write_all(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+                payload.len() + 100,
+            )
+            .as_bytes(),
+        )
+        .await?;
+    stream.shutdown().await
 }
 
 pub async fn reject_overflow(mut stream: TcpStream) -> std::io::Result<()> {

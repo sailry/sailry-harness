@@ -24,7 +24,13 @@ async fn preserves_failure_when_observation_write_fails() {
             })).await.unwrap();
                 }
                 let turn = fixture.submit("Keep the provider rejection").await;
-                let page = finished(&fixture.client, fixture.session.id, turn).await;
+                let page = finished_within(
+                    &fixture.client,
+                    fixture.session.id,
+                    turn,
+                    retry_fixture::budget(),
+                )
+                .await;
                 let run = page.runs.last().unwrap();
                 assert_eq!(run.status, Status::Failed);
                 let error = run.error.as_ref().unwrap();
@@ -46,11 +52,7 @@ async fn preserves_failure_when_observation_write_fails() {
                 }
                 assert_eq!(
                     server.requests.lock().unwrap().len() - before,
-                    if status == 401 {
-                        1
-                    } else {
-                        1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES
-                    }
+                    if status == 401 { 1 } else { 6 }
                 );
                 fixture.controller.close().await.unwrap();
                 fixture.node.shutdown().await.unwrap();
@@ -143,10 +145,7 @@ async fn retains_http_errors() {
         assert!(error.message.contains(MESSAGE));
         assert!(error.message.contains("[redacted]"));
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-        assert_eq!(
-            server.requests.lock().unwrap().len(),
-            1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES
-        );
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }

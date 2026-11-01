@@ -23,6 +23,7 @@ pub enum Reply {
     Failure,
     Raw(Arc<Vec<u8>>),
     Scripted(Arc<Vec<Script>>),
+    Recover(Script),
     Dynamic(Arc<dyn Fn(usize) -> Script + Send + Sync>),
     Redirect(String),
     Wait(Arc<tokio::sync::Notify>),
@@ -165,6 +166,7 @@ async fn respond(
     };
     let script = match &reply {
         Reply::Scripted(scripts) => Some(scripts[index.min(scripts.len() - 1)].clone()),
+        Reply::Recover(script) if index == 0 => Some(script.clone()),
         Reply::Dynamic(create) => Some(create(index)),
         _ => None,
     };
@@ -211,7 +213,10 @@ async fn respond(
     }
     match api {
         ModelApi::Responses => {
-            assert!(matches!(reply, Reply::Text | Reply::Tool));
+            assert!(matches!(
+                reply,
+                Reply::Text | Reply::Tool | Reply::Recover(_)
+            ));
             for event in response_events(tool, false, index) {
                 event_bytes(&mut stream, format!("data: {event}\n\n")).await?;
             }

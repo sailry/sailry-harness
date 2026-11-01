@@ -155,12 +155,7 @@ async fn retains_errors_and_status() {
                 })
             );
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-            let attempts = if status == 400 {
-                1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES
-            } else {
-                1
-            };
-            assert_eq!(server.requests.lock().unwrap().len(), attempts);
+            assert_eq!(server.requests.lock().unwrap().len(), 1);
             let statistics =
                 crate::observations::statistics(&fixture.client, fixture.session.id).await;
             let requests: Vec<_> = statistics

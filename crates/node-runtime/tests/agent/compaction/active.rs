@@ -189,8 +189,7 @@ async fn preserves_context_on_failure() {
                 .any(|part| matches!(part, Part::Compaction(_)))
         );
         let requests = server.requests.lock().unwrap().clone();
-        let attempts = goose_provider_types::retry::RetryConfig::default().max_retries + 1;
-        assert_eq!(requests.len(), 1 + attempts);
+        assert_eq!(requests.len(), 2);
         assert!(!agent_support::compaction::is_summary(&requests[0]));
         for request in &requests[1..] {
             assert!(agent_support::compaction::is_summary(request));
@@ -202,7 +201,7 @@ async fn preserves_context_on_failure() {
         assert!(full.contains("Evidence 1"));
         assert!(!full.contains("Evidence 2"));
         fixture.client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 1 + attempts);
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

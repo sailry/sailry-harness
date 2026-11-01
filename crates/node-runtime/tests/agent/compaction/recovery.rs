@@ -28,7 +28,13 @@ async fn retries_transient_summary_without_replaying_tools() {
         else {
             panic!("turn expected");
         };
-        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let after = finished_within(
+            &fixture.client,
+            fixture.session.id,
+            turn.id,
+            crate::retry_fixture::budget(),
+        )
+        .await;
         assert_eq!(
             after
                 .runs
@@ -43,13 +49,12 @@ async fn retries_transient_summary_without_replaying_tools() {
             before.entries.as_slice()
         );
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(
-            requests
-                .iter()
-                .filter(|request| agent_support::compaction::is_summary(request))
-                .count(),
-            2
-        );
+        let summaries: Vec<_> = requests
+            .iter()
+            .filter(|request| agent_support::compaction::is_summary(request))
+            .collect();
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0], summaries[1]);
         assert_eq!(
             requests
                 .iter()
@@ -57,14 +62,23 @@ async fn retries_transient_summary_without_replaying_tools() {
                 .count(),
             2
         );
+        let summaries: Vec<_> = after
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| match part {
+                Part::Compaction(summary) => Some(summary.as_str()),
+                _ => None,
+            })
+            .collect();
         assert_eq!(
-            after
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter(|part| matches!(part, Part::Compaction(_)))
-                .count(),
-            1
+            summaries,
+            ["Verified tool evidence; continue remaining work"]
+        );
+        assert!(
+            !serde_json::to_string(&after)
+                .unwrap()
+                .contains(agent_support::compaction::PARTIAL_SUMMARY)
         );
         assert_eq!(
             after
@@ -75,6 +89,35 @@ async fn retries_transient_summary_without_replaying_tools() {
                 .count(),
             1
         );
+        let statistics = crate::observations::statistics(&fixture.client, fixture.session.id).await;
+        let request = statistics
+            .observations
+            .recent
+            .iter()
+            .find(|request| request.turn == turn.id)
+            .unwrap();
+        assert_eq!(request.attempts.len(), 1);
+        assert_eq!(
+            request.attempts[0].usage,
+            Some(sailry_protocol::conversation::Usage {
+                input: 100,
+                output: 10,
+                cached_input: 0,
+                reasoning: 0,
+            })
+        );
+        submit(
+            &fixture.client,
+            fixture.session.id,
+            "Continue after the recovered summary".into(),
+        )
+        .await;
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 5);
+        let continuation = messages(requests.last().unwrap());
+        assert!(continuation.contains("Verified tool evidence; continue remaining work"));
+        assert!(!continuation.contains(agent_support::compaction::PARTIAL_SUMMARY));
+        assert!(!continuation.contains("evidence-call"));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

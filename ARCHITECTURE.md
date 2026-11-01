@@ -406,10 +406,11 @@ into or validated against summary text. Selected capabilities retain their input
 ownership rather than becoming policy for a later task.
 
 Context-length errors can trigger at most two reactive compactions under Goose's
-operation ordering. A compaction error reaches `ExitOnError` and ends the turn as
-a failure. The Node's existing queue and explicit retry actions retain unconsumed
-input. Ordinary model and tool behavior otherwise follows GDK; Sailry adds no
-summary-quality gate or shared retry budget.
+operation ordering. Compaction requests buffer their output while GDK recovers
+transient provider failures; failed attempts do not become summaries. A terminal
+compaction error reaches `ExitOnError` and ends the turn as a failure. The Node's
+existing queue and explicit retry actions retain unconsumed input. Model and tool
+execution remains in GDK, with no summary-quality gate or Agent-wide retry loop.
 
 Account authorization workflows belong to model authentication packages.
 The default `openai-auth` package retains ChatGPT OAuth's device-code flow and
@@ -448,9 +449,16 @@ stream completion. New turns capture the selected model and reasoning effort;
 summary requests use that captured selection. Historical configuration records
 do not override it.
 
-GDK owns provider retry defaults for native and declared plugin models. Sailry
-does not add a shared retry budget, forced `tool_choice`, WebSocket transport,
-connection-local continuation or SSE fallback. Outgoing requests omit opaque
+Sailry selects GDK's request-scoped recovery for native and declared plugin models:
+up to five additional attempts, each 60 seconds after a transient failure. HTTP
+setup and SSE failures share that budget; nested provider backoff is suppressed
+while existing credential refresh remains available. Ordinary requests stop
+automatic recovery once a message or usage has escaped. Compaction buffers each
+attempt and discards failed output and usage before retrying. Permanent request,
+authentication and malformed-stream errors remain terminal. Dropping the request
+cancels its active stream or retry delay, without replaying completed tools.
+Sailry adds no forced `tool_choice`, WebSocket transport, connection-local
+continuation or SSE fallback. Outgoing requests omit opaque
 Responses encrypted reasoning and origin-digest replay. Ordinary signed thinking,
 call IDs, text, tool results and historical search or commentary remain available
 through canonical conversion and public projections.

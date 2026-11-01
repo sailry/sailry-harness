@@ -62,6 +62,7 @@ enum Reply {
         text: Arc<String>,
         usage: Arc<Vec<i32>>,
     },
+    RecoveringSummary,
     Overflow,
     RepeatedOverflow,
     Summary {
@@ -270,13 +271,7 @@ impl Server {
         Self::serve(Reply::RepeatedOverflow).await
     }
     pub async fn recovering_summary() -> Self {
-        Self::serve(Reply::Compaction {
-            failure_status: Some(503),
-            failure_count: 1,
-            text: Arc::new("Verified tool evidence; continue remaining work".into()),
-            usage: Arc::new(vec![100]),
-        })
-        .await
+        Self::serve(Reply::RecoveringSummary).await
     }
     pub async fn unavailable_summaries() -> Self {
         Self::serve(Reply::Compaction {
@@ -610,6 +605,28 @@ async fn respond(
     {
         records.lock().unwrap().push(raw_body.clone());
         return goals::respond_reasoning(stream, &body, turns, state, &count).await;
+    }
+    if let Reply::RecoveringSummary = reply {
+        let summaries = {
+            let mut records = records.lock().unwrap();
+            let summaries = records
+                .iter()
+                .filter(|request| compaction::is_summary(request))
+                .count();
+            records.push(raw_body.clone());
+            summaries
+        };
+        if compaction::is_summary(&body) && summaries == 0 {
+            return compaction::interrupt_summary(stream, &body).await;
+        }
+        return compaction::respond_usage(
+            stream,
+            &body,
+            None,
+            "Verified tool evidence; continue remaining work",
+            100,
+        )
+        .await;
     }
     if let Reply::Compaction {
         failure_status,

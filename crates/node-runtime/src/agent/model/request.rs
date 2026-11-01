@@ -1,4 +1,4 @@
-//! Observe one GDK call without inferring its private HTTP retries or headers.
+//! Apply request recovery and observe the GDK stream without replaying agent work.
 use super::*;
 use crate::agent::{canonical, observation::Phase};
 use async_trait::async_trait;
@@ -11,6 +11,7 @@ use goose_provider_types::{
     },
     errors::ProviderError,
     model::ModelConfig,
+    retry::{StreamRetry, stream_with_retry},
 };
 use sailry_protocol::{
     SessionId,
@@ -19,7 +20,7 @@ use sailry_protocol::{
         observation::{Attempt, Outcome, Request},
     },
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub(super) struct Model {
     inner: Arc<dyn GdkProvider>,
@@ -111,23 +112,19 @@ impl GdkProvider for Model {
         let exposure = self.names.get(self.purpose)?;
         let messages = exposure.messages(messages);
         let tools = exposure.tools(tools);
-        let mut capture = Capture::new(self, config, system)?;
-        let payload = capture
-            .state
-            .as_ref()
-            .expect("active request")
-            .payload
-            .clone();
-        let response = payload
-            .scope(self.inner.stream(config, system, &messages, &tools))
-            .await;
-        let responses = match response {
-            Ok(responses) => responses,
-            Err(error) => {
-                capture.record_failure(&error).await;
-                return Err(error);
-            }
-        };
+        let capture = Capture::new(self, config, system)?;
+        let mut policy = StreamRetry::fixed(5, Duration::from_secs(60));
+        if matches!(self.purpose, Purpose::Compaction) {
+            policy = policy.buffered();
+        }
+        let responses = stream_with_retry(
+            self.inner.clone(),
+            config.clone(),
+            system.to_owned(),
+            messages.into_owned(),
+            tools.into_owned(),
+            policy,
+        );
         Ok(Box::pin(stream::unfold(
             Some((responses, capture, exposure)),
             |state| async move {

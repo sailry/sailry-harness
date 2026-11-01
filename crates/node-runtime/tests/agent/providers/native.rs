@@ -24,6 +24,8 @@ mod prompt;
 mod reasoning;
 #[path = "native/replay.rs"]
 mod replay;
+#[path = "native/retry.rs"]
+mod retry;
 #[path = "native/search_assistant.rs"]
 mod search_assistant;
 #[path = "../../support/search/mcp.rs"]
@@ -490,17 +492,20 @@ async fn bounds_transient_failure_retries() {
             )
             .await;
             let turn = fixture.submit("failure fixture").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let page = finished_within(
+                &fixture.client,
+                fixture.session.id,
+                turn,
+                retry_fixture::budget(),
+            )
+            .await;
             assert_eq!(
                 page.runs.last().unwrap().status,
                 Status::Failed,
                 "{:?}",
                 page.runs
             );
-            assert_eq!(
-                server.requests.lock().unwrap().len(),
-                1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES
-            );
+            assert_eq!(server.requests.lock().unwrap().len(), 6);
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();

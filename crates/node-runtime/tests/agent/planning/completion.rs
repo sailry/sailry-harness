@@ -108,12 +108,7 @@ async fn compacts_without_reviewing_history() {
             }
             {
                 let requests = server.requests.lock().unwrap();
-                let attempts = if fail {
-                    goose_provider_types::retry::RetryConfig::default().max_retries + 1
-                } else {
-                    1
-                };
-                assert_eq!(requests.len(), 2 + attempts);
+                assert_eq!(requests.len(), 3);
                 for request in &requests[2..] {
                     assert!(agent_support::compaction::is_summary(request));
                     assert!(

@@ -499,7 +499,7 @@ async fn confines_generation_credentials() {
                 );
                 assert_eq!(
                     authorization_requests + server.requests.lock().unwrap().len() - before,
-                    4 + 1 + goose_provider_types::retry::DEFAULT_MAX_RETRIES,
+                    4 + if redirect { 1 } else { 6 },
                     "{authentication:?} {api:?}, remote={remote}, redirect={redirect}",
                 );
                 assert!(sink.requests.lock().unwrap().is_empty());

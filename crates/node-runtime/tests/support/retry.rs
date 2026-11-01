@@ -1,6 +1,12 @@
 use std::time::Duration;
 
 pub fn budget() -> Duration {
-    // Service fixtures elide recovery waits; paused-time unit checks cover timing.
-    Duration::from_secs(40)
+    // Standard checks elide waits; direct runs can retain the production policy.
+    let seconds = if std::env::var("GOOSE_PROVIDER_SKIP_BACKOFF").is_ok_and(|value| value == "true")
+    {
+        40
+    } else {
+        360
+    };
+    Duration::from_secs(seconds)
 }
