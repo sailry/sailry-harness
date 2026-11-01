@@ -2178,4 +2178,24 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get backgroundPending => 'Resultados pendientes';
+
+  @override
+  String conversationSteps(String count) {
+    return '$count pasos';
+  }
+
+  @override
+  String get backgroundWaiting => 'En espera';
+
+  @override
+  String get activityProgress => 'Progreso';
+
+  @override
+  String get activityBackground => 'Tareas en segundo plano';
+
+  @override
+  String get activityPorts => 'Puertos';
+
+  @override
+  String get terminalStop => 'Detener';
 }

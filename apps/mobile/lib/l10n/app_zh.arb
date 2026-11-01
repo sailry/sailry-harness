@@ -824,5 +824,11 @@
   "backgroundTimedOut": "超时",
   "backgroundInterrupted": "已中断",
   "backgroundUnknown": "结果不确定",
-  "backgroundPending": "后台结果待处理"
+  "backgroundPending": "后台结果待处理",
+  "conversationSteps": "{count} 个步骤",
+  "backgroundWaiting": "等待处理",
+  "activityProgress": "任务进度",
+  "activityBackground": "后台任务",
+  "activityPorts": "端口",
+  "terminalStop": "停止"
 }

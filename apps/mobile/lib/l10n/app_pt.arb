@@ -824,5 +824,11 @@
   "backgroundTimedOut": "Tempo esgotado",
   "backgroundInterrupted": "Interrompido",
   "backgroundUnknown": "Resultado incerto",
-  "backgroundPending": "Resultados pendentes"
+  "backgroundPending": "Resultados pendentes",
+  "conversationSteps": "{count} etapas",
+  "backgroundWaiting": "Aguardando",
+  "activityProgress": "Progresso",
+  "activityBackground": "Tarefas em segundo plano",
+  "activityPorts": "Portas",
+  "terminalStop": "Parar"
 }

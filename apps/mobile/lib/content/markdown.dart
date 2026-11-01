@@ -18,12 +18,16 @@ class MarkdownContent extends StatelessWidget {
     this.data, {
     super.key,
     this.muted = false,
+    this.selectable = true,
     this.imageBuilder,
     this.onOpenFile,
   });
 
   final String data;
   final bool muted;
+
+  /// Off where a long press opens message actions instead of selection.
+  final bool selectable;
   final MarkdownImageBuilder? imageBuilder;
   final Future<void> Function(Uri uri)? onOpenFile;
 
@@ -56,7 +60,7 @@ class MarkdownContent extends StatelessWidget {
           child: imageBuilder?.call(uri, title, alt) ?? uriImage(uri),
         ),
       ),
-      selectable: true,
+      selectable: selectable,
       fitContent: false,
       styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
         p: body,

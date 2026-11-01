@@ -2154,4 +2154,24 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get backgroundPending => 'Background results ready';
+
+  @override
+  String conversationSteps(String count) {
+    return '$count steps';
+  }
+
+  @override
+  String get backgroundWaiting => 'Waiting';
+
+  @override
+  String get activityProgress => 'Progress';
+
+  @override
+  String get activityBackground => 'Background tasks';
+
+  @override
+  String get activityPorts => 'Ports';
+
+  @override
+  String get terminalStop => 'Stop';
 }

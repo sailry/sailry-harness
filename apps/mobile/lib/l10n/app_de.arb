@@ -824,5 +824,11 @@
   "backgroundTimedOut": "Zeitüberschreitung",
   "backgroundInterrupted": "Unterbrochen",
   "backgroundUnknown": "Ergebnis ungewiss",
-  "backgroundPending": "Hintergrundergebnisse stehen bereit"
+  "backgroundPending": "Hintergrundergebnisse stehen bereit",
+  "conversationSteps": "{count} Schritte",
+  "backgroundWaiting": "Wartet",
+  "activityProgress": "Fortschritt",
+  "activityBackground": "Hintergrundaufgaben",
+  "activityPorts": "Ports",
+  "terminalStop": "Stoppen"
 }

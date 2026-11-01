@@ -824,5 +824,11 @@
   "backgroundTimedOut": "Délai dépassé",
   "backgroundInterrupted": "Interrompu",
   "backgroundUnknown": "Résultat incertain",
-  "backgroundPending": "Résultats en attente"
+  "backgroundPending": "Résultats en attente",
+  "conversationSteps": "{count} étapes",
+  "backgroundWaiting": "En attente",
+  "activityProgress": "Progression",
+  "activityBackground": "Tâches en arrière-plan",
+  "activityPorts": "Ports",
+  "terminalStop": "Arrêter"
 }

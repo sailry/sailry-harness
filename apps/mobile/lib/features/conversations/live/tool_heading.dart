@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
-import 'activity.dart';
 import 'tool_content.dart';
 import 'command_result.dart';
 import 'tool_display.dart';
+import 'tool_row.dart';
 
 Map<String, dynamic> toolPart(Map<String, dynamic> page, Object? reference) {
   final source = object(reference);
@@ -23,81 +23,69 @@ bool pendingTool(Map<String, dynamic> call) =>
     object(call['approval'])['state'] == 'pending' ||
     object(object(call['question'])['state'])['kind'] == 'pending';
 
+String toolTitle(BuildContext context, Map<String, dynamic> call) {
+  final label = object(call['row'])['label'];
+  return label != null
+      ? capturedLabel(context, label)
+      : toolLabel(text(call['name']), translate: context.tr);
+}
+
+/// A call's collapsed row: success stays silent, settled failures name their state.
 class ToolHeading extends StatelessWidget {
   const ToolHeading({
     super.key,
     required this.call,
     required this.page,
-    this.pending,
     this.running,
-    this.failed,
+    this.onTap,
   });
   final Map<String, dynamic> call;
   final Map<String, dynamic> page;
-  final bool? pending;
   final bool? running;
-  final bool? failed;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final row = object(call['row']);
-    final waiting = pending ?? (row['pending'] == true || pendingTool(call));
+    final waiting = row['pending'] == true || pendingTool(call);
     final active = (running ?? row['running'] == true) && !waiting;
-    final ownFailure = toolFailed(call);
-    final hasFailure =
-        !waiting && call['state'] != 'running' && (failed ?? ownFailure);
+    final failed =
+        !waiting &&
+        call['state'] != 'running' &&
+        (toolFailed(call) || row['warning'] == true);
     final resolved = object(call['resolved']);
-    final capturedStatus = capturedLabel(context, resolved['status']);
-    final resultStatus = switch (object(call['failure'])['code']) {
+    final captured = capturedLabel(context, resolved['status']);
+    final status = switch (object(call['failure'])['code']) {
       'cancelled' => context.tr('toolCancelled'),
       'outcome_unknown' => context.tr('toolOutcomeUnknown'),
       _ =>
-        capturedStatus.isNotEmpty
-            ? capturedStatus
+        captured.isNotEmpty
+            ? captured
             : commandStatus(object(resolved['command']), translate: context.tr),
     };
-    final status = waiting
-        ? context.tr('conversationToolWaiting')
-        : hasFailure
-        ? (ownFailure ? resultStatus : null) ?? context.tr('toolFailed')
-        : resultStatus ??
-              context.tr(switch (call['state']) {
-                'returned' => 'conversationToolReturned',
+    final state = failed
+        ? status ??
+              context.tr(switch (row['state']) {
                 'cancelled' => 'conversationToolCancelled',
-                'not_executed' => 'conversationToolNotExecuted',
                 'interrupted' => 'conversationToolInterrupted',
-                _ => 'conversationToolWaiting',
-              });
-    final summary = text(object(row['detail'])['text']);
-    final target = summary.isEmpty ? null : summary;
-    final label = [
-      row['label'] != null
-          ? capturedLabel(context, row['label'])
-          : toolLabel(text(call['name']), translate: context.tr),
-      if (target != null) target.split('\n').first,
-    ].join(' ');
+                'denied' || 'not_executed' => 'conversationToolNotExecuted',
+                _ => 'toolFailed',
+              })
+        : null;
     return Semantics(
-      value: hasFailure ? context.tr('toolFailed') : null,
-      child: Row(
-        children: [
-          Expanded(
-            child: ActivityLabel(
-              label: label,
-              running: active,
-              color: hasFailure ? Theme.of(context).colorScheme.error : null,
-            ),
-          ),
-          if (!active && !hasFailure) ...[
-            const SizedBox(width: 8),
-            Text(
-              status,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ],
+      value: failed ? context.tr('toolFailed') : null,
+      child: ToolRow(
+        leading: (color) => toolIcon(call, color),
+        label: toolTitle(context, call),
+        detail: text(object(row['detail'])['text']),
+        state: state,
+        tone: waiting
+            ? RowTone.pending
+            : failed
+            ? RowTone.failed
+            : RowTone.normal,
+        running: active,
+        onTap: onTap,
       ),
     );
   }

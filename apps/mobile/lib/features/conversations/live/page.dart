@@ -613,6 +613,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                 sending: _sending || _pendingSend != null,
                                 artifactActions: _artifactActions,
                                 artifactChanges: _view,
+                                updates: _view,
                                 canRestore: () => _canChangeHistory,
                                 turnKey: (turn) =>
                                     _turnKeys.putIfAbsent(turn, GlobalKey.new),

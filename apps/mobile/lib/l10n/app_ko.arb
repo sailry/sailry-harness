@@ -824,5 +824,11 @@
   "backgroundTimedOut": "시간 초과",
   "backgroundInterrupted": "중단됨",
   "backgroundUnknown": "결과 불확실",
-  "backgroundPending": "백그라운드 결과 대기 중"
+  "backgroundPending": "백그라운드 결과 대기 중",
+  "conversationSteps": "{count}단계",
+  "backgroundWaiting": "처리 대기 중",
+  "activityProgress": "진행 상황",
+  "activityBackground": "백그라운드 작업",
+  "activityPorts": "포트",
+  "terminalStop": "중지"
 }

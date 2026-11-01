@@ -4,8 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import 'disclosure.dart';
-import 'activity.dart';
-import 'presentation.dart';
+import 'tool_row.dart';
 
 bool activeRun(Map<String, dynamic> run) =>
     ['queued', 'running', 'stopping'].contains(run['status']);
@@ -23,20 +22,27 @@ String? elapsed(Map<String, dynamic> run, int now) {
   return '${seconds ~/ 3600}h${minutes}m${tail}s';
 }
 
+/// Summarises a turn's steps above its answer and keeps the live step below it.
 class TurnFrame extends StatefulWidget {
   const TurnFrame({
     super.key,
     required this.run,
     required this.connected,
-    required this.work,
+    required this.steps,
+    required this.count,
     required this.answer,
+    this.current,
     this.phase,
   });
 
   final Map<String, dynamic> run;
   final bool connected;
-  final List<Widget> work;
+  final List<Widget> steps;
+
+  /// Tool calls among [steps]; without any, the steps stay inline.
+  final int count;
   final List<Widget> answer;
+  final Widget? current;
   final String? phase;
 
   @override
@@ -62,7 +68,8 @@ class _TurnFrameState extends State<TurnFrame> {
     final ticking =
         widget.connected &&
         activeRun(widget.run) &&
-        widget.run['started_ms'] != null;
+        widget.run['started_ms'] != null &&
+        widget.count > 0;
     if (ticking) {
       _timer ??= Timer.periodic(
         const Duration(seconds: 1),
@@ -83,53 +90,36 @@ class _TurnFrameState extends State<TurnFrame> {
   @override
   Widget build(BuildContext context) {
     final active = activeRun(widget.run);
-    final colors = Theme.of(context).colorScheme;
-    final time = !active || widget.connected
-        ? elapsed(widget.run, DateTime.now().millisecondsSinceEpoch)
-        : null;
-    final status = active && !widget.connected
-        ? context.tr('conversationUnsynced')
-        : widget.run['status'] == 'running'
-        ? context.tr('conversationProcessing')
-        : runLabel(widget.run['status'] as String?, translate: context.tr);
-    final heading = Text(
-      [status, ?time].join('  '),
-      style: TextStyle(color: colors.onSurfaceVariant),
-    );
+    final live = active && widget.connected;
+    final current =
+        widget.current ??
+        (widget.phase == null
+            ? null
+            : ToolRow(
+                icon: 'spark',
+                label: context.tr(widget.phase!),
+                running: widget.phase != 'conversationWaiting',
+              ));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (widget.work.isNotEmpty)
-          WorkDisclosure(
+        if (widget.count > 0) ...[
+          StepDisclosure(
             key: ValueKey('work-${widget.run['turn']}'),
-            title: heading,
-            autoExpanded: active,
-            framed: true,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: widget.work,
-            ),
-          )
-        else
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: colors.outlineVariant)),
-            ),
-            child: heading,
+            label: context
+                .tr('conversationSteps')
+                .replaceAll('{count}', '${widget.count}'),
+            detail: !active || widget.connected
+                ? elapsed(widget.run, DateTime.now().millisecondsSinceEpoch)
+                : null,
+            children: widget.steps,
           ),
-        const SizedBox(height: 12),
+          const SizedBox(height: 10),
+        ] else
+          ...widget.steps,
         ...widget.answer,
-        if (active && widget.connected && widget.phase != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: ActivityLabel(
-              label: context.tr(widget.phase!),
-              running: widget.phase != 'conversationWaiting',
-              icon: 'spark',
-              loadingIcon: true,
-            ),
-          ),
+        if (live && current != null)
+          Padding(padding: const EdgeInsets.only(bottom: 16), child: current),
       ],
     );
   }

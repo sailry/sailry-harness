@@ -21,3 +21,7 @@ String backgroundLabel(Object? outcome) => switch (outcome) {
   'interrupted' => 'backgroundInterrupted',
   _ => 'backgroundUnknown',
 };
+
+/// Cancelled and stopped results were chosen; the rest did not finish cleanly.
+bool backgroundFailed(Object? outcome) =>
+    !['completed', 'cancelled', 'stopped'].contains(outcome);

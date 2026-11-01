@@ -2125,6 +2125,26 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get backgroundPending => '后台结果待处理';
+
+  @override
+  String conversationSteps(String count) {
+    return '$count 个步骤';
+  }
+
+  @override
+  String get backgroundWaiting => '等待处理';
+
+  @override
+  String get activityProgress => '任务进度';
+
+  @override
+  String get activityBackground => '后台任务';
+
+  @override
+  String get activityPorts => '端口';
+
+  @override
+  String get terminalStop => '停止';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4248,4 +4268,24 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get backgroundPending => '背景結果待處理';
+
+  @override
+  String conversationSteps(String count) {
+    return '$count 個步驟';
+  }
+
+  @override
+  String get backgroundWaiting => '等待處理';
+
+  @override
+  String get activityProgress => '任務進度';
+
+  @override
+  String get activityBackground => '背景任務';
+
+  @override
+  String get activityPorts => '連接埠';
+
+  @override
+  String get terminalStop => '停止';
 }

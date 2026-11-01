@@ -824,5 +824,11 @@
   "backgroundTimedOut": "Время истекло",
   "backgroundInterrupted": "Прервано",
   "backgroundUnknown": "Результат неизвестен",
-  "backgroundPending": "Фоновые результаты готовы"
+  "backgroundPending": "Фоновые результаты готовы",
+  "conversationSteps": "Шагов: {count}",
+  "backgroundWaiting": "Ожидает",
+  "activityProgress": "Прогресс",
+  "activityBackground": "Фоновые задачи",
+  "activityPorts": "Порты",
+  "terminalStop": "Остановить"
 }

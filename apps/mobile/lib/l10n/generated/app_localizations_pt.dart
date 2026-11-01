@@ -2173,6 +2173,26 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get backgroundPending => 'Resultados pendentes';
+
+  @override
+  String conversationSteps(String count) {
+    return '$count etapas';
+  }
+
+  @override
+  String get backgroundWaiting => 'Aguardando';
+
+  @override
+  String get activityProgress => 'Progresso';
+
+  @override
+  String get activityBackground => 'Tarefas em segundo plano';
+
+  @override
+  String get activityPorts => 'Portas';
+
+  @override
+  String get terminalStop => 'Parar';
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).

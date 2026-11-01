@@ -711,5 +711,11 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'backgroundInterrupted' => strings.backgroundInterrupted,
   'backgroundUnknown' => strings.backgroundUnknown,
   'backgroundPending' => strings.backgroundPending,
+  'conversationSteps' => strings.conversationSteps('{count}'),
+  'backgroundWaiting' => strings.backgroundWaiting,
+  'activityProgress' => strings.activityProgress,
+  'activityBackground' => strings.activityBackground,
+  'activityPorts' => strings.activityPorts,
+  'terminalStop' => strings.terminalStop,
   _ => null,
 };

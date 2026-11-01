@@ -84,22 +84,27 @@ class _CodeTextState extends State<CodeText> {
   }
 }
 
+/// Copies text and reports the outcome in a toast.
+Future<void> copyText(BuildContext context, String text) async {
+  var message = 'copied';
+  try {
+    await Clipboard.setData(ClipboardData(text: text));
+  } catch (_) {
+    message = 'copyFailed';
+  }
+  if (context.mounted) showToast(context, context.tr(message));
+}
+
 class CopyTextButton extends StatelessWidget {
-  const CopyTextButton(this.text, {super.key});
+  const CopyTextButton(this.text, {super.key, this.style});
   final String text;
+  final ButtonStyle? style;
   @override
   Widget build(BuildContext context) => IconButton(
     tooltip: context.tr('copy'),
+    style: style,
     icon: const AppIcon('copy', size: 16),
-    onPressed: () async {
-      var message = 'copied';
-      try {
-        await Clipboard.setData(ClipboardData(text: text));
-      } catch (_) {
-        message = 'copyFailed';
-      }
-      if (context.mounted) showToast(context, context.tr(message));
-    },
+    onPressed: () => copyText(context, text),
   );
 }
 

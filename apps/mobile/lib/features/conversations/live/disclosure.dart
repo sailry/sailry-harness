@@ -1,57 +1,27 @@
 import 'package:flutter/material.dart';
 
-import '../../../ui/kit.dart';
+import 'tool_row.dart';
 
-/// Transcript expansion is presentation state. Explicit choices override the
-/// automatic running/completed defaults, as in the desktop transcript.
-class WorkDisclosure extends StatefulWidget {
-  const WorkDisclosure({
+/// A turn's steps collapse under one summary row, as in the desktop transcript.
+/// Expansion is presentation state and starts collapsed, also while running.
+class StepDisclosure extends StatefulWidget {
+  const StepDisclosure({
     super.key,
-    required this.title,
-    required this.child,
-    required this.autoExpanded,
-    this.framed = false,
-    this.expandable = true,
-    this.onChanged,
+    required this.label,
+    this.detail,
+    required this.children,
   });
 
-  final Widget title;
-  final Widget child;
-  final bool autoExpanded;
-  final bool framed;
-  final bool expandable;
-  final ValueChanged<bool>? onChanged;
+  final String label;
+  final String? detail;
+  final List<Widget> children;
 
   @override
-  State<WorkDisclosure> createState() => _WorkDisclosureState();
+  State<StepDisclosure> createState() => _StepDisclosureState();
 }
 
-class _WorkDisclosureState extends State<WorkDisclosure> {
+class _StepDisclosureState extends State<StepDisclosure> {
   final _controller = ExpansibleController();
-  bool? _chosen;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.autoExpanded) _controller.expand();
-    _controller.addListener(_changed);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _changed();
-    });
-  }
-
-  void _changed() => widget.onChanged?.call(_controller.isExpanded);
-
-  @override
-  void didUpdateWidget(covariant WorkDisclosure oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.autoExpanded != widget.autoExpanded && _chosen == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _chosen != null) return;
-        widget.autoExpanded ? _controller.expand() : _controller.collapse();
-      });
-    }
-  }
 
   @override
   void dispose() {
@@ -60,64 +30,19 @@ class _WorkDisclosureState extends State<WorkDisclosure> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    if (!widget.expandable) {
-      return Container(
-        constraints: const BoxConstraints(minHeight: 40),
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: widget.title,
-      );
-    }
-    return Expansible(
-      controller: _controller,
-      headerBuilder: (context, animation) => Semantics(
-        expanded: _controller.isExpanded,
-        child: InkWell(
-          onTap: () {
-            _chosen = !_controller.isExpanded;
-            _controller.toggle();
-          },
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 40),
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: widget.framed
-                ? BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: colors.outlineVariant),
-                    ),
-                  )
-                : null,
-            child: Row(
-              children: [
-                Expanded(child: widget.title),
-                const SizedBox(width: 8),
-                RotationTransition(
-                  turns: animation.drive(Tween(begin: 0.0, end: .25)),
-                  child: AppIcon(
-                    'chevron',
-                    size: 16,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+  Widget build(BuildContext context) => Expansible(
+    controller: _controller,
+    headerBuilder: (context, animation) => Semantics(
+      button: true,
+      expanded: _controller.isExpanded,
+      child: ToolRow(
+        icon: 'task',
+        label: widget.label,
+        detail: widget.detail,
+        disclosure: animation.drive(Tween(begin: 0.0, end: .25)),
+        onTap: _controller.toggle,
       ),
-      bodyBuilder: (context, animation) => Container(
-        width: double.infinity,
-        margin: const EdgeInsets.only(top: 8, bottom: 8),
-        padding: widget.framed
-            ? EdgeInsets.zero
-            : const EdgeInsets.only(left: 12),
-        decoration: widget.framed
-            ? null
-            : BoxDecoration(
-                border: Border(left: BorderSide(color: colors.outlineVariant)),
-              ),
-        child: widget.child,
-      ),
-    );
-  }
+    ),
+    bodyBuilder: (context, animation) => RowBranch(children: widget.children),
+  );
 }

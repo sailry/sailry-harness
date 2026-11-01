@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+
+import '../../../content/code.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
+import '../user_message.dart';
 import 'background_data.dart';
-import 'disclosure.dart';
+import 'tool_row.dart';
 
+/// Each background result reads like a message: its title and outcome.
 class BackgroundNotices extends StatelessWidget {
   const BackgroundNotices({
     super.key,
@@ -15,6 +19,8 @@ class BackgroundNotices extends StatelessWidget {
   });
   final List<Map<String, dynamic>> items;
   final Map<String, dynamic> children;
+
+  /// Undelivered results wait for the next turn instead of naming an outcome.
   final bool pending;
   final ValueChanged<Map<String, dynamic>>? onOpenChild;
 
@@ -26,42 +32,79 @@ class BackgroundNotices extends StatelessWidget {
     return reference == null ? null : object(reference);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) return const SizedBox.shrink();
-    return WorkDisclosure(
-      title: Row(
-        children: [
-          const AppIcon('spark', size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              context.tr(
-                pending ? 'backgroundPending' : 'backgroundNoticeTitle',
-              ),
-            ),
-          ),
-          Text('${items.length}'),
-        ],
-      ),
-      autoExpanded: !pending,
+  void _details(BuildContext context, Map<String, dynamic> item) {
+    final summary = text(item['summary']);
+    showAppSheet(
+      context,
+      text(item['title']),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final item in items) ...[
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(text(item['title'])),
-              subtitle: Text(context.tr(backgroundLabel(item['outcome']))),
-              onTap: child(item) != null && onOpenChild != null
-                  ? () => onOpenChild!(child(item)!)
-                  : null,
-              trailing: child(item) != null && onOpenChild != null
-                  ? const AppIcon('chevron')
-                  : null,
-            ),
-            if (text(item['summary']).isNotEmpty) Text(text(item['summary'])),
+          ToolRow(
+            icon: child(item) == null ? 'clock' : 'spark',
+            label: text(item['title']),
+            detail: context.tr(backgroundLabel(item['outcome'])),
+            tone: backgroundFailed(item['outcome'])
+                ? RowTone.failed
+                : RowTone.normal,
+          ),
+          if (summary.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            CodeBlock(summary),
           ],
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (index, item) in items.indexed)
+            Padding(
+              padding: EdgeInsets.only(top: index == 0 ? 0 : 8),
+              child: MessageBubble(
+                onTap: () {
+                  final reference = child(item);
+                  if (reference != null && onOpenChild != null) {
+                    onOpenChild!(reference);
+                  } else {
+                    _details(context, item);
+                  }
+                },
+                child: DefaultTextStyle.merge(
+                  style: const TextStyle(
+                    fontSize: transcriptFontSize,
+                    height: 1.5,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(text(item['title'])),
+                      Text(
+                        context.tr(
+                          pending
+                              ? 'backgroundWaiting'
+                              : backgroundLabel(item['outcome']),
+                        ),
+                        style: TextStyle(
+                          color: !pending && backgroundFailed(item['outcome'])
+                              ? colors.error
+                              : colors.onSurfaceVariant.withValues(alpha: .65),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -2181,4 +2181,24 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get backgroundPending => 'Hintergrundergebnisse stehen bereit';
+
+  @override
+  String conversationSteps(String count) {
+    return '$count Schritte';
+  }
+
+  @override
+  String get backgroundWaiting => 'Wartet';
+
+  @override
+  String get activityProgress => 'Fortschritt';
+
+  @override
+  String get activityBackground => 'Hintergrundaufgaben';
+
+  @override
+  String get activityPorts => 'Ports';
+
+  @override
+  String get terminalStop => 'Stoppen';
 }

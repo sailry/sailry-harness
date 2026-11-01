@@ -10,19 +10,20 @@ import '../../../content/attachment.dart';
 import '../../../content/images.dart';
 import '../../../content/paths.dart';
 import '../../../content/visuals.dart';
+import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import '../../resources/file_navigation.dart';
 import '../../resources/file_page.dart';
 import 'presentation.dart';
 import 'tool_record.dart';
-import 'tool_sequence.dart';
 import 'tool_display.dart';
 export 'tool_record.dart' show ToolRecord;
-import 'disclosure.dart';
 import 'activity.dart';
+import 'tool_heading.dart';
+import 'tool_row.dart';
 import 'turn_frame.dart';
-import 'connection_status.dart';
 import 'children.dart';
+import 'connection_status.dart';
 import 'background.dart';
 import 'background_data.dart';
 import 'progress.dart';
@@ -54,6 +55,7 @@ class LiveTimeline extends StatefulWidget {
     this.artifactActions,
     this.artifactChanges,
     this.toolOutput,
+    required this.updates,
   });
   final Map<String, dynamic> view;
   final Map<String, dynamic> session;
@@ -69,13 +71,15 @@ class LiveTimeline extends StatefulWidget {
   final ValueListenable<Map<String, dynamic>>? artifactChanges;
   final ToolSelectionChanged? toolOutput;
 
+  /// The live projection, followed by sheets opened from the transcript.
+  final ValueListenable<Map<String, dynamic>> updates;
+
   @override
   State<LiveTimeline> createState() => _LiveTimelineState();
 }
 
 class _LiveTimelineState extends State<LiveTimeline> {
   final _documents = <String, FileDocument>{};
-  final _toolKeys = <(String, int), GlobalKey>{};
 
   @override
   Widget build(BuildContext context) {
@@ -93,14 +97,6 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final entries = objects(page['entries']);
     final calls = objects(view['calls']);
     final children = object(object(view['children'])['sessions']);
-    final sources = {
-      for (final call in calls)
-        (
-          object(call['source'])['entry'] as String,
-          object(call['source'])['index'] as int,
-        ),
-    };
-    _toolKeys.removeWhere((source, _) => !sources.contains(source));
     final drafts = objects(snapshot['drafts']);
     final runs = objects(page['runs']);
     final colors = Theme.of(context).colorScheme;
@@ -111,6 +107,8 @@ class _LiveTimelineState extends State<LiveTimeline> {
       int index,
       bool retrying, {
       bool continuing = false,
+      bool interactive = true,
+      bool selectable = true,
     }) {
       final data = part['data'];
       switch (part['kind']) {
@@ -125,6 +123,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             padding: const EdgeInsets.only(bottom: 16),
             child: MarkdownContent(
               data as String,
+              selectable: selectable,
               onOpenFile: (uri) async {
                 final tree = objects(
                   host.snapshot['worktrees'],
@@ -150,22 +149,8 @@ class _LiveTimelineState extends State<LiveTimeline> {
             ),
           );
         case 'thinking':
-          return WorkDisclosure(
-            key: PageStorageKey('thought-${entry['id']}-$index'),
-            title: Text(
-              context.tr('thought'),
-              style: TextStyle(color: colors.onSurfaceVariant),
-            ),
-            autoExpanded: false,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: MarkdownContent(
-                data as String,
-                key: const PageStorageKey('thought-text'),
-                muted: true,
-              ),
-            ),
-          );
+          // Reasoning stays out of the mobile transcript; tools merge around it.
+          return const SizedBox.shrink();
         case 'compaction':
           return ExpansionTile(
             key: PageStorageKey('summary-${entry['id']}-$index'),
@@ -224,12 +209,13 @@ class _LiveTimelineState extends State<LiveTimeline> {
           }).firstOrNull;
           if (call == null) return const SizedBox.shrink();
           return ToolRecord(
-            documents: _documents,
-            // A call can move from a single row into a growing tool sequence.
-            key: _toolKeys.putIfAbsent((
-              entry['id'] as String,
+            key: ValueKey((
+              'tool',
+              entry['id'],
               index,
-            ), GlobalKey.new),
+              interactive ? 'card' : 'row',
+            )),
+            documents: _documents,
             call: call,
             page: page,
             session: session,
@@ -237,7 +223,9 @@ class _LiveTimelineState extends State<LiveTimeline> {
             command: command,
             enabled: connected,
             continuing: continuing,
+            interactive: interactive,
             toolOutput: widget.toolOutput,
+            updates: widget.updates,
           );
         case 'reference':
           return MessageReferences(
@@ -313,31 +301,21 @@ class _LiveTimelineState extends State<LiveTimeline> {
           ? 'conversationGenerating'
           : 'thinkingNow';
       final split = visible.lastIndexWhere((row) => row.$3['work'] == true) + 1;
-      final work = <Widget>[];
+      final latestTurn =
+          run == runs.where((run) => run['kind'] != 'compaction').lastOrNull;
+      // Older settled answers trade text selection for long-press actions.
+      final pressable = !active && !latestTurn && onTurnAction != null;
+      final steps = <Widget>[];
       final answerParts = <Widget>[];
-      final latestProgress = calls
+      final cards = <Widget>[];
+      Widget? live;
+      var count = 0;
+      final progressCall = calls
           .where(
             (call) => call['turn'] == run['turn'] && call['progress'] != null,
           )
           .lastOrNull;
       var progressShown = false;
-      final sequence = <ToolRecord>[];
-      void flushTools() {
-        if (sequence.isEmpty) return;
-        final source = object(sequence.first.call['source']);
-        work.add(
-          sequence.length == 1
-              ? sequence.single
-              : ToolSequence(
-                  key: ValueKey(
-                    'tool-sequence-${run['turn']}-${source['entry']}-${source['index']}',
-                  ),
-                  tools: List.of(sequence),
-                ),
-        );
-        sequence.clear();
-      }
-
       for (final (position, row) in visible.indexed) {
         final (entry, index, value) = row;
         final call = calls
@@ -349,27 +327,44 @@ class _LiveTimelineState extends State<LiveTimeline> {
             .firstOrNull;
         final childReferences = objects(call?['children']);
         if (call?['progress'] != null && progressShown) continue;
+        final continuing = continuingTools && row == last;
+        final work = position < split && value['kind'] != 'image';
+        final pending = work && call != null && pendingTool(call);
+        final childRuns = [
+          for (final reference in childReferences)
+            objects(page['children'])[reference['index'] as int],
+        ];
         final rendered = call?['progress'] != null
-            ? TaskProgress(
-                key: PageStorageKey('progress-${run['turn']}'),
-                progress: object(latestProgress!['progress']),
-                continuing: continuingTools && lastCall['progress'] != null,
+            ? ToolHeading(
+                key: ValueKey('progress-${run['turn']}'),
+                call: progressCall!,
+                page: page,
+                running: continuingTools && lastCall['progress'] != null,
+                onTap: () => showAppSheet(
+                  context,
+                  toolTitle(context, progressCall),
+                  child: ValueListenableBuilder(
+                    valueListenable: widget.updates,
+                    builder: (context, view, _) => TaskProgress(
+                      progress:
+                          turnProgress(objects(view['calls']), run['turn']) ??
+                          object(progressCall['progress']),
+                    ),
+                  ),
+                ),
               )
             : childReferences.isNotEmpty
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (final reference in childReferences)
+                  for (final (position, reference) in childReferences.indexed)
                     ChildTask(
-                      child: objects(
-                        page['children'],
-                      )[reference['index'] as int],
-                      continuing: continuingTools && row == last,
+                      child: childRuns[position],
+                      continuing: continuing,
                       title: text(
                         object(object(value['data'])['summary'])['title'],
                         text(
-                          objects(page['children'])[reference['index']
-                              as int]['name'],
+                          childRuns[position]['name'],
                           context.tr('conversationChild'),
                         ),
                       ),
@@ -387,26 +382,41 @@ class _LiveTimelineState extends State<LiveTimeline> {
                 value,
                 index,
                 active && connected && row == last,
-                continuing: continuingTools && row == last,
+                continuing: continuing,
+                interactive: !pending,
+                selectable: !pressable,
               );
         if (call?['progress'] != null) progressShown = true;
         if (rendered is SizedBox) continue;
-        if (position < split &&
-            rendered is ToolRecord &&
-            object(call?['question']).isEmpty &&
-            call?['grouping'] != 'standalone' &&
-            call?['presentation'] != 'progress') {
-          sequence.add(rendered);
+        if (!work) {
+          answerParts.add(rendered);
           continue;
         }
-        flushTools();
-        if (position >= split || value['kind'] == 'image') {
-          answerParts.add(rendered);
-        } else {
-          work.add(rendered);
+        steps.add(rendered);
+        if (call == null) continue;
+        count += childReferences.isEmpty ? 1 : childReferences.length;
+        if (!active) continue;
+        if (pending) {
+          // Decisions stay actionable below the answer while steps collapse.
+          cards.add(part(entry, value, index, false, continuing: continuing));
+        } else if (call['state'] == 'running' ||
+            continuing ||
+            childRuns.any((child) => activeRun(object(child['run'])))) {
+          live = rendered;
         }
       }
-      flushTools();
+      final copy = rows
+          .where((entry) => entry['author'] != 'user')
+          .expand((entry) => objects(entry['parts']))
+          .where((part) => part['kind'] == 'text')
+          .map((part) => text(part['data']))
+          .join('\n\n');
+      final canEdit =
+          canChangeHistory &&
+          !noticeTurn(run) &&
+          inputs.any((input) => input.canonical);
+      final canRewind =
+          canChangeHistory && !noticeTurn(run) && run != runs.last;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -443,8 +453,34 @@ class _LiveTimelineState extends State<LiveTimeline> {
             key: ValueKey('turn-${run['turn']}'),
             run: run,
             connected: connected,
-            work: work,
-            answer: answerParts,
+            steps: steps,
+            count: count,
+            answer: [
+              if (pressable && answerParts.isNotEmpty)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onLongPress: () => showTurnActions(
+                    context,
+                    copy: copy,
+                    canEdit: canEdit,
+                    canRewind: canRewind,
+                    onAction: (action) =>
+                        onTurnAction(action, run['turn'] as String),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: answerParts,
+                  ),
+                )
+              else
+                ...answerParts,
+            ],
+            current: cards.isEmpty
+                ? live
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: cards,
+                  ),
             phase: phase,
           ),
           PublicationDetails(
@@ -483,8 +519,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
           if (!active &&
               !noticeTurn(run) &&
               !widget.sending &&
-              run ==
-                  runs.where((run) => run['kind'] != 'compaction').lastOrNull &&
+              latestTurn &&
               calls.any((call) => call['turn'] == run['turn']))
             TurnChanges(
               key: ValueKey('changes-${run['turn']}'),
@@ -496,36 +531,31 @@ class _LiveTimelineState extends State<LiveTimeline> {
             ),
           for (final entry in rows.where((entry) => entry['author'] != 'user'))
             EntrySources(key: ValueKey('sources-${entry['id']}'), entry: entry),
-          if (!active)
+          if (run['error'] != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: SelectableText(
+                key: PageStorageKey('run-error-${run['turn']}'),
+                object(run['error'])['message'] as String? ??
+                    context.tr('conversationFailedStatus'),
+                style: TextStyle(
+                  fontSize: transcriptFontSize,
+                  height: 1.7,
+                  color: colors.error,
+                ),
+              ),
+            ),
+          if (!active && latestTurn)
             TurnActions(
-              canEdit:
-                  canChangeHistory &&
-                  !noticeTurn(run) &&
-                  inputs.any((input) => input.canonical),
-              copy: rows
-                  .where((entry) => entry['author'] != 'user')
-                  .expand((entry) => objects(entry['parts']))
-                  .where((part) => part['kind'] == 'text')
-                  .map((part) => text(part['data']))
-                  .join('\n\n'),
+              canEdit: canEdit,
+              copy: copy,
               failed:
                   !noticeTurn(run) &&
                   ['failed', 'interrupted'].contains(run['status']),
-              canRewind:
-                  canChangeHistory && !noticeTurn(run) && run != runs.last,
+              canRewind: canRewind,
               onAction: onTurnAction == null
                   ? null
                   : (action) => onTurnAction(action, run['turn'] as String),
-            ),
-          if (run['error'] != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: ErrorDetails(
-                key: PageStorageKey('run-error-${run['turn']}'),
-                reason:
-                    object(run['error'])['message'] as String? ??
-                    context.tr('conversationFailedStatus'),
-              ),
             ),
         ],
       );
@@ -535,18 +565,19 @@ class _LiveTimelineState extends State<LiveTimeline> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          BackgroundNotices(
-            items: pendingBackground(page),
-            children: children,
-            pending: true,
-            onOpenChild: onOpenChild,
-          ),
           for (final run in runs)
             KeyedSubtree(
               key:
                   turnKey?.call(run['turn'] as String) ?? ValueKey(run['turn']),
               child: turn(run),
             ),
+          // Undelivered results wait after the latest turn for the next one.
+          BackgroundNotices(
+            items: pendingBackground(page),
+            children: children,
+            pending: true,
+            onOpenChild: onOpenChild,
+          ),
         ],
       ),
     );

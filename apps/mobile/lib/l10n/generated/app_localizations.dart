@@ -4277,6 +4277,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Background results ready'**
   String get backgroundPending;
+
+  /// No description provided for @conversationSteps.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} steps'**
+  String conversationSteps(String count);
+
+  /// No description provided for @backgroundWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting'**
+  String get backgroundWaiting;
+
+  /// No description provided for @activityProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Progress'**
+  String get activityProgress;
+
+  /// No description provided for @activityBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Background tasks'**
+  String get activityBackground;
+
+  /// No description provided for @activityPorts.
+  ///
+  /// In en, this message translates to:
+  /// **'Ports'**
+  String get activityPorts;
+
+  /// No description provided for @terminalStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get terminalStop;
 }
 
 class _AppLocalizationsDelegate

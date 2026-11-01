@@ -5,6 +5,24 @@ import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import 'activity.dart';
 
+/// The latest validated progress of a turn.
+Map<String, dynamic>? turnProgress(
+  List<Map<String, dynamic>> calls,
+  Object? turn,
+) => calls
+    .where((call) => call['turn'] == turn && call['progress'] != null)
+    .map((call) => object(call['progress']))
+    .lastOrNull;
+
+/// Settled and total steps; skipped steps count as settled.
+(int, int) progressCounts(Map<String, dynamic> progress) {
+  final steps = objects(progress['steps']);
+  final done = steps
+      .where((step) => ['completed', 'skipped'].contains(step['state']))
+      .length;
+  return (done, steps.length);
+}
+
 /// Steps are the shared Client's validated progress, not inferred tool outcomes.
 class TaskProgress extends StatelessWidget {
   const TaskProgress({

@@ -2132,4 +2132,24 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get backgroundPending => 'バックグラウンドの結果を処理できます';
+
+  @override
+  String conversationSteps(String count) {
+    return '$count ステップ';
+  }
+
+  @override
+  String get backgroundWaiting => '処理待ち';
+
+  @override
+  String get activityProgress => '進捗';
+
+  @override
+  String get activityBackground => 'バックグラウンドタスク';
+
+  @override
+  String get activityPorts => 'ポート';
+
+  @override
+  String get terminalStop => '停止';
 }

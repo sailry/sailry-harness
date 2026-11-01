@@ -2172,4 +2172,24 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get backgroundPending => 'Фоновые результаты готовы';
+
+  @override
+  String conversationSteps(String count) {
+    return 'Шагов: $count';
+  }
+
+  @override
+  String get backgroundWaiting => 'Ожидает';
+
+  @override
+  String get activityProgress => 'Прогресс';
+
+  @override
+  String get activityBackground => 'Фоновые задачи';
+
+  @override
+  String get activityPorts => 'Порты';
+
+  @override
+  String get terminalStop => 'Остановить';
 }

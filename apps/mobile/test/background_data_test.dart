@@ -31,5 +31,11 @@ void main() {
     );
     expect(backgroundLabel('unknown'), 'backgroundUnknown');
     expect(backgroundLabel('timed_out'), 'backgroundTimedOut');
+    for (final outcome in ['failed', 'timed_out', 'interrupted', 'unknown']) {
+      expect(backgroundFailed(outcome), isTrue, reason: outcome);
+    }
+    for (final outcome in ['completed', 'cancelled', 'stopped']) {
+      expect(backgroundFailed(outcome), isFalse, reason: outcome);
+    }
   });
 }

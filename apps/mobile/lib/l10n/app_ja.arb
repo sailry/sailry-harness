@@ -824,5 +824,11 @@
   "backgroundTimedOut": "タイムアウト",
   "backgroundInterrupted": "中断",
   "backgroundUnknown": "結果は不確定",
-  "backgroundPending": "バックグラウンドの結果を処理できます"
+  "backgroundPending": "バックグラウンドの結果を処理できます",
+  "conversationSteps": "{count} ステップ",
+  "backgroundWaiting": "処理待ち",
+  "activityProgress": "進捗",
+  "activityBackground": "バックグラウンドタスク",
+  "activityPorts": "ポート",
+  "terminalStop": "停止"
 }

@@ -5,6 +5,7 @@ import '../../l10n/strings.dart';
 import '../../ui/kit.dart';
 import '../../ui/theme.dart';
 import '../../ui/toast.dart';
+import 'live/tool_row.dart' show transcriptFontSize;
 
 class UserBubble extends StatelessWidget {
   const UserBubble({
@@ -38,46 +39,27 @@ class UserBubble extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        LayoutBuilder(
-          builder: (context, constraints) => Align(
-            alignment: Alignment.centerRight,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: constraints.maxWidth * .88),
-              child: Material(
-                color: SailryTheme.userMessageFill(context),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(18),
-                  topRight: Radius.circular(18),
-                  bottomLeft: Radius.circular(18),
-                  bottomRight: Radius.circular(5),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 15,
-                    vertical: 10,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (text.isNotEmpty)
-                        SelectionArea(
-                          child: Text(
-                            text,
-                            style: const TextStyle(fontSize: 14, height: 1.5),
-                          ),
-                        ),
-                      if (attachment != null)
-                        Padding(
-                          padding: EdgeInsets.only(top: text.isEmpty ? 0 : 10),
-                          child: attachment,
-                        ),
-                    ],
+        MessageBubble(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (text.isNotEmpty)
+                SelectionArea(
+                  child: Text(
+                    text,
+                    style: const TextStyle(
+                      fontSize: transcriptFontSize,
+                      height: 1.5,
+                    ),
                   ),
                 ),
-              ),
-            ),
+              if (attachment != null)
+                Padding(
+                  padding: EdgeInsets.only(top: text.isEmpty ? 0 : 10),
+                  child: attachment,
+                ),
+            ],
           ),
         ),
         const SizedBox(height: 6),
@@ -113,6 +95,42 @@ class UserBubble extends StatelessWidget {
           ],
         ),
       ],
+    ),
+  );
+}
+
+/// The right-aligned message bubble shared by prompts and background results.
+class MessageBubble extends StatelessWidget {
+  const MessageBubble({super.key, required this.child, this.onTap});
+
+  final Widget child;
+  final VoidCallback? onTap;
+
+  static const _padding = EdgeInsets.symmetric(horizontal: 15, vertical: 10);
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => Align(
+      alignment: Alignment.centerRight,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: constraints.maxWidth * .88),
+        child: Material(
+          color: SailryTheme.userMessageFill(context),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(18),
+            topRight: Radius.circular(18),
+            bottomLeft: Radius.circular(18),
+            bottomRight: Radius.circular(5),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: onTap == null
+              ? Padding(padding: _padding, child: child)
+              : InkWell(
+                  onTap: onTap,
+                  child: Padding(padding: _padding, child: child),
+                ),
+        ),
+      ),
     ),
   );
 }

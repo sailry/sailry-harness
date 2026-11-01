@@ -2134,4 +2134,24 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get backgroundPending => '백그라운드 결과 대기 중';
+
+  @override
+  String conversationSteps(String count) {
+    return '$count단계';
+  }
+
+  @override
+  String get backgroundWaiting => '처리 대기 중';
+
+  @override
+  String get activityProgress => '진행 상황';
+
+  @override
+  String get activityBackground => '백그라운드 작업';
+
+  @override
+  String get activityPorts => '포트';
+
+  @override
+  String get terminalStop => '중지';
 }

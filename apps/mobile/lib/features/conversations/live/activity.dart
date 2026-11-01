@@ -1,48 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../ui/kit.dart';
-
-/// Tool activity preserves its icon; standalone phases can request a spinner.
-class ActivityLabel extends StatelessWidget {
-  const ActivityLabel({
-    super.key,
-    required this.label,
-    this.running = false,
-    this.loadingIcon = false,
-    this.icon = 'terminal',
-    this.color,
-  });
-  final String label;
-  final bool running;
-  final bool loadingIcon;
-  final String icon;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        if (running && loadingIcon)
-          SizedBox.square(
-            key: const ValueKey('activity-loading'),
-            dimension: 16,
-            child: CircularProgressIndicator.adaptive(
-              value: MediaQuery.disableAnimationsOf(context) ? .75 : null,
-              strokeWidth: 2,
-            ),
-          )
-        else
-          AppIcon(icon, size: 16, color: color ?? colors.onSurfaceVariant),
-        const SizedBox(width: 8),
-        Flexible(
-          child: ActivityText(label, active: running, color: color),
-        ),
-      ],
-    );
-  }
-}
-
+/// Running captions shimmer; settled and reduced-motion captions stay static.
 class ActivityText extends StatefulWidget {
   const ActivityText(
     this.text, {

@@ -840,5 +840,18 @@
   "backgroundTimedOut": "Timed out",
   "backgroundInterrupted": "Interrupted",
   "backgroundUnknown": "Outcome uncertain",
-  "backgroundPending": "Background results ready"
+  "backgroundPending": "Background results ready",
+  "conversationSteps": "{count} steps",
+  "@conversationSteps": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "backgroundWaiting": "Waiting",
+  "activityProgress": "Progress",
+  "activityBackground": "Background tasks",
+  "activityPorts": "Ports",
+  "terminalStop": "Stop"
 }
