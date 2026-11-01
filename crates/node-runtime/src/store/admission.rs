@@ -131,13 +131,17 @@ impl Ingress {
         internal: bool,
     ) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
+            let read_callback = matches!(
+                request.command,
+                sailry_protocol::Command::ReadPluginCallback { .. }
+            );
             let mut span = crate::logging::commands::begin(self.node, caller, &request);
             let result = self.route_request(caller, request, internal).await;
             if let (Some(span), Err(fault)) = (span.as_mut(), &result) {
                 crate::logging::commands::rejected(span, fault);
             }
             result.map(|admission| match span {
-                Some(span) => crate::logging::commands::admitted(span, admission),
+                Some(span) => crate::logging::commands::admitted(span, admission, read_callback),
                 None => admission,
             })
         })

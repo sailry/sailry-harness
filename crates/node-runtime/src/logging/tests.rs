@@ -785,6 +785,7 @@ fn records_provider_http_metadata() {
                         },
                         completion,
                     },
+                    false,
                 );
                 reply
                     .send(Ok(Output::PluginHttp(response.clone())))

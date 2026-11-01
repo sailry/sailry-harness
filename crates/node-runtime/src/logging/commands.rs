@@ -97,13 +97,31 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
     )
 }
 
-pub(crate) fn admitted(mut span: Span, mut admission: Admission) -> Admission {
+pub(crate) fn admitted(
+    mut span: Span,
+    mut admission: Admission,
+    cancel_on_drop: bool,
+) -> Admission {
     span.entry.durable = Some(admission.receipt.durable);
     span.record(Phase::Admitted);
-    let (sender, completion) = tokio::sync::oneshot::channel();
+    let cancel_on_drop = cancel_on_drop && !admission.receipt.durable;
+    let (mut sender, completion) = tokio::sync::oneshot::channel();
     let original = std::mem::replace(&mut admission.completion, completion);
     tokio::spawn(async move {
-        match original.await {
+        let result = if cancel_on_drop {
+            tokio::select! {
+                biased;
+                result = original => result,
+                _ = sender.closed() => {
+                    // Preserve the read owner's receiver lifetime through logging.
+                    span.finish(Phase::Cancelled, Some(sailry_protocol::ErrorCode::Cancelled));
+                    return;
+                },
+            }
+        } else {
+            original.await
+        };
+        match result {
             Ok(result) => {
                 match &result {
                     Ok(output) => {
@@ -138,6 +156,9 @@ pub(crate) fn admitted(mut span: Span, mut admission: Admission) -> Admission {
     });
     admission
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(crate) fn rejected(span: &mut Span, fault: &Fault) {
     if let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = &fault.details

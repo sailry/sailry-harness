@@ -96,7 +96,7 @@ async fn observes_repository_writes() {
 }
 
 #[tokio::test]
-async fn filters_assistant_packages_and_refreshes_binding() {
+async fn filters_assistants_and_refreshes_inventory() {
     for remote in [false, true] {
         let fixture = Fixture::new(remote).await;
         let mut manifest = fixture.declaration("assistant-fixture", &[]);
@@ -114,7 +114,7 @@ async fn filters_assistant_packages_and_refreshes_binding() {
         fixture
             .install_with("shared-fixture", SOURCE, shared, 0)
             .await;
-        fixture.install("other-fixture", SOURCE, &[], 0).await;
+        let other = fixture.install("other-fixture", SOURCE, &[], 0).await;
         let session = fixture
             .session(Some(plugin::conversation::Binding {
                 package: assistant.summary.reference(),
@@ -142,17 +142,14 @@ async fn filters_assistant_packages_and_refreshes_binding() {
             "assistant-fixture" | "shared-fixture"
         )));
         assert_eq!(selected.entries.len(), 4);
-        let mut config = session.config;
-        config.assistant = None;
-        execute(
-            &fixture.client,
-            Command::SetSessionConfig {
-                session: session.id,
-                expected_revision: session.revision,
-                config,
-            },
-        )
-        .await;
+        let mut manifest = fixture.declaration("other-fixture", &[]);
+        manifest["version"] = json!("0.1.1");
+        manifest["extensions"][plugin::NAMESPACE]["desktop"] = json!({
+            "ui_entry":"dev.sailry.platform/view.js","resources":["dev.sailry.platform/view.js"],"ui_shared":true
+        });
+        let updated = fixture
+            .install_with("other-fixture", SOURCE, manifest, other.summary.revision)
+            .await;
         let all = feed
             .until(|view| {
                 view.entries
@@ -161,6 +158,12 @@ async fn filters_assistant_packages_and_refreshes_binding() {
             })
             .await;
         assert_eq!(all.entries.len(), 6);
+        assert!(
+            all.entries
+                .iter()
+                .filter(|entry| entry.package.name == "other-fixture")
+                .all(|entry| entry.package == updated.summary.reference())
+        );
         feed.close().await;
         fixture.close().await;
     }

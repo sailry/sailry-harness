@@ -29,7 +29,7 @@ impl Fixture {
             "$schema":plugin::schema::AGENT_PLUGINS_ID,"name":name,"version":"0.1.0",
             "extensions":{"dev.sailry.platform":{
                 "api_version":"v1","scope":"host",
-                "actions":["storage.read","storage.write","conversation.read","git.read","web.read"],
+                "actions":["storage.read","storage.write","conversation.read","conversation.control","git.read","web.read"],
                 "host":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],
                     "handlers":["badge","invoke"],"read_only":["badge"],
                     "status":{"read":"badge","invoke":"invoke","changes":changes}},
