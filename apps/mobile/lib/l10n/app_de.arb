@@ -381,6 +381,7 @@
   "taskActions": "Task-Aktionen",
   "archiveShort": "Archiv",
   "archiveTab": "Archiviert",
+  "archivedCount": "Archiviert {count}",
   "archivedTasks": "Archiviert",
   "delete": "Löschen",
   "deleteTask": "Chat löschen",

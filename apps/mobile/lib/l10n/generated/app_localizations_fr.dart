@@ -995,6 +995,11 @@ class AppLocalizationsFr extends AppLocalizations {
   String get archiveTab => 'Archivé';
 
   @override
+  String archivedCount(String count) {
+    return 'Archivées $count';
+  }
+
+  @override
   String get archivedTasks => 'Archivé';
 
   @override

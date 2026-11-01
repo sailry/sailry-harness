@@ -1986,6 +1986,12 @@ abstract class AppLocalizations {
   /// **'Archived'**
   String get archiveTab;
 
+  /// No description provided for @archivedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Archived {count}'**
+  String archivedCount(String count);
+
   /// No description provided for @archivedTasks.
   ///
   /// In en, this message translates to:

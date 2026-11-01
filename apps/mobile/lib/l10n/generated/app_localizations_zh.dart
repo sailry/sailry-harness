@@ -963,6 +963,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get archiveTab => '归档';
 
   @override
+  String archivedCount(String count) {
+    return '已归档 $count';
+  }
+
+  @override
   String get archivedTasks => '已存档';
 
   @override
@@ -3295,6 +3300,11 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get archiveTab => '歸檔';
+
+  @override
+  String archivedCount(String count) {
+    return '已歸檔 $count';
+  }
 
   @override
   String get archivedTasks => '已存檔';

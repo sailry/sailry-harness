@@ -17,6 +17,7 @@ import 'task.dart';
 import 'presentation.dart';
 import 'project_bar.dart';
 import 'recency.dart';
+import 'task_filters.dart';
 import 'terminal_tasks.dart';
 
 class LiveTasksPage extends StatefulWidget {
@@ -193,6 +194,28 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
               translate: context.tr,
             ).toLowerCase().contains(_search.toLowerCase());
       }).toList();
+      // Tab counts ignore search so they stay stable while typing.
+      final counts = <String, int>{};
+      var archived = 0;
+      for (final session in objects(selected?.snapshot['sessions'])) {
+        if (projectId != null && session['project'] != projectId) continue;
+        if (session['archived'] == true) {
+          archived++;
+        } else {
+          counts.update(status(session), (n) => n + 1, ifAbsent: () => 1);
+        }
+      }
+      for (final terminal in objects(selected?.snapshot['terminals'])) {
+        final tree = objects(
+          selected?.snapshot['worktrees'],
+        ).where((tree) => tree['id'] == terminal['worktree']).firstOrNull;
+        if (projectId != null && tree?['project'] != projectId) continue;
+        counts.update(
+          terminalStatus(terminal),
+          (n) => n + 1,
+          ifAbsent: () => 1,
+        );
+      }
       return PageFrame(
         title: context.tr('brand'),
         titleSize: 28,
@@ -329,45 +352,19 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 ),
               ),
               const SizedBox(height: 10),
-              Row(
-                children: [
-                  for (final filter in [
-                    'all',
-                    'waiting',
-                    'running',
-                    'completed',
-                    'archived',
-                    'terminal',
-                  ])
-                    Expanded(
-                      child: TextButton(
-                        key: ValueKey('task-filter-$filter'),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 2,
-                            vertical: 9,
-                          ),
-                          backgroundColor: _filter == filter
-                              ? colors.surfaceContainerHigh
-                              : Colors.transparent,
-                          foregroundColor: _filter == filter
-                              ? colors.onSurface
-                              : colors.onSurfaceVariant,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        onPressed: () => setState(() => _filter = filter),
-                        child: Text(
-                          context.tr(
-                            filter == 'archived' ? 'archiveTab' : filter,
-                          ),
-                          softWrap: false,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+              if (taskFilters.contains(_filter))
+                TaskFilters(
+                  selected: _filter,
+                  counts: counts,
+                  onSelected: (filter) => setState(() => _filter = filter),
+                )
+              else
+                TaskScope(
+                  label: context.tr(
+                    _filter == 'archived' ? 'archiveTab' : 'terminal',
+                  ),
+                  onClose: () => setState(() => _filter = 'all'),
+                ),
               const SizedBox(height: 8),
               for (final (group, items) in groups) ...[
                 _GroupTitle(context.tr(group.key)),
@@ -428,6 +425,21 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                     divider: index < terminals.length - 1,
                   ),
               ],
+              if (_filter != 'archived' && archived > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Center(
+                    child: TextButton(
+                      key: const ValueKey('task-archive'),
+                      onPressed: () => setState(() => _filter = 'archived'),
+                      child: Text(
+                        context
+                            .tr('archivedCount')
+                            .replaceAll('{count}', '$archived'),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

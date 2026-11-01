@@ -987,6 +987,11 @@ class AppLocalizationsRu extends AppLocalizations {
   String get archiveTab => 'Архивировано';
 
   @override
+  String archivedCount(String count) {
+    return 'В архиве $count';
+  }
+
+  @override
   String get archivedTasks => 'Архивировано';
 
   @override

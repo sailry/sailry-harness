@@ -967,6 +967,11 @@ class AppLocalizationsKo extends AppLocalizations {
   String get archiveTab => '보관함';
 
   @override
+  String archivedCount(String count) {
+    return '보관함 $count';
+  }
+
+  @override
   String get archivedTasks => '보관함';
 
   @override
