@@ -47,7 +47,7 @@ FIXTURES = {
         "test_host_build", "test_host_install", "test_host_service", "test_host_tasks", "test_host_update",
         "test_linux_sysroot", "test_host_compatibility",
     },
-    "mobile": {"test_android_package"},
+    "mobile": {"test_android_package", "test_mobile_release"},
 }
 DOCS = {
     "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CONTRIBUTING.md",

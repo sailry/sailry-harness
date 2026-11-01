@@ -7,6 +7,7 @@ import re
 import stat
 import subprocess
 import tempfile
+import time
 from urllib.parse import quote
 import zipfile
 
@@ -182,6 +183,41 @@ def readiness(client, repository, commit, component):
             print(f"Reused product Checks for unchanged source {source}; only signing tools differ")
             return run
     raise ValueError(f"The release product needs a successful {component.title()} ready gate from full main Checks")
+
+
+def wait_ready(client, repository, commit, component):
+    deadline = time.monotonic() + 5 * 60 * 60
+    while True:
+        ready = ready_run(client, repository, commit, component)
+        if ready is not None:
+            checked = client.api("GET", f"repos/{repository}/actions/runs/{ready}")
+            if (checked.get("id") != ready or checked.get("head_sha") != commit
+                    or checked.get("head_branch") != "main"
+                    or checked.get("event") not in {"push", "workflow_dispatch"}):
+                raise ValueError("The ready Checks run does not match the release source")
+            if checked.get("status") == "completed" and checked.get("conclusion") == "success":
+                return ready
+        payload = client.api("GET", f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}&per_page=100")
+        runs = [run for run in payload["workflow_runs"]
+                if run.get("head_sha") == commit and run.get("head_branch") == "main"
+                and run.get("event") in {"push", "workflow_dispatch"}]
+        required = {*PREREQUISITES[component], f"{component.title()} ready", "Rust strict lint"}
+        pending = False
+        for run in runs:
+            if run.get("status") == "completed":
+                continue
+            jobs = client.api("GET", f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
+            blocked = any(job.get("name") in required and job.get("status") == "completed"
+                          and job.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}
+                          for job in jobs)
+            pending |= not blocked
+        if runs and not pending:
+            raise ValueError(f"The exact-source Checks ended without a successful full run and {component.title()} readiness")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("The exact-source release gate did not become ready within five hours")
+        print(f"Waiting for successful full Checks and {component.title()} readiness at exact source {commit}", flush=True)
+        time.sleep(min(60, remaining))
 
 
 def native_binary(path, target):

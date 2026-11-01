@@ -319,14 +319,17 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("MACOSX_DEPLOYMENT_TARGET: '13.0'", self.workflow("release"))
         self.assertIn("MACOSX_DEPLOYMENT_TARGET: '13.0'", self.workflow("release-host"))
 
-    def test_mobile_entry_is_manual_readiness_only(self):
+    def test_mobile_packages_require_readiness_and_distribution_signing(self):
         workflow = self.workflow("release-mobile")
         self.assertIn("workflow_dispatch", workflow)
-        self.assertIn("--component mobile --published", workflow)
-        self.assertIn("distribution remains manual", workflow)
-        self.assertNotIn("upload-artifact", workflow)
+        self.assertIn("scripts/package/mobile-release.py admit", workflow)
+        self.assertIn("needs: readiness", workflow)
+        self.assertIn("IOS_PROVISIONING_PROFILE", workflow)
+        self.assertIn("ANDROID_SIGNING_SHA256", workflow)
+        self.assertIn("upload_testflight", workflow)
+        self.assertIn("upload-artifact", workflow)
         self.assertNotIn("contents: write", workflow)
-        self.assertNotIn("push:", workflow)
+        self.assertIn("tags: ['v*']", workflow)
 
     def test_followups_verify_publication_for_both_triggers(self):
         changelog = self.workflow("changelog")
@@ -430,7 +433,7 @@ class ReleaseWorkflows(unittest.TestCase):
 
 class GateWaiting(unittest.TestCase):
     def setUp(self):
-        spec = importlib.util.spec_from_file_location("waiting_gate", ROOT / "scripts/check-release.py")
+        spec = importlib.util.spec_from_file_location("waiting_gate", ROOT / "scripts/package/publication.py")
         self.gate = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.gate)
         self.client = Mock()
@@ -443,7 +446,7 @@ class GateWaiting(unittest.TestCase):
                 return {**self.pending, "status": next(completed), "conclusion": "success"}
             return {"jobs": []} if "/jobs?" in path else {"workflow_runs": [self.pending]}
         self.client.api.side_effect = api
-        with patch.object(self.gate.publication, "ready_run", side_effect=[None, 7, 7]) as ready, \
+        with patch.object(self.gate, "ready_run", side_effect=[None, 7, 7]) as ready, \
                 patch.object(self.gate.time, "sleep") as sleep:
             self.assertEqual(self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop"), 7)
         self.assertEqual(sleep.call_count, 2)
@@ -453,14 +456,14 @@ class GateWaiting(unittest.TestCase):
     def test_rejects_terminal_failure_or_cancellation(self):
         for conclusion in ("failure", "cancelled", "success"):
             self.client.api.return_value = {"workflow_runs": [{**self.pending, "status": "completed", "conclusion": conclusion}]}
-            with self.subTest(conclusion=conclusion), patch.object(self.gate.publication, "ready_run", return_value=None), \
+            with self.subTest(conclusion=conclusion), patch.object(self.gate, "ready_run", return_value=None), \
                     patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
                 self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
             sleep.assert_not_called()
         self.client.api.side_effect = lambda method, path: (
             {**self.pending, "status": "completed", "conclusion": "failure"}
             if path.endswith("/actions/runs/7") else {"workflow_runs": [{**self.pending, "status": "completed"}]})
-        with patch.object(self.gate.publication, "ready_run", return_value=7), \
+        with patch.object(self.gate, "ready_run", return_value=7), \
                 patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
             self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
         sleep.assert_not_called()
@@ -468,14 +471,14 @@ class GateWaiting(unittest.TestCase):
             self.client.api.side_effect = lambda method, path: (
                 {"jobs": [{"name": name, "status": "completed", "conclusion": "failure"}]}
                 if "/jobs?" in path else {"workflow_runs": [self.pending]})
-            with patch.object(self.gate.publication, "ready_run", return_value=None), \
+            with patch.object(self.gate, "ready_run", return_value=None), \
                     patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
                 self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
             sleep.assert_not_called()
 
     def test_ignores_unrelated_source_and_times_out(self):
         self.client.api.return_value = {"workflow_runs": [{**self.pending, "head_sha": "b" * 40, "status": "completed"}]}
-        with patch.object(self.gate.publication, "ready_run", return_value=None), \
+        with patch.object(self.gate, "ready_run", return_value=None), \
                 patch.object(self.gate.time, "monotonic", side_effect=[0, 18000]), \
                 patch.object(self.gate.time, "sleep") as sleep, self.assertRaises(TimeoutError):
             self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")

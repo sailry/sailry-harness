@@ -290,8 +290,9 @@ the initial packages. Once both formal packages are available, the catalog
 workflow attaches signed `update-v1.json` to that exact release. Desktop discovers
 eligible versions through GitHub Releases, keeping stable and preview selection
 separate; archive URLs always identify their exact tag. Host appends its verified
-macOS and Linux assets independently. Mobile publication is not part of this
-workflow. Published tags and existing public asset bytes are never replaced.
+macOS and Linux assets independently. Mobile packaging uses its independent
+workflow described below. Published tags and existing public asset bytes are
+never replaced.
 Before reusing an unpublished candidate draft, remove unsupported attachments;
 Desktop refreshes its title and notes from the final tagged source.
 
@@ -321,6 +322,41 @@ prerelease versions, and a stable publication advances both feeds. GitHub does
 not normally start another workflow for events created with `GITHUB_TOKEN`, so
 Desktop publication explicitly dispatches the same verified feed and changelog
 handoffs. Manual dispatch can retry those follow-ups for a published version tag.
+
+The independent [Mobile packages workflow](.github/workflows/release-mobile.yml)
+runs for `v*` tags or manual dispatch from `main` or the matching version tag.
+It waits for successful full main Checks and Mobile readiness at the exact source
+before making signing credentials available. Manual dispatch selects `both`,
+`android` or `ios`; disabling `upload_testflight` preserves the signed IPA without
+uploading it. Version tags build both platforms and upload the iOS package.
+Android produces a signed ARM64 APK. Both jobs retain packages, source metadata
+and SHA-256 checksums as Actions artifacts for 30 days, independently of Desktop
+publication. These builds do not establish real-device acceptance.
+
+Mobile distribution uses these additional repository secrets:
+
+- `ANDROID_KEYSTORE_BASE64`: base64-encoded Android distribution keystore
+- `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`
+- `IOS_CERTIFICATE_P12`: base64-encoded Apple Distribution identity, including
+  its private key, exported as an Apple-compatible PKCS#12 archive
+- `IOS_CERTIFICATE_PASSWORD`: the iOS certificate export password
+- `IOS_PROVISIONING_PROFILE`: base64-encoded App Store provisioning profile for
+  `com.sailry.sailryMobile`, bound to that Distribution certificate and team
+
+Set `ANDROID_SIGNING_SHA256` to the distribution certificate's SHA-256
+fingerprint. iOS reuses `APPLE_TEAM_ID`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`
+and `APPLE_API_PRIVATE_KEY` for its team and upload authorization; the API key
+must have App Store Connect upload access. The macOS Developer ID certificate
+cannot replace the iOS Apple Distribution identity. Signing files live only in
+the runner's temporary directories and are removed even when packaging fails.
+
+The iOS marketing version uses the numeric core of the shared product version:
+`0.1.0-alpha.9+9` becomes `0.1.0` with build number `9`. Keep product versions
+aligned and increase the Mobile build number before uploading a distinct build;
+Apple will reject an already accepted version/build pair. After Apple processes
+an upload, complete any export-compliance questions and assign the build to a
+TestFlight group in App Store Connect. External testing may require Beta App
+Review. The workflow does not infer encryption declarations or invite testers.
 
 Apple silicon and Intel runners build native Desktop DMGs, updater ZIPs and
 standalone macOS Host archives. Desktop contains its local Node, not remote Host

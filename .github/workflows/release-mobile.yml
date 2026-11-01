@@ -1,36 +1,224 @@
-name: Mobile release readiness
+name: Mobile packages
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Version tag selected as the workflow ref'
-        type: string
-        required: true
+      platform:
+        description: 'Mobile packages to build from main or a version tag'
+        type: choice
+        options: [both, android, ios]
+        default: both
+      upload_testflight:
+        description: 'Upload the iOS package to App Store Connect for TestFlight'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: mobile-release-${{ github.ref }}
+  group: mobile-packages-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  CARGO_PROFILE_DEV_SPLIT_DEBUGINFO: 'off'
+  CARGO_PROFILE_TEST_SPLIT_DEBUGINFO: 'off'
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  HOMEBREW_NO_INSTALL_CLEANUP: '1'
 
 jobs:
   readiness:
-    name: Verify manual Mobile readiness
+    name: Verify exact Mobile source
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 310
+    outputs:
+      version: ${{ steps.source.outputs.version }}
+      apple_version: ${{ steps.source.outputs.apple_version }}
+      build_number: ${{ steps.source.outputs.build_number }}
+      revision: ${{ steps.source.outputs.revision }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
-      - name: Verify version and Mobile gate
+          fetch-depth: 0
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - name: Require full Checks and Mobile readiness
+        id: source
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_TAG: ${{ inputs.tag }}
+        run: python3 scripts/package/mobile-release.py admit
+
+  android:
+    name: Signed Android APK
+    needs: readiness
+    if: github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'android'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          ref: ${{ needs.readiness.outputs.revision }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - name: Android toolchain
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
+        with:
+          cmdline-tools-version: '15859902'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358'
+      - name: Android native prerequisites
         run: |
-          test "$INPUT_TAG" = "$GITHUB_REF_NAME"
-          python3 scripts/check-release.py --tag "$INPUT_TAG" --component mobile --published
-      - name: Report manual distribution status
-        run: echo 'Mobile distribution remains manual; no artifacts are published'
+          printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
+          rustup target add aarch64-linux-android
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ripgrep
+      - name: Rust dependency caches
+        uses: ./.github/actions/rust-cache
+      - name: Pinned Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get --enforce-lockfile
+      - name: Install Android distribution signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_SHA256: ${{ vars.ANDROID_SIGNING_SHA256 }}
+        run: python3 scripts/package/mobile-release.py install-android
+      - name: Build signed ARM64 APK
+        working-directory: apps/mobile
+        env:
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter build apk --release --no-pub --target-platform android-arm64
+          git diff --exit-code -- pubspec.lock
+      - name: Verify Android boundary and distribution signer
+        env:
+          SAILRY_ANDROID_API: '36'
+          RELEASE_VERSION: ${{ needs.readiness.outputs.version }}
+          RELEASE_CODE: ${{ needs.readiness.outputs.build_number }}
+          ANDROID_SIGNING_SHA256: ${{ vars.ANDROID_SIGNING_SHA256 }}
+        run: |
+          bash scripts/check-mobile-android.sh --apk apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          python3 scripts/package/verify-android.py apps/mobile/build/app/outputs/flutter-apk/app-release.apk \
+            --version "$RELEASE_VERSION" --code "$RELEASE_CODE" --certificate "$ANDROID_SIGNING_SHA256"
+          python3 scripts/package/mobile-release.py package --platform android \
+            --input apps/mobile/build/app/outputs/flutter-apk/app-release.apk --output dist/mobile-android
+      - name: Preserve signed APK and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mobile-android-${{ needs.readiness.outputs.version }}-${{ github.run_attempt }}
+          path: dist/mobile-android/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Remove Android signing files
+        if: always()
+        run: python3 scripts/package/mobile-release.py cleanup-android
+
+  ios:
+    name: Signed iOS IPA and TestFlight
+    needs: readiness
+    if: github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'ios'
+    runs-on: macos-15
+    timeout-minutes: 150
+    env:
+      CARGO_BUILD_JOBS: '2'
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          ref: ${{ needs.readiness.outputs.revision }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: '0.16.0'
+          use-cache: false
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - name: iOS native prerequisites
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          rustup target add aarch64-apple-ios
+          brew install ripgrep
+      - name: Rust dependency caches
+        uses: ./.github/actions/rust-cache
+      - name: Pinned Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get --enforce-lockfile
+      - name: Configure the iOS release
+        working-directory: apps/mobile
+        env:
+          APPLE_VERSION: ${{ needs.readiness.outputs.apple_version }}
+          RELEASE_CODE: ${{ needs.readiness.outputs.build_number }}
+        run: |
+          flutter build ios --release --config-only --no-pub --build-name "$APPLE_VERSION" --build-number "$RELEASE_CODE"
+          git diff --exit-code -- pubspec.lock
+      - name: Install iOS distribution signing
+        env:
+          IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: python3 scripts/package/ios-signing.py install
+      - name: Verify iOS Rust boundary
+        run: bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge --dependencies-only
+      - name: Archive and export signed iOS IPA
+        run: |
+          xcodebuild -workspace apps/mobile/ios/Runner.xcworkspace -scheme Runner -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$PWD/apps/mobile/build/ios/archive/Runner.xcarchive" archive
+          xcodebuild -exportArchive -archivePath "$PWD/apps/mobile/build/ios/archive/Runner.xcarchive" \
+            -exportPath "$PWD/apps/mobile/build/ios/ipa" -exportOptionsPlist "$IOS_EXPORT_OPTIONS"
+      - name: Verify and stage the iOS IPA
+        run: |
+          python3 scripts/package/ios-signing.py verify apps/mobile/build/ios/ipa
+          task_ipa=(apps/mobile/build/ios/ipa/*.ipa)
+          python3 scripts/package/mobile-release.py package --platform ios --input "${task_ipa[0]}" --output dist/mobile-ios
+      - name: Preserve signed IPA and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mobile-ios-${{ needs.readiness.outputs.version }}-${{ github.run_attempt }}
+          path: dist/mobile-ios/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload the verified IPA to TestFlight
+        if: github.event_name == 'push' || inputs.upload_testflight
+        env:
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+        run: python3 scripts/package/ios-signing.py upload "$IOS_IPA_PATH"
+      - name: Remove iOS signing files
+        if: always()
+        run: python3 scripts/package/ios-signing.py cleanup
