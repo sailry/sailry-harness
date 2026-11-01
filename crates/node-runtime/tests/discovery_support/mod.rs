@@ -60,6 +60,7 @@ impl Server {
         api: ModelApi,
         reply: impl Fn(&Request) -> Reply + Send + Sync + 'static,
     ) -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let suffix = match api {
             ModelApi::Anthropic => "",

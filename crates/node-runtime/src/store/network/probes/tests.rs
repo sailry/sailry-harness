@@ -13,6 +13,7 @@ struct Server {
 
 impl Server {
     async fn start(status: u16, hold: bool) -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let (certificates, config) =
             iroh_relay::server::testing::self_signed_tls_certs_and_config();
         let roots = sailry_link::CaTlsConfig::custom_roots(certificates);
