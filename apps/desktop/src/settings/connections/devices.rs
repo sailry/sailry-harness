@@ -1,7 +1,7 @@
 use super::*;
 use crate::preferences::Device as KnownDevice;
 use futures::{StreamExt, stream};
-use gpui_kit::component::badge::Badge;
+use gpui_kit::component::{badge::Badge, tag::Tag};
 use sailry_client::Client;
 use sailry_link::{ConnectionInfo, EndpointAddr, Route};
 use sailry_protocol::{Command, NodeId, Output};
@@ -243,12 +243,18 @@ impl Connections {
                                 "connections_offline"
                             })),
                     );
-                let route = div()
+                let route = h_flex()
                     .w(px(ROUTE_WIDTH))
                     .flex_shrink_0()
-                    .text_right()
+                    .justify_end()
                     .text_color(cx.theme().muted_foreground)
-                    .children(device.route_key().map(tr));
+                    .children(device.route_key().map(|key| {
+                        if key == "connection_route_unknown" {
+                            div().child(tr(key)).into_any_element()
+                        } else {
+                            Tag::secondary().small().child(tr(key)).into_any_element()
+                        }
+                    }));
                 let latency = div()
                     .debug_selector(move || format!("connection-latency-{id:?}"))
                     .w(px(LATENCY_WIDTH))
