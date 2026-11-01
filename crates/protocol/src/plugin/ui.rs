@@ -3,6 +3,8 @@ use super::desktop::Navigation;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod status;
+
 #[cfg(test)]
 mod tests;
 
@@ -421,7 +423,7 @@ impl State {
                 || self.value.is_null())
             && (matches!(entry.kind, Kind::Select | Kind::Picker | Kind::Menu)
                 || self.choices.is_none())
-            && (entry.kind == Kind::Metric || self.details.is_empty())
+            && (entry.kind == Kind::Metric || entry.slot == Slot::Status || self.details.is_empty())
     }
 }
 

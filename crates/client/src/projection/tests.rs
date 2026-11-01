@@ -56,6 +56,30 @@ fn duplicates_do_not_change_state() {
 }
 
 #[test]
+fn rejects_status_on_node_subscription() {
+    let node = NodeId([1; 32]);
+    let mut projection = Projection::new(node, 1);
+    let initial = snapshot(0);
+    projection
+        .apply(1, Update::Snapshot(initial.clone()))
+        .unwrap();
+    let update = Update::Status(sailry_protocol::plugin::ui::status::Snapshot {
+        node,
+        scope: sailry_protocol::plugin::ui::status::Scope {
+            worktree: None,
+            session: Some(sailry_protocol::SessionId::new()),
+        },
+        entries: vec![],
+        failures: vec![],
+    });
+    assert_eq!(
+        projection.apply(1, update).unwrap_err().code,
+        sailry_protocol::ErrorCode::InvalidRequest
+    );
+    assert_eq!(projection.snapshot(), Some(&initial));
+}
+
+#[test]
 fn snapshot_covers_buffered_events() {
     let mut state = snapshot(3);
     state.defaults.revision = 3;

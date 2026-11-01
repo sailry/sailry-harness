@@ -222,6 +222,93 @@ fn details_accept_bounded_optional_progress() {
     assert!(!state.valid(&entry));
 }
 
+mod status {
+    use super::*;
+
+    #[test]
+    fn details_keep_existing_bounds() {
+        for kind in [Kind::Button, Kind::Popover] {
+            let mut entry = contribution(Slot::Status, kind);
+            let mut state = State::pending(&entry);
+            state.details = serde_json::from_value(json!([
+                {"label": {"label": "Files"}, "value": "3"},
+                {"label": {"label": "Progress"}, "value": "50%", "progress": 50}
+            ]))
+            .unwrap();
+            assert!(state.valid(&entry));
+            assert!(super::super::status::valid(&state, &entry));
+            state.details[0].value = "x".repeat(4097);
+            assert!(!super::super::status::valid(&state, &entry));
+            state.details[0].value = "3".into();
+            state.details[1].progress = Some(101.into());
+            assert!(!super::super::status::valid(&state, &entry));
+            state.details[1].progress = Some(50.into());
+            entry.slot = Slot::Context;
+            assert!(!state.valid(&entry));
+        }
+    }
+
+    #[test]
+    fn rejects_controller_owned_state() {
+        for kind in [Kind::Button, Kind::Popover] {
+            let entry = contribution(Slot::Status, kind);
+            let state = State::pending(&entry);
+            assert!(super::super::status::valid(&state, &entry));
+            let mut changed = state.clone();
+            changed.reply_to = Some(1);
+            assert!(!super::super::status::valid(&changed, &entry));
+            for value in [json!(true), json!("Tooltip"), json!(5)] {
+                let mut changed = state.clone();
+                changed.value = value;
+                assert!(!super::super::status::valid(&changed, &entry));
+            }
+            let mut changed = state.clone();
+            changed.choices = Some(vec![]);
+            assert!(!super::super::status::valid(&changed, &entry));
+            let mut changed = state.clone();
+            changed.scope = Some(ProviderScope {
+                provider: crate::ProviderId::new(),
+                revision: "1:1".into(),
+                credential: crate::CredentialRef {
+                    node: crate::NodeId([1; 32]),
+                    id: crate::CredentialId::new(),
+                },
+            });
+            assert!(!super::super::status::valid(&changed, &entry));
+            let mut changed = state.clone();
+            changed.id = "another".into();
+            assert!(!super::super::status::valid(&changed, &entry));
+            let mut other = entry.clone();
+            other.slot = Slot::Composer;
+            assert!(state.valid(&other));
+            assert!(!super::super::status::valid(&state, &other));
+        }
+    }
+
+    #[test]
+    fn scope_requires_a_captured_resource() {
+        use super::super::status::Scope;
+        let mut scope = Scope {
+            worktree: None,
+            session: None,
+        };
+        assert!(!scope.valid());
+        scope.worktree = Some(crate::WorktreeId::new());
+        assert!(scope.valid());
+        scope.session = Some(crate::SessionId::new());
+        assert!(scope.valid());
+        scope.worktree = None;
+        assert!(scope.valid());
+        assert!(
+            serde_json::from_value::<Scope>(json!({
+                "session": scope.session,
+                "provider": crate::ProviderId::new()
+            }))
+            .is_err()
+        );
+    }
+}
+
 mod metric_width {
     use super::*;
 

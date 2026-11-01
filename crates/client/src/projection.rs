@@ -82,6 +82,7 @@ impl Projection {
             Update::Python { .. }
             | Update::Installations { .. }
             | Update::Commands { .. }
+            | Update::Status(_)
             | Update::BrowserCall(_)
             | Update::ProviderLogin(_)
             | Update::ConnectorLogin(_)

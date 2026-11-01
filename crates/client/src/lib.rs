@@ -22,6 +22,7 @@ pub mod ports;
 mod projection;
 pub mod python;
 pub mod sessions;
+pub mod status;
 mod telemetry;
 pub mod terminal;
 mod transfers;

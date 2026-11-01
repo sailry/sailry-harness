@@ -22,6 +22,30 @@ pub struct Manifest {
     pub turn: Option<Turn>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<Command>,
+    /// Node-computed state for the package's Status contributions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<Status>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Status {
+    /// A read-only export returning Status states for the captured scope.
+    pub read: String,
+    /// Optional durable export receiving Button invocations from any controller.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invoke: Option<String>,
+    /// Node signals that re-evaluate the read export for a subscribed scope.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<Change>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Change {
+    Package,
+    Conversation,
+    Repository,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -63,6 +87,18 @@ impl Manifest {
                         .as_ref()
                         .is_none_or(|name| self.handlers.contains(name))
             })
+            && self.status.as_ref().is_none_or(|status| {
+                self.read_only.contains(&status.read)
+                    && status.invoke.as_ref().is_none_or(|handler| {
+                        self.handlers.contains(handler) && !self.read_only.contains(handler)
+                    })
+                    && status.changes.len() <= 3
+                    && status
+                        .changes
+                        .iter()
+                        .enumerate()
+                        .all(|(index, change)| !status.changes[..index].contains(change))
+            })
             && self.resources.contains(&self.entry)
             && !self.resources.is_empty()
             && self.resources.len() <= 64
@@ -101,6 +137,7 @@ mod tests {
             read_only: Vec::new(),
             turn: None,
             commands: Vec::new(),
+            status: None,
         };
         assert!(manifest.valid());
         for path in [
@@ -137,6 +174,7 @@ mod tests {
                 name: "task".into(),
                 handler: "run".into(),
             }],
+            status: None,
         };
         assert!(manifest.valid());
         manifest.commands.push(manifest.commands[0].clone());
@@ -161,6 +199,7 @@ mod tests {
         }))
         .unwrap();
         assert!(manifest.read_only.is_empty());
+        assert!(manifest.status.is_none());
         for handlers in [vec!["read"], vec!["read", "write"]] {
             manifest.read_only = handlers.into_iter().map(str::to_owned).collect();
             assert!(manifest.valid());
@@ -181,5 +220,78 @@ mod tests {
             }
             .durable()
         );
+    }
+
+    mod status {
+        use super::*;
+
+        fn manifest() -> Manifest {
+            serde_json::from_value(serde_json::json!({
+                "entry": "dev.sailry.platform/main.js",
+                "resources": ["dev.sailry.platform/main.js"],
+                "handlers": ["read", "invoke"],
+                "read_only": ["read"],
+                "status": {"read": "read"}
+            }))
+            .unwrap()
+        }
+
+        #[test]
+        fn exports_respect_read_only_boundary() {
+            let mut manifest = manifest();
+            assert!(manifest.valid());
+            manifest.status.as_mut().unwrap().invoke = Some("invoke".into());
+            assert!(manifest.valid());
+            for read in ["invoke", "missing"] {
+                manifest.status.as_mut().unwrap().read = read.into();
+                assert!(!manifest.valid());
+            }
+            manifest.status.as_mut().unwrap().read = "read".into();
+            for invoke in ["read", "missing"] {
+                manifest.status.as_mut().unwrap().invoke = Some(invoke.into());
+                assert!(!manifest.valid());
+            }
+        }
+
+        #[test]
+        fn changes_are_unique_and_bounded() {
+            let mut manifest = manifest();
+            for changes in [
+                vec![],
+                vec![Change::Package],
+                vec![Change::Package, Change::Conversation, Change::Repository],
+            ] {
+                manifest.status.as_mut().unwrap().changes = changes;
+                assert!(manifest.valid());
+            }
+            for changes in [
+                vec![Change::Conversation, Change::Conversation],
+                vec![
+                    Change::Package,
+                    Change::Conversation,
+                    Change::Repository,
+                    Change::Package,
+                ],
+            ] {
+                manifest.status.as_mut().unwrap().changes = changes;
+                assert!(!manifest.valid());
+            }
+            assert_eq!(
+                serde_json::to_value([Change::Package, Change::Conversation, Change::Repository])
+                    .unwrap(),
+                serde_json::json!(["package", "conversation", "repository"])
+            );
+        }
+
+        #[test]
+        fn schema_exposes_host_declaration() {
+            let schema = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
+            assert!(schema["properties"].get("status").is_some());
+            let schema = serde_json::to_value(schemars::schema_for!(Status)).unwrap();
+            assert_eq!(schema["properties"]["read"]["type"], "string");
+            for property in ["invoke", "changes"] {
+                assert!(schema["properties"].get(property).is_some());
+            }
+        }
     }
 }

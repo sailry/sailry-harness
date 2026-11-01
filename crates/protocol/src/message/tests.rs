@@ -314,6 +314,44 @@ mod subscriptions {
         assert_eq!(topic, Topic::ScopedInstallations(Box::new(request)));
         assert_eq!(serde_json::to_value(topic).unwrap(), wire);
     }
+
+    #[test]
+    fn round_trips_scoped_status() {
+        let scope = crate::plugin::ui::status::Scope {
+            worktree: Some(WorktreeId::new()),
+            session: Some(SessionId::new()),
+        };
+        let wire = json!({"kind": "status", "data": scope});
+        let topic: Topic = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(topic, Topic::Status(scope));
+        assert_eq!(serde_json::to_value(topic).unwrap(), wire);
+        let snapshot = serde_json::from_value(json!({
+            "node": NodeId([7; 32]),
+            "scope": scope,
+            "entries": [{
+                "package": {"name": "fixture", "digest": "captured", "settings_revision": 3},
+                "declaration": {
+                    "id": "badge", "slot": "status", "kind": "button",
+                    "label": {"label": "Badge"}, "handler": "desktop"
+                },
+                "state": {
+                    "id": "badge", "details": [{"label": {"label": "Files"}, "value": "3"}]
+                },
+                "invoke": "activate"
+            }],
+            "failures": [{
+                "package": {"name": "another", "digest": "captured", "settings_revision": 2},
+                "fault": Fault::new(ErrorCode::Unavailable, "status unavailable")
+            }]
+        }))
+        .unwrap();
+        let update = Update::Status(snapshot);
+        let wire = serde_json::to_value(&update).unwrap();
+        assert_eq!(wire["kind"], "status");
+        assert_eq!(wire["data"]["scope"], serde_json::to_value(scope).unwrap());
+        assert_eq!(serde_json::from_value::<Update>(wire).unwrap(), update);
+        assert_eq!(crate::VERSION, 1);
+    }
 }
 
 mod receipts {
