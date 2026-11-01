@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/toast.dart';
+import 'choice_row.dart';
 import 'model_controls.dart';
-import '../../../ui/form.dart';
+import '../../../ui/kit.dart';
 import 'modes.dart';
 import 'team.dart';
 import 'presentation.dart' show failureLabel;
@@ -88,43 +89,82 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
     final colors = Theme.of(context).colorScheme;
     final config = widget.config;
     final selectedMode = _modes.selected(config);
-    final pluginModes = _modes.choices(config);
-    Widget choices(
-      String field,
-      List<(String, String)> values,
-    ) => SegmentedButton<String>(
-      key: ValueKey('configuration-$field'),
-      expandedInsets: EdgeInsets.zero,
-      showSelectedIcon: false,
-      emptySelectionAllowed: field == 'mode',
-      segments: [
-        for (final (value, label) in values)
-          ButtonSegment(value: value, label: Text(context.tr(label))),
-        if (field == 'mode')
-          for (final mode in pluginModes)
-            ButtonSegment(
-              value: mode.key,
-              label: Text(mode.label(Localizations.localeOf(context))),
-              enabled: mode.enabled,
-            ),
-      ],
-      selected: field == 'mode' ? {?selectedMode} : {config[field] as String},
-      onSelectionChanged: widget.enabled && (field != 'mode' || _modes.ready)
-          ? (selection) {
-              if (selection.isEmpty) return;
-              final next = field == 'mode'
-                  ? _modes.select(config, selection.single)
-                  : {...config, field: selection.single};
-              if (next != null) _commit(next);
-            }
-          : null,
-      style: SegmentedButton.styleFrom(
-        side: BorderSide.none,
-        backgroundColor: colors.surfaceContainer,
-        selectedBackgroundColor: colors.surfaceContainerHigh,
-        selectedForegroundColor: colors.onSurface,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+    final modes = [
+      for (final (value, label) in const [
+        ('code', 'conversationCode'),
+        ('plan', 'conversationPlan'),
+        ('flagship', 'conversationFlagship'),
+      ])
+        (value, context.tr(label), true),
+      for (final mode in _modes.choices(config))
+        (mode.key, mode.label(Localizations.localeOf(context)), mode.enabled),
+    ];
+    final current = modes.where((mode) => mode.$1 == selectedMode).firstOrNull;
+    Widget choices(String field, List<(String, String)> values) =>
+        SegmentedButton<String>(
+          key: ValueKey('configuration-$field'),
+          expandedInsets: EdgeInsets.zero,
+          showSelectedIcon: false,
+          segments: [
+            for (final (value, label) in values)
+              ButtonSegment(value: value, label: Text(context.tr(label))),
+          ],
+          selected: {config[field] as String},
+          onSelectionChanged: widget.enabled
+              ? (selection) => _commit({...config, field: selection.single})
+              : null,
+          style: SegmentedButton.styleFrom(
+            side: BorderSide.none,
+            backgroundColor: colors.surfaceContainer,
+            selectedBackgroundColor: colors.surfaceContainerHigh,
+            selectedForegroundColor: colors.onSurface,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          ),
+        );
+    // Plugin packages can add modes, so a list scales where segments would not.
+    final mode = ListTile(
+      key: const ValueKey('configuration-mode'),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      enabled: widget.enabled && _modes.ready,
+      title: Text(context.tr('conversationMode')),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            current?.$2 ?? '',
+            style: TextStyle(color: colors.onSurfaceVariant),
+          ),
+          const SizedBox(width: 6),
+          AppIcon('chevron', size: 14, color: colors.onSurfaceVariant),
+        ],
       ),
+      onTap: () async {
+        final key = await showAppSheet<String>(
+          context,
+          context.tr('conversationMode'),
+          child: Builder(
+            builder: (sheet) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final (value, label, enabled) in modes)
+                  Opacity(
+                    opacity: enabled ? 1 : .45,
+                    child: ChoiceRow(
+                      label: label,
+                      selected: value == selectedMode,
+                      onTap: enabled
+                          ? () => Navigator.pop(sheet, value)
+                          : () {},
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+        if (key == null || key == selectedMode || !mounted) return;
+        final next = _modes.select(widget.config, key);
+        if (next != null) _commit(next);
+      },
     );
     return FormBody(
       children: [
@@ -136,11 +176,7 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
           onCommitted: widget.onCommitted,
           team: widget.team,
         ),
-        choices('mode', [
-          ('code', 'conversationCode'),
-          ('plan', 'conversationPlan'),
-          ('flagship', 'conversationFlagship'),
-        ]),
+        mode,
         choices('permission', [
           ('ask', 'conversationAsk'),
           ('project', 'conversationProject'),
