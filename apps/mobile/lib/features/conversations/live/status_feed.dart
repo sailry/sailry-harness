@@ -18,7 +18,7 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
   StatusUpdates? _updates;
   bool _watching = false;
   bool _closed = false;
-  final _running = <String>{};
+  final _running = <String, Object>{};
   final _requests = <String, ({String request, Map<String, dynamic> entry})>{};
 
   static String _scope(Map<String, dynamic> session) =>
@@ -33,20 +33,24 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
     return StatusFeed(host, session);
   }
 
+  @override
+  set value(Map<String, dynamic> view) {
+    final captures = objects(view['entries']).map(_key).toSet();
+    _requests.removeWhere((key, _) => !captures.contains(key));
+    // Retiring a capture also invalidates its eventual command completion.
+    _running.removeWhere((key, _) => !captures.contains(key));
+    super.value = view;
+  }
+
   bool get connected => host.connected && value['connected'] == true;
   List<Map<String, dynamic>> get entries {
     final entries = <Map<String, dynamic>>[];
-    final seen = <String>{};
     for (final entry in objects(value['entries'])) {
       final key = _key(entry);
       if (object(entry['state'])['visible'] == true ||
           _requests.containsKey(key)) {
         entries.add(_requests[key]?.entry ?? entry);
-        seen.add(key);
       }
-    }
-    for (final pending in _requests.entries) {
-      if (!seen.contains(pending.key)) entries.add(pending.value.entry);
     }
     return entries;
   }
@@ -70,7 +74,8 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
   bool retry(Map<String, dynamic> entry) => _requests.containsKey(_key(entry));
 
   bool enabled(Map<String, dynamic> entry) {
-    if (_closed || !connected || _running.contains(_key(entry))) return false;
+    if (_closed || !connected || _running.containsKey(_key(entry)))
+      return false;
     if (retry(entry)) return true;
     final selected = current(entry);
     final state = object(selected?['state']);
@@ -108,7 +113,8 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
     final key = _key(entry);
     final selected = current(entry)!;
     var request = _requests[key]?.request;
-    _running.add(key);
+    final operation = Object();
+    _running[key] = operation;
     notifyListeners();
     try {
       request ??= await host.connection.prepareStatus(
@@ -116,19 +122,20 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
         entry: jsonEncode(selected),
       );
       await host.execute(request);
-      _requests.remove(key);
+      if (identical(_running[key], operation)) _requests.remove(key);
     } catch (failure) {
-      if (!_closed &&
-          request != null &&
-          failure is CommandFailure &&
-          failure.code == 'outcome_unknown') {
-        _requests[key] = (request: request, entry: selected);
-      } else {
-        _requests.remove(key);
+      if (!_closed && identical(_running[key], operation)) {
+        if (request != null &&
+            failure is CommandFailure &&
+            failure.code == 'outcome_unknown') {
+          _requests[key] = (request: request, entry: selected);
+        } else {
+          _requests.remove(key);
+        }
       }
       rethrow;
     } finally {
-      _running.remove(key);
+      if (identical(_running[key], operation)) _running.remove(key);
       if (!_closed) notifyListeners();
     }
   }
@@ -137,6 +144,7 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
   void dispose() {
     _closed = true;
     _requests.clear();
+    _running.clear();
     final updates = _updates;
     if (updates != null) unawaited(updates.close());
     super.dispose();

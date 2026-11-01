@@ -164,8 +164,9 @@ void main() {
         'connected': true,
         'entries': [replacement],
       };
-      expect(feed.entries, hasLength(2));
-      expect(feed.enabled(entry()), isTrue);
+      expect(feed.entries, [replacement]);
+      expect(feed.enabled(entry()), isFalse);
+      expect(feed.retry(entry()), isFalse);
       expect(feed.retry(replacement), isFalse);
       transport.respond = null;
       await feed.invoke(replacement);
@@ -173,7 +174,7 @@ void main() {
       expect(transport.executed, ['request-1', 'request-2']);
       await feed.invoke(entry());
       expect(transport.prepared, hasLength(2));
-      expect(transport.executed, ['request-1', 'request-2', 'request-1']);
+      expect(transport.executed, ['request-1', 'request-2']);
       feed.dispose();
     }
   });
@@ -182,7 +183,6 @@ void main() {
     for (final state in [
       {'id': 'action', 'visible': false, 'enabled': true},
       {'id': 'action', 'visible': true, 'enabled': false},
-      null,
     ]) {
       final (feed, transport) = fixture();
       transport.respond = (_) async => jsonEncode({
@@ -192,7 +192,7 @@ void main() {
       feed.value = {
         'connected': true,
         'entries': [
-          if (state != null) {...entry(), 'state': state},
+          {...entry(), 'state': state},
         ],
       };
       expect(feed.entries.single, entry());
@@ -212,20 +212,88 @@ void main() {
     }
   });
 
+  test('removed captures discard uncertain requests', () async {
+    final (feed, transport) = fixture();
+    transport.respond = (_) async => jsonEncode({
+      'Err': {'code': 'outcome_unknown'},
+    });
+    await expectLater(feed.invoke(entry()), throwsA(isA<CommandFailure>()));
+    feed.value = {'connected': true, 'entries': []};
+    expect(feed.entries, isEmpty);
+    expect(feed.retry(entry()), isFalse);
+    expect(feed.enabled(entry()), isFalse);
+    await feed.invoke(entry());
+    expect(transport.prepared, hasLength(1));
+    expect(transport.executed, ['request-1']);
+    feed.dispose();
+  });
+
+  test('late uncertainty cannot restore retired captures', () async {
+    for (final change in ['removed', 'updated', 'returned']) {
+      final (feed, transport) = fixture();
+      final response = Completer<String>();
+      transport.respond = (_) => response.future;
+      final action = feed.invoke(entry());
+      await Future<void>.delayed(Duration.zero);
+      final replacement = entry(digest: 'updated');
+      feed.value = {
+        'connected': true,
+        'entries': [if (change == 'updated') replacement],
+      };
+      if (change == 'returned') {
+        feed.value = {
+          'connected': true,
+          'entries': [entry()],
+        };
+      }
+      response.complete(
+        jsonEncode({
+          'Err': {'code': 'outcome_unknown'},
+        }),
+      );
+      await expectLater(action, throwsA(isA<CommandFailure>()));
+      expect(feed.retry(entry()), isFalse);
+      expect(transport.prepared, hasLength(1));
+      expect(transport.executed, ['request-1']);
+      if (change == 'removed') {
+        expect(feed.entries, isEmpty);
+        expect(feed.enabled(entry()), isFalse);
+      } else if (change == 'updated') {
+        expect(feed.entries, [replacement]);
+        expect(feed.enabled(entry()), isFalse);
+        expect(feed.retry(replacement), isFalse);
+      } else {
+        expect(feed.entries, [entry()]);
+        expect(feed.enabled(entry()), isTrue);
+      }
+      feed.dispose();
+    }
+  });
+
   test('uncertain retries wait for an idle connection', () async {
     final (feed, transport) = fixture();
     transport.respond = (_) async => jsonEncode({
       'Err': {'code': 'outcome_unknown'},
     });
     await expectLater(feed.invoke(entry()), throwsA(isA<CommandFailure>()));
+    final hidden = {
+      ...entry(),
+      'state': {'id': 'action', 'visible': false, 'enabled': false},
+    };
     feed.host.connected = false;
-    feed.value = {'connected': false, 'entries': []};
+    feed.value = {
+      'connected': false,
+      'entries': [hidden],
+    };
     expect(feed.entries, hasLength(1));
     expect(feed.enabled(entry()), isFalse);
     await feed.invoke(entry());
     expect(transport.executed, ['request-1']);
     feed.host.connected = true;
-    feed.value = {'connected': true, 'entries': []};
+    feed.value = {
+      'connected': true,
+      'entries': [hidden],
+    };
     await Future<void>.delayed(Duration.zero);
     expect(transport.executed, ['request-1']);
     final response = Completer<String>();
@@ -259,7 +327,16 @@ void main() {
         'Err': {'code': 'outcome_unknown'},
       });
       await expectLater(feed.invoke(entry()), throwsA(isA<CommandFailure>()));
-      feed.value = {'connected': true, 'entries': []};
+      feed.value = {
+        'connected': true,
+        'entries': [
+          {
+            ...entry(),
+            'state': {'id': 'action', 'visible': false, 'enabled': false},
+          },
+        ],
+      };
+      expect(feed.retry(entry()), isTrue);
       final nextTransport = change == 'host' ? Transport() : transport;
       final host = change == 'host'
           ? HostConnection.test(
