@@ -243,8 +243,8 @@ impl Registry {
         } else if entry.declaration.slot == Slot::Status {
             button = button
                 .when_some(
-                    entry.state.value.as_str().filter(|text| !text.is_empty()),
-                    |button, hint| button.tooltip(hint.to_owned()),
+                    status::tooltip(&entry.state.details, &rust_i18n::locale()),
+                    |button, hint| button.tooltip(hint),
                 )
                 .outline()
                 .small()

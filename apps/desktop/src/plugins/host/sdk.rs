@@ -51,6 +51,7 @@ impl Host {
         let complete = self.clone();
         let forget = self.clone();
         let publish = self.clone();
+        let close_contribution = self.clone();
         let events = self.clone();
         let http = self.clone();
         let provider_http = self.clone();
@@ -120,6 +121,12 @@ impl Host {
                 let bridge = publish.contributions.as_ref().ok_or_else(|| HostError::new("plugin has no contribution surface"))?;
                 let states = serde_json::from_value(decode(args.value(0)?)?).map_err(|error| HostError::new(error.to_string()))?;
                 bridge.publish(states).map_err(HostError::new)?;
+                Ok(HostValue::Null)
+            })
+            .function("closeContribution", move |args| {
+                close_contribution.check()?;
+                let bridge = close_contribution.contributions.as_ref().ok_or_else(|| HostError::new("plugin has no contribution surface"))?;
+                bridge.close(args.string(0)?).map_err(HostError::new)?;
                 Ok(HostValue::Null)
             })
             .async_function("nextContributionEvent", move |_| {

@@ -18,17 +18,19 @@ pub(crate) fn request(
     window.spawn(cx, async move |cx| {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let result = registry.update(cx, |registry, cx| {
-                if (registry.node, registry.worktree, registry.session) != scope {
-                    return Some(Err("contribution context changed".to_owned()));
-                }
-                registry.intent_ready(&intent, cx).then(|| match &value {
-                    Some(value) => registry
-                        .invoke_intent(&intent, value.clone(), cx)
-                        .map(|_| Value::Bool(true)),
-                    None => Ok(Value::Bool(registry.intent(&intent, cx).is_some())),
+            let result = registry
+                .update_in(cx, |registry, window, cx| {
+                    if (registry.node, registry.worktree, registry.session) != scope {
+                        return Some(Err("contribution context changed".to_owned()));
+                    }
+                    registry.intent_ready(&intent, cx).then(|| match &value {
+                        Some(value) => registry
+                            .invoke_intent(&intent, value.clone(), window, cx)
+                            .map(|_| Value::Bool(true)),
+                        None => Ok(Value::Bool(registry.intent(&intent, cx).is_some())),
+                    })
                 })
-            });
+                .map_err(|_| "contribution window is closed".to_owned())?;
             if let Some(result) = result {
                 return result;
             }

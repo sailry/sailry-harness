@@ -6,6 +6,7 @@ pub(crate) mod intents;
 pub(crate) mod native;
 mod options;
 mod picker;
+mod status;
 pub(crate) use controls::Form;
 
 use crate::{
@@ -91,6 +92,7 @@ pub(crate) struct Registry {
     catalog_received: bool,
     _metadata: Subscription,
     mounted: BTreeMap<String, Mounted>,
+    status: Option<status::Feed>,
 }
 
 impl EventEmitter<Event> for Registry {}
@@ -120,6 +122,7 @@ impl Registry {
             mounted.panel.update(cx, |panel, cx| panel.close(cx));
         }
         self.mounted.clear();
+        self.status = None;
         self.metadata.update(cx, |metadata, cx| metadata.close(cx));
         cx.notify();
     }
@@ -168,6 +171,7 @@ impl Registry {
             catalog_received: false,
             _metadata: observe,
             mounted: BTreeMap::new(),
+            status: None,
         }
     }
 
@@ -263,6 +267,9 @@ impl Registry {
     }
 
     pub(super) fn intent_ready(&self, intent: &str, cx: &App) -> bool {
+        if let Some(ready) = self.status_intent_ready(intent, cx) {
+            return ready;
+        }
         let owners = self
             .mounted
             .values()
@@ -271,7 +278,9 @@ impl Registry {
                     .bridge
                     .declarations
                     .iter()
-                    .filter(|entry| entry.intent.as_deref() == Some(intent))
+                    .filter(|entry| {
+                        entry.slot != Slot::Status && entry.intent.as_deref() == Some(intent)
+                    })
                     .min_by_key(|entry| !self.accepts(entry.slot))?;
                 Some((mounted, declaration))
             })
@@ -344,6 +353,9 @@ impl Registry {
 
     pub(crate) fn intent(&self, intent: impl AsRef<str>, cx: &App) -> Option<Entry> {
         let intent = intent.as_ref();
+        if let Some(entry) = self.status_intent(intent, cx) {
+            return Some(entry);
+        }
         self.mounted
             .values()
             .filter(|mounted| mounted.active(cx))
@@ -352,7 +364,9 @@ impl Registry {
                     .bridge
                     .declarations
                     .iter()
-                    .filter(|entry| entry.intent.as_deref() == Some(intent))
+                    .filter(|entry| {
+                        entry.slot != Slot::Status && entry.intent.as_deref() == Some(intent)
+                    })
                     .min_by_key(|entry| !self.accepts(entry.slot))?;
                 let state = mounted
                     .bridge
@@ -377,11 +391,15 @@ impl Registry {
         &mut self,
         intent: impl AsRef<str>,
         value: serde_json::Value,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let entry = self
             .intent(intent, cx)
             .ok_or_else(|| "contribution is unavailable".to_owned())?;
+        if entry.declaration.slot == Slot::Status {
+            return self.invoke_status(&entry.key, ui::EventKind::Invoke, value, window, cx);
+        }
         let result = self
             .current(&entry.key)
             .ok_or_else(|| "contribution context changed".to_owned())?
@@ -468,6 +486,7 @@ impl Registry {
             self.visible.set(visible);
             self.session = id;
         }
+        self.sync_status(binding, cx);
         let Some(snapshot) = snapshot.filter(|_| connected) else {
             if let Some(source) = &self.providers {
                 source.update(cx, |source, cx| source.accept(&[], &[], &[], false, cx));
@@ -506,6 +525,10 @@ impl Registry {
                 let extension = info.extension.as_ref()?;
                 (info.summary.available()
                     && extension.ui.iter().any(|entry| self.accepts(entry.slot))
+                    && extension
+                        .desktop
+                        .as_ref()
+                        .is_some_and(|desktop| desktop.ui_entry.is_some())
                     && assistant.map_or(extension.scope == Scope::Host, |binding| {
                         binding.package.name == info.summary.name
                             || extension.scope == Scope::Host
@@ -581,15 +604,21 @@ impl Registry {
             let mut updates = bridge.subscribe();
             let states = updates.borrow().clone();
             let expected = package.clone();
+            let events = bridge.clone();
+            let scope = (self.node, self.worktree, self.session);
             let task = cx.spawn(async move |registry, cx| {
                 while updates.changed().await.is_ok() {
                     let states = updates.borrow_and_update().clone();
+                    let closed = events.take_closed();
                     if registry
                         .update(cx, |registry, cx| {
                             if let Some(mounted) = registry.mounted.get_mut(&expected.name)
                                 && mounted.package == expected
                             {
                                 mounted.states = states;
+                                if (registry.node, registry.worktree, registry.session) == scope {
+                                    registry.close_status(&expected, closed);
+                                }
                                 cx.notify();
                             }
                         })
@@ -631,6 +660,9 @@ impl Registry {
     pub fn entries(&self, slot: Slot, cx: &App) -> Vec<Entry> {
         if !self.accepts(slot) {
             return Vec::new();
+        }
+        if slot == Slot::Status {
+            return self.status_entries(cx);
         }
         let mut entries = Vec::new();
         for mounted in self.mounted.values() {
@@ -778,6 +810,13 @@ impl Registry {
     }
 
     fn entry(&self, key: &Key, cx: &App) -> Option<Entry> {
+        if let Some(entry) = self
+            .status_entries(cx)
+            .into_iter()
+            .find(|entry| entry.key == *key)
+        {
+            return Some(entry);
+        }
         let declaration = self
             .current(key)?
             .bridge
@@ -797,6 +836,19 @@ impl Registry {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.status.as_ref().is_some_and(|feed| feed.contains(key)) {
+            let result = self.invoke_status(key, kind, value, window, cx);
+            if let Err(error) = result {
+                crate::feedback::error(
+                    "plugins_failed",
+                    &crate::tr("plugins_failed"),
+                    &error,
+                    window,
+                    cx,
+                );
+            }
+            return;
+        }
         let result = self
             .current(key)
             .filter(|mounted| mounted.active(cx))

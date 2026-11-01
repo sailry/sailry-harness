@@ -562,3 +562,85 @@ fn retains_empty_indicators_without_placeholder_labels() {
         assert!(state.label.is_none());
     }
 }
+
+mod status {
+    use super::*;
+
+    fn bridge() -> Arc<Bridge> {
+        Bridge::new(serde_json::from_value(json!([
+            {"id": "button", "slot": "status", "kind": "button", "label": {"label": "Open"}, "handler": "open"},
+            {"id": "details", "slot": "status", "kind": "popover", "label": {"label": "Details"}, "handler": "details"},
+            {"id": "normal", "slot": "composer", "kind": "button", "label": {"label": "Normal"}, "handler": "normal"}
+        ])).unwrap())
+    }
+
+    #[test]
+    fn rejects_publication_without_partial_updates() {
+        let bridge = bridge();
+        assert!(bridge.state("button").is_none());
+        assert!(bridge.state("details").is_none());
+        let pending = bridge.state("normal").unwrap();
+        assert_eq!(
+            bridge.publish(vec![
+                state(json!({"id": "normal"})),
+                state(json!({"id": "button"})),
+            ]),
+            Err("status state is owned by the execution Node")
+        );
+        assert_eq!(bridge.state("normal").unwrap(), pending);
+        assert!(!bridge.ready());
+    }
+
+    #[tokio::test]
+    async fn forwards_without_state_or_reply_barriers() {
+        let bridge = bridge();
+        for (id, kind, value) in [
+            ("button", EventKind::Invoke, Value::Null),
+            ("details", EventKind::Invoke, Value::Null),
+            ("details", EventKind::Change, json!(true)),
+            ("details", EventKind::Change, json!(false)),
+        ] {
+            bridge.forward(id, kind, value.clone()).unwrap();
+            let event = bridge.next().await.unwrap();
+            assert_eq!(event.id, id);
+            assert_eq!(event.kind, kind);
+            assert_eq!(event.value, value);
+            assert!(bridge.state(id).is_none());
+        }
+        assert_eq!(bridge.current.lock().unwrap().sequence, 4);
+        assert!(bridge.current.lock().unwrap().interactions.is_empty());
+        for (id, kind, value) in [
+            ("missing", EventKind::Invoke, Value::Null),
+            ("normal", EventKind::Invoke, Value::Null),
+            ("button", EventKind::Change, json!(true)),
+            ("button", EventKind::Invoke, json!({"unexpected": true})),
+            ("details", EventKind::Change, json!("open")),
+            ("details", EventKind::Search, json!("query")),
+        ] {
+            assert!(bridge.forward(id, kind, value).is_err());
+        }
+        assert_eq!(bridge.current.lock().unwrap().sequence, 4);
+    }
+
+    #[test]
+    fn close_commands_are_scoped_bounded_and_drained() {
+        let bridge = bridge();
+        let mut updates = bridge.subscribe();
+        let states = updates.borrow_and_update().clone();
+        for id in ["missing", "button", "normal"] {
+            assert!(bridge.close(id).is_err());
+        }
+        assert!(!updates.has_changed().unwrap());
+        for _ in 0..100 {
+            bridge.close("details").unwrap();
+        }
+        assert!(updates.has_changed().unwrap());
+        assert_eq!(*updates.borrow_and_update(), states);
+        assert_eq!(bridge.take_closed(), BTreeSet::from(["details".into()]));
+        assert!(bridge.take_closed().is_empty());
+        bridge.close("details").unwrap();
+        bridge.restart();
+        assert!(bridge.take_closed().is_empty());
+        assert!(!bridge.ready());
+    }
+}

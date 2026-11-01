@@ -113,7 +113,10 @@ export type ContributionEvent = {
   sequence: number; id: string; handler: string; kind: "invoke" | "change" | "search";
   value: string | number | boolean | null;
 };
+/** Status state belongs to the execution Node; publishing a Status id is rejected. */
 export function publishContributions(states: ContributionState[]): void;
+/** Close this controller's declared Status popover without changing its Node state. */
+export function closeContribution(id: string): void;
 export function nextContributionEvent(): Promise<ContributionEvent>;
 /** The captured session only; credentials remain on its execution Node. */
 export function readSession(): Promise<{ id: string; revision: string; config: Json } & Record<string, Json>>;

@@ -23,6 +23,7 @@ struct Current {
     retained: BTreeSet<String>,
     scopes: Vec<ui::ProviderScope>,
     interactions: BTreeMap<String, Interaction>,
+    closed: BTreeSet<String>,
 }
 
 struct Interaction {
@@ -34,6 +35,7 @@ impl Bridge {
     pub fn new(declarations: Vec<Contribution>) -> Arc<Self> {
         let values = declarations
             .iter()
+            .filter(|entry| entry.slot != ui::Slot::Status)
             .map(|entry| (entry.id.clone(), State::pending(entry)))
             .collect();
         let (updates, _) = watch::channel(values);
@@ -49,6 +51,7 @@ impl Bridge {
                 retained: BTreeSet::new(),
                 scopes: vec![],
                 interactions: BTreeMap::new(),
+                closed: BTreeSet::new(),
             }),
         })
     }
@@ -99,6 +102,7 @@ impl Bridge {
         if let Ok(mut current) = self.current.lock() {
             current.published.clear();
             current.interactions.clear();
+            current.closed.clear();
             if let Ok(mut receiver) = self.receiver.try_lock() {
                 while receiver.try_recv().is_ok() {}
             }
@@ -126,6 +130,9 @@ impl Bridge {
                 .iter()
                 .find(|entry| entry.id == state.id)
                 .ok_or("contribution is not declared")?;
+            if entry.slot == ui::Slot::Status {
+                return Err("status state is owned by the execution Node");
+            }
             if !state.valid(entry)
                 || states[..index]
                     .iter()
@@ -204,6 +211,72 @@ impl Bridge {
 
     pub(super) fn invoke_intent(&self, id: &str, value: Value) -> Result<(), &'static str> {
         self.dispatch(id, EventKind::Invoke, value, true)
+    }
+
+    /// Forward controller-local Status interactions without owning their state.
+    pub(super) fn forward(
+        &self,
+        id: &str,
+        kind: EventKind,
+        value: Value,
+    ) -> Result<(), &'static str> {
+        let entry = self
+            .declarations
+            .iter()
+            .find(|entry| entry.id == id)
+            .ok_or("contribution is not declared")?;
+        if entry.slot != ui::Slot::Status
+            || !match (entry.kind, kind) {
+                (ui::Kind::Button | ui::Kind::Popover, EventKind::Invoke) => value.is_null(),
+                (ui::Kind::Popover, EventKind::Change) => value.is_boolean(),
+                _ => false,
+            }
+        {
+            return Err("invalid contribution interaction");
+        }
+        let handler = entry.handler.clone().ok_or("contribution has no action")?;
+        let mut current = self
+            .current
+            .lock()
+            .map_err(|_| "contribution state is unavailable")?;
+        let sequence = current
+            .sequence
+            .checked_add(1)
+            .ok_or("contribution sequence is exhausted")?;
+        self.actions
+            .try_send(Event {
+                sequence,
+                id: id.into(),
+                handler,
+                kind,
+                value,
+            })
+            .map_err(|_| "contribution is busy")?;
+        current.sequence = sequence;
+        Ok(())
+    }
+
+    /// Queue a scoped presentation command, bounded by the declared popovers.
+    pub(in crate::plugins) fn close(&self, id: &str) -> Result<(), &'static str> {
+        if !self.declarations.iter().any(|entry| {
+            entry.id == id && entry.slot == ui::Slot::Status && entry.kind == ui::Kind::Popover
+        }) {
+            return Err("status popover is not declared");
+        }
+        self.current
+            .lock()
+            .map_err(|_| "contribution state is unavailable")?
+            .closed
+            .insert(id.into());
+        self.updates.send_modify(|_| {});
+        Ok(())
+    }
+
+    pub(super) fn take_closed(&self) -> BTreeSet<String> {
+        self.current
+            .lock()
+            .map(|mut current| std::mem::take(&mut current.closed))
+            .unwrap_or_default()
     }
 
     fn dispatch(
