@@ -42,25 +42,19 @@ class HostBar extends StatelessWidget {
 /// Lists hosts with their route, latency and local pairing actions.
 Future<void> showHostSheet(
   BuildContext context, {
-  required ValueChanged<String>? onSettings,
   required VoidCallback onPair,
 }) {
   final session = AppSession.of(context);
   return showAppSheet<void>(
     context,
     context.tr('selectHost'),
-    child: _HostList(session: session, onSettings: onSettings, onPair: onPair),
+    child: _HostList(session: session, onPair: onPair),
   );
 }
 
 class _HostList extends StatefulWidget {
-  const _HostList({
-    required this.session,
-    required this.onSettings,
-    required this.onPair,
-  });
+  const _HostList({required this.session, required this.onPair});
   final AppSession session;
-  final ValueChanged<String>? onSettings;
   final VoidCallback onPair;
 
   @override
@@ -135,12 +129,6 @@ class _HostListState extends State<_HostList> {
               Navigator.pop(context);
               widget.session.selectHost(host.id);
             },
-            onSettings: widget.onSettings == null
-                ? null
-                : () {
-                    Navigator.pop(context);
-                    widget.onSettings!(host.id);
-                  },
             onRemove: _removing.contains(host.id) ? null : () => _remove(host),
           ),
         ],
@@ -166,12 +154,10 @@ class _HostRow extends StatelessWidget {
   const _HostRow({
     required this.host,
     required this.onTap,
-    required this.onSettings,
     required this.onRemove,
   });
   final HostConnection host;
   final VoidCallback onTap;
-  final VoidCallback? onSettings;
   final VoidCallback? onRemove;
 
   @override
@@ -249,12 +235,6 @@ class _HostRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (onSettings != null)
-              IconButton(
-                tooltip: context.tr('settings'),
-                onPressed: onSettings,
-                icon: const AppIcon('settings', size: 18),
-              ),
             IconButton(
               tooltip: context.tr('hostRemove'),
               onPressed: onRemove,

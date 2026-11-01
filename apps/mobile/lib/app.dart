@@ -191,9 +191,6 @@ class _ShellState extends State<_Shell> {
                               _sessionsOnly = kind == 'sessions';
                               _index = 0;
                             }),
-                            onSettings: (host) => setState(() {
-                              _index = 3;
-                            }),
                           ),
                           const ResourcesPage(),
                           SettingsPage(

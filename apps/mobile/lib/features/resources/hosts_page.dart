@@ -16,8 +16,7 @@ import 'host/metric_history.dart';
 import 'host/resource_cards.dart';
 
 class HostsPage extends StatefulWidget {
-  const HostsPage({super.key, this.onSettings, this.onBrowse});
-  final ValueChanged<String>? onSettings;
+  const HostsPage({super.key, this.onBrowse});
   final ValueChanged<String>? onBrowse;
   @override
   State<HostsPage> createState() => _HostsPageState();
@@ -112,8 +111,7 @@ class _HostsPageState extends State<HostsPage> {
     child: PairForm(session: AppSession.of(context)),
   );
 
-  void _select() =>
-      showHostSheet(context, onSettings: widget.onSettings, onPair: _pair);
+  void _select() => showHostSheet(context, onPair: _pair);
 
   void _browse(String kind) {
     final host = _host!;
