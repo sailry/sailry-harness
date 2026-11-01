@@ -9,12 +9,11 @@ import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import '../../resources/session_services.dart';
-import '../../terminal/terminal_page.dart';
 import 'presentation.dart';
 import 'progress.dart';
 import 'status_chips.dart';
 import 'status_feed.dart';
-import 'terminal_tasks.dart';
+import 'glass_chip.dart';
 import 'tool_row.dart';
 import 'turn_frame.dart';
 
@@ -50,27 +49,18 @@ class _Activity {
             object(task['kind'])['kind'] != 'agent',
       ),
     );
-    terminals.addAll(
-      objects(host.snapshot['terminals']).where(
-        (terminal) =>
-            terminal['worktree'] == session['worktree'] &&
-            terminalStatus(terminal) == 'running',
-      ),
-    );
     ports.addAll(services.sources(running: true));
   }
 
   Map<String, dynamic>? progress;
   final children = <(Map<String, dynamic>, Map<String, dynamic>)>[];
   final background = <Map<String, dynamic>>[];
-  final terminals = <Map<String, dynamic>>[];
   final ports = <Map<String, dynamic>>[];
 
   bool get isEmpty =>
       progress == null &&
       children.isEmpty &&
       background.isEmpty &&
-      terminals.isEmpty &&
       ports.isEmpty;
 }
 
@@ -218,14 +208,6 @@ class _ActivityStripState extends State<ActivityStrip> {
                   value: '${activity.background.length}',
                   onPressed: _open,
                 ),
-              if (activity.terminals.isNotEmpty)
-                _Chip(
-                  icon: 'terminal',
-                  running: true,
-                  label: context.tr('terminal'),
-                  value: '${activity.terminals.length}',
-                  onPressed: _open,
-                ),
               if (ports.isNotEmpty)
                 _Chip(
                   icon: 'globe',
@@ -268,19 +250,8 @@ class _Chip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final chip = OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: colors.onSurfaceVariant,
-        side: BorderSide(color: colors.outlineVariant),
-        shape: const StadiumBorder(),
-        padding: const EdgeInsets.symmetric(horizontal: 11),
-        minimumSize: const Size(0, 30),
-        fixedSize: const Size.fromHeight(30),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        visualDensity: VisualDensity.compact,
-        textStyle: const TextStyle(fontSize: transcriptFontSize),
-      ),
+    final chip = GlassChip(
+      onTap: onPressed,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         spacing: 6,
@@ -314,22 +285,6 @@ class _ActivitySheet extends StatelessWidget {
   /// The conversation page, which outlives this sheet for navigation.
   final BuildContext page;
   final ValueChanged<Map<String, dynamic>>? onOpenChild;
-
-  Future<void> _stop(
-    BuildContext context,
-    Map<String, dynamic> terminal,
-  ) async {
-    try {
-      await host.command('close_terminal', {
-        'worktree': terminal['worktree'],
-        'terminal': terminal['id'],
-      });
-    } catch (error) {
-      if (context.mounted) {
-        showToast(context, failureLabel(error, translate: context.tr));
-      }
-    }
-  }
 
   Future<void> _service(Map<String, dynamic> source) async {
     try {
@@ -407,32 +362,6 @@ class _ActivitySheet extends StatelessWidget {
           group('activityBackground'),
           for (final task in activity.background)
             ToolRow(icon: 'clock', label: text(task['title']), running: true),
-        ],
-        if (activity.terminals.isNotEmpty) ...[
-          group('terminal'),
-          for (final terminal in activity.terminals)
-            ToolRow(
-              icon: 'terminal',
-              label: terminalTitle(terminal, translate: context.tr),
-              running: true,
-              onTap: () => _leave(
-                context,
-                () => pushPage(
-                  page,
-                  TerminalPage(
-                    hostId: host.id,
-                    terminalId: text(terminal['id']),
-                    worktreeId: terminal['worktree'] as String?,
-                    title: terminalTitle(terminal, translate: context.tr),
-                  ),
-                ),
-              ),
-              action: action(
-                'terminalStop',
-                host.connected ? () => _stop(context, terminal) : null,
-                color: colors.error,
-              ),
-            ),
         ],
         if (activity.ports.isNotEmpty) ...[
           group('activityPorts'),

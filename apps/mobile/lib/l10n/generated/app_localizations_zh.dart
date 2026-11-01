@@ -2197,9 +2197,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activityPorts => '端口';
 
   @override
-  String get terminalStop => '停止';
-
-  @override
   String get hostConnecting => '连接中';
 
   @override
@@ -4532,9 +4529,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get activityPorts => '連接埠';
-
-  @override
-  String get terminalStop => '停止';
 
   @override
   String get hostConnecting => '連線中';

@@ -885,7 +885,6 @@
   "activityProgress": "Прогресс",
   "activityBackground": "Фоновые задачи",
   "activityPorts": "Порты",
-  "terminalStop": "Остановить",
   "hostConnecting": "Подключение",
   "hostInfo": "О хосте",
   "hostLatency": "Задержка",

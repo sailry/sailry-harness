@@ -2250,9 +2250,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get activityPorts => 'Puertos';
 
   @override
-  String get terminalStop => 'Detener';
-
-  @override
   String get hostConnecting => 'Conectando';
 
   @override

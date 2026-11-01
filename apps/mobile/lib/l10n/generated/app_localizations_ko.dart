@@ -2206,9 +2206,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get activityPorts => '포트';
 
   @override
-  String get terminalStop => '중지';
-
-  @override
   String get hostConnecting => '연결 중';
 
   @override

@@ -2244,9 +2244,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get activityPorts => 'Порты';
 
   @override
-  String get terminalStop => 'Остановить';
-
-  @override
   String get hostConnecting => 'Подключение';
 
   @override

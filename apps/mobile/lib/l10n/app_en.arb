@@ -915,7 +915,6 @@
   "activityProgress": "Progress",
   "activityBackground": "Background tasks",
   "activityPorts": "Ports",
-  "terminalStop": "Stop",
   "hostConnecting": "Connecting",
   "hostInfo": "Host info",
   "hostLatency": "Latency",

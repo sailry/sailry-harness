@@ -4386,12 +4386,6 @@ abstract class AppLocalizations {
   /// **'Ports'**
   String get activityPorts;
 
-  /// No description provided for @terminalStop.
-  ///
-  /// In en, this message translates to:
-  /// **'Stop'**
-  String get terminalStop;
-
   /// No description provided for @hostConnecting.
   ///
   /// In en, this message translates to:

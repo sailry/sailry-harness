@@ -885,7 +885,6 @@
   "activityProgress": "진행 상황",
   "activityBackground": "백그라운드 작업",
   "activityPorts": "포트",
-  "terminalStop": "중지",
   "hostConnecting": "연결 중",
   "hostInfo": "호스트 정보",
   "hostLatency": "지연 시간",

@@ -2257,9 +2257,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get activityPorts => 'Ports';
 
   @override
-  String get terminalStop => 'Arrêter';
-
-  @override
   String get hostConnecting => 'Connexion';
 
   @override

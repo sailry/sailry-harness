@@ -2204,9 +2204,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get activityPorts => 'ポート';
 
   @override
-  String get terminalStop => '停止';
-
-  @override
   String get hostConnecting => '接続中';
 
   @override

@@ -729,7 +729,6 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'activityProgress' => strings.activityProgress,
   'activityBackground' => strings.activityBackground,
   'activityPorts' => strings.activityPorts,
-  'terminalStop' => strings.terminalStop,
   'hostConnecting' => strings.hostConnecting,
   'hostInfo' => strings.hostInfo,
   'hostLatency' => strings.hostLatency,

@@ -2245,9 +2245,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get activityPorts => 'Portas';
 
   @override
-  String get terminalStop => 'Parar';
-
-  @override
   String get hostConnecting => 'Conectando';
 
   @override

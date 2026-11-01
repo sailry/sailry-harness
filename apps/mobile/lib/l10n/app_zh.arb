@@ -885,7 +885,6 @@
   "activityProgress": "任务进度",
   "activityBackground": "后台任务",
   "activityPorts": "端口",
-  "terminalStop": "停止",
   "hostConnecting": "连接中",
   "hostInfo": "主机信息",
   "hostLatency": "延迟",

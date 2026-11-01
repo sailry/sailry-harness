@@ -885,7 +885,6 @@
   "activityProgress": "Progreso",
   "activityBackground": "Tareas en segundo plano",
   "activityPorts": "Puertos",
-  "terminalStop": "Detener",
   "hostConnecting": "Conectando",
   "hostInfo": "Información del host",
   "hostLatency": "Latencia",

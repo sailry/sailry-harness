@@ -6,10 +6,10 @@ import '../../../ui/icons.dart' show catalogIcon, catalogIcons;
 import '../../../ui/kit.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/toast.dart';
+import 'glass_chip.dart';
 import 'presentation.dart' show failureLabel;
 import 'status_feed.dart';
 import 'tool_display.dart' show capturedLabel;
-import 'tool_row.dart' show transcriptFontSize;
 
 /// Package declarations and states come unchanged from the shared Client feed.
 class StatusChips extends StatelessWidget {
@@ -46,21 +46,8 @@ class StatusChips extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final detail in details)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    spacing: 6,
-                    children: [
-                      Text(capturedLabel(context, detail['label'])),
-                      if (text(detail['value']).isNotEmpty)
-                        SelectableText(text(detail['value'])),
-                      if (detail['progress'] case final num progress)
-                        LinearProgressIndicator(value: progress / 100),
-                    ],
-                  ),
-                ),
+              if (details.isNotEmpty) StatusDetails(details: details),
+              if (feed.invokable(selected)) const SizedBox(height: 16),
               if (feed.invokable(selected))
                 FilledButton(
                   onPressed: feed.enabled(selected)
@@ -109,19 +96,8 @@ class StatusChips extends StatelessWidget {
         objects(state['details']).isNotEmpty || feed.invokable(entry);
     return Semantics(
       label: retry ? '$label ${context.tr('retry')}' : label,
-      child: OutlinedButton(
-        onPressed: enabled && interactive ? () => _open(context, entry) : null,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: colors.onSurfaceVariant,
-          side: BorderSide(color: colors.outlineVariant),
-          shape: const StadiumBorder(),
-          padding: const EdgeInsets.symmetric(horizontal: 11),
-          minimumSize: const Size(0, 30),
-          fixedSize: const Size.fromHeight(30),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: VisualDensity.compact,
-          textStyle: const TextStyle(fontSize: transcriptFontSize),
-        ),
+      child: GlassChip(
+        onTap: enabled && interactive ? () => _open(context, entry) : null,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           spacing: 6,
@@ -152,4 +128,113 @@ class StatusChips extends StatelessWidget {
     spacing: 8,
     children: [for (final entry in feed.entries) _chip(context, entry)],
   );
+}
+
+/// Declared details: short values as number tiles, longer ones as rows.
+class StatusDetails extends StatelessWidget {
+  const StatusDetails({super.key, required this.details});
+
+  final List<Map<String, dynamic>> details;
+
+  static bool _short(Map<String, dynamic> detail) =>
+      detail['progress'] == null && text(detail['value']).length <= 10;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final fill = colors.onSurface.withValues(alpha: .045);
+    final tiles = details.where(_short).toList();
+    final rows = details.where((detail) => !_short(detail)).toList();
+    Widget tile(Map<String, dynamic> detail) => Expanded(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: 4,
+          children: [
+            Text(
+              text(detail['value'], '—'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                color: colors.onSurface,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+            Text(
+              capturedLabel(context, detail['label']),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: 8,
+      children: [
+        for (var start = 0; start < tiles.length; start += 3)
+          Row(
+            spacing: 8,
+            children: [
+              for (final detail in tiles.skip(start).take(3)) tile(detail),
+            ],
+          ),
+        if (rows.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: fill,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final (index, detail) in rows.indexed)
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: index == 0
+                          ? null
+                          : Border(
+                              top: BorderSide(color: colors.outlineVariant),
+                            ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        spacing: 6,
+                        children: [
+                          Text(
+                            capturedLabel(context, detail['label']),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.onSurfaceVariant,
+                            ),
+                          ),
+                          if (text(detail['value']).isNotEmpty)
+                            SelectableText(
+                              text(detail['value']),
+                              style: TextStyle(color: colors.onSurface),
+                            ),
+                          if (detail['progress'] case final num progress)
+                            LinearProgressIndicator(value: progress / 100),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
 }
