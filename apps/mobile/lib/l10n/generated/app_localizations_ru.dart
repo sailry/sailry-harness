@@ -218,15 +218,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationToolReturned => 'Возвращено';
 
   @override
-  String get conversationToolCancelled => 'Отменено';
-
-  @override
-  String get conversationToolNotExecuted => 'Не выполнены';
-
-  @override
-  String get conversationToolInterrupted => 'Прервано';
-
-  @override
   String get conversationUnsupportedInput =>
       'Обрабатывать этот ввод на рабочем столе';
 
@@ -519,25 +510,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get toolFailed => 'Ошибка';
-
-  @override
-  String toolExitCode(String code) {
-    return 'Код выхода $code';
-  }
-
-  @override
-  String toolSignal(String signal) {
-    return 'Прекращается сигналом $signal';
-  }
-
-  @override
-  String get toolTimedOut => 'Тайм- аут команды';
-
-  @override
-  String get toolCancelled => 'Команда отменена';
-
-  @override
-  String get toolOutcomeUnknown => 'Результат командования неизвестен';
 
   @override
   String get toolQuestionAnswered => 'Ответы';

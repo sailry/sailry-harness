@@ -105,9 +105,6 @@
   "conversationToolWaiting": "待機中",
   "conversationToolRunning": "実行中",
   "conversationToolReturned": "応答済み",
-  "conversationToolCancelled": "キャンセル済み",
-  "conversationToolNotExecuted": "実行されていません",
-  "conversationToolInterrupted": "中断済み",
   "conversationUnsupportedInput": "この入力をデスクトップで扱う",
   "conversationStartCoding": "実行を開始",
   "conversationPlanFeedback": "変更を提案",
@@ -215,25 +212,6 @@
   "messageReference": "リファレンス",
   "messageReferenceContext": "この参照はメッセージが送信された時のコンテキストに属します",
   "toolFailed": "失敗",
-  "toolExitCode": "出口コード{code}",
-  "@toolExitCode": {
-    "placeholders": {
-      "code": {
-        "type": "String"
-      }
-    }
-  },
-  "toolSignal": "信号{signal}で終了",
-  "@toolSignal": {
-    "placeholders": {
-      "signal": {
-        "type": "String"
-      }
-    }
-  },
-  "toolTimedOut": "コマンドのタイムアウト",
-  "toolCancelled": "コマンドキャンセル",
-  "toolOutcomeUnknown": "コマンドの結果不明",
   "toolQuestionAnswered": "回答済み",
   "toolQuestionDeclined": "拒否",
   "toolQuestionCancelled": "キャンセル済み",

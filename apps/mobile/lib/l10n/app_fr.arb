@@ -105,9 +105,6 @@
   "conversationToolWaiting": "En attente",
   "conversationToolRunning": "En cours",
   "conversationToolReturned": "Retourné",
-  "conversationToolCancelled": "Annulé",
-  "conversationToolNotExecuted": "Non exécutées",
-  "conversationToolInterrupted": "Interrompu",
   "conversationUnsupportedInput": "Gérer cette entrée sur le bureau",
   "conversationStartCoding": "Démarrer l'exécution",
   "conversationPlanFeedback": "Suggérer des changements",
@@ -215,25 +212,6 @@
   "messageReference": "Référence",
   "messageReferenceContext": "Cette référence appartient au contexte où le message a été envoyé",
   "toolFailed": "Échec",
-  "toolExitCode": "Code de sortie {code}",
-  "@toolExitCode": {
-    "placeholders": {
-      "code": {
-        "type": "String"
-      }
-    }
-  },
-  "toolSignal": "Terminé par le signal {signal}",
-  "@toolSignal": {
-    "placeholders": {
-      "signal": {
-        "type": "String"
-      }
-    }
-  },
-  "toolTimedOut": "Commande dépassée",
-  "toolCancelled": "Commande annulée",
-  "toolOutcomeUnknown": "Résultat du commandement inconnu",
   "toolQuestionAnswered": "Réponse",
   "toolQuestionDeclined": "Demande rejetée",
   "toolQuestionCancelled": "Annulé",

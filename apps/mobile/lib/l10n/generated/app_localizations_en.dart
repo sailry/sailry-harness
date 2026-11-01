@@ -218,15 +218,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationToolReturned => 'Returned';
 
   @override
-  String get conversationToolCancelled => 'Cancelled';
-
-  @override
-  String get conversationToolNotExecuted => 'Not executed';
-
-  @override
-  String get conversationToolInterrupted => 'Interrupted';
-
-  @override
   String get conversationUnsupportedInput => 'Handle this input on desktop';
 
   @override
@@ -517,25 +508,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get toolFailed => 'Failed';
-
-  @override
-  String toolExitCode(String code) {
-    return 'Exit code $code';
-  }
-
-  @override
-  String toolSignal(String signal) {
-    return 'Terminated by signal $signal';
-  }
-
-  @override
-  String get toolTimedOut => 'Command timed out';
-
-  @override
-  String get toolCancelled => 'Command cancelled';
-
-  @override
-  String get toolOutcomeUnknown => 'Command outcome unknown';
 
   @override
   String get toolQuestionAnswered => 'Answered';

@@ -105,9 +105,6 @@
   "conversationToolWaiting": "В ожидании",
   "conversationToolRunning": "Выполняется",
   "conversationToolReturned": "Возвращено",
-  "conversationToolCancelled": "Отменено",
-  "conversationToolNotExecuted": "Не выполнены",
-  "conversationToolInterrupted": "Прервано",
   "conversationUnsupportedInput": "Обрабатывать этот ввод на рабочем столе",
   "conversationStartCoding": "Начало исполнения",
   "conversationPlanFeedback": "Предложить изменения",
@@ -215,25 +212,6 @@
   "messageReference": "Справочная информация",
   "messageReferenceContext": "Эта ссылка относится к контексту, когда сообщение было отправлено",
   "toolFailed": "Ошибка",
-  "toolExitCode": "Код выхода {code}",
-  "@toolExitCode": {
-    "placeholders": {
-      "code": {
-        "type": "String"
-      }
-    }
-  },
-  "toolSignal": "Прекращается сигналом {signal}",
-  "@toolSignal": {
-    "placeholders": {
-      "signal": {
-        "type": "String"
-      }
-    }
-  },
-  "toolTimedOut": "Тайм- аут команды",
-  "toolCancelled": "Команда отменена",
-  "toolOutcomeUnknown": "Результат командования неизвестен",
   "toolQuestionAnswered": "Ответы",
   "toolQuestionDeclined": "Отклонено",
   "toolQuestionCancelled": "Отменено",

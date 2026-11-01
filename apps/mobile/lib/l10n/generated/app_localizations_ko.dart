@@ -214,15 +214,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationToolReturned => '응답됨';
 
   @override
-  String get conversationToolCancelled => '취소됨';
-
-  @override
-  String get conversationToolNotExecuted => '실행되지 않음';
-
-  @override
-  String get conversationToolInterrupted => '중단됨';
-
-  @override
   String get conversationUnsupportedInput => '이 입력을 데스크톱에서 처리하기';
 
   @override
@@ -505,25 +496,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get toolFailed => '실패';
-
-  @override
-  String toolExitCode(String code) {
-    return '출구 코드 $code';
-  }
-
-  @override
-  String toolSignal(String signal) {
-    return '신호 $signal에 의해 종료';
-  }
-
-  @override
-  String get toolTimedOut => '명령 시간 초과';
-
-  @override
-  String get toolCancelled => '명령 취소됨';
-
-  @override
-  String get toolOutcomeUnknown => '명령 결과 알 수 없음';
 
   @override
   String get toolQuestionAnswered => '답변됨';

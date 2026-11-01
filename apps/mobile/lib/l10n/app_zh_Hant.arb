@@ -105,9 +105,6 @@
   "conversationToolWaiting": "等待執行",
   "conversationToolRunning": "正在執行",
   "conversationToolReturned": "已返回",
-  "conversationToolCancelled": "已取消",
-  "conversationToolNotExecuted": "未執行",
-  "conversationToolInterrupted": "已中斷",
   "conversationUnsupportedInput": "請在桌面端處理此輸入",
   "conversationStartCoding": "開始執行",
   "conversationPlanFeedback": "修改建議",
@@ -182,25 +179,6 @@
   "messageReference": "引用",
   "messageReferenceContext": "此引用屬於該訊息傳送時的上下文",
   "toolFailed": "失敗",
-  "toolExitCode": "退出碼 {code}",
-  "@toolExitCode": {
-    "placeholders": {
-      "code": {
-        "type": "String"
-      }
-    }
-  },
-  "toolSignal": "訊號 {signal} 終止",
-  "@toolSignal": {
-    "placeholders": {
-      "signal": {
-        "type": "String"
-      }
-    }
-  },
-  "toolTimedOut": "命令超時",
-  "toolCancelled": "命令已取消",
-  "toolOutcomeUnknown": "命令結果未知",
   "toolQuestionAnswered": "已回答",
   "toolQuestionDeclined": "已拒絕",
   "toolQuestionCancelled": "已取消",

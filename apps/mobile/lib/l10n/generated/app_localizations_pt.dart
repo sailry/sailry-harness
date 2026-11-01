@@ -220,15 +220,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationToolReturned => 'Retornado';
 
   @override
-  String get conversationToolCancelled => 'Cancelado';
-
-  @override
-  String get conversationToolNotExecuted => 'Não executado';
-
-  @override
-  String get conversationToolInterrupted => 'Interrompido';
-
-  @override
   String get conversationUnsupportedInput =>
       'Lidar com esta entrada no desktop';
 
@@ -522,25 +513,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get toolFailed => 'Falhou';
-
-  @override
-  String toolExitCode(String code) {
-    return 'Código de saída $code';
-  }
-
-  @override
-  String toolSignal(String signal) {
-    return 'Terminado pelo sinal $signal';
-  }
-
-  @override
-  String get toolTimedOut => 'Comando expirou';
-
-  @override
-  String get toolCancelled => 'Comando cancelado';
-
-  @override
-  String get toolOutcomeUnknown => 'Resultado do comando desconhecido';
 
   @override
   String get toolQuestionAnswered => 'Respondido';

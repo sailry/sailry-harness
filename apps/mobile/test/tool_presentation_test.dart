@@ -1,11 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sailry_mobile/features/conversations/live/command_result.dart';
 import 'package:sailry_mobile/features/conversations/live/message_data.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_content.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_display.dart';
-import 'package:sailry_mobile/l10n/strings.dart';
 
 void main() {
   test('renders Client rows with their citation offsets', () {
@@ -142,23 +140,5 @@ void main() {
       }),
       isTrue,
     );
-  });
-
-  test('selected command outcomes keep precise text', () {
-    expect(
-      commandStatus({'kind': 'exited', 'data': 7}),
-      tr('toolExitCode').replaceAll('{code}', '7'),
-    );
-    expect(
-      commandStatus({'kind': 'signal', 'data': 9}),
-      tr('toolSignal').replaceAll('{signal}', '9'),
-    );
-    expect(commandStatus({'kind': 'timed_out'}), tr('toolTimedOut'));
-    expect(commandStatus({'kind': 'cancelled'}), tr('toolCancelled'));
-    expect(
-      commandStatus({'kind': 'unknown', 'data': 'Original reason'}),
-      tr('toolOutcomeUnknown'),
-    );
-    expect(commandStatus({}), isNull);
   });
 }

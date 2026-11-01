@@ -222,15 +222,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get conversationToolReturned => 'Zurückgegeben';
 
   @override
-  String get conversationToolCancelled => 'Abgebrochen';
-
-  @override
-  String get conversationToolNotExecuted => 'Nicht ausgeführt';
-
-  @override
-  String get conversationToolInterrupted => 'Unterbrochen';
-
-  @override
   String get conversationUnsupportedInput =>
       'Diese Eingabe auf dem Desktop behandeln';
 
@@ -524,25 +515,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get toolFailed => 'Fehlgeschlagen';
-
-  @override
-  String toolExitCode(String code) {
-    return 'Ausgangscode $code';
-  }
-
-  @override
-  String toolSignal(String signal) {
-    return 'Abgeschlossen durch Signal $signal';
-  }
-
-  @override
-  String get toolTimedOut => 'Befehl abgelaufen';
-
-  @override
-  String get toolCancelled => 'Befehl abgebrochen';
-
-  @override
-  String get toolOutcomeUnknown => 'Befehlergebnis unbekannt';
 
   @override
   String get toolQuestionAnswered => 'Beantwortet';

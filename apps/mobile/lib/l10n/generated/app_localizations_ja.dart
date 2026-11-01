@@ -213,15 +213,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationToolReturned => '応答済み';
 
   @override
-  String get conversationToolCancelled => 'キャンセル済み';
-
-  @override
-  String get conversationToolNotExecuted => '実行されていません';
-
-  @override
-  String get conversationToolInterrupted => '中断済み';
-
-  @override
   String get conversationUnsupportedInput => 'この入力をデスクトップで扱う';
 
   @override
@@ -503,25 +494,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get toolFailed => '失敗';
-
-  @override
-  String toolExitCode(String code) {
-    return '出口コード$code';
-  }
-
-  @override
-  String toolSignal(String signal) {
-    return '信号$signalで終了';
-  }
-
-  @override
-  String get toolTimedOut => 'コマンドのタイムアウト';
-
-  @override
-  String get toolCancelled => 'コマンドキャンセル';
-
-  @override
-  String get toolOutcomeUnknown => 'コマンドの結果不明';
 
   @override
   String get toolQuestionAnswered => '回答済み';

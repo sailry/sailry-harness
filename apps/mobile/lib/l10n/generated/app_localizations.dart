@@ -498,24 +498,6 @@ abstract class AppLocalizations {
   /// **'Returned'**
   String get conversationToolReturned;
 
-  /// No description provided for @conversationToolCancelled.
-  ///
-  /// In en, this message translates to:
-  /// **'Cancelled'**
-  String get conversationToolCancelled;
-
-  /// No description provided for @conversationToolNotExecuted.
-  ///
-  /// In en, this message translates to:
-  /// **'Not executed'**
-  String get conversationToolNotExecuted;
-
-  /// No description provided for @conversationToolInterrupted.
-  ///
-  /// In en, this message translates to:
-  /// **'Interrupted'**
-  String get conversationToolInterrupted;
-
   /// No description provided for @conversationUnsupportedInput.
   ///
   /// In en, this message translates to:
@@ -1073,36 +1055,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Failed'**
   String get toolFailed;
-
-  /// No description provided for @toolExitCode.
-  ///
-  /// In en, this message translates to:
-  /// **'Exit code {code}'**
-  String toolExitCode(String code);
-
-  /// No description provided for @toolSignal.
-  ///
-  /// In en, this message translates to:
-  /// **'Terminated by signal {signal}'**
-  String toolSignal(String signal);
-
-  /// No description provided for @toolTimedOut.
-  ///
-  /// In en, this message translates to:
-  /// **'Command timed out'**
-  String get toolTimedOut;
-
-  /// No description provided for @toolCancelled.
-  ///
-  /// In en, this message translates to:
-  /// **'Command cancelled'**
-  String get toolCancelled;
-
-  /// No description provided for @toolOutcomeUnknown.
-  ///
-  /// In en, this message translates to:
-  /// **'Command outcome unknown'**
-  String get toolOutcomeUnknown;
 
   /// No description provided for @toolQuestionAnswered.
   ///

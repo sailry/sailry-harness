@@ -211,15 +211,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationToolReturned => '已返回';
 
   @override
-  String get conversationToolCancelled => '已取消';
-
-  @override
-  String get conversationToolNotExecuted => '未执行';
-
-  @override
-  String get conversationToolInterrupted => '已中断';
-
-  @override
   String get conversationUnsupportedInput => '请在桌面端处理此输入';
 
   @override
@@ -501,25 +492,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get toolFailed => '失败';
-
-  @override
-  String toolExitCode(String code) {
-    return '退出码 $code';
-  }
-
-  @override
-  String toolSignal(String signal) {
-    return '信号 $signal 终止';
-  }
-
-  @override
-  String get toolTimedOut => '命令超时';
-
-  @override
-  String get toolCancelled => '命令已取消';
-
-  @override
-  String get toolOutcomeUnknown => '命令结果未知';
 
   @override
   String get toolQuestionAnswered => '已回答';
@@ -2576,15 +2548,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationToolReturned => '已返回';
 
   @override
-  String get conversationToolCancelled => '已取消';
-
-  @override
-  String get conversationToolNotExecuted => '未執行';
-
-  @override
-  String get conversationToolInterrupted => '已中斷';
-
-  @override
   String get conversationUnsupportedInput => '請在桌面端處理此輸入';
 
   @override
@@ -2866,25 +2829,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get toolFailed => '失敗';
-
-  @override
-  String toolExitCode(String code) {
-    return '退出碼 $code';
-  }
-
-  @override
-  String toolSignal(String signal) {
-    return '訊號 $signal 終止';
-  }
-
-  @override
-  String get toolTimedOut => '命令超時';
-
-  @override
-  String get toolCancelled => '命令已取消';
-
-  @override
-  String get toolOutcomeUnknown => '命令結果未知';
 
   @override
   String get toolQuestionAnswered => '已回答';
