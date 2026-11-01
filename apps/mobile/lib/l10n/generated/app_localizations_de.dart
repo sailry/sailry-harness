@@ -1717,9 +1717,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get configInstructions => 'Anweisungen';
 
   @override
-  String get configContent => 'Inhalt';
-
-  @override
   String get configEmpty => 'Keine Einträge gefunden';
 
   @override
@@ -1749,12 +1746,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get providers => 'Modelle und Anbieter';
-
-  @override
-  String get roles => 'Rollen';
-
-  @override
-  String get memorySettings => 'Gedächtnis';
 
   @override
   String get speech => 'Spracheingabe';
@@ -2046,15 +2037,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get settingsRequired => 'Geben Sie einen Wert ein';
 
   @override
-  String get settingsKey => 'ID';
-
-  @override
-  String get settingsDescription => 'Beschreibung';
-
-  @override
-  String get settingsInstructions => 'Anweisungen';
-
-  @override
   String get settingsModels => 'Modell-IDs, eine pro Zeile';
 
   @override
@@ -2077,33 +2059,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settingsModel => 'Modell';
-
-  @override
-  String get settingsMemoryAuto => 'Automatisch aufnehmen';
-
-  @override
-  String get settingsMemoryBudget => 'Kontextbyte';
-
-  @override
-  String get settingsMemoryReview => 'Überprüfungsintervall (Tage)';
-
-  @override
-  String get settingsMemoryRecords => 'Speichereinträge';
-
-  @override
-  String get settingsMemoryKind => 'Typ';
-
-  @override
-  String get settingsMemoryUser => 'Benutzer';
-
-  @override
-  String get settingsMemoryFeedback => 'Feedback';
-
-  @override
-  String get settingsMemoryProject => 'Projekt';
-
-  @override
-  String get settingsMemoryReference => 'Referenz';
 
   @override
   String get settingsArchived => 'Archiviert';

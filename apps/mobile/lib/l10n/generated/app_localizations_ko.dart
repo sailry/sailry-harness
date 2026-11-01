@@ -1681,9 +1681,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get configInstructions => '지침';
 
   @override
-  String get configContent => '내용';
-
-  @override
   String get configEmpty => '항목 없음';
 
   @override
@@ -1711,12 +1708,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get providers => '모델과 제공자';
-
-  @override
-  String get roles => '역할';
-
-  @override
-  String get memorySettings => '메모리';
 
   @override
   String get speech => '음성';
@@ -1999,15 +1990,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsRequired => '값 입력';
 
   @override
-  String get settingsKey => 'ID';
-
-  @override
-  String get settingsDescription => '설명';
-
-  @override
-  String get settingsInstructions => '지침';
-
-  @override
   String get settingsModels => '모델 ID, 줄당 하나';
 
   @override
@@ -2030,33 +2012,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsModel => '모델';
-
-  @override
-  String get settingsMemoryAuto => '자동 녹음';
-
-  @override
-  String get settingsMemoryBudget => '컨텍스트 바이트';
-
-  @override
-  String get settingsMemoryReview => '검토 간격( 일)';
-
-  @override
-  String get settingsMemoryRecords => '메모리 항목';
-
-  @override
-  String get settingsMemoryKind => '종류';
-
-  @override
-  String get settingsMemoryUser => '사용자';
-
-  @override
-  String get settingsMemoryFeedback => '피드백';
-
-  @override
-  String get settingsMemoryProject => '프로젝트';
-
-  @override
-  String get settingsMemoryReference => '참조';
 
   @override
   String get settingsArchived => '보관함';

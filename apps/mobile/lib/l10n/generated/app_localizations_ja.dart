@@ -1679,9 +1679,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get configInstructions => '指示';
 
   @override
-  String get configContent => 'コンテンツ';
-
-  @override
   String get configEmpty => 'エントリなし';
 
   @override
@@ -1709,12 +1706,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get providers => 'モデルとプロバイダ';
-
-  @override
-  String get roles => '役割';
-
-  @override
-  String get memorySettings => 'メモリー';
 
   @override
   String get speech => 'スピーチ';
@@ -1997,15 +1988,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsRequired => '値を入力';
 
   @override
-  String get settingsKey => 'ID';
-
-  @override
-  String get settingsDescription => '説明';
-
-  @override
-  String get settingsInstructions => '指示';
-
-  @override
   String get settingsModels => 'モデル ID を行ごとに一つ';
 
   @override
@@ -2028,33 +2010,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsModel => 'モデル';
-
-  @override
-  String get settingsMemoryAuto => '自動録音';
-
-  @override
-  String get settingsMemoryBudget => 'コンテキストバイト';
-
-  @override
-  String get settingsMemoryReview => 'レビュー間隔 (日)';
-
-  @override
-  String get settingsMemoryRecords => 'メモリエントリ';
-
-  @override
-  String get settingsMemoryKind => 'タイプ';
-
-  @override
-  String get settingsMemoryUser => 'ユーザー';
-
-  @override
-  String get settingsMemoryFeedback => 'フィードバック';
-
-  @override
-  String get settingsMemoryProject => 'プロジェクト';
-
-  @override
-  String get settingsMemoryReference => 'リファレンス';
 
   @override
   String get settingsArchived => 'アーカイブ';

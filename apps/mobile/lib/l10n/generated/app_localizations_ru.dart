@@ -1709,9 +1709,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get configInstructions => 'Инструкции';
 
   @override
-  String get configContent => 'Содержание';
-
-  @override
   String get configEmpty => 'Нет записей';
 
   @override
@@ -1741,12 +1738,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get providers => 'Модели и поставщики';
-
-  @override
-  String get roles => 'Роли';
-
-  @override
-  String get memorySettings => 'Память';
 
   @override
   String get speech => 'Речь';
@@ -2036,15 +2027,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get settingsRequired => 'Введите значение';
 
   @override
-  String get settingsKey => 'Идентификация';
-
-  @override
-  String get settingsDescription => 'Описание';
-
-  @override
-  String get settingsInstructions => 'Инструкции';
-
-  @override
   String get settingsModels =>
       'Идентификационные номера моделей, по одному на строку';
 
@@ -2068,33 +2050,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get settingsModel => 'Модель';
-
-  @override
-  String get settingsMemoryAuto => 'Автоматическая запись';
-
-  @override
-  String get settingsMemoryBudget => 'Контекстные байт';
-
-  @override
-  String get settingsMemoryReview => 'Периодичность обзоров (в днях)';
-
-  @override
-  String get settingsMemoryRecords => 'Записи в памяти';
-
-  @override
-  String get settingsMemoryKind => 'Тип';
-
-  @override
-  String get settingsMemoryUser => 'Пользователь';
-
-  @override
-  String get settingsMemoryFeedback => 'Обратная связь';
-
-  @override
-  String get settingsMemoryProject => 'Проект';
-
-  @override
-  String get settingsMemoryReference => 'Справочная информация';
 
   @override
   String get settingsArchived => 'Архивировано';

@@ -1677,9 +1677,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get configInstructions => '指令';
 
   @override
-  String get configContent => '内容';
-
-  @override
   String get configEmpty => '暂无条目';
 
   @override
@@ -1707,12 +1704,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get providers => '模型与渠道';
-
-  @override
-  String get roles => '分工角色';
-
-  @override
-  String get memorySettings => '记忆';
 
   @override
   String get speech => '语音';
@@ -1990,15 +1981,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsRequired => '请填写内容';
 
   @override
-  String get settingsKey => '标识';
-
-  @override
-  String get settingsDescription => '说明';
-
-  @override
-  String get settingsInstructions => '指令';
-
-  @override
   String get settingsModels => '模型 ID，每行一个';
 
   @override
@@ -2021,33 +2003,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsModel => '模型';
-
-  @override
-  String get settingsMemoryAuto => '自动记录';
-
-  @override
-  String get settingsMemoryBudget => '上下文字节数';
-
-  @override
-  String get settingsMemoryReview => '复查间隔（天）';
-
-  @override
-  String get settingsMemoryRecords => '记忆条目';
-
-  @override
-  String get settingsMemoryKind => '类型';
-
-  @override
-  String get settingsMemoryUser => '用户';
-
-  @override
-  String get settingsMemoryFeedback => '反馈';
-
-  @override
-  String get settingsMemoryProject => '项目';
-
-  @override
-  String get settingsMemoryReference => '参考';
 
   @override
   String get settingsArchived => '已归档';
@@ -3838,9 +3793,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get configInstructions => '指令';
 
   @override
-  String get configContent => '內容';
-
-  @override
   String get configEmpty => '暫無條目';
 
   @override
@@ -3868,12 +3820,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get providers => '模型與渠道';
-
-  @override
-  String get roles => '分工角色';
-
-  @override
-  String get memorySettings => '記憶';
 
   @override
   String get speech => '語音';
@@ -4151,15 +4097,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get settingsRequired => '請填寫內容';
 
   @override
-  String get settingsKey => '標識';
-
-  @override
-  String get settingsDescription => '說明';
-
-  @override
-  String get settingsInstructions => '指令';
-
-  @override
   String get settingsModels => '模型 ID，每行一個';
 
   @override
@@ -4182,33 +4119,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsModel => '模型';
-
-  @override
-  String get settingsMemoryAuto => '自動記錄';
-
-  @override
-  String get settingsMemoryBudget => '上下文位元組數';
-
-  @override
-  String get settingsMemoryReview => '複查間隔（天）';
-
-  @override
-  String get settingsMemoryRecords => '記憶條目';
-
-  @override
-  String get settingsMemoryKind => '型別';
-
-  @override
-  String get settingsMemoryUser => '使用者';
-
-  @override
-  String get settingsMemoryFeedback => '反饋';
-
-  @override
-  String get settingsMemoryProject => '專案';
-
-  @override
-  String get settingsMemoryReference => '參考';
 
   @override
   String get settingsArchived => '已歸檔';

@@ -8,7 +8,6 @@ import '../../runtime/session.dart';
 import '../updates/presentation.dart';
 import '../updates/service.dart';
 import 'live.dart';
-import 'memory_sheet.dart';
 import 'speech_sheet.dart';
 import 'setting_records.dart';
 import 'usage_page.dart';
@@ -38,10 +37,10 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  void _records(String kind) {
+  void _providers() {
     final host = AppSession.maybeOf(context)?.selectedHost;
     if (host?.connected == true) {
-      showSettingRecords(context, kind: kind, host: host!);
+      showSettingRecords(context, host: host!);
     }
   }
 
@@ -229,24 +228,7 @@ class _SettingsPageState extends State<SettingsPage> {
           Semantics(
             label: host?.label ?? '',
             child: _group([
-              _row(
-                'spark',
-                'providers',
-                connected ? () => _records('providers') : null,
-              ),
-              _row('user', 'roles', connected ? () => _records('roles') : null),
-              _row(
-                'file',
-                'memorySettings',
-                !connected
-                    ? null
-                    : () => showAppSheet(
-                        context,
-                        context.tr('memorySettings'),
-                        scroll: false,
-                        child: MemorySheet(host: host!),
-                      ),
-              ),
+              _row('spark', 'providers', connected ? _providers : null),
               _row('mic', 'speech', session?.speech == null ? null : _speech),
             ]),
           ),

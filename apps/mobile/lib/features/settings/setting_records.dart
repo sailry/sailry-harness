@@ -9,13 +9,12 @@ import 'record_form.dart';
 
 Future<void> showSettingRecords(
   BuildContext context, {
-  required String kind,
   required HostConnection host,
 }) async {
   final key = GlobalKey<_RecordsState>();
   await showAppSheet(
     context,
-    context.tr(kind),
+    context.tr('providers'),
     scroll: false,
     actions: [
       ListTile(
@@ -24,13 +23,12 @@ Future<void> showSettingRecords(
         onTap: () => key.currentState?.edit(),
       ),
     ],
-    child: _Records(key: key, kind: kind, host: host),
+    child: _Records(key: key, host: host),
   );
 }
 
 class _Records extends StatefulWidget {
-  const _Records({super.key, required this.kind, required this.host});
-  final String kind;
+  const _Records({super.key, required this.host});
   final HostConnection host;
   @override
   State<_Records> createState() => _RecordsState();
@@ -48,30 +46,10 @@ class _RecordsState extends State<_Records> {
 
   Future<void> _load() async {
     try {
-      final response = await widget.host.command(
-        switch (widget.kind) {
-          'providers' => 'list_providers',
-          'roles' => 'list_roles',
-          _ => 'browse_memories',
-        },
-        widget.kind == 'memorySettings'
-            ? {
-                'project': null,
-                'all_projects': true,
-                'archived': false,
-                'query': '',
-              }
-            : null,
-      );
+      final response = await widget.host.command('list_providers');
       if (mounted) {
         setState(() {
-          _records = objects(response['data'])
-              .map(
-                (record) => widget.kind == 'memorySettings'
-                    ? <String, dynamic>{'summary': record}
-                    : record,
-              )
-              .toList();
+          _records = objects(response['data']);
           _error = null;
         });
       }
@@ -83,40 +61,15 @@ class _RecordsState extends State<_Records> {
   }
 
   Future<void> edit([Map<String, dynamic>? record]) async {
-    if (widget.kind == 'memorySettings' && record != null) {
-      try {
-        final response = await widget.host.command('read_memory', {
-          'id': object(record['summary'])['id'],
-        });
-        record = object(response['data']);
-      } catch (error) {
-        if (mounted) {
-          setState(() => _error = failure(error, translate: context.tr));
-        }
-        return;
-      }
-      if (!mounted) return;
-    }
     final saved = await showAppSheet<bool>(
       context,
       context.tr(record == null ? 'add' : 'edit'),
       child: RecordForm(
         host: widget.host,
-        kind: widget.kind,
         record: record,
         names: {
           for (final item in _records ?? <Map<String, dynamic>>[])
-            if ((widget.kind == 'memorySettings'
-                    ? object(item['summary'])['id']
-                    : item['id']) !=
-                (widget.kind == 'memorySettings'
-                    ? object(record?['summary'])['id']
-                    : record?['id']))
-              string(
-                widget.kind == 'memorySettings'
-                    ? object(item['summary'])['title']
-                    : item['name'],
-              ),
+            if (item['id'] != record?['id']) string(item['name']),
         },
       ),
     );
@@ -125,34 +78,17 @@ class _RecordsState extends State<_Records> {
 
   Future<void> _remove(Map<String, dynamic> record) async {
     if (_pending) return;
-    final summary = widget.kind == 'memorySettings'
-        ? object(record['summary'])
-        : record;
-    final name = string(
-      summary[widget.kind == 'memorySettings' ? 'title' : 'name'],
-    );
+    final name = string(record['name']);
     if (!await confirmRemoval(context, name) || !mounted) return;
     setState(() {
       _pending = true;
       _error = null;
     });
     try {
-      await widget.host.command(
-        switch (widget.kind) {
-          'providers' => 'remove_provider',
-          'roles' => 'remove_role',
-          _ => 'remove_memory',
-        },
-        {
-          widget.kind == 'providers'
-                  ? 'provider'
-                  : widget.kind == 'roles'
-                  ? 'role'
-                  : 'id':
-              summary['id'],
-          'expected_revision': summary['revision'],
-        },
-      );
+      await widget.host.command('remove_provider', {
+        'provider': record['id'],
+        'expected_revision': record['revision'],
+      });
       if (mounted) await _load();
     } catch (error) {
       if (mounted) {
@@ -191,67 +127,45 @@ class _RecordsState extends State<_Records> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (final record in _records ?? <Map<String, dynamic>>[])
-                  Builder(
-                    builder: (context) {
-                      final summary = widget.kind == 'memorySettings'
-                          ? object(record['summary'])
-                          : record;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Slidable(
-                            key: ValueKey(
-                              'setting-${widget.kind}-${summary['id']}',
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Slidable(
+                        key: ValueKey('setting-providers-${record['id']}'),
+                        groupTag: 'providers',
+                        endActionPane: ActionPane(
+                          motion: const DrawerMotion(),
+                          extentRatio: .46,
+                          children: [
+                            SlidableAction(
+                              onPressed: _pending ? null : (_) => edit(record),
+                              backgroundColor: colors.surfaceContainerHighest,
+                              foregroundColor: colors.onSurface,
+                              label: context.tr('edit'),
                             ),
-                            groupTag: widget.kind,
-                            endActionPane: ActionPane(
-                              motion: const DrawerMotion(),
-                              extentRatio: .46,
-                              children: [
-                                SlidableAction(
-                                  onPressed: _pending
-                                      ? null
-                                      : (_) => edit(record),
-                                  backgroundColor:
-                                      colors.surfaceContainerHighest,
-                                  foregroundColor: colors.onSurface,
-                                  label: context.tr('edit'),
-                                ),
-                                SlidableAction(
-                                  onPressed: _pending
-                                      ? null
-                                      : (_) => _remove(record),
-                                  backgroundColor: colors.error,
-                                  foregroundColor: colors.onError,
-                                  label: context.tr('delete'),
-                                ),
-                              ],
+                            SlidableAction(
+                              onPressed: _pending
+                                  ? null
+                                  : (_) => _remove(record),
+                              backgroundColor: colors.error,
+                              foregroundColor: colors.onError,
+                              label: context.tr('delete'),
                             ),
-                            child: Surface(
-                              radius: 14,
-                              padding: EdgeInsets.zero,
-                              child: ListTile(
-                                leading: AppIcon(switch (widget.kind) {
-                                  'providers' => 'spark',
-                                  'roles' => 'user',
-                                  _ => 'file',
-                                }),
-                                title: Text(
-                                  string(
-                                    summary[widget.kind == 'memorySettings'
-                                        ? 'title'
-                                        : 'name'],
-                                  ),
-                                ),
-                                trailing: const AppIcon('chevron', size: 14),
-                                onTap: _pending ? null : () => edit(record),
-                              ),
-                            ),
+                          ],
+                        ),
+                        child: Surface(
+                          radius: 14,
+                          padding: EdgeInsets.zero,
+                          child: ListTile(
+                            leading: const AppIcon('spark'),
+                            title: Text(string(record['name'])),
+                            trailing: const AppIcon('chevron', size: 14),
+                            onTap: _pending ? null : () => edit(record),
                           ),
                         ),
-                      );
-                    },
+                      ),
+                    ),
                   ),
               ],
             ),

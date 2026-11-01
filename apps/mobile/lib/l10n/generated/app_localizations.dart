@@ -3390,12 +3390,6 @@ abstract class AppLocalizations {
   /// **'Instructions'**
   String get configInstructions;
 
-  /// No description provided for @configContent.
-  ///
-  /// In en, this message translates to:
-  /// **'Content'**
-  String get configContent;
-
   /// No description provided for @configEmpty.
   ///
   /// In en, this message translates to:
@@ -3449,18 +3443,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Models and providers'**
   String get providers;
-
-  /// No description provided for @roles.
-  ///
-  /// In en, this message translates to:
-  /// **'Roles'**
-  String get roles;
-
-  /// No description provided for @memorySettings.
-  ///
-  /// In en, this message translates to:
-  /// **'Memory'**
-  String get memorySettings;
 
   /// No description provided for @speech.
   ///
@@ -4008,24 +3990,6 @@ abstract class AppLocalizations {
   /// **'Enter a value'**
   String get settingsRequired;
 
-  /// No description provided for @settingsKey.
-  ///
-  /// In en, this message translates to:
-  /// **'ID'**
-  String get settingsKey;
-
-  /// No description provided for @settingsDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Description'**
-  String get settingsDescription;
-
-  /// No description provided for @settingsInstructions.
-  ///
-  /// In en, this message translates to:
-  /// **'Instructions'**
-  String get settingsInstructions;
-
   /// No description provided for @settingsModels.
   ///
   /// In en, this message translates to:
@@ -4073,60 +4037,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Model'**
   String get settingsModel;
-
-  /// No description provided for @settingsMemoryAuto.
-  ///
-  /// In en, this message translates to:
-  /// **'Record automatically'**
-  String get settingsMemoryAuto;
-
-  /// No description provided for @settingsMemoryBudget.
-  ///
-  /// In en, this message translates to:
-  /// **'Context bytes'**
-  String get settingsMemoryBudget;
-
-  /// No description provided for @settingsMemoryReview.
-  ///
-  /// In en, this message translates to:
-  /// **'Review interval (days)'**
-  String get settingsMemoryReview;
-
-  /// No description provided for @settingsMemoryRecords.
-  ///
-  /// In en, this message translates to:
-  /// **'Memory entries'**
-  String get settingsMemoryRecords;
-
-  /// No description provided for @settingsMemoryKind.
-  ///
-  /// In en, this message translates to:
-  /// **'Type'**
-  String get settingsMemoryKind;
-
-  /// No description provided for @settingsMemoryUser.
-  ///
-  /// In en, this message translates to:
-  /// **'User'**
-  String get settingsMemoryUser;
-
-  /// No description provided for @settingsMemoryFeedback.
-  ///
-  /// In en, this message translates to:
-  /// **'Feedback'**
-  String get settingsMemoryFeedback;
-
-  /// No description provided for @settingsMemoryProject.
-  ///
-  /// In en, this message translates to:
-  /// **'Project'**
-  String get settingsMemoryProject;
-
-  /// No description provided for @settingsMemoryReference.
-  ///
-  /// In en, this message translates to:
-  /// **'Reference'**
-  String get settingsMemoryReference;
 
   /// No description provided for @settingsArchived.
   ///

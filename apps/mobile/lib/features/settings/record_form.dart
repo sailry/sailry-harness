@@ -9,12 +9,10 @@ class RecordForm extends StatefulWidget {
   const RecordForm({
     super.key,
     required this.host,
-    required this.kind,
     this.record,
     this.names = const {},
   });
   final HostConnection host;
-  final String kind;
   final Map<String, dynamic>? record;
   final Set<String> names;
   @override
@@ -25,16 +23,12 @@ class _RecordFormState extends State<RecordForm> {
   final _form = GlobalKey<FormState>();
   final _fields = <String, TextEditingController>{};
   late final _original = widget.record ?? <String, dynamic>{};
-  late final _summary = memory ? object(_original['summary']) : _original;
-  late final String _id = string(_summary['id']).isEmpty
+  late final String _id = string(_original['id']).isEmpty
       ? newId()
-      : string(_summary['id']);
+      : string(_original['id']);
   late String _api = string(_original['api']).isEmpty
       ? 'chat_completions'
       : string(_original['api']);
-  late String _memoryKind = string(_summary['kind']).isEmpty
-      ? 'user'
-      : string(_summary['kind']);
   late bool _enabled = _original['enabled'] != false;
   bool _busy = false;
   bool _keyReady = false;
@@ -45,8 +39,6 @@ class _RecordFormState extends State<RecordForm> {
     'open_code_zen' => 'https://opencode.ai/zen/v1',
     _ => null,
   };
-  bool get provider => widget.kind == 'providers';
-  bool get memory => widget.kind == 'memorySettings';
   bool get keyAuth =>
       string(_original['authentication']).isEmpty ||
       _original['authentication'] == 'api_key';
@@ -57,10 +49,7 @@ class _RecordFormState extends State<RecordForm> {
   @override
   void initState() {
     super.initState();
-    field('name', string(_summary[memory ? 'title' : 'name']));
-    field('content', string(_original[memory ? 'body' : 'instructions']));
-    field('key', string(_original['key']));
-    field('description', string(_original['description']));
+    field('name', string(_original['name']));
     field('endpoint', string(_original['endpoint']));
     field(
       'models',
@@ -76,7 +65,7 @@ class _RecordFormState extends State<RecordForm> {
       models.isEmpty ? '16384' : '${integer(models.first['output'])}',
     );
     field('secret');
-    if (provider && keyAuth && widget.record != null) {
+    if (keyAuth && widget.record != null) {
       _readKey();
     } else {
       _keyReady = true;
@@ -118,93 +107,54 @@ class _RecordFormState extends State<RecordForm> {
       _error = null;
     });
     try {
-      final revision = integer(_summary['revision']);
-      if (provider) {
-        final previousModels = objects(_original['models']);
-        final ids = field('models').text
-            .split('\n')
-            .map((id) => id.trim())
-            .where((id) => id.isNotEmpty)
-            .toSet()
-            .toList();
-        final models = ids
-            .map(
-              (id) =>
-                  previousModels
-                      .where((model) => model['id'] == id)
-                      .firstOrNull ??
-                  {
-                    'id': id,
-                    'context': int.parse(field('context').text),
-                    'output': int.parse(field('output').text),
-                    'vision': false,
-                    'tools': true,
-                    'reasoning': false,
-                    'generates': [],
-                    'efforts': [],
-                    'custom_efforts': false,
-                    'default_effort': 'default',
-                  },
-            )
-            .toList();
-        final key = field('secret').text;
-        await widget.host.command('save_provider', {
-          'provider': {
-            ..._original,
-            'id': _id,
-            'revision': revision,
-            'name': field('name').text.trim(),
-            'api': _api,
-            'authentication': _original['authentication'] ?? 'api_key',
-            'endpoint': fixedEndpoint ?? field('endpoint').text.trim(),
-            'enabled': _enabled,
-            'models': models,
-            'default_model': ids.contains(_original['default_model'])
-                ? _original['default_model']
-                : ids.first,
-            'credential': keyAuth && key.isEmpty
-                ? null
-                : _original['credential'],
-          },
-          'expected_revision': revision,
-          'secret': keyAuth && key.isNotEmpty && key != _savedKey ? key : null,
-        });
-      } else if (memory) {
-        await widget.host.command('put_memory', {
-          'entry': {
-            ..._original,
-            'summary': {
-              ..._summary,
-              'id': _id,
-              'project': _summary['project'],
-              'title': field('name').text.trim(),
-              'kind': _memoryKind,
-              'revision': revision,
-              'updated_at_ms': integer(_summary['updated_at_ms']),
-              'archived': _summary['archived'] == true,
-            },
-            'body': field('content').text,
-          },
-          'expected_revision': revision,
-        });
-      } else {
-        await widget.host.command('put_role', {
-          'role': {
-            ..._original,
-            'id': _id,
-            'revision': revision,
-            'name': field('name').text.trim(),
-            'key': field('key').text.trim(),
-            'description': field('description').text.trim(),
-            'read_only': _original['read_only'] == true,
-            'instructions': field('content').text,
-            'model': _original['model'],
-            'max_turns': _original['max_turns'],
-            'skills': _original['skills'] ?? [],
-          },
-          'expected_revision': revision,
-        });
-      }
+      final revision = integer(_original['revision']);
+      final previousModels = objects(_original['models']);
+      final ids = field('models').text
+          .split('\n')
+          .map((id) => id.trim())
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList();
+      final models = ids
+          .map(
+            (id) =>
+                previousModels
+                    .where((model) => model['id'] == id)
+                    .firstOrNull ??
+                {
+                  'id': id,
+                  'context': int.parse(field('context').text),
+                  'output': int.parse(field('output').text),
+                  'vision': false,
+                  'tools': true,
+                  'reasoning': false,
+                  'generates': [],
+                  'efforts': [],
+                  'custom_efforts': false,
+                  'default_effort': 'default',
+                },
+          )
+          .toList();
+      final key = field('secret').text;
+      await widget.host.command('save_provider', {
+        'provider': {
+          ..._original,
+          'id': _id,
+          'revision': revision,
+          'name': field('name').text.trim(),
+          'api': _api,
+          'authentication': _original['authentication'] ?? 'api_key',
+          'endpoint': fixedEndpoint ?? field('endpoint').text.trim(),
+          'enabled': _enabled,
+          'models': models,
+          'default_model': ids.contains(_original['default_model'])
+              ? _original['default_model']
+              : ids.first,
+          'credential': keyAuth && key.isEmpty ? null : _original['credential'],
+        },
+        'expected_revision': revision,
+        'secret': keyAuth && key.isNotEmpty && key != _savedKey ? key : null,
+      });
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (mounted) {
@@ -252,77 +202,46 @@ class _RecordFormState extends State<RecordForm> {
     child: FormBody(
       children: [
         input('name', 'configName'),
-        if (provider) ...[
-          SelectField<String>(
-            value: _api,
-            label: context.tr('settingsApi'),
-            options: provider_api
-                .choices(_api)
-                .map(
-                  (api) => (
-                    api,
-                    switch (api) {
-                      'open_code_go' => context.tr('settingsOpenCodeGo'),
-                      'open_code_zen' => context.tr('settingsOpenCodeZen'),
-                      _ => api,
-                    },
-                  ),
-                )
-                .toList(),
-            onChanged: _busy || !provider_api.editable(_api)
-                ? null
-                : (value) => setState(() => _api = value),
-          ),
-          if (fixedEndpoint == null) input('endpoint', 'configEndpoint'),
-          if (keyAuth)
-            input(
-              'secret',
-              'settingsApiKey',
-              required: false,
-              enabled: _keyReady,
-            ),
-          if (!_keyReady && _error != null)
-            TextButton(
-              onPressed: _readKey,
-              child: Text(context.tr('settingsRetry')),
-            ),
-          input('models', 'settingsModels', lines: 3),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: Text(context.tr('settingsEnabled')),
-            value: _enabled,
-            onChanged: _busy
-                ? null
-                : (value) => setState(() => _enabled = value),
-          ),
-        ] else ...[
-          if (!memory) ...[
-            input('key', 'settingsKey'),
-            input('description', 'settingsDescription'),
-          ],
-          if (memory)
-            SelectField<String>(
-              value: _memoryKind,
-              label: context.tr('settingsMemoryKind'),
-              options: [
-                for (final item in [
-                  ('user', 'settingsMemoryUser'),
-                  ('feedback', 'settingsMemoryFeedback'),
-                  ('project', 'settingsMemoryProject'),
-                  ('reference', 'settingsMemoryReference'),
-                ])
-                  (item.$1, context.tr(item.$2)),
-              ],
-              onChanged: _busy
-                  ? null
-                  : (value) => setState(() => _memoryKind = value),
-            ),
+        SelectField<String>(
+          value: _api,
+          label: context.tr('settingsApi'),
+          options: provider_api
+              .choices(_api)
+              .map(
+                (api) => (
+                  api,
+                  switch (api) {
+                    'open_code_go' => context.tr('settingsOpenCodeGo'),
+                    'open_code_zen' => context.tr('settingsOpenCodeZen'),
+                    _ => api,
+                  },
+                ),
+              )
+              .toList(),
+          onChanged: _busy || !provider_api.editable(_api)
+              ? null
+              : (value) => setState(() => _api = value),
+        ),
+        if (fixedEndpoint == null) input('endpoint', 'configEndpoint'),
+        if (keyAuth)
           input(
-            'content',
-            memory ? 'configContent' : 'settingsInstructions',
-            lines: 5,
+            'secret',
+            'settingsApiKey',
+            required: false,
+            enabled: _keyReady,
           ),
-        ],
+        if (!_keyReady && _error != null)
+          TextButton(
+            onPressed: _readKey,
+            child: Text(context.tr('settingsRetry')),
+          ),
+        input('models', 'settingsModels', lines: 3),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: Text(context.tr('settingsEnabled')),
+          value: _enabled,
+          onChanged: _busy ? null : (value) => setState(() => _enabled = value),
+        ),
         if (_error != null) settingsError(_error),
         FilledButton(
           onPressed: _busy || !_keyReady ? null : _save,
