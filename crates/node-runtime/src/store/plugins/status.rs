@@ -62,8 +62,18 @@ impl Service {
         let watcher = {
             let mut watchers = self.watchers.lock().unwrap();
             watchers.retain(|_, watcher| watcher.strong_count() > 0);
-            if let Some(watcher) = watchers.get(&scope).and_then(Weak::upgrade) {
-                let _ = watcher.signals.send(Signal::Subscribe);
+            if let Some(watcher) = watchers
+                .get(&scope)
+                .and_then(Weak::upgrade)
+                .filter(|watcher| {
+                    watcher
+                        .updates
+                        .borrow()
+                        .as_ref()
+                        .is_none_or(|frame| frame.terminal.is_none())
+                        && watcher.signals.send(Signal::Subscribe).is_ok()
+                })
+            {
                 watcher
             } else {
                 let (updates, _) = watch::channel(None);
@@ -100,8 +110,7 @@ impl Service {
         let mut watchers = self.watchers.lock().unwrap();
         watchers.retain(|_, watcher| {
             if let Some(watcher) = watcher.upgrade() {
-                let _ = watcher.signals.send(Signal::Invoke(name.into()));
-                true
+                watcher.signals.send(Signal::Invoke(name.into())).is_ok()
             } else {
                 false
             }

@@ -3,6 +3,8 @@ use sailry_client::Client;
 use sailry_protocol::{Command, Output, plugin, plugin::ui};
 use serde_json::{Value, json};
 
+mod recovery;
+
 fn package() -> plugin::Info {
     serde_json::from_value(json!({
         "summary":{"name":"status-fixture","revision":1,"digest":"a".repeat(64),
