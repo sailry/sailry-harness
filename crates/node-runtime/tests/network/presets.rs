@@ -213,11 +213,11 @@ async fn cancellation_stops_catalog_reads() {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
+        let client = Arc::new(Client::new(if remote {
             controller.link().remote(address)
         } else {
             node.local()
-        });
+        }));
         let pending = tokio::spawn({
             let client = client.clone();
             async move {
