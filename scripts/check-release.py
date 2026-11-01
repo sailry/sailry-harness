@@ -35,16 +35,16 @@ def main():
     repository = os.environ["GITHUB_REPOSITORY"]
     client = publication.GitHub()
     commit = publication.tagged_commit(args.tag, root=args.source)
+    metadata = publication.release(client, repository, args.tag, commit, published=args.published)
+    if args.component and metadata is not None and metadata.get("immutable"):
+        raise ValueError("Packages cannot be appended to an immutable release")
     if args.wait_ready:
-        if args.component != "desktop" or args.published:
-            parser.error("Waiting is only supported before initial Desktop publication")
+        if args.component is None:
+            parser.error("Waiting requires a product component")
         publication.wait_ready(client, repository, commit, args.component)
     if args.component:
         run = publication.readiness(client, repository, commit, args.component)
         print(f"Verified {args.component.title()} ready in Checks run {run}")
-    metadata = publication.release(client, repository, args.tag, commit, published=args.published)
-    if args.component == "host" and metadata.get("immutable"):
-        raise ValueError("Host assets cannot be appended to an immutable release")
     if args.event:
         if not args.published:
             raise ValueError("A publication event requires a published release")

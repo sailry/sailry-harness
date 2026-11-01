@@ -1027,23 +1027,28 @@ headless process, using a private profile and explicit network/pairing options.
 Only one process may own that profile. Pairing is opt-in for Host; established
 peer trust survives restart. Host release archives are independent from Desktop;
 the official installer verifies tag-bound assets and starts systemd or launchd.
-Initial Desktop publication waits for full main Checks to complete successfully
-at the tag's exact commit, then validates Desktop readiness. Desktop first
-publishes explicitly named ad-hoc macOS arm64 and x64 packages, then starts independent formal signing and
-Host packaging for that same tag. Formal signing reuses the preserved native
-artifacts, adds signed and notarized canonical packages, and publishes the
-release's signed `update-v1.json` catalog. Apple signing failures leave the
-initial public packages available. Host appends macOS and Linux arm64 and x64
-archives independently. Published tags and existing asset bytes are preserved;
-release immutability remains disabled while these assets are appended. Host
-installation is available once its assets appear. An independent Mobile workflow
-requires successful full main Checks and Mobile readiness for its exact source,
-then builds signed Android APKs and iOS IPAs. Manual dispatch from main can select
-an already checked ancestor commit while packaging tooling stays pinned to the
-workflow commit; package metadata records both revisions. Version tags upload
-iOS builds to App Store Connect for TestFlight; manual dispatch can select a
-platform and keep the IPA as an artifact without uploading. Apple processing, export compliance
-and tester-group access remain App Store Connect steps.
+A version workflow validates an exact product tag against trusted main history,
+generates its notes and publishes the version release before dispatching Desktop,
+Host, Mobile and changelog workflows independently. Each product waits for full
+main Checks to complete successfully at its exact source and validates its own
+readiness before building distribution packages. A newly published release can
+initially contain only notes; its packages appear as each product finishes.
+Desktop appends explicitly named ad-hoc macOS arm64 and x64 packages, then starts
+formal signing from its preserved native artifacts. Formal signing adds signed
+and notarized canonical packages and publishes the release's signed
+`update-v1.json` catalog only after the complete signed set is available. Apple
+signing failures leave the initial public packages available. Host appends macOS
+and Linux arm64 and x64 archives independently of Desktop. Published tags and
+existing asset bytes are preserved; release immutability remains disabled while
+these assets are appended. Host installation is available once its assets appear.
+Mobile appends signed Android APKs and iOS IPAs with their source metadata and
+checksums to the same tagged release. Manual Mobile dispatch can instead select
+an already checked product commit independently of pinned workflow tooling and
+retain only Actions artifacts; metadata records both revisions. Tagged builds
+always use their exact source. Mobile can upload iOS builds to App Store Connect
+for TestFlight; manual dispatch can select a platform and preserve the IPA without
+uploading. Apple processing, export compliance and tester-group access remain
+App Store Connect steps.
 The release-only `sailry-release` tool owns Desktop archive and catalog signing;
 it is not linked into Desktop, Host or Node. Desktop discovers published releases
 through GitHub's API and selects the highest compatible SemVer in its channel

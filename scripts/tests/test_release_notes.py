@@ -108,19 +108,16 @@ class ReleaseWorkflows(unittest.TestCase):
     def test_desktop_requires_tag_and_own_gate(self):
         workflow = self.workflow("release")
         trigger = workflow.split("permissions:", 1)[0]
-        self.assertIn("tags: ['v*']", trigger)
         self.assertIn("workflow_dispatch", trigger)
+        self.assertNotIn("push:", trigger)
         self.assertNotIn("component:", trigger)
-        self.assertIn('test "$GITHUB_REF_TYPE" = tag', workflow)
-        self.assertIn('--component desktop', workflow)
+        self.assertIn('--component desktop --wait-ready --published', workflow)
         self.assertNotIn("pull_request", trigger)
         self.assertNotIn("--generate-notes", workflow)
 
     def test_builds_exact_tag_in_main_cache(self):
         desktop = self.workflow("release")
-        self.assertIn("if: github.event_name == 'push'", desktop)
-        self.assertIn('--ref main -f "tag=$RELEASE_TAG"', desktop)
-        self.assertIn("if: github.event_name != 'push'", desktop)
+        self.assertNotIn("  dispatch:\n", desktop)
         for name in ("release", "release-host"):
             workflow = self.workflow(name)
             self.assertIn('test "$GITHUB_EVENT_NAME" = workflow_dispatch', workflow)
@@ -221,42 +218,39 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("cargo build", signing)
         self.assertNotIn("cargo run", signing)
         self.assertIn("needs: sign", formal.split("  publish:\n", 1)[1])
-        self.assertIn("--append-signed", formal)
+        self.assertIn("--component desktop --tag", formal)
 
-    def test_publication_dispatches_exact_tag_followups(self):
+    def test_desktop_dispatches_formal_signing_only(self):
         publish = self.workflow("release").split("  publish:\n", 1)[1]
         self.assertIn("contents: write", publish)
         self.assertIn("actions: write", publish)
-        for name in ("release-desktop-formal.yml", "release-host.yml", "changelog.yml"):
-            self.assertIn(name, publish)
+        self.assertIn("release-desktop-formal.yml", publish)
+        for name in ("release-host.yml", "release-mobile.yml", "changelog.yml"):
+            self.assertNotIn(name, publish)
         self.assertNotIn("update-feed.yml", publish)
         for field in ("source_sha", "producer_run", "producer_revision", "artifacts", "signed_arm_from"):
             self.assertIn("'" + field + "'", publish)
-        self.assertIn("('release-host.yml', 'main', {'tag': tag})", publish)
-        self.assertIn("('changelog.yml', tag, {'tag': tag})", publish)
-        self.assertLess(publish.index("scripts/publish-packages.py"), publish.index("dispatches"))
+        self.assertLess(publish.index("scripts/publish-packages.py"), publish.index("/dispatches"))
+        self.assertNotIn("release-notes.py", publish)
         formal = self.workflow("release-desktop-formal").split("  publish:\n", 1)[1]
         self.assertIn('gh workflow run update-feed.yml --repo "$GITHUB_REPOSITORY" --ref main -f "tag=$RELEASE_TAG"', formal)
         self.assertNotIn("release-host.yml", formal)
 
-    def test_dispatch_failure_still_attempts_all_followups(self):
-        workflow = self.workflow("release").split("Dispatch exact-version formal signing and independent follow-ups", 1)[1]
+    def test_formal_dispatch_preserves_producer_evidence(self):
+        workflow = self.workflow("release").split("Dispatch exact-version formal signing\n", 1)[1]
         script = textwrap.dedent(workflow.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
-        results = [subprocess.CompletedProcess([], code) for code in (0, 1, 0)]
         environment = {"GITHUB_REPOSITORY": "fixture/product", "RELEASE_TAG": "v0.1.0-alpha.1",
                        "GITHUB_RUN_ID": "7", "WORKFLOW_REVISION": "b" * 40,
                        "NATIVE_ARTIFACTS": "[]", "RESUME_INTEL_FROM": "9"}
         with patch.dict(os.environ, environment), patch.object(subprocess, "check_output", return_value="a" * 40), \
-                patch.object(subprocess, "run", side_effect=results) as run:
-            with self.assertRaisesRegex(SystemExit, "release-host.yml"):
-                exec(script, {})
-        self.assertEqual(run.call_count, 3)
-        payloads = [json.loads(call.kwargs["input"]) for call in run.call_args_list]
-        self.assertEqual(payloads[0], {"ref": "main", "inputs": {
+                patch.object(subprocess, "run") as run:
+            exec(script, {})
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0][4], "repos/fixture/product/actions/workflows/release-desktop-formal.yml/dispatches")
+        self.assertTrue(run.call_args.kwargs["check"])
+        self.assertEqual(json.loads(run.call_args.kwargs["input"]), {"ref": "main", "inputs": {
             "tag": "v0.1.0-alpha.1", "source_sha": "a" * 40, "producer_run": "7",
             "producer_revision": "b" * 40, "artifacts": "[]", "signed_arm_from": "9"}})
-        self.assertEqual(payloads[1], {"ref": "main", "inputs": {"tag": "v0.1.0-alpha.1"}})
-        self.assertEqual(payloads[2], {"ref": "v0.1.0-alpha.1", "inputs": {"tag": "v0.1.0-alpha.1"}})
 
     def test_host_appends_independently_on_four_targets(self):
         workflow = self.workflow("release-host")
@@ -328,8 +322,8 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("ANDROID_SIGNING_SHA256", workflow)
         self.assertIn("upload_testflight", workflow)
         self.assertIn("upload-artifact", workflow)
-        self.assertNotIn("contents: write", workflow)
-        self.assertIn("tags: ['v*']", workflow)
+        self.assertIn("contents: write", workflow)
+        self.assertNotIn("push:", workflow.split("permissions:", 1)[0])
 
     def test_followups_verify_publication_for_both_triggers(self):
         changelog = self.workflow("changelog")
@@ -484,12 +478,47 @@ class GateWaiting(unittest.TestCase):
             self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
         sleep.assert_not_called()
 
-    def test_initial_workflow_waits_before_compilation(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        gate = workflow.split("  version:\n", 1)[1].split("  build:\n", 1)[0]
-        self.assertIn("timeout-minutes: 310", gate)
-        self.assertIn("--component desktop --wait-ready", gate)
-        self.assertNotIn("cargo build", gate)
+    def test_products_wait_before_compilation(self):
+        for workflow, component in (("release", "desktop"), ("release-host", "host")):
+            source = (ROOT / f".github/workflows/{workflow}.yml").read_text()
+            gate = source.split("  version:\n", 1)[1].split("  build:\n", 1)[0]
+            with self.subTest(component=component):
+                self.assertIn("timeout-minutes: 310", gate)
+                self.assertIn(f"--component {component}", gate)
+                self.assertIn("--wait-ready", gate)
+                self.assertIn("--published", gate)
+                self.assertNotIn("cargo build", gate)
+
+    def test_published_products_can_wait_for_checks(self):
+        spec = importlib.util.spec_from_file_location("waiting_release", ROOT / "scripts/check-release.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        for component in ("desktop", "host", "mobile"):
+            with self.subTest(component=component), \
+                    patch.object(sys, "argv", ["check-release.py", "--tag", "v0.1.0", "--published", "--wait-ready", "--component", component]), \
+                    patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product"}), \
+                    patch.object(gate, "require_context"), patch.object(gate.publication, "GitHub"), \
+                    patch.object(gate.publication, "tagged_commit", return_value="a" * 40), \
+                    patch.object(gate.publication, "wait_ready") as wait, \
+                    patch.object(gate.publication, "readiness", return_value=7), \
+                    patch.object(gate.publication, "release", return_value={}) as release:
+                gate.main()
+            self.assertEqual(wait.call_args.args[2:], ("a" * 40, component))
+            self.assertTrue(release.call_args.kwargs["published"])
+
+    def test_missing_publication_fails_before_waiting(self):
+        spec = importlib.util.spec_from_file_location("unpublished_release", ROOT / "scripts/check-release.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        with patch.object(sys, "argv", ["check-release.py", "--tag", "v0.1.0", "--published", "--wait-ready", "--component", "host"]), \
+                patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product"}), \
+                patch.object(gate, "require_context"), patch.object(gate.publication, "GitHub"), \
+                patch.object(gate.publication, "tagged_commit", return_value="a" * 40), \
+                patch.object(gate.publication, "wait_ready") as wait, \
+                patch.object(gate.publication, "release", side_effect=ValueError("Published release required")), \
+                self.assertRaisesRegex(ValueError, "Published release required"):
+            gate.main()
+        wait.assert_not_called()
 
 
 if __name__ == "__main__":

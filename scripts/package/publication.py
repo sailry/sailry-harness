@@ -141,14 +141,38 @@ def release(client, repository, tag, commit, published=False):
         raise ValueError("The remote release tag differs from the verified commit")
     if metadata is None:
         if published:
-            raise ValueError("Desktop must publish this release before Host or publication follow-ups run")
+            raise ValueError("Publish this version release before appending packages or running follow-ups")
         return None
     preview = versions.parse(tag[1:]).group("preview") is not None
     if metadata.get("tag_name") != tag or (metadata.get("prerelease") and not preview):
         raise ValueError("The release tag or channel does not match the application version")
     if published and (metadata.get("draft") is not False or not metadata.get("published_at")):
-        raise ValueError("A published Desktop release is required")
+        raise ValueError("A published version release is required")
     return metadata
+
+
+def digest(path):
+    with path.open("rb") as source:
+        return "sha256:" + hashlib.file_digest(source, "sha256").hexdigest()
+
+
+def append(client, repository, tag, metadata, assets):
+    if metadata.get("immutable"):
+        raise ValueError("Release assets cannot be appended to an immutable release")
+    existing = {asset["name"]: asset for asset in metadata.get("assets", [])}
+    missing = []
+    for path in assets:
+        asset = existing.get(path.name)
+        if asset is None:
+            missing.append(path)
+            continue
+        if asset.get("state") != "uploaded" or asset.get("size") != path.stat().st_size:
+            raise ValueError(f"Release asset collision: {path.name}; existing assets cannot be replaced")
+        actual = asset.get("digest") or client.digest(repository, asset)
+        if actual != digest(path):
+            raise ValueError(f"Release asset collision: {path.name}; existing assets cannot be replaced")
+    if missing:
+        client.upload(tag, missing)
 
 
 def ready_run(client, repository, commit, component):

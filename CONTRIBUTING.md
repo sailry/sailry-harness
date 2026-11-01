@@ -270,32 +270,40 @@ Flutter run do not establish iOS or Android device acceptance.
 
 ## Release packages
 
-[The release workflow](.github/workflows/release.yml) runs when a `v*` tag is
-pushed, and dispatches its build on `main`. Manual dispatch of Desktop or
-[Host](.github/workflows/release-host.yml) selects `main` and supplies the exact
-version tag as its `tag` input. Every job checks out that tag; the workflow
-executes on main so compatible release compiler objects can be reused across
-version tags instead of being isolated in each tag's cache scope. Cache and
-progress tooling is sparsely checked out at the workflow's fixed commit, so
-older candidate tags do not need to contain those helpers. Product packaging
-scripts still come from the candidate. The tag
-must match every application's version, such as `v0.1.0` for version `0.1.0`;
-branch pushes and pull requests do not build releases.
-Initial Desktop publication waits for full main Checks to complete successfully
-at the tag's exact commit, then validates Desktop readiness. Other products retain
-their own readiness gates. Desktop publishes both ad-hoc macOS
-packages first, then starts [formal signing](.github/workflows/release-desktop-formal.yml),
-Host packaging and the changelog independently for that same tag. Formal signing
-reuses the native artifacts without rebuilding them; failure does not withdraw
-the initial packages. Once both formal packages are available, the catalog
-workflow attaches signed `update-v1.json` to that exact release. Desktop discovers
-eligible versions through GitHub Releases, keeping stable and preview selection
-separate; archive URLs always identify their exact tag. Host appends its verified
-macOS and Linux assets independently. Mobile packaging uses its independent
-workflow described below. Published tags and existing public asset bytes are
-never replaced.
-Before reusing an unpublished candidate draft, remove unsupported attachments;
-Desktop refreshes its title and notes from the final tagged source.
+[The version workflow](.github/workflows/release-version.yml) runs when a `v*`
+tag is pushed and dispatches version publication on `main`. It also accepts manual
+dispatch from `main` with an exact `tag` input. The tag must match every
+application's version, such as `v0.1.0` for version `0.1.0`, and its source must be
+an ancestor of the pinned main workflow commit. The entry generates notes and
+publishes the version release before independently starting
+[Desktop](.github/workflows/release.yml),
+[Host](.github/workflows/release-host.yml), Mobile and the changelog. Version
+publication does not wait for product Checks; every product build retains its
+full exact-source main Checks and product readiness gates. The release can contain
+only notes while these builds are running.
+
+Desktop and Host recovery workflows select `main` and supply the exact version
+tag as their `tag` input. Every product job checks out its selected source; the
+workflow executes on main so compatible release compiler objects can be reused
+across version tags instead of being isolated in each tag's cache scope. Cache
+and progress tooling is sparsely checked out at the workflow's fixed commit, so
+older candidate tags do not need to contain those helpers. Native product build
+scripts and locked dependencies still come from the candidate. Branch pushes and
+pull requests do not build releases.
+
+Desktop appends both ad-hoc macOS packages, then starts
+[formal signing](.github/workflows/release-desktop-formal.yml) for that same tag.
+Formal signing verifies and reuses the native artifacts without rebuilding them;
+failure does not withdraw the initial packages. Once both formal packages are
+available, the catalog workflow attaches signed `update-v1.json` to that exact
+release. Desktop discovers eligible versions through GitHub Releases, keeping
+stable and preview selection separate; archive URLs always identify their exact
+tag. Host appends its complete verified macOS and Linux asset set independently
+of Desktop. Mobile packaging uses its independent workflow described below.
+Repeated publication preserves an existing public release's metadata and assets;
+an unpublished draft receives current tagged notes before publication. No
+publisher replaces public tags or existing public asset bytes. Recover an
+individual failed product through its own workflow.
 
 Configure these repository secrets through GitHub's encrypted secret storage:
 
@@ -314,33 +322,38 @@ files after packaging. The Apple account must have accepted current agreements
 and the API key must have notarization access.
 
 The packaging workflow signs the final notarized updater ZIP with its published
-filename before calculating checksums. Desktop publication starts
+filename before calculating checksums. Formal Desktop publication starts
 the update-feed workflow, which downloads the published ZIPs and metadata,
 verifies their version, target, digest and both publisher signatures, then
 advances the root feeds with one non-forced compare-and-swap commit. The stable
 feed accepts final versions only. The experience feed accepts both final and
 prerelease versions, and a stable publication advances both feeds. GitHub does
 not normally start another workflow for events created with `GITHUB_TOKEN`, so
-Desktop publication explicitly dispatches the same verified feed and changelog
-handoffs. Manual dispatch can retry those follow-ups for a published version tag.
+the version entry explicitly dispatches product and changelog workflows, while
+formal Desktop publication dispatches the verified feed handoff. Manual dispatch
+can retry those follow-ups for a published version tag.
 
 The independent [Mobile packages workflow](.github/workflows/release-mobile.yml)
-runs for `v*` tags or manual dispatch from `main` or the matching version tag.
-It waits for successful full main Checks and Mobile readiness at the exact source
-before making signing credentials available. Manual dispatch from `main` accepts
-an optional `source_commit` input containing the full 40-character SHA of an
-ancestor of the workflow commit. Leaving it empty builds the workflow's source;
-tag runs always build the exact matching tag and reject source overrides. This
+accepts dispatch from `main`. Its optional `tag` input selects the exact source of
+an already published version release. It waits for successful full main Checks
+and Mobile readiness at that source before making signing credentials available.
+A dispatch without a tag can instead supply `source_commit`, the full
+40-character SHA of an ancestor of the workflow commit; leaving both inputs empty
+builds the workflow's source. A tag and source override cannot be combined. This
 allows a newer packaging workflow to use an already checked product commit
 without treating the tooling commit as checked. Product build scripts, locked
 dependencies and versions come from the selected source. Distribution helpers
 and cache actions are sparsely checked out at `github.workflow_sha`; package
 metadata records product and workflow revisions separately.
 Manual dispatch selects `both`, `android` or `ios`; disabling `upload_testflight`
-preserves the signed IPA without uploading it. Version tags build both platforms
-and upload the iOS package. Android produces a signed ARM64 APK. Both jobs retain
-packages, source metadata and SHA-256 checksums as Actions artifacts for 30 days,
-independently of Desktop publication. These builds do not establish real-device acceptance.
+preserves the signed IPA without uploading it. The version entry selects both
+platforms and uploads the iOS package for TestFlight. Android produces a signed
+ARM64 APK. Both jobs retain packages, source metadata and SHA-256 checksums as
+Actions artifacts for 30 days. Tagged builds independently append each platform's
+package, metadata and checksum to the published version release; builds selected
+without a tag retain only Actions artifacts. An IPA packaged before a TestFlight
+upload failure remains available for download. These builds do not establish
+real-device acceptance.
 
 Mobile distribution uses these additional repository secrets:
 
@@ -426,7 +439,7 @@ Older preview releases retain their existing GitHub flag.
 The release title is `Sailry Harness <version>`. Release notes use the exact
 version's section in `CHANGELOG.md`; when that section is absent, they are
 generated from the immutable tag's Git commits since the previous version tag.
-Desktop publication starts the separate
+Version publication starts the separate
 [changelog workflow](.github/workflows/changelog.yml), which prepends the same
 entry to [`CHANGELOG.md`](CHANGELOG.md) on the default branch and preserves existing
 entries. Draft creation does not update the public changelog. Changelog updates

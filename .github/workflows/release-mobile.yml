@@ -1,10 +1,12 @@
 name: Mobile packages
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
+      tag:
+        description: 'Optional published version tag (dispatch from main only)'
+        type: string
+        default: ''
       source_commit:
         description: 'Optional full SHA of a checked main commit (dispatch from main only)'
         type: string
@@ -24,10 +26,11 @@ permissions:
   actions: read
 
 concurrency:
-  group: mobile-packages-${{ github.ref }}
+  group: mobile-packages-${{ inputs.tag || inputs.source_commit || github.ref }}
   cancel-in-progress: false
 
 env:
+  RELEASE_TAG: ${{ inputs.tag }}
   SOURCE_COMMIT: ${{ inputs.source_commit }}
   WORKFLOW_REVISION: ${{ github.workflow_sha }}
   CARGO_TERM_COLOR: always
@@ -50,10 +53,11 @@ jobs:
       build_number: ${{ steps.source.outputs.build_number }}
       revision: ${{ steps.source.outputs.revision }}
       workflow_revision: ${{ steps.source.outputs.workflow_revision }}
+      tag: ${{ steps.source.outputs.tag }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
-          ref: ${{ inputs.source_commit || github.sha }}
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || inputs.source_commit || github.sha }}
           persist-credentials: false
           fetch-depth: 0
       - name: Workflow tooling
@@ -70,7 +74,7 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
-      - name: Require full Checks and Mobile readiness
+      - name: Require published tags and exact Mobile readiness
         id: source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -79,15 +83,18 @@ jobs:
   android:
     name: Signed Android APK
     needs: readiness
-    if: github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'android'
+    if: inputs.platform == 'both' || inputs.platform == 'android'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       CARGO_BUILD_JOBS: '2'
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           ref: ${{ needs.readiness.outputs.revision }}
+          fetch-depth: 0
           persist-credentials: false
           submodules: recursive
       - name: Workflow tooling
@@ -158,6 +165,7 @@ jobs:
           python3 .workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" package --platform android \
             --input apps/mobile/build/app/outputs/flutter-apk/app-release.apk --output dist/mobile-android
       - name: Preserve signed APK and checksums
+        id: artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mobile-android-${{ needs.readiness.outputs.version }}-${{ github.run_attempt }}
@@ -172,17 +180,20 @@ jobs:
   ios:
     name: Signed iOS IPA and TestFlight
     needs: readiness
-    if: github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'ios'
+    if: inputs.platform == 'both' || inputs.platform == 'ios'
     runs-on: macos-15
     timeout-minutes: 150
     env:
       CARGO_BUILD_JOBS: '2'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           ref: ${{ needs.readiness.outputs.revision }}
+          fetch-depth: 0
           persist-credentials: false
           submodules: recursive
       - name: Workflow tooling
@@ -247,6 +258,7 @@ jobs:
           python3 .workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" package \
             --platform ios --input "${task_ipa[0]}" --output dist/mobile-ios
       - name: Preserve signed IPA and checksums
+        id: artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mobile-ios-${{ needs.readiness.outputs.version }}-${{ github.run_attempt }}
@@ -255,7 +267,7 @@ jobs:
           compression-level: 0
           retention-days: 30
       - name: Upload the verified IPA to TestFlight
-        if: github.event_name == 'push' || inputs.upload_testflight
+        if: inputs.upload_testflight
         env:
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
           APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
@@ -264,3 +276,83 @@ jobs:
       - name: Remove iOS signing files
         if: always()
         run: python3 .workflow-tools/scripts/package/ios-signing.py --source "$GITHUB_WORKSPACE" cleanup
+
+  publish-android:
+    name: Append Android to the published Release
+    needs: [readiness, android]
+    if: always() && !cancelled() && needs.readiness.result == 'success' && needs.readiness.outputs.tag != '' && needs.android.outputs.artifact_id != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          ref: ${{ needs.readiness.outputs.revision }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          fetch-depth: 0
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.android.outputs.artifact_id }}
+          path: packages/mobile-android
+          merge-multiple: true
+      - name: Verify provenance and append Android assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 .workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" publish --platform android --directory packages/mobile-android
+
+  publish-ios:
+    name: Append iOS to the published Release
+    needs: [readiness, ios]
+    if: always() && !cancelled() && needs.readiness.result == 'success' && needs.readiness.outputs.tag != '' && needs.ios.outputs.artifact_id != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          ref: ${{ needs.readiness.outputs.revision }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          fetch-depth: 0
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.ios.outputs.artifact_id }}
+          path: packages/mobile-ios
+          merge-multiple: true
+      - name: Verify provenance and append iOS assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 .workflow-tools/scripts/package/mobile-release.py --source "$GITHUB_WORKSPACE" publish --platform ios --directory packages/mobile-ios

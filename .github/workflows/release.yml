@@ -1,8 +1,6 @@
 name: Release Desktop
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -31,23 +29,7 @@ env:
   MACOSX_DEPLOYMENT_TARGET: '13.0'
 
 jobs:
-  dispatch:
-    name: Queue exact-tag build on main
-    if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Dispatch reusable release cache scope
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test "$GITHUB_REF_TYPE" = tag
-          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f "tag=$RELEASE_TAG"
-
   version:
-    if: github.event_name != 'push'
     name: Verify Desktop readiness and tag
     runs-on: ubuntu-24.04
     timeout-minutes: 310
@@ -74,7 +56,7 @@ jobs:
         run: |
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
-          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component desktop --wait-ready
+          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component desktop --wait-ready --published
       - name: Select native producers
         id: targets
         env:
@@ -332,21 +314,18 @@ jobs:
           pattern: packages-*
           path: packages
           merge-multiple: true
-      - name: Verify archives and publish Desktop
+      - name: Verify archives and append Desktop packages
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
         run: |
           (cd packages && sha256sum --check SHA256SUMS-desktop-*)
-          python3 scripts/release-notes.py --tag "$RELEASE_TAG" \
-            --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --notes "$RUNNER_TEMP/release-notes.md" --changelog CHANGELOG.md
           arguments=()
           if test -n "$RESUME_INTEL_FROM"; then arguments+=(--signed-arm); fi
           python3 .workflow-tools/scripts/publish-packages.py --source "$GITHUB_WORKSPACE" \
             --component desktop-adhoc --tag "$RELEASE_TAG" "${arguments[@]}" \
-            --notes "$RUNNER_TEMP/release-notes.md" --directory packages
+            --directory packages
       - name: Identify preserved native artifacts
         id: native
         env:
@@ -358,7 +337,7 @@ jobs:
           if test -n "$RESUME_INTEL_FROM"; then arguments+=(--signed-arm); fi
           python3 .workflow-tools/scripts/desktop-build.py inventory --source "$GITHUB_WORKSPACE" \
             --tag "$RELEASE_TAG" "${arguments[@]}"
-      - name: Dispatch exact-version formal signing and independent follow-ups
+      - name: Dispatch exact-version formal signing
         env:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW_REVISION: ${{ github.workflow_sha }}
@@ -370,21 +349,12 @@ jobs:
           repository = os.environ['GITHUB_REPOSITORY']
           tag = os.environ['RELEASE_TAG']
           source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          dispatches = [
-              ('release-desktop-formal.yml', 'main', {
-                  'tag': tag, 'source_sha': source, 'producer_run': os.environ['GITHUB_RUN_ID'],
-                  'producer_revision': os.environ['WORKFLOW_REVISION'], 'artifacts': os.environ['NATIVE_ARTIFACTS'],
-                  'signed_arm_from': os.environ['RESUME_INTEL_FROM']}),
-              ('release-host.yml', 'main', {'tag': tag}),
-              ('changelog.yml', tag, {'tag': tag}),
-          ]
-          failed = []
-          for workflow, ref, inputs in dispatches:
-              result = subprocess.run(['gh', 'api', '--method', 'POST',
-                                       f'repos/{repository}/actions/workflows/{workflow}/dispatches',
-                                       '--input', '-'], input=json.dumps({'ref': ref, 'inputs': inputs}), text=True)
-              if result.returncode:
-                  failed.append(workflow)
-          if failed:
-              raise SystemExit('Follow-up dispatch failed: ' + ', '.join(failed))
+          inputs = {
+              'tag': tag, 'source_sha': source, 'producer_run': os.environ['GITHUB_RUN_ID'],
+              'producer_revision': os.environ['WORKFLOW_REVISION'], 'artifacts': os.environ['NATIVE_ARTIFACTS'],
+              'signed_arm_from': os.environ['RESUME_INTEL_FROM'],
+          }
+          subprocess.run(['gh', 'api', '--method', 'POST',
+                          f'repos/{repository}/actions/workflows/release-desktop-formal.yml/dispatches',
+                          '--input', '-'], input=json.dumps({'ref': 'main', 'inputs': inputs}), text=True, check=True)
           PY

@@ -101,8 +101,14 @@ class Checks:
     def __init__(self, revision, conclusion="success"):
         self.run = {"id": 41, "head_sha": revision, "head_branch": "main", "event": "push",
                     "status": "completed", "conclusion": conclusion}
+        self.remote_revision = revision
+        self.published = {"id": 7, "tag_name": f"v{VERSION}", "draft": False, "prerelease": False,
+                          "published_at": "2026-11-01T00:00:00Z", "assets": []}
+        self.uploads = []
 
-    def api(self, method, endpoint):
+    def api(self, method, endpoint, payload=None, missing=False):
+        if method != "GET":
+            raise AssertionError("Mobile packaging must not create or edit releases")
         if "/actions/workflows/ci.yml/runs?" in endpoint:
             if f"head_sha={self.run['head_sha']}&" not in endpoint:
                 raise AssertionError("Checks must be queried for the selected product source")
@@ -112,7 +118,19 @@ class Checks:
                              for name in (*release.publication.PREREQUISITES["mobile"], "Mobile ready")]}
         if endpoint.endswith("/actions/runs/41"):
             return self.run
+        if "/releases/tags/" in endpoint:
+            return self.published
+        if "/releases?" in endpoint:
+            return [self.published] if self.published else []
+        if "/commits/" in endpoint:
+            return {"sha": self.remote_revision}
         raise AssertionError(f"Unexpected Checks API request: {method} {endpoint}")
+
+    def upload(self, tag, assets):
+        self.uploads.append((tag, {path.name for path in assets}))
+        self.published["assets"].extend({"name": path.name, "state": "uploaded", "size": path.stat().st_size,
+                                         "digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}
+                                        for path in assets)
 
 
 class Admission(unittest.TestCase):
@@ -120,16 +138,26 @@ class Admission(unittest.TestCase):
         base = {"GITHUB_SHA": REVISION, "WORKFLOW_REVISION": REVISION,
                 "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
         release.context(VERSION, REVISION, base)
-        for event in ("push", "workflow_dispatch"):
-            release.context(VERSION, REVISION, {**base, "GITHUB_EVENT_NAME": event, "GITHUB_REF": f"refs/tags/v{VERSION}"})
+        release.context(VERSION, REVISION, {**base, "GITHUB_REF": f"refs/tags/v{VERSION}"})
+        release.context(VERSION, "b" * 40, {**base, "RELEASE_TAG": f"v{VERSION}"})
 
     def test_rejects_other_branches_sources_and_versions(self):
         base = {"GITHUB_SHA": REVISION, "WORKFLOW_REVISION": REVISION,
                 "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
         for change in ({"GITHUB_REF": "refs/heads/topic"}, {"GITHUB_REF": "refs/tags/v0.1.0-alpha.8"},
                        {"GITHUB_EVENT_NAME": "pull_request"}, {"GITHUB_EVENT_NAME": "push"},
+                       {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": f"refs/tags/v{VERSION}"},
                        {"GITHUB_SHA": "b" * 40}, {"GITHUB_SHA": ""}, {"SOURCE_COMMIT": "main"},
                        {"SOURCE_COMMIT": REVISION[:8]}, {"WORKFLOW_REVISION": "b" * 40}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                release.context(VERSION, REVISION, {**base, **change})
+
+    def test_rejects_ambiguous_or_untrusted_tag_inputs(self):
+        base = {"GITHUB_SHA": REVISION, "WORKFLOW_REVISION": REVISION, "RELEASE_TAG": f"v{VERSION}",
+                "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
+        for change in ({"SOURCE_COMMIT": REVISION}, {"GITHUB_REF": "refs/heads/topic"},
+                       {"GITHUB_REF": f"refs/tags/v{VERSION}"}, {"RELEASE_TAG": "main"},
+                       {"RELEASE_TAG": "v0.1.0-alpha.8"}, {"GITHUB_EVENT_NAME": "push"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 release.context(VERSION, REVISION, {**base, **change})
 
@@ -158,13 +186,45 @@ class Admission(unittest.TestCase):
             git(fixture.tooling, "switch", "--detach", fixture.revision)
             git(fixture.tooling, "tag", f"v{VERSION}", fixture.revision)
             environment = {**fixture.environment, "GITHUB_SHA": fixture.revision, "WORKFLOW_REVISION": fixture.revision,
-                           "SOURCE_COMMIT": "", "GITHUB_EVENT_NAME": "push", "GITHUB_REF": f"refs/tags/v{VERSION}"}
+                           "SOURCE_COMMIT": "", "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": f"refs/tags/v{VERSION}"}
             with patch.dict(os.environ, environment, clear=True), \
                     patch.object(release.publication, "GitHub", return_value=Checks(fixture.revision)):
                 release.admit(fixture.source, fixture.tooling)
                 git(fixture.tooling, "tag", "-f", f"v{VERSION}", fixture.workflow)
                 with self.assertRaisesRegex(ValueError, "exact commit"):
                     release.admit(fixture.source, fixture.tooling)
+
+    def test_requires_published_tags_and_full_source_checks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Repository(Path(temporary))
+            git(fixture.tooling, "tag", f"v{VERSION}", fixture.revision)
+            environment = {**fixture.environment, "SOURCE_COMMIT": "", "RELEASE_TAG": f"v{VERSION}"}
+            for failure in ("checks", "missing", "draft", "moved"):
+                client = Checks(fixture.revision, "failure" if failure == "checks" else "success")
+                if failure == "missing":
+                    client.published = None
+                elif failure == "draft":
+                    client.published.update(draft=True, published_at=None)
+                elif failure == "moved":
+                    client.remote_revision = fixture.workflow
+                with self.subTest(failure=failure), patch.dict(os.environ, environment, clear=True), \
+                        patch.object(release.publication, "GitHub", return_value=client), self.assertRaises(ValueError):
+                    release.admit(fixture.source, fixture.tooling)
+                self.assertFalse(Path(environment["GITHUB_OUTPUT"]).exists())
+                self.assertFalse(client.uploads)
+
+    def test_admits_published_tags_with_newer_workflow_tooling(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Repository(Path(temporary))
+            git(fixture.tooling, "tag", f"v{VERSION}", fixture.revision)
+            environment = {**fixture.environment, "SOURCE_COMMIT": "", "RELEASE_TAG": f"v{VERSION}"}
+            with patch.dict(os.environ, environment, clear=True), \
+                    patch.object(release.publication, "GitHub", return_value=Checks(fixture.revision)):
+                release.admit(fixture.source, fixture.tooling)
+            values = dict(row.split("=", 1) for row in Path(environment["GITHUB_OUTPUT"]).read_text().splitlines())
+            self.assertEqual(values["tag"], f"v{VERSION}")
+            self.assertEqual(values["revision"], fixture.revision)
+            self.assertEqual(values["workflow_revision"], fixture.workflow)
 
     def test_rejects_mismatched_checkouts_and_off_main_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -357,16 +417,129 @@ class Artifacts(unittest.TestCase):
             with patch.dict(os.environ, fixture.environment, clear=True):
                 destination = release.package(source, output, "android", fixture.source, fixture.tooling)
             self.assertEqual(destination.read_bytes(), source.read_bytes())
-            metadata = json.loads((destination.parent / "release.json").read_text())
+            metadata = json.loads(destination.with_suffix(".json").read_text())
             self.assertEqual(metadata["source_revision"], fixture.revision)
             self.assertEqual(metadata["workflow_revision"], fixture.workflow)
             self.assertEqual(metadata["version"], VERSION)
             self.assertEqual(metadata["build_number"], 9)
-            for row in (destination.parent / "SHA256SUMS").read_text().splitlines():
+            for row in destination.with_suffix(".sha256").read_text().splitlines():
                 digest, filename = row.split("  ")
                 self.assertEqual(hashlib.sha256((destination.parent / filename).read_bytes()).hexdigest(), digest)
             with patch.dict(os.environ, fixture.environment, clear=True), self.assertRaises(ValueError):
                 release.package(source, destination.parent, "android", fixture.source, fixture.tooling)
+
+
+class Publishing(unittest.TestCase):
+    def test_downloads_into_verification_directory(self):
+        workflow = (ROOT / ".github/workflows/release-mobile.yml").read_text()
+        for platform in ("android", "ios"):
+            job = workflow.split(f"  publish-{platform}:\n", 1)[1]
+            download = job.split("      - uses: actions/download-artifact@", 1)[1]
+            arguments = download.split("      - name:", 1)[0]
+            self.assertIn(f"artifact-ids: ${{{{ needs.{platform}.outputs.artifact_id }}}}", arguments)
+            self.assertIn(f"path: packages/mobile-{platform}", arguments)
+            # ID downloads otherwise nest files under the artifact's name.
+            self.assertIn("merge-multiple: true", arguments)
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.fixture = Repository(self.directory)
+        git(self.fixture.tooling, "tag", f"v{VERSION}", self.fixture.revision)
+        environment = {**self.fixture.environment, "SOURCE_COMMIT": "", "RELEASE_TAG": f"v{VERSION}"}
+        variables = patch.dict(os.environ, environment, clear=True)
+        variables.start()
+        self.addCleanup(variables.stop)
+        self.client = Checks(self.fixture.revision)
+
+    def stage(self, platform):
+        path = self.directory / ("input.apk" if platform == "android" else "input.ipa")
+        path.write_bytes(f"Signed {platform} fixture".encode())
+        return release.package(path, self.directory / platform, platform, self.fixture.source, self.fixture.tooling)
+
+    def append(self, platform):
+        release.publish(self.directory / platform, platform, self.fixture.source, self.fixture.tooling, self.client)
+
+    def test_appends_platforms_independently_without_filename_collisions(self):
+        android = self.stage("android")
+        ios = self.stage("ios")
+        self.append("android")
+        android_names = {path.name for path in android.parent.iterdir()}
+        self.assertEqual(self.client.uploads, [(f"v{VERSION}", android_names)])
+        self.append("ios")
+        ios_names = {path.name for path in ios.parent.iterdir()}
+        self.assertEqual(self.client.uploads[-1], (f"v{VERSION}", ios_names))
+        self.assertFalse(android_names & ios_names)
+        self.assertEqual(len(android_names | ios_names), 6)
+        self.assertNotIn("release.json", android_names | ios_names)
+        self.assertNotIn("SHA256SUMS", android_names | ios_names)
+
+    def test_preserves_existing_asset_bytes_on_retries(self):
+        self.stage("android")
+        self.append("android")
+        self.append("android")
+        self.assertEqual(len(self.client.uploads), 1)
+        self.client.published["assets"][0]["digest"] = "sha256:" + "0" * 64
+        with self.assertRaisesRegex(ValueError, "collision"):
+            self.append("android")
+        self.assertEqual(len(self.client.uploads), 1)
+
+    def test_rejects_provenance_from_another_build(self):
+        archive = self.stage("android")
+        metadata = archive.with_suffix(".json")
+        original = json.loads(metadata.read_text())
+        for key, value in (("source_revision", "0" * 40), ("workflow_revision", "f" * 40),
+                           ("version", "0.2.0-alpha.1"), ("build_number", 10), ("tag", "v0.2.0-alpha.1"),
+                           ("platform", "ios"), ("asset", "unrelated.apk")):
+            metadata.write_text(json.dumps({**original, key: value}))
+            archive.with_suffix(".sha256").write_text(release.checksums((archive, metadata)))
+            with self.subTest(field=key), self.assertRaisesRegex(ValueError, "provenance"):
+                self.append("android")
+        self.assertFalse(self.client.uploads)
+
+    def test_rejects_changed_incomplete_or_extra_files(self):
+        archive = self.stage("android")
+        original = archive.read_bytes()
+        archive.write_bytes(b"Changed package bytes")
+        with self.assertRaisesRegex(ValueError, "checksums"):
+            self.append("android")
+        archive.write_bytes(original)
+        checksum = archive.with_suffix(".sha256")
+        checksum_bytes = checksum.read_bytes()
+        checksum.unlink()
+        with self.assertRaisesRegex(ValueError, "complete"):
+            self.append("android")
+        checksum.write_bytes(checksum_bytes)
+        (archive.parent / "unexpected.json").write_text("{}")
+        with self.assertRaisesRegex(ValueError, "complete"):
+            self.append("android")
+        self.assertFalse(self.client.uploads)
+
+    def test_requires_a_published_mutable_matching_release(self):
+        self.stage("android")
+        for failure in ("missing", "draft", "immutable", "moved"):
+            self.client = Checks(self.fixture.revision)
+            if failure == "missing":
+                self.client.published = None
+            elif failure == "draft":
+                self.client.published.update(draft=True, published_at=None)
+            elif failure == "immutable":
+                self.client.published["immutable"] = True
+            else:
+                self.client.remote_revision = self.fixture.workflow
+            with self.subTest(failure=failure), self.assertRaises(ValueError):
+                self.append("android")
+            self.assertFalse(self.client.uploads)
+
+    def test_preserves_source_builds_without_release_publication(self):
+        with patch.dict(os.environ, self.fixture.environment, clear=True):
+            archive = self.stage("android")
+            self.assertEqual(json.loads(archive.with_suffix(".json").read_text())["tag"], "")
+            with self.assertRaisesRegex(ValueError, "Only tagged"):
+                self.append("android")
+        self.assertTrue(archive.is_file())
+        self.assertFalse(self.client.uploads)
 
 
 if __name__ == "__main__":

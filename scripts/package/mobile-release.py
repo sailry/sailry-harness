@@ -1,4 +1,4 @@
-"""Admit Mobile distribution builds and stage their signed artifacts."""
+"""Admit Mobile builds and append verified signed artifacts to published releases."""
 
 import argparse
 import base64
@@ -18,17 +18,26 @@ def context(version, revision, environment):
     event = environment.get("GITHUB_EVENT_NAME")
     reference = environment.get("GITHUB_REF")
     requested = environment.get("SOURCE_COMMIT", "")
+    tag = environment.get("RELEASE_TAG", "")
     workflow = environment.get("WORKFLOW_REVISION", "")
     if not re.fullmatch(r"[0-9a-f]{40}", workflow) or workflow != environment.get("GITHUB_SHA"):
         raise ValueError("The Mobile workflow tooling must match its trusted event commit")
     if requested and not re.fullmatch(r"[0-9a-f]{40}", requested):
         raise ValueError("The Mobile source input must be a full commit SHA")
-    if not re.fullmatch(r"[0-9a-f]{40}", revision) or revision != (requested or environment.get("GITHUB_SHA")):
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("The Mobile checkout must be an exact source commit")
+    if tag and (requested or event != "workflow_dispatch" or reference != "refs/heads/main"):
+        raise ValueError("Dispatch a Mobile tag from main without a source override")
+    if tag:
+        if tag != f"v{version}":
+            raise ValueError("The Mobile release tag must match the product version")
+        return workflow, tag
+    if revision != (requested or environment.get("GITHUB_SHA")):
         raise ValueError("The Mobile checkout must match the selected source commit")
     if event == "workflow_dispatch" and reference == "refs/heads/main":
-        return workflow
-    if not requested and event in {"push", "workflow_dispatch"} and reference == f"refs/tags/v{version}":
-        return workflow
+        return workflow, ""
+    if not requested and event == "workflow_dispatch" and reference == f"refs/tags/v{version}":
+        return workflow, f"v{version}"
     raise ValueError("Dispatch Mobile packages from main or use the matching version tag")
 
 
@@ -37,7 +46,7 @@ def candidate(source, tooling, environment):
     def head(root):
         return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
     revision = head(source)
-    workflow = context(version, revision, environment)
+    workflow, tag = context(version, revision, environment)
     if head(tooling) != workflow:
         raise ValueError("The Mobile tooling checkout must match the pinned workflow commit")
     if environment.get("SOURCE_COMMIT"):
@@ -45,17 +54,21 @@ def candidate(source, tooling, environment):
                                 capture_output=True)
         if result.returncode:
             raise ValueError("The selected Mobile source must be an ancestor of the main workflow commit")
+    if tag:
+        publication.tagged_commit(tag, source)
     return {"version": version, "apple_version": versions.apple(version), "build_number": code,
-            "revision": revision, "workflow_revision": workflow}
+            "revision": revision, "workflow_revision": workflow, "tag": tag}
 
 
 def admit(source=None, tooling=None):
     source = source or versions.ROOT
     values = candidate(source, tooling or versions.ROOT, os.environ)
     version, code, revision = values["version"], values["build_number"], values["revision"]
-    if os.environ["GITHUB_REF"].startswith("refs/tags/"):
-        publication.tagged_commit(f"v{version}", source)
-    checked = publication.wait_ready(publication.GitHub(), os.environ["GITHUB_REPOSITORY"], revision, "mobile")
+    client = publication.GitHub()
+    repository = os.environ["GITHUB_REPOSITORY"]
+    if values["tag"]:
+        publication.release(client, repository, values["tag"], revision, published=True)
+    checked = publication.wait_ready(client, repository, revision, "mobile")
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         for key, value in values.items():
             output.write(f"{key}={value}\n")
@@ -95,27 +108,67 @@ def install_android():
         raise
 
 
+def filenames(version, platform):
+    extension, target = {"android": ("apk", "android-arm64"), "ios": ("ipa", "ios")}[platform]
+    name = f"Sailry-{version}-{target}"
+    return f"{name}.{extension}", f"{name}.json", f"{name}.sha256"
+
+
+def manifest(values, platform):
+    return {"version": values["version"], "build_number": values["build_number"], "tag": values["tag"],
+            "source_revision": values["revision"], "workflow_revision": values["workflow_revision"],
+            "platform": platform, "asset": filenames(values["version"], platform)[0]}
+
+
+def checksums(paths):
+    rows = []
+    for path in paths:
+        with path.open("rb") as data:
+            rows.append(f"{hashlib.file_digest(data, 'sha256').hexdigest()}  {path.name}\n")
+    return "".join(rows)
+
+
 def package(path, output, platform, source=None, tooling=None):
     values = candidate(source or versions.ROOT, tooling or versions.ROOT, os.environ)
-    version = values["version"]
-    extension, target = {"android": ("apk", "android-arm64"), "ios": ("ipa", "ios")}[platform]
-    if path.suffix != f".{extension}" or not path.is_file() or not path.stat().st_size:
+    archive, metadata_name, checksum_name = filenames(values["version"], platform)
+    extension = Path(archive).suffix
+    if path.suffix != extension or not path.is_file() or not path.stat().st_size:
         raise ValueError("The signed Mobile package is missing or empty")
     output.mkdir(parents=True, exist_ok=True)
-    destination = output / f"Sailry-{version}-{target}.{extension}"
+    destination = output / archive
     if destination.exists():
         raise ValueError("The Mobile package output already exists")
     shutil.copyfile(path, destination)
-    metadata = output / "release.json"
-    metadata.write_text(json.dumps({"version": version, "build_number": values["build_number"],
-                                    "source_revision": values["revision"], "workflow_revision": values["workflow_revision"],
-                                    "platform": platform, "asset": destination.name}, indent=2) + "\n")
-    with (output / "SHA256SUMS").open("w") as checksums:
-        for path in (destination, metadata):
-            with path.open("rb") as data:
-                digest = hashlib.file_digest(data, "sha256").hexdigest()
-            checksums.write(f"{digest}  {path.name}\n")
+    metadata = output / metadata_name
+    metadata.write_text(json.dumps(manifest(values, platform), indent=2) + "\n")
+    (output / checksum_name).write_text(checksums((destination, metadata)))
     return destination
+
+
+def verify_package(directory, platform, source, tooling):
+    values = candidate(source, tooling, os.environ)
+    names = filenames(values["version"], platform)
+    paths = [directory / name for name in names]
+    if ({path.name for path in directory.iterdir()} != set(names)
+            or any(not path.is_file() or path.is_symlink() or not path.stat().st_size for path in paths)):
+        raise ValueError("The complete signed Mobile package, provenance and checksums are required")
+    if json.loads(paths[1].read_text()) != manifest(values, platform):
+        raise ValueError("The Mobile package provenance does not match the selected source and workflow")
+    if paths[2].read_text() != checksums(paths[:2]):
+        raise ValueError("The Mobile package checksums do not match the preserved files")
+    return values, paths
+
+
+def publish(directory, platform, source=None, tooling=None, client=None):
+    values, paths = verify_package(directory, platform, source or versions.ROOT, tooling or versions.ROOT)
+    if not values["tag"]:
+        raise ValueError("Only tagged Mobile builds append assets to a published release")
+    client = client or publication.GitHub()
+    repository = os.environ["GITHUB_REPOSITORY"]
+    metadata = publication.release(client, repository, values["tag"], values["revision"], published=True)
+    publication.append(client, repository, values["tag"], metadata, paths)
+    print(f"Appended verified {platform} assets for {values['tag']} at product source {values['revision']}; "
+          f"workflow tooling {values['workflow_revision']}")
 
 
 def main():
@@ -129,6 +182,9 @@ def main():
     artifact.add_argument("--platform", choices=("android", "ios"), required=True)
     artifact.add_argument("--input", type=Path, required=True)
     artifact.add_argument("--output", type=Path, required=True)
+    publication_command = commands.add_parser("publish")
+    publication_command.add_argument("--platform", choices=("android", "ios"), required=True)
+    publication_command.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "admit":
         admit(args.source)
@@ -138,8 +194,10 @@ def main():
         stage = android_stage()
         if stage.exists():
             shutil.rmtree(stage)
-    else:
+    elif args.command == "package":
         print(package(args.input, args.output, args.platform, args.source))
+    else:
+        publish(args.directory, args.platform, args.source)
 
 
 if __name__ == "__main__":

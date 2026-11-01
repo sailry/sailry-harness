@@ -236,17 +236,13 @@ jobs:
           pattern: packages-*
           path: packages
           merge-multiple: true
-      - name: Verify archives and publish Desktop
+      - name: Verify archives and append Desktop packages
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           (cd packages && sha256sum --check SHA256SUMS-desktop-*)
-          python3 scripts/release-notes.py --tag "$RELEASE_TAG" \
-            --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --notes "$RUNNER_TEMP/release-notes.md" --changelog CHANGELOG.md
-          python3 .workflow-tools/scripts/publish-packages.py --source "$GITHUB_WORKSPACE" --component desktop --append-signed --tag "$RELEASE_TAG" \
-            --notes "$RUNNER_TEMP/release-notes.md" --directory packages
+          python3 .workflow-tools/scripts/publish-packages.py --source "$GITHUB_WORKSPACE" --component desktop --tag "$RELEASE_TAG" --directory packages
       - name: Publish signed update feeds
         env:
           GH_TOKEN: ${{ github.token }}

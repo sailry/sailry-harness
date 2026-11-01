@@ -1,4 +1,4 @@
-"""Layered publishers preserve released tags and existing assets without network writes."""
+"""Independent publishers preserve released tags and existing assets without network writes."""
 
 import copy
 import subprocess
@@ -61,7 +61,7 @@ class FakeGitHub:
 
 def asset(path):
     return {"id": 5, "name": path.name, "state": "uploaded", "size": path.stat().st_size,
-            "digest": publisher.digest(path)}
+            "digest": publication.digest(path)}
 
 
 class PackagePublication(unittest.TestCase):
@@ -69,8 +69,6 @@ class PackagePublication(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
-        self.notes = self.root / "notes.md"
-        self.notes.write_text("Release notes")
         self.desktop = self.assets("desktop")
         self.host = self.assets("host")
 
@@ -83,53 +81,47 @@ class PackagePublication(unittest.TestCase):
 
     def test_public_adhoc_precedes_formal_append(self):
         initial = self.assets("desktop-adhoc")
-        client = FakeGitHub()
-        publisher.publish("desktop-adhoc", TAG, self.notes, initial, REPOSITORY, COMMIT, client)
+        client = FakeGitHub(metadata())
+        publisher.publish("desktop-adhoc", TAG, initial, REPOSITORY, COMMIT, client)
         self.assertFalse(client.release["draft"])
         self.assertEqual(len(client.uploads), 6)
         self.assertTrue(all("-adhoc" in path.name and TAG[1:] not in path.name for path in initial))
         original = copy.deepcopy(client.release["assets"])
-        publisher.publish("desktop", TAG, None, self.desktop, REPOSITORY, COMMIT, client, append_signed=True)
+        publisher.publish("desktop", TAG, self.desktop, REPOSITORY, COMMIT, client)
         self.assertEqual(client.release["assets"][:6], original)
         self.assertEqual(len(client.release["assets"]), 14)
         count = len(client.uploads)
-        publisher.publish("desktop", TAG, None, self.desktop, REPOSITORY, COMMIT, client, append_signed=True)
+        publisher.publish("desktop", TAG, self.desktop, REPOSITORY, COMMIT, client)
         self.assertEqual(len(client.uploads), count)
 
     def test_preserves_signed_arm_during_initial_publication(self):
         adhoc = self.assets("desktop-adhoc")
         initial = [path for path in adhoc if "x86_64" in path.name] + [
             path for path in self.desktop if "aarch64" in path.name]
-        client = FakeGitHub()
-        publisher.publish("desktop-adhoc", TAG, self.notes, initial, REPOSITORY, COMMIT, client, signed_arm=True)
+        client = FakeGitHub(metadata())
+        publisher.publish("desktop-adhoc", TAG, initial, REPOSITORY, COMMIT, client, signed_arm=True)
         self.assertEqual(len(client.release["assets"]), 7)
         original = copy.deepcopy(client.release["assets"])
-        publisher.publish("desktop", TAG, None, self.desktop, REPOSITORY, COMMIT, client, append_signed=True)
+        publisher.publish("desktop", TAG, self.desktop, REPOSITORY, COMMIT, client)
         self.assertEqual(client.release["assets"][:7], original)
         self.assertEqual(len(client.release["assets"]), 11)
 
-    def test_host_does_not_wait_for_formal_desktop(self):
-        initial = self.assets("desktop-adhoc")
-        client = FakeGitHub()
-        publisher.publish("desktop-adhoc", TAG, self.notes, initial, REPOSITORY, COMMIT, client)
+    def test_host_does_not_wait_for_desktop(self):
+        client = FakeGitHub(metadata())
         self.publish("host", client)
-        self.assertEqual(len(client.release["assets"]), 16)
+        self.assertEqual(len(client.release["assets"]), 10)
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
-    def test_latest_uses_server_side_version_selection(self):
-        self.assertEqual(publisher.latest_flag("v1.0.0"), "legacy")
-        self.assertEqual(publisher.latest_flag("v3.0.0"), "legacy")
-        self.assertEqual(publisher.latest_flag(TAG), "false")
-
-    def test_host_rejects_incomplete_uploaded_group(self):
-        client = FakeGitHub()
-        initial = self.assets("desktop-adhoc")
-        publisher.publish("desktop-adhoc", TAG, self.notes, initial, REPOSITORY, COMMIT, client)
-        client.release["assets"][0]["state"] = "starter"
-        with self.assertRaisesRegex(ValueError, "complete published Desktop"):
-            self.publish("host", client)
+    def test_host_preserves_incomplete_desktop_assets(self):
+        release = metadata()
+        release["assets"] = [{**asset(self.desktop[0]), "state": "starter"}]
+        client = FakeGitHub(release)
+        self.publish("host", client)
+        self.assertEqual(client.release["assets"][0], release["assets"][0])
+        self.assertEqual(len(client.uploads), 10)
 
     def publish(self, component, client, assets=None):
-        publisher.publish(component, TAG, self.notes, assets or getattr(self, component),
+        publisher.publish(component, TAG, assets or getattr(self, component),
                           REPOSITORY, COMMIT, client)
 
     def public_desktop(self):
@@ -144,18 +136,15 @@ class PackagePublication(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "complete Desktop asset set"):
             self.publish("desktop", FakeGitHub(), sorted(renamed.parent.iterdir()))
 
-    def test_desktop_creates_draft_then_publishes(self):
-        client = FakeGitHub()
+    def test_desktop_appends_first_packages_to_version(self):
+        release = metadata()
+        release.update(name="Published version", body="Published notes")
+        client = FakeGitHub(release)
         self.publish("desktop", client)
-        creation = next(call for call in client.calls if call[0] == "POST")
-        self.assertEqual(creation[2]["target_commitish"], COMMIT)
-        self.assertTrue(creation[2]["draft"])
-        self.assertFalse(creation[2]["prerelease"])
         self.assertEqual(len(client.uploads), 8)
-        self.assertEqual(client.calls[-1][2], {
-            "name": "Sailry Harness 0.1.0-alpha.1", "body": "Release notes",
-            "target_commitish": COMMIT, "draft": False, "prerelease": False, "make_latest": "false",
-        })
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+        self.assertEqual(client.release["name"], "Published version")
+        self.assertEqual(client.release["body"], "Published notes")
 
     def test_desktop_retry_preserves_published_assets(self):
         client = FakeGitHub(self.public_desktop())
@@ -174,28 +163,24 @@ class PackagePublication(unittest.TestCase):
         self.publish("host", client)
         self.assertEqual(len(client.uploads), 9)
 
-    def test_draft_retry_skips_matching_assets(self):
-        release = metadata(draft=True)
+    def test_partial_retry_skips_matching_assets(self):
+        release = metadata()
         release["assets"] = [asset(self.desktop[0])]
-        release.update(name="Old candidate", body="Old notes", target_commitish="b" * 40)
         client = FakeGitHub(release)
         self.publish("desktop", client)
         self.assertEqual(len(client.uploads), 7)
-        self.assertEqual(client.release["name"], "Sailry Harness 0.1.0-alpha.1")
-        self.assertEqual(client.release["body"], "Release notes")
-        self.assertEqual(client.release["target_commitish"], COMMIT)
+        self.assertEqual(client.release["assets"][0], release["assets"][0])
 
-    def test_draft_requires_current_notes_and_supported_assets(self):
-        release = metadata(draft=True)
-        client = FakeGitHub(release)
-        with self.assertRaisesRegex(ValueError, "release notes"):
-            publisher.publish("desktop", TAG, None, self.desktop, REPOSITORY, COMMIT, client)
-        release["assets"] = [{"name": f"Sailry-{TAG[1:]}-android-arm64.apk"}]
-        client = FakeGitHub(release)
-        with self.assertRaisesRegex(ValueError, "unsupported draft assets"):
-            self.publish("desktop", client)
-        self.assertFalse(client.uploads)
-        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+    def test_products_require_a_published_version(self):
+        adhoc = self.assets("desktop-adhoc")
+        for component, assets in (("desktop", self.desktop), ("desktop-adhoc", adhoc), ("host", self.host)):
+            for release in (None, metadata(draft=True)):
+                with self.subTest(component=component, release=release):
+                    client = FakeGitHub(release)
+                    with self.assertRaisesRegex(ValueError, "[Pp]ublish"):
+                        self.publish(component, client, assets)
+                    self.assertFalse(client.uploads)
+                    self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
     def test_collision_fails_before_any_upload(self):
         for field, value in (("size", 0), ("digest", "sha256:" + "0" * 64), ("state", "open")):
@@ -215,21 +200,14 @@ class PackagePublication(unittest.TestCase):
         release["assets"][0]["fixture_digest"] = release["assets"][0].pop("digest")
         self.publish("desktop", FakeGitHub(release))
 
-    def test_host_requires_public_mutable_desktop(self):
-        for release in (None, metadata(draft=True), metadata(),
-                        {**self.public_desktop(), "immutable": True}):
-            with self.subTest(release=release):
-                client = FakeGitHub(release)
-                with self.assertRaises(ValueError):
-                    self.publish("host", client)
+    def test_products_require_mutable_release(self):
+        for component, assets in (("desktop", self.desktop), ("host", self.host)):
+            with self.subTest(component=component):
+                client = FakeGitHub({**metadata(), "immutable": True})
+                with self.assertRaisesRegex(ValueError, "immutable"):
+                    self.publish(component, client, assets)
                 self.assertFalse(client.uploads)
                 self.assertTrue(all(call[0] == "GET" for call in client.calls))
-
-    def test_public_desktop_cannot_acquire_missing_assets(self):
-        client = FakeGitHub(metadata())
-        with self.assertRaisesRegex(ValueError, "missing Desktop"):
-            self.publish("desktop", client)
-        self.assertFalse(client.uploads)
 
     def test_component_allowlists_reject_mixed_or_partial_assets(self):
         for component, files in (("host", self.desktop), ("desktop", self.host),
@@ -263,7 +241,7 @@ class PackagePublication(unittest.TestCase):
     def test_rejects_moved_or_different_tag(self):
         client = FakeGitHub(self.public_desktop())
         with self.assertRaisesRegex(ValueError, "differs"):
-            publisher.publish("host", TAG, None, self.host, REPOSITORY, "b" * 40, client)
+            publisher.publish("host", TAG, self.host, REPOSITORY, "b" * 40, client)
         client.release["tag_name"] = "v0.1.0-alpha.2"
         with self.assertRaisesRegex(ValueError, "tag or channel"):
             self.publish("host", client)
@@ -287,7 +265,7 @@ class ReleaseLookup(unittest.TestCase):
             unrelated = {**metadata(draft=True), "tag_name": "v0.1.0-alpha.2"}
             client.api.side_effect = [None, [unrelated], {"sha": COMMIT}]
             if published:
-                with self.assertRaisesRegex(ValueError, "Desktop must publish"):
+                with self.assertRaisesRegex(ValueError, "Publish this version"):
                     publication.release(client, REPOSITORY, TAG, COMMIT, published=True)
             else:
                 self.assertIsNone(publication.release(client, REPOSITORY, TAG, COMMIT))

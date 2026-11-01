@@ -27,7 +27,7 @@ jobs:
   version:
     name: Verify Host readiness and published tag
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 310
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -49,7 +49,7 @@ jobs:
         run: |
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
-          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component host --published
+          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component host --published --wait-ready
 
   build:
     name: macOS Host ${{ matrix.target }}
