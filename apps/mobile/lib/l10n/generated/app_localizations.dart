@@ -3828,6 +3828,30 @@ abstract class AppLocalizations {
   /// **'Host not connected'**
   String get hostUnavailable;
 
+  /// No description provided for @hostRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove host'**
+  String get hostRemove;
+
+  /// No description provided for @hostRemoveConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove “{name}” from this device? Pair again to reconnect'**
+  String hostRemoveConfirm(String name);
+
+  /// No description provided for @hostRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'Host removed'**
+  String get hostRemoved;
+
+  /// No description provided for @hostRemoveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not remove host'**
+  String get hostRemoveFailed;
+
   /// No description provided for @hostMetricsFailed.
   ///
   /// In en, this message translates to:

@@ -1952,6 +1952,20 @@ class AppLocalizationsRu extends AppLocalizations {
   String get hostUnavailable => 'Узел не подключен';
 
   @override
+  String get hostRemove => 'Удалить хост';
+
+  @override
+  String hostRemoveConfirm(String name) {
+    return 'Удалить «$name» с этого устройства? Для подключения потребуется повторное сопряжение';
+  }
+
+  @override
+  String get hostRemoved => 'Хост удалён';
+
+  @override
+  String get hostRemoveFailed => 'Не удалось удалить хост';
+
+  @override
   String get hostMetricsFailed => 'Не удается прочитать состояние узла';
 
   @override

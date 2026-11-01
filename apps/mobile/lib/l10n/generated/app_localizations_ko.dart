@@ -1919,6 +1919,20 @@ class AppLocalizationsKo extends AppLocalizations {
   String get hostUnavailable => '연결되지 않음';
 
   @override
+  String get hostRemove => '호스트 제거';
+
+  @override
+  String hostRemoveConfirm(String name) {
+    return '이 기기에서 ‘$name’을 제거할까요? 다시 연결하려면 재페어링이 필요합니다';
+  }
+
+  @override
+  String get hostRemoved => '호스트를 제거했습니다';
+
+  @override
+  String get hostRemoveFailed => '호스트를 제거할 수 없습니다';
+
+  @override
   String get hostMetricsFailed => '호스트 상태를 읽을 수 없음';
 
   @override

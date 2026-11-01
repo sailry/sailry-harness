@@ -100,6 +100,16 @@ impl Controller {
             .collect()
     }
 
+    /// Forget this device's saved pairing without contacting the host.
+    pub async fn forget(&self, address: String) -> Result<(), String> {
+        self.check()?;
+        let address: sailry_link::EndpointAddr = serde_json::from_str(&address).map_err(error)?;
+        self.handle
+            .set_trust(sailry_protocol::NodeId(*address.id.as_bytes()), false)
+            .await
+            .map_err(error)
+    }
+
     /// Notify on foreground resume or a platform connectivity callback.
     pub async fn network_changed(&self) -> Result<(), String> {
         self.check()?;

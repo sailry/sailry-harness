@@ -82,6 +82,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   Object? error;
   bool _closed = false;
   final List<HostConnection> _hosts = [];
+  final Map<String, Future<void>> _removals = {};
   String? _selected;
 
   List<HostConnection> get hosts => List.unmodifiable(_hosts);
@@ -163,6 +164,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     final existing = host(id);
     if (existing != null) {
       selectHost(id);
+      unawaited(existing.watch());
       return existing;
     }
     final connection = await owner.connect(address: address);
@@ -197,6 +199,40 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     if (host(id) == null || _selected == id) return;
     _selected = id;
     _changed();
+  }
+
+  Future<void> removeHost(String id) {
+    final pending = _removals[id];
+    if (pending != null) return pending;
+    final target = host(id);
+    if (target == null) return Future.value();
+    final owner = controller;
+    if (_closed || !ready || owner == null) {
+      return Future.error(StateError('controller is not ready'));
+    }
+    return _removals.putIfAbsent(
+      id,
+      () => _remove(target, owner).whenComplete(() {
+        _removals.remove(id);
+      }),
+    );
+  }
+
+  Future<void> _remove(HostConnection target, Controller owner) async {
+    await owner.forget(address: target.address);
+    if (_closed || controller != owner || host(target.id) != target) return;
+    target.removeListener(_changed);
+    _hosts.remove(target);
+    if (_selected == target.id) _selected = _hosts.firstOrNull?.id;
+    _changed();
+    try {
+      await target.close();
+    } catch (failure) {
+      // The saved pairing is already removed even if cleanup fails.
+      debugPrint('Removed host cleanup failed: $failure');
+    } finally {
+      target.dispose();
+    }
   }
 
   @override

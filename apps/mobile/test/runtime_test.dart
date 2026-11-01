@@ -113,13 +113,18 @@ class Subscription extends Fake implements Updates {
 class Channel extends Fake implements Connection {
   int closes = 0;
   int disposals = 0;
+  int watches = 0;
   final subscription = Subscription();
   Future<Updates>? pendingWatch;
   final requests = <String>[];
   bool uncertain = false;
   String? response;
   @override
-  Future<Updates> watch() async => pendingWatch ?? subscription;
+  Future<Updates> watch() async {
+    watches++;
+    return pendingWatch ?? subscription;
+  }
+
   @override
   Future<String> prepare({required String command}) async => command;
   @override
@@ -159,6 +164,8 @@ class Owner extends Fake implements Controller {
   String? pin;
   String? origin;
   String? pairingError;
+  final forgotten = <String>[];
+  Future<void>? pendingForget;
   @override
   Future<List<String>> peers() async => pendingPeers ?? addresses;
   @override
@@ -178,6 +185,13 @@ class Owner extends Fake implements Controller {
   }
 
   @override
+  Future<void> forget({required String address}) async {
+    forgotten.add(address);
+    await pendingForget;
+    addresses.remove(address);
+  }
+
+  @override
   Future<void> close() async {
     closes++;
   }
@@ -192,6 +206,148 @@ String address(String id) => jsonEncode({'id': id});
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  group('host removal', () {
+    test('forgets offline hosts and releases subscriptions', () async {
+      final owner = Owner();
+      final firstChannel = Channel();
+      final secondChannel = Channel();
+      final snapshot = <String, dynamic>{
+        'sessions': [
+          {'id': 'saved-session'},
+        ],
+        'projects': [
+          {'id': 'saved-project'},
+        ],
+      };
+      final first = HostConnection.test(
+        id: 'first',
+        label: 'Offline host',
+        address: address('first'),
+        connected: false,
+        snapshot: snapshot,
+        connection: firstChannel,
+      );
+      final second = HostConnection.test(
+        id: 'second',
+        label: 'Other host',
+        address: address('second'),
+        connection: secondChannel,
+      );
+      final session = AppSession.test(
+        hosts: [first, second],
+        controller: owner,
+      );
+      final watching = first.watch();
+      await Future<void>.value();
+      await session.removeHost(first.id);
+      await watching;
+      expect(owner.forgotten, [address('first')]);
+      expect(session.hosts, [second]);
+      expect(session.selectedHost, same(second));
+      expect(firstChannel.subscription.closes, 1);
+      expect(firstChannel.subscription.disposals, 1);
+      expect(firstChannel.closes, 1);
+      expect(firstChannel.disposals, 1);
+      expect(firstChannel.requests, isEmpty);
+      expect(first.snapshot, same(snapshot));
+      expect(secondChannel.closes, 0);
+      await session.removeHost(second.id);
+      expect(session.hosts, isEmpty);
+      expect(session.selectedHost, isNull);
+      expect(session.controller, same(owner));
+      expect(session.ready, isTrue);
+      expect(owner.closes, 0);
+      await session.close();
+      session.dispose();
+      expect(firstChannel.closes, 1);
+      expect(secondChannel.closes, 1);
+    });
+
+    test('coalesces requests and preserves changed selection', () async {
+      final pending = Completer<void>();
+      final owner = Owner()..pendingForget = pending.future;
+      final channel = Channel();
+      final first = HostConnection.test(
+        id: 'first',
+        label: 'First',
+        address: address('first'),
+        connection: channel,
+      );
+      final second = HostConnection.test(id: 'second', label: 'Second');
+      final session = AppSession.test(
+        hosts: [first, second],
+        controller: owner,
+      );
+      final removing = session.removeHost(first.id);
+      final repeated = session.removeHost(first.id);
+      expect(owner.forgotten, [address('first')]);
+      expect(session.hosts, [first, second]);
+      expect(channel.closes, 0);
+      session.selectHost(second.id);
+      pending.complete();
+      await Future.wait([removing, repeated]);
+      expect(session.hosts, [second]);
+      expect(session.selectedHost, same(second));
+      expect(channel.closes, 1);
+      await session.close();
+      session.dispose();
+    });
+
+    test('retains host when persistence fails', () async {
+      final pending = Completer<void>();
+      final owner = Owner()..pendingForget = pending.future;
+      final channel = Channel();
+      final host = HostConnection.test(
+        id: 'host',
+        label: 'Host',
+        address: address('host'),
+        connection: channel,
+      );
+      final session = AppSession.test(hosts: [host], controller: owner);
+      final watching = host.watch();
+      await Future<void>.value();
+      final removing = session.removeHost(host.id);
+      final rejected = expectLater(removing, throwsStateError);
+      pending.completeError(StateError('pairing storage failed'));
+      await rejected;
+      expect(session.hosts, [host]);
+      expect(session.selectedHost, same(host));
+      expect(channel.closes, 0);
+      expect(channel.subscription.closes, 0);
+      owner.pendingForget = null;
+      await session.removeHost(host.id);
+      await watching;
+      expect(session.hosts, isEmpty);
+      expect(owner.forgotten, [address('host'), address('host')]);
+      expect(channel.closes, 1);
+      await session.close();
+      session.dispose();
+    });
+
+    test('closing during removal releases each handle once', () async {
+      final pending = Completer<void>();
+      final owner = Owner()..pendingForget = pending.future;
+      final channel = Channel();
+      final host = HostConnection.test(
+        id: 'host',
+        label: 'Host',
+        address: address('host'),
+        connection: channel,
+      );
+      final session = AppSession.test(hosts: [host], controller: owner);
+      final removing = session.removeHost(host.id);
+      await session.close();
+      pending.complete();
+      await removing;
+      expect(session.hosts, isEmpty);
+      expect(session.selectedHost, isNull);
+      expect(channel.closes, 1);
+      expect(channel.disposals, 1);
+      expect(owner.closes, 1);
+      session.dispose();
+    });
+  });
+
   test('startup failure releases hosts and speech', () async {
     final old = Channel();
     final fresh = Channel();
@@ -468,6 +624,33 @@ void main() {
     session.dispose();
     expect(channel.closes, 1);
     expect(channel.disposals, 1);
+  });
+
+  test('pairing restarts an ended subscription', () async {
+    final opening = Completer<Updates>();
+    final channel = Channel()..pendingWatch = opening.future;
+    final owner = Owner()..connecting = (_) async => channel;
+    final session = AppSession.test(controller: owner);
+    final host = await session.pair('invitation');
+    opening.completeError(StateError('subscription ended'));
+    await Future<void>.value();
+    expect(host.connected, isFalse);
+    expect(host.error, isNotNull);
+    expect(channel.watches, 1);
+    channel.pendingWatch = null;
+    channel.subscription.initial = jsonEncode({
+      'connected': true,
+      'snapshot': {'sessions': []},
+    });
+    expect(await session.pairPin('123456'), same(host));
+    await Future<void>.value();
+    expect(channel.watches, 2);
+    expect(host.connected, isTrue);
+    expect(host.error, isNull);
+    expect(await session.pairPin('123456'), same(host));
+    expect(channel.watches, 2);
+    await session.close();
+    session.dispose();
   });
 
   test('pairing failures propagate without registering a peer', () async {

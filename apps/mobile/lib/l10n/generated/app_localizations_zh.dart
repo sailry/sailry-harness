@@ -1910,6 +1910,20 @@ class AppLocalizationsZh extends AppLocalizations {
   String get hostUnavailable => '主机未连接';
 
   @override
+  String get hostRemove => '移除主机';
+
+  @override
+  String hostRemoveConfirm(String name) {
+    return '从此设备移除“$name”？重新连接需再次配对';
+  }
+
+  @override
+  String get hostRemoved => '已移除主机';
+
+  @override
+  String get hostRemoveFailed => '无法移除主机';
+
+  @override
   String get hostMetricsFailed => '无法读取主机状态';
 
   @override
@@ -4265,6 +4279,20 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get hostUnavailable => '主機未連線';
+
+  @override
+  String get hostRemove => '移除主機';
+
+  @override
+  String hostRemoveConfirm(String name) {
+    return '從此裝置移除「$name」？重新連線需再次配對';
+  }
+
+  @override
+  String get hostRemoved => '已移除主機';
+
+  @override
+  String get hostRemoveFailed => '無法移除主機';
 
   @override
   String get hostMetricsFailed => '無法讀取主機狀態';

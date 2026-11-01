@@ -785,6 +785,17 @@
   "pairExpired": "Pairing code expired; get a new code",
   "pairing": "Connecting",
   "hostUnavailable": "Host not connected",
+  "hostRemove": "Remove host",
+  "hostRemoveConfirm": "Remove “{name}” from this device? Pair again to reconnect",
+  "@hostRemoveConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hostRemoved": "Host removed",
+  "hostRemoveFailed": "Could not remove host",
   "hostMetricsFailed": "Cannot read host status",
   "hostProcessesEmpty": "No processes",
   "hostRegisterProject": "Add project",

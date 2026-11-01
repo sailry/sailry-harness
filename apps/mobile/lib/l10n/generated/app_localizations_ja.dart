@@ -1917,6 +1917,20 @@ class AppLocalizationsJa extends AppLocalizations {
   String get hostUnavailable => 'ホストは接続されていません';
 
   @override
+  String get hostRemove => 'ホストを削除';
+
+  @override
+  String hostRemoveConfirm(String name) {
+    return 'この端末から「$name」を削除しますか？再接続には再ペアリングが必要です';
+  }
+
+  @override
+  String get hostRemoved => 'ホストを削除しました';
+
+  @override
+  String get hostRemoveFailed => 'ホストを削除できませんでした';
+
+  @override
   String get hostMetricsFailed => 'ホストの状態を読めません';
 
   @override

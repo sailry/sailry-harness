@@ -86,3 +86,67 @@ async fn retries_the_same_pin_after_lost_reply() {
     let paired: sailry_link::EndpointAddr = serde_json::from_str(&paired.unwrap()).unwrap();
     assert_eq!(paired.id, expected);
 }
+
+#[tokio::test]
+async fn forgetting_offline_host_preserves_other_pairings() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let directory = tempfile::tempdir().unwrap();
+    let host_path = directory.path().join("host");
+    let host = Link::controller(&host_path, NetworkScope::default())
+        .await
+        .unwrap();
+    let remaining = Link::controller(directory.path().join("remaining"), NetworkScope::default())
+        .await
+        .unwrap();
+    let path = directory.path().join("controller");
+    let controller = Controller::open(path.to_str().unwrap().into(), false, vec![])
+        .await
+        .unwrap();
+    let identity = controller.handle.address().id;
+    let address = controller
+        .pair(host.handle().invite().unwrap().ticket().into())
+        .await
+        .unwrap();
+    let retained = controller
+        .pair(remaining.handle().invite().unwrap().ticket().into())
+        .await
+        .unwrap();
+    let endpoint: sailry_link::EndpointAddr = serde_json::from_str(&address).unwrap();
+    controller.handle.inspect(&endpoint).await.unwrap();
+    let connection = controller.connect(address.clone()).unwrap();
+    let peers = std::fs::read(host_path.join("peers.json")).unwrap();
+    host.close().await.unwrap();
+    assert!(controller.forget("invalid address".into()).await.is_err());
+    assert_eq!(controller.peers().await.unwrap().len(), 2);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        controller.forget(address),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(controller.peers().await.unwrap(), vec![retained.clone()]);
+    let request = connection
+        .prepare(serde_json::to_string(&sailry_protocol::Command::Snapshot).unwrap())
+        .unwrap();
+    let response: sailry_link::Response =
+        serde_json::from_str(&connection.execute(request).await.unwrap()).unwrap();
+    assert_eq!(
+        response.unwrap_err().code,
+        sailry_protocol::ErrorCode::PermissionDenied
+    );
+    assert_eq!(std::fs::read(host_path.join("peers.json")).unwrap(), peers);
+    controller.close().await.unwrap();
+
+    let reopened = Controller::open(path.to_str().unwrap().into(), false, vec![])
+        .await
+        .unwrap();
+    assert_eq!(reopened.handle.address().id, identity);
+    assert_eq!(reopened.peers().await.unwrap(), vec![retained.clone()]);
+    let retained = serde_json::from_str(&retained).unwrap();
+    reopened.handle.inspect(&retained).await.unwrap();
+    let denied = reopened.handle.inspect(&endpoint).await.unwrap_err();
+    assert_eq!(denied.code, sailry_protocol::ErrorCode::PermissionDenied);
+    reopened.close().await.unwrap();
+    remaining.close().await.unwrap();
+}

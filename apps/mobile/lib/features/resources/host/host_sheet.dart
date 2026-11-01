@@ -4,6 +4,7 @@ import '../../../l10n/strings.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/theme.dart';
+import '../../../ui/toast.dart';
 import '../../conversations/live/project_bar.dart';
 import 'host_info_card.dart';
 import 'host_parts.dart';
@@ -38,7 +39,7 @@ class HostBar extends StatelessWidget {
   }
 }
 
-/// Lists hosts with their route and latency; the gear opens host settings.
+/// Lists hosts with their route, latency and local pairing actions.
 Future<void> showHostSheet(
   BuildContext context, {
   required ValueChanged<String>? onSettings,
@@ -48,45 +49,115 @@ Future<void> showHostSheet(
   return showAppSheet<void>(
     context,
     context.tr('selectHost'),
-    child: ListenableBuilder(
-      listenable: session,
-      builder: (context, _) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final (index, host) in session.hosts.indexed) ...[
-            if (index > 0) const Divider(),
-            _HostRow(
-              host: host,
-              onTap: () {
-                Navigator.pop(context);
-                session.selectHost(host.id);
-              },
-              onSettings: onSettings == null
-                  ? null
-                  : () {
-                      Navigator.pop(context);
-                      onSettings(host.id);
-                    },
-            ),
-          ],
-          const SizedBox(height: 14),
-          TextButton(
-            style: TextButton.styleFrom(
-              minimumSize: const Size.fromHeight(42),
-              backgroundColor: Theme.of(
-                context,
-              ).colorScheme.surfaceContainerHigh,
-              shape: const StadiumBorder(),
-            ),
-            onPressed: () {
+    child: _HostList(session: session, onSettings: onSettings, onPair: onPair),
+  );
+}
+
+class _HostList extends StatefulWidget {
+  const _HostList({
+    required this.session,
+    required this.onSettings,
+    required this.onPair,
+  });
+  final AppSession session;
+  final ValueChanged<String>? onSettings;
+  final VoidCallback onPair;
+
+  @override
+  State<_HostList> createState() => _HostListState();
+}
+
+class _HostListState extends State<_HostList> {
+  final _removing = <String>{};
+
+  Future<void> _remove(HostConnection target) async {
+    if (_removing.contains(target.id)) return;
+    final session = widget.session;
+    setState(() => _removing.add(target.id));
+    try {
+      final confirmed = await showAppSheet<bool>(
+        context,
+        context.tr('hostRemove'),
+        child: Builder(
+          builder: (context) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                context
+                    .tr('hostRemoveConfirm')
+                    .replaceAll('{name}', target.label),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(context.tr('cancel')),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: Text(context.tr('hostRemove')),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      await session.removeHost(target.id);
+      if (mounted) showToast(context, context.tr('hostRemoved'));
+    } catch (_) {
+      if (mounted) showToast(context, context.tr('hostRemoveFailed'));
+    } finally {
+      if (mounted) setState(() => _removing.remove(target.id));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.session,
+    builder: (context, _) => Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (index, host) in widget.session.hosts.indexed) ...[
+          if (index > 0) const Divider(),
+          _HostRow(
+            host: host,
+            onTap: () {
               Navigator.pop(context);
-              onPair();
+              widget.session.selectHost(host.id);
             },
-            child: Text(context.tr('pair')),
+            onSettings: widget.onSettings == null
+                ? null
+                : () {
+                    Navigator.pop(context);
+                    widget.onSettings!(host.id);
+                  },
+            onRemove: _removing.contains(host.id) ? null : () => _remove(host),
           ),
         ],
-      ),
+        const SizedBox(height: 14),
+        TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: const Size.fromHeight(42),
+            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+            shape: const StadiumBorder(),
+          ),
+          onPressed: () {
+            Navigator.pop(context);
+            widget.onPair();
+          },
+          child: Text(context.tr('pair')),
+        ),
+      ],
     ),
   );
 }
@@ -96,10 +167,12 @@ class _HostRow extends StatelessWidget {
     required this.host,
     required this.onTap,
     required this.onSettings,
+    required this.onRemove,
   });
   final HostConnection host;
   final VoidCallback onTap;
   final VoidCallback? onSettings;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -182,6 +255,11 @@ class _HostRow extends StatelessWidget {
                 onPressed: onSettings,
                 icon: const AppIcon('settings', size: 18),
               ),
+            IconButton(
+              tooltip: context.tr('hostRemove'),
+              onPressed: onRemove,
+              icon: const AppIcon('trash', size: 18),
+            ),
           ],
         ),
       ),

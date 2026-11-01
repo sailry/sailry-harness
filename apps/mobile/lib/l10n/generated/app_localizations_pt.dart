@@ -1953,6 +1953,20 @@ class AppLocalizationsPt extends AppLocalizations {
   String get hostUnavailable => 'Host não conectado';
 
   @override
+  String get hostRemove => 'Remover host';
+
+  @override
+  String hostRemoveConfirm(String name) {
+    return 'Remover “$name” deste dispositivo? Emparelhe novamente para reconectar';
+  }
+
+  @override
+  String get hostRemoved => 'Host removido';
+
+  @override
+  String get hostRemoveFailed => 'Não foi possível remover o host';
+
+  @override
   String get hostMetricsFailed => 'Não é possível ler o status do host';
 
   @override

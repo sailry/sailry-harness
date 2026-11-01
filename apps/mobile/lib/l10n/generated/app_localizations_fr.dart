@@ -1966,6 +1966,20 @@ class AppLocalizationsFr extends AppLocalizations {
   String get hostUnavailable => 'Hébergeur non connecté';
 
   @override
+  String get hostRemove => 'Retirer l’hôte';
+
+  @override
+  String hostRemoveConfirm(String name) {
+    return 'Retirer « $name » de cet appareil ? Associez-le à nouveau pour vous reconnecter';
+  }
+
+  @override
+  String get hostRemoved => 'Hôte retiré';
+
+  @override
+  String get hostRemoveFailed => 'Impossible de retirer l’hôte';
+
+  @override
   String get hostMetricsFailed => 'Impossible de lire l\'état de l\'hôte';
 
   @override
