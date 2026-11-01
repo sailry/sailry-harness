@@ -951,6 +951,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get allProjects => 'Ver todos os projetos';
 
   @override
+  String get unassignedChats => 'Conversas';
+
+  @override
   String get allWorktrees => 'Todas as árvores de trabalho';
 
   @override

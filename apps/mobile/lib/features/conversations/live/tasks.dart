@@ -93,7 +93,10 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       context,
       NewConversationPage(
         host: selected,
-        initialProject: _projectHost == selected.id ? _project : null,
+        initialProject:
+            _projectHost == selected.id && _project != unassignedProject
+            ? _project
+            : null,
       ),
     );
   }
@@ -164,7 +167,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       final tasks = <(HostConnection, Map<String, dynamic>)>[
         for (final host in hosts.where((host) => host.id == selected?.id))
           for (final session in objects(host.snapshot['sessions']))
-            if ((projectId == null || session['project'] == projectId) &&
+            if (inProject(projectId, session['project']) &&
                 (session['archived'] == true) == (_filter == 'archived') &&
                 (_filter == 'all' ||
                     _filter == 'archived' ||
@@ -185,7 +188,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         final tree = objects(
           selected?.snapshot['worktrees'],
         ).where((tree) => tree['id'] == terminal['worktree']).firstOrNull;
-        return (projectId == null || tree?['project'] == projectId) &&
+        return inProject(projectId, tree?['project']) &&
             (_filter == 'all' ||
                 _filter == 'terminal' ||
                 terminalStatus(terminal) == _filter) &&
@@ -198,7 +201,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       final counts = <String, int>{};
       var archived = 0;
       for (final session in objects(selected?.snapshot['sessions'])) {
-        if (projectId != null && session['project'] != projectId) continue;
+        if (!inProject(projectId, session['project'])) continue;
         if (session['archived'] == true) {
           archived++;
         } else {
@@ -209,7 +212,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         final tree = objects(
           selected?.snapshot['worktrees'],
         ).where((tree) => tree['id'] == terminal['worktree']).firstOrNull;
-        if (projectId != null && tree?['project'] != projectId) continue;
+        if (!inProject(projectId, tree?['project'])) continue;
         counts.update(
           terminalStatus(terminal),
           (n) => n + 1,
@@ -306,6 +309,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
               ],
               ProjectBar(
                 project: selectedProject,
+                title: projectId == unassignedProject
+                    ? context.tr('unassignedChats')
+                    : null,
+                leading: projectId == unassignedProject
+                    ? const AppIcon('chat', size: 15)
+                    : null,
                 onTap: () => showAppSheet(
                   context,
                   context.tr('filterProjects'),
@@ -332,6 +341,17 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                         title: Text(context.tr('allProjects')),
                         onTap: () {
                           setState(() => _project = null);
+                          Navigator.pop(context);
+                        },
+                      ),
+                      ListTile(
+                        leading: const AppIcon('chat'),
+                        title: Text(context.tr('unassignedChats')),
+                        onTap: () {
+                          setState(() {
+                            _projectHost = selected?.id;
+                            _project = unassignedProject;
+                          });
                           Navigator.pop(context);
                         },
                       ),

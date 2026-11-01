@@ -927,6 +927,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get allProjects => '全プロジェクト';
 
   @override
+  String get unassignedChats => 'チャット';
+
+  @override
   String get allWorktrees => 'すべてのワークトリー';
 
   @override

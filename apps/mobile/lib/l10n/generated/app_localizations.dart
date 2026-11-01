@@ -1914,6 +1914,12 @@ abstract class AppLocalizations {
   /// **'All projects'**
   String get allProjects;
 
+  /// No description provided for @unassignedChats.
+  ///
+  /// In en, this message translates to:
+  /// **'Chats'**
+  String get unassignedChats;
+
   /// No description provided for @allWorktrees.
   ///
   /// In en, this message translates to:

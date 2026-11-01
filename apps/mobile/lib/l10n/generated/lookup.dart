@@ -312,6 +312,7 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'home' => strings.home,
   'idle' => strings.idle,
   'allProjects' => strings.allProjects,
+  'unassignedChats' => strings.unassignedChats,
   'allWorktrees' => strings.allWorktrees,
   'tasksActive' => strings.tasksActive,
   'tasksToday' => strings.tasksToday,

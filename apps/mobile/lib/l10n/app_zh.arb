@@ -434,6 +434,7 @@
   "home": "会话",
   "idle": "空闲",
   "allProjects": "全部项目",
+  "unassignedChats": "对话",
   "allWorktrees": "全部工作树",
   "tasksActive": "进行中",
   "tasksToday": "今天",

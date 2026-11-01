@@ -925,6 +925,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get allProjects => '全部项目';
 
   @override
+  String get unassignedChats => '对话';
+
+  @override
   String get allWorktrees => '全部工作树';
 
   @override
@@ -3262,6 +3265,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get allProjects => '全部專案';
+
+  @override
+  String get unassignedChats => '對話';
 
   @override
   String get allWorktrees => '全部工作樹';

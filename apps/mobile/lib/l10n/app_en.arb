@@ -362,6 +362,7 @@
   "home": "Chats",
   "idle": "Idle",
   "allProjects": "All projects",
+  "unassignedChats": "Chats",
   "allWorktrees": "All worktrees",
   "tasksActive": "In progress",
   "tasksToday": "Today",

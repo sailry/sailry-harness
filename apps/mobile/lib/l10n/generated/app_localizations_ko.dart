@@ -929,6 +929,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get allProjects => '모든 프로젝트';
 
   @override
+  String get unassignedChats => '대화';
+
+  @override
   String get allWorktrees => '모든 작업 트리';
 
   @override

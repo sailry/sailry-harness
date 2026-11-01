@@ -362,6 +362,7 @@
   "home": "チャット",
   "idle": "待機中",
   "allProjects": "全プロジェクト",
+  "unassignedChats": "チャット",
   "allWorktrees": "すべてのワークトリー",
   "tasksActive": "進行中",
   "tasksToday": "今日",

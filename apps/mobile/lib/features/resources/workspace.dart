@@ -24,6 +24,17 @@ ResourceTarget? resourceTarget(
   return null;
 }
 
+/// Project filter for conversations and workspaces outside any project.
+/// Project IDs are never empty, so the empty string cannot collide.
+const unassignedProject = '';
+
+/// Whether a record's project falls inside a filter; null selects everything.
+bool inProject(String? filter, Object? project) => filter == null
+    ? true
+    : filter == unassignedProject
+    ? project == null
+    : project == filter;
+
 String worktreeLabel(Map<String, dynamic> worktree) =>
     text(worktree['path'])
         .replaceAll('\\', '/')
@@ -47,30 +58,55 @@ Future<String?> showLiveWorkspacePicker(
       final projects = objects(host.snapshot['projects']);
       final worktrees = objects(
         host.snapshot['worktrees'],
-      ).where((tree) => project == null || tree['project'] == project).toList();
+      ).where((tree) => inProject(project, tree['project'])).toList();
+      // Grouped like the Desktop sidebar: each project, then chats.
+      final groups = <(String, List<Map<String, dynamic>>)>[
+        for (final item in projects)
+          (
+            text(item['name']),
+            worktrees.where((tree) => tree['project'] == item['id']).toList(),
+          ),
+        (
+          context.tr('unassignedChats'),
+          worktrees.where((tree) => tree['project'] == null).toList(),
+        ),
+      ].where((group) => group.$2.isNotEmpty).toList();
+      final colors = Theme.of(context).colorScheme;
       return Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (worktrees.isEmpty)
             EmptyState(message: context.tr('resourceNoWorkspace')),
-          for (final worktree in worktrees)
-            ListTile(
-              leading: const AppIcon('branch'),
-              title: Text(worktreeLabel(worktree)),
-              subtitle: Text(
-                projects
-                        .where(
-                          (project) => project['id'] == worktree['project'],
-                        )
-                        .map((project) => text(project['name']))
-                        .firstOrNull ??
-                    text(worktree['path']),
+          for (final (label, trees) in groups) ...[
+            if (groups.length > 1)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
               ),
-              trailing: text(worktree['id']) == selected
-                  ? const AppIcon('check')
-                  : null,
-              onTap: () => Navigator.pop(context, text(worktree['id'])),
-            ),
+            for (final worktree in trees)
+              ListTile(
+                leading: AppIcon(
+                  worktree['project'] == null ? 'chat' : 'branch',
+                ),
+                title: Text(worktreeLabel(worktree)),
+                subtitle: Text(
+                  text(worktree['path']),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: text(worktree['id']) == selected
+                    ? const AppIcon('check')
+                    : null,
+                onTap: () => Navigator.pop(context, text(worktree['id'])),
+              ),
+          ],
         ],
       );
     },

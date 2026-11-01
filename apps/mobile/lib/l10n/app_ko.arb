@@ -362,6 +362,7 @@
   "home": "대화",
   "idle": "대기 중",
   "allProjects": "모든 프로젝트",
+  "unassignedChats": "대화",
   "allWorktrees": "모든 작업 트리",
   "tasksActive": "진행 중",
   "tasksToday": "오늘",

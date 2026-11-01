@@ -949,6 +949,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get allProjects => 'Все проекты';
 
   @override
+  String get unassignedChats => 'Чаты';
+
+  @override
   String get allWorktrees => 'Все рабочие деревья';
 
   @override

@@ -954,6 +954,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get allProjects => 'Alle Projekte anzeigen';
 
   @override
+  String get unassignedChats => 'Chats';
+
+  @override
   String get allWorktrees => 'Alle Arbeitsbäume anzeigen';
 
   @override
