@@ -10,10 +10,7 @@ import '../../../runtime/session.dart';
 /// Observes Node state; only request retries and subscription lifetime are local.
 class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
   StatusFeed(this.host, Map<String, dynamic> session)
-    : scope = jsonEncode({
-        'worktree': session['worktree'],
-        'session': session['id'],
-      }),
+    : scope = _scope(session),
       super({});
 
   final HostConnection host;
@@ -22,12 +19,37 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
   bool _watching = false;
   bool _closed = false;
   final _running = <String>{};
-  final _requests = <String, String>{};
+  final _requests = <String, ({String request, Map<String, dynamic> entry})>{};
+
+  static String _scope(Map<String, dynamic> session) =>
+      jsonEncode({'worktree': session['worktree'], 'session': session['id']});
+
+  /// A moved conversation owns a fresh observer and no requests from its old scope.
+  StatusFeed rebind(HostConnection host, Map<String, dynamic> session) {
+    if (!_closed && identical(this.host, host) && scope == _scope(session)) {
+      return this;
+    }
+    if (!_closed) dispose();
+    return StatusFeed(host, session);
+  }
 
   bool get connected => host.connected && value['connected'] == true;
-  List<Map<String, dynamic>> get entries => objects(
-    value['entries'],
-  ).where((entry) => object(entry['state'])['visible'] == true).toList();
+  List<Map<String, dynamic>> get entries {
+    final entries = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final entry in objects(value['entries'])) {
+      final key = _key(entry);
+      if (object(entry['state'])['visible'] == true ||
+          _requests.containsKey(key)) {
+        entries.add(_requests[key]?.entry ?? entry);
+        seen.add(key);
+      }
+    }
+    for (final pending in _requests.entries) {
+      if (!seen.contains(pending.key)) entries.add(pending.value.entry);
+    }
+    return entries;
+  }
 
   String _key(Map<String, dynamic> entry) {
     final package = object(entry['package']);
@@ -39,18 +61,20 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
     ]);
   }
 
-  Map<String, dynamic>? current(Map<String, dynamic> entry) => objects(
-    value['entries'],
-  ).where((candidate) => _key(candidate) == _key(entry)).firstOrNull;
+  Map<String, dynamic>? current(Map<String, dynamic> entry) =>
+      _requests[_key(entry)]?.entry ??
+      objects(
+        value['entries'],
+      ).where((candidate) => _key(candidate) == _key(entry)).firstOrNull;
+
+  bool retry(Map<String, dynamic> entry) => _requests.containsKey(_key(entry));
 
   bool enabled(Map<String, dynamic> entry) {
+    if (_closed || !connected || _running.contains(_key(entry))) return false;
+    if (retry(entry)) return true;
     final selected = current(entry);
     final state = object(selected?['state']);
-    return !_closed &&
-        connected &&
-        state['visible'] == true &&
-        state['enabled'] == true &&
-        !_running.contains(_key(entry));
+    return state['visible'] == true && state['enabled'] == true;
   }
 
   bool invokable(Map<String, dynamic> entry) =>
@@ -82,17 +106,24 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
   Future<void> invoke(Map<String, dynamic> entry) async {
     if (!enabled(entry) || !invokable(entry)) return;
     final key = _key(entry);
+    final selected = current(entry)!;
+    var request = _requests[key]?.request;
     _running.add(key);
     notifyListeners();
     try {
-      final request = _requests[key] ??= await host.connection.prepareStatus(
+      request ??= await host.connection.prepareStatus(
         scope: scope,
-        entry: jsonEncode(current(entry)),
+        entry: jsonEncode(selected),
       );
       await host.execute(request);
       _requests.remove(key);
     } catch (failure) {
-      if (failure is! CommandFailure || failure.code != 'outcome_unknown') {
+      if (!_closed &&
+          request != null &&
+          failure is CommandFailure &&
+          failure.code == 'outcome_unknown') {
+        _requests[key] = (request: request, entry: selected);
+      } else {
         _requests.remove(key);
       }
       rethrow;
@@ -105,6 +136,7 @@ class StatusFeed extends ValueNotifier<Map<String, dynamic>> {
   @override
   void dispose() {
     _closed = true;
+    _requests.clear();
     final updates = _updates;
     if (updates != null) unawaited(updates.close());
     super.dispose();

@@ -285,19 +285,16 @@ class HostConnection extends ChangeNotifier {
 
   @visibleForTesting
   // Public test arguments keep widget fixtures independent of native handles.
-  // ignore: prefer_initializing_formals
   HostConnection.test({
     required this.id,
-    required String label,
+    required String this._label,
     this.snapshot = const {},
     this.childTargets = const {},
     this.connected = true,
     CommandHandler? command,
-    Connection? connection,
+    this._connection,
     this.address = '',
-  }) : _label = label,
-       _connection = connection,
-       _handler = command;
+  }) : _handler = command;
 
   PortMappings? _ports;
   PortMappings get ports => _ports ??= PortMappings(() => connection);

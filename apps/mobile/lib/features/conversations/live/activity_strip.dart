@@ -94,11 +94,11 @@ class ActivityStrip extends StatefulWidget {
 }
 
 class _ActivityStripState extends State<ActivityStrip> {
-  late final _services = SessionServices(
+  late SessionServices _services = SessionServices(
     widget.host,
     widget.session['id'] as String,
   );
-  late final _status = StatusFeed(widget.host, widget.session);
+  late StatusFeed _status = StatusFeed(widget.host, widget.session);
 
   @override
   void initState() {
@@ -106,6 +106,26 @@ class _ActivityStripState extends State<ActivityStrip> {
     widget.host.addListener(_resume);
     unawaited(_services.watch());
     unawaited(_status.watch());
+  }
+
+  @override
+  void didUpdateWidget(covariant ActivityStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.host, widget.host)) {
+      oldWidget.host.removeListener(_resume);
+      widget.host.addListener(_resume);
+    }
+    if (!identical(_services.host, widget.host) ||
+        _services.session != widget.session['id']) {
+      _services.dispose();
+      _services = SessionServices(widget.host, widget.session['id'] as String);
+      unawaited(_services.watch());
+    }
+    final status = _status.rebind(widget.host, widget.session);
+    if (!identical(status, _status)) {
+      _status = status;
+      unawaited(_status.watch());
+    }
   }
 
   // A failed subscription resumes once the host is connected again.

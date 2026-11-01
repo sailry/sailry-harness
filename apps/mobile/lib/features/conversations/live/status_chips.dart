@@ -9,7 +9,7 @@ import '../../../ui/toast.dart';
 import 'presentation.dart' show failureLabel;
 import 'status_feed.dart';
 import 'tool_display.dart' show capturedLabel;
-import 'turn_frame.dart' show transcriptFontSize;
+import 'tool_row.dart' show transcriptFontSize;
 
 /// Package declarations and states come unchanged from the shared Client feed.
 class StatusChips extends StatelessWidget {
@@ -66,7 +66,11 @@ class StatusChips extends StatelessWidget {
                   onPressed: feed.enabled(selected)
                       ? () => _invoke(context, selected)
                       : null,
-                  child: Text(capturedLabel(context, label)),
+                  child: Text(
+                    feed.retry(selected)
+                        ? context.tr('retry')
+                        : capturedLabel(context, label),
+                  ),
                 ),
             ],
           );
@@ -99,11 +103,12 @@ class StatusChips extends StatelessWidget {
     final icon = _icon(state['icon'] ?? declaration['icon']);
     final segments = objects(state['segments']);
     final enabled = feed.enabled(entry);
+    final retry = feed.retry(entry);
     final colors = Theme.of(context).colorScheme;
     final interactive =
         objects(state['details']).isNotEmpty || feed.invokable(entry);
     return Semantics(
-      label: label,
+      label: retry ? '$label ${context.tr('retry')}' : label,
       child: OutlinedButton(
         onPressed: enabled && interactive ? () => _open(context, entry) : null,
         style: OutlinedButton.styleFrom(
@@ -134,6 +139,7 @@ class StatusChips extends StatelessWidget {
                         : colors.onSurface.withValues(alpha: .38),
                   ),
                 ),
+            if (retry) Text(context.tr('retry')),
           ],
         ),
       ),
