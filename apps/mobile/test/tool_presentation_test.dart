@@ -2,7 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/message_data.dart';
-import 'package:sailry_mobile/features/conversations/live/tool_content.dart';
+import 'package:sailry_mobile/features/conversations/live/tool_record.dart';
+import 'package:sailry_mobile/features/conversations/live/tool_output.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_display.dart';
 
 void main() {
@@ -91,54 +92,79 @@ void main() {
     }
   });
 
-  test('prepared output determines the existing disclosure body', () {
-    expect(
-      hasToolContent({
-        'row': {'has_details': false},
-        'details': false,
-      }),
-      isFalse,
-    );
-    expect(
-      hasToolContent({
-        'row': {'has_details': true},
-        'output': {
-          'preview': 'Batch edit preview',
-          'body': {'text': '', 'empty': null},
-        },
-      }),
-      isTrue,
-    );
-    expect(
-      hasToolContent({
-        'row': {'has_details': true},
-        'details': true,
-      }),
-      isTrue,
-    );
-    expect(
-      hasToolContent({
-        'row': {'has_details': false},
-        'content': {
-          'blocks': [
-            {'kind': 'image', 'index': 0},
-            {'kind': 'file', 'path': 'report.txt'},
+  test('approvals retain their loaded arguments across deltas', () {
+    final arguments = <String, dynamic>{'command': 'echo exact'};
+    final call = <String, dynamic>{
+      'source': {'entry': 'entry', 'index': 0},
+      'detail_key': 'approval/revision',
+      'detail_state': {'kind': 'ready'},
+      'approval_view': {'unrestricted': false},
+      'detail': {'arguments': arguments, 'result': 'Unneeded output'},
+    };
+    Map<String, dynamic> view(Map<String, dynamic> call) => {
+      'snapshot': {
+        'page': {'session': 'session'},
+      },
+      'calls': [call],
+    };
+    final next = <String, dynamic>{
+      'source': call['source'],
+      'detail_key': call['detail_key'],
+      'detail_state': call['detail_state'],
+      'approval_view': {'unrestricted': true},
+    };
+    final merged = mergeToolDetails(view(call), view(next));
+    final current = (merged['calls'] as List).single as Map<String, dynamic>;
+    final before = jsonEncode(current);
+    expect(toolArguments(current, const {}), same(arguments));
+    expect(current['approval_view'], {'unrestricted': true});
+    expect(detailAllowsDecision(current, 'approve'), isTrue);
+    expect(jsonEncode(current), before);
+  });
+
+  test('questions use their summary without loading output', () {
+    final spec = <String, dynamic>{
+      'prompt': 'Choose an option',
+      'input': {
+        'kind': 'choice',
+        'options': ['First', 'Second'],
+        'multiple': false,
+        'allow_other': true,
+      },
+    };
+    final page = <String, dynamic>{
+      'entries': [
+        {
+          'id': 'entry',
+          'parts': [
+            {'kind': 'text', 'data': 'Before'},
+            {
+              'kind': 'tool_call',
+              'data': {
+                'summary': {'question': spec},
+              },
+            },
           ],
         },
-      }),
-      isFalse,
-    );
-    expect(
-      hasToolContent({
-        'row': {'has_details': true},
-        'content': {
-          'blocks': [
-            {'kind': 'text'},
-          ],
-        },
-        'texts': ['Original literal'],
-      }),
-      isTrue,
-    );
+      ],
+    };
+    final call = <String, dynamic>{
+      'source': {'entry': 'entry', 'index': 1},
+      'question': {
+        'state': {'kind': 'pending'},
+      },
+      'details': false,
+    };
+    final before = jsonEncode([call, page]);
+    expect(toolArguments(call, page), same(spec));
+    expect(toolDetail(call), isNull);
+    expect(jsonEncode([call, page]), before);
+    for (final source in [
+      {'entry': 'missing', 'index': 1},
+      {'entry': 'entry', 'index': -1},
+      {'entry': 'entry', 'index': 2},
+    ]) {
+      expect(toolArguments({'source': source}, page), isEmpty);
+    }
   });
 }

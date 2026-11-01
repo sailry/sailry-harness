@@ -10,7 +10,6 @@ import '../../../content/attachment.dart';
 import '../../../content/images.dart';
 import '../../../content/paths.dart';
 import '../../../content/visuals.dart';
-import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import '../../resources/file_navigation.dart';
 import '../../resources/file_page.dart';
@@ -26,7 +25,6 @@ import 'children.dart';
 import 'connection_status.dart';
 import 'background.dart';
 import 'background_data.dart';
-import 'progress.dart';
 import 'sources.dart';
 import 'references.dart';
 import 'turn_actions.dart';
@@ -62,7 +60,6 @@ class LiveTimeline extends StatefulWidget {
     this.artifactActions,
     this.artifactChanges,
     this.toolOutput,
-    required this.updates,
   });
   final Map<String, dynamic> view;
   final ScrollController controller;
@@ -82,9 +79,6 @@ class LiveTimeline extends StatefulWidget {
   final ArtifactActions? artifactActions;
   final ValueListenable<Map<String, dynamic>>? artifactChanges;
   final ToolSelectionChanged? toolOutput;
-
-  /// The live projection, followed by sheets opened from the transcript.
-  final ValueListenable<Map<String, dynamic>> updates;
 
   @override
   State<LiveTimeline> createState() => _LiveTimelineState();
@@ -223,17 +217,14 @@ class _LiveTimelineState extends State<LiveTimeline> {
               index,
               interactive ? 'card' : 'row',
             )),
-            documents: _documents,
             call: call,
             page: page,
             session: session,
-            host: host,
             command: command,
             enabled: connected,
             continuing: continuing,
             interactive: interactive,
             toolOutput: widget.toolOutput,
-            updates: widget.updates,
           );
         case 'reference':
           return MessageReferences(
@@ -315,20 +306,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             ? ToolHeading(
                 key: ValueKey('progress-${run['turn']}'),
                 call: progressCall!,
-                page: page,
                 running: continuingTools && lastCall['progress'] != null,
-                onTap: () => showAppSheet(
-                  context,
-                  toolTitle(context, progressCall),
-                  child: ValueListenableBuilder(
-                    valueListenable: widget.updates,
-                    builder: (context, view, _) => TaskProgress(
-                      progress:
-                          turnProgress(objects(view['calls']), run['turn']) ??
-                          object(progressCall['progress']),
-                    ),
-                  ),
-                ),
               )
             : childReferences.isNotEmpty
             ? Column(

@@ -1,82 +1,55 @@
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../../content/code.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
-import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
-import '../../resources/file_page.dart';
-import 'message_data.dart';
 import 'presentation.dart';
 import 'question.dart';
-import 'question_history.dart';
-import 'tool_content.dart';
 import 'tool_display.dart';
 import 'tool_heading.dart';
 import 'tool_output.dart';
 import 'tool_row.dart';
 
-/// The loaded detail, arguments and result of one call projection.
-typedef ToolView = ({
+/// Approval arguments or an inline question's bounded specification.
+Map<String, dynamic> toolArguments(
   Map<String, dynamic> call,
-  Map<String, dynamic>? detail,
-  Map<String, dynamic> arguments,
-  Map<String, dynamic> result,
-});
+  Map<String, dynamic> page,
+) => object(
+  toolDetail(call)?['arguments'] ??
+      object(_part(page, call['source'])['summary'])['question'],
+);
 
-ToolView toolView(Map<String, dynamic> value, Map<String, dynamic> page) {
-  final detail = toolDetail(value);
-  final call = {
-    ...value,
-    if (detail != null) ...{
-      'resolved': detail['resolved'],
-      'content': detail['content'],
-      'texts': detail['texts'],
-    },
-  };
-  return (
-    call: call,
-    detail: detail,
-    arguments: object(
-      detail?['arguments'] ??
-          object(toolPart(page, call['source'])['summary'])['question'],
-    ),
-    result: {
-      ...toolPart(page, call['response']),
-      if (detail != null) 'result': detail['result'],
-    },
-  );
-}
-
-/// Outputs open in a sheet; only approvals and questions stay inline.
-bool toolOpens(Map<String, dynamic> call) {
-  final question = object(call['question']);
-  return (call['details'] == true && hasToolContent(call)) ||
-      (question.isNotEmpty && object(question['state'])['kind'] != 'pending');
+Map<String, dynamic> _part(Map<String, dynamic> page, Object? reference) {
+  final source = object(reference);
+  final entry = objects(
+    page['entries'],
+  ).where((entry) => entry['id'] == source['entry']).firstOrNull;
+  final parts = objects(entry?['parts']);
+  final index = source['index'];
+  return index is int && index >= 0 && index < parts.length
+      ? object(parts[index]['data'])
+      : {};
 }
 
 class ToolRecord extends StatefulWidget {
   const ToolRecord({
     super.key,
-    this.documents,
     required this.call,
     required this.page,
     required this.session,
-    required this.host,
     required this.command,
     required this.enabled,
     this.continuing = false,
     this.interactive = true,
     this.toolOutput,
-    required this.updates,
   });
-  final Map<String, FileDocument>? documents;
   final Map<String, dynamic> call;
   final Map<String, dynamic> page;
   final Map<String, dynamic> session;
-  final HostConnection host;
   final ConversationCommand command;
   final bool enabled;
   final bool continuing;
@@ -84,13 +57,13 @@ class ToolRecord extends StatefulWidget {
   /// Whether this row carries the inline approval or question card.
   final bool interactive;
   final ToolSelectionChanged? toolOutput;
-  final ValueListenable<Map<String, dynamic>> updates;
   @override
   State<ToolRecord> createState() => _ToolRecordState();
 }
 
 class _ToolRecordState extends State<ToolRecord> {
   bool _busy = false;
+  bool _tracking = false;
   final _selection = Object();
 
   @override
@@ -108,21 +81,19 @@ class _ToolRecordState extends State<ToolRecord> {
   // Approval decisions need the loaded arguments before they can be allowed.
   void _select({bool retry = false}) {
     final pending = object(widget.call['approval'])['state'] == 'pending';
-    widget.toolOutput?.call(
-      _selection,
-      widget.enabled &&
-              widget.interactive &&
-              pending &&
-              TickerMode.valuesOf(context).enabled
-          ? [widget.call]
-          : [],
-      retry,
-    );
+    final selected =
+        widget.enabled &&
+        widget.interactive &&
+        pending &&
+        TickerMode.valuesOf(context).enabled;
+    if (!selected && !_tracking) return;
+    _tracking = selected;
+    widget.toolOutput?.call(_selection, selected ? [widget.call] : [], retry);
   }
 
   @override
   void dispose() {
-    widget.toolOutput?.call(_selection, [], false);
+    if (_tracking) widget.toolOutput?.call(_selection, [], false);
     super.dispose();
   }
 
@@ -148,31 +119,18 @@ class _ToolRecordState extends State<ToolRecord> {
     }
   }
 
-  void _open() {
-    showAppSheet(
-      context,
-      toolTitle(context, widget.call),
-      child: ToolSheet(
-        source: object(widget.call['source']),
-        updates: widget.updates,
-        session: widget.session,
-        host: widget.host,
-        documents: widget.documents,
-        toolOutput: widget.toolOutput,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final view = toolView(widget.call, widget.page);
-    final call = view.call;
+    final call = widget.call;
     final approval = object(call['approval']);
     final question = object(call['question']);
     final pendingApproval =
         widget.interactive && approval['state'] == 'pending';
     final pendingQuestion =
         widget.interactive && object(question['state'])['kind'] == 'pending';
+    final arguments = pendingApproval || pendingQuestion
+        ? toolArguments(call, widget.page)
+        : const <String, dynamic>{};
     final approvalView = object(call['approval_view']);
     final enabled = widget.enabled && !_busy;
     final colors = Theme.of(context).colorScheme;
@@ -196,9 +154,7 @@ class _ToolRecordState extends State<ToolRecord> {
       children: [
         ToolHeading(
           call: call,
-          page: widget.page,
           running: widget.continuing || call['state'] == 'running',
-          onTap: toolOpens(call) ? _open : null,
         ),
         if (pendingApproval)
           card([
@@ -210,9 +166,9 @@ class _ToolRecordState extends State<ToolRecord> {
                   : SelectableText(
                       capturedLabel(context, approvalView['description']),
                     )
-            else if (view.detail != null)
+            else if (toolDetail(call) != null)
               CodeBlock(
-                rawText(view.arguments),
+                const JsonEncoder.withIndent('  ').convert(arguments),
                 language: 'json',
                 title: context.tr('toolArguments'),
               ),
@@ -256,7 +212,7 @@ class _ToolRecordState extends State<ToolRecord> {
           ]),
         if (pendingQuestion)
           card([
-            Text(view.arguments['prompt'] as String? ?? ''),
+            Text(arguments['prompt'] as String? ?? ''),
             Align(
               alignment: Alignment.centerRight,
               child: FilledButton(
@@ -265,7 +221,7 @@ class _ToolRecordState extends State<ToolRecord> {
                         context,
                         context.tr('question'),
                         child: ConversationQuestion(
-                          spec: view.arguments,
+                          spec: arguments,
                           question: question,
                           session: widget.session,
                           command: widget.command,
@@ -279,120 +235,4 @@ class _ToolRecordState extends State<ToolRecord> {
       ],
     );
   }
-}
-
-/// A call's output, following the live projection while the sheet is open.
-class ToolSheet extends StatefulWidget {
-  const ToolSheet({
-    super.key,
-    required this.source,
-    required this.updates,
-    required this.session,
-    required this.host,
-    this.documents,
-    this.toolOutput,
-  });
-
-  final Map<String, dynamic> source;
-  final ValueListenable<Map<String, dynamic>> updates;
-  final Map<String, dynamic> session;
-  final HostConnection host;
-  final Map<String, FileDocument>? documents;
-  final ToolSelectionChanged? toolOutput;
-
-  @override
-  State<ToolSheet> createState() => _ToolSheetState();
-}
-
-class _ToolSheetState extends State<ToolSheet> {
-  final _selection = Object();
-
-  @override
-  void initState() {
-    super.initState();
-    widget.updates.addListener(_select);
-    _select();
-  }
-
-  @override
-  void dispose() {
-    widget.updates.removeListener(_select);
-    widget.toolOutput?.call(_selection, [], false);
-    super.dispose();
-  }
-
-  Map<String, dynamic>? get _call =>
-      objects(widget.updates.value['calls']).where((call) {
-        final source = object(call['source']);
-        return source['entry'] == widget.source['entry'] &&
-            source['index'] == widget.source['index'];
-      }).firstOrNull;
-
-  bool get _connected =>
-      widget.host.connected && widget.updates.value['connected'] == true;
-
-  void _select({bool retry = false}) {
-    final call = _call;
-    widget.toolOutput?.call(
-      _selection,
-      _connected && call != null && call['details'] == true ? [call] : [],
-      retry,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => ValueListenableBuilder(
-    valueListenable: widget.updates,
-    builder: (context, value, _) {
-      final current = _call;
-      if (current == null) return const SizedBox.shrink();
-      final page = object(object(value['snapshot'])['page']);
-      final view = toolView(current, page);
-      final call = view.call;
-      final question = object(call['question']);
-      final resolved = object(call['resolved']);
-      final images = objects(view.result['images']);
-      final content = view.detail != null && call['details'] == true;
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ToolHeading(call: call, page: page),
-          const SizedBox(height: 8),
-          // Like Desktop, the sheet shows what the tool returned; raw
-          // arguments only stand in when there is nothing else to show.
-          if (question.isNotEmpty)
-            QuestionHistory(question: question, spec: view.arguments)
-          else if (!content &&
-              resolved['label'] == null &&
-              view.arguments.isNotEmpty &&
-              images.isEmpty)
-            CodeBlock(
-              rawText(view.arguments),
-              language: 'json',
-              title: context.tr('toolArguments'),
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          if (content)
-            ToolContent(
-              documents: widget.documents,
-              call: call,
-              result: view.result,
-              output: object(view.detail!['output']),
-              host: widget.host,
-              worktree: turnWorktree(page, widget.session, call['turn']),
-            ),
-          if (detailFailed(current))
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton(
-                onPressed: _connected ? () => _select(retry: true) : null,
-                child: Text(context.tr('retry')),
-              ),
-            ),
-        ],
-      );
-    },
-  );
 }
