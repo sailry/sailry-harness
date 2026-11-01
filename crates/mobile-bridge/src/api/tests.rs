@@ -145,7 +145,12 @@ async fn forgetting_offline_host_preserves_other_pairings() {
     assert_eq!(reopened.peers().await.unwrap(), vec![retained.clone()]);
     let retained = serde_json::from_str(&retained).unwrap();
     reopened.handle.inspect(&retained).await.unwrap();
-    let denied = reopened.handle.inspect(&endpoint).await.unwrap_err();
+    let denied = reopened
+        .handle
+        .inspect(&endpoint)
+        .await
+        .err()
+        .expect("forgotten host must require pairing");
     assert_eq!(denied.code, sailry_protocol::ErrorCode::PermissionDenied);
     reopened.close().await.unwrap();
     remaining.close().await.unwrap();
