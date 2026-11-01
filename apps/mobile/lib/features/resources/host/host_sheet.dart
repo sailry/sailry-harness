@@ -111,7 +111,7 @@ class _HostListState extends State<_HostList> {
         ),
       );
       if (confirmed != true || !mounted) return;
-      await session.removeHost(target.id);
+      await session.removeHost(target);
       if (mounted) showToast(context, context.tr('hostRemoved'));
     } catch (_) {
       if (mounted) showToast(context, context.tr('hostRemoveFailed'));

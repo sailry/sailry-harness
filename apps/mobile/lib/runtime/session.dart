@@ -82,7 +82,8 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   Object? error;
   bool _closed = false;
   final List<HostConnection> _hosts = [];
-  final Map<String, Future<void>> _removals = {};
+  final Map<HostConnection, Future<void>> _removals = {};
+  Future<void> _hostChanges = Future.value();
   String? _selected;
 
   List<HostConnection> get hosts => List.unmodifiable(_hosts);
@@ -142,8 +143,10 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     if (_closed || !ready || owner == null) {
       throw StateError('controller is not ready');
     }
-    final address = await owner.pair(ticket: ticket.trim());
-    return _connect(address, owner);
+    return _change(owner, () async {
+      final address = await owner.pair(ticket: ticket.trim());
+      return _connect(address, owner);
+    });
   }
 
   Future<HostConnection> pairPin(String pin) async {
@@ -151,8 +154,23 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     if (_closed || !ready || owner == null) {
       throw StateError('controller is not ready');
     }
-    final address = await owner.pairPin(origin: '', pin: pin.trim());
-    return _connect(address, owner);
+    return _change(owner, () async {
+      final address = await owner.pairPin(origin: '', pin: pin.trim());
+      return _connect(address, owner);
+    });
+  }
+
+  Future<T> _change<T>(Controller owner, Future<T> Function() action) {
+    // Pairing reveals its peer only after persisting trust, so local pairing
+    // changes must serialize before starting the native operation.
+    final pending = _hostChanges.then((_) {
+      if (_closed || !ready || controller != owner) {
+        throw StateError('controller is not ready');
+      }
+      return action();
+    });
+    _hostChanges = pending.then<void>((_) {}, onError: (Object _) {});
+    return pending;
   }
 
   Future<HostConnection> _connect(String address, Controller owner) async {
@@ -201,24 +219,24 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     _changed();
   }
 
-  Future<void> removeHost(String id) {
-    final pending = _removals[id];
+  Future<void> removeHost(HostConnection target) {
+    final pending = _removals[target];
     if (pending != null) return pending;
-    final target = host(id);
-    if (target == null) return Future.value();
+    if (host(target.id) != target) return Future.value();
     final owner = controller;
     if (_closed || !ready || owner == null) {
       return Future.error(StateError('controller is not ready'));
     }
     return _removals.putIfAbsent(
-      id,
-      () => _remove(target, owner).whenComplete(() {
-        _removals.remove(id);
+      target,
+      () => _change(owner, () => _remove(target, owner)).whenComplete(() {
+        _removals.remove(target);
       }),
     );
   }
 
   Future<void> _remove(HostConnection target, Controller owner) async {
+    if (host(target.id) != target) return;
     await owner.forget(address: target.address);
     if (_closed || controller != owner || host(target.id) != target) return;
     target.removeListener(_changed);

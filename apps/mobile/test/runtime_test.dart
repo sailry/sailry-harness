@@ -116,6 +116,8 @@ class Channel extends Fake implements Connection {
   int watches = 0;
   final subscription = Subscription();
   Future<Updates>? pendingWatch;
+  Future<void>? pendingClose;
+  final closeStarted = Completer<void>();
   final requests = <String>[];
   bool uncertain = false;
   String? response;
@@ -146,6 +148,8 @@ class Channel extends Fake implements Connection {
   @override
   Future<void> close() async {
     closes++;
+    if (!closeStarted.isCompleted) closeStarted.complete();
+    await pendingClose;
   }
 
   @override
@@ -164,8 +168,11 @@ class Owner extends Fake implements Controller {
   String? pin;
   String? origin;
   String? pairingError;
+  Future<String>? pendingPair;
+  final pairStarted = Completer<void>();
   final forgotten = <String>[];
   Future<void>? pendingForget;
+  final forgetStarted = Completer<void>();
   @override
   Future<List<String>> peers() async => pendingPeers ?? addresses;
   @override
@@ -173,7 +180,8 @@ class Owner extends Fake implements Controller {
   @override
   Future<String> pair({required String ticket}) async {
     this.ticket = ticket;
-    return address('paired');
+    if (!pairStarted.isCompleted) pairStarted.complete();
+    return pendingPair ?? address('paired');
   }
 
   @override
@@ -181,12 +189,14 @@ class Owner extends Fake implements Controller {
     this.origin = origin;
     this.pin = pin;
     if (pairingError != null) throw StateError(pairingError!);
-    return address('paired');
+    if (!pairStarted.isCompleted) pairStarted.complete();
+    return pendingPair ?? address('paired');
   }
 
   @override
   Future<void> forget({required String address}) async {
     forgotten.add(address);
+    if (!forgetStarted.isCompleted) forgetStarted.complete();
     await pendingForget;
     addresses.remove(address);
   }
@@ -239,7 +249,7 @@ void main() {
       );
       final watching = first.watch();
       await Future<void>.value();
-      await session.removeHost(first.id);
+      await session.removeHost(first);
       await watching;
       expect(owner.forgotten, [address('first')]);
       expect(session.hosts, [second]);
@@ -251,7 +261,7 @@ void main() {
       expect(firstChannel.requests, isEmpty);
       expect(first.snapshot, same(snapshot));
       expect(secondChannel.closes, 0);
-      await session.removeHost(second.id);
+      await session.removeHost(second);
       expect(session.hosts, isEmpty);
       expect(session.selectedHost, isNull);
       expect(session.controller, same(owner));
@@ -278,8 +288,9 @@ void main() {
         hosts: [first, second],
         controller: owner,
       );
-      final removing = session.removeHost(first.id);
-      final repeated = session.removeHost(first.id);
+      final removing = session.removeHost(first);
+      final repeated = session.removeHost(first);
+      await owner.forgetStarted.future;
       expect(owner.forgotten, [address('first')]);
       expect(session.hosts, [first, second]);
       expect(channel.closes, 0);
@@ -306,8 +317,9 @@ void main() {
       final session = AppSession.test(hosts: [host], controller: owner);
       final watching = host.watch();
       await Future<void>.value();
-      final removing = session.removeHost(host.id);
+      final removing = session.removeHost(host);
       final rejected = expectLater(removing, throwsStateError);
+      await owner.forgetStarted.future;
       pending.completeError(StateError('pairing storage failed'));
       await rejected;
       expect(session.hosts, [host]);
@@ -315,10 +327,108 @@ void main() {
       expect(channel.closes, 0);
       expect(channel.subscription.closes, 0);
       owner.pendingForget = null;
-      await session.removeHost(host.id);
+      await session.removeHost(host);
       await watching;
       expect(session.hosts, isEmpty);
       expect(owner.forgotten, [address('host'), address('host')]);
+      expect(channel.closes, 1);
+      await session.close();
+      session.dispose();
+    });
+
+    test('pairing waits for pending removal', () async {
+      for (final usePin in [false, true]) {
+        final pending = Completer<void>();
+        final previous = Channel();
+        final replacement = Channel();
+        final owner = Owner()
+          ..pendingForget = pending.future
+          ..connecting = (_) async => replacement;
+        final host = HostConnection.test(
+          id: 'paired',
+          label: 'Host',
+          address: address('paired'),
+          connection: previous,
+        );
+        final session = AppSession.test(hosts: [host], controller: owner);
+        final removing = session.removeHost(host);
+        await owner.forgetStarted.future;
+        final pairing = usePin
+            ? session.pairPin('123456')
+            : session.pair('invitation');
+        await Future<void>.value();
+        expect(owner.pairStarted.isCompleted, isFalse);
+        expect(session.hosts, [host]);
+        pending.complete();
+        await removing;
+        final paired = await pairing;
+        expect(paired, isNot(same(host)));
+        expect(paired.connection, same(replacement));
+        expect(session.hosts, [paired]);
+        expect(session.selectedHost, same(paired));
+        expect(previous.closes, 1);
+        expect(replacement.closes, 0);
+        await session.close();
+        session.dispose();
+      }
+    });
+
+    test('pairing waits for previous handle cleanup', () async {
+      final pending = Completer<void>();
+      final previous = Channel()..pendingClose = pending.future;
+      final replacement = Channel();
+      final owner = Owner()..connecting = (_) async => replacement;
+      final host = HostConnection.test(
+        id: 'paired',
+        label: 'Host',
+        address: address('paired'),
+        connection: previous,
+      );
+      final session = AppSession.test(hosts: [host], controller: owner);
+      final removing = session.removeHost(host);
+      await previous.closeStarted.future;
+      expect(session.hosts, isEmpty);
+      final pairing = session.pairPin('123456');
+      expect(session.removeHost(host), same(removing));
+      await Future<void>.value();
+      expect(owner.pairStarted.isCompleted, isFalse);
+      pending.complete();
+      await removing;
+      final paired = await pairing;
+      await session.removeHost(host);
+      expect(session.hosts, [paired]);
+      expect(replacement.closes, 0);
+      expect(owner.forgotten, [address('paired')]);
+      await session.removeHost(paired);
+      expect(owner.forgotten, [address('paired'), address('paired')]);
+      expect(session.hosts, isEmpty);
+      expect(session.selectedHost, isNull);
+      expect(replacement.closes, 1);
+      await session.close();
+      session.dispose();
+    });
+
+    test('removal follows an active pairing', () async {
+      final pending = Completer<String>();
+      final channel = Channel();
+      final owner = Owner()..pendingPair = pending.future;
+      final host = HostConnection.test(
+        id: 'paired',
+        label: 'Host',
+        address: address('paired'),
+        connection: channel,
+      );
+      final session = AppSession.test(hosts: [host], controller: owner);
+      final pairing = session.pair('invitation');
+      await owner.pairStarted.future;
+      final removing = session.removeHost(host);
+      await Future<void>.value();
+      expect(owner.forgotten, isEmpty);
+      pending.complete(address('paired'));
+      expect(await pairing, same(host));
+      await removing;
+      expect(session.hosts, isEmpty);
+      expect(owner.forgotten, [address('paired')]);
       expect(channel.closes, 1);
       await session.close();
       session.dispose();
@@ -335,7 +445,8 @@ void main() {
         connection: channel,
       );
       final session = AppSession.test(hosts: [host], controller: owner);
-      final removing = session.removeHost(host.id);
+      final removing = session.removeHost(host);
+      await owner.forgetStarted.future;
       await session.close();
       pending.complete();
       await removing;
