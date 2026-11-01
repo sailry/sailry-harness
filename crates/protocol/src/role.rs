@@ -28,7 +28,7 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// The override, else the captured role model; None follows the lead's model.
-    pub fn model(&self, profile: &Profile) -> Option<&Model> {
+    pub fn model<'a>(&'a self, profile: &'a Profile) -> Option<&'a Model> {
         self.models.get(&profile.id).or(profile.model.as_ref())
     }
 
