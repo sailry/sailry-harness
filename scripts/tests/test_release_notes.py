@@ -352,20 +352,80 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("git push", feed)
         self.assertNotIn("contents/update-v1", feed)
 
-    def test_existing_changelog_skips_remote_write(self):
+    def test_website_waits_for_formal_publication(self):
+        feed = self.workflow("update-feed")
+        job = feed.split("  publish:\n", 1)[1]
+        self.assertIn("permissions:\n      contents: write\n      actions: write", job)
+        catalog, dispatch = job.split("      - name: Update changelog and website\n", 1)
+        self.assertIn("name: Publish signed catalog to the exact release\n        id: catalog", catalog)
+        self.assertIn("if: steps.canonical.outputs.ready == 'true' && steps.catalog.outcome == 'success'", dispatch)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", dispatch)
+        self.assertIn('gh workflow run changelog.yml --repo "$GITHUB_REPOSITORY" --ref main', dispatch)
+        self.assertIn('-f "tag=$RELEASE_TAG" -f notify_website=true', dispatch)
+        changelog = self.workflow("changelog")
+        trigger = changelog.split("permissions:", 1)[0]
+        self.assertIn("notify_website:", trigger)
+        self.assertIn("type: boolean\n        default: false", trigger)
+        update, notify = changelog.split("      - name: Notify website\n", 1)
+        self.assertIn("name: Update changelog\n        id: changelog", update)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.notify_website && steps.changelog.outcome == 'success'", notify)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", notify)
+        self.assertIn("WEBSITE_DISPATCH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}", notify)
+        self.assertNotIn("always()", dispatch + notify)
+        self.assertNotIn("continue-on-error", dispatch + notify)
+        self.assertNotIn("notify_website", self.workflow("release"))
+
+    def test_existing_changelog_notifies_current_main(self):
         workflow = self.workflow("changelog")
-        script = textwrap.dedent(workflow.rsplit("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+        update, notify = workflow.split("      - name: Notify website\n", 1)
+        script = textwrap.dedent(update.rsplit("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+        notification = textwrap.dedent(notify.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+        commit = "a" * 40
         with tempfile.TemporaryDirectory() as directory:
             stage = Path(directory)
             original = (ROOT / "CHANGELOG.md").read_bytes()
             (stage / "CHANGELOG.md").write_bytes(original)
             (stage / "changelog-original.md").write_bytes(original)
-            with chdir(stage), patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product", "RUNNER_TEMP": directory}), \
-                    patch.object(subprocess, "run") as run, patch("builtins.print"):
+            environment = {"GITHUB_REPOSITORY": "fixture/product", "RUNNER_TEMP": directory,
+                           "GITHUB_SHA": "b" * 40, "GH_TOKEN": "repository-token",
+                           "WEBSITE_DISPATCH_TOKEN": "website-token"}
+            with chdir(stage), patch.dict(os.environ, environment, clear=True), \
+                    patch.object(subprocess, "run") as run, \
+                    patch.object(subprocess, "check_output", return_value=commit + "\n") as read, \
+                    patch("builtins.print"):
                 with self.assertRaises(SystemExit) as outcome:
                     exec(script, {})
-            self.assertEqual(outcome.exception.code, 0)
-            run.assert_not_called()
+                self.assertEqual(outcome.exception.code, 0)
+                run.assert_not_called()
+                exec(notification, {})
+            read.assert_called_once_with(['gh', 'api', 'repos/fixture/product/git/ref/heads/main',
+                                          '--jq', '.object.sha'], text=True)
+            run.assert_called_once_with(
+                ['gh', 'api', '--method', 'POST', 'repos/sailry/sailry-website/dispatches',
+                 '-f', 'event_type=harness-docs-updated', '-f', f'client_payload[sha]={commit}'],
+                env={**environment, "GH_TOKEN": "website-token"}, check=True,
+            )
+
+    def test_website_notification_propagates_failures(self):
+        workflow = self.workflow("changelog").split("      - name: Notify website\n", 1)[1]
+        script = textwrap.dedent(workflow.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+        for reason in ("token", "source", "sha", "dispatch"):
+            environment = {"GITHUB_REPOSITORY": "fixture/product", "GH_TOKEN": "repository-token",
+                           "WEBSITE_DISPATCH_TOKEN": "" if reason == "token" else "website-token"}
+            error = SystemExit if reason in {"token", "sha"} else subprocess.CalledProcessError
+            with self.subTest(reason=reason), patch.dict(os.environ, environment, clear=True), \
+                    patch.object(subprocess, "check_output", return_value="null" if reason == "sha" else "a" * 40) as read, \
+                    patch.object(subprocess, "run") as run:
+                if reason == "source":
+                    read.side_effect = subprocess.CalledProcessError(1, ["gh", "api"])
+                if reason == "dispatch":
+                    run.side_effect = subprocess.CalledProcessError(1, ["gh", "api"])
+                with self.assertRaises(error) as outcome:
+                    exec(script, {})
+                if isinstance(outcome.exception, SystemExit):
+                    self.assertTrue(outcome.exception.code)
+                self.assertEqual(read.call_count, 0 if reason == "token" else 1)
+                self.assertEqual(run.call_count, 1 if reason == "dispatch" else 0)
 
 
 class GateWaiting(unittest.TestCase):

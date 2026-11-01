@@ -20,6 +20,9 @@ jobs:
     name: Verify release and publish its signed catalog
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: write
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -59,6 +62,7 @@ jobs:
         if: steps.canonical.outputs.ready == 'true'
         run: cargo build --locked --release -p sailry-release
       - name: Publish signed catalog to the exact release
+        id: catalog
         if: steps.canonical.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -72,3 +76,11 @@ jobs:
             --keys release/update-public-keys.txt \
             --repository "$GITHUB_REPOSITORY" \
             --stage "$RUNNER_TEMP/update-feed"
+      - name: Update changelog and website
+        if: steps.canonical.outputs.ready == 'true' && steps.catalog.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh workflow run changelog.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f "tag=$RELEASE_TAG" -f notify_website=true

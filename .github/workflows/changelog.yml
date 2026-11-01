@@ -6,9 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Published version tag selected as the workflow ref'
+        description: 'Exact published version tag'
         type: string
         required: true
+      notify_website:
+        description: 'Notify the website after formal Desktop publication'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -36,6 +40,7 @@ jobs:
           python3 scripts/check-release.py --tag "$RELEASE_TAG" --published \
             --event "$RUNNER_TEMP/published-release.json"
       - name: Update changelog
+        id: changelog
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -71,4 +76,24 @@ jobs:
           if result.returncode:
               raise SystemExit('Updating CHANGELOG.md failed; inspect the workflow before retrying')
           print('CHANGELOG.md updated on the default branch')
+          PY
+      - name: Notify website
+        if: github.event_name == 'workflow_dispatch' && inputs.notify_website && steps.changelog.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WEBSITE_DISPATCH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os, re, subprocess
+          token = os.environ.get('WEBSITE_DISPATCH_TOKEN')
+          if not token:
+              raise SystemExit('WEBSITE_DISPATCH_TOKEN is required to notify the website')
+          repo = os.environ['GITHUB_REPOSITORY']
+          sha = subprocess.check_output(['gh', 'api', f'repos/{repo}/git/ref/heads/main',
+                                         '--jq', '.object.sha'], text=True).strip()
+          if not re.fullmatch(r'[0-9a-f]{40}', sha):
+              raise SystemExit('Resolving main returned an invalid commit SHA')
+          subprocess.run(['gh', 'api', '--method', 'POST', 'repos/sailry/sailry-website/dispatches',
+                          '-f', 'event_type=harness-docs-updated', '-f', f'client_payload[sha]={sha}'],
+                         env={**os.environ, 'GH_TOKEN': token}, check=True)
           PY
