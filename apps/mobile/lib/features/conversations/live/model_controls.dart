@@ -86,6 +86,7 @@ class ModelControls extends StatelessWidget {
                   final selection = await showAppSheet<Map<String, dynamic>>(
                     context,
                     context.tr('modelPicker'),
+                    scroll: false,
                     child: ModelChoices(providers: providers, config: config),
                   );
                   if (selection != null) _commit({...config, ...selection});
@@ -139,7 +140,17 @@ class ModelControls extends StatelessWidget {
   }
 }
 
-class ModelChoices extends StatelessWidget {
+String _modelLabel(Map<String, dynamic> model) =>
+    text(model['display_name'], text(model['id']));
+
+/// Providers sharing a preset form one family, like the Desktop rail.
+String _family(Map<String, dynamic> provider) {
+  final preset = text(object(provider['preset'])['id']);
+  return preset.isEmpty ? text(provider['name']) : preset;
+}
+
+/// Desktop-style picker: a family rail beside collapsible provider groups.
+class ModelChoices extends StatefulWidget {
   const ModelChoices({
     super.key,
     required this.providers,
@@ -149,38 +160,200 @@ class ModelChoices extends StatelessWidget {
   final Map<String, dynamic> config;
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      for (final provider in providers.where((p) => p['enabled'] == true))
-        ExpansionTile(
-          key: PageStorageKey('model-provider-${provider['id']}'),
-          initiallyExpanded: provider['id'] == config['provider'],
-          tilePadding: const EdgeInsets.symmetric(horizontal: 8),
-          childrenPadding: const EdgeInsets.only(left: 12),
-          title: Text(
-            text(provider['name']),
-            style: Theme.of(context).textTheme.labelLarge,
-          ),
-          children: [
-            for (final model in objects(provider['models']))
-              ListTile(
-                title: Text(text(model['id'])),
-                trailing:
-                    provider['id'] == config['provider'] &&
-                        model['id'] == config['model']
-                    ? const AppIcon('check', size: 18)
-                    : null,
-                onTap: () => Navigator.pop(context, {
-                  'provider': provider['id'],
-                  'credential': provider['credential'],
-                  'model': model['id'],
-                  'effort': model['default_effort'] ?? 'default',
-                }),
+  State<ModelChoices> createState() => _ModelChoicesState();
+}
+
+class _ModelChoicesState extends State<ModelChoices> {
+  late final List<Map<String, dynamic>> _providers = widget.providers
+      .where((p) => p['enabled'] == true && objects(p['models']).isNotEmpty)
+      .toList();
+  late final _families = <String>{
+    for (final p in _providers) _family(p),
+  }.toList();
+  late String? _familyKey = () {
+    final current = _providers
+        .where((p) => p['id'] == widget.config['provider'])
+        .firstOrNull;
+    return current == null ? _families.firstOrNull : _family(current);
+  }();
+  final _collapsed = <Object?>{};
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    if (_providers.isEmpty) {
+      return EmptyState(message: context.tr('conversationNoModel'));
+    }
+    final visible = _providers.where((p) => _family(p) == _familyKey).toList();
+    final height = MediaQuery.sizeOf(context).height * .6;
+    final list = ListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      children: [
+        for (final provider in visible) ...[
+          InkWell(
+            key: ValueKey('model-group-${provider['id']}'),
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => setState(() {
+              if (!_collapsed.remove(provider['id'])) {
+                _collapsed.add(provider['id']);
+              }
+            }),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 10, 8, 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      text(provider['name']),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _collapsed.contains(provider['id']) ? -.25 : 0,
+                    duration: const Duration(milliseconds: 150),
+                    child: AppIcon(
+                      'down',
+                      size: 12,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
-          ],
+            ),
+          ),
+          if (!_collapsed.contains(provider['id']))
+            for (final model in objects(provider['models']))
+              _row(context, colors, provider, model),
+        ],
+      ],
+    );
+    return SizedBox(
+      height: height,
+      child: _families.length < 2
+          ? list
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 12,
+              children: [
+                _rail(context, colors),
+                Expanded(child: list),
+              ],
+            ),
+    );
+  }
+
+  Widget _row(
+    BuildContext context,
+    ColorScheme colors,
+    Map<String, dynamic> provider,
+    Map<String, dynamic> model,
+  ) {
+    final selected =
+        provider['id'] == widget.config['provider'] &&
+        model['id'] == widget.config['model'];
+    return Semantics(
+      selected: selected,
+      child: Material(
+        color: selected
+            ? colors.onSurface.withValues(alpha: .07)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.pop(context, {
+            'provider': provider['id'],
+            'credential': provider['credential'],
+            'model': model['id'],
+            'effort': model['default_effort'] ?? 'default',
+          }),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _modelLabel(model),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 15, color: colors.onSurface),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: selected
+                          ? colors.primary
+                          : colors.onSurfaceVariant.withValues(alpha: .5),
+                      width: selected ? 5 : 1.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-    ],
+      ),
+    );
+  }
+
+  Widget _rail(BuildContext context, ColorScheme colors) => Container(
+    width: 52,
+    padding: const EdgeInsets.all(4),
+    decoration: BoxDecoration(
+      color: colors.onSurface.withValues(alpha: .045),
+      borderRadius: BorderRadius.circular(26),
+    ),
+    child: ListView(
+      children: [
+        for (final family in _families)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Builder(
+              builder: (context) {
+                final selected = family == _familyKey;
+                final name = text(
+                  _providers.firstWhere((p) => _family(p) == family)['name'],
+                );
+                return Tooltip(
+                  message: name,
+                  child: Material(
+                    color: selected
+                        ? colors.surfaceContainerHigh
+                        : Colors.transparent,
+                    shape: const CircleBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      key: ValueKey('model-family-$family'),
+                      onTap: () => setState(() => _familyKey = family),
+                      child: SizedBox.square(
+                        dimension: 44,
+                        child: Center(
+                          child: Text(
+                            name.characters.firstOrNull?.toUpperCase() ?? '?',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: selected
+                                  ? colors.onSurface
+                                  : colors.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
+    ),
   );
 }
