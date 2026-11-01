@@ -3156,6 +3156,12 @@ abstract class AppLocalizations {
   /// **'Open terminal'**
   String get openTerminal;
 
+  /// No description provided for @openFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Open file'**
+  String get openFile;
+
   /// No description provided for @tables.
   ///
   /// In en, this message translates to:

@@ -707,6 +707,7 @@
   "ports": "端口转发",
   "browser": "网页预览",
   "openTerminal": "打开终端",
+  "openFile": "打开文件",
   "tables": "数据表",
   "closePort": "关闭转发",
   "workingTree": "工作区",

@@ -78,6 +78,20 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     }
   }
 
+  Future<void> _closeTerminal(
+    HostConnection host,
+    Map<String, dynamic> terminal,
+  ) async {
+    try {
+      await host.command('close_terminal', {
+        'worktree': terminal['worktree'],
+        'terminal': terminal['id'],
+      });
+    } catch (error) {
+      _error(error);
+    }
+  }
+
   void _error(Object error) {
     if (!mounted) return;
     showToast(context, failureLabel(error, translate: context.tr));
@@ -185,6 +199,8 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         terminal,
       ) {
         if (widget.sessionsOnly && _filter != 'terminal') return false;
+        // Like Desktop, closed terminals leave the list.
+        if (object(terminal['status'])['kind'] == 'closed') return false;
         final tree = objects(
           selected?.snapshot['worktrees'],
         ).where((tree) => tree['id'] == terminal['worktree']).firstOrNull;
@@ -209,6 +225,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         }
       }
       for (final terminal in objects(selected?.snapshot['terminals'])) {
+        if (object(terminal['status'])['kind'] == 'closed') continue;
         final tree = objects(
           selected?.snapshot['worktrees'],
         ).where((tree) => tree['id'] == terminal['worktree']).firstOrNull;
@@ -441,10 +458,28 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
               if (selected != null && terminals.isNotEmpty) ...[
                 _GroupTitle(context.tr('terminal')),
                 for (final (index, terminal) in terminals.indexed)
-                  TerminalTask(
-                    host: selected,
-                    terminal: terminal,
-                    divider: index < terminals.length - 1,
+                  Slidable(
+                    key: ValueKey('terminal-${selected.id}-${terminal['id']}'),
+                    endActionPane: ActionPane(
+                      motion: const DrawerMotion(),
+                      extentRatio: .24,
+                      children: [
+                        SlidableAction(
+                          onPressed: selected.connected
+                              ? (_) => _closeTerminal(selected, terminal)
+                              : null,
+                          backgroundColor: colors.error,
+                          foregroundColor: colors.onError,
+                          icon: Icons.close,
+                          label: context.tr('close'),
+                        ),
+                      ],
+                    ),
+                    child: TerminalTask(
+                      host: selected,
+                      terminal: terminal,
+                      divider: index < terminals.length - 1,
+                    ),
                   ),
               ],
             ],

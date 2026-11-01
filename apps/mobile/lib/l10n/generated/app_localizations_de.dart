@@ -1602,6 +1602,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get openTerminal => 'Open Terminal';
 
   @override
+  String get openFile => 'Datei öffnen';
+
+  @override
   String get tables => 'Tabellen';
 
   @override

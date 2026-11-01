@@ -635,6 +635,7 @@
   "ports": "Encaminhamento de porta",
   "browser": "Pré-visualização da Web",
   "openTerminal": "Abra o terminal",
+  "openFile": "Abrir arquivo",
   "tables": "Tabelas",
   "closePort": "Fechar para frente",
   "workingTree": "Árvore de trabalho",

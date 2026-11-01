@@ -1,5 +1,5 @@
 import '../../content/diff.dart';
-export '../../content/diff.dart' show DiffView;
+export '../../content/diff.dart' show DiffFile;
 import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
@@ -367,9 +367,10 @@ class _GitPageState extends State<GitPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             for (final diff in objects(commit['files']))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: DiffView(diff: diff),
+              DiffFile(
+                key: ValueKey(diff['path']),
+                diff: diff,
+                initiallyExpanded: objects(commit['files']).length == 1,
               ),
             if (commit['truncated'] == true)
               Text(context.tr('resourcePartial')),

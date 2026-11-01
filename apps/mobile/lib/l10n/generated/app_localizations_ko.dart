@@ -1568,6 +1568,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get openTerminal => '터미널 열기';
 
   @override
+  String get openFile => '파일 열기';
+
+  @override
   String get tables => '테이블';
 
   @override

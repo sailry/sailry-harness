@@ -1608,6 +1608,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get openTerminal => 'Ouvrir le terminal';
 
   @override
+  String get openFile => 'Ouvrir le fichier';
+
+  @override
   String get tables => 'Tableaux';
 
   @override

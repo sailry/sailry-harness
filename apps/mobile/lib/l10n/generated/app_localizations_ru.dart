@@ -1594,6 +1594,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get openTerminal => 'Открытый терминал';
 
   @override
+  String get openFile => 'Открыть файл';
+
+  @override
   String get tables => 'Таблицы';
 
   @override

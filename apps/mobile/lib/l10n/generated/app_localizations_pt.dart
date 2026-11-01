@@ -1596,6 +1596,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get openTerminal => 'Abra o terminal';
 
   @override
+  String get openFile => 'Abrir arquivo';
+
+  @override
   String get tables => 'Tabelas';
 
   @override

@@ -519,6 +519,7 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'ports' => strings.ports,
   'browser' => strings.browser,
   'openTerminal' => strings.openTerminal,
+  'openFile' => strings.openFile,
   'tables' => strings.tables,
   'closePort' => strings.closePort,
   'workingTree' => strings.workingTree,

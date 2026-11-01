@@ -635,6 +635,7 @@
   "ports": "포트 전달",
   "browser": "웹 미리 보기",
   "openTerminal": "터미널 열기",
+  "openFile": "파일 열기",
   "tables": "테이블",
   "closePort": "앞으로 닫기",
   "workingTree": "작업 트리",

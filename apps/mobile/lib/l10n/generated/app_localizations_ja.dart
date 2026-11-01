@@ -1566,6 +1566,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get openTerminal => 'ターミナルを開く';
 
   @override
+  String get openFile => 'ファイルを開く';
+
+  @override
   String get tables => 'テーブル';
 
   @override

@@ -1564,6 +1564,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get openTerminal => '打开终端';
 
   @override
+  String get openFile => '打开文件';
+
+  @override
   String get tables => '数据表';
 
   @override
@@ -3899,6 +3902,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get openTerminal => '開啟終端';
+
+  @override
+  String get openFile => '開啟檔案';
 
   @override
   String get tables => '資料表';

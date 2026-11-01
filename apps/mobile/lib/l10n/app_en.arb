@@ -635,6 +635,7 @@
   "ports": "Port forwarding",
   "browser": "Web preview",
   "openTerminal": "Open terminal",
+  "openFile": "Open file",
   "tables": "Tables",
   "closePort": "Close forward",
   "workingTree": "Working tree",

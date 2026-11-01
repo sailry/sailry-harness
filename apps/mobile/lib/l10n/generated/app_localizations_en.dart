@@ -1585,6 +1585,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get openTerminal => 'Open terminal';
 
   @override
+  String get openFile => 'Open file';
+
+  @override
   String get tables => 'Tables';
 
   @override

@@ -635,6 +635,7 @@
   "ports": "ポートフォワード",
   "browser": "ウェブプレビュー",
   "openTerminal": "ターミナルを開く",
+  "openFile": "ファイルを開く",
   "tables": "テーブル",
   "closePort": "クローズ・フォーワード",
   "workingTree": "ワーキング・ツリー",

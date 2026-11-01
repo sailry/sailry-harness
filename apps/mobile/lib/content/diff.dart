@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/strings.dart';
 import '../runtime/json.dart';
 import '../ui/kit.dart';
+import '../ui/theme.dart';
 import 'code.dart';
 
 class DiffLine {
@@ -49,93 +50,141 @@ List<DiffLine> parseLines(String patch, {bool added = false}) {
   return result;
 }
 
-class DiffView extends StatelessWidget {
-  const DiffView({super.key, required this.diff});
+/// One file of a multi-file diff as a collapsible row: name, folder and
+/// line counts, expanding into the unified hunks.
+class DiffFile extends StatefulWidget {
+  const DiffFile({
+    super.key,
+    required this.diff,
+    this.initiallyExpanded = false,
+    this.actions = const [],
+  });
+
   final Map<String, dynamic> diff;
+  final bool initiallyExpanded;
+
+  /// Extra controls at the end of the row, such as undo.
+  final List<Widget> actions;
+
+  @override
+  State<DiffFile> createState() => _DiffFileState();
+}
+
+class _DiffFileState extends State<DiffFile> {
+  late bool _open = widget.initiallyExpanded;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final patch = text(diff['text']);
-    final path = text(diff['path']);
-    return Surface(
-      padding: EdgeInsets.zero,
+    final path = text(widget.diff['path']);
+    final slash = path.lastIndexOf('/');
+    final name = slash < 0 ? path : path.substring(slash + 1);
+    final folder = slash < 0 ? '' : path.substring(0, slash);
+    final lines = hunkLines(
+      text(widget.diff['text']),
+      added: widget.diff['format'] == 'added',
+    );
+    final added = lines.where((line) => line.kind == 'added').length;
+    final removed = lines.where((line) => line.kind == 'removed').length;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.outlineVariant)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 12),
-            child: Row(
-              children: [
-                Expanded(child: Text(path)),
-                CopyTextButton(patch),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 400),
-            child: SingleChildScrollView(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final line in parseLines(
-                      patch,
-                      added: diff['format'] == 'added',
-                    ))
-                      ColoredBox(
-                        color:
-                            (line.kind == 'added'
-                                    ? colors.tertiary
-                                    : line.kind == 'removed'
-                                    ? colors.error
-                                    : colors.surface)
-                                .withValues(alpha: .10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${line.before ?? ''}'.padLeft(5),
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 13,
-                                  height: 1.6,
-                                  color: colors.onSurfaceVariant,
-                                ),
+          InkWell(
+            onTap: () => setState(() => _open = !_open),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  AnimatedRotation(
+                    turns: _open ? .25 : 0,
+                    duration: const Duration(milliseconds: 150),
+                    child: AppIcon(
+                      'chevron',
+                      size: 12,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        text: name,
+                        children: [
+                          if (folder.isNotEmpty)
+                            TextSpan(
+                              text: '  $folder',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colors.onSurfaceVariant,
                               ),
-                              Text(
-                                '${line.after ?? ''}'.padLeft(5),
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 13,
-                                  height: 1.6,
-                                  color: colors.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              CodeText(
-                                line.text,
-                                language: line.kind == 'header'
-                                    ? null
-                                    : languageFor(path),
-                              ),
-                            ],
-                          ),
-                        ),
+                            ),
+                        ],
                       ),
-                  ],
-                ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '+$added',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: SailryTheme.statusColor(
+                        context,
+                        StatusTone.success,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '−$removed',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: SailryTheme.statusColor(
+                        context,
+                        StatusTone.danger,
+                      ),
+                    ),
+                  ),
+                  ...widget.actions,
+                ],
               ),
             ),
           ),
-          if (diff['truncated'] == true)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(context.tr('resourcePartial')),
+          if (_open) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ColoredBox(
+                color: colors.onSurface.withValues(alpha: .03),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 420),
+                  child: UnifiedDiff(diff: widget.diff),
+                ),
+              ),
             ),
+            Row(
+              children: [
+                if (widget.diff['truncated'] == true)
+                  Expanded(
+                    child: Text(
+                      context.tr('resourcePartial'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  )
+                else
+                  const Spacer(),
+                CopyTextButton(text(widget.diff['text'])),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -147,3 +196,83 @@ List<DiffLine> hunkLines(String patch, {bool added = false}) => [
   for (final line in parseLines(patch, added: added))
     if (line.kind != 'header' || line.text.startsWith('@@')) line,
 ];
+
+/// Unified diff rows with one line-number gutter and tinted changes.
+class UnifiedDiff extends StatelessWidget {
+  const UnifiedDiff({super.key, required this.diff});
+  final Map<String, dynamic> diff;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final lines = hunkLines(
+      text(diff['text']),
+      added: diff['format'] == 'added',
+    );
+    final digits = lines
+        .map((line) => '${line.after ?? line.before ?? ''}'.length)
+        .fold(1, (width, value) => value > width ? value : width);
+    final style = TextStyle(
+      fontFamily: 'monospace',
+      fontSize: 12.5,
+      height: 1.6,
+      color: colors.onSurface,
+    );
+    final blue = SailryTheme.accentColor(context, AccentTone.blue);
+    final added = SailryTheme.statusColor(context, StatusTone.success);
+    final removed = SailryTheme.statusColor(context, StatusTone.danger);
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+            child: IntrinsicWidth(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final line in lines)
+                    ColoredBox(
+                      color: switch (line.kind) {
+                        'header' => blue.withValues(alpha: .08),
+                        'added' => added.withValues(alpha: .12),
+                        'removed' => removed.withValues(alpha: .12),
+                        _ => Colors.transparent,
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${line.after ?? line.before ?? ''}'.padLeft(
+                                digits,
+                              ),
+                              style: style.copyWith(
+                                color: colors.onSurfaceVariant.withValues(
+                                  alpha: .55,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              line.text,
+                              softWrap: false,
+                              style: line.kind == 'header'
+                                  ? style.copyWith(color: blue)
+                                  : style,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

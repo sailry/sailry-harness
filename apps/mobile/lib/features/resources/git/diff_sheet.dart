@@ -5,7 +5,6 @@ import '../../../content/paths.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
-import '../../../ui/theme.dart';
 import 'branch_card.dart';
 import 'change_row.dart';
 import 'model.dart';
@@ -123,84 +122,4 @@ Future<DiffAction?> showDiffSheet(
       },
     ),
   );
-}
-
-/// Unified diff rows with one line-number gutter and tinted changes.
-class UnifiedDiff extends StatelessWidget {
-  const UnifiedDiff({super.key, required this.diff});
-  final Map<String, dynamic> diff;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final lines = hunkLines(
-      text(diff['text']),
-      added: diff['format'] == 'added',
-    );
-    final digits = lines
-        .map((line) => '${line.after ?? line.before ?? ''}'.length)
-        .fold(1, (width, value) => value > width ? value : width);
-    final style = TextStyle(
-      fontFamily: 'monospace',
-      fontSize: 12.5,
-      height: 1.6,
-      color: colors.onSurface,
-    );
-    final blue = SailryTheme.accentColor(context, AccentTone.blue);
-    final added = SailryTheme.statusColor(context, StatusTone.success);
-    final removed = SailryTheme.statusColor(context, StatusTone.danger);
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minWidth: constraints.maxWidth),
-            child: IntrinsicWidth(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final line in lines)
-                    ColoredBox(
-                      color: switch (line.kind) {
-                        'header' => blue.withValues(alpha: .08),
-                        'added' => added.withValues(alpha: .12),
-                        'removed' => removed.withValues(alpha: .12),
-                        _ => Colors.transparent,
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${line.after ?? line.before ?? ''}'.padLeft(
-                                digits,
-                              ),
-                              style: style.copyWith(
-                                color: colors.onSurfaceVariant.withValues(
-                                  alpha: .55,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              line.text,
-                              softWrap: false,
-                              style: line.kind == 'header'
-                                  ? style.copyWith(color: blue)
-                                  : style,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

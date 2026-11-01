@@ -376,22 +376,25 @@ class _ChangesPageState extends State<_ChangesPage> {
                 Text(context.tr('turnUndoPartial')),
               if (review.diff?['partial'] == true)
                 Text(context.tr('resourcePartial')),
-              for (final file in files) ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: review.busy || !review.host.connected
-                            ? null
-                            : () => openResourceFile(
-                                context,
-                                review.host,
-                                widget.worktree,
-                                text(file['path']),
-                                documents: documents,
-                              ),
-                        child: Text(text(file['path'])),
-                      ),
+              for (final file in files)
+                DiffFile(
+                  key: ValueKey(file['path']),
+                  diff: file,
+                  initiallyExpanded: files.length == 1,
+                  actions: [
+                    IconButton(
+                      tooltip: context.tr('openFile'),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: review.busy || !review.host.connected
+                          ? null
+                          : () => openResourceFile(
+                              context,
+                              review.host,
+                              widget.worktree,
+                              text(file['path']),
+                              documents: documents,
+                            ),
+                      icon: const AppIcon('file', size: 16),
                     ),
                     TextButton(
                       onPressed:
@@ -412,9 +415,6 @@ class _ChangesPageState extends State<_ChangesPage> {
                     ),
                   ],
                 ),
-                DiffView(diff: file),
-                const SizedBox(height: 12),
-              ],
               if (review.diff != null && files.isEmpty)
                 Text(context.tr('noChanges')),
             ],
