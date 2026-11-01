@@ -223,4 +223,16 @@ pub(in crate::store::agent) async fn roles(database: &Database) {
     crate::store::plugins::install_fixture(&database.connection, &info)
         .await
         .unwrap();
+    database
+        .connection
+        .execute(
+            "INSERT INTO plugin_packages(digest,name,body) VALUES(?1,?2,?3)",
+            params![
+                info.summary.digest.as_str(),
+                info.summary.name.as_str(),
+                crate::store::database::encode(&info).unwrap()
+            ],
+        )
+        .await
+        .unwrap();
 }

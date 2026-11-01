@@ -3,6 +3,7 @@ import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/toast.dart';
+import 'configuration_commands.dart';
 import 'configuration_fields.dart';
 import 'presentation.dart' show failureLabel;
 import 'team.dart';
@@ -25,20 +26,28 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
 
   /// The latest admitted revision, shared by configuration and team commands.
   late final _session = ValueNotifier<Map<String, dynamic>>(widget.session);
+  late final _commands = ConfigurationCommands(
+    command: widget.host.command,
+    execute: widget.host.execute,
+    accept: _accept,
+    active: () => mounted,
+  );
   late final _team = TeamChoices(
     listenable: Listenable.merge([_session, widget.host]),
     read: () =>
         SessionTeam(_session.value, objects(widget.host.snapshot['teams'])),
     onTeam: _selectTeam,
     onMember: (role, model) => _run(
-      'set_session_member_model',
-      (revision) => memberCommand(_id, revision, role, model),
+      () => _commands.send(
+        'set_session_member_model',
+        memberCommand(_id, _revision, role, model),
+      ),
     ),
   );
   bool _saving = false;
-  String? _pending;
 
   String get _id => widget.session['id'] as String;
+  int get _revision => _session.value['revision'] as int;
 
   @override
   void dispose() {
@@ -51,92 +60,60 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
     _session.value = session;
     setState(() {
       _config = Map.of(object(session['config']));
-      _pending = null;
     });
   }
 
-  /// Admits one revision-checked session command; false when it was not applied.
-  Future<bool> _run(
-    String kind,
-    Map<String, dynamic> Function(int revision) data, {
-    Map<String, dynamic>? config,
+  Future<void> _run(
+    Future<void> Function() action, {
+    bool recovery = false,
   }) async {
-    if (_saving || _pending != null || !widget.host.connected) return false;
-    setState(() {
-      if (config != null) _config = config;
-      _saving = true;
-    });
+    if (_saving || (!recovery && _commands.pending) || !widget.host.connected) {
+      return;
+    }
+    setState(() => _saving = true);
     try {
-      final response = await widget.host.command(
-        kind,
-        data(_session.value['revision'] as int),
-      );
-      if (mounted) _accept(response);
-      return mounted;
+      await action();
     } catch (error) {
       if (mounted) {
-        if (error is CommandFailure && error.code == 'outcome_unknown') {
-          setState(() => _pending = error.request);
-        }
         showToast(context, failureLabel(error, translate: context.tr));
       }
-      return false;
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
-  Future<void> _save(Map<String, dynamic> config) async {
-    await _run(
-      'set_session_config',
-      (revision) => {
-        'session': _id,
-        'expected_revision': revision,
-        'config': config,
-      },
-      config: config,
-    );
+  Future<void> _save(Map<String, dynamic> config) =>
+      _run(() => _sendConfig(config));
+
+  Future<void> _sendConfig(Map<String, dynamic> config) async {
+    setState(() => _config = config);
+    await _commands.send('set_session_config', {
+      'session': _id,
+      'expected_revision': _revision,
+      'config': config,
+    });
   }
 
   /// A team that fixes a Lead model also changes the configuration; the Node
   /// never changes it implicitly.
-  Future<void> _selectTeam(Map<String, dynamic>? team) async {
-    final selected = await _run(
-      'set_session_team',
-      (revision) => selectCommand(_id, revision, team),
-    );
-    if (!selected || team == null) return;
-    final config = leadConfig(_config, team, _providers);
-    if (config != null) await _save(config);
-  }
+  Future<void> _selectTeam(Map<String, dynamic>? team) => _run(
+    () => _commands.select(
+      team,
+      session: () => _session.value,
+      providers: () => _providers,
+    ),
+  );
 
   List<Map<String, dynamic>> get _providers => objects(
     widget.host.snapshot['providers'],
   ).where((provider) => provider['enabled'] == true).toList();
 
-  Future<void> _check() async {
-    final request = _pending;
-    if (_saving || request == null || !widget.host.connected) return;
-    setState(() => _saving = true);
-    try {
-      final response = await widget.host.execute(request);
-      if (mounted) _accept(response);
-    } catch (error) {
-      if (mounted) {
-        if (error is CommandFailure && error.rejected) {
-          setState(() => _pending = null);
-        }
-        showToast(context, failureLabel(error, translate: context.tr));
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
+  Future<void> _check() => _run(_commands.check, recovery: true);
 
   @override
   Widget build(BuildContext context) {
     final providers = _providers;
-    final enabled = widget.host.connected && _pending == null;
+    final enabled = widget.host.connected && !_commands.pending;
     // Keep the controls' appearance stable during admission. Disabling every
     // control briefly on each selection makes the whole sheet flash.
     return AbsorbPointer(
@@ -156,7 +133,7 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
             onCommitted: _save,
             team: widget.session['delegation'] == null ? _team : null,
           ),
-          if (_pending != null)
+          if (_commands.pending)
             TextButton(
               onPressed: widget.host.connected ? _check : null,
               child: Text(context.tr('conversationCheckResult')),

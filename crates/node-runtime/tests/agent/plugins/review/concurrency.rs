@@ -1,7 +1,10 @@
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
-async fn roles(fixture: &mut Fixture, servers: &[(&str, &Server)]) -> Vec<role::Profile> {
+pub(super) async fn roles(
+    fixture: &mut Fixture,
+    servers: &[(&str, &Server)],
+) -> Vec<role::Profile> {
     let Output::Providers(providers) = execute(&fixture.client, Command::ListProviders).await
     else {
         panic!("providers expected")

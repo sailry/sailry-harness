@@ -11,6 +11,9 @@ class SessionTeam {
   /// Stored teams only; the Default team is virtual and selects every role.
   final List<Map<String, dynamic>> teams;
 
+  /// The latest admitted Lead configuration, including changes made in the picker.
+  Map<String, dynamic> get config => object(session['config']);
+
   Map<String, dynamic> get _roles => object(session['roles']);
 
   /// The selected stored team, or null for the Default team. A team removed
@@ -36,6 +39,10 @@ class SessionTeam {
     final own = member['model'];
     return own is Map ? object(own) : null;
   }
+
+  /// A picker selection follows the latest Lead when the member has no model.
+  Map<String, dynamic> selection(Map<String, dynamic>? member) =>
+      (member == null ? null : model(member)) ?? config;
 }
 
 /// Live team state and the owner's revision-checked team commands.

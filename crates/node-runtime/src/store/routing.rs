@@ -423,6 +423,7 @@ pub(super) fn launches(command: &Command) -> bool {
             | Command::GuideTurn { .. }
             | Command::SetQueuePaused { .. }
             | Command::SavePluginSettings { .. }
+            | Command::SaveTeamSettings(_)
     )
 }
 

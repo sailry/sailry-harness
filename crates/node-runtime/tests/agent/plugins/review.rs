@@ -9,6 +9,8 @@ use std::{collections::BTreeMap, path::Path};
 
 #[path = "review/concurrency.rs"]
 mod concurrency;
+#[path = "review/delegation.rs"]
+mod delegation;
 #[path = "review/evidence.rs"]
 mod evidence;
 #[path = "review/fixture.rs"]

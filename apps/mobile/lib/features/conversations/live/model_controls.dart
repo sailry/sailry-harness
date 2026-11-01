@@ -102,7 +102,10 @@ class ModelControls extends StatelessWidget {
                       team: team,
                     ),
                   );
-                  if (selection != null) _commit({...config, ...selection});
+                  if (selection != null) {
+                    final current = team?.read().config ?? config;
+                    _commit({...current, ...selection});
+                  }
                 },
           child: _withTooltip(
             // A team chip hides the Lead model; the tooltip keeps it available.
@@ -197,7 +200,8 @@ class _ModelChoicesState extends State<ModelChoices> {
   late final _families = <String>{
     for (final p in _providers) _family(p),
   }.toList();
-  late String? _familyKey = _familyOf(widget.config['provider']);
+  String? _familyKey;
+  (Object?, Object?)? _selectedModel;
   final _collapsed = <Object?>{};
 
   /// The selected member's role ID; null selects the Lead.
@@ -223,8 +227,7 @@ class _ModelChoicesState extends State<ModelChoices> {
   void _select(SessionTeam state, String? member) => setState(() {
     _member = member;
     final role = state.members.where((m) => m['id'] == member).firstOrNull;
-    final model = role == null ? null : state.model(role);
-    _familyKey = _familyOf((model ?? widget.config)['provider']);
+    _familyKey = _familyOf(state.selection(role)['provider']);
   });
 
   @override
@@ -263,6 +266,9 @@ class _ModelChoicesState extends State<ModelChoices> {
                         setState(() {
                           _choosingTeam = false;
                           _member = null;
+                          _familyKey = _familyOf(
+                            team.read().config['provider'],
+                          );
                         });
                       }
                     }),
@@ -289,7 +295,7 @@ class _ModelChoicesState extends State<ModelChoices> {
                       Expanded(
                         child: _models(
                           context,
-                          selection: model ?? widget.config,
+                          selection: state.selection(member),
                           hint: member != null && model == null,
                           onChosen: member == null
                               ? null
@@ -345,6 +351,11 @@ class _ModelChoicesState extends State<ModelChoices> {
     bool hint = false,
     ValueChanged<Map<String, dynamic>>? onChosen,
   }) {
+    final identity = (selection['provider'], selection['model']);
+    if (_selectedModel != identity) {
+      _selectedModel = identity;
+      _familyKey = _familyOf(selection['provider']);
+    }
     final colors = Theme.of(context).colorScheme;
     final visible = _providers.where((p) => _family(p) == _familyKey).toList();
     final list = ListView(

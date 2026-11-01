@@ -14,7 +14,7 @@ pub(in crate::conversation::live) struct Team {
     pub reference: team::Reference,
     pub name: SharedString,
     pub appearance: Option<Appearance>,
-    pub members: usize,
+    pub members: Vec<RoleId>,
     /// Lead model fixed by the team; None follows the conversation.
     pub model: Option<role::Model>,
 }
@@ -25,7 +25,7 @@ impl From<&team::Profile> for Team {
             reference: profile.reference(),
             name: profile.name.clone().into(),
             appearance: profile.appearance.clone(),
-            members: profile.members.len(),
+            members: profile.members.clone(),
             model: profile.model.clone(),
         }
     }
@@ -34,6 +34,7 @@ impl From<&team::Profile> for Team {
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::conversation::live) struct Member {
     pub role: RoleId,
+    pub revision: u64,
     pub name: SharedString,
     pub appearance: Option<Appearance>,
     /// The conversation overrides this member's model.
@@ -48,8 +49,8 @@ pub(in crate::conversation::live) struct Roster {
     pub members: Vec<Member>,
     /// Stored teams offered by the team list.
     pub teams: Vec<Team>,
-    /// Member count of the Default team, which is the whole catalog.
-    pub catalog: usize,
+    /// Current role revisions available for explicit team selection.
+    pub catalog: Vec<role::Reference>,
 }
 
 /// Content of the composer model chip.
@@ -70,6 +71,7 @@ impl Roster {
             .into_iter()
             .map(|profile| Member {
                 role: profile.id,
+                revision: profile.revision,
                 name: profile.name.clone().into(),
                 appearance: profile.appearance.clone(),
                 overridden: models.contains_key(&profile.id),
@@ -95,10 +97,24 @@ impl Roster {
         self.team.as_ref().map(|team| team.reference.id) == team
     }
 
-    /// Whether choosing `team` changes the conversation; a newer revision of the
-    /// current team recaptures its members.
+    /// Explicit selection recaptures changed catalog members, even when the team
+    /// revision is unchanged. Unchanged selection keeps conversation overrides.
     pub(super) fn changes(&self, team: Option<&Team>) -> bool {
-        self.team.as_ref().map(|team| team.reference) != team.map(|team| team.reference)
+        if self.team.as_ref().map(|team| team.reference) != team.map(|team| team.reference) {
+            return true;
+        }
+        let selected: BTreeMap<_, _> = self
+            .catalog
+            .iter()
+            .filter(|role| team.is_none_or(|team| team.members.contains(&role.id)))
+            .map(|role| (role.id, role.revision))
+            .collect();
+        let captured: BTreeMap<_, _> = self
+            .members
+            .iter()
+            .map(|role| (role.role, role.revision))
+            .collect();
+        selected != captured
     }
 }
 
@@ -328,12 +344,12 @@ impl Panel {
     ) -> AnyElement {
         let roster = &settings.roster;
         let locked = settings.busy || settings.pending || !settings.connected;
-        let choices = std::iter::once((None, None, roster.catalog))
+        let choices = std::iter::once((None, None, roster.catalog.len()))
             .chain(
                 roster
                     .teams
                     .iter()
-                    .map(|team| (Some(team.reference.id), Some(team), team.members)),
+                    .map(|team| (Some(team.reference.id), Some(team), team.members.len())),
             )
             .enumerate()
             .map(|(index, (id, team, members))| {

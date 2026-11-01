@@ -145,6 +145,27 @@ void main() {
       expect(state.model(builder), null);
       expect(state.model(reviewer)?['model'], 'own');
     });
+
+    test('picker selections use the latest lead configuration', () {
+      final initial = SessionTeam(
+        {
+          ...session(),
+          'config': {'provider': 'p-old', 'model': 'old'},
+        },
+        [frontend],
+      );
+      final updated = SessionTeam(
+        {
+          ...session(team: {'id': 'team-front', 'revision': 3}),
+          'config': {'provider': 'p-lead', 'model': 'lead', 'mode': 'flagship'},
+        },
+        [frontend],
+      );
+      expect(initial.selection(builder)['model'], 'old');
+      expect(updated.selection(null), updated.config);
+      expect(updated.selection(builder)['model'], 'lead');
+      expect(updated.selection(reviewer)['model'], 'own');
+    });
   });
 
   group('chipLabel', () {

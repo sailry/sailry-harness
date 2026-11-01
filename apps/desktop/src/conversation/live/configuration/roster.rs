@@ -59,7 +59,7 @@ impl View {
                             reference,
                             name: tr("composer_team_unknown"),
                             appearance: None,
-                            members: session.roles.profiles.len(),
+                            members: session.roles.profiles.iter().map(|role| role.id).collect(),
                             model: None,
                         },
                         // The session keeps its captured revision.
@@ -79,7 +79,7 @@ impl View {
             team,
             members: Roster::members(self.member_profiles(), self.member_overrides()),
             teams: teams.iter().map(Team::from).collect(),
-            catalog: roles.len(),
+            catalog: roles.iter().map(role::Profile::reference).collect(),
         }
     }
 

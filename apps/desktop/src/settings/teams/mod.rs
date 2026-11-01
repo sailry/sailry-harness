@@ -9,6 +9,7 @@ mod menu;
 mod models;
 mod requests;
 mod roles;
+mod settings;
 
 use super::{Workspace, providers::Binding};
 use crate::tr;
@@ -26,6 +27,7 @@ pub(super) struct State {
     tab: usize,
     /// Native row menus dispatch their actions through this focus.
     focus: FocusHandle,
+    settings: settings::State,
 }
 
 impl State {
@@ -33,6 +35,7 @@ impl State {
         Self {
             tab: TEAMS,
             focus: cx.focus_handle(),
+            settings: Default::default(),
         }
     }
 }
@@ -70,7 +73,7 @@ impl Workspace {
         }
     }
 
-    pub(super) fn team_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn team_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let catalog = self.team_catalog();
         let locked = catalog.is_none();
         let teams = self.teams.tab == TEAMS;
@@ -100,6 +103,7 @@ impl Workspace {
         } else {
             self.role_rows(catalog.as_ref(), cx)
         };
+        let settings = self.team_settings(window, cx);
         v_flex()
             .track_focus(&self.teams.focus)
             .on_action(cx.listener(Self::team_action))
@@ -121,9 +125,7 @@ impl Workspace {
                     ),
             )
             .child(body)
-            // Child concurrency: stage 2 moves the delegation plugin's per-conversation
-            // subagent limit into a core Node setting. Its control belongs here, at the
-            // bottom of the page below both tabs, once that setting exists.
+            .child(settings)
             .into_any_element()
     }
 }

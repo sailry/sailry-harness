@@ -262,8 +262,20 @@ async fn cancels_waiters_without_replaying() {
 
 #[tokio::test]
 async fn failures_release_slots() {
-    for remote in [false, true] {
-        let fixture = Fixture::start(remote, false, Server::http(usize::MAX, 400).await, 2).await;
+    for (remote, status_code, attempts) in [
+        (false, 400, 2),
+        (true, 400, 2),
+        // Each child uses one initial request and the five-retry shared budget.
+        (false, 500, 12),
+        (true, 500, 12),
+    ] {
+        let fixture = Fixture::start(
+            remote,
+            false,
+            Server::http(usize::MAX, status_code).await,
+            2,
+        )
+        .await;
         fixture.capacity(1).await;
         let turn = fixture.push(0).await;
         let page = finished(&fixture.client, fixture.parents[0].id, turn.id).await;
@@ -293,7 +305,7 @@ async fn failures_release_slots() {
         );
         assert_eq!(
             fixture.child.requests.lock().unwrap().len(),
-            8,
+            attempts,
             "{:?}",
             page.children
                 .iter()

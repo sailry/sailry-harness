@@ -52,6 +52,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
         let server = Server::tools(vec![]).await;
         let unused = Server::tools(vec![]).await;
         let fixture = super::fixture::Fixture::start(remote, server, unused).await;
+        super::super::approvals::install(&fixture.client, &["web-search"]).await;
         for name in ["web-search", "worktrees"] {
             let Output::Plugin(info) = fixture
                 .client

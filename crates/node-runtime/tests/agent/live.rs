@@ -7,6 +7,8 @@ mod compaction;
 mod efficiency;
 #[path = "live/files.rs"]
 mod files;
+#[path = "live/teams.rs"]
+mod teams;
 
 #[derive(serde::Deserialize)]
 struct Source {

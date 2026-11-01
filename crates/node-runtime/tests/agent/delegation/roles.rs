@@ -61,7 +61,7 @@ async fn inherits_parent_model() {
                     revision: 0,
                     key: "review".into(),
                     name: "Review".into(),
-                    description: String::new(),
+                    description: "Inspect the delegated task".into(),
                     model: None,
                     max_turns: Some(2),
                     skills: vec![],
@@ -185,8 +185,9 @@ async fn inherits_parent_model() {
                 assert!(
                     requests[0]
                         .to_string()
-                        .contains("review (Review): Inherited role instruction")
+                        .contains("review (Review): Inspect the delegated task")
                 );
+                assert!(!parent_instruction.contains("Inherited role instruction"));
                 assert!(!parent_instruction.contains("Full child instruction tail"));
             }
             let child = requests

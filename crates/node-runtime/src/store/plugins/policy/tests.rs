@@ -9,6 +9,7 @@ async fn fixture() -> Connection {
     db.execute_batch(include_str!("../../schema.sql"))
         .await
         .unwrap();
+    db.execute("BEGIN", ()).await.unwrap();
     db
 }
 

@@ -449,7 +449,7 @@ impl Render for Workspace {
         let content = match self.section {
             Section::Connections => self.connections.clone().into_any_element(),
             Section::Connectors => self.connectors(window, cx),
-            Section::Teams => self.team_page(cx),
+            Section::Teams => self.team_page(window, cx),
             Section::Providers => self.providers(window, cx),
             Section::Plugin => self.plugin_settings(window, cx),
             Section::General => self.preferences(window, cx),
