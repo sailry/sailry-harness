@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import '../l10n/strings.dart';
 import 'icons.dart';
 import 'theme.dart';
@@ -150,84 +151,178 @@ class PageFrame extends StatelessWidget {
   final Widget? subtitle;
   final Widget? titleAccessory;
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: Colors.transparent,
-    body: SafeArea(
-      bottom: false,
-      child: Column(
+  Widget build(BuildContext context) {
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(20, 19, 20, 16),
+      child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 19, 20, 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: PageHeading(
-                    title: title,
-                    size: titleSize,
-                    enabled: backEnabled,
-                    subtitle: subtitle,
-                    accessory: titleAccessory,
-                  ),
-                ),
-                if (actions.isNotEmpty) const SizedBox(width: 8),
-                ...actions.expand((item) => [const SizedBox(width: 4), item]),
-              ],
-            ),
-          ),
           Expanded(
-            child: LoadingOverlay(
-              loading: loading,
-              child: failure != null
-                  ? Padding(
-                      padding: padding.add(
-                        EdgeInsets.only(
-                          bottom: 24 + MediaQuery.paddingOf(context).bottom,
-                        ),
-                      ),
-                      child: failure,
-                    )
-                  : empty != null
-                  ? CustomScrollView(
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      slivers: [
-                        SliverPadding(
-                          padding: padding,
-                          sliver: SliverToBoxAdapter(child: child),
-                        ),
-                        SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: Padding(
-                            padding: padding.add(
-                              EdgeInsets.only(
-                                bottom:
-                                    24 + MediaQuery.paddingOf(context).bottom,
-                              ),
-                            ),
-                            child: empty,
-                          ),
-                        ),
-                      ],
-                    )
-                  : scroll
-                  ? SingleChildScrollView(
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: padding.add(
-                        EdgeInsets.only(
-                          bottom: 24 + MediaQuery.paddingOf(context).bottom,
-                        ),
-                      ),
-                      child: child,
-                    )
-                  : Padding(padding: padding, child: child),
+            child: PageHeading(
+              title: title,
+              size: titleSize,
+              enabled: backEnabled,
+              subtitle: subtitle,
+              accessory: titleAccessory,
             ),
           ),
-          ?bottom,
+          if (actions.isNotEmpty) const SizedBox(width: 8),
+          ...actions.expand((item) => [const SizedBox(width: 4), item]),
         ],
       ),
-    ),
-  );
+    );
+    final bottomInset = 24 + MediaQuery.paddingOf(context).bottom;
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Expanded(
+              child: _FadingHeader(
+                header: header,
+                builder: (top) => LoadingOverlay(
+                  loading: loading,
+                  child: failure != null
+                      ? Padding(
+                          padding: padding.add(
+                            EdgeInsets.only(top: top, bottom: bottomInset),
+                          ),
+                          child: failure,
+                        )
+                      : empty != null
+                      ? CustomScrollView(
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
+                          slivers: [
+                            SliverPadding(
+                              padding: padding.add(EdgeInsets.only(top: top)),
+                              sliver: SliverToBoxAdapter(child: child),
+                            ),
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: Padding(
+                                padding: padding.add(
+                                  EdgeInsets.only(bottom: bottomInset),
+                                ),
+                                child: empty,
+                              ),
+                            ),
+                          ],
+                        )
+                      : scroll
+                      ? SingleChildScrollView(
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
+                          padding: padding.add(
+                            EdgeInsets.only(top: top, bottom: bottomInset),
+                          ),
+                          child: child,
+                        )
+                      // Pages owning their scroll view start below the header.
+                      : Padding(
+                          padding: padding.add(EdgeInsets.only(top: top)),
+                          child: child,
+                        ),
+                ),
+              ),
+            ),
+            ?bottom,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Lays the page header over its content with a background that fades from
+/// opaque to clear, so content scrolling up dissolves under the header.
+class _FadingHeader extends StatefulWidget {
+  const _FadingHeader({required this.header, required this.builder});
+
+  final Widget header;
+
+  /// Builds the content with the header height to reserve at rest.
+  final Widget Function(double top) builder;
+
+  @override
+  State<_FadingHeader> createState() => _FadingHeaderState();
+}
+
+class _FadingHeaderState extends State<_FadingHeader> {
+  double _height = 76;
+
+  void _measured(Size size) {
+    if (mounted && size.height != _height) {
+      setState(() => _height = size.height);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final background = Theme.of(context).colorScheme.surface;
+    return Stack(
+      children: [
+        Positioned.fill(child: widget.builder(_height)),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: _SizeReporter(
+            onSize: _measured,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: const [0, .55, 1],
+                  colors: [
+                    background,
+                    background.withValues(alpha: .92),
+                    background.withValues(alpha: 0),
+                  ],
+                ),
+              ),
+              child: widget.header,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Reports its child's laid-out size after each layout that changes it.
+class _SizeReporter extends SingleChildRenderObjectWidget {
+  const _SizeReporter({required this.onSize, required super.child});
+
+  final ValueChanged<Size> onSize;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderSizeReporter(onSize);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderSizeReporter renderObject,
+  ) => renderObject.onSize = onSize;
+}
+
+class _RenderSizeReporter extends RenderProxyBox {
+  _RenderSizeReporter(this.onSize);
+
+  ValueChanged<Size> onSize;
+  Size? _last;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    if (size != _last) {
+      _last = size;
+      final value = size;
+      WidgetsBinding.instance.addPostFrameCallback((_) => onSize(value));
+    }
+  }
 }
 
 /// Keep native dialog layout, focus, and dismissal while diffusing the page
