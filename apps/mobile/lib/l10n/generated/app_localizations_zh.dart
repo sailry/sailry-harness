@@ -238,6 +238,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationPlan => '计划';
 
   @override
+  String get conversationFlagship => '旗舰';
+
+  @override
   String get conversationPermission => '权限';
 
   @override
@@ -2744,6 +2747,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationPlan => '計劃';
+
+  @override
+  String get conversationFlagship => '旗艦';
 
   @override
   String get conversationPermission => '許可權';

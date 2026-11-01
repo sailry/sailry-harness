@@ -241,6 +241,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationPlan => '계획';
 
   @override
+  String get conversationFlagship => '플래그십';
+
+  @override
   String get conversationPermission => '권한';
 
   @override

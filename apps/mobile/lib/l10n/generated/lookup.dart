@@ -82,6 +82,7 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'conversationMode' => strings.conversationMode,
   'conversationCode' => strings.conversationCode,
   'conversationPlan' => strings.conversationPlan,
+  'conversationFlagship' => strings.conversationFlagship,
   'conversationPermission' => strings.conversationPermission,
   'conversationAsk' => strings.conversationAsk,
   'conversationProject' => strings.conversationProject,

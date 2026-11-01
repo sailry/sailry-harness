@@ -139,6 +139,7 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
         choices('mode', [
           ('code', 'conversationCode'),
           ('plan', 'conversationPlan'),
+          ('flagship', 'conversationFlagship'),
         ]),
         choices('permission', [
           ('ask', 'conversationAsk'),

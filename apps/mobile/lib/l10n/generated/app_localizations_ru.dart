@@ -246,6 +246,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationPlan => 'План';
 
   @override
+  String get conversationFlagship => 'Флагман';
+
+  @override
   String get conversationPermission => 'Разрешения';
 
   @override

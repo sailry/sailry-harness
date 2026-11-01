@@ -552,6 +552,12 @@ abstract class AppLocalizations {
   /// **'Plan'**
   String get conversationPlan;
 
+  /// No description provided for @conversationFlagship.
+  ///
+  /// In en, this message translates to:
+  /// **'Flagship'**
+  String get conversationFlagship;
+
   /// No description provided for @conversationPermission.
   ///
   /// In en, this message translates to:

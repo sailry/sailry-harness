@@ -114,6 +114,7 @@
   "conversationMode": "ワークモード",
   "conversationCode": "実行",
   "conversationPlan": "計画",
+  "conversationFlagship": "フラッグシップ",
   "conversationPermission": "権限",
   "conversationAsk": "毎回尋ねる",
   "conversationProject": "プロジェクトアクセス",

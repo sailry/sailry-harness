@@ -247,6 +247,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get conversationPlan => 'Plan';
 
   @override
+  String get conversationFlagship => 'Insignia';
+
+  @override
   String get conversationPermission => 'Permisos';
 
   @override

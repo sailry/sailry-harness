@@ -240,6 +240,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationPlan => '計画';
 
   @override
+  String get conversationFlagship => 'フラッグシップ';
+
+  @override
   String get conversationPermission => '権限';
 
   @override

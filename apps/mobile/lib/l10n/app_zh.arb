@@ -114,6 +114,7 @@
   "conversationMode": "工作模式",
   "conversationCode": "执行",
   "conversationPlan": "计划",
+  "conversationFlagship": "旗舰",
   "conversationPermission": "权限",
   "conversationAsk": "每次询问",
   "conversationProject": "项目内",

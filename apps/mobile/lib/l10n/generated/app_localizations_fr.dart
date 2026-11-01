@@ -249,6 +249,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationPlan => 'Plan';
 
   @override
+  String get conversationFlagship => 'Phare';
+
+  @override
   String get conversationPermission => 'Permissions';
 
   @override

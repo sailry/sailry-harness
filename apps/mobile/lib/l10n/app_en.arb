@@ -114,6 +114,7 @@
   "conversationMode": "Work mode",
   "conversationCode": "Execute",
   "conversationPlan": "Plan",
+  "conversationFlagship": "Flagship",
   "conversationPermission": "Permissions",
   "conversationAsk": "Ask each time",
   "conversationProject": "Project access",
