@@ -4,19 +4,19 @@
     {
       "id": "global",
       "label": {
-        "label": "Global",
+        "label": "Public network",
         "locales": {
-          "en": "Global",
-          "zh": "全球",
-          "zh-CN": "全球",
-          "zh-TW": "全球",
-          "de": "Global",
-          "es": "Global",
-          "fr": "Mondial",
-          "ja": "グローバル",
-          "ko": "글로벌",
-          "pt-BR": "Global",
-          "ru": "Глобальная сеть"
+          "en": "Public network",
+          "zh": "公共网络",
+          "zh-CN": "公共网络",
+          "zh-TW": "公共網路",
+          "de": "Öffentliches Netzwerk",
+          "es": "Red pública",
+          "fr": "Réseau public",
+          "ja": "パブリックネットワーク",
+          "ko": "공용 네트워크",
+          "pt-BR": "Rede pública",
+          "ru": "Общедоступная сеть"
         }
       },
       "selection": { "kind": "iroh" }

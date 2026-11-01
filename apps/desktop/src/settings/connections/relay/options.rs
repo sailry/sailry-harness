@@ -43,10 +43,10 @@ impl SearchableListItem for Item {
     fn title(&self) -> SharedString {
         self.label.as_ref().map_or_else(
             || {
-                tr(if self.choice == Choice::Custom {
-                    "pairing_relay_custom"
-                } else {
-                    "pairing_relay_selected"
+                tr(match &self.choice {
+                    Choice::Custom => "pairing_relay_custom",
+                    Choice::Retained(Selection::Iroh) => "pairing_relay_iroh",
+                    _ => "pairing_relay_selected",
                 })
             },
             |label| label.label(&rust_i18n::locale()).to_owned().into(),

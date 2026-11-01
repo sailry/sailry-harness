@@ -30,7 +30,7 @@ fn preserves_original_services() {
     assert_eq!(catalog.presets.len(), 3);
     assert_eq!(catalog.presets[0].id, "global");
     assert_eq!(catalog.presets[0].selection, Selection::Iroh);
-    assert_eq!(catalog.presets[0].label.label("zh-CN"), "全球");
+    assert_eq!(catalog.presets[0].label.label("zh-CN"), "公共网络");
     for (preset, id, url, label) in [
         (
             &catalog.presets[1],
