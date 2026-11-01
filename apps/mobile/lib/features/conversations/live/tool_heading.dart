@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import 'tool_content.dart';
-import 'command_result.dart';
 import 'tool_display.dart';
 import 'tool_row.dart';
 
@@ -30,7 +29,7 @@ String toolTitle(BuildContext context, Map<String, dynamic> call) {
       : toolLabel(text(call['name']), translate: context.tr);
 }
 
-/// A call's collapsed row: success stays silent, settled failures name their state.
+/// A call's collapsed row: failures show only through their tone.
 class ToolHeading extends StatelessWidget {
   const ToolHeading({
     super.key,
@@ -53,32 +52,12 @@ class ToolHeading extends StatelessWidget {
         !waiting &&
         call['state'] != 'running' &&
         (toolFailed(call) || row['warning'] == true);
-    final resolved = object(call['resolved']);
-    final captured = capturedLabel(context, resolved['status']);
-    final status = switch (object(call['failure'])['code']) {
-      'cancelled' => context.tr('toolCancelled'),
-      'outcome_unknown' => context.tr('toolOutcomeUnknown'),
-      _ =>
-        captured.isNotEmpty
-            ? captured
-            : commandStatus(object(resolved['command']), translate: context.tr),
-    };
-    final state = failed
-        ? status ??
-              context.tr(switch (row['state']) {
-                'cancelled' => 'conversationToolCancelled',
-                'interrupted' => 'conversationToolInterrupted',
-                'denied' || 'not_executed' => 'conversationToolNotExecuted',
-                _ => 'toolFailed',
-              })
-        : null;
     return Semantics(
       value: failed ? context.tr('toolFailed') : null,
       child: ToolRow(
         leading: (color) => toolIcon(call, color),
         label: toolTitle(context, call),
         detail: text(object(row['detail'])['text']),
-        state: state,
         tone: waiting
             ? RowTone.pending
             : failed

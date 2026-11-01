@@ -1488,9 +1488,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get gitPushAfterCommit => '提交后推送';
 
   @override
-  String get fileSource => '源码';
-
-  @override
   String get fileShare => '分享';
 
   @override
@@ -2217,9 +2214,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get conversationStep => '1 个步骤';
-
-  @override
-  String get backgroundWaiting => '等待处理';
 
   @override
   String get activityProgress => '任务进度';
@@ -3859,9 +3853,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get gitPushAfterCommit => '提交後推送';
 
   @override
-  String get fileSource => '原始碼';
-
-  @override
   String get fileShare => '分享';
 
   @override
@@ -4588,9 +4579,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationStep => '1 個步驟';
-
-  @override
-  String get backgroundWaiting => '等待處理';
 
   @override
   String get activityProgress => '任務進度';

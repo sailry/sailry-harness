@@ -487,6 +487,7 @@ class _GitPageState extends State<GitPage> {
             ),
             const SizedBox(height: 14),
             PillTabs<String>(
+              expand: true,
               tabs: [
                 (
                   value: 'changes',

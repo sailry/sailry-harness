@@ -3000,12 +3000,6 @@ abstract class AppLocalizations {
   /// **'Push after commit'**
   String get gitPushAfterCommit;
 
-  /// No description provided for @fileSource.
-  ///
-  /// In en, this message translates to:
-  /// **'Source'**
-  String get fileSource;
-
   /// No description provided for @fileShare.
   ///
   /// In en, this message translates to:
@@ -4421,12 +4415,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'1 step'**
   String get conversationStep;
-
-  /// No description provided for @backgroundWaiting.
-  ///
-  /// In en, this message translates to:
-  /// **'Waiting'**
-  String get backgroundWaiting;
 
   /// No description provided for @activityProgress.
   ///

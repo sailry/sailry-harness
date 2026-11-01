@@ -1530,9 +1530,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get gitPushAfterCommit => 'Pousser après validation';
 
   @override
-  String get fileSource => 'Source';
-
-  @override
   String get fileShare => 'Partager';
 
   @override
@@ -2277,9 +2274,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get conversationStep => '1 étape';
-
-  @override
-  String get backgroundWaiting => 'En attente';
 
   @override
   String get activityProgress => 'Progression';

@@ -14,7 +14,6 @@ import '../../runtime/json.dart';
 import '../../runtime/notices.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
-import '../../ui/pill_tabs.dart';
 import '../../ui/theme.dart';
 import '../../ui/toast.dart';
 import 'file_draft.dart';
@@ -51,7 +50,6 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
   bool _busy = false;
   bool _mutating = false;
   bool _editing = false;
-  bool _source = false;
 
   /// Load failure while nothing is shown; other failures use toasts.
   String? _error;
@@ -405,29 +403,6 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
                 _Note(context.tr('fileTrashUncertain')),
               if (_draft?.truncated == true)
                 _Note(context.tr('resourcePartial')),
-              if (_markdown && _draft != null && !_editing)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: PillTabs<bool>(
-                      tabs: [
-                        (
-                          value: false,
-                          label: context.tr('preview'),
-                          count: null,
-                        ),
-                        (
-                          value: true,
-                          label: context.tr('fileSource'),
-                          count: null,
-                        ),
-                      ],
-                      selected: _source,
-                      onSelected: (value) => setState(() => _source = value),
-                    ),
-                  ),
-                ),
               Expanded(child: _body()),
             ],
           ),
@@ -483,7 +458,8 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
         ),
       );
     }
-    if (_markdown && !_source) {
+    // Markdown reads rendered; editing shows its source.
+    if (_markdown) {
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
         child: MarkdownContent(

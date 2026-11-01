@@ -538,15 +538,13 @@ class _LiveTimelineState extends State<LiveTimeline> {
       );
     }
 
-    final pending = pendingBackground(page);
     final older = widget.older;
     // Index 0 is the bottom of the reversed transcript.
     final positions = <Key, int>{
-      const ValueKey('pending-background'): 0,
       for (final (position, run) in runs.indexed)
-        _turnItemKey(run): runs.length - position,
+        _turnItemKey(run): runs.length - 1 - position,
       for (final (position, item) in older.indexed)
-        if (item.key case final Key key) key: runs.length + 1 + position,
+        if (item.key case final Key key) key: runs.length + position,
     };
     return VisualScope(
       child: CustomScrollView(
@@ -560,20 +558,10 @@ class _LiveTimelineState extends State<LiveTimeline> {
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, position) {
-                    if (position == 0) {
-                      // Undelivered results wait after the latest turn for the next one.
-                      return BackgroundNotices(
-                        key: const ValueKey('pending-background'),
-                        items: pending,
-                        children: children,
-                        pending: true,
-                        onOpenChild: onOpenChild,
-                      );
+                    if (position >= runs.length) {
+                      return older[position - runs.length];
                     }
-                    if (position > runs.length) {
-                      return older[position - runs.length - 1];
-                    }
-                    final run = runs[runs.length - position];
+                    final run = runs[runs.length - 1 - position];
                     return KeyedSubtree(
                       key: _turnItemKey(run),
                       child: KeyedSubtree(
@@ -584,7 +572,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                       ),
                     );
                   },
-                  childCount: runs.length + 1 + older.length,
+                  childCount: runs.length + older.length,
                   findChildIndexCallback: (key) => positions[key],
                 ),
               ),

@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../../../content/code.dart';
 import '../../../content/diff.dart';
+import '../../../content/terminal_text.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import 'references.dart';
 import 'tool_display.dart';
-import 'command_result.dart';
 
 String toolLabel(String name, {Translator translate = tr}) =>
     hasLocalization('tool_$name') ? translate('tool_$name') : name;
@@ -55,7 +55,7 @@ class ToolContent extends StatelessWidget {
     final failureTexts = observed
         ? objects(returned['content'])
               .where((item) => item['type'] == 'text')
-              .map((item) => text(item['text']))
+              .map((item) => plainTerminalText(text(item['text'])))
               .where((value) => value.trim().isNotEmpty)
               .toList()
         : const <String>[];
@@ -78,7 +78,9 @@ class ToolContent extends StatelessWidget {
     );
     final blocks = <Widget>[];
     if (fault != null) {
-      final message = fault is String ? fault : text(object(fault)['message']);
+      final message = plainTerminalText(
+        fault is String ? fault : text(object(fault)['message']),
+      );
       if (message.isNotEmpty) {
         blocks.add(
           SelectableText(message, style: toolFailed(call) ? error : muted),
@@ -107,7 +109,9 @@ class ToolContent extends StatelessWidget {
       }
       if (block['kind'] == 'table') blocks.add(_Table(block: block));
       if (block['kind'] == 'text') {
-        final literal = index < texts.length ? text(texts[index]) : '';
+        final literal = index < texts.length
+            ? plainTerminalText(text(texts[index]))
+            : '';
         if (literal.isNotEmpty) {
           blocks.add(
             CodeBlock(literal, style: command.isNotEmpty ? muted : null),
@@ -139,14 +143,16 @@ class ToolContent extends StatelessWidget {
             ),
           );
         } else if (literal.isNotEmpty) {
-          blocks.add(CodeBlock(literal, language: languageFor(path)));
+          blocks.add(
+            CodeBlock(plainTerminalText(literal), language: languageFor(path)),
+          );
         } else {
           blocks.add(Text(capturedLabel(context, body['empty'])));
         }
         projected = true;
       } else {
         if (text(projection['preview']).isNotEmpty) {
-          blocks.add(CodeBlock(text(projection['preview'])));
+          blocks.add(CodeBlock(plainTerminalText(text(projection['preview']))));
         }
         final notices = <String>{};
         for (final notice in objects(projection['notices'])) {
@@ -157,13 +163,6 @@ class ToolContent extends StatelessWidget {
             blocks.isNotEmpty ||
             paths.isNotEmpty ||
             projection['preview_deferred'] == true;
-      }
-    }
-    final commandLabel = commandStatus(command, translate: context.tr);
-    if (commandLabel != null) {
-      blocks.add(Text(commandLabel, style: toolFailed(call) ? error : muted));
-      if (command['kind'] == 'unknown' && text(command['data']).isNotEmpty) {
-        blocks.add(SelectableText(text(command['data']), style: muted));
       }
     }
     if (!structured && !projected && blocks.isEmpty && observed) {
@@ -192,7 +191,7 @@ class ToolContent extends StatelessWidget {
             if (block['kind'] == 'text' &&
                 index < texts.length &&
                 text(texts[index]).isNotEmpty)
-              text(texts[index]),
+              plainTerminalText(text(texts[index])),
         ].join('\n');
         if (items.length > 1 ||
             items.any((block) => block['kind'] == 'notice') ||

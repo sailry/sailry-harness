@@ -14,14 +14,10 @@ class BackgroundNotices extends StatelessWidget {
     super.key,
     required this.items,
     required this.children,
-    this.pending = false,
     this.onOpenChild,
   });
   final List<Map<String, dynamic>> items;
   final Map<String, dynamic> children;
-
-  /// Undelivered results wait for the next turn instead of naming an outcome.
-  final bool pending;
   final ValueChanged<Map<String, dynamic>>? onOpenChild;
 
   Map<String, dynamic>? child(Map<String, dynamic> item) {
@@ -89,13 +85,9 @@ class BackgroundNotices extends StatelessWidget {
                     children: [
                       Text(text(item['title'])),
                       Text(
-                        context.tr(
-                          pending
-                              ? 'backgroundWaiting'
-                              : backgroundLabel(item['outcome']),
-                        ),
+                        context.tr(backgroundLabel(item['outcome'])),
                         style: TextStyle(
-                          color: !pending && backgroundFailed(item['outcome'])
+                          color: backgroundFailed(item['outcome'])
                               ? colors.error
                               : colors.onSurfaceVariant.withValues(alpha: .65),
                         ),

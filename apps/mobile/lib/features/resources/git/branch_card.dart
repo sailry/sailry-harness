@@ -60,33 +60,42 @@ class BranchHeader extends StatelessWidget {
           children: [
             AppIcon('branch', size: 16, color: colors.onSurfaceVariant),
             const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                branch,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
+            // The names share one expanded slot so the pill stays at the edge.
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      branch,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (upstream != null) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        upstream,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colors.onSurfaceVariant.withValues(alpha: .65),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             if (upstream != null) ...[
               const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  upstream,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colors.onSurfaceVariant.withValues(alpha: .65),
-                  ),
-                ),
-              ),
+              SyncPill(sync!),
             ],
-            const Spacer(),
-            if (upstream != null) SyncPill(sync!),
           ],
         ),
       ),

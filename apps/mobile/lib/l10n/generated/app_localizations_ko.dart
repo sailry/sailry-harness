@@ -1492,9 +1492,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get gitPushAfterCommit => '커밋 후 푸시';
 
   @override
-  String get fileSource => '소스';
-
-  @override
   String get fileShare => '공유';
 
   @override
@@ -2226,9 +2223,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get conversationStep => '1단계';
-
-  @override
-  String get backgroundWaiting => '처리 대기 중';
 
   @override
   String get activityProgress => '진행 상황';

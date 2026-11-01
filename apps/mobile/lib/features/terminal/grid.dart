@@ -102,7 +102,8 @@ class TerminalGridPainter extends CustomPainter {
     final lines = terminalLines(screen);
     final foreground = terminalColor(screen['foreground'], Colors.white);
     final background = terminalColor(screen['background'], Colors.black);
-    canvas.drawRect(Offset.zero & size, Paint()..color = background);
+    // The default background stays transparent so the page shows through;
+    // only cells with their own color paint a fill.
     final clip = canvas.getLocalClipBounds();
     final first = (clip.top / cell.height).floor().clamp(0, lines.length);
     final last = (clip.bottom / cell.height).ceil().clamp(0, lines.length);
@@ -123,7 +124,9 @@ class TerminalGridPainter extends CustomPainter {
           number(span['columns']) * cell.width,
           cell.height,
         );
-        canvas.drawRect(bounds, Paint()..color = fill);
+        if (fill != background) {
+          canvas.drawRect(bounds, Paint()..color = fill);
+        }
         if (style['invisible'] == true) continue;
         final painter = TextPainter(
           text: TextSpan(

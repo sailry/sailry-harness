@@ -613,7 +613,6 @@
   "gitCommitOptions": "Commit options",
   "gitSkipHooks": "Skip hooks",
   "gitPushAfterCommit": "Push after commit",
-  "fileSource": "Source",
   "fileShare": "Share",
   "fileTrash": "Move to trash",
   "gitLineChanges": "{added} lines added · {removed} removed",
@@ -935,7 +934,6 @@
     }
   },
   "conversationStep": "1 step",
-  "backgroundWaiting": "Waiting",
   "activityProgress": "Progress",
   "activityBackground": "Background tasks",
   "activityPorts": "Ports",

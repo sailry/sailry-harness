@@ -352,16 +352,20 @@ class _ToolSheetState extends State<ToolSheet> {
       final question = object(call['question']);
       final resolved = object(call['resolved']);
       final images = objects(view.result['images']);
+      final content = view.detail != null && call['details'] == true;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ToolHeading(call: call, page: page),
           const SizedBox(height: 8),
+          // Like Desktop, the sheet shows what the tool returned; raw
+          // arguments only stand in when there is nothing else to show.
           if (question.isNotEmpty)
             QuestionHistory(question: question, spec: view.arguments)
-          else if (resolved['label'] != null)
-            ToolInput(input: object(resolved['input']))
-          else if (view.arguments.isNotEmpty && images.isEmpty)
+          else if (!content &&
+              resolved['label'] == null &&
+              view.arguments.isNotEmpty &&
+              images.isEmpty)
             CodeBlock(
               rawText(view.arguments),
               language: 'json',
@@ -370,7 +374,7 @@ class _ToolSheetState extends State<ToolSheet> {
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
-          if (view.detail != null && call['details'] == true)
+          if (content)
             ToolContent(
               documents: widget.documents,
               call: call,

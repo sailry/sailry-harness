@@ -1517,9 +1517,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get gitPushAfterCommit => 'Отправить после коммита';
 
   @override
-  String get fileSource => 'Исходник';
-
-  @override
   String get fileShare => 'Поделиться';
 
   @override
@@ -2264,9 +2261,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get conversationStep => '1 шаг';
-
-  @override
-  String get backgroundWaiting => 'Ожидает';
 
   @override
   String get activityProgress => 'Прогресс';

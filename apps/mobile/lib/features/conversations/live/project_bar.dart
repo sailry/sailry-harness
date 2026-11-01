@@ -76,23 +76,29 @@ class ProjectBar extends StatelessWidget {
                             : ProjectIcon(project: project!, size: 15)),
                   ),
                   const SizedBox(width: 10),
-                  if (detail == null)
-                    Expanded(child: heading)
-                  else ...[
-                    Flexible(child: heading),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        detail!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: colors.onSurfaceVariant.withValues(alpha: .65),
-                        ),
-                      ),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Flexible(child: heading),
+                        if (detail != null) ...[
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              detail!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: colors.onSurfaceVariant.withValues(
+                                  alpha: .65,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                  ],
+                  ),
                   if (status != null) ...[const SizedBox(width: 8), status!],
                   if (onTap != null) ...[
                     const SizedBox(width: 8),

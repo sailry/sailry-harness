@@ -1490,9 +1490,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get gitPushAfterCommit => 'コミット後にプッシュ';
 
   @override
-  String get fileSource => 'ソース';
-
-  @override
   String get fileShare => '共有';
 
   @override
@@ -2224,9 +2221,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get conversationStep => '1 ステップ';
-
-  @override
-  String get backgroundWaiting => '処理待ち';
 
   @override
   String get activityProgress => '進捗';

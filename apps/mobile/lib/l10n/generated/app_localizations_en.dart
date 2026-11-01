@@ -1509,9 +1509,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get gitPushAfterCommit => 'Push after commit';
 
   @override
-  String get fileSource => 'Source';
-
-  @override
   String get fileShare => 'Share';
 
   @override
@@ -2246,9 +2243,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get conversationStep => '1 step';
-
-  @override
-  String get backgroundWaiting => 'Waiting';
 
   @override
   String get activityProgress => 'Progress';
