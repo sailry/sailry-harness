@@ -534,7 +534,7 @@ pub(super) fn execute<'a>(
         Command::ListTeams => {
             defer(move || async move { Ok((Output::Teams(super::teams::list(db).await?), None)) })
         }
-        Command::SaveTeam {
+        Command::PutTeam {
             team,
             expected_revision,
         } => defer(move || async move {

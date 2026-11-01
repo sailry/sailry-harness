@@ -641,7 +641,7 @@ pub enum Command {
     },
     /// Stored teams only; the virtual Default team selects the whole role catalog.
     ListTeams,
-    SaveTeam {
+    PutTeam {
         team: crate::team::Profile,
         expected_revision: u64,
     },

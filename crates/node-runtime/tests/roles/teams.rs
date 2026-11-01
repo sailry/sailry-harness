@@ -21,7 +21,7 @@ async fn save(
     expected_revision: u64,
 ) -> Result<team::Profile, Fault> {
     match client
-        .execute(client.prepare(Command::SaveTeam {
+        .execute(client.prepare(Command::PutTeam {
             team,
             expected_revision,
         }))
@@ -59,7 +59,7 @@ async fn prunes_removed_members() {
         let removed = put(&client, profile("review"), 0).await.unwrap();
         let kept = put(&client, profile("analysis"), 0).await.unwrap();
         assert!(teams(&client).await.is_empty());
-        let request = client.prepare(Command::SaveTeam {
+        let request = client.prepare(Command::PutTeam {
             team: team("reviewers", vec![removed.id, kept.id]),
             expected_revision: 0,
         });

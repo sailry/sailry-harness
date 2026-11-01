@@ -73,7 +73,7 @@ fn classifies_commands() {
     let session = SessionId::new();
     assert!(!crate::Command::ListTeams.durable());
     for command in [
-        crate::Command::SaveTeam {
+        crate::Command::PutTeam {
             team: profile(),
             expected_revision: 0,
         },
