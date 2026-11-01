@@ -566,6 +566,56 @@
   "git": "Git",
   "gitBranches": "Branches",
   "gitHistory": "History",
+  "gitViewAll": "View all {count} changes",
+  "@gitViewAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "terminalRunningCount": "{count} running",
+  "@terminalRunningCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitUnstaged": "Unstaged",
+  "gitStageFile": "Stage",
+  "gitCommitCount": "Commit {count}",
+  "@gitCommitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitRemote": "Remote",
+  "gitCurrentShort": "Current",
+  "gitDiscardConfirm": "Discard all changes to “{name}”?",
+  "@gitDiscardConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitTrashConfirm": "Move “{name}” to the host trash?",
+  "@gitTrashConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitCommitOptions": "Commit options",
+  "gitSkipHooks": "Skip hooks",
+  "gitPushAfterCommit": "Push after commit",
+  "fileSource": "Source",
+  "fileShare": "Share",
+  "fileTrash": "Move to trash",
   "gitLineChanges": "{added} lines added · {removed} removed",
   "@gitLineChanges": {
     "placeholders": {

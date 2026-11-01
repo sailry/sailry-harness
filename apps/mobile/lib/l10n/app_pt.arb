@@ -566,6 +566,56 @@
   "git": "Git",
   "gitBranches": "Branches",
   "gitHistory": "Histórico",
+  "gitViewAll": "Ver todas as {count} alterações",
+  "@gitViewAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "terminalRunningCount": "{count} em execução",
+  "@terminalRunningCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitUnstaged": "Não preparado",
+  "gitStageFile": "Preparar",
+  "gitCommitCount": "Fazer commit de {count}",
+  "@gitCommitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitRemote": "Remoto",
+  "gitCurrentShort": "Atual",
+  "gitDiscardConfirm": "Descartar todas as alterações em “{name}”?",
+  "@gitDiscardConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitTrashConfirm": "Mover “{name}” para a lixeira do host?",
+  "@gitTrashConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitCommitOptions": "Opções de commit",
+  "gitSkipHooks": "Ignorar hooks",
+  "gitPushAfterCommit": "Enviar após o commit",
+  "fileSource": "Código",
+  "fileShare": "Compartilhar",
+  "fileTrash": "Mover para a lixeira",
   "gitLineChanges": "{added} linhas adicionadas · {removed} removidas",
   "@gitLineChanges": {
     "placeholders": {

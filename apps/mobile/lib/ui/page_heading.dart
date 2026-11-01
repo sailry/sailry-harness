@@ -10,19 +10,43 @@ class PageHeading extends StatelessWidget {
     required this.title,
     this.enabled = true,
     this.size = 22,
+    this.subtitle,
+    this.accessory,
   });
   final String title;
   final bool enabled;
   final double size;
 
+  /// Secondary line under the title, such as a file's directory.
+  final Widget? subtitle;
+
+  /// Small marker after the title, such as an unsaved-changes dot.
+  final Widget? accessory;
+
   @override
   Widget build(BuildContext context) {
-    final label = Text(
+    Widget label = Text(
       title,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: size),
     );
+    if (accessory != null) {
+      label = Row(
+        children: [
+          Flexible(child: label),
+          const SizedBox(width: 8),
+          accessory!,
+        ],
+      );
+    }
+    if (subtitle != null) {
+      label = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [label, subtitle!],
+      );
+    }
     if (ModalRoute.canPopOf(context) != true) return label;
     return Tooltip(
       message: context.tr('back'),

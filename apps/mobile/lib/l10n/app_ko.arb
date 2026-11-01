@@ -566,6 +566,56 @@
   "git": "Git",
   "gitBranches": "브랜치",
   "gitHistory": "기록",
+  "gitViewAll": "변경 사항 {count}개 모두 보기",
+  "@gitViewAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "terminalRunningCount": "{count}개 실행 중",
+  "@terminalRunningCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitUnstaged": "스테이징 안 됨",
+  "gitStageFile": "스테이징",
+  "gitCommitCount": "{count}개 커밋",
+  "@gitCommitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitRemote": "원격",
+  "gitCurrentShort": "현재",
+  "gitDiscardConfirm": "“{name}”의 모든 변경 사항을 버릴까요?",
+  "@gitDiscardConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitTrashConfirm": "“{name}”을(를) 호스트 휴지통으로 옮길까요?",
+  "@gitTrashConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitCommitOptions": "커밋 옵션",
+  "gitSkipHooks": "훅 건너뛰기",
+  "gitPushAfterCommit": "커밋 후 푸시",
+  "fileSource": "소스",
+  "fileShare": "공유",
+  "fileTrash": "휴지통으로 이동",
   "gitLineChanges": "{added} 줄 추가 · {removed} 줄 제거",
   "@gitLineChanges": {
     "placeholders": {

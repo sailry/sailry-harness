@@ -566,6 +566,56 @@
   "git": "Git",
   "gitBranches": "ブランチ",
   "gitHistory": "履歴",
+  "gitViewAll": "{count} 件の変更をすべて表示",
+  "@gitViewAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "terminalRunningCount": "{count} 件実行中",
+  "@terminalRunningCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitUnstaged": "未ステージ",
+  "gitStageFile": "ステージ",
+  "gitCommitCount": "{count} 件をコミット",
+  "@gitCommitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitRemote": "リモート",
+  "gitCurrentShort": "現在",
+  "gitDiscardConfirm": "「{name}」の変更をすべて破棄しますか？",
+  "@gitDiscardConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitTrashConfirm": "「{name}」をホストのゴミ箱に移動しますか？",
+  "@gitTrashConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitCommitOptions": "コミットオプション",
+  "gitSkipHooks": "フックをスキップ",
+  "gitPushAfterCommit": "コミット後にプッシュ",
+  "fileSource": "ソース",
+  "fileShare": "共有",
+  "fileTrash": "ゴミ箱に移動",
   "gitLineChanges": "{added}行追加、{removed}行削除",
   "@gitLineChanges": {
     "placeholders": {

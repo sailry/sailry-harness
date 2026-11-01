@@ -57,3 +57,23 @@ String? resourcePath(
   }
   return parts.isEmpty && !allowRoot ? null : parts.join('/');
 }
+
+/// File name and parent directory of a worktree-relative path.
+({String name, String directory}) splitPath(String path) {
+  final normalized = path.replaceAll('\\', '/');
+  final index = normalized.lastIndexOf('/');
+  return index < 0
+      ? (name: normalized, directory: '')
+      : (
+          name: normalized.substring(index + 1),
+          directory: normalized.substring(0, index),
+        );
+}
+
+/// The last [segments] parts of [directory], enough to tell siblings apart.
+String shortDirectory(String directory, [int segments = 2]) {
+  final parts = directory.split('/').where((part) => part.isNotEmpty).toList();
+  return parts
+      .skip(parts.length > segments ? parts.length - segments : 0)
+      .join('/');
+}

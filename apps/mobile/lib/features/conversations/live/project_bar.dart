@@ -18,7 +18,9 @@ class ProjectBar extends StatelessWidget {
 
   /// Null selects every project.
   final Map<String, dynamic>? project;
-  final VoidCallback onTap;
+
+  /// Null shows a fixed scope without the chevron.
+  final VoidCallback? onTap;
 
   /// Secondary scope label, such as the selected host.
   final String? detail;
@@ -44,7 +46,7 @@ class ProjectBar extends StatelessWidget {
       style: TextStyle(fontSize: 15, color: colors.onSurface),
     );
     return Semantics(
-      button: true,
+      button: onTap != null,
       label: detail == null ? name : '$name, $detail',
       excludeSemantics: true,
       child: Material(
@@ -92,8 +94,10 @@ class ProjectBar extends StatelessWidget {
                     ),
                   ],
                   if (status != null) ...[const SizedBox(width: 8), status!],
-                  const SizedBox(width: 8),
-                  AppIcon('down', color: colors.onSurfaceVariant),
+                  if (onTap != null) ...[
+                    const SizedBox(width: 8),
+                    AppIcon('down', color: colors.onSurfaceVariant),
+                  ],
                 ],
               ),
             ),

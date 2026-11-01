@@ -2928,6 +2928,96 @@ abstract class AppLocalizations {
   /// **'History'**
   String get gitHistory;
 
+  /// No description provided for @gitViewAll.
+  ///
+  /// In en, this message translates to:
+  /// **'View all {count} changes'**
+  String gitViewAll(String count);
+
+  /// No description provided for @terminalRunningCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} running'**
+  String terminalRunningCount(String count);
+
+  /// No description provided for @gitUnstaged.
+  ///
+  /// In en, this message translates to:
+  /// **'Unstaged'**
+  String get gitUnstaged;
+
+  /// No description provided for @gitStageFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Stage'**
+  String get gitStageFile;
+
+  /// No description provided for @gitCommitCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Commit {count}'**
+  String gitCommitCount(String count);
+
+  /// No description provided for @gitRemote.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote'**
+  String get gitRemote;
+
+  /// No description provided for @gitCurrentShort.
+  ///
+  /// In en, this message translates to:
+  /// **'Current'**
+  String get gitCurrentShort;
+
+  /// No description provided for @gitDiscardConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard all changes to “{name}”?'**
+  String gitDiscardConfirm(String name);
+
+  /// No description provided for @gitTrashConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Move “{name}” to the host trash?'**
+  String gitTrashConfirm(String name);
+
+  /// No description provided for @gitCommitOptions.
+  ///
+  /// In en, this message translates to:
+  /// **'Commit options'**
+  String get gitCommitOptions;
+
+  /// No description provided for @gitSkipHooks.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip hooks'**
+  String get gitSkipHooks;
+
+  /// No description provided for @gitPushAfterCommit.
+  ///
+  /// In en, this message translates to:
+  /// **'Push after commit'**
+  String get gitPushAfterCommit;
+
+  /// No description provided for @fileSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Source'**
+  String get fileSource;
+
+  /// No description provided for @fileShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get fileShare;
+
+  /// No description provided for @fileTrash.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to trash'**
+  String get fileTrash;
+
   /// No description provided for @gitLineChanges.
   ///
   /// In en, this message translates to:

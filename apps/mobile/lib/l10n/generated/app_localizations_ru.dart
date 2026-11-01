@@ -1471,6 +1471,61 @@ class AppLocalizationsRu extends AppLocalizations {
   String get gitHistory => 'История';
 
   @override
+  String gitViewAll(String count) {
+    return 'Все изменения: $count';
+  }
+
+  @override
+  String terminalRunningCount(String count) {
+    return 'Запущено: $count';
+  }
+
+  @override
+  String get gitUnstaged => 'Не проиндексировано';
+
+  @override
+  String get gitStageFile => 'Индексировать';
+
+  @override
+  String gitCommitCount(String count) {
+    return 'Закоммитить: $count';
+  }
+
+  @override
+  String get gitRemote => 'Удалённые';
+
+  @override
+  String get gitCurrentShort => 'Текущая';
+
+  @override
+  String gitDiscardConfirm(String name) {
+    return 'Отменить все изменения в «$name»?';
+  }
+
+  @override
+  String gitTrashConfirm(String name) {
+    return 'Переместить «$name» в корзину хоста?';
+  }
+
+  @override
+  String get gitCommitOptions => 'Параметры коммита';
+
+  @override
+  String get gitSkipHooks => 'Пропустить хуки';
+
+  @override
+  String get gitPushAfterCommit => 'Отправить после коммита';
+
+  @override
+  String get fileSource => 'Исходник';
+
+  @override
+  String get fileShare => 'Поделиться';
+
+  @override
+  String get fileTrash => 'В корзину';
+
+  @override
   String gitLineChanges(String added, String removed) {
     return '$added строк добавлено · $removed удалено';
   }

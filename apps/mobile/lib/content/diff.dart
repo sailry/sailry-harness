@@ -141,3 +141,9 @@ class DiffView extends StatelessWidget {
     );
   }
 }
+
+/// Hunk rows for a unified view, without file metadata or newline markers.
+List<DiffLine> hunkLines(String patch, {bool added = false}) => [
+  for (final line in parseLines(patch, added: added))
+    if (line.kind != 'header' || line.text.startsWith('@@')) line,
+];

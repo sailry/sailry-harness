@@ -638,6 +638,56 @@
   "git": "Git",
   "gitBranches": "分支",
   "gitHistory": "历史",
+  "gitViewAll": "查看全部 {count} 个变更",
+  "@gitViewAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "terminalRunningCount": "{count} 个运行中",
+  "@terminalRunningCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitUnstaged": "未暂存",
+  "gitStageFile": "暂存",
+  "gitCommitCount": "提交 {count} 个",
+  "@gitCommitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitRemote": "远程",
+  "gitCurrentShort": "当前",
+  "gitDiscardConfirm": "放弃“{name}”的全部修改？",
+  "@gitDiscardConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitTrashConfirm": "将“{name}”移到主机回收站？",
+  "@gitTrashConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitCommitOptions": "提交选项",
+  "gitSkipHooks": "跳过钩子",
+  "gitPushAfterCommit": "提交后推送",
+  "fileSource": "源码",
+  "fileShare": "分享",
+  "fileTrash": "移到回收站",
   "gitLineChanges": "{added} 行新增 · {removed} 行删除",
   "@gitLineChanges": {
     "placeholders": {

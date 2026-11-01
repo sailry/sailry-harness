@@ -1446,6 +1446,61 @@ class AppLocalizationsKo extends AppLocalizations {
   String get gitHistory => '기록';
 
   @override
+  String gitViewAll(String count) {
+    return '변경 사항 $count개 모두 보기';
+  }
+
+  @override
+  String terminalRunningCount(String count) {
+    return '$count개 실행 중';
+  }
+
+  @override
+  String get gitUnstaged => '스테이징 안 됨';
+
+  @override
+  String get gitStageFile => '스테이징';
+
+  @override
+  String gitCommitCount(String count) {
+    return '$count개 커밋';
+  }
+
+  @override
+  String get gitRemote => '원격';
+
+  @override
+  String get gitCurrentShort => '현재';
+
+  @override
+  String gitDiscardConfirm(String name) {
+    return '“$name”의 모든 변경 사항을 버릴까요?';
+  }
+
+  @override
+  String gitTrashConfirm(String name) {
+    return '“$name”을(를) 호스트 휴지통으로 옮길까요?';
+  }
+
+  @override
+  String get gitCommitOptions => '커밋 옵션';
+
+  @override
+  String get gitSkipHooks => '훅 건너뛰기';
+
+  @override
+  String get gitPushAfterCommit => '커밋 후 푸시';
+
+  @override
+  String get fileSource => '소스';
+
+  @override
+  String get fileShare => '공유';
+
+  @override
+  String get fileTrash => '휴지통으로 이동';
+
+  @override
   String gitLineChanges(String added, String removed) {
     return '$added 줄 추가 · $removed 줄 제거';
   }

@@ -638,6 +638,56 @@
   "git": "Git",
   "gitBranches": "分支",
   "gitHistory": "歷史",
+  "gitViewAll": "查看全部 {count} 個變更",
+  "@gitViewAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "terminalRunningCount": "{count} 個執行中",
+  "@terminalRunningCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitUnstaged": "未暫存",
+  "gitStageFile": "暫存",
+  "gitCommitCount": "提交 {count} 個",
+  "@gitCommitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitRemote": "遠端",
+  "gitCurrentShort": "目前",
+  "gitDiscardConfirm": "捨棄「{name}」的全部修改？",
+  "@gitDiscardConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitTrashConfirm": "將「{name}」移到主機資源回收筒？",
+  "@gitTrashConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitCommitOptions": "提交選項",
+  "gitSkipHooks": "略過掛鉤",
+  "gitPushAfterCommit": "提交後推送",
+  "fileSource": "原始碼",
+  "fileShare": "分享",
+  "fileTrash": "移到資源回收筒",
   "gitLineChanges": "{added} 行新增 · {removed} 行刪除",
   "@gitLineChanges": {
     "placeholders": {

@@ -1442,6 +1442,61 @@ class AppLocalizationsZh extends AppLocalizations {
   String get gitHistory => '历史';
 
   @override
+  String gitViewAll(String count) {
+    return '查看全部 $count 个变更';
+  }
+
+  @override
+  String terminalRunningCount(String count) {
+    return '$count 个运行中';
+  }
+
+  @override
+  String get gitUnstaged => '未暂存';
+
+  @override
+  String get gitStageFile => '暂存';
+
+  @override
+  String gitCommitCount(String count) {
+    return '提交 $count 个';
+  }
+
+  @override
+  String get gitRemote => '远程';
+
+  @override
+  String get gitCurrentShort => '当前';
+
+  @override
+  String gitDiscardConfirm(String name) {
+    return '放弃“$name”的全部修改？';
+  }
+
+  @override
+  String gitTrashConfirm(String name) {
+    return '将“$name”移到主机回收站？';
+  }
+
+  @override
+  String get gitCommitOptions => '提交选项';
+
+  @override
+  String get gitSkipHooks => '跳过钩子';
+
+  @override
+  String get gitPushAfterCommit => '提交后推送';
+
+  @override
+  String get fileSource => '源码';
+
+  @override
+  String get fileShare => '分享';
+
+  @override
+  String get fileTrash => '移到回收站';
+
+  @override
   String gitLineChanges(String added, String removed) {
     return '$added 行新增 · $removed 行删除';
   }
@@ -3742,6 +3797,61 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get gitHistory => '歷史';
+
+  @override
+  String gitViewAll(String count) {
+    return '查看全部 $count 個變更';
+  }
+
+  @override
+  String terminalRunningCount(String count) {
+    return '$count 個執行中';
+  }
+
+  @override
+  String get gitUnstaged => '未暫存';
+
+  @override
+  String get gitStageFile => '暫存';
+
+  @override
+  String gitCommitCount(String count) {
+    return '提交 $count 個';
+  }
+
+  @override
+  String get gitRemote => '遠端';
+
+  @override
+  String get gitCurrentShort => '目前';
+
+  @override
+  String gitDiscardConfirm(String name) {
+    return '捨棄「$name」的全部修改？';
+  }
+
+  @override
+  String gitTrashConfirm(String name) {
+    return '將「$name」移到主機資源回收筒？';
+  }
+
+  @override
+  String get gitCommitOptions => '提交選項';
+
+  @override
+  String get gitSkipHooks => '略過掛鉤';
+
+  @override
+  String get gitPushAfterCommit => '提交後推送';
+
+  @override
+  String get fileSource => '原始碼';
+
+  @override
+  String get fileShare => '分享';
+
+  @override
+  String get fileTrash => '移到資源回收筒';
 
   @override
   String gitLineChanges(String added, String removed) {

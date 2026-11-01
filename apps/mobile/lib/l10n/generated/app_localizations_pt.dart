@@ -1473,6 +1473,61 @@ class AppLocalizationsPt extends AppLocalizations {
   String get gitHistory => 'Histórico';
 
   @override
+  String gitViewAll(String count) {
+    return 'Ver todas as $count alterações';
+  }
+
+  @override
+  String terminalRunningCount(String count) {
+    return '$count em execução';
+  }
+
+  @override
+  String get gitUnstaged => 'Não preparado';
+
+  @override
+  String get gitStageFile => 'Preparar';
+
+  @override
+  String gitCommitCount(String count) {
+    return 'Fazer commit de $count';
+  }
+
+  @override
+  String get gitRemote => 'Remoto';
+
+  @override
+  String get gitCurrentShort => 'Atual';
+
+  @override
+  String gitDiscardConfirm(String name) {
+    return 'Descartar todas as alterações em “$name”?';
+  }
+
+  @override
+  String gitTrashConfirm(String name) {
+    return 'Mover “$name” para a lixeira do host?';
+  }
+
+  @override
+  String get gitCommitOptions => 'Opções de commit';
+
+  @override
+  String get gitSkipHooks => 'Ignorar hooks';
+
+  @override
+  String get gitPushAfterCommit => 'Enviar após o commit';
+
+  @override
+  String get fileSource => 'Código';
+
+  @override
+  String get fileShare => 'Compartilhar';
+
+  @override
+  String get fileTrash => 'Mover para a lixeira';
+
+  @override
   String gitLineChanges(String added, String removed) {
     return '$added linhas adicionadas · $removed removidas';
   }

@@ -566,6 +566,56 @@
   "git": "Git",
   "gitBranches": "Ветки",
   "gitHistory": "История",
+  "gitViewAll": "Все изменения: {count}",
+  "@gitViewAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "terminalRunningCount": "Запущено: {count}",
+  "@terminalRunningCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitUnstaged": "Не проиндексировано",
+  "gitStageFile": "Индексировать",
+  "gitCommitCount": "Закоммитить: {count}",
+  "@gitCommitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitRemote": "Удалённые",
+  "gitCurrentShort": "Текущая",
+  "gitDiscardConfirm": "Отменить все изменения в «{name}»?",
+  "@gitDiscardConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitTrashConfirm": "Переместить «{name}» в корзину хоста?",
+  "@gitTrashConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitCommitOptions": "Параметры коммита",
+  "gitSkipHooks": "Пропустить хуки",
+  "gitPushAfterCommit": "Отправить после коммита",
+  "fileSource": "Исходник",
+  "fileShare": "Поделиться",
+  "fileTrash": "В корзину",
   "gitLineChanges": "{added} строк добавлено · {removed} удалено",
   "@gitLineChanges": {
     "placeholders": {

@@ -133,6 +133,8 @@ class PageFrame extends StatelessWidget {
     this.failure,
     this.titleSize = 22,
     this.backEnabled = true,
+    this.subtitle,
+    this.titleAccessory,
   });
   final String title;
   final List<Widget> actions;
@@ -145,6 +147,8 @@ class PageFrame extends StatelessWidget {
   final Widget? failure;
   final double titleSize;
   final bool backEnabled;
+  final Widget? subtitle;
+  final Widget? titleAccessory;
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: Colors.transparent,
@@ -161,6 +165,8 @@ class PageFrame extends StatelessWidget {
                     title: title,
                     size: titleSize,
                     enabled: backEnabled,
+                    subtitle: subtitle,
+                    accessory: titleAccessory,
                   ),
                 ),
                 if (actions.isNotEmpty) const SizedBox(width: 8),

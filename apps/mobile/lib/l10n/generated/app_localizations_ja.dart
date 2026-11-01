@@ -1444,6 +1444,61 @@ class AppLocalizationsJa extends AppLocalizations {
   String get gitHistory => '履歴';
 
   @override
+  String gitViewAll(String count) {
+    return '$count 件の変更をすべて表示';
+  }
+
+  @override
+  String terminalRunningCount(String count) {
+    return '$count 件実行中';
+  }
+
+  @override
+  String get gitUnstaged => '未ステージ';
+
+  @override
+  String get gitStageFile => 'ステージ';
+
+  @override
+  String gitCommitCount(String count) {
+    return '$count 件をコミット';
+  }
+
+  @override
+  String get gitRemote => 'リモート';
+
+  @override
+  String get gitCurrentShort => '現在';
+
+  @override
+  String gitDiscardConfirm(String name) {
+    return '「$name」の変更をすべて破棄しますか？';
+  }
+
+  @override
+  String gitTrashConfirm(String name) {
+    return '「$name」をホストのゴミ箱に移動しますか？';
+  }
+
+  @override
+  String get gitCommitOptions => 'コミットオプション';
+
+  @override
+  String get gitSkipHooks => 'フックをスキップ';
+
+  @override
+  String get gitPushAfterCommit => 'コミット後にプッシュ';
+
+  @override
+  String get fileSource => 'ソース';
+
+  @override
+  String get fileShare => '共有';
+
+  @override
+  String get fileTrash => 'ゴミ箱に移動';
+
+  @override
   String gitLineChanges(String added, String removed) {
     return '$added行追加、$removed行削除';
   }

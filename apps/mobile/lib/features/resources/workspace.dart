@@ -37,9 +37,11 @@ Future<String?> showLiveWorkspacePicker(
   HostConnection host,
   String? selected, {
   String? project,
+  List<Widget> actions = const [],
 }) => showAppSheet<String>(
   context,
   context.tr('selectWorkspace'),
+  actions: actions,
   child: Builder(
     builder: (context) {
       final projects = objects(host.snapshot['projects']);
