@@ -127,6 +127,24 @@ mod faults {
     }
 
     #[test]
+    fn round_trips_path_absence() {
+        let mut fault = Fault::new(ErrorCode::NotFound, "requested file is missing");
+        fault.details = Some(FaultDetails::WorktreePathNotFound);
+        let value = serde_json::to_value(&fault).unwrap();
+        assert_eq!(value["details"], json!({"kind":"worktree_path_not_found"}));
+        assert_eq!(serde_json::from_value::<Fault>(value).unwrap(), fault);
+        let output = Output::RequestOutcome {
+            id: RequestId::new(),
+            outcome: RequestOutcome::Completed(Box::new(Err(fault))),
+        };
+        assert_eq!(
+            serde_json::from_value::<Output>(serde_json::to_value(&output).unwrap()).unwrap(),
+            output,
+        );
+        assert_eq!(crate::VERSION, 1);
+    }
+
+    #[test]
     fn round_trips_value_conflict() {
         let mut fault = Fault::new(ErrorCode::RevisionConflict, "plugin value changed");
         fault.details = Some(FaultDetails::PluginValueConflict);

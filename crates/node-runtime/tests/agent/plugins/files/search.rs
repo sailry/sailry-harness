@@ -105,6 +105,14 @@ async fn reports_missing_scopes_without_failure() {
             (name("list_directory"), json!({"path":"missing"})),
             (name("read_file"), json!({"path":"missing.txt"})),
             (name("read_notebook"), json!({"path":"missing.ipynb"})),
+            (
+                name("read_office"),
+                json!({"source":{"kind":"path","value":"missing.pdf"}}),
+            ),
+            (
+                name("read_office"),
+                json!({"source":{"kind":"attachment","value":AttachmentId::new()}}),
+            ),
         ])
         .await;
         let fixture = process::Fixture::packages(remote, &server, &[]).await;
@@ -118,7 +126,7 @@ async fn reports_missing_scopes_without_failure() {
             "{page:?}"
         );
         let outputs = results(&fixture.client, &page).await;
-        assert_eq!(outputs.len(), 9, "{outputs:?}");
+        assert_eq!(outputs.len(), 11, "{outputs:?}");
         for (output, path, rows, offset) in [
             (&outputs[0], "missing", "matches", 3),
             (&outputs[1], "missing/nested", "counts", 0),
@@ -149,11 +157,25 @@ async fn reports_missing_scopes_without_failure() {
             (&outputs[6], "directory_not_found"),
             (&outputs[7], "file_not_found"),
             (&outputs[8], "file_not_found"),
+            (&outputs[9], "file_not_found"),
         ] {
+            assert_eq!(output["isError"], true, "{output:?}");
             assert_eq!(output["error"]["code"], "not_found", "{output:?}");
+            assert_eq!(
+                output["error"]["details"]["kind"], "worktree_path_not_found",
+                "{output:?}"
+            );
             assert_eq!(output["sailry_result"]["expected"], expected, "{output:?}");
             assert_eq!(output["sailry_result"]["diagnostics"][0]["error"], false);
+            assert_eq!(
+                output["sailry_result"]["diagnostics"][0]["text"],
+                output["error"]["message"]
+            );
         }
+        assert_eq!(outputs[10]["isError"], true, "{outputs:?}");
+        assert_eq!(outputs[10]["error"]["code"], "not_found", "{outputs:?}");
+        assert!(outputs[10]["error"].get("details").is_none());
+        assert!(outputs[10].get("sailry_result").is_none());
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

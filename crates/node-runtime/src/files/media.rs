@@ -20,9 +20,7 @@ impl Files {
                 cancelled: stop,
                 deadline: Instant::now() + Duration::from_secs(5),
             };
-            let parts = path::components(&relative, false)?;
-            let dir = path::descend(path::root(&root)?, &parts[..parts.len() - 1])?;
-            let mut file = open_regular(&dir, parts[parts.len() - 1])?;
+            let mut file = path::file(root.as_path().into(), &relative)?;
             let limit = INPUT_BYTES;
             let bytes = read_bytes(&mut file, limit + 1, &control)?;
             if bytes.len() > limit {

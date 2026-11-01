@@ -4,8 +4,8 @@
 use std::path::{Component, Path};
 
 use cap_fs_ext::DirExt;
-use cap_std::fs::Dir;
-use sailry_protocol::{ErrorCode, Fault};
+use cap_std::fs::{Dir, File};
+use sailry_protocol::{ErrorCode, Fault, FaultDetails};
 
 use super::io_error;
 
@@ -102,6 +102,22 @@ pub(crate) fn descend(mut dir: Dir, parts: &[&str]) -> Result<Dir, Fault> {
     Ok(dir)
 }
 
+/// Open a requested file without classifying a missing root as file absence.
+pub(crate) fn file(scope: super::Scope<'_>, relative: &str) -> Result<File, Fault> {
+    let parts = scope.components(relative, false)?;
+    let (name, parents) = parts.split_last().unwrap();
+    let directory = root(scope.path())?;
+    let directory = descend(directory, parents).map_err(missing)?;
+    super::open_regular(&directory, name).map_err(missing)
+}
+
+pub(super) fn missing(mut fault: Fault) -> Fault {
+    if fault.code == ErrorCode::NotFound && fault.details.is_none() {
+        fault.details = Some(FaultDetails::WorktreePathNotFound);
+    }
+    fault
+}
+
 #[cfg(unix)]
 pub(crate) fn sync(dir: &Dir) -> std::io::Result<()> {
     // Linux traversal capabilities use O_PATH, which cannot be synchronized.
@@ -164,6 +180,54 @@ fn invalid() -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_existing_causes() {
+        let original = Fault {
+            details: Some(FaultDetails::Network),
+            ..Fault::new(ErrorCode::NotFound, "provider resource is missing")
+        };
+        assert_eq!(missing(original.clone()), original);
+        let original = Fault::new(ErrorCode::PermissionDenied, "access denied");
+        assert_eq!(missing(original.clone()), original);
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = root(&temporary.path().canonicalize().unwrap()).unwrap();
+        let error = crate::files::open_regular(&root, "missing").unwrap_err();
+        assert_eq!(error.code, ErrorCode::NotFound);
+        assert_eq!(error.details, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_link_and_policy_failures() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("file"), "outside").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("linked")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("file"), root.join("file-link")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("missing"), root.join("broken-link"))
+            .unwrap();
+        for relative in [
+            "linked/file",
+            "file-link",
+            "broken-link",
+            "../file",
+            ".sailry/worktrees/id/file",
+        ] {
+            assert_eq!(
+                file(root.as_path().into(), relative).unwrap_err().details,
+                None
+            );
+        }
+        assert_eq!(
+            file(root.join("linked").as_path().into(), "file")
+                .unwrap_err()
+                .details,
+            None
+        );
+    }
 
     #[test]
     fn rejects_unconfined_paths() {

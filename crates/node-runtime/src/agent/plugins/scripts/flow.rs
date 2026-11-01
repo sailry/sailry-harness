@@ -249,7 +249,7 @@ impl Script {
                     }
                     outcome = match result {
                         Ok(output) => output,
-                        Err(error) => json!({"error":error,"isError":true}),
+                        Err(error) => operations::failure(call.call.operation, error),
                     };
                     if uncertain(&outcome) {
                         return Ok(outcome);

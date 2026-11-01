@@ -46,10 +46,7 @@ pub(crate) fn bytes<'a>(
     path: &str,
 ) -> Result<Vec<u8>, Fault> {
     let root = root.into();
-    let parts = root.components(path, false)?;
-    let (name, parents) = parts.split_last().unwrap();
-    let dir = crate::files::path::descend(crate::files::path::root(root.path())?, parents)?;
-    let file = crate::files::open_regular(&dir, name)?;
+    let file = crate::files::path::file(root, path)?;
     let mut bytes = Vec::new();
     file.take(LIMIT as u64 + 1)
         .read_to_end(&mut bytes)

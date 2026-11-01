@@ -47,6 +47,8 @@ pub enum FaultDetails {
     StorageConflict,
     /// The plugin value owner rejected a key's expected revision before commit.
     PluginValueConflict,
+    /// The requested path was absent after its worktree root was opened.
+    WorktreePathNotFound,
     /// A transport operation failed before a response was available.
     /// This describes the cause, not permission to replay side effects.
     Network,

@@ -148,6 +148,10 @@ async fn executes_in_existing_worktrees() {
                     plugin_tool("code", "code_context"),
                     json!({"name":"observed_symbol"}),
                 ),
+                (
+                    plugin_tool("code", "code_outline"),
+                    json!({"path":"missing.rs"}),
+                ),
             ])
             .await;
             let mut fixture = process::Fixture::packages(remote, &server, &["code"]).await;
@@ -208,6 +212,33 @@ async fn executes_in_existing_worktrees() {
             assert_eq!(snippets[0]["file_revision"], revision);
             assert_eq!(snippets[0]["text"], SOURCE);
             assert!(serde_json::to_vec(&context).unwrap().len() <= 16 * 1024);
+            let missing = tool_details(&fixture.client, &page)
+                .await
+                .into_iter()
+                .rev()
+                .find_map(|(name, detail)| {
+                    (name == plugin_tool("code", "code_outline")).then_some(detail.result.unwrap())
+                })
+                .expect("missing outline result expected");
+            assert_eq!(missing["isError"], true, "{missing:?}");
+            assert_eq!(missing["error"]["code"], "not_found", "{missing:?}");
+            assert_eq!(
+                missing["error"]["details"]["kind"],
+                "worktree_path_not_found"
+            );
+            assert!(
+                missing["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("worktree filesystem operation failed: "),
+                "{missing:?}"
+            );
+            assert_eq!(missing["sailry_result"]["expected"], "file_not_found");
+            assert_eq!(missing["sailry_result"]["diagnostics"][0]["error"], false);
+            assert_eq!(
+                missing["sailry_result"]["diagnostics"][0]["text"],
+                missing["error"]["message"]
+            );
             assert!(
                 fixture
                     .node
@@ -220,6 +251,69 @@ async fn executes_in_existing_worktrees() {
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }
+    }
+}
+
+#[tokio::test]
+async fn reports_removed_context_sources() {
+    for remote in [false, true] {
+        let tool = plugin_tool("code", "code_context");
+        let server = Server::tools(vec![(tool.clone(), json!({"name":"observed_symbol"}))]).await;
+        let fixture = process::Fixture::packages(remote, &server, &["code"]).await;
+        std::fs::write(fixture.root.join("source.rs"), SOURCE).unwrap();
+        let (searched, resume_search) = fixture.node.hold_plugin_tool_fixture(&tool, None);
+        let (reading, resume_read) = fixture.node.hold_plugin_tool_fixture(&tool, None);
+        let turn = submit(&fixture, "code").await;
+        let request = tokio::time::timeout(Duration::from_secs(10), searched)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(request.command, Command::SearchCode { .. }));
+        resume_search.cancel();
+        let request = tokio::time::timeout(Duration::from_secs(10), reading)
+            .await
+            .unwrap()
+            .unwrap();
+        let Command::ReadFileLines {
+            worktree,
+            path,
+            expected_revision,
+            ..
+        } = request.command
+        else {
+            panic!("revision-checked context read expected");
+        };
+        assert_eq!(worktree, fixture.session.worktree);
+        assert_eq!(path, "source.rs");
+        assert_eq!(
+            expected_revision,
+            Some(blake3::hash(SOURCE.as_bytes()).to_hex().to_string())
+        );
+        std::fs::remove_file(fixture.root.join(path)).unwrap();
+        resume_read.cancel();
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{page:?}"
+        );
+        let outputs = results(&fixture.client, &page).await;
+        assert_eq!(outputs.len(), 1, "{outputs:?}");
+        let missing = &outputs[0];
+        assert_eq!(missing["isError"], true, "{missing:?}");
+        assert_eq!(missing["error"]["code"], "not_found", "{missing:?}");
+        assert_eq!(
+            missing["error"]["details"]["kind"],
+            "worktree_path_not_found"
+        );
+        assert_eq!(missing["sailry_result"]["expected"], "file_not_found");
+        assert_eq!(missing["sailry_result"]["diagnostics"][0]["error"], false);
+        assert_eq!(
+            missing["sailry_result"]["diagnostics"][0]["text"],
+            missing["error"]["message"]
+        );
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }
 

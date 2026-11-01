@@ -1,4 +1,4 @@
-use super::{Control, io_error, open_regular, path, read_bytes};
+use super::{Control, io_error, path, read_bytes};
 use sailry_protocol::{
     ErrorCode, Fault, FileLine, FileLines, MAX_EDIT_BYTES, MAX_FILE_BYTES, MAX_FILE_LINES,
 };
@@ -29,10 +29,7 @@ pub(super) fn read_version<'a>(
     let page_limit = limit.min(MAX_FILE_LINES);
     let scope = root.into();
     control.check()?;
-    let parts = scope.components(&path, false)?;
-    let (name, parents) = parts.split_last().unwrap();
-    let directory = path::descend(path::root(scope.path())?, parents)?;
-    let mut file = open_regular(&directory, name)?;
+    let mut file = path::file(scope, &path)?;
     let before = file.metadata().map_err(io_error)?;
     let mut hash = blake3::Hasher::new();
     let mut buffer = [0; 8192];
@@ -166,10 +163,7 @@ pub(crate) fn bounded<'a>(
     }
     let scope = root.into();
     control.check()?;
-    let parts = scope.components(relative, false)?;
-    let (name, parents) = parts.split_last().unwrap();
-    let directory = path::descend(path::root(scope.path())?, parents)?;
-    let mut file = open_regular(&directory, name)?;
+    let mut file = path::file(scope, relative)?;
     let before = file.metadata().map_err(io_error)?;
     if before.len() > limit as u64 {
         return Ok(None);

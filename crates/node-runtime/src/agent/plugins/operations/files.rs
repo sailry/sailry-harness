@@ -84,18 +84,21 @@ fn find_limit() -> usize {
     sailry_protocol::MAX_FIND_MATCHES
 }
 
-pub(super) fn failure(operation: Operation, error: Fault) -> Value {
+pub(in crate::agent::plugins) fn failure(operation: Operation, error: Fault) -> Value {
     use sailry_protocol::tool::{Diagnostic, Expected, ResultDisplay};
-    let expected = (error.code == ErrorCode::NotFound)
-        .then_some(match operation {
-            Operation::ListDirectory => Some(Expected::DirectoryNotFound),
-            Operation::ReadFile
-            | Operation::ReadFileLines
-            | Operation::ReadOffice
-            | Operation::ReadNotebook => Some(Expected::FileNotFound),
-            _ => None,
-        })
-        .flatten();
+    let expected = (error.code == ErrorCode::NotFound
+        && error.details == Some(sailry_protocol::FaultDetails::WorktreePathNotFound))
+    .then_some(match operation {
+        Operation::ListDirectory => Some(Expected::DirectoryNotFound),
+        Operation::ReadFile
+        | Operation::ReadFileLines
+        | Operation::ReadOffice
+        | Operation::ReadNotebook
+        | Operation::OutlineCode
+        | Operation::InspectMedia => Some(Expected::FileNotFound),
+        _ => None,
+    })
+    .flatten();
     let mut result = json!({"error":error,"isError":true});
     if let Some(expected) = expected {
         result["sailry_result"] = json!(ResultDisplay {
@@ -474,21 +477,41 @@ mod tests {
         for (operation, expected) in [
             (Operation::ListDirectory, Some(Expected::DirectoryNotFound)),
             (Operation::ReadFile, Some(Expected::FileNotFound)),
+            (Operation::ReadFileLines, Some(Expected::FileNotFound)),
             (Operation::ReadOffice, Some(Expected::FileNotFound)),
             (Operation::ReadNotebook, Some(Expected::FileNotFound)),
+            (Operation::OutlineCode, Some(Expected::FileNotFound)),
+            (Operation::InspectMedia, Some(Expected::FileNotFound)),
             (Operation::WriteFile, None),
+            (Operation::EditFile, None),
+            (Operation::DeleteFile, None),
+            (Operation::MoveFile, None),
+            (Operation::CreateDirectory, None),
             (Operation::EditNotebook, None),
             (Operation::SearchFiles, None),
         ] {
-            let result = failure(operation, Fault::new(ErrorCode::NotFound, "Raw diagnostic"));
-            assert_eq!(result["error"]["message"], "Raw diagnostic");
+            let mut missing = Fault::new(ErrorCode::NotFound, "Raw diagnostic");
+            missing.details = Some(sailry_protocol::FaultDetails::WorktreePathNotFound);
+            let result = failure(operation, missing.clone());
+            assert_eq!(result["error"], json!(missing));
             assert_eq!(result["isError"], true);
             assert_eq!(
                 ResultDisplay::from_value(&result).and_then(|display| display.expected),
                 expected
             );
-            let denied = failure(operation, Fault::new(ErrorCode::PermissionDenied, "Denied"));
-            assert!(ResultDisplay::from_value(&denied).is_none());
+            let mut denied = Fault::new(ErrorCode::PermissionDenied, "Denied");
+            denied.details = missing.details;
+            for error in [
+                Fault::new(ErrorCode::NotFound, "worktree is unavailable"),
+                Fault::new(ErrorCode::NotFound, "attachment is unavailable"),
+                Fault::new(ErrorCode::Unavailable, "media endpoint returned HTTP 404"),
+                denied,
+            ] {
+                let result = failure(operation, error.clone());
+                assert_eq!(result["error"], json!(error));
+                assert_eq!(result["isError"], true);
+                assert!(ResultDisplay::from_value(&result).is_none());
+            }
         }
     }
 }

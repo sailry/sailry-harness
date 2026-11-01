@@ -20,6 +20,7 @@ mod schema;
 #[cfg(test)]
 mod tests;
 pub(super) use crate::plugins::tools::alias;
+pub(super) use files::failure;
 
 pub(super) fn bind(
     ingress: &Arc<Ingress>,

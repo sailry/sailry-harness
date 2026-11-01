@@ -279,10 +279,7 @@ impl Control {
 }
 
 fn read(root: Scope<'_>, path: String, control: &Control) -> Result<FileContent, Fault> {
-    let parts = root.components(&path, false)?;
-    let dir = path::descend(path::root(root.path())?, &parts[..parts.len() - 1])?;
-    let name = parts[parts.len() - 1];
-    let mut file = open_regular(&dir, name)?;
+    let mut file = path::file(root, &path)?;
     let metadata = file.metadata().map_err(io_error)?;
     let bytes = read_bytes(&mut file, MAX_FILE_BYTES + 1, control)?;
     let truncated = bytes.len() > MAX_FILE_BYTES;
@@ -367,6 +364,68 @@ mod tests {
         Command::ReadFile {
             worktree: WorktreeId::new(),
             path: "AGENTS.md".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn distinguishes_missing_paths() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let worktree = WorktreeId::new();
+        let files = Files::new();
+        for path in ["missing.ipynb", "missing/file.ipynb"] {
+            let commands = [
+                Command::ReadFile {
+                    worktree,
+                    path: path.into(),
+                },
+                Command::ReadFileLines {
+                    worktree,
+                    path: path.into(),
+                    offset: 0,
+                    limit: 1,
+                    expected_revision: None,
+                },
+                Command::ListDirectory {
+                    worktree,
+                    path: path.into(),
+                    after: None,
+                },
+                Command::ReadNotebook {
+                    worktree,
+                    options: sailry_protocol::notebook::Read {
+                        path: path.into(),
+                        offset: 0,
+                        limit: 1,
+                    },
+                },
+                Command::ReadOffice {
+                    worktree,
+                    options: office::Read {
+                        source: office::Source::Path(path.into()),
+                        offset: 0,
+                    },
+                },
+            ];
+            for (directory, expected) in [
+                (root.clone(), Some(FaultDetails::WorktreePathNotFound)),
+                (root.join("absent-root"), None),
+            ] {
+                for command in &commands {
+                    let error = files
+                        .inspect(directory.clone(), command.clone(), CancellationToken::new())
+                        .await
+                        .unwrap_err();
+                    assert_eq!(error.code, ErrorCode::NotFound, "{command:?}: {error:?}");
+                    assert_eq!(error.details, expected, "{command:?}: {error:?}");
+                }
+                let error = files
+                    .media_input(directory, path.into(), CancellationToken::new())
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.code, ErrorCode::NotFound);
+                assert_eq!(error.details, expected);
+            }
         }
     }
 

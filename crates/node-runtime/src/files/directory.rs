@@ -27,7 +27,8 @@ pub(super) fn list<'a>(
     {
         return Err(Fault::invalid("invalid directory cursor"));
     }
-    let dir = path::descend(path::root(root)?, &parts)?;
+    let dir = path::root(root)?;
+    let dir = path::descend(dir, &parts).map_err(path::missing)?;
     let revision = revision(&dir, root, &path)?;
     if after.is_some_and(|after| after.revision != revision) {
         return Err(changed());

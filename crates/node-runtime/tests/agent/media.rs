@@ -137,6 +137,14 @@ async fn restores_frozen_execution() {
                 plugin_tool("media", "generate_image"),
                 json!({"prompt":"Invalid artifact", "file_name":"invalid.png"}),
             ),
+            (
+                plugin_tool("media", "inspect_image"),
+                json!({"prompt":"Describe this image", "path":"missing.png"}),
+            ),
+            (
+                plugin_tool("media", "inspect_image"),
+                json!({"prompt":"Describe this image", "attachment":AttachmentId::new()}),
+            ),
         ])
         .await;
         let (base, mut provider) = configured_session(&client, &server.endpoint, &root).await;
@@ -276,14 +284,14 @@ async fn restores_frozen_execution() {
                 _ => None,
             })
             .collect();
-        assert_eq!(calls.len(), 5);
+        assert_eq!(calls.len(), 7);
         assert!(
             calls
                 .iter()
                 .all(|name| name.starts_with(&plugin_tool("media", "")))
         );
         let results: Vec<_> = results(&client, &page).await;
-        assert_eq!(results.len(), 5);
+        assert_eq!(results.len(), 7);
         assert_eq!(results[0]["text"], "One bright pixel", "{results:?}");
         assert_eq!(
             results[1]["path"], "assets/generated/image.png",
@@ -295,6 +303,24 @@ async fn restores_frozen_execution() {
         );
         assert_eq!(results[3]["error"]["code"], "revision_conflict");
         assert_eq!(results[4]["error"]["code"], "unavailable");
+        assert!(results[4].get("sailry_result").is_none());
+        let missing = &results[5];
+        assert_eq!(missing["isError"], true, "{missing:?}");
+        assert_eq!(missing["error"]["code"], "not_found", "{missing:?}");
+        assert_eq!(
+            missing["error"]["details"]["kind"],
+            "worktree_path_not_found"
+        );
+        assert_eq!(missing["sailry_result"]["expected"], "file_not_found");
+        assert_eq!(missing["sailry_result"]["diagnostics"][0]["error"], false);
+        assert_eq!(
+            missing["sailry_result"]["diagnostics"][0]["text"],
+            missing["error"]["message"]
+        );
+        assert_eq!(results[6]["isError"], true, "{results:?}");
+        assert_eq!(results[6]["error"]["code"], "not_found", "{results:?}");
+        assert!(results[6]["error"].get("details").is_none());
+        assert!(results[6].get("sailry_result").is_none());
         assert!(!root.join("assets/generated/invalid.png").exists());
         let usage_query = sailry_protocol::usage::Query {
             start_ms: chrono::Utc::now().timestamp_millis() - 60_000,
