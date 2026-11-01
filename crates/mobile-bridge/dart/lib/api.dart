@@ -17,6 +17,9 @@ abstract class Controller implements RustOpaqueInterface {
 
   Future<Connection> connect({required String address});
 
+  /// Forget this device's saved pairing without contacting the host.
+  Future<void> forget({required String address});
+
   Future<void> markNotificationRead({required String id});
 
   Future<void> markNotificationsRead();
