@@ -382,14 +382,6 @@
   "taskActions": "Task actions",
   "archiveShort": "Archive",
   "archiveTab": "Archived",
-  "archivedCount": "Archived {count}",
-  "@archivedCount": {
-    "placeholders": {
-      "count": {
-        "type": "String"
-      }
-    }
-  },
   "archivedTasks": "Archived",
   "delete": "Delete",
   "deleteTask": "Delete chat",

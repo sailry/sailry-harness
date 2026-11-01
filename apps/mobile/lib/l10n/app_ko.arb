@@ -382,7 +382,6 @@
   "taskActions": "작업 동작",
   "archiveShort": "압축 파일",
   "archiveTab": "보관함",
-  "archivedCount": "보관함 {count}",
   "archivedTasks": "보관함",
   "delete": "삭제",
   "deleteTask": "채팅 삭제",

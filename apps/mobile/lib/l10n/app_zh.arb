@@ -454,7 +454,6 @@
   "taskActions": "任务操作",
   "archiveShort": "存档",
   "archiveTab": "归档",
-  "archivedCount": "已归档 {count}",
   "archivedTasks": "已存档",
   "delete": "删除",
   "deleteTask": "删除会话",

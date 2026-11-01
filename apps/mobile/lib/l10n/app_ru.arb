@@ -382,7 +382,6 @@
   "taskActions": "Действия по задачам",
   "archiveShort": "Архив",
   "archiveTab": "Архивировано",
-  "archivedCount": "В архиве {count}",
   "archivedTasks": "Архивировано",
   "delete": "Удалить",
   "deleteTask": "Удалить чат",

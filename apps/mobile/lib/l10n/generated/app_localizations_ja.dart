@@ -968,11 +968,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get archiveTab => 'アーカイブ';
 
   @override
-  String archivedCount(String count) {
-    return 'アーカイブ $count';
-  }
-
-  @override
   String get archivedTasks => 'アーカイブ';
 
   @override

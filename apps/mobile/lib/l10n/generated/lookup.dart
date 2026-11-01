@@ -325,7 +325,6 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'taskActions' => strings.taskActions,
   'archiveShort' => strings.archiveShort,
   'archiveTab' => strings.archiveTab,
-  'archivedCount' => strings.archivedCount('{count}'),
   'archivedTasks' => strings.archivedTasks,
   'delete' => strings.delete,
   'deleteTask' => strings.deleteTask,

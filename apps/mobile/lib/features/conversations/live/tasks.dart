@@ -376,7 +376,9 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 TaskFilters(
                   selected: _filter,
                   counts: counts,
+                  archived: archived,
                   onSelected: (filter) => setState(() => _filter = filter),
+                  onArchive: () => setState(() => _filter = 'archived'),
                 )
               else
                 TaskScope(
@@ -445,21 +447,6 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                     divider: index < terminals.length - 1,
                   ),
               ],
-              if (_filter != 'archived' && archived > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Center(
-                    child: TextButton(
-                      key: const ValueKey('task-archive'),
-                      onPressed: () => setState(() => _filter = 'archived'),
-                      child: Text(
-                        context
-                            .tr('archivedCount')
-                            .replaceAll('{count}', '$archived'),
-                      ),
-                    ),
-                  ),
-                ),
             ],
           ),
         ),

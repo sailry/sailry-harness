@@ -382,7 +382,6 @@
   "taskActions": "タスクアクション",
   "archiveShort": "ファイル",
   "archiveTab": "アーカイブ",
-  "archivedCount": "アーカイブ {count}",
   "archivedTasks": "アーカイブ",
   "delete": "削除",
   "deleteTask": "チャットを削除",

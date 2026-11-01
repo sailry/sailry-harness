@@ -2,108 +2,82 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../ui/kit.dart';
-import '../../../ui/theme.dart';
+import '../../../ui/pill_tabs.dart';
 
 /// Status filters shown as tabs; archive and terminal views are reached elsewhere.
 const taskFilters = ['all', 'waiting', 'running', 'completed'];
 
-StatusTone? _filterTone(String filter) => switch (filter) {
-  'waiting' => StatusTone.warning,
-  'running' => StatusTone.running,
-  'completed' => StatusTone.success,
-  _ => null,
-};
-
-/// Equal-width glass tabs with each status's count and list dot color.
+/// Status tabs sized to their labels, with the archive entry at the end.
 class TaskFilters extends StatelessWidget {
   const TaskFilters({
     super.key,
     required this.selected,
     required this.counts,
+    required this.archived,
     required this.onSelected,
+    required this.onArchive,
   });
 
   final String selected;
   final Map<String, int> counts;
+  final int archived;
   final ValueChanged<String> onSelected;
+  final VoidCallback onArchive;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Surface(
-      radius: 16,
-      padding: const EdgeInsets.all(4),
-      child: Row(
-        spacing: 4,
-        children: [
-          for (final filter in taskFilters)
-            Expanded(child: _tab(context, colors, filter)),
-        ],
-      ),
-    );
-  }
-
-  Widget _tab(BuildContext context, ColorScheme colors, String filter) {
-    final active = filter == selected;
-    final count = counts[filter] ?? 0;
-    final tone = _filterTone(filter);
-    return Semantics(
-      selected: active,
-      child: TextButton(
-        key: ValueKey('task-filter-$filter'),
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          minimumSize: const Size(0, 34),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          backgroundColor: active
-              ? colors.onSurface.withValues(alpha: .08)
-              : Colors.transparent,
-          foregroundColor: active ? colors.onSurface : colors.onSurfaceVariant,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+    return Row(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: PillTabs<String>(
+              tabs: [
+                for (final filter in taskFilters)
+                  (
+                    value: filter,
+                    label: context.tr(filter),
+                    count: filter == 'all' || (counts[filter] ?? 0) == 0
+                        ? null
+                        : counts[filter],
+                  ),
+              ],
+              selected: selected,
+              onSelected: onSelected,
+            ),
           ),
         ),
-        onPressed: () => onSelected(filter),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (tone != null && count > 0) ...[
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: SailryTheme.statusColor(context, tone),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 5),
-            ],
-            Flexible(
-              child: Text(
-                context.tr(filter),
-                maxLines: 1,
-                overflow: TextOverflow.fade,
-                softWrap: false,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: active ? FontWeight.w500 : FontWeight.w400,
-                ),
+        if (archived > 0)
+          TextButton(
+            key: const ValueKey('task-archive'),
+            style: TextButton.styleFrom(
+              foregroundColor: colors.onSurfaceVariant,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              minimumSize: const Size(0, 36),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: const StadiumBorder(),
+            ),
+            onPressed: onArchive,
+            child: Semantics(
+              label: context.tr('archiveTab'),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                spacing: 4,
+                children: [
+                  AppIcon('archive', size: 16, color: colors.onSurfaceVariant),
+                  Text(
+                    '$archived',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
               ),
             ),
-            if (tone != null && count > 0) ...[
-              const SizedBox(width: 4),
-              Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colors.onSurfaceVariant.withValues(alpha: .7),
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }

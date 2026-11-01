@@ -42,9 +42,7 @@ class PillTabs<T> extends StatelessWidget {
             foregroundColor: active
                 ? colors.onSurface
                 : colors.onSurfaceVariant,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            shape: const StadiumBorder(),
           ),
           onPressed: onSelected == null
               ? null
