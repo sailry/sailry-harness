@@ -4,7 +4,6 @@ use super::*;
 use gpui_kit::component::{
     avatar::Avatar, badge::Badge, scroll::ScrollableElement as _, separator::Separator,
 };
-use gpui_kit::prelude::FluentBuilder as _;
 use sailry_protocol::{RoleId, TeamId, projects::Appearance, role, team};
 
 /// Height of the team row, including the gap above the effort controls.

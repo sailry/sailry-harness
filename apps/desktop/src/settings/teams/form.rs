@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{tr, workspace::appearance as identity};
 use gpui_kit::component::{
-    button::{Button, ButtonVariants},
+    button::Button,
     form::Field,
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu, PopupMenuItem},
@@ -184,7 +184,7 @@ impl RoleForm {
         cx.notify();
     }
 
-    fn presets(&self, cx: &mut Context<Self>) -> Button {
+    fn presets(&self, cx: &mut Context<Self>) -> AnyElement {
         let owner = cx.entity().downgrade();
         Button::new("role-presets")
             .outline()
@@ -202,6 +202,7 @@ impl RoleForm {
                     ))
                 })
             })
+            .into_any_element()
     }
 
     fn identity(&self, cx: &mut Context<Self>) -> Popover {
@@ -239,7 +240,7 @@ impl RoleForm {
             )
     }
 
-    fn prompt(&self, presets: Option<Button>) -> impl IntoElement + use<> {
+    fn prompt(&self, presets: Option<AnyElement>) -> impl IntoElement + use<> {
         v_flex()
             .w_full()
             .gap_2()
