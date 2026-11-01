@@ -26,18 +26,18 @@ async fn drains_with_full_root_pool() {
         });
         let parent = Server::parallel(vec![
             (
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role": "review", "task": "Wait A"}),
             ),
             (
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role": "review", "task": "Wait B"}),
             ),
         ])
         .await;
         let child = Server::start(true).await;
         let (session, provider, role) = setup(&client, &root, &parent, &child).await;
-        capacity(&client, "delegation", 16).await;
+        capacity(&client, 16).await;
         let captured = session.roles.providers.clone();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].id, provider.id);

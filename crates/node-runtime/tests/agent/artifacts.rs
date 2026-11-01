@@ -813,7 +813,7 @@ async fn preserves_documents_when_stopped() {
 async fn excludes_writes_from_delegated_tools() {
     for remote in [false, true] {
         let parent = Server::tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Inspect the options"}),
         )])
         .await;

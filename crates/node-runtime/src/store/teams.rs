@@ -4,6 +4,8 @@ use super::database::{encode, storage_error};
 use sailry_protocol::{ErrorCode, Fault, RoleId, TeamId, team};
 use turso::{Connection, params};
 
+pub(super) mod settings;
+
 fn decode(row: &turso::Row) -> Result<team::Profile, Fault> {
     serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?).map_err(storage_error)
 }

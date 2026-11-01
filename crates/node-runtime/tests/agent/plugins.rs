@@ -65,26 +65,12 @@ async fn scopes_tool_switches_to_the_execution_node() {
         let origin = Client::new(other.local());
         approvals::install(
             &client,
-            &[
-                "git",
-                "commands",
-                "files",
-                "memory",
-                "delegation",
-                "worktrees",
-            ],
+            &["git", "commands", "files", "memory", "worktrees"],
         )
         .await;
         approvals::install(
             &origin,
-            &[
-                "git",
-                "commands",
-                "files",
-                "memory",
-                "delegation",
-                "worktrees",
-            ],
+            &["git", "commands", "files", "memory", "worktrees"],
         )
         .await;
         progress::install(&client).await;
@@ -98,7 +84,6 @@ async fn scopes_tool_switches_to_the_execution_node() {
             "files",
             "memory",
             "progress",
-            "delegation",
             "worktrees",
         ] {
             let Output::Plugin(commands) = client

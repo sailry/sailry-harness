@@ -54,7 +54,7 @@ impl Fixture {
             None => transport,
         };
         let client = Arc::new(Client::new(transport.clone()));
-        for name in ["files", "delegation"] {
+        for name in ["files"] {
             let Output::Plugin(info) = execute(
                 &client,
                 Command::InstallBundledPlugin {

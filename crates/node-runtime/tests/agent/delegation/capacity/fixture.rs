@@ -211,7 +211,7 @@ impl Fixture {
     }
 
     pub async fn capacity(&self, count: u64) {
-        super::super::capacity(&self.client, "example", count).await;
+        super::super::capacity(&self.client, count).await;
     }
 
     pub async fn upgrade(&mut self) {

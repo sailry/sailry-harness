@@ -90,21 +90,29 @@ pub(super) async fn validate(
                         super::plugins::assistant(db, binding).await?
                     };
                     let packages = super::plugins::packages(db, &references).await?;
-                    let allowed = packages.iter().any(|package| {
-                        package.extension.as_ref().is_some_and(|extension| {
-                            extension.tools.iter().any(|tool| {
-                                (tool.operation.or_else(|| {
-                                    tool.handler.as_ref().and_then(|handler| handler.operation)
-                                }) == Some(sailry_protocol::tool::Operation::DelegateAgent))
-                                    && crate::plugins::conversation::selects(
-                                        Some(binding),
-                                        &packages,
-                                        package,
-                                        &tool.name,
-                                    )
+                    let builtin = crate::plugins::conversation::declaration(binding, &packages)
+                        .is_ok_and(|declaration| {
+                            declaration.tools.iter().any(|tool| {
+                                matches!(tool, sailry_protocol::plugin::conversation::Tool::Builtin { name }
+                                    if name == crate::agent::delegation::tools::SPAWN)
                             })
-                        })
-                    });
+                        });
+                    let allowed = builtin
+                        || packages.iter().any(|package| {
+                            package.extension.as_ref().is_some_and(|extension| {
+                                extension.tools.iter().any(|tool| {
+                                    (tool.operation.or_else(|| {
+                                        tool.handler.as_ref().and_then(|handler| handler.operation)
+                                    }) == Some(sailry_protocol::tool::Operation::DelegateAgent))
+                                        && crate::plugins::conversation::selects(
+                                            Some(binding),
+                                            &packages,
+                                            package,
+                                            &tool.name,
+                                        )
+                                })
+                            })
+                        });
                     if !allowed {
                         return Err(Fault::new(
                             ErrorCode::PermissionDenied,

@@ -5,7 +5,7 @@ use sailry_protocol::hooks::{Script, Settings};
 async fn skips_scripts_in_read_only_children() {
     for remote in [false, true] {
         let parent = Server::parallel(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"explore","task":"Read source.txt"}),
         )])
         .await;

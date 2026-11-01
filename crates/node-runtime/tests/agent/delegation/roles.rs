@@ -40,11 +40,7 @@ async fn inherits_parent_model() {
             if let Some(role) = selection {
                 args["role"] = json!(role);
             }
-            let server = Server::parallel(vec![(
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
-                args,
-            )])
-            .await;
+            let server = Server::parallel(vec![("spawn_agent".to_string(), args)]).await;
             install(&client).await;
             let (mut session, mut provider) =
                 configured_session(&client, &server.endpoint, &root).await;
@@ -113,11 +109,7 @@ async fn inherits_parent_model() {
                 session = updated;
             }
             let mut config = session.config.clone();
-            config
-                .options
-                .entry("delegation".into())
-                .or_default()
-                .insert("mode".into(), json!("multitask"));
+            config.mode = sailry_protocol::WorkMode::Flagship;
             let Output::Session(updated) = client
                 .execute(client.prepare(Command::SetSessionConfig {
                     session: session.id,
@@ -292,7 +284,7 @@ async fn validates_role_requirements() {
             } else {
                 node.local()
             });
-            let spawn = crate::agent_support::plugin_tool("delegation", "spawn_agent");
+            let spawn = "spawn_agent".to_string();
             let parent = Server::tools(vec![
                 ("tool_search".into(), json!({"query":spawn,"limit":1})),
                 (

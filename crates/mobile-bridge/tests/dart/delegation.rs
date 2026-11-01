@@ -15,11 +15,11 @@ fn recovers_and_stops_children() {
     let text = "完整子任务结果 🙂\n".repeat(200);
     let parent = runtime.block_on(support::Server::parallel(vec![
         (
-            super::agent_support::plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role": "review", "task": "独立任务 A 🙂"}),
         ),
         (
-            super::agent_support::plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role": "review", "task": "独立任务 B 🙂"}),
         ),
     ]));

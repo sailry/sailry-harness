@@ -17,7 +17,7 @@ fn assert_call(page: &Page, approval: &Approval) {
 async fn isolates_repeated_call_identity() {
     for remote in [false, true] {
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role": "review", "task": "Initial approved write"}),
         )])
         .await;
@@ -59,7 +59,7 @@ async fn isolates_repeated_call_identity() {
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
 
         let next_parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"session": child.id, "task": "Second denied write"}),
         )])
         .await;
@@ -166,7 +166,7 @@ async fn isolates_repeated_call_identity() {
                 .unwrap();
             assert!(matches!(entry.parts.get(summary.origin.index),
                 Some(Part::ToolCall { id: Some(id), name, .. })
-                    if id == "call-fixture-0" && name == &plugin_tool("delegation", "spawn_agent")
+                    if id == "call-fixture-0" && name == &"spawn_agent".to_string()
             ));
             let mut page = parent.clone();
             std::sync::Arc::make_mut(&mut page.entries).retain(|entry| entry.turn == parent_turn);

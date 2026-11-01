@@ -4,7 +4,7 @@ use super::{fixture::Fixture, *};
 async fn loads_the_skill_without_expanding_authority() {
     for remote in [false, true] {
         let parent = Server::parallel(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"research","task":"Investigate the assigned public sources within the given budget"}),
         )]).await;
         let unused = Server::start(false).await;
@@ -39,16 +39,8 @@ async fn loads_the_skill_without_expanding_authority() {
             .await
             .unwrap();
         let mut config = fixture.session.config.clone();
-        config.mode = WorkMode::Code;
+        config.mode = WorkMode::Flagship;
         config.permission = Permission::Full;
-        config.options.insert(
-            "delegation".into(),
-            [
-                ("proactive".into(), json!(true)),
-                ("mode".into(), json!("multitask")),
-            ]
-            .into(),
-        );
         let Output::Session(session) = fixture
             .client
             .execute(fixture.client.prepare(Command::SetSessionConfig {
@@ -94,11 +86,6 @@ async fn loads_the_skill_without_expanding_authority() {
         let mut expected = turn.config;
         expected.mode = WorkMode::Plan;
         assert_eq!(child.config, expected);
-        assert_eq!(child.config.options["delegation"]["proactive"], json!(true));
-        assert_eq!(
-            child.config.options["delegation"]["mode"],
-            json!("multitask")
-        );
         assert_eq!(child.delegation.as_ref().unwrap().role, Some(role.id));
         let requests = fixture.parent.requests.lock().unwrap().clone();
         let request = requests

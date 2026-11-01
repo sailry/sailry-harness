@@ -81,7 +81,7 @@ async fn select(fixture: &mut Fixture, fixed: bool, dispatch: bool) -> role::Pro
 async fn inherits_model_without_write_authority() {
     for remote in [false, true] {
         let parent = Server::parallel(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"explore","task":"Inspect the existing project"}),
         )])
         .await;
@@ -151,7 +151,7 @@ async fn inherits_model_without_write_authority() {
 async fn reuses_frozen_read_only_role() {
     for remote in [false, true] {
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"explore","task":"Read source.txt and inspect private state"}),
         )])
         .await;
@@ -211,7 +211,7 @@ async fn reuses_frozen_read_only_role() {
         )
         .await;
         let reused = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"session":child.id,"task":"Read source.txt and inspect private state again"}),
         )])
         .await;
@@ -246,7 +246,7 @@ async fn reuses_frozen_read_only_role() {
 async fn preserves_writable_child_configuration() {
     for remote in [false, true] {
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Inspect the project"}),
         )])
         .await;

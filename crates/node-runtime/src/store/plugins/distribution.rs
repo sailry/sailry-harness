@@ -1,8 +1,26 @@
 //! Missing defaults and bundled settings refresh reuse ordinary installation.
 use super::*;
 
+pub(in crate::store) mod retired;
 #[cfg(test)]
 mod tests;
+
+async fn record(db: &Connection, event: &Event) -> Result<(), Fault> {
+    db.execute(
+        "INSERT INTO events(cursor,body) VALUES(?1,?2)",
+        params![
+            crate::store::database::counters::next(
+                db,
+                crate::store::database::counters::Namespace::Events
+            )
+            .await? as i64,
+            encode(event)?
+        ],
+    )
+    .await
+    .map_err(storage_error)?;
+    Ok(())
+}
 
 #[cfg(test)]
 pub(in crate::store) async fn install(
@@ -80,6 +98,9 @@ pub(in crate::store) async fn initialize(
             .await
             .map_err(storage_error)?;
         }
+    }
+    for event in retired::retire(db).await? {
+        record(db, &event).await?;
     }
     refresh(db, host).await?;
     for summary in list(db).await? {

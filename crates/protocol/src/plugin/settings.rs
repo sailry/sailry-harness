@@ -69,6 +69,8 @@ pub struct Field {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub time: bool,
+    /// Retained so recorded package schemas still decode. The execution Node owns
+    /// the child budget (`team::Settings`) and only imports this value once.
     #[serde(
         default,
         rename = "x-sailry-child-concurrency",

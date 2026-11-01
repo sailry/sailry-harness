@@ -146,10 +146,7 @@ fn command(script: &str, directory: &std::path::Path, ticket: &str) -> std::proc
             "SAILRY_RUN_TOOL",
             agent_support::plugin_tool("commands", "run_command"),
         )
-        .env(
-            "SAILRY_SPAWN_TOOL",
-            agent_support::plugin_tool("delegation", "spawn_agent"),
-        )
+        .env("SAILRY_SPAWN_TOOL", "spawn_agent")
         .env("SAILRY_PROJECT_PATH", directory);
     command
 }

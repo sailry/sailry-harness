@@ -3,6 +3,41 @@
 use crate::{Fault, RoleId, TeamId};
 use serde::{Deserialize, Serialize};
 
+/// Reserved key of the virtual Default team, which selects the whole role catalog.
+pub const DEFAULT: &str = "default";
+
+/// Default number of children running at once for one main session.
+pub const CHILD_CONCURRENCY: u64 = 8;
+
+/// Execution-Node delegation policy, independent of captured turn settings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Settings {
+    pub revision: u64,
+    /// Children running at once per root main session; later children queue in FIFO order.
+    pub child_concurrency: u64,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            revision: 0,
+            child_concurrency: CHILD_CONCURRENCY,
+        }
+    }
+}
+
+impl Settings {
+    pub fn validate(&self) -> Result<(), Fault> {
+        if self.child_concurrency == 0 {
+            return Err(Fault::invalid(
+                "child concurrency must be a positive integer",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// The execution-Node catalog revision explicitly selected by a controller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reference {
@@ -41,6 +76,9 @@ impl Profile {
             return Err(Fault::invalid(
                 "team key must use lowercase letters, digits, underscores or hyphens",
             ));
+        }
+        if self.key == DEFAULT {
+            return Err(Fault::invalid("team key is reserved for the Default team"));
         }
         if self.name.trim().is_empty() {
             return Err(Fault::invalid("team name is invalid"));

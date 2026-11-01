@@ -63,17 +63,6 @@ impl Fixture {
             identity.id(),
             store.ingress.clone(),
         )));
-        let Output::Plugin(package) = client
-            .execute(client.prepare(Command::InstallBundledPlugin {
-                name: "delegation".into(),
-                expected_revision: 0,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("plugin expected")
-        };
-        assert!(package.issues.is_empty(), "{:?}", package.issues);
         let Output::Project(project) = client
             .execute(client.prepare(Command::RegisterProject {
                 name: "Handoff fixture".into(),
@@ -124,7 +113,7 @@ impl Fixture {
             .unwrap()
             .unwrap();
         assert_eq!(invocation.turn.id, queued.id);
-        let name = crate::plugins::tools::alias("delegation", "spawn_agent");
+        let name = tools::SPAWN.to_owned();
         let arguments = json!({"task":"Read the frozen context"});
         let mut record = Record::new(
             queued.id,

@@ -330,12 +330,12 @@ pub async fn respond_exchange(
             vec![
                 (
                     "delegated-first",
-                    plugin_tool("delegation", "spawn_agent"),
+                    "spawn_agent".to_string(),
                     json!({"role":"review","task":"First child evidence","background":false}),
                 ),
                 (
                     "delegated-second",
-                    plugin_tool("delegation", "spawn_agent"),
+                    "spawn_agent".to_string(),
                     json!({"role":"fast","task":"Second child evidence","background":false}),
                 ),
             ]

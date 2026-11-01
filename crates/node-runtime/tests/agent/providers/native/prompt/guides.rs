@@ -88,8 +88,7 @@ async fn shared_turns_append_changed_guides_once() {
                                 .iter()
                                 .any(|name| {
                                     tool["function"]["name"] == *name
-                                        || tool["function"]["name"]
-                                            == plugin_tool("delegation", name)
+                                        || tool["function"]["name"] == name.to_string()
                                 })
                         })
                 );

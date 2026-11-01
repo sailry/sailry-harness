@@ -2,12 +2,17 @@ use super::*;
 use sailry_protocol::tool::Operation;
 
 async fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) {
-    let mut fixture = Fixture::with_package(Permission::Ask, mode, Some("delegation")).await;
+    let mut fixture = Fixture::with_package(
+        Permission::Ask,
+        mode,
+        Some(crate::store::agent::tests::fixture::ROLES),
+    )
+    .await;
     let owner = super::super::super::plugins::read(&fixture.database.connection, fixture.turn)
         .await
         .unwrap()
         .into_iter()
-        .find(|package| package.name == "delegation")
+        .find(|package| package.name == crate::store::agent::tests::fixture::ROLES)
         .unwrap();
     let role = crate::store::roles::list(&fixture.database.connection)
         .await
@@ -39,7 +44,7 @@ async fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Com
         _ => unreachable!(),
     };
     fixture.request = ToolIdentity {
-        name: crate::plugins::tools::alias("delegation", name),
+        name: crate::plugins::tools::alias(crate::store::agent::tests::fixture::ROLES, name),
         id: Some("role-call".into()),
         arguments: json!({"fixture":"exact canonical arguments"}),
     };

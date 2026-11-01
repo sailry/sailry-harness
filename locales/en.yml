@@ -33,6 +33,18 @@ tool_git_status: Git status
 tool_git_diff: View diff
 tool_git_log: Git history
 tool_spawn_agent: Subagent
+tool_list_agents: "List agents"
+tool_add_agent: "Add agent"
+tool_edit_agent: "Edit agent"
+tool_delete_agent: "Delete agent"
+tool_apply_agents: "Apply agents"
+tool_guide_agent: "Guide subagent"
+tool_wait_agent: "Wait for subagent"
+tool_list_teams: "List teams"
+tool_add_team: "Add team"
+tool_edit_team: "Edit team"
+tool_delete_team: "Delete team"
+tool_apply_team: "Apply team"
 approval_command: Run command
 background_read: Read command output
 background_stop: Stop command

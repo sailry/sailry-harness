@@ -142,7 +142,7 @@ async fn adds_missing_defaults_without_reinstalling_records() {
 
 #[tokio::test]
 async fn refresh_preserves_configuration_and_private_records() {
-    for name in ["code", "delegation"] {
+    for name in ["code", "memory"] {
         let (_directory, host, mut db) = fixture().await;
         let page = required(&db, name)
             .await

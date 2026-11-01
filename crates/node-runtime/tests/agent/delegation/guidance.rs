@@ -12,7 +12,7 @@ fn status(page: &Page, turn: TurnId) -> Status {
 #[tokio::test]
 async fn marks_rejected_child_control() {
     for remote in [false, true] {
-        let name = plugin_tool("delegation", "guide_agent");
+        let name = "guide_agent".to_string();
         let parent = Server::tools(vec![(
             name.clone(),
             json!({"session":SessionId::new(),"message":"Inspect the task"}),
@@ -55,7 +55,7 @@ async fn marks_rejected_child_control() {
 async fn resumes_completed_child() {
     for remote in [false, true] {
         let parent = Server::scripted_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Inspect the assigned task"}),
         )])
         .await;
@@ -68,7 +68,7 @@ async fn resumes_completed_child() {
         let original = history(&fixture.client, child).await;
         let recipient = original.runs[0].turn;
         let requests = fixture.child.requests.lock().unwrap().len();
-        let name = plugin_tool("delegation", "guide_agent");
+        let name = "guide_agent".to_string();
         fixture.parent.replace_tools(vec![(
             name.clone(),
             json!({"session":child,"message":"Inspect another detail"}),
@@ -147,7 +147,7 @@ async fn shows_input_before_child_response() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":MESSAGE}),
         )])
         .await;
@@ -350,7 +350,7 @@ async fn read(fixture: &Fixture, turn: TurnId) -> QueuedMessage {
 
 async fn batch(remote: bool) -> Fixture {
     let parent = Server::turn_tools(vec![(
-        plugin_tool("delegation", "spawn_agent"),
+        "spawn_agent".to_string(),
         json!({"role":"review","task":"Perform the requested writes"}),
     )])
     .await;
@@ -705,7 +705,7 @@ async fn waits_for_the_awaited_child_response() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Initial child task"}),
         )])
         .await;
@@ -751,7 +751,7 @@ async fn retains_guidance_at_iteration_limit() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Initial child task"}),
         )])
         .await;

@@ -649,6 +649,8 @@ pub enum Command {
         team: crate::TeamId,
         expected_revision: u64,
     },
+    ReadTeamSettings,
+    SaveTeamSettings(crate::team::Settings),
     ListProviders,
     /// Explicit API-key read for the provider editor; never returns login tokens.
     ReadProviderKey {
@@ -1675,6 +1677,7 @@ impl Command {
                 | Self::ReadPluginView { .. }
                 | Self::ListRoles
                 | Self::ListTeams
+                | Self::ReadTeamSettings
                 | Self::ListProviders
                 | Self::ReadProviderKey { .. }
                 | Self::ListChannelPresets { .. }
@@ -1843,6 +1846,8 @@ pub struct Snapshot {
     pub roles: Vec<crate::role::Profile>,
     #[serde(default)]
     pub teams: Vec<crate::team::Profile>,
+    #[serde(default)]
+    pub team_settings_revision: u64,
     pub ssh: Vec<crate::ssh::Profile>,
     pub databases: Vec<crate::database::Profile>,
     pub plugins: Vec<crate::plugin::Summary>,
@@ -1987,6 +1992,7 @@ pub enum Output {
     Roles(Vec<crate::role::Profile>),
     Team(crate::team::Profile),
     Teams(Vec<crate::team::Profile>),
+    TeamSettings(crate::team::Settings),
     CommandResult(crate::process::Completion),
     CommandStarted(crate::process::Info),
     CommandInputAccepted {
@@ -2254,6 +2260,9 @@ pub enum Event {
     TeamChanged(crate::team::Profile),
     TeamRemoved {
         id: crate::TeamId,
+    },
+    TeamSettingsChanged {
+        revision: u64,
     },
     ProviderChanged(crate::conversation::Provider),
     /// Invalidates public credential metadata; authorization values stay on the Node.

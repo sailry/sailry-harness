@@ -230,6 +230,9 @@ impl Projection {
                     }
                     Event::TeamChanged(team) => replace_team(&mut snapshot.teams, team),
                     Event::TeamRemoved { id } => snapshot.teams.retain(|item| item.id != id),
+                    Event::TeamSettingsChanged { revision } => {
+                        snapshot.team_settings_revision = revision;
+                    }
                     Event::SshChanged(profile) => {
                         snapshot.ssh.retain(|item| item.id != profile.id);
                         snapshot.ssh.push(profile);

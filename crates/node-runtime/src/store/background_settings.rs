@@ -10,7 +10,7 @@ pub(in crate::store) struct Stored {
     _revision: u64,
     #[serde(rename = "resume")]
     _resume: bool,
-    // Retained solely for migration into a declared package-owned setting.
+    // Retained solely for a one-time import into the Node-owned team settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     child_concurrency: Option<u64>,
 }

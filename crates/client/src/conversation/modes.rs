@@ -33,6 +33,7 @@ pub fn key(mode: WorkMode) -> &'static str {
     match mode {
         WorkMode::Code => "code",
         WorkMode::Plan => "plan",
+        WorkMode::Flagship => "flagship",
     }
 }
 
@@ -66,6 +67,7 @@ pub fn select(config: &SessionConfig, modes: &[Mode], selected: &str) -> Option<
     let base = match selected {
         "code" => WorkMode::Code,
         "plan" => WorkMode::Plan,
+        "flagship" => WorkMode::Flagship,
         _ => mode?.declaration.base(),
     };
     let mut config = config.clone();

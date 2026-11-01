@@ -198,7 +198,7 @@ async fn main_direction_reaches_running_child() {
                             .iter()
                             .any(|name| {
                                 tool["function"]["name"] == *name
-                                    || tool["function"]["name"] == plugin_tool("delegation", name)
+                                    || tool["function"]["name"] == name.to_string()
                             })
                     })
                 )
@@ -328,7 +328,7 @@ async fn continues_after_background_answer() {
         let release = sailry_link::CancellationToken::new();
         let title = "补充库存模块测试 🙂";
         let parent = Server::scripted_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","title":title,"task":"Wait for the held response","background":true}),
         )])
         .await;
@@ -350,7 +350,7 @@ async fn continues_after_background_answer() {
             json!(child.id)
         );
         fixture.parent.replace_tools(vec![(
-            plugin_tool("delegation", "guide_agent"),
+            "guide_agent".to_string(),
             json!({"session":child.id,"message":"Keep the final child evidence"}),
         )]);
         let directed = fixture.push("Guide the independent child").await;
@@ -398,9 +398,7 @@ async fn continues_after_background_answer() {
         let guide = observed
             .calls
             .iter()
-            .find(|call| {
-                call.turn == directed.id && call.name == plugin_tool("delegation", "guide_agent")
-            })
+            .find(|call| call.turn == directed.id && call.name == "guide_agent".to_string())
             .unwrap();
         let guide = guide.with_detail(
             crate::agent_support::details::read(
@@ -425,7 +423,7 @@ async fn continues_after_background_answer() {
         );
         assert!(!expected.contains(&child.id.to_string()));
         fixture.parent.replace_tools(vec![(
-            plugin_tool("delegation", "wait_agent"),
+            "wait_agent".to_string(),
             json!({"session":child.id}),
         )]);
         let waiting = fixture.push("Collect the independent child answer").await;
@@ -496,7 +494,7 @@ async fn completes_before_background_child() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let parent = Server::tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Wait for the held response","background":true}),
         )])
         .await;
@@ -620,7 +618,7 @@ async fn synchronous_spawn_waits_for_child() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let parent = Server::tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Wait for the held response"}),
         )])
         .await;
@@ -664,7 +662,7 @@ async fn synchronous_spawn_waits_for_child() {
 #[tokio::test]
 async fn default_background_child_inherits_permissions() {
     for remote in [false, true] {
-        let spawn = plugin_tool("delegation", "spawn_agent");
+        let spawn = "spawn_agent".to_string();
         let parent = Server::prompt_tools(
             "Parent-only private context".into(),
             vec![

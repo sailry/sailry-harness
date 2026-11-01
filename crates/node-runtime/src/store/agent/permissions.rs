@@ -91,7 +91,8 @@ pub(super) async fn source(
         (
             Permission::Full,
             "create_worktree" | "register_worktree" | "remove_worktree" | "manage_skills"
-            | "manage_mcp" | "manage_plugins",
+            | "manage_mcp" | "manage_plugins" | "add_agent" | "edit_agent" | "delete_agent"
+            | "apply_agents" | "add_team" | "edit_team" | "delete_team" | "apply_team",
         ) => ApprovalSource::Full,
         (Permission::Full, name)
             if name.starts_with("mcp_")

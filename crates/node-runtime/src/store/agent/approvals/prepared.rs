@@ -25,6 +25,9 @@ impl Prepared {
                 | Command::PutRole { .. }
                 | Command::RemoveRole { .. }
                 | Command::SetSessionRoles { .. }
+                | Command::PutTeam { .. }
+                | Command::RemoveTeam { .. }
+                | Command::SetSessionTeam { .. }
         ) {
             return Ok(None);
         }

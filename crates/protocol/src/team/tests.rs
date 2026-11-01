@@ -42,7 +42,7 @@ fn round_trips_profile() {
 #[test]
 fn validates_configuration() {
     let mut value = profile();
-    for key in ["", "X", "x-", "1x", "团队"] {
+    for key in ["", "X", "x-", "1x", "团队", DEFAULT] {
         value.key = key.into();
         assert!(value.validate().is_err(), "invalid key: {key}");
     }
@@ -108,6 +108,53 @@ fn classifies_commands() {
     .unwrap();
     assert_eq!(encoded["kind"], "set_session_team");
     assert!(encoded["data"]["team"].is_null());
+}
+
+mod settings {
+    use super::*;
+
+    #[test]
+    fn defaults_to_eight_children() {
+        let value = Settings::default();
+        assert_eq!((value.revision, value.child_concurrency), (0, 8));
+        value.validate().unwrap();
+        let encoded = serde_json::to_value(&value).unwrap();
+        assert_eq!(
+            encoded,
+            serde_json::json!({"revision":0,"child_concurrency":8})
+        );
+        assert_eq!(serde_json::from_value::<Settings>(encoded).unwrap(), value);
+    }
+
+    #[test]
+    fn requires_a_positive_budget() {
+        let mut value = Settings {
+            revision: 0,
+            child_concurrency: 0,
+        };
+        assert!(value.validate().is_err());
+        value.child_concurrency = u64::MAX;
+        value.validate().unwrap();
+        assert!(
+            serde_json::from_value::<Settings>(
+                serde_json::json!({"revision":0,"child_concurrency":8,"other":true})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn classifies_commands() {
+        assert!(!crate::Command::ReadTeamSettings.durable());
+        let command = crate::Command::SaveTeamSettings(Settings::default());
+        assert!(command.durable());
+        let encoded = serde_json::to_value(&command).unwrap();
+        assert_eq!(encoded["kind"], "save_team_settings");
+        assert_eq!(
+            serde_json::from_value::<crate::Command>(encoded).unwrap(),
+            command
+        );
+    }
 }
 
 mod snapshot {

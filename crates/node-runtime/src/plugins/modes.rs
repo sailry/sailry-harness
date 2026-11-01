@@ -68,5 +68,8 @@ pub(crate) fn selected<'a>(
             selected = Some((package, mode));
         }
     }
+    if selected.is_some() && config.mode == sailry_protocol::WorkMode::Flagship {
+        return Err(Fault::invalid("only one conversation mode can be selected"));
+    }
     Ok(selected)
 }

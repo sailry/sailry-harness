@@ -13,7 +13,7 @@ async fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         .unwrap()
         .unwrap();
     let request = crate::agent::canonical::ToolIdentity {
-        name: crate::plugins::tools::alias("delegation", "spawn_agent"),
+        name: crate::agent::delegation::tools::SPAWN.to_owned(),
         id: Some("same-call".into()),
         arguments: serde_json::json!({"task":"Independent task"}),
     };
@@ -77,12 +77,6 @@ async fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
 #[tokio::test]
 async fn scopes_repeated_event_ids() {
     let mut fixture = Fixture::new().await;
-    crate::store::agent::tests::fixture::package(
-        &fixture.database,
-        fixture._root.path(),
-        "delegation",
-    )
-    .await;
     let first = fixture.session;
     let (parent, child) = admitted(&mut fixture).await;
     runs::finish(
@@ -124,12 +118,6 @@ async fn scopes_repeated_event_ids() {
 #[tokio::test]
 async fn bounds_summary_history() {
     let mut fixture = Fixture::new().await;
-    crate::store::agent::tests::fixture::package(
-        &fixture.database,
-        fixture._root.path(),
-        "delegation",
-    )
-    .await;
     let (parent, child) = admitted(&mut fixture).await;
     for _ in 0..105 {
         let mut event = message(

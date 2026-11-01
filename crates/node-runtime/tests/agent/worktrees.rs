@@ -106,11 +106,7 @@ async fn creates_registered_checkout() {
         std::fs::write(retained.join("marker.txt"), "retained").unwrap();
         let (node, controller, client) = connect(dir.path(), remote).await;
         let bootstrap = Server::tools(vec![]).await;
-        approvals::install(
-            &client,
-            &["worktrees", "files", "commands", "git", "delegation"],
-        )
-        .await;
+        approvals::install(&client, &["worktrees", "files", "commands", "git"]).await;
         let (session, provider) = configured_session(&client, &bootstrap.endpoint, &root).await;
         let Output::GitStatus(status) = execute(
             &client,
@@ -375,7 +371,7 @@ async fn isolates_child_writes() {
         };
         let mut parent_calls = vec![
             (
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role":"review","task":"Write the child file", "worktree":tree.id}),
             ),
             (
@@ -600,7 +596,7 @@ async fn runs_parallel_checkouts() {
             );
             targets.push(tree.id);
             calls.push((
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role":"review","task":format!("Inspect task {index}"),"worktree":tree.id}),
             ));
         }

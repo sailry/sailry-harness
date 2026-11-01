@@ -147,6 +147,11 @@ async fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
         })?;
     records::<role::Profile>(db, "roles.body", "SELECT body FROM roles").await?;
     records::<sailry_protocol::team::Profile>(db, "teams.body", "SELECT body FROM teams").await?;
+    if db.prepare("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_settings')").await?.query_row(()).await?.get::<bool>(0)? {
+        crate::store::teams::settings::read(db)
+            .await
+            .map_err(|_| Error::Worker("incompatible stored team settings".into()))?;
+    }
     records::<sailry_protocol::hooks::Settings>(
         db,
         "hook_settings.body",

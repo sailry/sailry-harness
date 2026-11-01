@@ -33,7 +33,7 @@ fn result(server: &Server, name: &str, id: &str) -> String {
 async fn follows_raw_output_with_read_authority() {
     for remote in [false, true] {
         let parent = Server::scripted_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"explore","task":"Read source.txt"}),
         )])
         .await;
@@ -164,7 +164,7 @@ async fn follows_raw_output_with_read_authority() {
             json!({"output":output,"offset":0,"limit":32768}),
         )]);
         fixture.parent.replace_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"session":child.id,"task":"Read the original retained output"}),
         )]);
         let next = fixture.push("Read the original evidence").await;

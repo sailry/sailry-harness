@@ -551,6 +551,15 @@ pub(super) fn execute<'a>(
                 Some(Event::TeamRemoved { id: *team }),
             ))
         }),
+        Command::ReadTeamSettings => defer(move || async move {
+            Ok((
+                Output::TeamSettings(super::teams::settings::read(db).await?),
+                None,
+            ))
+        }),
+        Command::SaveTeamSettings(settings) => {
+            defer(move || async move { super::teams::settings::save(db, settings).await })
+        }
         Command::ResolveQuestion {
             session,
             question,
@@ -1636,6 +1645,7 @@ async fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         model_catalog: super::providers::catalog::status(db).await?,
         roles: super::roles::list(db).await?,
         teams: super::teams::list(db).await?,
+        team_settings_revision: super::teams::settings::read(db).await?.revision,
         ssh: super::ssh::list(db).await?,
         databases: super::databases::list(db).await?,
         plugins: super::plugins::list(db).await?,

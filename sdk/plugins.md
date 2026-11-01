@@ -547,7 +547,7 @@ read current settings in its callback. Invalid saves publish nothing, and replay
 the same request does not repeat the event. Callback failures have their own job
 outcomes and do not replace the saved settings receipt.
 
-A Host package declaring `agents.delegate` may mark one required public string setting with `x-sailry-child-concurrency: true`. Its default and saved values are positive decimal integers in the `u64` domain. One installed package may own this execution policy. The shared service reads its current configuration when claiming children, with separate running budgets and FIFO order for each main session; configuration changes do not rewrite admitted model or permission captures. Use ordinary `readSettings()` and `sailry/settings.prepareSettings` for package-owned controls. Without a declared owner, no product-specific child limit is applied.
+The execution Node owns child concurrency. A retained `x-sailry-child-concurrency` marker is accepted for compatibility but binds no policy; the Node reads its own setting when claiming children, with separate running budgets and FIFO order for each main session.
 
 `searchCode(query)` and `outlineCode(path)` require `code.index.read` and use the
 current worktree through the shared Protocol and Client boundary. Search accepts
@@ -823,14 +823,13 @@ inactive without deleting stored options or rewriting captures. Turn instruction
 come from the captured package, including packages that provide only modes.
 
 `readComposer()` includes `modes`, the current `mode_selection: {package, id} | null`
-and the effective `mode: 'code' | 'plan'`. A package with `conversation.control` can
+and the effective `mode: 'code' | 'plan' | 'flagship'`. A package with `conversation.control` can
 select its declared mode with `setComposerOption(cursor, 'mode', {package, id})`,
-or select the builtins with `'code'` or `'plan'`. The host atomically clears other
+or select the builtins with `'code'`, `'plan'` or `'flagship'`. The host atomically clears other
 active mode choices. A mode cannot replace a captured assistant with another
 revision of the same package. Standard handles tasks directly and permits delegation
-when the user explicitly requests it; the delegation package's Flagship mode owns
-the optional autonomous coordination policy. Retained `proactive` values do not
-select that mode.
+when the user explicitly requests it; the core Flagship mode owns the optional
+autonomous coordination policy. Retained `proactive` values do not select that mode.
 
 Tools can bind public operations (`progress.update`, `storage.get/list/set/delete`, `settings.read`, `http.request`, `artifacts.write/read/list`) without an MCP server. Declare each operation's required action. Node owns approval, planning restrictions, cancellation and durable outcomes; a desktop JavaScript callback is not an Agent tool implementation.
 
@@ -878,7 +877,7 @@ or running work still rejects the continuation and rolls back all operations,
 including the queue pause change. Automatic completion callbacks leave the queue
 pause unchanged.
 
-The delegation package binds `agents.delegate`, `agents.guide` and `agents.wait` with the `agents.delegate` action. Delegation is synchronous unless `background: true` is requested. Background admission returns the child session and turn; guidance takes that session and a message, and waiting observes its canonical outcome. Guidance and waiting are native tools, not callback flow steps. Only the running main session can control its children. Children keep their captured permissions and configuration, and approval remains required where that capture requires it. Main guidance can interrupt a wait at the settled tool-batch boundary without cancelling background children; explicit Stop cancels them. Initializers for delegation tools receive captured role summaries with `read_only` and `tools` booleans; `tools` reflects the frozen model override, or inheritance when no model is selected. These summaries grant no permissions and expose no provider configuration or credentials.
+Core `spawn_agent`, `guide_agent` and `wait_agent` tools delegate in main sessions; packages may also bind `agents.delegate`, `agents.guide` and `agents.wait` with the `agents.delegate` action. Delegation is synchronous unless `background: true` is requested. Background admission returns the child session and turn; guidance takes that session and a message, and waiting observes its canonical outcome. Guidance and waiting are native tools, not callback flow steps. Only the running main session can control its children. Children keep their captured permissions and configuration, and approval remains required where that capture requires it. Main guidance can interrupt a wait at the settled tool-batch boundary without cancelling background children; explicit Stop cancels them. Initializers for delegation tools receive captured role summaries with `read_only` and `tools` booleans; `tools` reflects the frozen model override, or inheritance when no model is selected. These summaries grant no permissions and expose no provider configuration or credentials.
 
 `requestHttp` runs on the captured Node and returns a durable request ID. It accepts UTF-8 text, a maximum 1 MiB body and a 1–60000 ms timeout (default 30000). Response headers preserve repeated values. Redirects and retries are disabled. A named credential comes from a secret schema field with `origin`, `header` and optional `prefix`; only Node injects it into that origin. An interrupted or oversized response reports an unknown outcome, and retrying the original ID never resends the request.
 

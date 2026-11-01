@@ -7,7 +7,7 @@ mod approvals;
 async fn omits_previous_answer_from_current_outcome() {
     for remote in [false, true] {
         let parent = Server::scripted_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Initial child task"}),
         )])
         .await;
@@ -24,7 +24,7 @@ async fn omits_previous_answer_from_current_outcome() {
         assert!(text(&before).contains("answer-fixture-child"));
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
         fixture.parent.replace_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"session":child.id,"task":"Continue with reasoning only"}),
         )]);
         let second = fixture.push("Continue the existing child").await;
@@ -74,7 +74,7 @@ async fn omits_previous_answer_from_current_outcome() {
 async fn preserves_child_history_and_configuration() {
     for remote in [false, true] {
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Initial child task"}),
         )])
         .await;
@@ -102,7 +102,7 @@ async fn preserves_child_history_and_configuration() {
         assert_eq!(child_page.runs[0].status, Status::Completed);
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
         let next_parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"session":child.id,"task":"Continue the same child task"}),
         )])
         .await;

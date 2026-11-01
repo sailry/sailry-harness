@@ -17,6 +17,19 @@ pub(in crate::agent) enum Label {
     Install,
     Update,
     Uninstall,
+    ListAgents,
+    AddAgent,
+    EditAgent,
+    DeleteAgent,
+    ApplyAgents,
+    Subagent,
+    GuideAgent,
+    WaitAgent,
+    ListTeams,
+    AddTeam,
+    EditTeam,
+    DeleteTeam,
+    ApplyTeam,
 }
 
 impl Label {
@@ -34,6 +47,19 @@ impl Label {
             Self::Install => "plugins_install",
             Self::Update => "settings_update",
             Self::Uninstall => "plugins_uninstall",
+            Self::ListAgents => "tool_list_agents",
+            Self::AddAgent => "tool_add_agent",
+            Self::EditAgent => "tool_edit_agent",
+            Self::DeleteAgent => "tool_delete_agent",
+            Self::ApplyAgents => "tool_apply_agents",
+            Self::Subagent => "tool_spawn_agent",
+            Self::GuideAgent => "tool_guide_agent",
+            Self::WaitAgent => "tool_wait_agent",
+            Self::ListTeams => "tool_list_teams",
+            Self::AddTeam => "tool_add_team",
+            Self::EditTeam => "tool_edit_team",
+            Self::DeleteTeam => "tool_delete_team",
+            Self::ApplyTeam => "tool_apply_team",
         }
     }
 }
@@ -112,6 +138,18 @@ fn name(label: Label) -> Navigation {
     }
 }
 
+/// Agent and team tools share one icon; `input` names the argument fields to summarize.
+pub(in crate::agent) fn team(label: Label, input: serde_json::Value) -> Display {
+    let mut display = new(label);
+    display.icon = Some(sailry_protocol::plugin::desktop::Icon::Name(
+        "reicon:users/users2".into(),
+    ));
+    if !input.is_null() {
+        display.input = Some(serde_json::from_value(input).unwrap());
+    }
+    display
+}
+
 pub(in crate::agent) fn management(label: Label, version: Option<&str>) -> Display {
     let mut display = new(label);
     display.input = Some(serde_json::from_value(json!({"summary":{"path":"/name"}})).unwrap());
@@ -153,6 +191,27 @@ pub(in crate::agent) fn management(label: Label, version: Option<&str>) -> Displ
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn localizes_team_tools() {
+        for (label, english, chinese) in [
+            (Label::ListAgents, "List agents", "列出代理"),
+            (Label::Subagent, "Subagent", "子代理"),
+            (Label::WaitAgent, "Wait for subagent", "等待子代理"),
+            (Label::ApplyTeam, "Apply team", "应用团队"),
+        ] {
+            let display = team(label, json!({"summary":{"path":"/name"}}));
+            assert!(display.valid());
+            assert_eq!(
+                (display.label("en"), display.label("zh-CN")),
+                (english, chinese)
+            );
+            assert_eq!(display.locales.len(), 9);
+            assert!(display.icon.is_some());
+            assert!(display.input.is_some());
+        }
+        assert!(team(Label::ListTeams, Value::Null).input.is_none());
+    }
 
     #[test]
     fn managers_expose_only_changes_and_faults() {

@@ -232,6 +232,10 @@ CREATE TABLE IF NOT EXISTS teams (
     key TEXT NOT NULL UNIQUE,
     body BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS team_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ssh_profiles (
     id TEXT PRIMARY KEY,
     body BLOB NOT NULL,

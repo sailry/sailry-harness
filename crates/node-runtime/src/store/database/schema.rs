@@ -186,6 +186,7 @@ pub(super) async fn prepare(
                 crate::store::providers::authentication::needs_binding(connection).await?
                     || crate::store::plugins::distribution::needs_connections(connection, host)
                         .await?
+                    || crate::store::plugins::distribution::retired::pending(connection).await?
             } else {
                 false
             };

@@ -16,6 +16,7 @@ fn snapshot() -> Snapshot {
         terminal_settings_revision: 0,
         power_settings_revision: 0,
         sandbox_settings_revision: 0,
+        team_settings_revision: 0,
         search_settings_revision: 0,
         media_settings: Default::default(),
         providers: vec![],

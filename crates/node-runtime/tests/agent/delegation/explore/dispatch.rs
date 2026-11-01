@@ -141,7 +141,7 @@ async fn rejects_captured_mutating_requests() {
         let finish = Arc::new(tokio::sync::Notify::new());
         let child = Server::held(start.clone(), finish.clone()).await;
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"explore","task":"Inspect the existing project","background":true}),
         )])
         .await;

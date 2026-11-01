@@ -317,7 +317,7 @@ async fn reports_pending_plan_input() {
 async fn exposes_child_approval_to_the_observer() {
     for remote in [false, true] {
         let parent = fixture::models::Server::turn_tools(vec![(
-            fixture::models::plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             serde_json::json!({"role":"writer","task":"Write child.txt with the files tool"}),
         )])
         .await;

@@ -277,6 +277,7 @@ pub(in crate::conversation::live) fn mode_token(mode: sailry_protocol::WorkMode)
     match mode {
         sailry_protocol::WorkMode::Plan => "/plan",
         sailry_protocol::WorkMode::Code => "/code",
+        sailry_protocol::WorkMode::Flagship => "/flagship",
     }
 }
 
@@ -302,6 +303,7 @@ pub(in crate::conversation::live) fn leading_mode(
     let mode = match name {
         "plan" => sailry_protocol::WorkMode::Plan,
         "code" => sailry_protocol::WorkMode::Code,
+        "flagship" => sailry_protocol::WorkMode::Flagship,
         _ => return None,
     };
     Some((mode, range))

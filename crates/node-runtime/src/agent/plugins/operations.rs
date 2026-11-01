@@ -75,7 +75,7 @@ pub(super) fn bind(
                     let tool = Arc::new(super::super::delegation::Control::new(
                         ingress,
                         invocation,
-                        package,
+                        Some(package),
                         stop,
                         operation,
                         super::super::delegation::Delegate::new(

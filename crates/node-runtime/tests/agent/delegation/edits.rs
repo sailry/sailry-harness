@@ -5,7 +5,7 @@ async fn projects_child_edit_diff() {
     for remote in [false, true] {
         let original = "Child original\n";
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Edit the note"}),
         )])
         .await;

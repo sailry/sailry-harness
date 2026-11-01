@@ -18,7 +18,6 @@ pub(crate) const DEFAULTS: &[(&str, bool)] = &[
     ("memory", true),
     ("files", true),
     ("code", true),
-    ("delegation", true),
     ("statistics", true),
     ("provider-status", true),
     ("openai-auth", true),
@@ -32,6 +31,23 @@ pub(crate) const DEFAULTS: &[(&str, bool)] = &[
     ("code-review", true),
     ("office", true),
 ];
+
+/// Formerly shipped packages whose behavior moved into the application. Startup
+/// imports their configuration once, then removes an installed bundled copy.
+pub(crate) const RETIRED: &[&str] = &["delegation"];
+
+/// A retired package mode that now selects a core work mode: package, option and value.
+pub(crate) const RETIRED_MODES: &[(&str, &str, &str, sailry_protocol::WorkMode)] = &[(
+    "delegation",
+    "mode",
+    "multitask",
+    sailry_protocol::WorkMode::Flagship,
+)];
+
+/// Whether this application still ships a package with this name.
+pub(crate) fn shipped(name: &str) -> bool {
+    PACKAGES.iter().any(|(id, _)| *id == name)
+}
 
 /// Default ownership for credentials saved before package authentication bindings.
 pub(crate) const AUTHENTICATIONS: &[(sailry_protocol::Authentication, &str, &str)] = &[

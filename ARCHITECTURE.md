@@ -602,8 +602,9 @@ stopping a turn is an explicit command.
 
 Standard is the default work mode and delegates only on an explicit user request.
 Plan retains the core read-only policy and reviewed transition into Standard.
-Host packages may declare additional modes through validated conversation options;
-the delegation package contributes Flagship's autonomous coordination instructions.
+Flagship is a core work mode with Standard's permissions and Node-owned autonomous
+coordination instructions; it exposes the delegation and catalog tools on the first
+request. Host packages may declare additional modes through validated conversation options.
 Node maps each selected declaration to an effective core mode without increasing
 tool permission, and freezes its package and options with the sent turn. Child
 tasks inherit those effective restrictions. Controllers compose the common selector
@@ -730,10 +731,11 @@ account identity, then reads the current token transiently for MCP requests;
 logout, account changes and token rotation invalidate cached connections. Public
 GitHub reads do not require a GitHub MCP credential.
 
-The delegation plugin manages role settings; Node owns and freezes the configured
-roster. Its conversation tools edit the public Node catalog through the same
+Node owns the agent and team catalogs and freezes the configured roster. Its
+built-in `spawn_agent`, `guide_agent` and `wait_agent` tools delegate, and its
+built-in agent and team tools edit the public catalog through the same
 revision-checked services as settings. Catalog edits do not change existing
-session rosters. Explicit application selects exact catalog revisions for one
+session rosters. Explicit application selects exact agent or team revisions for one
 captured session and affects future admission only; running and queued turns and
 existing children retain their captures. Tool results never expose frozen
 provider configuration or credentials. Delegation selects a matching configured role. An omitted or null role
@@ -756,12 +758,11 @@ running and queued children. Queue residence does not consume child model or
 command execution deadlines.
 Ordinary sessions without a project can delegate within their existing private
 worktree; resource-bound assistants and nested delegation remain excluded.
-The delegation package owns its child concurrency setting and settings page,
-defaulting to eight. A public decimal string field marked
-`x-sailry-child-concurrency` binds package configuration to the shared execution
-service; only one installed package can own that policy. Node validates the
-declaration and reads its current value when claiming work. Without a declared
-owner, the service adds no product-specific concurrency limit. Configuration
+Node owns the child concurrency setting (`team::Settings`), defaulting to eight and
+saved through revision-checked `ReadTeamSettings` and `SaveTeamSettings` commands.
+The service reads its current value when claiming work. Startup imports a value
+configured in a formerly bundled delegation package once, then removes that
+package's installed bundled copy. Configuration
 changes affect queued work without rewriting its captured model or permissions.
 Running children and FIFO order are scoped to their root parent session, so one
 busy conversation does not queue children from another. Children exceeding that

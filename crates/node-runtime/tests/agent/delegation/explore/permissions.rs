@@ -6,7 +6,7 @@ async fn continues_after_command_denial() {
         let command = plugin_tool("commands", "run_command");
         let read = plugin_tool("files", "read_file");
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"explore","task":"Inspect source.txt without changing the project"}),
         )])
         .await;

@@ -74,3 +74,16 @@ fn updates_identity_and_order() {
         .unwrap();
     assert_eq!(projection.snapshot().unwrap().teams, [other]);
 }
+
+#[test]
+fn tracks_settings_revision() {
+    let mut projection = Projection::new(NodeId([1; 32]), 1);
+    let mut state = snapshot(0);
+    state.team_settings_revision = 2;
+    projection.apply(1, Update::Snapshot(state)).unwrap();
+    assert_eq!(projection.snapshot().unwrap().team_settings_revision, 2);
+    projection
+        .apply(1, update(1, Event::TeamSettingsChanged { revision: 3 }))
+        .unwrap();
+    assert_eq!(projection.snapshot().unwrap().team_settings_revision, 3);
+}

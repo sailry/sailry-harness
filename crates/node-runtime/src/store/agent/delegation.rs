@@ -234,7 +234,16 @@ pub(super) async fn admit(
     let inherits_input = selected.is_some();
     let message = selected.unwrap_or_else(|| args.task.clone().into());
     queue::validate(&message)?;
-    let operation = super::plugins::operation(&database.connection, parent, &request.name).await?;
+    // Core tool names never collide with package aliases.
+    let operation = match request.name.as_str() {
+        crate::agent::delegation::tools::SPAWN => {
+            Some(sailry_protocol::tool::Operation::DelegateAgent)
+        }
+        crate::agent::delegation::tools::GUIDE => {
+            Some(sailry_protocol::tool::Operation::GuideAgent)
+        }
+        name => super::plugins::operation(&database.connection, parent, name).await?,
+    };
     if operation != Some(sailry_protocol::tool::Operation::DelegateAgent)
         && !(operation == Some(sailry_protocol::tool::Operation::GuideAgent)
             && args.session.is_some())

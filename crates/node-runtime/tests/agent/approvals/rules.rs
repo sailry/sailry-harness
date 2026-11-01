@@ -736,7 +736,7 @@ async fn isolates_delegated_children() {
             json!({"path":"count.txt","text":"x","expected_revision":null}),
         )])
         .await;
-        let mut fixture = Fixture::packages(remote, &server, &["files", "delegation"]).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
         let first = submit(&fixture.client, &fixture.session).await;
         let approval = pending(&fixture.client, fixture.session.id).await;
         process::decide(&fixture.client, &approval, Decision::ApproveSession).await;
@@ -811,7 +811,7 @@ async fn isolates_delegated_children() {
         };
         fixture.session = session;
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Run the requested command"}),
         )])
         .await;

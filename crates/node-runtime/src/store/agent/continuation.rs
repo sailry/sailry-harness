@@ -54,7 +54,7 @@ pub(in crate::store) async fn admit(
         let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
-    if session.config.mode != WorkMode::Code || child {
+    if session.config.mode == WorkMode::Plan || child {
         return Err(Fault::new(
             ErrorCode::Conflict,
             "session does not accept automatic input",
@@ -179,7 +179,7 @@ pub(super) async fn check(db: &Connection, run: &Run) -> Result<Option<Fault>, F
         )));
     }
     Ok(
-        (session.config.mode != WorkMode::Code || !valid(db, &fence, run.session).await?).then(
+        (session.config.mode == WorkMode::Plan || !valid(db, &fence, run.session).await?).then(
             || {
                 Fault::new(
                     ErrorCode::RevisionConflict,

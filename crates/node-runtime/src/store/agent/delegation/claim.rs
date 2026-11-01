@@ -31,7 +31,9 @@ pub(in crate::store::agent) async fn claim(
             .await
             .map_err(storage_error)?;
         tx.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
-        let limit = crate::store::plugins::policy::child_limit(&tx).await?;
+        let limit = crate::store::teams::settings::read(&tx)
+            .await?
+            .child_concurrency;
         let active: i64 = {
             let mut statement = tx.prepare("SELECT count(*) FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn JOIN turns parent ON parent.id=d.parent_turn
              WHERE parent.session=?1 AND json_extract(a.body,'$.status') IN ('running','stopping')").await.map_err(storage_error)?;
@@ -43,7 +45,7 @@ pub(in crate::store::agent) async fn claim(
             mapped.map_err(storage_error)?
         };
         let active = u64::try_from(active).map_err(storage_error)?;
-        if limit.is_some_and(|limit| active >= limit) {
+        if active >= limit {
             return Ok(Status::Queued);
         }
         // Untargeted pending input still belongs to its queue owner. Tagged

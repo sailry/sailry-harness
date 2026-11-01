@@ -84,7 +84,12 @@ async fn queued(fixture: &mut Fixture, parent: TurnId, index: usize) -> QueuedTu
 }
 
 async fn limit(fixture: &Fixture, value: u64) {
-    crate::store::plugins::policy::fixture::configure(&fixture.database.connection, value).await;
+    let db = &fixture.database.connection;
+    let mut settings = crate::store::teams::settings::read(db).await.unwrap();
+    settings.child_concurrency = value;
+    crate::store::teams::settings::save(db, &settings)
+        .await
+        .unwrap();
 }
 
 async fn claim(fixture: &mut Fixture, turn: TurnId) -> Status {
@@ -434,53 +439,26 @@ async fn applies_increases_without_recapturing_waiters() {
 }
 
 #[tokio::test]
-async fn validates_settings_without_an_extra_ceiling() {
+async fn reads_the_node_budget() {
     let fixture = Fixture::new().await;
     let db = &fixture.database.connection;
     assert_eq!(
-        crate::store::plugins::policy::child_limit(db)
+        crate::store::teams::settings::read(db)
             .await
-            .unwrap(),
-        None
-    );
-    let original = crate::store::plugins::policy::fixture::install(db, "example").await;
-    assert_eq!(
-        crate::store::plugins::policy::child_limit(db)
-            .await
-            .unwrap(),
-        Some(8)
-    );
-    let mut state = crate::store::plugins::settings::read(db, &original.summary.reference())
-        .await
-        .unwrap();
-    state
-        .values
-        .insert("parallel".into(), serde_json::json!("0"));
-    assert_eq!(
-        crate::store::plugins::settings::save(
-            db,
-            &state.package,
-            &state.values,
-            &Default::default()
-        )
-        .await
-        .unwrap_err()
-        .code,
-        ErrorCode::InvalidRequest
+            .unwrap()
+            .child_concurrency,
+        8
     );
     limit(&fixture, u64::MAX).await;
+    let saved = crate::store::teams::settings::read(db).await.unwrap();
+    assert_eq!((saved.revision, saved.child_concurrency), (1, u64::MAX));
     assert_eq!(
-        crate::store::plugins::policy::child_limit(db)
-            .await
-            .unwrap(),
-        Some(u64::MAX)
-    );
-    assert_eq!(
-        crate::store::plugins::settings::save(
+        crate::store::teams::settings::save(
             db,
-            &state.package,
-            &state.values,
-            &Default::default()
+            &sailry_protocol::team::Settings {
+                revision: 0,
+                child_concurrency: 2,
+            },
         )
         .await
         .unwrap_err()

@@ -1,4 +1,7 @@
-use sailry_protocol::{Fault, SessionConfig, plugin};
+use sailry_protocol::{Fault, SessionConfig, WorkMode, plugin};
+
+/// Coordination policy of the core Flagship mode; delegation stays optional.
+const FLAGSHIP: &str = "Flagship enables delegation; it does not require it. First plan the task and do the immediate blocking step yourself. Do directed work yourself: reading or searching known files, single lookups, small edits, verifying a child's claim, and anything your next step depends on. Delegate only bounded work that runs in parallel with your own progress: broad multi-area investigation, independent implementation slices with disjoint files, or review and verification that can run alongside. Never delegate 'read file X and return it'. Keep tightly coupled work with one owner. Wait only when blocked; do not redo a child's work.";
 
 pub(in crate::agent) fn workflow(
     packages: &[plugin::Info],
@@ -13,6 +16,8 @@ pub(in crate::agent) fn workflow(
             "Active work mode: {}\n{}",
             mode.display.label, mode.instructions
         )
+    } else if config.mode == WorkMode::Flagship {
+        format!("Active work mode: Flagship\n{FLAGSHIP}")
     } else {
         "Handle the task directly. Use subagents only when the user explicitly requests subagents, delegation or parallel agent work. A task's size or complexity alone does not authorize delegation.".into()
     };
@@ -25,24 +30,12 @@ pub(in crate::agent) fn workflow(
 mod tests {
     use super::*;
     use crate::plugins::modes::tests::{config, package};
-    use sailry_protocol::{Permission, WorkMode};
+    use sailry_protocol::Permission;
     use serde_json::json;
-
-    fn delegation() -> plugin::Info {
-        let manifest: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../plugins/delegation/plugin.json"
-        ))
-        .unwrap();
-        let mut info = package("delegation", "multitask", true);
-        info.extension = Some(
-            serde_json::from_value(manifest["extensions"]["dev.sailry.platform"].clone()).unwrap(),
-        );
-        info
-    }
 
     #[test]
     fn selects_one_coordinator_policy() {
-        let packages = [delegation()];
+        let packages = [package("example", "review", false)];
         let mut config = config();
         config.options = serde_json::from_value(json!({"delegation":{"proactive":true}})).unwrap();
         let build = workflow(&packages, &config, false).unwrap();
@@ -59,47 +52,53 @@ mod tests {
             super::super::instruction(config.mode, Permission::Full, false)
                 .contains("Do not implement changes or run tools with side effects")
         );
-        config.mode = WorkMode::Code;
-        config
-            .options
-            .get_mut("delegation")
-            .unwrap()
-            .insert("mode".into(), json!("multitask"));
-        let multitask = workflow(&packages, &config, false).unwrap();
-        assert!(multitask.contains("Flagship enables delegation; it does not require it"));
-        assert!(multitask.contains("immediate blocking step yourself"));
-        assert!(multitask.contains("disjoint files"));
-        assert!(multitask.contains("Never delegate 'read file X and return it'"));
-        assert!(!multitask.contains("only when the user explicitly requests"));
+        config.mode = WorkMode::Flagship;
+        let flagship = workflow(&packages, &config, false).unwrap();
+        assert!(flagship.contains("Active work mode: Flagship"));
+        assert!(flagship.contains("Flagship enables delegation; it does not require it"));
+        assert!(flagship.contains("immediate blocking step yourself"));
+        assert!(flagship.contains("disjoint files"));
+        assert!(flagship.contains("Never delegate 'read file X and return it'"));
+        assert!(!flagship.contains("only when the user explicitly requests"));
         assert_eq!(config.permission, Permission::Ask);
-        assert!(multitask.contains("do not grant tool authority"));
+        assert!(flagship.contains("do not grant tool authority"));
+    }
+
+    #[test]
+    fn retired_package_option_is_inert() {
+        let mut config = config();
+        config.options =
+            serde_json::from_value(json!({"delegation":{"mode":"multitask","proactive":true}}))
+                .unwrap();
+        let build = workflow(&[], &config, false).unwrap();
+        assert!(build.contains("only when the user explicitly requests"));
+        assert!(!build.contains("Flagship enables delegation"));
     }
 
     #[test]
     fn children_keep_effective_restrictions() {
-        let packages = [delegation()];
         let mut config = config();
-        config.options =
-            serde_json::from_value(json!({"delegation":{"mode":"multitask"}})).unwrap();
-        config.mode = WorkMode::Plan;
-        let child = workflow(&packages, &config, true).unwrap();
+        config.mode = WorkMode::Flagship;
+        let child = workflow(&[], &config, true).unwrap();
         assert!(!child.contains("Flagship enables delegation"));
         assert!(child.contains("children cannot create or control other agents"));
+        config.mode = WorkMode::Plan;
         assert!(
             super::super::instruction(config.mode, Permission::Full, true)
                 .contains("delegated task is read-only")
         );
-        let mut live = packages[0].clone();
-        live.extension.as_mut().unwrap().conversation_modes.clear();
-        assert!(
-            workflow(&[live], &config, false)
-                .unwrap()
-                .contains("only when the user explicitly requests")
-        );
-        assert!(
-            workflow(&packages, &config, false)
-                .unwrap()
-                .contains("Flagship enables delegation")
-        );
+    }
+
+    #[test]
+    fn package_mode_excludes_flagship() {
+        let packages = [package("example", "review", true)];
+        let mut config = config();
+        config.mode = WorkMode::Flagship;
+        config.options = serde_json::from_value(json!({"example":{"mode":"review"}})).unwrap();
+        assert!(workflow(&packages, &config, false).is_err());
+        config.mode = WorkMode::Code;
+        let selected = workflow(&packages, &config, false).unwrap();
+        assert!(selected.contains("Active work mode: review"));
+        assert!(!selected.contains("Flagship enables delegation"));
     }
 }

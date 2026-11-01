@@ -14,11 +14,7 @@ async fn delegates_checkout() {
         let expected = uuid::Uuid::new_v4().to_string();
         std::fs::write(root.join("source.txt"), &expected).unwrap();
         let (node, controller, client) = connect(directory.path(), remote).await;
-        approvals::install(
-            &client,
-            &["worktrees", "files", "commands", "git", "delegation"],
-        )
-        .await;
+        approvals::install(&client, &["worktrees", "files", "commands", "git"]).await;
         let (session, mut selected) = configured_session(&client, &source.endpoint, &root).await;
         selected.api = source.api;
         selected.authentication = source.authentication;
@@ -133,7 +129,7 @@ async fn delegates_checkout() {
             plugin_tool("git", "git_status").as_str(),
             plugin_tool("worktrees", "create_worktree").as_str(),
             plugin_tool("worktrees", "list_worktrees").as_str(),
-            plugin_tool("delegation", "spawn_agent").as_str(),
+            "spawn_agent".to_string().as_str(),
             plugin_tool("files", "read_file").as_str(),
             plugin_tool("files", "write_file").as_str(),
         ] {
@@ -157,10 +153,8 @@ async fn delegates_checkout() {
             tool_calls(&client, &page)
                 .await
                 .iter()
-                .any(
-                    |(name, detail)| name == &plugin_tool("delegation", "spawn_agent")
-                        && detail.arguments["worktree"] == json!(tree.id)
-                )
+                .any(|(name, detail)| name == &"spawn_agent".to_string()
+                    && detail.arguments["worktree"] == json!(tree.id))
         );
         for name in [
             plugin_tool("files", "read_file"),

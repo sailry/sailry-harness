@@ -243,6 +243,7 @@ fn read(command: &Command) -> bool {
             | Command::ResolvePluginModel { .. }
             | Command::ListRoles
             | Command::ListTeams
+            | Command::ReadTeamSettings
             | Command::ListProviders
             | Command::ListCredentials
             | Command::ReadProviderKey { .. }

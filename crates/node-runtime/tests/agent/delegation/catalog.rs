@@ -1,7 +1,7 @@
 use super::*;
 
 fn tool(name: &str) -> String {
-    crate::agent_support::plugin_tool("delegation", name)
+    name.to_string()
 }
 
 fn discover(name: &str) -> (String, Value) {
@@ -52,7 +52,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
         let server = Server::tools(vec![]).await;
         let unused = Server::tools(vec![]).await;
         let fixture = super::fixture::Fixture::start(remote, server, unused).await;
-        for name in ["delegation", "worktrees"] {
+        for name in ["web-search", "worktrees"] {
             let Output::Plugin(info) = fixture
                 .client
                 .execute(
@@ -78,10 +78,10 @@ async fn scopes_skill_policy_to_admitted_inventory() {
         let mut message = Input::default();
         message.references.push(Reference {
             target: Target::Skill {
-                package: "delegation".into(),
-                name: "compare-worktrees".into(),
+                package: "web-search".into(),
+                name: "research".into(),
             },
-            label: "Compare approaches".into(),
+            label: "Research".into(),
         });
         let Output::QueuedTurn(selected) = fixture
             .client
@@ -107,9 +107,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
         let request = fixture.parent.requests.lock().unwrap()[0].clone();
         let instruction = prompt(&request);
         assert_eq!(instruction.matches("<selected_skill>").count(), 1);
-        assert!(instruction.contains(
-            "Use this skill when the user requests two or more competing implementations"
-        ));
+        assert!(instruction.contains("Search snippets identify candidates"));
         assert!(
             instruction.contains(
                 "unless the full instructions are already supplied; do not load them again"
@@ -133,19 +131,9 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                 })
         );
 
-        for stage in [
-            "enabled",
-            "worktrees_disabled",
-            "worktrees_removed",
-            "delegation_disabled",
-            "delegation_removed",
-        ] {
+        for stage in ["enabled", "disabled", "removed"] {
             if stage != "enabled" {
-                let name = if stage.starts_with("worktrees") {
-                    "worktrees"
-                } else {
-                    "delegation"
-                };
+                let name = "web-search";
                 let Output::Plugin(info) = fixture
                     .client
                     .execute(
@@ -209,17 +197,17 @@ async fn scopes_skill_policy_to_admitted_inventory() {
             );
             assert!(tools.contains("load_skill"));
             assert!(tools.contains("tool_search"));
-            let delegation = !stage.starts_with("delegation");
+            let available = stage == "enabled";
             assert_eq!(
-                instruction.contains("delegation:compare-worktrees"),
-                delegation,
+                instruction.contains("web-search:research"),
+                available,
                 "{stage}"
             );
             assert_eq!(
                 turn.plugins
                     .iter()
-                    .any(|package| package.name == "delegation"),
-                delegation,
+                    .any(|package| package.name == "web-search"),
+                available,
                 "{stage}"
             );
             for name in ["spawn_agent", "guide_agent", "wait_agent"] {
@@ -228,7 +216,6 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                     "{stage} {name}"
                 );
             }
-            let worktrees = stage == "enabled";
             for name in ["create_worktree", "register_worktree"] {
                 assert!(
                     !tools.contains(name)
@@ -236,11 +223,10 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                     "{stage} {name}"
                 );
             }
-            assert_eq!(
+            assert!(
                 turn.plugins
                     .iter()
                     .any(|package| package.name == "worktrees"),
-                worktrees,
                 "{stage}"
             );
             assert!(!instruction.contains("<selected_skill>"));
@@ -250,7 +236,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
             selected
                 .plugins
                 .iter()
-                .any(|package| package.name == "delegation")
+                .any(|package| package.name == "web-search")
         );
         assert!(fixture.child.requests.lock().unwrap().is_empty());
         fixture.node.shutdown().await.unwrap();
@@ -491,6 +477,134 @@ async fn edits_catalog_and_applies_future_capture() {
             panic!("new session expected")
         };
         assert!(!new.roles.profiles.iter().any(|role| role.id == edited.id));
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn applies_teams_for_future_capture() {
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let Output::Role(member) = client
+            .execute(client.prepare(Command::PutRole {
+                role: role::Profile {
+                    id: sailry_protocol::RoleId::new(),
+                    revision: 0,
+                    key: "team-review".into(),
+                    name: "Team review".into(),
+                    appearance: None,
+                    description: String::new(),
+                    read_only: true,
+                    model: None,
+                    max_turns: None,
+                    skills: vec![],
+                    tools: None,
+                    instructions: "Review team work".into(),
+                },
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("role expected")
+        };
+        let server = Server::scripted_tools(vec![
+            discover("add_team"),
+            (
+                tool("add_team"),
+                json!({"key":"review-team","name":"Review team","instructions":"Lead the review","members":[member.id]}),
+            ),
+            discover("list_teams"),
+            (tool("list_teams"), json!({})),
+        ])
+        .await;
+        install(&client).await;
+        let (session, _) = configured_session(&client, &server.endpoint, &root).await;
+        let mut config = session.config.clone();
+        config.permission = Permission::Full;
+        let Output::Session(mut session) = client
+            .execute(client.prepare(Command::SetSessionConfig {
+                session: session.id,
+                expected_revision: session.revision,
+                config,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        let turn = submit(&client, &session, "Add a team").await;
+        let page = finished(&client, session.id, turn.id).await;
+        let output = results(&client, &page).await;
+        assert_eq!(output.len(), 4, "{output:?}");
+        assert_eq!(output[1]["revision"], "1", "{output:?}");
+        assert_eq!(output[1]["members"], json!([member.id]));
+        let teams = output[3]["teams"].as_array().unwrap();
+        assert_eq!(teams.len(), 1);
+        assert!(teams.iter().all(|team| team["key"] != "default"));
+        let added: sailry_protocol::TeamId =
+            serde_json::from_value(teams[0]["id"].clone()).unwrap();
+        assert_eq!(turn.roles.team, None);
+
+        server.replace_tools(vec![
+            discover("apply_team"),
+            (
+                tool("apply_team"),
+                json!({"team":{"id":added,"revision":"1"},"expected_session_revision":session.revision.to_string()}),
+            ),
+            (
+                tool("apply_team"),
+                json!({"team":null,"expected_session_revision":session.revision.to_string()}),
+            ),
+        ]);
+        let applying = submit(&client, &session, "Use the review team").await;
+        let page = finished(&client, session.id, applying.id).await;
+        let output = results(&client, &page).await;
+        let applied = &output[output.len() - 2];
+        assert_eq!(applied["revision"], (session.revision + 1).to_string());
+        assert_eq!(applied["team"], json!({"id":added,"revision":"1"}));
+        assert_eq!(
+            applied["roles"],
+            json!([{"id":member.id,"revision":member.revision.to_string()}])
+        );
+        assert!(applied.get("providers").is_none());
+        // The stale session revision is a conflict, never a silent rebase.
+        assert_eq!(output.last().unwrap()["error"]["code"], "revision_conflict");
+        assert_eq!(applying.roles.team, None);
+        session = read(&client, session.id).await;
+        assert_eq!(
+            session.roles.team,
+            Some(sailry_protocol::team::Reference {
+                id: added,
+                revision: 1
+            })
+        );
+        assert_eq!(session.roles.instructions, "Lead the review");
+        assert_eq!(session.roles.profiles, vec![member.clone()]);
+        server.replace_tools(vec![]);
+        let fresh = submit(&client, &session, "Inspect the applied team").await;
+        assert_eq!(fresh.roles.team, session.roles.team);
+        finished(&client, session.id, fresh.id).await;
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }

@@ -9,12 +9,13 @@ use gpui_kit::{
 };
 use sailry_protocol::WorkMode;
 
-pub(super) const MODES: [WorkMode; 2] = [WorkMode::Code, WorkMode::Plan];
+pub(super) const MODES: [WorkMode; 3] = [WorkMode::Code, WorkMode::Plan, WorkMode::Flagship];
 
 pub(super) fn label(mode: WorkMode) -> &'static str {
     match mode {
         WorkMode::Code => "composer_mode_code",
         WorkMode::Plan => "composer_mode_plan",
+        WorkMode::Flagship => "composer_mode_flagship",
     }
 }
 
@@ -22,6 +23,7 @@ pub(super) fn icon(mode: WorkMode) -> IconName {
     match mode {
         WorkMode::Code => IconName::SquareTerminal,
         WorkMode::Plan => IconName::Map,
+        WorkMode::Flagship => IconName::Bot,
     }
 }
 
@@ -29,6 +31,7 @@ pub(super) fn description(mode: WorkMode) -> &'static str {
     match mode {
         WorkMode::Code => "composer_mode_code_description",
         WorkMode::Plan => "composer_mode_plan_description",
+        WorkMode::Flagship => "composer_mode_flagship_description",
     }
 }
 

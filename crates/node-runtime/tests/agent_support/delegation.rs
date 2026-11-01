@@ -25,7 +25,7 @@ pub(super) fn next(body: &Value, role: Option<&str>) -> Option<(String, Value)> 
         .find_map(|(_, result)| result["session"].as_str());
     let Some(child) = child else {
         return Some((
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":role,"task":"Perform the delegated writes","background":true}),
         ));
     };
@@ -39,7 +39,7 @@ pub(super) fn next(body: &Value, role: Option<&str>) -> Option<(String, Value)> 
             .any(|(index, result)| *index > latest && result["recipient"].is_string())
     {
         return Some((
-            plugin_tool("delegation", "guide_agent"),
+            "guide_agent".to_string(),
             json!({"session":child,"message":"Apply the child correction after all writes settle"}),
         ));
     }
@@ -50,8 +50,5 @@ pub(super) fn next(body: &Value, role: Option<&str>) -> Option<(String, Value)> 
     }) {
         return None;
     }
-    Some((
-        plugin_tool("delegation", "wait_agent"),
-        json!({"session":child}),
-    ))
+    Some(("wait_agent".to_string(), json!({"session":child})))
 }

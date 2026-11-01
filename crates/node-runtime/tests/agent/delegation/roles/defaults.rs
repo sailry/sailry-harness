@@ -41,7 +41,7 @@ async fn install(fixture: &Fixture, revision: u64, context: &str) -> plugin::Inf
                         "resource":"workspace",
                         "context":context,
                         "tools":[
-                            {"kind":"package","package":"delegation","name":"spawn_agent"},
+                            {"kind":"builtin","name":"spawn_agent"},
                             {"kind":"package","package":"files","name":"read_file"}
                         ]
                     }]
@@ -138,11 +138,8 @@ fn context(request: &Value, personal: &str) -> String {
 #[tokio::test]
 async fn inherits_assistant_and_reuses_frozen_context() {
     for remote in [false, true] {
-        let parent = Server::parallel(vec![(
-            plugin_tool("delegation", "spawn_agent"),
-            json!({"task":INITIAL}),
-        )])
-        .await;
+        let parent =
+            Server::parallel(vec![("spawn_agent".to_string(), json!({"task":INITIAL}))]).await;
         let unused = Server::start(false).await;
         let mut fixture = Fixture::start(remote, parent, unused).await;
         std::fs::write(
@@ -261,7 +258,7 @@ async fn inherits_assistant_and_reuses_frozen_context() {
         let replacement = install(&fixture, assistant.summary.revision, REPLACEMENT).await;
         assert_ne!(replacement.summary.digest, assistant.summary.digest);
         let next_parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"session":child.id,"task":FOLLOWUP}),
         )])
         .await;

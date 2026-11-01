@@ -116,6 +116,12 @@ async fn save(db: &Connection, info: &Info, installed: bool) -> Result<(), Fault
     Ok(())
 }
 
+/// Records a synthetic installed package without staging package files.
+#[cfg(test)]
+pub(in crate::store) async fn install_fixture(db: &Connection, info: &Info) -> Result<(), Fault> {
+    save(db, info, true).await
+}
+
 async fn enable(db: &Connection, mut info: Info, enabled: bool) -> Result<Info, Fault> {
     if enabled {
         crate::plugins::compatibility::check(&info)?;
@@ -409,7 +415,6 @@ async fn finish_package(
         None => true,
     };
     services::check(db, info).await?;
-    policy::check(db, info).await?;
     options::check(db, info).await?;
     if let Some(previous) = &current
         && previous
@@ -429,7 +434,6 @@ async fn finish_package(
             .await
             .map_err(storage_error)?;
     }
-    policy::migrate(db, info).await?;
     services::apply(db, info, info.summary.enabled).await?;
     super::agent::continuation::invalidate(db, name).await?;
     if let Command::InstallMcp {

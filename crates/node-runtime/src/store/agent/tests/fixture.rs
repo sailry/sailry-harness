@@ -205,3 +205,22 @@ pub(in crate::store::agent) async fn package(
     result.unwrap();
     transaction.commit().await.unwrap();
 }
+
+/// Third-party catalog editors keep using native role operations after delegation moved into core.
+pub(in crate::store::agent) const ROLES: &str = "roles-fixture";
+
+pub(in crate::store::agent) async fn roles(database: &Database) {
+    let tool = |name: &str, operation: &str| {
+        serde_json::json!({"name":name,"server":null,"operation":operation,"handler":null,
+            "description":"Role fixture","display":null,"contexts":["workspace"]})
+    };
+    let info: sailry_protocol::plugin::Info = serde_json::from_value(serde_json::json!({
+        "summary":{"name":ROLES,"revision":1,"settings_revision":0,"enabled":true,"digest":"b".repeat(64),"version":"0.1.0"},
+        "extension":{"api_version":"v1","scope":"host","actions":["roles.read","roles.write"],
+            "tools":[tool("edit_agent","roles.save"),tool("delete_agent","roles.remove"),tool("apply_agents","roles.apply")]}
+    }))
+    .unwrap();
+    crate::store::plugins::install_fixture(&database.connection, &info)
+        .await
+        .unwrap();
+}

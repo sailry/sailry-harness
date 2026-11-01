@@ -14,7 +14,7 @@ async fn request(fixture: &mut Fixture, worktree: Option<WorktreeId>) -> (TurnId
         .unwrap()
         .unwrap();
     let request = ToolIdentity {
-        name: crate::plugins::tools::alias("delegation", "spawn_agent"),
+        name: crate::agent::delegation::tools::SPAWN.to_owned(),
         id: Some("child".into()),
         arguments: json!({"role":null,"task":"Inspect", "worktree":worktree}),
     };
@@ -60,12 +60,6 @@ async fn tree(fixture: &Fixture, project: Option<ProjectId>, path: &std::path::P
 async fn rejects_foreign_or_missing_targets() {
     for foreign in [false, true] {
         let mut fixture = Fixture::new().await;
-        crate::store::agent::tests::fixture::package(
-            &fixture.database,
-            fixture._root.path(),
-            "delegation",
-        )
-        .await;
         let dir = tempfile::tempdir().unwrap();
         let target = if foreign {
             tree(&fixture, None, dir.path()).await
@@ -104,12 +98,6 @@ async fn rejects_foreign_or_missing_targets() {
 #[tokio::test]
 async fn inherits_frozen_location() {
     let mut fixture = Fixture::new().await;
-    crate::store::agent::tests::fixture::package(
-        &fixture.database,
-        fixture._root.path(),
-        "delegation",
-    )
-    .await;
     let mut session =
         crate::store::commands::session(&fixture.database.connection, fixture.session)
             .await
@@ -138,12 +126,6 @@ async fn inherits_frozen_location() {
 #[tokio::test]
 async fn rejects_rebased_input_and_removal() {
     let mut fixture = Fixture::new().await;
-    crate::store::agent::tests::fixture::package(
-        &fixture.database,
-        fixture._root.path(),
-        "delegation",
-    )
-    .await;
     let session = crate::store::commands::session(&fixture.database.connection, fixture.session)
         .await
         .unwrap();

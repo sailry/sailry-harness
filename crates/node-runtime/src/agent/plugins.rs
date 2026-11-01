@@ -126,6 +126,14 @@ pub(super) async fn bind(
         bound
             .tools
             .extend(operations::bind(ingress, tasks, invocation, stop));
+        if !restricted {
+            bound.tools.extend(super::delegation::tools::bind(
+                ingress, tasks, invocation, stop,
+            ));
+            bound
+                .tools
+                .extend(super::roles::bind(ingress, invocation, stop));
+        }
         let scripts = scripts::bind(ingress, tasks, invocation, stop).await?;
         bound.completion = scripts.completion;
         bound.tools.extend(scripts.tools);
@@ -162,6 +170,9 @@ pub(super) async fn bind(
     {
         bound.instruction.push_str(&connection_diagnostics);
     }
+    bound
+        .context
+        .push_str(&super::delegation::tools::context(invocation, &bound.tools));
     for package in &invocation.plugins {
         let mounted = bound.tools.iter().any(|tool| {
             bound.mounted(tool.tool.name.as_ref())

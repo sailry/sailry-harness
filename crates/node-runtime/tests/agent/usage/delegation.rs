@@ -56,7 +56,7 @@ async fn publishes_child_usage_to_parent() {
         let release = CancellationToken::new();
         let parent = Server::tools(vec![
             (
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role":"review","task":"Measure the child","background":true}),
             ),
             (

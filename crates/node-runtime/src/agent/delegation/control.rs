@@ -8,7 +8,8 @@ pub(in crate::agent) struct Control {
     transport: Local,
     turn: TurnId,
     session: String,
-    context: plugin::Context,
+    /// Package tools carry their owner; core tools rely on child ownership checks.
+    context: Option<plugin::Context>,
     stop: CancellationToken,
     operation: Operation,
     resume: Delegate,
@@ -21,7 +22,7 @@ impl Control {
     pub(in crate::agent) fn new(
         ingress: &Arc<Ingress>,
         invocation: &Invocation,
-        package: &plugin::Info,
+        package: Option<&plugin::Info>,
         stop: &CancellationToken,
         operation: Operation,
         resume: Delegate,
@@ -31,14 +32,14 @@ impl Control {
             transport: Local::new(ingress.node, invocation.caller, ingress.clone()),
             turn: invocation.turn.id,
             session: invocation.turn.session.to_string(),
-            context: plugin::Context {
+            context: package.map(|package| plugin::Context {
                 invocation: None,
                 turn: Some(invocation.turn.id),
                 surface: plugin::desktop::Surface::Workspace,
                 package: package.summary.reference(),
                 worktree: Some(invocation.worktree),
                 session: Some(invocation.turn.session),
-            },
+            }),
             stop: stop.clone(),
             operation,
             resume,
@@ -140,15 +141,17 @@ impl Control {
                         "guidance requires a running child",
                     ));
                 }
-                let request = Request::new(
+                let mut request = Request::new(
                     self.ingress.node,
                     Command::GuideTurn {
                         recipient: state.run.turn,
                         expected_revision: state.run.revision,
                         message: message.into(),
                     },
-                )
-                .with_plugin(self.context.clone());
+                );
+                if let Some(context) = &self.context {
+                    request = request.with_plugin(context.clone());
+                }
                 let admission = self.transport.dispatch(request).await?;
                 let output = admission.completion.await.map_err(|_| {
                     Fault::new(

@@ -413,7 +413,7 @@ async fn retry(
         session.profile.as_ref().unwrap().provider.endpoint,
         server.endpoint
     );
-    let parent = Server::turn_tools(vec![(plugin_tool("delegation", "spawn_agent"),
+    let parent = Server::turn_tools(vec![("spawn_agent".to_string(),
         json!({"session":child,"task":"Retry only the conflicted review actions from the current head"}))]).await;
     route(&fixture.client, &fixture.session, &parent.endpoint).await;
     let held: Vec<_> = actions
@@ -470,7 +470,6 @@ async fn retry(
 async fn retries_parallel_reports_without_lost_receipts() {
     for remote in [false, true] {
         let (mut fixture, package) = start(remote).await;
-        crate::approvals::install(&fixture.client, &["delegation"]).await;
         let repository = Repository::init(&fixture.root).unwrap();
         write(&fixture.root, "alpha/value.rs", "old_alpha();\n");
         write(&fixture.root, "beta/value.py", "old_beta()\n");
@@ -508,8 +507,8 @@ async fn retries_parallel_reports_without_lost_receipts() {
         let profiles = roles(&mut fixture, &[("alpha", &first), ("beta", &second)]).await;
         permission(&mut fixture, Permission::Ask).await;
         let parent = Server::turn_parallel(vec![
-            (plugin_tool("delegation","spawn_agent"),json!({"role":"alpha","task":"Review the alpha group and submit its complete receipt"})),
-            (plugin_tool("delegation","spawn_agent"),json!({"role":"beta","task":"Review the beta group and submit its complete receipt"})),
+            ("spawn_agent".to_string(),json!({"role":"alpha","task":"Review the alpha group and submit its complete receipt"})),
+            ("spawn_agent".to_string(),json!({"role":"beta","task":"Review the beta group and submit its complete receipt"})),
         ]).await;
         route(&fixture.client, &fixture.session, &parent.endpoint).await;
         let held = hold(&fixture, "report_finding");
@@ -697,7 +696,6 @@ async fn retries_parallel_reports_without_lost_receipts() {
 async fn retries_parallel_group_receipts() {
     for remote in [false, true] {
         let (mut fixture, package) = start(remote).await;
-        crate::approvals::install(&fixture.client, &["delegation"]).await;
         let repository = Repository::init(&fixture.root).unwrap();
         write(&fixture.root, "alpha/value.rs", "old_alpha();\n");
         write(&fixture.root, "beta/value.py", "old_beta()\n");
@@ -719,11 +717,11 @@ async fn retries_parallel_group_receipts() {
         permission(&mut fixture, Permission::Ask).await;
         let parent = Server::turn_parallel(vec![
             (
-                plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role":"alpha","task":"Submit the complete alpha group receipt"}),
             ),
             (
-                plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role":"beta","task":"Submit the complete beta group receipt"}),
             ),
         ])
@@ -825,7 +823,6 @@ async fn retries_parallel_group_receipts() {
 async fn rejects_foreign_sessions_and_worktrees() {
     for remote in [false, true] {
         let (mut fixture, package) = start(remote).await;
-        crate::approvals::install(&fixture.client, &["delegation"]).await;
         let repository = Repository::init(&fixture.root).unwrap();
         write(&fixture.root, "src/value.rs", "old_value();\n");
         commit(&repository, "Initial scope");
@@ -892,7 +889,7 @@ async fn rejects_foreign_sessions_and_worktrees() {
         ])
         .await;
         roles(&mut fixture, &[("foreign-worktree", &delegated)]).await;
-        let (delegation,parent) = calls(&fixture,vec![(plugin_tool("delegation","spawn_agent"),
+        let (delegation,parent) = calls(&fixture,vec![("spawn_agent".to_string(),
             json!({"role":"foreign-worktree","worktree":worktree.id,
                 "task":"Try to read, report and finalize the captured review from this other worktree"}))]).await;
         let parent_page = history(&fixture.client, fixture.session.id).await;

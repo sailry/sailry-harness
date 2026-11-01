@@ -7,7 +7,7 @@ use crate::store::agent::tests::fixture::{message, request as tool_request};
 pub(super) fn setup() -> sailry_link::Pending<'static, Fixture> {
     Box::pin(async move {
         let fixture = Fixture::new().await;
-        for name in ["delegation", "files"] {
+        for name in ["files"] {
             crate::store::agent::tests::fixture::package(
                 &fixture.database,
                 fixture._root.path(),
@@ -60,7 +60,7 @@ pub(super) fn queued<'a>(
 ) -> sailry_link::Pending<'a, Result<Invocation, Fault>> {
     Box::pin(async move {
         let request = ToolIdentity {
-            name: crate::plugins::tools::alias("delegation", "spawn_agent"),
+            name: crate::agent::delegation::tools::SPAWN.to_owned(),
             id: Some(format!("call-{}", RequestId::new())),
             arguments: args,
         };

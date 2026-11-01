@@ -7,6 +7,7 @@ mod control;
 mod observation;
 pub(in crate::agent) mod scheduler;
 pub(super) mod selected;
+pub(crate) mod tools;
 pub(in crate::agent) use control::Control;
 
 #[cfg(test)]

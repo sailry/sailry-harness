@@ -90,15 +90,7 @@ async fn scopes_database_approvals() {
             &client,
             &server,
             &root,
-            &[
-                "databases",
-                "files",
-                "goals",
-                "commands",
-                "browser",
-                "ssh",
-                "delegation",
-            ],
+            &["databases", "files", "goals", "commands", "browser", "ssh"],
         )
         .await;
         let Output::Session(session) = client
@@ -198,9 +190,7 @@ async fn scopes_database_approvals() {
                     && tool["function"]["name"] != agent_support::plugin_tool("progress", denied)
                     && tool["function"]["name"] != agent_support::plugin_tool("commands", denied)
                     && tool["function"]["name"] != agent_support::plugin_tool("browser", denied)
-                    && tool["function"]["name"] != agent_support::plugin_tool("ssh", denied)
-                    && tool["function"]["name"]
-                        != agent_support::plugin_tool("delegation", denied)),
+                    && tool["function"]["name"] != agent_support::plugin_tool("ssh", denied)),
                 "{denied}"
             );
         }

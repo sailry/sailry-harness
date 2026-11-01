@@ -5,7 +5,7 @@ use sailry_protocol::hooks::{Phase, Script, Settings};
 async fn fixture(remote: bool) -> (Fixture, sailry_link::CancellationToken) {
     let release = sailry_link::CancellationToken::new();
     let parent = Server::turn_tools(vec![(
-        plugin_tool("delegation", "spawn_agent"),
+        "spawn_agent".to_string(),
         json!({"role":"review","task":"Wait for the held response","background":true}),
     )])
     .await;

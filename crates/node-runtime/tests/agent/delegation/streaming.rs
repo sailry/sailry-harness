@@ -26,7 +26,7 @@ async fn recovers_and_preserves_stopped_output() {
             node.local()
         }));
         let parent = Server::parallel(vec![(
-            crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role": "review", "task": "Stream the delegated answer"}),
         )])
         .await;

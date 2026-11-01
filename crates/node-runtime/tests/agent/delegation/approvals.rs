@@ -5,7 +5,7 @@ use super::*;
 async fn requires_command_approval_before_execution() {
     for remote in [false, true] {
         let parent = Server::turn_tools(vec![(
-            plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review","task":"Run the command after approval"}),
         )])
         .await;
@@ -76,11 +76,11 @@ async fn isolates_call_identity() {
         });
         let parent = Server::parallel(vec![
             (
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role": "review", "task": "Read and write A"}),
             ),
             (
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role": "review", "task": "Read and write B"}),
             ),
         ])
@@ -98,11 +98,7 @@ async fn isolates_call_identity() {
         .await;
         let (session, _, _) = setup(&client, &root, &parent, &child).await;
         let mut config = session.config.clone();
-        config
-            .options
-            .entry("delegation".into())
-            .or_default()
-            .insert("mode".into(), json!("multitask"));
+        config.mode = sailry_protocol::WorkMode::Flagship;
         let Output::Session(session) = client
             .execute(client.prepare(Command::SetSessionConfig {
                 session: session.id,

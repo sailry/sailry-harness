@@ -7,12 +7,6 @@ use serde_json::json;
 #[tokio::test]
 async fn canonical_admission_and_recovery() {
     let mut fixture = Fixture::new().await;
-    crate::store::agent::tests::fixture::package(
-        &fixture.database,
-        fixture._root.path(),
-        "delegation",
-    )
-    .await;
     let parent = fixture.queued().await;
     runs::start(&fixture.database.connection, parent)
         .await
@@ -22,7 +16,7 @@ async fn canonical_admission_and_recovery() {
         .unwrap()
         .unwrap();
     let request = ToolIdentity {
-        name: crate::plugins::tools::alias("delegation", "spawn_agent"),
+        name: crate::agent::delegation::tools::SPAWN.to_owned(),
         id: Some("child-call".into()),
         arguments: json!({"role": null, "title": "Inspect files", "task": "Independent task"}),
     };

@@ -23,7 +23,7 @@ async fn preserves_active_tasks_and_forks() {
             node.local()
         });
         let parent = Server::tools(vec![(
-            crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role":"review", "task":"Wait for cancellation"}),
         )])
         .await;

@@ -25,11 +25,11 @@ async fn freezes_config_and_history() {
         });
         let parent = Server::parallel(vec![
             (
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role": "review", "task": "Inspect 中文 A"}),
             ),
             (
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role": "review", "task": "Inspect 中文 B"}),
             ),
         ])
@@ -38,11 +38,7 @@ async fn freezes_config_and_history() {
         let child = Server::gate(2).await;
         let (session, mut provider, mut role) = setup(&client, &root, &parent, &child).await;
         let mut config = session.config.clone();
-        config
-            .options
-            .entry("delegation".into())
-            .or_default()
-            .insert("mode".into(), json!("multitask"));
+        config.mode = sailry_protocol::WorkMode::Flagship;
         let Output::Session(session) = client
             .execute(client.prepare(Command::SetSessionConfig {
                 session: session.id,
@@ -131,11 +127,14 @@ async fn freezes_config_and_history() {
                 text.contains("Inspect 中文 A"),
                 text.contains("Inspect 中文 B")
             );
-            assert!(request["tools"].as_array().unwrap().iter().all(
-                |tool| tool["function"]["name"] != "spawn_agent"
-                    && tool["function"]["name"]
-                        != crate::agent_support::plugin_tool("delegation", "spawn_agent")
-            ));
+            assert!(
+                request["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|tool| tool["function"]["name"] != "spawn_agent"
+                        && tool["function"]["name"] != "spawn_agent".to_string())
+            );
         }
         let mut histories = Vec::new();
         let mut captured = Vec::new();

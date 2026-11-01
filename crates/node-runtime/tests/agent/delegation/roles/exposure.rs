@@ -16,7 +16,7 @@ async fn discovers_defaults_and_preserves_explicit_selection() {
     for remote in [false, true] {
         for selected in [false, true] {
             let parent = Server::tools(vec![(
-                plugin_tool("delegation", "spawn_agent"),
+                "spawn_agent".to_string(),
                 json!({"role":"review","task":"List registered worktrees","background":false}),
             )])
             .await;

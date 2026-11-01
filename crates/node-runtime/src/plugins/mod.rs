@@ -39,7 +39,7 @@ use sailry_protocol::{
 };
 use std::path::{Path, PathBuf};
 
-pub(crate) use bundled::{AUTHENTICATIONS, DEFAULTS};
+pub(crate) use bundled::{AUTHENTICATIONS, DEFAULTS, RETIRED, RETIRED_MODES, shipped};
 pub(crate) use manifest::validate_name;
 
 #[derive(Clone)]

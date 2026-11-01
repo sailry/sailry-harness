@@ -166,6 +166,18 @@ tool_git_status: Git 状态
 tool_git_diff: 查看差异
 tool_git_log: Git 日志
 tool_spawn_agent: 子代理
+tool_list_agents: "列出代理"
+tool_add_agent: "添加代理"
+tool_edit_agent: "编辑代理"
+tool_delete_agent: "删除代理"
+tool_apply_agents: "应用代理"
+tool_guide_agent: "引导子代理"
+tool_wait_agent: "等待子代理"
+tool_list_teams: "列出团队"
+tool_add_team: "添加团队"
+tool_edit_team: "编辑团队"
+tool_delete_team: "删除团队"
+tool_apply_team: "应用团队"
 tool_result: 结果
 command_result: 执行结果
 tool_copy: 复制
@@ -1231,6 +1243,8 @@ composer_mode_code: "标准"
 composer_mode_plan: "计划"
 composer_mode_code_description: "处理代码、文件和资料，适合大多数任务"
 composer_mode_plan_description: "规划项目与方案，不运行代码或写入文件"
+composer_mode_flagship: "旗舰"
+composer_mode_flagship_description: "多代理协作处理代码和文件，适合重构与整理"
 composer_branch_main: main
 composer_branch_preview: preview/ui
 composer_context: 上下文 —

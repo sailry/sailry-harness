@@ -79,10 +79,36 @@ fn validates_continuation_markers() {
 #[test]
 fn validates_conversation_modes() {
     let validator = validator();
-    let original: Value = serde_json::from_slice(include_bytes!(
-        "../../../../../plugins/delegation/plugin.json"
-    ))
-    .unwrap();
+    // Packages may still declare modes; the bundled Flagship mode moved into core.
+    let original = json!({
+        "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        "name":"modes-example",
+        "version":"0.1.0",
+        "extensions":{"dev.sailry.platform":{
+            "api_version":"v1",
+            "min_sailry_version":"0.1.0-alpha.4",
+            "scope":"host",
+            "conversation_options":{
+                "$schema":"https://json-schema.org/draft/2020-12/schema",
+                "type":"object",
+                "additionalProperties":false,
+                "properties":{"mode":{"type":"string","default":"","enum":["","review"]}}
+            },
+            "host":{
+                "entry":"dev.sailry.platform/host/main.js",
+                "resources":["dev.sailry.platform/host/main.js"],
+                "handlers":["initialize"],
+                "turn":{"initialize":"initialize"}
+            },
+            "conversation_modes":[{
+                "id":"review",
+                "option":"mode",
+                "display":{"label":"Review","icon":"reicon:users/users2"},
+                "permissions":{"write":false},
+                "instructions":"Review the change before editing."
+            }]
+        }}
+    });
     assert!(validator.is_valid(&original));
     assert!(
         parse(&serde_json::to_vec(&original).unwrap())
@@ -102,7 +128,7 @@ fn validates_conversation_modes() {
     );
     let mut invalid = original;
     invalid["extensions"]["dev.sailry.platform"]["conversation_options"]["properties"]["mode"]["default"] =
-        json!("multitask");
+        json!("review");
     assert!(
         parse(&serde_json::to_vec(&invalid).unwrap())
             .unwrap()

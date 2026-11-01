@@ -955,7 +955,7 @@ async fn respond(
         _ if discover => json!({"role":"assistant", "tool_calls":[{"index":0,
             "id":"discovery-fixture", "type":"function", "function":{
                 "name":"tool_search", "arguments":json!({
-                    "query":plugin_tool("delegation", "spawn_agent"), "limit":1
+                    "query":"spawn_agent".to_string(), "limit":1
                 }).to_string()}}]}),
         (Reply::Staged(_), _, _) => json!({"role":"assistant", "content":"First"}),
         (Reply::Markdown(text, ..), _, _) => json!({"role":"assistant", "content":text.as_str()}),

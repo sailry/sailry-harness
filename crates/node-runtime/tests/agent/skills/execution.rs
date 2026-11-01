@@ -440,12 +440,11 @@ async fn loads_complete_resources() {
 async fn injects_frozen_roles() {
     for remote in [false, true] {
         let server = Server::parallel(vec![(
-            crate::agent_support::plugin_tool("delegation", "spawn_agent"),
+            "spawn_agent".to_string(),
             json!({"role": "review", "task": "Use the selected skill"}),
         )])
         .await;
         let (directory, node, controller, client, session) = fixture(remote, &server).await;
-        approvals::install(&client, &["delegation"]).await;
         let role = role::Profile {
             read_only: false,
             appearance: None,

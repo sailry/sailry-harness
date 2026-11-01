@@ -29,11 +29,7 @@ pub(super) fn model(id: &str) -> Model {
 }
 
 async fn install(client: &Client) {
-    super::approvals::install(
-        client,
-        &["delegation", "files", "commands", "git", "worktrees"],
-    )
-    .await;
+    super::approvals::install(client, &["files", "commands", "git", "worktrees"]).await;
 }
 
 pub(super) async fn setup(
@@ -231,32 +227,22 @@ mod roles;
 mod selection;
 mod streaming;
 
-async fn capacity(client: &Client, name: &str, count: u64) {
-    let Output::Plugin(package) = client
-        .execute(client.prepare(Command::ReadPlugin { name: name.into() }))
+/// The Node-owned budget limits children per root conversation at claim time.
+async fn capacity(client: &Client, count: u64) {
+    let Output::TeamSettings(mut settings) = client
+        .execute(client.prepare(Command::ReadTeamSettings))
         .await
         .unwrap()
     else {
-        panic!("package expected")
+        panic!("team settings expected")
     };
-    let Output::PluginSettings(mut settings) = client
-        .execute(client.prepare(Command::ReadPluginSettings {
-            package: package.summary.reference(),
-        }))
+    settings.child_concurrency = count;
+    let Output::TeamSettings(saved) = client
+        .execute(client.prepare(Command::SaveTeamSettings(settings)))
         .await
         .unwrap()
     else {
-        panic!("settings expected")
+        panic!("team settings expected")
     };
-    settings
-        .values
-        .insert("child_concurrency".into(), json!(count.to_string()));
-    client
-        .execute(client.prepare(Command::SavePluginSettings {
-            package: settings.package,
-            values: settings.values,
-            secrets: Default::default(),
-        }))
-        .await
-        .unwrap();
+    assert_eq!(saved.child_concurrency, count);
 }

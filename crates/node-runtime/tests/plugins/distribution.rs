@@ -987,7 +987,6 @@ mod removed_defaults {
         memory => ("memory", true),
         files => ("files", true),
         code => ("code", true),
-        delegation => ("delegation", true),
         statistics => ("statistics", true),
         databases => ("databases", true),
         ssh => ("ssh", true),

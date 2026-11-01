@@ -36,7 +36,10 @@ pub enum Permission {
 #[serde(rename_all = "snake_case")]
 pub enum WorkMode {
     Plan,
+    /// Standard work; delegates only on an explicit user request.
     Code,
+    /// Standard work whose lead may coordinate subagents on its own judgment.
+    Flagship,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -287,7 +290,11 @@ mod work_mode {
 
     #[test]
     fn requires_an_explicit_choice() {
-        for (mode, name) in [(WorkMode::Plan, "plan"), (WorkMode::Code, "code")] {
+        for (mode, name) in [
+            (WorkMode::Plan, "plan"),
+            (WorkMode::Code, "code"),
+            (WorkMode::Flagship, "flagship"),
+        ] {
             let config = SessionConfig {
                 features: Default::default(),
                 assistant: None,
