@@ -2211,6 +2211,147 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get terminalStop => 'Parar';
+
+  @override
+  String get hostConnecting => 'Conectando';
+
+  @override
+  String get hostInfo => 'Informações do host';
+
+  @override
+  String get hostLatency => 'Latência';
+
+  @override
+  String hostLatencySummary(String average, String peak) {
+    return 'Média $average  Máx. $peak';
+  }
+
+  @override
+  String get hostSystem => 'Sistema';
+
+  @override
+  String get hostProcessor => 'Processador';
+
+  @override
+  String hostCores(String count) {
+    return '$count núcleos';
+  }
+
+  @override
+  String hostLoad(String value) {
+    return 'Carga $value';
+  }
+
+  @override
+  String hostMemoryShare(String percent) {
+    return '$percent em uso';
+  }
+
+  @override
+  String get hostUptime => 'Tempo ativo';
+
+  @override
+  String hostNodeUptime(String duration) {
+    return 'Serviço $duration';
+  }
+
+  @override
+  String hostDays(String count) {
+    return '$count dias';
+  }
+
+  @override
+  String hostHours(String count) {
+    return '$count horas';
+  }
+
+  @override
+  String hostMinutes(String count) {
+    return '$count minutos';
+  }
+
+  @override
+  String get hostTrend => 'Tendência';
+
+  @override
+  String get hostTrendWindow => 'Último minuto';
+
+  @override
+  String get hostChartStart => 'Há 60 s';
+
+  @override
+  String get hostChartNow => 'Agora';
+
+  @override
+  String get hostMetricGpu => 'GPU';
+
+  @override
+  String hostCoreHint(String count) {
+    return '$count núcleos, toque e segure um para ver detalhes';
+  }
+
+  @override
+  String get hostMemoryUsed => 'Em uso';
+
+  @override
+  String get hostMemoryCache => 'Em cache';
+
+  @override
+  String get hostMemorySwap => 'Swap';
+
+  @override
+  String get hostGpuUsage => 'Uso';
+
+  @override
+  String get hostNetwork => 'Rede';
+
+  @override
+  String hostNetworkTotals(String received, String sent) {
+    return 'Total ↓ $received  ↑ $sent';
+  }
+
+  @override
+  String get hostDownload => 'Download';
+
+  @override
+  String get hostUpload => 'Upload';
+
+  @override
+  String hostPartitions(String count) {
+    return '$count partições';
+  }
+
+  @override
+  String get hostDiskRead => 'Leitura';
+
+  @override
+  String get hostDiskWrite => 'Gravação';
+
+  @override
+  String get hostProcesses => 'Processos';
+
+  @override
+  String get hostSortCpu => 'Por CPU';
+
+  @override
+  String get hostSortMemory => 'Por memória';
+
+  @override
+  String get hostSortRecent => 'Recentes';
+
+  @override
+  String get hostSearchProcesses => 'Pesquisar processos';
+
+  @override
+  String get hostSearchProjects => 'Pesquisar projetos';
+
+  @override
+  String hostProcessLimit(String count) {
+    return 'Mostrando os $count primeiros';
+  }
+
+  @override
+  String get hostNoMatches => 'Nenhum resultado';
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).

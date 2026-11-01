@@ -2163,6 +2163,147 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get terminalStop => '停止';
+
+  @override
+  String get hostConnecting => '连接中';
+
+  @override
+  String get hostInfo => '主机信息';
+
+  @override
+  String get hostLatency => '延迟';
+
+  @override
+  String hostLatencySummary(String average, String peak) {
+    return '平均 $average　最高 $peak';
+  }
+
+  @override
+  String get hostSystem => '系统';
+
+  @override
+  String get hostProcessor => '处理器';
+
+  @override
+  String hostCores(String count) {
+    return '$count 核';
+  }
+
+  @override
+  String hostLoad(String value) {
+    return '负载 $value';
+  }
+
+  @override
+  String hostMemoryShare(String percent) {
+    return '已用 $percent';
+  }
+
+  @override
+  String get hostUptime => '运行时间';
+
+  @override
+  String hostNodeUptime(String duration) {
+    return '服务 $duration';
+  }
+
+  @override
+  String hostDays(String count) {
+    return '$count 天';
+  }
+
+  @override
+  String hostHours(String count) {
+    return '$count 小时';
+  }
+
+  @override
+  String hostMinutes(String count) {
+    return '$count 分钟';
+  }
+
+  @override
+  String get hostTrend => '趋势';
+
+  @override
+  String get hostTrendWindow => '最近 1 分钟';
+
+  @override
+  String get hostChartStart => '60 秒前';
+
+  @override
+  String get hostChartNow => '现在';
+
+  @override
+  String get hostMetricGpu => 'GPU';
+
+  @override
+  String hostCoreHint(String count) {
+    return '$count 核，按住查看单核';
+  }
+
+  @override
+  String get hostMemoryUsed => '已用';
+
+  @override
+  String get hostMemoryCache => '缓存';
+
+  @override
+  String get hostMemorySwap => '交换';
+
+  @override
+  String get hostGpuUsage => '使用率';
+
+  @override
+  String get hostNetwork => '网络';
+
+  @override
+  String hostNetworkTotals(String received, String sent) {
+    return '累计 ↓ $received　↑ $sent';
+  }
+
+  @override
+  String get hostDownload => '下载';
+
+  @override
+  String get hostUpload => '上传';
+
+  @override
+  String hostPartitions(String count) {
+    return '$count 个分区';
+  }
+
+  @override
+  String get hostDiskRead => '读取';
+
+  @override
+  String get hostDiskWrite => '写入';
+
+  @override
+  String get hostProcesses => '进程';
+
+  @override
+  String get hostSortCpu => '按 CPU';
+
+  @override
+  String get hostSortMemory => '按内存';
+
+  @override
+  String get hostSortRecent => '最近使用';
+
+  @override
+  String get hostSearchProcesses => '搜索进程';
+
+  @override
+  String get hostSearchProjects => '搜索项目';
+
+  @override
+  String hostProcessLimit(String count) {
+    return '显示前 $count 个';
+  }
+
+  @override
+  String get hostNoMatches => '无匹配结果';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4324,4 +4465,145 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get terminalStop => '停止';
+
+  @override
+  String get hostConnecting => '連線中';
+
+  @override
+  String get hostInfo => '主機資訊';
+
+  @override
+  String get hostLatency => '延遲';
+
+  @override
+  String hostLatencySummary(String average, String peak) {
+    return '平均 $average　最高 $peak';
+  }
+
+  @override
+  String get hostSystem => '系統';
+
+  @override
+  String get hostProcessor => '處理器';
+
+  @override
+  String hostCores(String count) {
+    return '$count 核';
+  }
+
+  @override
+  String hostLoad(String value) {
+    return '負載 $value';
+  }
+
+  @override
+  String hostMemoryShare(String percent) {
+    return '已用 $percent';
+  }
+
+  @override
+  String get hostUptime => '執行時間';
+
+  @override
+  String hostNodeUptime(String duration) {
+    return '服務 $duration';
+  }
+
+  @override
+  String hostDays(String count) {
+    return '$count 天';
+  }
+
+  @override
+  String hostHours(String count) {
+    return '$count 小時';
+  }
+
+  @override
+  String hostMinutes(String count) {
+    return '$count 分鐘';
+  }
+
+  @override
+  String get hostTrend => '趨勢';
+
+  @override
+  String get hostTrendWindow => '最近 1 分鐘';
+
+  @override
+  String get hostChartStart => '60 秒前';
+
+  @override
+  String get hostChartNow => '現在';
+
+  @override
+  String get hostMetricGpu => 'GPU';
+
+  @override
+  String hostCoreHint(String count) {
+    return '$count 核，按住檢視單核';
+  }
+
+  @override
+  String get hostMemoryUsed => '已用';
+
+  @override
+  String get hostMemoryCache => '快取';
+
+  @override
+  String get hostMemorySwap => '交換';
+
+  @override
+  String get hostGpuUsage => '使用率';
+
+  @override
+  String get hostNetwork => '網路';
+
+  @override
+  String hostNetworkTotals(String received, String sent) {
+    return '累計 ↓ $received　↑ $sent';
+  }
+
+  @override
+  String get hostDownload => '下載';
+
+  @override
+  String get hostUpload => '上傳';
+
+  @override
+  String hostPartitions(String count) {
+    return '$count 個分割區';
+  }
+
+  @override
+  String get hostDiskRead => '讀取';
+
+  @override
+  String get hostDiskWrite => '寫入';
+
+  @override
+  String get hostProcesses => '程序';
+
+  @override
+  String get hostSortCpu => '依 CPU';
+
+  @override
+  String get hostSortMemory => '依記憶體';
+
+  @override
+  String get hostSortRecent => '最近使用';
+
+  @override
+  String get hostSearchProcesses => '搜尋程序';
+
+  @override
+  String get hostSearchProjects => '搜尋專案';
+
+  @override
+  String hostProcessLimit(String count) {
+    return '顯示前 $count 個';
+  }
+
+  @override
+  String get hostNoMatches => '無相符結果';
 }

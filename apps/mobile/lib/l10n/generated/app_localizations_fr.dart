@@ -2223,4 +2223,145 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get terminalStop => 'Arrêter';
+
+  @override
+  String get hostConnecting => 'Connexion';
+
+  @override
+  String get hostInfo => 'Infos de l’hôte';
+
+  @override
+  String get hostLatency => 'Latence';
+
+  @override
+  String hostLatencySummary(String average, String peak) {
+    return 'Moy. $average  Max $peak';
+  }
+
+  @override
+  String get hostSystem => 'Système';
+
+  @override
+  String get hostProcessor => 'Processeur';
+
+  @override
+  String hostCores(String count) {
+    return '$count cœurs';
+  }
+
+  @override
+  String hostLoad(String value) {
+    return 'Charge $value';
+  }
+
+  @override
+  String hostMemoryShare(String percent) {
+    return '$percent utilisé';
+  }
+
+  @override
+  String get hostUptime => 'Disponibilité';
+
+  @override
+  String hostNodeUptime(String duration) {
+    return 'Service $duration';
+  }
+
+  @override
+  String hostDays(String count) {
+    return '$count jours';
+  }
+
+  @override
+  String hostHours(String count) {
+    return '$count heures';
+  }
+
+  @override
+  String hostMinutes(String count) {
+    return '$count minutes';
+  }
+
+  @override
+  String get hostTrend => 'Tendance';
+
+  @override
+  String get hostTrendWindow => 'Dernière minute';
+
+  @override
+  String get hostChartStart => 'Il y a 60 s';
+
+  @override
+  String get hostChartNow => 'Maintenant';
+
+  @override
+  String get hostMetricGpu => 'GPU';
+
+  @override
+  String hostCoreHint(String count) {
+    return '$count cœurs, maintenez-en un pour le détail';
+  }
+
+  @override
+  String get hostMemoryUsed => 'Utilisée';
+
+  @override
+  String get hostMemoryCache => 'En cache';
+
+  @override
+  String get hostMemorySwap => 'Swap';
+
+  @override
+  String get hostGpuUsage => 'Utilisation';
+
+  @override
+  String get hostNetwork => 'Réseau';
+
+  @override
+  String hostNetworkTotals(String received, String sent) {
+    return 'Total ↓ $received  ↑ $sent';
+  }
+
+  @override
+  String get hostDownload => 'Réception';
+
+  @override
+  String get hostUpload => 'Envoi';
+
+  @override
+  String hostPartitions(String count) {
+    return '$count partitions';
+  }
+
+  @override
+  String get hostDiskRead => 'Lecture';
+
+  @override
+  String get hostDiskWrite => 'Écriture';
+
+  @override
+  String get hostProcesses => 'Processus';
+
+  @override
+  String get hostSortCpu => 'Par CPU';
+
+  @override
+  String get hostSortMemory => 'Par mémoire';
+
+  @override
+  String get hostSortRecent => 'Récents';
+
+  @override
+  String get hostSearchProcesses => 'Rechercher des processus';
+
+  @override
+  String get hostSearchProjects => 'Rechercher des projets';
+
+  @override
+  String hostProcessLimit(String count) {
+    return '$count premiers affichés';
+  }
+
+  @override
+  String get hostNoMatches => 'Aucun résultat';
 }

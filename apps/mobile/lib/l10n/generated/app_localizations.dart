@@ -4337,6 +4337,240 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Stop'**
   String get terminalStop;
+
+  /// No description provided for @hostConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting'**
+  String get hostConnecting;
+
+  /// No description provided for @hostInfo.
+  ///
+  /// In en, this message translates to:
+  /// **'Host info'**
+  String get hostInfo;
+
+  /// No description provided for @hostLatency.
+  ///
+  /// In en, this message translates to:
+  /// **'Latency'**
+  String get hostLatency;
+
+  /// No description provided for @hostLatencySummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Avg {average}  Max {peak}'**
+  String hostLatencySummary(String average, String peak);
+
+  /// No description provided for @hostSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get hostSystem;
+
+  /// No description provided for @hostProcessor.
+  ///
+  /// In en, this message translates to:
+  /// **'Processor'**
+  String get hostProcessor;
+
+  /// No description provided for @hostCores.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} cores'**
+  String hostCores(String count);
+
+  /// No description provided for @hostLoad.
+  ///
+  /// In en, this message translates to:
+  /// **'Load {value}'**
+  String hostLoad(String value);
+
+  /// No description provided for @hostMemoryShare.
+  ///
+  /// In en, this message translates to:
+  /// **'{percent} used'**
+  String hostMemoryShare(String percent);
+
+  /// No description provided for @hostUptime.
+  ///
+  /// In en, this message translates to:
+  /// **'Uptime'**
+  String get hostUptime;
+
+  /// No description provided for @hostNodeUptime.
+  ///
+  /// In en, this message translates to:
+  /// **'Service {duration}'**
+  String hostNodeUptime(String duration);
+
+  /// No description provided for @hostDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} days'**
+  String hostDays(String count);
+
+  /// No description provided for @hostHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} hours'**
+  String hostHours(String count);
+
+  /// No description provided for @hostMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} minutes'**
+  String hostMinutes(String count);
+
+  /// No description provided for @hostTrend.
+  ///
+  /// In en, this message translates to:
+  /// **'Trend'**
+  String get hostTrend;
+
+  /// No description provided for @hostTrendWindow.
+  ///
+  /// In en, this message translates to:
+  /// **'Last minute'**
+  String get hostTrendWindow;
+
+  /// No description provided for @hostChartStart.
+  ///
+  /// In en, this message translates to:
+  /// **'60s ago'**
+  String get hostChartStart;
+
+  /// No description provided for @hostChartNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Now'**
+  String get hostChartNow;
+
+  /// No description provided for @hostMetricGpu.
+  ///
+  /// In en, this message translates to:
+  /// **'GPU'**
+  String get hostMetricGpu;
+
+  /// No description provided for @hostCoreHint.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} cores, hold one for details'**
+  String hostCoreHint(String count);
+
+  /// No description provided for @hostMemoryUsed.
+  ///
+  /// In en, this message translates to:
+  /// **'Used'**
+  String get hostMemoryUsed;
+
+  /// No description provided for @hostMemoryCache.
+  ///
+  /// In en, this message translates to:
+  /// **'Cached'**
+  String get hostMemoryCache;
+
+  /// No description provided for @hostMemorySwap.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap'**
+  String get hostMemorySwap;
+
+  /// No description provided for @hostGpuUsage.
+  ///
+  /// In en, this message translates to:
+  /// **'Usage'**
+  String get hostGpuUsage;
+
+  /// No description provided for @hostNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Network'**
+  String get hostNetwork;
+
+  /// No description provided for @hostNetworkTotals.
+  ///
+  /// In en, this message translates to:
+  /// **'Total ↓ {received}  ↑ {sent}'**
+  String hostNetworkTotals(String received, String sent);
+
+  /// No description provided for @hostDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get hostDownload;
+
+  /// No description provided for @hostUpload.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload'**
+  String get hostUpload;
+
+  /// No description provided for @hostPartitions.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} partitions'**
+  String hostPartitions(String count);
+
+  /// No description provided for @hostDiskRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Read'**
+  String get hostDiskRead;
+
+  /// No description provided for @hostDiskWrite.
+  ///
+  /// In en, this message translates to:
+  /// **'Write'**
+  String get hostDiskWrite;
+
+  /// No description provided for @hostProcesses.
+  ///
+  /// In en, this message translates to:
+  /// **'Processes'**
+  String get hostProcesses;
+
+  /// No description provided for @hostSortCpu.
+  ///
+  /// In en, this message translates to:
+  /// **'By CPU'**
+  String get hostSortCpu;
+
+  /// No description provided for @hostSortMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'By memory'**
+  String get hostSortMemory;
+
+  /// No description provided for @hostSortRecent.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent'**
+  String get hostSortRecent;
+
+  /// No description provided for @hostSearchProcesses.
+  ///
+  /// In en, this message translates to:
+  /// **'Search processes'**
+  String get hostSearchProcesses;
+
+  /// No description provided for @hostSearchProjects.
+  ///
+  /// In en, this message translates to:
+  /// **'Search projects'**
+  String get hostSearchProjects;
+
+  /// No description provided for @hostProcessLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Top {count} shown'**
+  String hostProcessLimit(String count);
+
+  /// No description provided for @hostNoMatches.
+  ///
+  /// In en, this message translates to:
+  /// **'No matches'**
+  String get hostNoMatches;
 }
 
 class _AppLocalizationsDelegate

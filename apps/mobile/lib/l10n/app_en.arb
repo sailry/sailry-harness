@@ -878,5 +878,134 @@
   "activityProgress": "Progress",
   "activityBackground": "Background tasks",
   "activityPorts": "Ports",
-  "terminalStop": "Stop"
+  "terminalStop": "Stop",
+  "hostConnecting": "Connecting",
+  "hostInfo": "Host info",
+  "hostLatency": "Latency",
+  "hostLatencySummary": "Avg {average}  Max {peak}",
+  "@hostLatencySummary": {
+    "placeholders": {
+      "average": {
+        "type": "String"
+      },
+      "peak": {
+        "type": "String"
+      }
+    }
+  },
+  "hostSystem": "System",
+  "hostProcessor": "Processor",
+  "hostCores": "{count} cores",
+  "@hostCores": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostLoad": "Load {value}",
+  "@hostLoad": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "hostMemoryShare": "{percent} used",
+  "@hostMemoryShare": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "hostUptime": "Uptime",
+  "hostNodeUptime": "Service {duration}",
+  "@hostNodeUptime": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "hostDays": "{count} days",
+  "@hostDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostHours": "{count} hours",
+  "@hostHours": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostMinutes": "{count} minutes",
+  "@hostMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostTrend": "Trend",
+  "hostTrendWindow": "Last minute",
+  "hostChartStart": "60s ago",
+  "hostChartNow": "Now",
+  "hostMetricGpu": "GPU",
+  "hostCoreHint": "{count} cores, hold one for details",
+  "@hostCoreHint": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostMemoryUsed": "Used",
+  "hostMemoryCache": "Cached",
+  "hostMemorySwap": "Swap",
+  "hostGpuUsage": "Usage",
+  "hostNetwork": "Network",
+  "hostNetworkTotals": "Total ↓ {received}  ↑ {sent}",
+  "@hostNetworkTotals": {
+    "placeholders": {
+      "received": {
+        "type": "String"
+      },
+      "sent": {
+        "type": "String"
+      }
+    }
+  },
+  "hostDownload": "Download",
+  "hostUpload": "Upload",
+  "hostPartitions": "{count} partitions",
+  "@hostPartitions": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostDiskRead": "Read",
+  "hostDiskWrite": "Write",
+  "hostProcesses": "Processes",
+  "hostSortCpu": "By CPU",
+  "hostSortMemory": "By memory",
+  "hostSortRecent": "Recent",
+  "hostSearchProcesses": "Search processes",
+  "hostSearchProjects": "Search projects",
+  "hostProcessLimit": "Top {count} shown",
+  "@hostProcessLimit": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostNoMatches": "No matches"
 }

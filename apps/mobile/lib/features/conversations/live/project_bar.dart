@@ -11,6 +11,9 @@ class ProjectBar extends StatelessWidget {
     required this.project,
     required this.onTap,
     this.detail,
+    this.title,
+    this.leading,
+    this.status,
   });
 
   /// Null selects every project.
@@ -20,11 +23,21 @@ class ProjectBar extends StatelessWidget {
   /// Secondary scope label, such as the selected host.
   final String? detail;
 
+  /// Overrides the project name, such as with a host name.
+  final String? title;
+
+  /// Replaces the project icon inside the round badge.
+  final Widget? leading;
+
+  /// Shown before the chevron, such as a connection dot.
+  final Widget? status;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final name = project?['name'] as String? ?? context.tr('allProjects');
-    final title = Text(
+    final name =
+        title ?? project?['name'] as String? ?? context.tr('allProjects');
+    final heading = Text(
       name,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
@@ -54,15 +67,17 @@ class ProjectBar extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     alignment: Alignment.center,
-                    child: project == null
-                        ? const AppIcon('folder', size: 15)
-                        : ProjectIcon(project: project!, size: 15),
+                    child:
+                        leading ??
+                        (project == null
+                            ? const AppIcon('folder', size: 15)
+                            : ProjectIcon(project: project!, size: 15)),
                   ),
                   const SizedBox(width: 10),
                   if (detail == null)
-                    Expanded(child: title)
+                    Expanded(child: heading)
                   else ...[
-                    Flexible(child: title),
+                    Flexible(child: heading),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -76,6 +91,7 @@ class ProjectBar extends StatelessWidget {
                       ),
                     ),
                   ],
+                  if (status != null) ...[const SizedBox(width: 8), status!],
                   const SizedBox(width: 8),
                   AppIcon('down', color: colors.onSurfaceVariant),
                 ],

@@ -2210,4 +2210,145 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get terminalStop => 'Остановить';
+
+  @override
+  String get hostConnecting => 'Подключение';
+
+  @override
+  String get hostInfo => 'О хосте';
+
+  @override
+  String get hostLatency => 'Задержка';
+
+  @override
+  String hostLatencySummary(String average, String peak) {
+    return 'Сред. $average  Макс. $peak';
+  }
+
+  @override
+  String get hostSystem => 'Система';
+
+  @override
+  String get hostProcessor => 'Процессор';
+
+  @override
+  String hostCores(String count) {
+    return 'Ядер: $count';
+  }
+
+  @override
+  String hostLoad(String value) {
+    return 'Нагрузка $value';
+  }
+
+  @override
+  String hostMemoryShare(String percent) {
+    return 'Занято $percent';
+  }
+
+  @override
+  String get hostUptime => 'Время работы';
+
+  @override
+  String hostNodeUptime(String duration) {
+    return 'Служба $duration';
+  }
+
+  @override
+  String hostDays(String count) {
+    return '$count д';
+  }
+
+  @override
+  String hostHours(String count) {
+    return '$count ч';
+  }
+
+  @override
+  String hostMinutes(String count) {
+    return '$count мин';
+  }
+
+  @override
+  String get hostTrend => 'Динамика';
+
+  @override
+  String get hostTrendWindow => 'Последняя минута';
+
+  @override
+  String get hostChartStart => '60 с назад';
+
+  @override
+  String get hostChartNow => 'Сейчас';
+
+  @override
+  String get hostMetricGpu => 'GPU';
+
+  @override
+  String hostCoreHint(String count) {
+    return 'Ядер: $count, удерживайте ядро для подробностей';
+  }
+
+  @override
+  String get hostMemoryUsed => 'Занято';
+
+  @override
+  String get hostMemoryCache => 'Кэш';
+
+  @override
+  String get hostMemorySwap => 'Подкачка';
+
+  @override
+  String get hostGpuUsage => 'Загрузка';
+
+  @override
+  String get hostNetwork => 'Сеть';
+
+  @override
+  String hostNetworkTotals(String received, String sent) {
+    return 'Всего ↓ $received  ↑ $sent';
+  }
+
+  @override
+  String get hostDownload => 'Загрузка';
+
+  @override
+  String get hostUpload => 'Отдача';
+
+  @override
+  String hostPartitions(String count) {
+    return 'Разделов: $count';
+  }
+
+  @override
+  String get hostDiskRead => 'Чтение';
+
+  @override
+  String get hostDiskWrite => 'Запись';
+
+  @override
+  String get hostProcesses => 'Процессы';
+
+  @override
+  String get hostSortCpu => 'По CPU';
+
+  @override
+  String get hostSortMemory => 'По памяти';
+
+  @override
+  String get hostSortRecent => 'Недавние';
+
+  @override
+  String get hostSearchProcesses => 'Поиск процессов';
+
+  @override
+  String get hostSearchProjects => 'Поиск проектов';
+
+  @override
+  String hostProcessLimit(String count) {
+    return 'Показаны первые $count';
+  }
+
+  @override
+  String get hostNoMatches => 'Нет совпадений';
 }

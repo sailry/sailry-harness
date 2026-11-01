@@ -2172,4 +2172,145 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get terminalStop => '중지';
+
+  @override
+  String get hostConnecting => '연결 중';
+
+  @override
+  String get hostInfo => '호스트 정보';
+
+  @override
+  String get hostLatency => '지연 시간';
+
+  @override
+  String hostLatencySummary(String average, String peak) {
+    return '평균 $average  최대 $peak';
+  }
+
+  @override
+  String get hostSystem => '시스템';
+
+  @override
+  String get hostProcessor => '프로세서';
+
+  @override
+  String hostCores(String count) {
+    return '$count코어';
+  }
+
+  @override
+  String hostLoad(String value) {
+    return '부하 $value';
+  }
+
+  @override
+  String hostMemoryShare(String percent) {
+    return '사용 $percent';
+  }
+
+  @override
+  String get hostUptime => '가동 시간';
+
+  @override
+  String hostNodeUptime(String duration) {
+    return '서비스 $duration';
+  }
+
+  @override
+  String hostDays(String count) {
+    return '$count일';
+  }
+
+  @override
+  String hostHours(String count) {
+    return '$count시간';
+  }
+
+  @override
+  String hostMinutes(String count) {
+    return '$count분';
+  }
+
+  @override
+  String get hostTrend => '추이';
+
+  @override
+  String get hostTrendWindow => '최근 1분';
+
+  @override
+  String get hostChartStart => '60초 전';
+
+  @override
+  String get hostChartNow => '지금';
+
+  @override
+  String get hostMetricGpu => 'GPU';
+
+  @override
+  String hostCoreHint(String count) {
+    return '$count코어, 길게 눌러 코어별 보기';
+  }
+
+  @override
+  String get hostMemoryUsed => '사용 중';
+
+  @override
+  String get hostMemoryCache => '캐시';
+
+  @override
+  String get hostMemorySwap => '스왑';
+
+  @override
+  String get hostGpuUsage => '사용률';
+
+  @override
+  String get hostNetwork => '네트워크';
+
+  @override
+  String hostNetworkTotals(String received, String sent) {
+    return '누적 ↓ $received  ↑ $sent';
+  }
+
+  @override
+  String get hostDownload => '다운로드';
+
+  @override
+  String get hostUpload => '업로드';
+
+  @override
+  String hostPartitions(String count) {
+    return '파티션 $count개';
+  }
+
+  @override
+  String get hostDiskRead => '읽기';
+
+  @override
+  String get hostDiskWrite => '쓰기';
+
+  @override
+  String get hostProcesses => '프로세스';
+
+  @override
+  String get hostSortCpu => 'CPU순';
+
+  @override
+  String get hostSortMemory => '메모리순';
+
+  @override
+  String get hostSortRecent => '최근 사용';
+
+  @override
+  String get hostSearchProcesses => '프로세스 검색';
+
+  @override
+  String get hostSearchProjects => '프로젝트 검색';
+
+  @override
+  String hostProcessLimit(String count) {
+    return '상위 $count개 표시';
+  }
+
+  @override
+  String get hostNoMatches => '일치 항목 없음';
 }

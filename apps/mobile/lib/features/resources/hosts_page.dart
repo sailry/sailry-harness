@@ -5,12 +5,15 @@ import '../../runtime/json.dart';
 import 'pair_form.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
-import '../../ui/connection_status.dart';
-import '../../ui/project_icon.dart';
 import 'resources_page.dart';
 import 'projects_page.dart';
 import 'ports_page.dart';
 import '../conversations/tasks_page.dart';
+import 'host/host_info_card.dart';
+import 'host/host_sheet.dart';
+import 'host/host_tabs.dart';
+import 'host/metric_history.dart';
+import 'host/resource_cards.dart';
 
 class HostsPage extends StatefulWidget {
   const HostsPage({super.key, this.onSettings, this.onBrowse});
@@ -24,9 +27,14 @@ class _HostsPageState extends State<HostsPage> {
   Timer? _timer;
   HostConnection? _host;
   Map<String, dynamic> _metrics = {};
+  final _history = MetricHistory();
   Object? _error;
   bool _reading = false;
   int _generation = 0;
+  HostTab _tab = HostTab.projects;
+  bool _byMemory = false;
+  String _processQuery = '';
+  String _projectQuery = '';
 
   @override
   void didChangeDependencies() {
@@ -34,17 +42,25 @@ class _HostsPageState extends State<HostsPage> {
     final host = AppSession.of(context).selectedHost;
     final changed = _host != host;
     _host = host;
-    _timer?.cancel();
     if (changed) {
+      _timer?.cancel();
+      _timer = null;
       _generation++;
       _reading = false;
       _metrics = {};
+      _history.clear();
       _error = null;
+      _processQuery = '';
+      _projectQuery = '';
     }
-    if (TickerMode.valuesOf(context).enabled && host?.connected == true) {
-      if (changed || _metrics.isEmpty) unawaited(_refresh());
-      _timer = Timer.periodic(const Duration(seconds: 5), (_) => _refresh());
+    if (!TickerMode.valuesOf(context).enabled || host?.connected != true) {
+      _timer?.cancel();
+      _timer = null;
+      return;
     }
+    if (changed || _metrics.isEmpty) unawaited(_refresh());
+    // Session updates must not restart the interval and starve sampling.
+    _timer ??= Timer.periodic(const Duration(seconds: 5), (_) => _refresh());
   }
 
   Future<void> _refresh() async {
@@ -57,8 +73,10 @@ class _HostsPageState extends State<HostsPage> {
         'detailed': true,
       });
       if (mounted && _host == host && generation == _generation) {
+        final metrics = object(response['data']);
         setState(() {
-          _metrics = object(response['data']);
+          _metrics = metrics;
+          _history.add(MetricSample.read(metrics, linkLatency(host.transport)));
           _error = null;
         });
       }
@@ -77,58 +95,21 @@ class _HostsPageState extends State<HostsPage> {
     super.dispose();
   }
 
-  Future<void> _select() async {
-    final session = AppSession.of(context);
-    final selected = await showAppSheet<String>(
-      context,
-      context.tr('selectHost'),
-      child: ListenableBuilder(
-        listenable: session,
-        builder: (context, _) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final host in session.hosts)
-              ListTile(
-                title: Text(
-                  host.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  context.tr(host.connected ? 'online' : 'offline'),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ConnectionStatus(
-                      connected: host.connected,
-                      transport: host.transport,
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 20,
-                      child: _host == host ? const AppIcon('check') : null,
-                    ),
-                  ],
-                ),
-                onTap: () => Navigator.pop(context, host.id),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (selected != null) session.selectHost(selected);
-  }
-
   Future<void> _pair() => showAppSheet<void>(
     context,
     context.tr('pairTitle'),
     child: PairForm(session: AppSession.of(context)),
   );
 
+  void _select() =>
+      showHostSheet(context, onSettings: widget.onSettings, onPair: _pair);
+
   void _browse(String kind) {
-    if (kind == 'projects') {
-      pushPage(context, ProjectsPage(host: _host!));
+    final host = _host!;
+    if (kind == 'ports') {
+      pushPage(context, PortsPage(host: host));
+    } else if (kind == 'projects') {
+      pushPage(context, ProjectsPage(host: host));
     } else if (widget.onBrowse != null) {
       widget.onBrowse!(kind);
     } else {
@@ -142,307 +123,159 @@ class _HostsPageState extends State<HostsPage> {
     }
   }
 
+  void _openProject(HostConnection host, Map<String, dynamic> project) {
+    final tree = objects(
+      host.snapshot['worktrees'],
+    ).where((tree) => tree['project'] == project['id']).firstOrNull;
+    pushPage(
+      context,
+      ResourcesPage(hostId: host.id, worktreeId: text(tree?['id'])),
+    );
+  }
+
+  /// Keeps the host switcher above a state so another host stays reachable.
+  Widget _blocked(HostConnection host, Widget state) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      HostBar(host: host, onTap: _select),
+      Expanded(
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: 24 + MediaQuery.paddingOf(context).bottom,
+          ),
+          child: state,
+        ),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) {
     final session = AppSession.of(context);
     final host = session.selectedHost;
-    final colors = Theme.of(context).colorScheme;
-    final memory = object(_metrics['memory']);
-    final disks = objects(_metrics['disks']);
-    final disk = disks.firstOrNull ?? <String, dynamic>{};
-    double? used(Map<String, dynamic> value) {
-      final total = number(value['total_bytes']);
-      return total > 0
-          ? (total - number(value['available_bytes'])) / total
-          : null;
-    }
-
-    final cpu = _metrics['cpu_basis_points'];
+    final startupFailed = !session.ready && session.error != null;
     return PageFrame(
       loading: session.loading,
       title: context.tr('hosts'),
-      failure: !session.ready && session.error != null
+      scroll: false,
+      failure: startupFailed
           ? FailureState(
               message: context.tr('startupFailed'),
               onRetry: session.start,
             )
-          : host?.connected != true && !session.loading
+          : host == null && !session.loading
           ? HostState(
-              added: host != null,
-              action: host == null
-                  ? FilledButton(
-                      onPressed: session.ready ? _pair : null,
-                      child: Text(context.tr('pair')),
-                    )
-                  : null,
-            )
-          : _error != null
-          ? FailureState(
-              icon: 'cpu',
-              message: context.tr('hostMetricsFailed'),
-              onRetry: _refresh,
+              added: false,
+              action: FilledButton(
+                onPressed: session.ready ? _pair : null,
+                child: Text(context.tr('pair')),
+              ),
             )
           : null,
       actions: [
-        if (host != null && host.connected)
-          RoundButton(
-            icon: 'link',
-            tooltip: context.tr('ports'),
-            onPressed: () => pushPage(context, PortsPage(host: host)),
-          ),
-        if (session.hosts.isNotEmpty)
-          RoundButton(
-            icon: 'server',
-            tooltip: context.tr('selectHost'),
-            onPressed: _select,
-          ),
         RoundButton(
           icon: 'plus',
           tooltip: context.tr('pair'),
           onPressed: _pair,
         ),
       ],
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (host != null) ...[
-            Surface(
-              onTap: () => widget.onSettings?.call(host.id),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      const Surface(
-                        radius: 14,
-                        child: AppIcon('server', size: 26),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              host.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    [
-                                      text(host.info['os']),
-                                      text(host.info['architecture']),
-                                    ].where((s) => s.isNotEmpty).join(' · '),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: colors.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Icon(
-                                  Icons.circle,
-                                  size: 6,
-                                  color: host.connected
-                                      ? colors.tertiary
-                                      : colors.onSurfaceVariant,
-                                ),
-                                const SizedBox(width: 5),
-                                Text(
-                                  context.tr(
-                                    host.connected ? 'online' : 'offline',
-                                  ),
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: ConnectionStatus(
-                      connected: host.connected,
-                      transport: host.transport,
-                    ),
-                  ),
-                ],
+      child: host == null
+          ? const SizedBox.shrink()
+          : !host.connected
+          ? session.loading
+                ? const SizedBox.shrink()
+                : _blocked(host, const HostState(added: true))
+          : _error != null
+          ? _blocked(
+              host,
+              FailureState(
+                icon: 'cpu',
+                message: context.tr('hostMetricsFailed'),
+                onRetry: _refresh,
               ),
-            ),
-            const SizedBox(height: 12),
-            Surface(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _Gauge(
-                    label: context.tr('hostMetricCpu'),
-                    value: cpu is num ? cpu / 10000 : null,
-                  ),
-                  _Gauge(
-                    label: context.tr('hostMetricMemory'),
-                    value: used(memory),
-                  ),
-                  _Gauge(
-                    label: context.tr('hostMetricDisk'),
-                    value: used(disk),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Surface(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  for (final entry in [
-                    ('projects', 'project'),
-                    ('sessions', 'chat'),
-                    ('terminals', 'terminal'),
-                  ])
-                    Expanded(
-                      child: InkWell(
-                        key: ValueKey('host-${entry.$1}'),
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => _browse(entry.$1),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Column(
-                            children: [
-                              Text(
-                                '${objects(host.snapshot[entry.$1]).length}',
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              Text(context.tr(entry.$2)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (objects(host.snapshot['projects']).isNotEmpty)
-              Surface(
-                child: Column(
-                  children: [
-                    for (final project in objects(host.snapshot['projects']))
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: ProjectIcon(project: project),
-                        title: Text(text(project['name'])),
-                        subtitle: Text(
-                          text(project['path']),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: const AppIcon('chevron'),
-                        onTap: () {
-                          final tree = objects(host.snapshot['worktrees'])
-                              .where((tree) => tree['project'] == project['id'])
-                              .firstOrNull;
-                          pushPage(
-                            context,
-                            ResourcesPage(
-                              hostId: host.id,
-                              worktreeId: text(tree?['id']),
-                            ),
-                          );
-                        },
-                      ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 12),
-            if (objects(_metrics['processes']).isEmpty)
-              EmptyState(icon: 'cpu', message: context.tr('hostProcessesEmpty'))
-            else
-              Surface(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final process in objects(
-                      _metrics['processes'],
-                    ).take(12))
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                text(process['name']),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              width: 64,
-                              child: Text(
-                                process['cpu_basis_points'] is num
-                                    ? '${(number(process['cpu_basis_points']) / 100).toStringAsFixed(1)}%'
-                                    : '—',
-                                textAlign: TextAlign.right,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            SizedBox(
-                              width: 80,
-                              child: Text(
-                                '${(number(process['memory_bytes']) / 1048576).toStringAsFixed(0)} MB',
-                                textAlign: TextAlign.right,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-          ],
-        ],
-      ),
+            )
+          : _content(host),
     );
   }
-}
 
-class _Gauge extends StatelessWidget {
-  const _Gauge({required this.label, required this.value});
-  final String label;
-  final double? value;
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      SizedBox.square(
-        dimension: 64,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            SizedBox.expand(
-              child: CircularProgressIndicator(
-                value: value?.clamp(0, 1) ?? 0,
-                backgroundColor: Theme.of(context).colorScheme.outlineVariant,
-                color: Theme.of(context).colorScheme.tertiary,
-                semanticsLabel: label,
-              ),
-            ),
-            Text(value == null ? '—' : '${(value! * 100).toStringAsFixed(0)}%'),
-          ],
+  Widget _content(HostConnection host) {
+    final projects = objects(host.snapshot['projects']);
+    final sessions = objects(host.snapshot['sessions']);
+    final processes = objects(_metrics['processes']);
+    const gap = SizedBox(height: 12);
+    return CustomScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      slivers: [
+        SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              HostBar(host: host, onTap: _select),
+              const SizedBox(height: 14),
+              HostInfoCard(host: host, metrics: _metrics, history: _history),
+              gap,
+              CountsCard(host: host, onOpen: _browse),
+              if (_metrics.isNotEmpty) ...[
+                gap,
+                TrendCard(history: _history),
+                gap,
+                CpuCard(metrics: _metrics),
+                gap,
+                UsageRings(metrics: _metrics),
+                if (_metrics['network'] is Map) ...[
+                  gap,
+                  NetworkCard(metrics: _metrics, history: _history),
+                ],
+                if (objects(_metrics['disks']).isNotEmpty) ...[
+                  gap,
+                  DiskCard(metrics: _metrics, history: _history),
+                ],
+              ],
+              const SizedBox(height: 18),
+            ],
+          ),
         ),
-      ),
-      const SizedBox(height: 10),
-      Text(label),
-    ],
-  );
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: HostTabsHeader(
+            tab: _tab,
+            projects: projects.length,
+            processes: number(
+              _metrics['process_count'],
+              processes.length,
+            ).toInt(),
+            byMemory: _byMemory,
+            onTab: (tab) => setState(() {
+              _tab = tab;
+              _processQuery = '';
+              _projectQuery = '';
+            }),
+            onSort: (memory) => setState(() => _byMemory = memory),
+          ),
+        ),
+        SliverPadding(
+          padding: EdgeInsets.only(
+            bottom: 24 + MediaQuery.paddingOf(context).bottom,
+          ),
+          sliver: SliverToBoxAdapter(
+            child: switch (_tab) {
+              HostTab.processes => ProcessList(
+                processes: processes,
+                query: _processQuery,
+                byMemory: _byMemory,
+                onQuery: (value) => setState(() => _processQuery = value),
+              ),
+              HostTab.projects => ProjectList(
+                projects: projects,
+                sessions: sessions,
+                query: _projectQuery,
+                onQuery: (value) => setState(() => _projectQuery = value),
+                onOpen: (project) => _openProject(host, project),
+              ),
+            },
+          ),
+        ),
+      ],
+    );
+  }
 }

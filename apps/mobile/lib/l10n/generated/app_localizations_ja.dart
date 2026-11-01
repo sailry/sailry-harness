@@ -2170,4 +2170,145 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get terminalStop => '停止';
+
+  @override
+  String get hostConnecting => '接続中';
+
+  @override
+  String get hostInfo => 'ホスト情報';
+
+  @override
+  String get hostLatency => 'レイテンシ';
+
+  @override
+  String hostLatencySummary(String average, String peak) {
+    return '平均 $average　最大 $peak';
+  }
+
+  @override
+  String get hostSystem => 'システム';
+
+  @override
+  String get hostProcessor => 'プロセッサ';
+
+  @override
+  String hostCores(String count) {
+    return '$count コア';
+  }
+
+  @override
+  String hostLoad(String value) {
+    return '負荷 $value';
+  }
+
+  @override
+  String hostMemoryShare(String percent) {
+    return '使用中 $percent';
+  }
+
+  @override
+  String get hostUptime => '稼働時間';
+
+  @override
+  String hostNodeUptime(String duration) {
+    return 'サービス $duration';
+  }
+
+  @override
+  String hostDays(String count) {
+    return '$count日';
+  }
+
+  @override
+  String hostHours(String count) {
+    return '$count時間';
+  }
+
+  @override
+  String hostMinutes(String count) {
+    return '$count分';
+  }
+
+  @override
+  String get hostTrend => '推移';
+
+  @override
+  String get hostTrendWindow => '直近 1 分';
+
+  @override
+  String get hostChartStart => '60 秒前';
+
+  @override
+  String get hostChartNow => '現在';
+
+  @override
+  String get hostMetricGpu => 'GPU';
+
+  @override
+  String hostCoreHint(String count) {
+    return '$count コア、長押しで各コアを表示';
+  }
+
+  @override
+  String get hostMemoryUsed => '使用中';
+
+  @override
+  String get hostMemoryCache => 'キャッシュ';
+
+  @override
+  String get hostMemorySwap => 'スワップ';
+
+  @override
+  String get hostGpuUsage => '使用率';
+
+  @override
+  String get hostNetwork => 'ネットワーク';
+
+  @override
+  String hostNetworkTotals(String received, String sent) {
+    return '累計 ↓ $received　↑ $sent';
+  }
+
+  @override
+  String get hostDownload => 'ダウンロード';
+
+  @override
+  String get hostUpload => 'アップロード';
+
+  @override
+  String hostPartitions(String count) {
+    return '$count 個のパーティション';
+  }
+
+  @override
+  String get hostDiskRead => '読み込み';
+
+  @override
+  String get hostDiskWrite => '書き込み';
+
+  @override
+  String get hostProcesses => 'プロセス';
+
+  @override
+  String get hostSortCpu => 'CPU 順';
+
+  @override
+  String get hostSortMemory => 'メモリ順';
+
+  @override
+  String get hostSortRecent => '最近使用';
+
+  @override
+  String get hostSearchProcesses => 'プロセスを検索';
+
+  @override
+  String get hostSearchProjects => 'プロジェクトを検索';
+
+  @override
+  String hostProcessLimit(String count) {
+    return '上位 $count 件を表示';
+  }
+
+  @override
+  String get hostNoMatches => '一致なし';
 }

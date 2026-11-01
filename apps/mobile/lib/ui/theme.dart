@@ -340,6 +340,12 @@ abstract final class SailryTheme {
       ? const Color(0x14ffffff)
       : const Color(0x8cd5d2c9);
 
+  /// Borderless fill for content nested inside a glass card.
+  static Color insetFill(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? const Color(0x0bffffff)
+      : Theme.of(context).colorScheme.surfaceContainerLow;
+
   static List<BoxShadow> glassShadow(BuildContext context, SurfaceKind kind) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return [
