@@ -55,6 +55,82 @@ async fn captures_negotiated_compression() {
 }
 
 #[tokio::test]
+async fn retries_after_concurrent_address_refresh() {
+    let directory = tempfile::tempdir().unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let host = Endpoint::builder(presets::Minimal)
+        .relay_mode(RelayMode::Disabled)
+        .clear_ip_transports()
+        .bind_addr((std::net::Ipv4Addr::LOCALHOST, 0))
+        .unwrap()
+        .alpns(vec![ALPN.to_vec()])
+        .bind()
+        .await
+        .unwrap();
+    let address = host.addr();
+    let refreshed = address.clone().with_ip_addr("127.0.0.1:1".parse().unwrap());
+    let peer = NodeId(*address.id.as_bytes());
+    let handle = controller.handle();
+    handle.set_trust(peer, true).await.unwrap();
+
+    for attempt in 0..2 {
+        let dialer = handle.clone();
+        let target = address.clone();
+        let dial = tokio::spawn(async move { dialer.core.connection(&target, true).await });
+        let connection = tokio::time::timeout(Duration::from_secs(3), async {
+            host.accept().await.unwrap().await.unwrap()
+        })
+        .await
+        .unwrap();
+        let (mut send, mut recv) = connection.accept_bi().await.unwrap();
+        let request: frame::Envelope =
+            tokio::time::timeout(Duration::from_secs(3), frame::read(&mut recv))
+                .await
+                .unwrap()
+                .unwrap();
+        assert!(matches!(request.call, frame::Call::Inspect));
+        if attempt == 0 {
+            // Pairing saves an authenticated route without waiting for this
+            // pending Inspect. Its completion must not terminate a read watch.
+            handle.remember(refreshed.clone()).await.unwrap();
+        }
+        frame::write(
+            &mut send,
+            &frame::Reply::Endpoint {
+                software_version: Some(crate::PRODUCT_VERSION.into()),
+                zstd: false,
+                execution: true,
+                name: None,
+                platform: "fixture".into(),
+            },
+        )
+        .await
+        .unwrap();
+        send.finish().unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(3), dial)
+            .await
+            .unwrap()
+            .unwrap();
+        if attempt == 0 {
+            assert_eq!(result.err().unwrap().code, ErrorCode::Unavailable);
+            let outgoing = handle.core.outgoing.lock().await;
+            assert!(outgoing[&peer].cached.lock().unwrap().is_none());
+        } else {
+            result.unwrap();
+            let outgoing = handle.core.outgoing.lock().await;
+            let cached = outgoing[&peer].cached.lock().unwrap();
+            assert_eq!(cached.as_ref().unwrap().address, refreshed);
+        }
+    }
+
+    handle.disconnect(peer).await;
+    controller.close().await.unwrap();
+    host.close().await;
+}
+
+#[tokio::test]
 async fn isolates_pending_inspection_and_revocation() {
     let directory = tempfile::tempdir().unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())

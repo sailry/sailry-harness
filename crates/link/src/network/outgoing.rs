@@ -175,7 +175,9 @@ impl Core {
             let _update = self.trust_update.lock().await;
             self.registered(peer, &slot).await?;
             if self.current_address(address)? != target {
-                return Err(Fault::new(ErrorCode::Conflict, "peer address changed"));
+                // Pairing can refresh this route while Inspect is in flight.
+                // No business request has been sent; read watches may reconnect.
+                return Err(Fault::new(ErrorCode::Unavailable, "peer address changed"));
             }
             self.publish(
                 &slot,
