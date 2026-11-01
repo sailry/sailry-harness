@@ -3492,6 +3492,30 @@ abstract class AppLocalizations {
   /// **'Choose model'**
   String get modelPicker;
 
+  /// No description provided for @team.
+  ///
+  /// In en, this message translates to:
+  /// **'Team'**
+  String get team;
+
+  /// No description provided for @teamDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default team'**
+  String get teamDefault;
+
+  /// No description provided for @teamLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Lead'**
+  String get teamLead;
+
+  /// No description provided for @memberReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset model'**
+  String get memberReset;
+
   /// No description provided for @nodeDefaults.
   ///
   /// In en, this message translates to:

@@ -1772,6 +1772,18 @@ class AppLocalizationsRu extends AppLocalizations {
   String get modelPicker => 'Выберите модель';
 
   @override
+  String get team => 'Команда';
+
+  @override
+  String get teamDefault => 'Команда по умолчанию';
+
+  @override
+  String get teamLead => 'Ведущий';
+
+  @override
+  String get memberReset => 'Сбросить модель';
+
+  @override
   String get nodeDefaults => 'Node по умолчанию';
 
   @override

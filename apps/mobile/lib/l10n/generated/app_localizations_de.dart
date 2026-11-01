@@ -1780,6 +1780,18 @@ class AppLocalizationsDe extends AppLocalizations {
   String get modelPicker => 'Wählen Sie ein Modell';
 
   @override
+  String get team => 'Team';
+
+  @override
+  String get teamDefault => 'Standardteam';
+
+  @override
+  String get teamLead => 'Leitung';
+
+  @override
+  String get memberReset => 'Modell zurücksetzen';
+
+  @override
   String get nodeDefaults => 'Node Standards';
 
   @override

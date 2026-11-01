@@ -1738,6 +1738,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get modelPicker => '选择模型';
 
   @override
+  String get team => '团队';
+
+  @override
+  String get teamDefault => '默认团队';
+
+  @override
+  String get teamLead => '负责人';
+
+  @override
+  String get memberReset => '重置模型';
+
+  @override
   String get nodeDefaults => '节点默认配置';
 
   @override
@@ -4232,6 +4244,18 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get modelPicker => '選擇模型';
+
+  @override
+  String get team => '團隊';
+
+  @override
+  String get teamDefault => '預設團隊';
+
+  @override
+  String get teamLead => '負責人';
+
+  @override
+  String get memberReset => '重設模型';
 
   @override
   String get nodeDefaults => '節點預設配置';

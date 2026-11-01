@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
+import 'choice_row.dart';
+import 'team.dart';
+import 'team_controls.dart';
 
 /// Edits a configuration draft; the owning form admits the revision to the Node.
 class ModelControls extends StatelessWidget {
@@ -13,6 +16,7 @@ class ModelControls extends StatelessWidget {
     required this.onChanged,
     this.onCommitted,
     this.enabled = true,
+    this.team,
   });
 
   final List<Map<String, dynamic>> providers;
@@ -20,6 +24,9 @@ class ModelControls extends StatelessWidget {
   final ValueChanged<Map<String, dynamic>> onChanged;
   final ValueChanged<Map<String, dynamic>>? onCommitted;
   final bool enabled;
+
+  /// A live session's team; new conversations use the Default team.
+  final TeamChoices? team;
 
   void _commit(Map<String, dynamic> value) {
     onChanged(value);
@@ -45,6 +52,8 @@ class ModelControls extends StatelessWidget {
         ? text(current)
         : '${context.tr('conversationBudget')}: $budget';
     final colors = Theme.of(context).colorScheme;
+    final state = team?.read();
+    final selectedTeam = state?.team;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -87,24 +96,36 @@ class ModelControls extends StatelessWidget {
                     context,
                     context.tr('modelPicker'),
                     scroll: false,
-                    child: ModelChoices(providers: providers, config: config),
+                    child: ModelChoices(
+                      providers: providers,
+                      config: config,
+                      team: team,
+                    ),
                   );
                   if (selection != null) _commit({...config, ...selection});
                 },
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  text(config['model']).isEmpty
-                      ? context.tr('conversationNoModel')
-                      : text(config['model']),
-                  overflow: TextOverflow.ellipsis,
+          child: _withTooltip(
+            // A team chip hides the Lead model; the tooltip keeps it available.
+            selectedTeam == null
+                ? null
+                : '${chipLabel(null, config, context.tr)} · $label',
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (selectedTeam != null) ...[
+                  TeamIcon(team: selectedTeam),
+                  const SizedBox(width: 6),
+                ],
+                Flexible(
+                  child: Text(
+                    chipLabel(state, config, context.tr),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              const AppIcon('chevron', size: 16),
-            ],
+                const SizedBox(width: 8),
+                const AppIcon('chevron', size: 16),
+              ],
+            ),
           ),
         ),
         if (efforts.isNotEmpty) ...[
@@ -140,6 +161,9 @@ class ModelControls extends StatelessWidget {
   }
 }
 
+Widget _withTooltip(String? message, Widget child) =>
+    message == null ? child : Tooltip(message: message, child: child);
+
 String _modelLabel(Map<String, dynamic> model) =>
     text(model['display_name'], text(model['id']));
 
@@ -150,14 +174,17 @@ String _family(Map<String, dynamic> provider) {
 }
 
 /// Desktop-style picker: a family rail beside collapsible provider groups.
+/// With a team, the rail and list pick the model of the selected avatar.
 class ModelChoices extends StatefulWidget {
   const ModelChoices({
     super.key,
     required this.providers,
     required this.config,
+    this.team,
   });
   final List<Map<String, dynamic>> providers;
   final Map<String, dynamic> config;
+  final TeamChoices? team;
 
   @override
   State<ModelChoices> createState() => _ModelChoicesState();
@@ -170,22 +197,156 @@ class _ModelChoicesState extends State<ModelChoices> {
   late final _families = <String>{
     for (final p in _providers) _family(p),
   }.toList();
-  late String? _familyKey = () {
-    final current = _providers
-        .where((p) => p['id'] == widget.config['provider'])
-        .firstOrNull;
-    return current == null ? _families.firstOrNull : _family(current);
-  }();
+  late String? _familyKey = _familyOf(widget.config['provider']);
   final _collapsed = <Object?>{};
+
+  /// The selected member's role ID; null selects the Lead.
+  String? _member;
+  bool _choosingTeam = false;
+  bool _busy = false;
+
+  String? _familyOf(Object? provider) {
+    final current = _providers.where((p) => p['id'] == provider).firstOrNull;
+    return current == null ? _families.firstOrNull : _family(current);
+  }
+
+  Future<void> _run(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _select(SessionTeam state, String? member) => setState(() {
+    _member = member;
+    final role = state.members.where((m) => m['id'] == member).firstOrNull;
+    final model = role == null ? null : state.model(role);
+    _familyKey = _familyOf((model ?? widget.config)['provider']);
+  });
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     if (_providers.isEmpty) {
       return EmptyState(message: context.tr('conversationNoModel'));
     }
-    final visible = _providers.where((p) => _family(p) == _familyKey).toList();
     final height = MediaQuery.sizeOf(context).height * .6;
+    final team = widget.team;
+    if (team == null) {
+      return SizedBox(
+        height: height,
+        child: _models(context, selection: widget.config),
+      );
+    }
+    return ListenableBuilder(
+      listenable: team.listenable,
+      builder: (context, _) {
+        final state = team.read();
+        final member = state.members
+            .where((m) => m['id'] == _member)
+            .firstOrNull;
+        final model = member == null ? null : state.model(member);
+        final role = text(member?['id']);
+        return SizedBox(
+          height: height,
+          child: AbsorbPointer(
+            absorbing: _busy,
+            child: _choosingTeam
+                ? TeamList(
+                    state: state,
+                    onBack: () => setState(() => _choosingTeam = false),
+                    onSelected: (selected) => _run(() async {
+                      await team.onTeam(selected);
+                      if (mounted) {
+                        setState(() {
+                          _choosingTeam = false;
+                          _member = null;
+                        });
+                      }
+                    }),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TeamBar(
+                        state: state,
+                        member: member?['id'] as String?,
+                        onTeam: () => setState(() => _choosingTeam = true),
+                        onMember: (id) => _select(state, id),
+                      ),
+                      _heading(
+                        context,
+                        member == null
+                            ? context.tr('teamLead')
+                            : text(member['name']),
+                        reset: member != null && state.overridden(role)
+                            ? () => _run(() => team.onMember(role, null))
+                            : null,
+                        resettable: member != null,
+                      ),
+                      Expanded(
+                        child: _models(
+                          context,
+                          selection: model ?? widget.config,
+                          hint: member != null && model == null,
+                          onChosen: member == null
+                              ? null
+                              : (choice) =>
+                                    _run(() => team.onMember(role, choice)),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _heading(
+    BuildContext context,
+    String label, {
+    required VoidCallback? reset,
+    required bool resettable,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
+            ),
+          ),
+          if (resettable)
+            IconButton(
+              key: const ValueKey('member-reset'),
+              tooltip: context.tr('memberReset'),
+              onPressed: reset,
+              icon: const AppIcon('refresh', size: 16),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// [onChosen] receives a member's choice; without it the Lead's choice
+  /// closes the sheet with a configuration change.
+  Widget _models(
+    BuildContext context, {
+    required Map<String, dynamic> selection,
+    bool hint = false,
+    ValueChanged<Map<String, dynamic>>? onChosen,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    final visible = _providers.where((p) => _family(p) == _familyKey).toList();
     final list = ListView(
       padding: const EdgeInsets.only(bottom: 8),
       children: [
@@ -226,81 +387,42 @@ class _ModelChoicesState extends State<ModelChoices> {
           ),
           if (!_collapsed.contains(provider['id']))
             for (final model in objects(provider['models']))
-              _row(context, colors, provider, model),
+              Builder(
+                builder: (context) {
+                  final selected =
+                      provider['id'] == selection['provider'] &&
+                      model['id'] == selection['model'];
+                  return ChoiceRow(
+                    label: _modelLabel(model),
+                    selected: selected && !hint,
+                    hint: selected && hint,
+                    onTap: onChosen == null
+                        ? () => Navigator.pop(context, {
+                            'provider': provider['id'],
+                            'credential': provider['credential'],
+                            'model': model['id'],
+                            'effort': model['default_effort'] ?? 'default',
+                          })
+                        : () => onChosen({
+                            'provider': provider['id'],
+                            'model': model['id'],
+                          }),
+                  );
+                },
+              ),
         ],
       ],
     );
-    return SizedBox(
-      height: height,
-      child: _families.length < 2
-          ? list
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              spacing: 12,
-              children: [
-                _rail(context, colors),
-                Expanded(child: list),
-              ],
-            ),
-    );
-  }
-
-  Widget _row(
-    BuildContext context,
-    ColorScheme colors,
-    Map<String, dynamic> provider,
-    Map<String, dynamic> model,
-  ) {
-    final selected =
-        provider['id'] == widget.config['provider'] &&
-        model['id'] == widget.config['model'];
-    return Semantics(
-      selected: selected,
-      child: Material(
-        color: selected
-            ? colors.onSurface.withValues(alpha: .07)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => Navigator.pop(context, {
-            'provider': provider['id'],
-            'credential': provider['credential'],
-            'model': model['id'],
-            'effort': model['default_effort'] ?? 'default',
-          }),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _modelLabel(model),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 15, color: colors.onSurface),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  width: 18,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: selected
-                          ? colors.primary
-                          : colors.onSurfaceVariant.withValues(alpha: .5),
-                      width: selected ? 5 : 1.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    return _families.length < 2
+        ? list
+        : Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            spacing: 12,
+            children: [
+              _rail(context, colors),
+              Expanded(child: list),
+            ],
+          );
   }
 
   Widget _rail(BuildContext context, ColorScheme colors) => Container(

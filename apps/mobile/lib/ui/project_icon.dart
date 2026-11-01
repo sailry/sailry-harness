@@ -5,9 +5,17 @@ import '../runtime/json.dart';
 
 /// The same Reicon SVG assets and shared appearance IDs as Desktop.
 class ProjectIcon extends StatelessWidget {
-  const ProjectIcon({super.key, required this.project, this.size = 20});
+  const ProjectIcon({
+    super.key,
+    required this.project,
+    this.size = 20,
+    this.fallback = 'folder',
+  });
   final Map<String, dynamic> project;
   final double size;
+
+  /// The asset used when the item has no known appearance icon.
+  final String fallback;
 
   static const assets = [
     'folder',
@@ -61,7 +69,7 @@ class ProjectIcon extends StatelessWidget {
     final appearance = object(project['appearance']);
     final asset = assets.contains(appearance['icon'])
         ? appearance['icon']
-        : 'folder';
+        : fallback;
     final palette = colors[appearance['color']];
     final theme = Theme.of(context);
     final color = palette == null

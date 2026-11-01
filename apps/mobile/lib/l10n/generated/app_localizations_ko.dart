@@ -1742,6 +1742,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get modelPicker => '모델 선택';
 
   @override
+  String get team => '팀';
+
+  @override
+  String get teamDefault => '기본 팀';
+
+  @override
+  String get teamLead => '리더';
+
+  @override
+  String get memberReset => '모델 재설정';
+
+  @override
   String get nodeDefaults => 'Node 기본값';
 
   @override

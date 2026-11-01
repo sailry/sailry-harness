@@ -1786,6 +1786,18 @@ class AppLocalizationsFr extends AppLocalizations {
   String get modelPicker => 'Choisir un modèle';
 
   @override
+  String get team => 'Équipe';
+
+  @override
+  String get teamDefault => 'Équipe par défaut';
+
+  @override
+  String get teamLead => 'Responsable';
+
+  @override
+  String get memberReset => 'Réinitialiser le modèle';
+
+  @override
   String get nodeDefaults => 'Node par défaut';
 
   @override

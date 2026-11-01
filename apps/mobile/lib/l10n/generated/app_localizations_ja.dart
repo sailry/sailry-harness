@@ -1740,6 +1740,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get modelPicker => 'モデルを選択';
 
   @override
+  String get team => 'チーム';
+
+  @override
+  String get teamDefault => 'デフォルトチーム';
+
+  @override
+  String get teamLead => 'リーダー';
+
+  @override
+  String get memberReset => 'モデルをリセット';
+
+  @override
   String get nodeDefaults => 'Nodeデフォルト';
 
   @override

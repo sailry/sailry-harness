@@ -1774,6 +1774,18 @@ class AppLocalizationsPt extends AppLocalizations {
   String get modelPicker => 'Escolha o modelo';
 
   @override
+  String get team => 'Equipe';
+
+  @override
+  String get teamDefault => 'Equipe padrão';
+
+  @override
+  String get teamLead => 'Líder';
+
+  @override
+  String get memberReset => 'Redefinir modelo';
+
+  @override
   String get nodeDefaults => 'Node padrões';
 
   @override

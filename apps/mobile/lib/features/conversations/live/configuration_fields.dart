@@ -6,6 +6,7 @@ import '../../../ui/toast.dart';
 import 'model_controls.dart';
 import '../../../ui/form.dart';
 import 'modes.dart';
+import 'team.dart';
 import 'presentation.dart' show failureLabel;
 
 class ConfigurationFields extends StatefulWidget {
@@ -17,6 +18,7 @@ class ConfigurationFields extends StatefulWidget {
     required this.onChanged,
     this.onCommitted,
     this.enabled = true,
+    this.team,
   });
 
   final HostConnection host;
@@ -25,6 +27,7 @@ class ConfigurationFields extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>> onChanged;
   final ValueChanged<Map<String, dynamic>>? onCommitted;
   final bool enabled;
+  final TeamChoices? team;
 
   @override
   State<ConfigurationFields> createState() => _ConfigurationFieldsState();
@@ -131,6 +134,7 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
           enabled: widget.enabled,
           onChanged: widget.onChanged,
           onCommitted: widget.onCommitted,
+          team: widget.team,
         ),
         choices('mode', [
           ('code', 'conversationCode'),

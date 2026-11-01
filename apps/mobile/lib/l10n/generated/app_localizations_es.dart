@@ -1777,6 +1777,18 @@ class AppLocalizationsEs extends AppLocalizations {
   String get modelPicker => 'Elige el modelo';
 
   @override
+  String get team => 'Equipo';
+
+  @override
+  String get teamDefault => 'Equipo predeterminado';
+
+  @override
+  String get teamLead => 'Líder';
+
+  @override
+  String get memberReset => 'Restablecer modelo';
+
+  @override
   String get nodeDefaults => 'Node por defecto';
 
   @override
