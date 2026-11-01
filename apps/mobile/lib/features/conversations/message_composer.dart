@@ -119,15 +119,39 @@ class MessageComposer extends StatelessWidget {
                       'voice',
                       enabled && voiceEnabled ? onVoice : null,
                     ),
-                    if (busy) icon('stop', 'stop', onStop),
+                    // One action: stop while running with nothing typed,
+                    // otherwise send, or queue behind the running turn.
                     SizedBox.square(
                       dimension: 40,
                       child: Center(
-                        child: RoundButton(
-                          icon: busy ? 'clock' : 'send',
-                          primary: true,
-                          tooltip: context.tr(busy ? 'enqueue' : 'send'),
-                          onPressed: enabled && sendEnabled ? onSend : null,
+                        child: ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: controller,
+                          builder: (context, value, _) {
+                            final stop =
+                                busy &&
+                                attachments == null &&
+                                value.text.trim().isEmpty;
+                            return RoundButton(
+                              icon: stop
+                                  ? 'stop'
+                                  : busy
+                                  ? 'clock'
+                                  : 'send',
+                              primary: true,
+                              tooltip: context.tr(
+                                stop
+                                    ? 'stop'
+                                    : busy
+                                    ? 'enqueue'
+                                    : 'send',
+                              ),
+                              onPressed: stop
+                                  ? onStop
+                                  : enabled && sendEnabled
+                                  ? onSend
+                                  : null,
+                            );
+                          },
                         ),
                       ),
                     ),

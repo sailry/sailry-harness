@@ -132,12 +132,59 @@ async fn failed_refresh_keeps_validated_entries() {
         }
         assert_eq!(index_requests(&catalog), 3);
         catalog.status.store(200, Ordering::SeqCst);
+        let unbound = [
+            None,
+            Some(serde_json::Value::Null),
+            Some(serde_json::json!(5)),
+            Some(serde_json::json!("main")),
+            Some(serde_json::json!("A".repeat(40))),
+            Some(serde_json::json!("g".repeat(40))),
+            Some(serde_json::json!(format!(" {SECOND}"))),
+        ];
+        let rejected = unbound.len();
+        for commit in unbound {
+            let mut value = serde_json::json!({"version":1,"packages":[],"skills":[]});
+            if let Some(commit) = commit {
+                value["source_commit"] = commit;
+            }
+            catalog.documents.lock().unwrap().insert(
+                "/plugins/catalog.json".into(),
+                serde_json::to_vec(&value).unwrap(),
+            );
+            assert_eq!(
+                client
+                    .execute(client.prepare(forced_search("New official")))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidRequest
+            );
+            assert_eq!(version(&client, search("New official")).await, "1.0.0");
+            let Output::PluginRepository(source) = execute(
+                &client,
+                Command::ReadCatalogPlugin {
+                    source: plugin::catalog::Source::Official,
+                    id: "official-new".into(),
+                },
+            )
+            .await
+            else {
+                panic!("repository expected");
+            };
+            assert_eq!(source.git_ref.as_deref(), Some(FIRST));
+        }
+        assert_eq!(index_requests(&catalog), 3 + rejected);
+        catalog
+            .documents
+            .lock()
+            .unwrap()
+            .remove("/plugins/catalog.json");
         assert_eq!(
             version(&client, forced_search("New official")).await,
             "2.0.0"
         );
         assert_eq!(version(&client, search("New official")).await, "2.0.0");
-        assert_eq!(index_requests(&catalog), 4);
+        assert_eq!(index_requests(&catalog), 4 + rejected);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

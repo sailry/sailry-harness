@@ -74,10 +74,7 @@ async fn restores_verified_offline_metadata() {
     assert!(listing.selection("tide").is_some());
     assert_eq!(
         server.requests.lock().unwrap().clone(),
-        vec![
-            "/commits/main".to_owned(),
-            format!("/raw/{FIRST}/catalog.json")
-        ]
+        vec!["/themes/catalog.json".to_owned()]
     );
     let mut reopened = Service::new(directory.path().join("installed")).unwrap();
     reopened.source = server.service.source.clone();
@@ -98,6 +95,65 @@ async fn restores_verified_offline_metadata() {
     assert!(fallback.unavailable);
     assert!(fallback.commit.is_none());
     assert!(fallback.selection(&fallback.catalog.themes[0].id).is_none());
+}
+
+#[tokio::test]
+async fn rejects_unbound_catalogs_without_replacing_cache() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = crate::theme::fixture::write(directory.path(), "tide");
+    let root = directory.path().join("installed");
+    let server = Server::start(&root).await;
+    server.publish(&source, FIRST);
+    let stop = CancellationToken::new();
+    let original = server.service.list(false, &stop).await.unwrap();
+    let saved = std::fs::read(root.join(".market/catalog.json")).unwrap();
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&server.routes.lock().unwrap()["/themes/catalog.json"]).unwrap();
+    for commit in [
+        None,
+        Some(serde_json::Value::Null),
+        Some(json!(5)),
+        Some(json!("main")),
+        Some(json!("A".repeat(40))),
+        Some(json!("g".repeat(40))),
+        Some(json!(format!(" {SECOND}"))),
+    ] {
+        match commit {
+            Some(commit) => {
+                document["source_commit"] = commit;
+            }
+            None => {
+                document.as_object_mut().unwrap().remove("source_commit");
+            }
+        }
+        server.routes.lock().unwrap().insert(
+            "/themes/catalog.json".into(),
+            serde_json::to_vec(&document).unwrap(),
+        );
+        assert!(matches!(
+            server.service.list(true, &stop).await,
+            Err(Failure::Invalid)
+        ));
+        let retained = server.service.list(false, &stop).await.unwrap();
+        assert_eq!(retained.commit, original.commit);
+        assert_eq!(
+            retained.catalog.themes[0].digest,
+            original.catalog.themes[0].digest
+        );
+        assert_eq!(
+            std::fs::read(root.join(".market/catalog.json")).unwrap(),
+            saved
+        );
+    }
+    assert!(server.service.installed("tide").await.unwrap().is_none());
+    assert!(
+        server
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|path| path == "/themes/catalog.json")
+    );
 }
 
 #[tokio::test]

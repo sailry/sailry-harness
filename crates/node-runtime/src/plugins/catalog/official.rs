@@ -6,7 +6,7 @@ pub(in crate::plugins) use cache::Cache;
 use history::{hydrate, package};
 
 pub(super) const REPOSITORY: &str = "https://github.com/sailry/sailry-plugins";
-const INDEX: &str = "https://raw.githubusercontent.com/sailry/sailry-plugins/main/catalog.json";
+const INDEX: &str = "https://sailry.dev/plugins/catalog.json";
 
 pub(crate) fn owns(info: &Info) -> bool {
     match &info.origin {
@@ -22,6 +22,13 @@ pub(crate) fn owns(info: &Info) -> bool {
 
 pub(crate) fn owns_source(package: &str, repository: &str, path: &str) -> bool {
     repository == format!("{REPOSITORY}.git") && path == package
+}
+
+#[derive(Deserialize)]
+struct Feed {
+    source_commit: String,
+    #[serde(flatten)]
+    index: Index,
 }
 
 #[derive(Deserialize)]
@@ -128,9 +135,12 @@ pub(super) async fn document(
     let url = url(host);
     host.official_catalog
         .fetch(url.as_str(), force, stop, || async {
-            let commit = resolve(host, stop).await?;
-            let index: Index = host.catalog_json(fixed_url(host, &commit), stop).await?;
-            let mut document = parse(index)?;
+            let feed: Feed = host.catalog_json(url.clone(), stop).await?;
+            if !github::source::commit(&feed.source_commit) {
+                return Err(Fault::invalid("invalid official catalog commit"));
+            }
+            let commit = feed.source_commit;
+            let mut document = parse(feed.index)?;
             document.commit = Some(commit.clone());
             let mut selected = Vec::with_capacity(document.entries.len());
             for entry in document.entries {
@@ -156,25 +166,7 @@ pub(super) async fn document(
         .await
 }
 
-async fn resolve(host: &Host, stop: &CancellationToken) -> Result<String, Fault> {
-    let url = commit_url(host);
-    let mut file = host
-        .github
-        .download(url, "application/vnd.github.sha", 1024, stop)
-        .await?;
-    file.rewind().map_err(io_error)?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).map_err(io_error)?;
-    let commit = std::str::from_utf8(&bytes)
-        .map_err(|_| Fault::invalid("invalid official catalog commit"))?
-        .trim();
-    if !github::source::commit(commit) {
-        return Err(Fault::invalid("invalid official catalog commit"));
-    }
-    Ok(commit.into())
-}
-
-fn commit_url(_host: &Host) -> url::Url {
+fn root_url(_host: &Host, commit: &str) -> url::Url {
     #[cfg(any(test, feature = "test-support"))]
     if let Some(endpoint) = _host
         .github
@@ -182,25 +174,10 @@ fn commit_url(_host: &Host) -> url::Url {
         .as_ref()
         .or(_host.github.endpoint.as_ref())
     {
-        return endpoint
-            .join("repos/sailry/sailry-plugins/commits/main")
-            .unwrap();
-    }
-    url::Url::parse("https://api.github.com/repos/sailry/sailry-plugins/commits/main").unwrap()
-}
-
-fn fixed_url(_host: &Host, commit: &str) -> url::Url {
-    #[cfg(any(test, feature = "test-support"))]
-    if let Some(endpoint) = _host
-        .github
-        .official_endpoint
-        .as_ref()
-        .or(_host.github.endpoint.as_ref())
-    {
-        return endpoint.join(&format!("{commit}/catalog.json")).unwrap();
+        return endpoint.join(&format!("{commit}/")).unwrap();
     }
     url::Url::parse(&format!(
-        "https://raw.githubusercontent.com/sailry/sailry-plugins/{commit}/catalog.json"
+        "https://raw.githubusercontent.com/sailry/sailry-plugins/{commit}/"
     ))
     .unwrap()
 }
@@ -213,7 +190,7 @@ fn url(_host: &Host) -> url::Url {
         .as_ref()
         .or(_host.github.endpoint.as_ref())
     {
-        return endpoint.join("catalog.json").unwrap();
+        return endpoint.join("plugins/catalog.json").unwrap();
     }
     url::Url::parse(INDEX).unwrap()
 }

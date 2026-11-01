@@ -36,15 +36,7 @@ pub(super) struct Catalog {
 
 impl Catalog {
     pub fn index_paths(&self) -> Vec<String> {
-        let commit = if self.updated.load(Ordering::SeqCst) {
-            SECOND
-        } else {
-            FIRST
-        };
-        vec![
-            "/repos/sailry/sailry-plugins/commits/main".into(),
-            format!("/{commit}/catalog.json"),
-        ]
+        vec!["/plugins/catalog.json".into()]
     }
 
     pub async fn start() -> Self {
@@ -130,24 +122,23 @@ impl Catalog {
                     response
                 } else {
                     match path {
-                        path if path == format!("/{FIRST}/catalog.json")
-                            || path == format!("/{SECOND}/catalog.json") =>
-                        {
-                            (
-                                response_status.load(Ordering::SeqCst),
-                                "application/json",
-                                if malformed.load(Ordering::SeqCst) {
-                                    b"{\"version\":2,\"packages\":[]}".to_vec()
-                                } else {
-                                    index(
-                                        path == format!("/{SECOND}/catalog.json"),
-                                        selected_version.lock().unwrap().as_deref(),
-                                        incompatible.load(Ordering::SeqCst),
-                                        old_format.load(Ordering::SeqCst),
-                                    )
-                                },
-                            )
-                        }
+                        "/plugins/catalog.json" => (
+                            response_status.load(Ordering::SeqCst),
+                            "application/json",
+                            if malformed.load(Ordering::SeqCst) {
+                                serde_json::to_vec(&serde_json::json!({
+                                    "source_commit":FIRST,"version":2,"packages":[]
+                                }))
+                                .unwrap()
+                            } else {
+                                index(
+                                    current.load(Ordering::SeqCst),
+                                    selected_version.lock().unwrap().as_deref(),
+                                    incompatible.load(Ordering::SeqCst),
+                                    old_format.load(Ordering::SeqCst),
+                                )
+                            },
+                        ),
                         "/repos/sailry/sailry-plugins/commits/main" => (
                             200,
                             "application/vnd.github.sha",
@@ -213,6 +204,7 @@ fn manifest(version: &str) -> serde_json::Value {
 fn index(updated: bool, version: Option<&str>, obsolete: bool, legacy: bool) -> Vec<u8> {
     let mut index: serde_json::Value =
         serde_json::from_str(include_str!("../../../../../plugins/catalog.json")).unwrap();
+    index["source_commit"] = if updated { SECOND } else { FIRST }.into();
     // Existing fixtures describe one latest-only snapshot; history fixtures opt in explicitly.
     for package in index["packages"].as_array_mut().unwrap() {
         package.as_object_mut().unwrap().remove("versions");

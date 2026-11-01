@@ -4,14 +4,14 @@ use std::{io::Read as _, path::Path, time::Duration};
 
 #[derive(Clone)]
 pub(super) struct Source {
-    pub commits: String,
+    pub catalog: String,
     pub raw: String,
 }
 
 impl Source {
     pub fn official() -> Self {
         Self {
-            commits: "https://api.github.com/repos/sailry/sailry-themes/commits/main".into(),
+            catalog: "https://sailry.dev/themes/catalog.json".into(),
             raw: "https://raw.githubusercontent.com/sailry/sailry-themes/".into(),
         }
     }
@@ -21,25 +21,21 @@ impl Source {
         client: &reqwest::Client,
         stop: &CancellationToken,
     ) -> Result<Listing> {
-        let bytes = body(client, &self.commits, INDEX_BYTES, stop).await?;
+        let bytes = body(client, &self.catalog, INDEX_BYTES, stop).await?;
         #[derive(serde::Deserialize)]
-        struct Commit {
-            sha: String,
+        struct Feed {
+            source_commit: String,
+            #[serde(flatten)]
+            catalog: catalog::Catalog,
         }
-        let commit: Commit = serde_json::from_slice(&bytes).map_err(|_| Failure::Invalid)?;
-        if !catalog::commit(&commit.sha) {
+        let feed: Feed = serde_json::from_slice(&bytes).map_err(|_| Failure::Invalid)?;
+        if !catalog::commit(&feed.source_commit) {
             return Err(Failure::Invalid);
         }
-        let bytes = body(
-            client,
-            &format!("{}{}/catalog.json", self.raw, commit.sha),
-            INDEX_BYTES,
-            stop,
-        )
-        .await?;
+        feed.catalog.validate()?;
         Ok(Listing {
-            catalog: catalog::Catalog::parse(&bytes)?,
-            commit: Some(commit.sha),
+            catalog: feed.catalog,
+            commit: Some(feed.source_commit),
             unavailable: false,
         })
     }
@@ -54,7 +50,7 @@ pub(super) fn client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .referer(false)
         .user_agent(concat!("Sailry/", env!("CARGO_PKG_VERSION")))
-        // Official raw and API URLs do not need cross-origin redirects.
+        // Official catalog and raw resource URLs do not need cross-origin redirects.
         .redirect(reqwest::redirect::Policy::none())
         .retry(reqwest::retry::never())
         .build()

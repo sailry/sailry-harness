@@ -26,7 +26,7 @@ async fn child(service: &Service, proxy: &str, bypass: &str) -> Output {
     command
         .env("HTTP_PROXY", proxy)
         .env("NO_PROXY", bypass)
-        .env("SAILRY_THEME_COMMITS", &service.source.commits)
+        .env("SAILRY_THEME_CATALOG", &service.source.catalog)
         .env("SAILRY_THEME_RAW", &service.source.raw);
     tokio::task::spawn_blocking(move || command.output().unwrap())
         .await
@@ -51,8 +51,8 @@ async fn uses_proxy_environment() {
     let endpoint = proxy
         .service
         .source
-        .commits
-        .strip_suffix("/commits/main")
+        .catalog
+        .strip_suffix("/themes/catalog.json")
         .unwrap()
         .to_owned();
     let origin = "http://themes.invalid";
@@ -64,15 +64,14 @@ async fn uses_proxy_environment() {
             .collect();
     }
     proxy.service.source = transfer::Source {
-        commits: format!("{origin}/commits/main"),
+        catalog: format!("{origin}/themes/catalog.json"),
         raw: format!("{origin}/raw/"),
     };
     succeeded(&child(&proxy.service, &endpoint, "").await);
     assert_eq!(
         *proxy.requests.lock().unwrap(),
         [
-            format!("{origin}/commits/main"),
-            format!("{origin}/raw/{FIRST}/catalog.json"),
+            format!("{origin}/themes/catalog.json"),
             format!("{origin}/raw/{FIRST}/tide/assets/light.png"),
         ]
     );
@@ -88,12 +87,12 @@ async fn respects_proxy_exclusions() {
     let endpoint = proxy
         .service
         .source
-        .commits
-        .strip_suffix("/commits/main")
+        .catalog
+        .strip_suffix("/themes/catalog.json")
         .unwrap();
     succeeded(&child(&origin.service, endpoint, "127.0.0.1").await);
     assert!(proxy.requests.lock().unwrap().is_empty());
-    assert_eq!(origin.requests.lock().unwrap().len(), 3);
+    assert_eq!(origin.requests.lock().unwrap().len(), 2);
 }
 
 #[tokio::test]
@@ -102,7 +101,7 @@ async fn proxy_child() {
     let directory = tempfile::tempdir().unwrap();
     let mut service = Service::new(directory.path().into()).unwrap();
     service.source = transfer::Source {
-        commits: std::env::var("SAILRY_THEME_COMMITS").unwrap(),
+        catalog: std::env::var("SAILRY_THEME_CATALOG").unwrap(),
         raw: std::env::var("SAILRY_THEME_RAW").unwrap(),
     };
     let stop = CancellationToken::new();
@@ -125,7 +124,7 @@ async fn classifies_status_without_request_secrets() {
     let server = Server::start(directory.path()).await;
     let error = transfer::body(
         &server.service.client,
-        &format!("{}?token=private-request", server.service.source.commits),
+        &format!("{}?token=private-request", server.service.source.catalog),
         1024,
         &CancellationToken::new(),
     )

@@ -89,7 +89,7 @@ impl Server {
         let mut service = Service::new(root.into()).unwrap();
         service.client = reqwest::Client::builder().no_proxy().build().unwrap();
         service.source = transfer::Source {
-            commits: format!("http://{address}/commits/main"),
+            catalog: format!("http://{address}/themes/catalog.json"),
             raw: format!("http://{address}/raw/"),
         };
         Self {
@@ -149,15 +149,10 @@ impl Server {
         };
         let mut routes = self.routes.lock().unwrap();
         routes.insert(
-            "/commits/main".into(),
-            serde_json::to_vec(&json!({"sha":commit})).unwrap(),
-        );
-        routes.insert(
-            format!("/raw/{commit}/catalog.json"),
-            serde_json::to_vec(&Catalog {
-                version: 1,
-                themes: vec![entry.clone()],
-            })
+            "/themes/catalog.json".into(),
+            serde_json::to_vec(&json!({
+                "source_commit":commit,"version":1,"themes":[entry.clone()]
+            }))
             .unwrap(),
         );
         entry
@@ -170,8 +165,9 @@ impl Server {
             entry.as_object_mut().unwrap().remove(name);
         }
         self.routes.lock().unwrap().insert(
-            format!("/raw/{commit}/catalog.json"),
-            serde_json::to_vec(&json!({"version":1,"themes":[entry]})).unwrap(),
+            "/themes/catalog.json".into(),
+            serde_json::to_vec(&json!({"source_commit":commit,"version":1,"themes":[entry]}))
+                .unwrap(),
         );
     }
 

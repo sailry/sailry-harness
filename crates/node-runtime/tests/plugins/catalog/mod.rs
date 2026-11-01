@@ -48,6 +48,11 @@ fn search(query: &str) -> Command {
 async fn installs_pinned_packages() {
     for remote in [false, true] {
         let catalog = Catalog::start().await;
+        // The published catalog may lag the repository's current branch.
+        catalog.documents.lock().unwrap().insert(
+            "/repos/sailry/sailry-plugins/commits/main".into(),
+            SECOND.as_bytes().to_vec(),
+        );
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
         let before = execute(&client, Command::ListPlugins).await;
         let Output::PluginCatalog(page) = execute(&client, search("New official")).await else {
@@ -58,6 +63,8 @@ async fn installs_pinned_packages() {
         assert_eq!(entry.id, "official-new");
         assert_eq!(entry.version.as_deref(), Some("1.0.0"));
         assert!(!entry.bundled);
+        assert_eq!(entry.commit.as_deref(), Some(FIRST));
+        assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
         assert_eq!(
             entry.repository.as_deref(),
             Some("https://github.com/sailry/sailry-plugins")

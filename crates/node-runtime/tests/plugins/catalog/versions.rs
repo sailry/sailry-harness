@@ -10,7 +10,7 @@ fn manifest(version: &str, minimum: &str) -> serde_json::Value {
 }
 
 fn index() -> serde_json::Value {
-    let mut value = json!({"version":1, "skills":[], "packages":[{
+    let mut value = json!({"source_commit":SECOND,"version":1, "skills":[], "packages":[{
         "id":"official-new", "manifest":manifest("2.0.0", "99.0.0"),
         "release_notes":{"text":"Future notes"},
         "versions":[
@@ -48,7 +48,7 @@ async fn selects_compatible_immutable_versions() {
         {
             let mut documents = catalog.documents.lock().unwrap();
             documents.insert(
-                format!("/{SECOND}/catalog.json"),
+                "/plugins/catalog.json".into(),
                 serde_json::to_vec(&index()).unwrap(),
             );
             documents.insert(
@@ -151,12 +151,12 @@ async fn selects_compatible_immutable_versions() {
 async fn skips_invalid_packages_and_blocks_future_sources() {
     for remote in [false, true] {
         let catalog = Catalog::start().await;
-        let value = json!({"version":1,"skills":[],"packages":[
+        let value = json!({"source_commit":FIRST,"version":1,"skills":[],"packages":[
             {"id":"bad", "manifest":{"name":"bad"}},
             {"id":"official-new", "manifest":manifest("2.0.0", "99.0.0")}
         ]});
         catalog.documents.lock().unwrap().insert(
-            format!("/{FIRST}/catalog.json"),
+            "/plugins/catalog.json".into(),
             serde_json::to_vec(&value).unwrap(),
         );
         let (_directory, node, controller, client) = connection(remote, &catalog).await;

@@ -880,12 +880,12 @@ not embedded or installed automatically. Updating the source Gitlink does not
 change a user's selected or installed theme.
 
 The theme marketplace runs on the controller, including when a remote execution
-Node is selected. It resolves the official source to one immutable commit and
-acquires the strict manifest and its declared assets at that commit. Catalog
-resource hints add integrity checks; cached metadata alone does not make an
-unavailable package installable. Installation uses the existing staged
-publication and rollback path, preserves manual imports, and records verified
-official provenance. Updating the active package refreshes its decoded images
+Node is selected. It reads the official website catalog and its captured source
+commit together, then acquires the strict manifest and its declared assets from
+GitHub at that commit. Catalog resource hints add integrity checks; cached metadata
+alone does not make an unavailable package installable. Installation uses the
+existing staged publication and rollback path, preserves manual imports, and
+records verified official provenance. Updating the active package refreshes its decoded images
 and colors without changing the selected appearance mode.
 
 The application lives in `sailry-harness`; official plugin source lives only in
@@ -902,8 +902,9 @@ not plugin update detectors. Standalone imported skills retain their repository
 commit update identity. This package policy does not declare a product release or
 change Sailry's v1 contracts.
 Removed packages and packages from other sources are not changed by this refresh.
-The online official marketplace resolves the plugin repository's `main` to an
-immutable commit and reads its `catalog.json` and skill sources at that commit.
+The online official marketplace reads the website catalog and its captured plugin
+repository commit together, then acquires package and skill resources from GitHub
+at the selected immutable commit.
 The execution Node shares its validated index across plugin and skill listings,
 source lookup and update checks for fifteen minutes. Explicit update checks and marketplace retries
 refresh it; only successful validation replaces the Node-lifetime cache.

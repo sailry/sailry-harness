@@ -196,8 +196,6 @@ class _ToolRecordState extends State<ToolRecord> {
               SelectableText(text(approvalView['context']), style: muted),
             for (final prompt in objects(approvalView['notices']))
               SelectableText(capturedLabel(context, prompt), style: muted),
-            if (approvalView['unrestricted'] == true)
-              Text(context.tr('conversationFull'), style: muted),
             if (detailFailed(widget.call))
               Align(
                 alignment: Alignment.centerLeft,

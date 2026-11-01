@@ -50,7 +50,7 @@ pub(super) async fn hydrate(
 }
 
 fn manifest_url(host: &Host, commit: &str, id: &str) -> url::Url {
-    fixed_url(host, commit)
+    root_url(host, commit)
         .join(&format!("{id}/plugin.json"))
         .unwrap()
 }
