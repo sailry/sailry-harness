@@ -133,10 +133,8 @@ impl Workspace {
                     .w_full()
                     .min_w_0()
                     .gap_3()
-                    .child(team_avatar(
-                        team.and_then(|team| team.appearance.as_ref()),
-                        cx,
-                    ))
+                    // Same size as the role rows' avatars.
+                    .child(team_avatar(team.and_then(|team| team.appearance.as_ref()), cx).small())
                     .child(
                         v_flex()
                             .flex_1()
