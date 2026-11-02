@@ -226,7 +226,7 @@ fn marked((icon, fill): Glyph, overridden: bool, selected: bool, cx: &App) -> Ba
                 .border_color(fill)
                 .placeholder(icon.size_4())
                 .when(selected, |avatar| {
-                    avatar.border_2().border_color(cx.theme().primary)
+                    avatar.border_1().border_color(cx.theme().primary)
                 }),
         )
 }
