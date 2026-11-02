@@ -48,7 +48,6 @@ role_prompt_docs: "Escreva ou atualize a documentação do escopo atribuído. Le
 teams_concurrency: "Concorrência de subagentes"
 teams_concurrency_description: "Máximo de subagentes simultâneos por conversa"
 teams_concurrency_invalid: "Insira um número inteiro positivo"
-teams_settings_saved: "Concorrência salva"
 teams_settings_conflict: "As configurações mudaram; recarregue e salve novamente"
 teams_settings_failed: "Não foi possível salvar a concorrência"
 teams_settings_unknown: "Resultado desconhecido; tente novamente para verificar"

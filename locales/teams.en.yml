@@ -48,7 +48,6 @@ role_prompt_docs: "Write or update documentation for the assigned scope. Read th
 teams_concurrency: "Child concurrency"
 teams_concurrency_description: "Maximum running subagents per conversation"
 teams_concurrency_invalid: "Enter a positive whole number"
-teams_settings_saved: "Concurrency saved"
 teams_settings_conflict: "Settings changed; reload and save again"
 teams_settings_failed: "Could not save concurrency"
 teams_settings_unknown: "Save outcome unknown; retry to check"

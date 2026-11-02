@@ -109,6 +109,7 @@ impl Workspace {
             .on_action(cx.listener(Self::team_action))
             .w_full()
             .gap_4()
+            .child(settings)
             .child(
                 h_flex()
                     .w_full()
@@ -125,7 +126,6 @@ impl Workspace {
                     ),
             )
             .child(body)
-            .child(settings)
             .into_any_element()
     }
 }

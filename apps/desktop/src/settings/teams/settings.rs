@@ -6,9 +6,9 @@ use crate::{
 };
 use gpui_kit::{
     component::{
-        button::{Button, ButtonVariants},
-        input::{InputEvent, InputState, NumberInput, NumberInputEvent, StepAction},
+        button::Button,
         notification::Notification,
+        slider::{Slider, SliderEvent, SliderState},
         *,
     },
     *,
@@ -79,48 +79,36 @@ pub(super) struct Host {
     connected: bool,
     pending: bool,
     request: Option<Request>,
-    input: Entity<InputState>,
+    slider: Entity<SliderState>,
 }
+
+/// Same range the delegation plugin offered; larger stored values show at the end.
+const MIN: u64 = 1;
+const MAX: u64 = 50;
 
 impl Host {
     fn new(binding: Option<Binding>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let saved = binding.is_none().then(Settings::default);
-        let input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .default_value(
+        let slider = cx.new(|_| {
+            SliderState::new()
+                .min(MIN as f32)
+                .max(MAX as f32)
+                .step(1.)
+                .default_value(position(
                     saved
                         .as_ref()
-                        .map(|saved| saved.child_concurrency.to_string())
-                        .unwrap_or_default(),
-                )
-                .validate(|text, _| text.bytes().all(|byte| byte.is_ascii_digit()))
+                        .map_or(Settings::default().child_concurrency, |saved| {
+                            saved.child_concurrency
+                        }),
+                ))
         });
-        // Kit emits step intent; integral settings must never round through f64.
-        input.update(cx, |input, cx| input.set_step(None, window, cx));
+        // Dragging only previews; releasing the thumb saves like other settings sliders.
         cx.subscribe_in(
-            &input,
+            &slider,
             window,
-            |host, input, event: &NumberInputEvent, window, cx| {
-                if host.locked() {
-                    return;
-                }
-                let NumberInputEvent::Step(action) = event;
-                if let Some(value) = stepped(&input.read(cx).value(), *action) {
-                    input.update(cx, |input, cx| {
-                        input.set_value(value.to_string(), window, cx)
-                    });
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-        cx.subscribe_in(
-            &input,
-            window,
-            |host, _, event: &InputEvent, window, cx| match event {
-                InputEvent::Change => cx.notify(),
-                InputEvent::PressEnter { .. } => host.save(window, cx),
-                _ => {}
+            |host, _, event: &SliderEvent, window, cx| match event {
+                SliderEvent::Change(_) => cx.notify(),
+                SliderEvent::Release(_) => host.save(window, cx),
             },
         )
         .detach();
@@ -131,8 +119,12 @@ impl Host {
             connected: false,
             pending: false,
             request: None,
-            input,
+            slider,
         }
+    }
+
+    fn value(&self, cx: &App) -> u64 {
+        self.slider.read(cx).value().start().round() as u64
     }
 
     fn locked(&self) -> bool {
@@ -140,9 +132,9 @@ impl Host {
     }
 
     fn dirty(&self, cx: &App) -> bool {
-        self.saved.as_ref().is_some_and(|saved| {
-            value(&self.input.read(cx).value()) != Some(saved.child_concurrency)
-        })
+        self.saved
+            .as_ref()
+            .is_some_and(|saved| self.value(cx) != shown(saved.child_concurrency))
     }
 
     fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -170,11 +162,9 @@ impl Host {
         let (Some(saved), Some(binding)) = (&self.saved, &self.binding) else {
             return;
         };
-        let Some(child_concurrency) = value(&self.input.read(cx).value()) else {
-            self.fail("teams_concurrency_invalid", window, cx);
-            return;
-        };
-        if saved.child_concurrency == child_concurrency {
+        let child_concurrency = self.value(cx);
+        // A larger value stored elsewhere is kept until the thumb actually moves.
+        if shown(saved.child_concurrency) == child_concurrency {
             return;
         }
         let settings = Settings {
@@ -204,20 +194,12 @@ impl Host {
                     Ok((Ok(Output::TeamSettings(settings)), _)) => {
                         host.request = None;
                         if writing || !preserve {
-                            host.input.update(cx, |input, cx| {
-                                input.set_value(settings.child_concurrency.to_string(), window, cx)
+                            host.slider.update(cx, |slider, cx| {
+                                slider.set_value(position(settings.child_concurrency), window, cx)
                             });
                         }
                         host.observed = Some(settings.revision);
                         host.saved = Some(settings);
-                        if writing {
-                            crate::feedback::toast(
-                                window,
-                                "team-settings-saved".into(),
-                                Notification::success(tr("teams_settings_saved")),
-                                cx,
-                            );
-                        }
                     }
                     result => {
                         let key = match result {
@@ -278,69 +260,40 @@ impl Render for Host {
             Row::new(
                 "teams_concurrency",
                 h_flex()
-                    .gap_2()
+                    .w_full()
+                    .gap_3()
                     .child(
-                        NumberInput::new(&self.input)
-                            .w_40()
-                            .small()
-                            .accessibility_label(tr("teams_concurrency"))
-                            .disabled(self.locked()),
+                        div().flex_1().child(
+                            Slider::new(&self.slider)
+                                .accessibility_label(tr("teams_concurrency"))
+                                .disabled(self.locked()),
+                        ),
                     )
-                    .child(
-                        Button::new("team-settings-save")
-                            .small()
-                            .primary()
-                            .label(tr(if self.request.is_some() {
-                                "teams_settings_retry"
-                            } else {
-                                "settings_save"
-                            }))
-                            .disabled(
-                                !self.connected
-                                    || self.pending
-                                    || self.saved.is_none()
-                                    || (self.request.is_none() && !self.dirty(cx)),
-                            )
-                            .on_click(cx.listener(|host, _, window, cx| host.save(window, cx))),
-                    ),
+                    .child(self.value(cx).to_string()),
             )
-            .description("teams_concurrency_description"),
+            .description("teams_concurrency_description")
+            .wide(),
         )
     }
 }
 
-fn value(text: &str) -> Option<u64> {
-    text.parse().ok().filter(|value| *value > 0)
+/// The slider's integral value for a stored concurrency.
+fn shown(value: u64) -> u64 {
+    value.clamp(MIN, MAX)
 }
 
-fn stepped(text: &str, action: StepAction) -> Option<u64> {
-    let current = value(text)?;
-    match action {
-        StepAction::Increment => current.checked_add(1),
-        StepAction::Decrement => current.checked_sub(1).filter(|value| *value > 0),
-    }
+fn position(value: u64) -> f32 {
+    shown(value) as f32
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{StepAction, stepped, value};
+    use super::shown;
 
     #[test]
-    fn keeps_exact_positive_integers() {
-        assert_eq!(value("18446744073709551615"), Some(u64::MAX));
-        for invalid in ["", "0", "-1", "1.5", "18446744073709551616"] {
-            assert_eq!(value(invalid), None);
-        }
-    }
-
-    #[test]
-    fn steps_without_rounding_or_overflow() {
-        assert_eq!(
-            stepped("9007199254740993", StepAction::Increment),
-            Some(9007199254740994)
-        );
-        assert_eq!(stepped("18446744073709551615", StepAction::Increment), None);
-        assert_eq!(stepped("1", StepAction::Decrement), None);
-        assert_eq!(stepped("8", StepAction::Decrement), Some(7));
+    fn clamps_to_slider_range() {
+        assert_eq!(shown(0), 1);
+        assert_eq!(shown(8), 8);
+        assert_eq!(shown(u64::MAX), 50);
     }
 }

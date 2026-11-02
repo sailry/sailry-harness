@@ -48,7 +48,6 @@ role_prompt_docs: "為指定範圍撰寫或更新文件。先閱讀相關程式�
 teams_concurrency: "子代理並行數"
 teams_concurrency_description: "每個對話同時執行的子代理上限"
 teams_concurrency_invalid: "請輸入正整數"
-teams_settings_saved: "並行數已儲存"
 teams_settings_conflict: "設定已變更，請重新載入後儲存"
 teams_settings_failed: "無法儲存並行數"
 teams_settings_unknown: "儲存結果未知，請重試確認"

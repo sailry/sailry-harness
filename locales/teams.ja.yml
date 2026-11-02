@@ -48,7 +48,6 @@ role_prompt_docs: "割り当てられた範囲のドキュメントを作成ま�
 teams_concurrency: "サブエージェントの同時実行数"
 teams_concurrency_description: "会話ごとに同時実行できるサブエージェントの上限"
 teams_concurrency_invalid: "正の整数を入力してください"
-teams_settings_saved: "同時実行数を保存しました"
 teams_settings_conflict: "設定が変更されました。再読み込みして保存してください"
 teams_settings_failed: "同時実行数を保存できませんでした"
 teams_settings_unknown: "保存結果が不明です。再試行して確認してください"

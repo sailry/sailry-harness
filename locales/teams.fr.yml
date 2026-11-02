@@ -48,7 +48,6 @@ role_prompt_docs: "Rédigez ou mettez à jour la documentation du périmètre at
 teams_concurrency: "Sous-agents simultanés"
 teams_concurrency_description: "Nombre maximal de sous-agents actifs par conversation"
 teams_concurrency_invalid: "Saisissez un entier positif"
-teams_settings_saved: "Concurrence enregistrée"
 teams_settings_conflict: "Réglages modifiés ; rechargez puis enregistrez à nouveau"
 teams_settings_failed: "Impossible d’enregistrer la concurrence"
 teams_settings_unknown: "Résultat inconnu ; réessayez pour vérifier"

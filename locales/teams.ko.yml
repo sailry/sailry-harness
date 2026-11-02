@@ -48,7 +48,6 @@ role_prompt_docs: "할당된 범위의 문서를 작성하거나 업데이트하
 teams_concurrency: "하위 에이전트 동시 실행 수"
 teams_concurrency_description: "대화별 동시에 실행할 하위 에이전트의 최대 수"
 teams_concurrency_invalid: "양의 정수를 입력하세요"
-teams_settings_saved: "동시 실행 수를 저장했습니다"
 teams_settings_conflict: "설정이 변경되었습니다. 다시 불러와 저장하세요"
 teams_settings_failed: "동시 실행 수를 저장하지 못했습니다"
 teams_settings_unknown: "저장 결과를 알 수 없습니다. 다시 시도해 확인하세요"

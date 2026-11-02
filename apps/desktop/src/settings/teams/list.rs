@@ -107,9 +107,10 @@ impl Workspace {
         let owner = cx.entity().downgrade();
         let context = owner.clone();
         let key = id.map_or_else(|| "default".to_owned(), |id| id.to_string());
+        // Bleed through the card inset so the hover fills the card; its mask rounds the ends.
         ListItem::new(SharedString::from(format!("team-{key}")))
-            .w_full()
-            .px_0()
+            .mx_neg_4()
+            .px_4()
             .py_3()
             .disabled(catalog.is_none())
             .accessibility_label(name.clone())

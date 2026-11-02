@@ -206,14 +206,29 @@ fn icon(team: Option<&Team>, cx: &App) -> Icon {
     )
 }
 
+/// Member avatars fill their button so no second circle shows around them.
+const MEMBER: Pixels = px(28.);
+
 fn name(team: Option<&Team>) -> SharedString {
     team.map_or_else(|| tr("composer_team_default"), |team| team.name.clone())
 }
 
 fn avatar(icon: Icon, overridden: bool, cx: &App) -> Badge {
+    marked(icon, overridden, false, cx)
+}
+
+/// The selected member is ringed in the theme accent instead of sitting on a button fill.
+fn marked(icon: Icon, overridden: bool, selected: bool, cx: &App) -> Badge {
     Badge::new()
         .when(overridden, |badge| badge.dot().color(cx.theme().primary))
-        .child(Avatar::new().small().placeholder(icon.size_3p5()))
+        .child(
+            Avatar::new()
+                .with_size(MEMBER)
+                .placeholder(icon.size_4())
+                .when(selected, |avatar| {
+                    avatar.border_2().border_color(cx.theme().primary)
+                }),
+        )
 }
 
 /// The composer chip's team identity; the dot marks member overrides.
@@ -320,17 +335,18 @@ impl Panel {
     ) -> AnyElement {
         let id = id.into();
         let selector = id.clone();
+        let selected = self.member == role;
         Button::new(id)
             .ghost()
             .rounded_full()
-            .size_8()
+            .w(MEMBER)
+            .h(MEMBER)
             .p_0()
             .flex_shrink_0()
-            .selected(self.member == role)
             .tooltip(name.clone())
             .accessibility_label(name)
             .debug_selector(move || selector.to_string())
-            .child(avatar(icon, overridden, cx))
+            .child(marked(icon, overridden, selected, cx))
             .on_click(cx.listener(move |panel, _, _, cx| panel.select_member(role, cx)))
             .into_any_element()
     }

@@ -48,7 +48,6 @@ role_prompt_docs: "Escribe o actualiza la documentación del alcance asignado. L
 teams_concurrency: "Concurrencia de subagentes"
 teams_concurrency_description: "Máximo de subagentes simultáneos por conversación"
 teams_concurrency_invalid: "Introduce un número entero positivo"
-teams_settings_saved: "Concurrencia guardada"
 teams_settings_conflict: "Los ajustes cambiaron; recarga y guarda de nuevo"
 teams_settings_failed: "No se pudo guardar la concurrencia"
 teams_settings_unknown: "Resultado del guardado desconocido; reintenta para comprobar"

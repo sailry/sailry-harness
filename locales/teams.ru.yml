@@ -48,7 +48,6 @@ role_prompt_docs: "Напиши или обнови документацию д�
 teams_concurrency: "Параллельные субагенты"
 teams_concurrency_description: "Максимум одновременно работающих субагентов на диалог"
 teams_concurrency_invalid: "Введите положительное целое число"
-teams_settings_saved: "Параллелизм сохранён"
 teams_settings_conflict: "Настройки изменились; загрузите и сохраните снова"
 teams_settings_failed: "Не удалось сохранить параллелизм"
 teams_settings_unknown: "Результат сохранения неизвестен; повторите для проверки"
