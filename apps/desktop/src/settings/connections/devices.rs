@@ -1,7 +1,7 @@
 use super::*;
 use crate::preferences::Device as KnownDevice;
 use futures::{StreamExt, stream};
-use gpui_kit::component::{badge::Badge, tag::Tag};
+use gpui_kit::component::badge::Badge;
 use sailry_client::Client;
 use sailry_link::{ConnectionInfo, EndpointAddr, Route};
 use sailry_protocol::{Command, NodeId, Output};
@@ -248,13 +248,8 @@ impl Connections {
                     .flex_shrink_0()
                     .justify_end()
                     .text_color(cx.theme().muted_foreground)
-                    .children(device.route_key().map(|key| {
-                        if key == "connection_route_unknown" {
-                            div().child(tr(key)).into_any_element()
-                        } else {
-                            Tag::secondary().small().child(tr(key)).into_any_element()
-                        }
-                    }));
+                    // Plain text like the status and latency beside it.
+                    .children(device.route_key().map(tr));
                 let latency = div()
                     .debug_selector(move || format!("connection-latency-{id:?}"))
                     .w(px(LATENCY_WIDTH))
