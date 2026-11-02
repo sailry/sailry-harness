@@ -11,6 +11,8 @@ mod requests;
 mod roles;
 mod settings;
 
+pub(crate) use draft::label as role_label;
+
 use super::{Workspace, providers::Binding};
 use crate::tr;
 use gpui_kit::component::{

@@ -34,6 +34,7 @@ pub(crate) use providers::{
 mod roles;
 mod runtime;
 pub(crate) use roles::Role;
+pub(crate) use teams::role_label;
 pub(crate) mod extensions;
 mod power;
 mod shortcuts;

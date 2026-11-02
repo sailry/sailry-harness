@@ -72,7 +72,7 @@ impl Roster {
             .map(|profile| Member {
                 role: profile.id,
                 revision: profile.revision,
-                name: profile.name.clone().into(),
+                name: crate::settings::role_label(profile).0,
                 appearance: profile.appearance.clone(),
                 overridden: models.contains_key(&profile.id),
             })
