@@ -86,10 +86,7 @@ async fn shared_turns_append_changed_guides_once() {
                         .all(|tool| {
                             !["spawn_agent", "guide_agent", "wait_agent"]
                                 .iter()
-                                .any(|name| {
-                                    tool["function"]["name"] == *name
-                                        || tool["function"]["name"] == name.to_string()
-                                })
+                                .any(|name| tool["function"]["name"] == *name)
                         })
                 );
                 assert_eq!(request.body["tools"], requests[0].body["tools"]);

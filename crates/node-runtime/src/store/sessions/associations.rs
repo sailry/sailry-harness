@@ -116,7 +116,11 @@ pub(in crate::store) async fn owns(
     if context.turn.is_some() || context.session.is_some() {
         return Ok(false);
     }
-    let session = commands::session(db, session).await?;
+    let session = match commands::session(db, session).await {
+        Ok(session) => session,
+        Err(error) if error.code == ErrorCode::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
     Ok(session.delegation.is_none()
         && context.worktree.is_none_or(|tree| tree == session.worktree)
         && session

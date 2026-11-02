@@ -97,7 +97,7 @@ pub(super) fn input(
         .then(|| invocation.turn.revision.to_string());
     let execution = config.map(|_| invocation.turn.roles.execution);
     let team = config
-        .and_then(|_| invocation.turn.roles.team)
+        .and(invocation.turn.roles.team)
         .map(|team| json!({"id":team.id,"revision":team.revision.to_string()}));
     let models = config.map(|_| &invocation.turn.roles.models);
     let options = crate::plugins::options::captured(package, &invocation.turn.config)?;

@@ -107,7 +107,7 @@ async fn creates_and_admits_atomically() {
         let task = Task::Submit {
             version: 1,
             request,
-            target: Target::Worktree {
+            target: Box::new(Target::Worktree {
                 worktree: fixture.session.worktree,
                 config: Some(Box::new(fixture.session.config.clone())),
                 execution: conversation::Execution::Model,
@@ -117,7 +117,7 @@ async fn creates_and_admits_atomically() {
                     kind: "job".into(),
                     id: "daily".into(),
                 }),
-            },
+            }),
             message: "Start a new registered worktree task".into(),
             title: "Atomic task".into(),
             wait: true,
@@ -433,12 +433,12 @@ async fn freezes_implicit_revision_before_retry() {
         let fixture = Fixture::with_loss(remote, fixture::models::Server::start(false).await).await;
         let request = RequestId::new();
         let mut task = fixture.submit(request, false);
-        let Task::Submit {
-            target: Target::Session {
-                expected_revision, ..
-            },
-            ..
-        } = &mut task
+        let Task::Submit { target, .. } = &mut task else {
+            panic!("submission expected")
+        };
+        let Target::Session {
+            expected_revision, ..
+        } = target.as_mut()
         else {
             panic!("session task expected")
         };
@@ -662,7 +662,7 @@ async fn captures_team_selection_and_replay() {
         let task = Task::Submit {
             version: 1,
             request: RequestId::new(),
-            target: Target::Worktree {
+            target: Box::new(Target::Worktree {
                 worktree: fixture.session.worktree,
                 config: Some(Box::new(fixture.session.config.clone())),
                 execution: conversation::Execution::Team,
@@ -671,7 +671,7 @@ async fn captures_team_selection_and_replay() {
                     revision: None,
                 }),
                 association: None,
-            },
+            }),
             message: "Run".into(),
             title: "Team task".into(),
             wait: true,

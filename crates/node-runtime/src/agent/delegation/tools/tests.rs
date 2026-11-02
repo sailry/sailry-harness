@@ -11,6 +11,33 @@ async fn model_execution_excludes_delegation() {
     assert!(!available(&fixture.invocation));
 }
 
+#[tokio::test]
+async fn model_execution_keeps_application_context() {
+    let mut fixture = crate::agent::delegation::tests::Fixture::new().await;
+    fixture.invocation.turn.roles = sailry_protocol::role::Snapshot {
+        execution: sailry_protocol::conversation::Execution::Model,
+        ..Default::default()
+    };
+    let tools = crate::agent::roles::bind(
+        &fixture.store.ingress,
+        &fixture.invocation,
+        &CancellationToken::new(),
+    );
+    for name in crate::agent::roles::APPLY {
+        let selected = tools
+            .iter()
+            .find(|entry| entry.tool.name.as_ref() == name)
+            .unwrap();
+        let text = context(&fixture.invocation, std::slice::from_ref(selected));
+        assert!(text.starts_with(&format!(
+            "Captured conversation revision: {}.",
+            fixture.invocation.turn.revision
+        )));
+        assert!(!text.contains("delegation roles"));
+    }
+    assert!(context(&fixture.invocation, &[]).is_empty());
+}
+
 mod prepare {
     use super::*;
 

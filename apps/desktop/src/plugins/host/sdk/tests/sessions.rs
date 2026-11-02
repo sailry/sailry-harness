@@ -187,13 +187,14 @@ fn restores_owned_sessions_and_controls_execution() {
         let module = host.sdk();
         module.validate().unwrap();
         let teams = complete(&fixture, &module, "listTeams", json!([]));
+        let revision = team.revision.to_string();
         assert!(
             teams
                 .as_array()
                 .unwrap()
                 .iter()
                 .any(|value| value["id"] == json!(team.id)
-                    && value["revision"] == team.revision.to_string())
+                    && value["revision"].as_str() == Some(revision.as_str()))
         );
         let association = json!({"kind":"schedule","id":"daily"});
         let id = call(

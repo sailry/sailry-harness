@@ -437,8 +437,101 @@ async fn imports_private_providers() {
         assert_eq!(credentials[0].id, reference.id);
         assert_eq!(credentials[0].provider, provider.id);
         source.shutdown().await.unwrap();
+        let original = queue(&destination, &imported).await;
+        let captured = imported.roles.clone();
+        let member = captured.profiles[0].id;
+        for model in [
+            Some(role::Model {
+                provider: captured.providers[0].id,
+                model: "fixture".into(),
+                effort: Some(Effort::Low),
+            }),
+            Some(role::Model {
+                provider: target_provider.id,
+                model: "fixture".into(),
+                effort: Some(Effort::High),
+            }),
+            None,
+        ] {
+            let Output::Session(revised) = execute(
+                &destination,
+                Command::SetSessionMemberModel {
+                    session: imported.id,
+                    expected_revision: imported.revision,
+                    role: member,
+                    model: model.clone(),
+                },
+            )
+            .await
+            else {
+                panic!("session expected")
+            };
+            assert_eq!(revised.revision, imported.revision + 1);
+            assert_eq!(revised.roles.profiles, captured.profiles);
+            assert_eq!(revised.roles.models.get(&member), model.as_ref());
+            assert_eq!(
+                revised
+                    .roles
+                    .providers
+                    .iter()
+                    .find(|provider| provider.id == captured.providers[0].id),
+                Some(&captured.providers[0])
+            );
+            revised.roles.validate().unwrap();
+            imported = revised;
+        }
+        assert_eq!(imported.roles, captured);
+        for (model, code) in [
+            (
+                role::Model {
+                    provider: ProviderId::new(),
+                    model: "fixture".into(),
+                    effort: None,
+                },
+                ErrorCode::NotConfigured,
+            ),
+            (
+                role::Model {
+                    provider: captured.providers[0].id,
+                    model: "missing".into(),
+                    effort: None,
+                },
+                ErrorCode::NotConfigured,
+            ),
+            (
+                role::Model {
+                    provider: captured.providers[0].id,
+                    model: "fixture".into(),
+                    effort: Some(Effort::Max),
+                },
+                ErrorCode::InvalidRequest,
+            ),
+        ] {
+            assert_eq!(
+                destination
+                    .execute(destination.prepare(Command::SetSessionMemberModel {
+                        session: imported.id,
+                        expected_revision: imported.revision,
+                        role: member,
+                        model: Some(model),
+                    }))
+                    .await
+                    .unwrap_err()
+                    .code,
+                code
+            );
+        }
+        let after = snapshot(&destination).await;
+        assert_eq!(after.providers, before.providers);
+        assert_eq!(after.defaults, before.defaults);
+        assert_eq!(
+            execute(&destination, Command::ListCredentials).await,
+            Output::Credentials(credentials)
+        );
         let queued = queue(&destination, &imported).await;
         imported.activity = queued_activity(&imported, &queued);
+        imported.activity.queued = 2;
+        imported.activity.run.as_mut().unwrap().sequence = 2;
         assert_eq!(queued.roles, imported.roles);
         target.shutdown().await.unwrap();
         let target = Node::start_empty(directory.path().join("node"))
@@ -451,7 +544,17 @@ async fn imports_private_providers() {
         });
         let restored = snapshot(&destination).await;
         assert_eq!(restored.sessions, [imported, default]);
-        assert_eq!(restored.turns, [TurnSummary::from(&queued)]);
+        assert_eq!(
+            restored.turns,
+            [TurnSummary::from(&original), TurnSummary::from(&queued)]
+        );
+        assert_eq!(
+            destination
+                .read_turn_capture(original.session, original.id)
+                .await
+                .unwrap(),
+            original
+        );
         assert_eq!(
             destination
                 .read_turn_capture(queued.session, queued.id)
@@ -552,6 +655,23 @@ async fn rejects_inconsistent_imports() {
         },
     )
     .await;
+    assert_eq!(
+        destination
+            .execute(destination.prepare(Command::SetSessionMemberModel {
+                session: imported.id,
+                expected_revision: imported.revision,
+                role: imported.roles.profiles[0].id,
+                model: Some(role::Model {
+                    provider: imported.roles.providers[0].id,
+                    model: "fixture".into(),
+                    effort: Some(Effort::Low),
+                }),
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
     assert_eq!(snapshot(&destination).await.sessions, [imported, default]);
     source.shutdown().await.unwrap();
     controller.close().await.unwrap();

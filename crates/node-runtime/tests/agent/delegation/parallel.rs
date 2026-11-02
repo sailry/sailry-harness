@@ -132,8 +132,7 @@ async fn freezes_config_and_history() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .all(|tool| tool["function"]["name"] != "spawn_agent"
-                        && tool["function"]["name"] != "spawn_agent".to_string())
+                    .all(|tool| tool["function"]["name"] != "spawn_agent")
             );
         }
         let mut histories = Vec::new();

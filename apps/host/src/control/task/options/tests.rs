@@ -36,17 +36,20 @@ fn preserves_input_and_explicit_identity() {
     assert!(!options.wait);
     let Task::Submit {
         request: id,
-        target:
-            Target::Session {
-                session: target,
-                expected_revision,
-            },
+        target,
         message,
         title,
         wait,
         timeout,
         ..
     } = options.task
+    else {
+        panic!("submission expected")
+    };
+    let Target::Session {
+        session: target,
+        expected_revision,
+    } = *target
     else {
         panic!("session submission expected")
     };
@@ -158,14 +161,13 @@ fn loads_only_explicit_new_task_configuration() {
     ])
     .unwrap()
     .unwrap();
-    let Task::Submit {
-        target: Target::Worktree {
-            config: Some(selected),
-            ..
-        },
-        title,
+    let Task::Submit { target, title, .. } = options.task else {
+        panic!("submission expected")
+    };
+    let Target::Worktree {
+        config: Some(selected),
         ..
-    } = options.task
+    } = *target
     else {
         panic!("worktree submission expected")
     };
@@ -207,16 +209,15 @@ fn selects_execution_and_association() {
                 "9007199254740993".into(),
             ]);
         }
-        let Task::Submit {
-            target:
-                Target::Worktree {
-                    execution,
-                    team,
-                    association: actual,
-                    ..
-                },
+        let Task::Submit { target, .. } = parse_args(&arguments).unwrap().unwrap().task else {
+            panic!("submission expected")
+        };
+        let Target::Worktree {
+            execution,
+            team,
+            association: actual,
             ..
-        } = parse_args(&arguments).unwrap().unwrap().task
+        } = *target
         else {
             panic!("worktree task expected")
         };
@@ -239,15 +240,14 @@ fn selects_execution_and_association() {
     }
     let mut latest = base.clone();
     latest.extend(["--team".into(), team.to_string()]);
-    let Task::Submit {
-        target:
-            Target::Worktree {
-                execution,
-                team: Some(selection),
-                ..
-            },
+    let Task::Submit { target, .. } = parse_args(&latest).unwrap().unwrap().task else {
+        panic!("submission expected")
+    };
+    let Target::Worktree {
+        execution,
+        team: Some(selection),
         ..
-    } = parse_args(&latest).unwrap().unwrap().task
+    } = *target
     else {
         panic!("team selection expected")
     };

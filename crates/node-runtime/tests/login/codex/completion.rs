@@ -66,7 +66,7 @@ async fn preserves_native_outcomes() {
             let before = server.requests.lock().unwrap().len();
             let session = super::super::execution::session(&fixture, &provider).await;
             let (_, turn) = super::super::execution::submit(&fixture.client, &session).await;
-            let status = if outcome == "failed" {
+            let status = if matches!(outcome, "failed" | "eof" | "done") {
                 Status::Failed
             } else {
                 Status::Completed
@@ -78,15 +78,19 @@ async fn preserves_native_outcomes() {
                 crate::retry_fixture::budget(),
             )
             .await;
-            if outcome == "failed" {
-                assert!(
-                    page.runs
-                        .iter()
-                        .find(|run| run.turn == turn.id)
-                        .unwrap()
-                        .error
-                        .is_some()
-                );
+            if status == Status::Failed {
+                let error = page
+                    .runs
+                    .iter()
+                    .find(|run| run.turn == turn.id)
+                    .unwrap()
+                    .error
+                    .as_ref()
+                    .unwrap();
+                if matches!(outcome, "eof" | "done") {
+                    assert_eq!(error.code, sailry_protocol::ErrorCode::Unavailable);
+                    assert!(error.message.contains("before a completion event"));
+                }
             }
             let expected = match outcome {
                 "eof" | "done" => "Draft",

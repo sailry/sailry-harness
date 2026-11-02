@@ -21,7 +21,7 @@ enum Task {
     Submit {
         version: u8,
         request: RequestId,
-        target: Target,
+        target: Box<Target>,
         message: conversation::Input,
         title: String,
         wait: bool,
@@ -138,7 +138,7 @@ impl Task {
                 if let Target::Session {
                     session,
                     expected_revision,
-                } = target
+                } = target.as_ref()
                 {
                     result.session = Some(*session);
                     result.revision = *expected_revision;
@@ -202,7 +202,7 @@ where
             ..
         } => {
             result.request = Some(request);
-            let command = match target {
+            let command = match *target {
                 Target::Session {
                     session,
                     expected_revision,

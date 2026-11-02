@@ -132,10 +132,10 @@ impl Fixture {
         Task::Submit {
             version: 1,
             request,
-            target: Target::Session {
+            target: Box::new(Target::Session {
                 session: self.session.id,
                 expected_revision: Some(self.session.revision),
-            },
+            }),
             message: "Complete the submitted task".into(),
             title: String::new(),
             wait,

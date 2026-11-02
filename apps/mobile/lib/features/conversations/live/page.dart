@@ -685,49 +685,52 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
               ],
             ),
           ),
-          composer: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ActivityStrip(
-                key: ValueKey(('activity', widget.host.id, widget.sessionId)),
-                host: widget.host,
-                session: _session,
-                updates: _view,
-                onOpenChild: _openChild,
-              ),
-              if (delegated && objects(queue['items']).isNotEmpty)
-                SafeArea(
-                  top: false,
-                  child: QueueSummary(queue: queue, onOpen: _queue),
+          composer: SafeArea(
+            top: false,
+            left: false,
+            right: false,
+            bottom: delegated,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ActivityStrip(
+                  key: ValueKey(('activity', widget.host.id, widget.sessionId)),
+                  host: widget.host,
+                  session: _session,
+                  updates: _view,
+                  onOpenChild: _openChild,
                 ),
-              if (!delegated)
-                MessageComposer(
-                  controller: _draft,
-                  attachments: _attachments.isEmpty
-                      ? null
-                      : DraftAttachments(
-                          attachments: _attachments,
-                          onRemove: (attachment) =>
-                              setState(() => _attachments.remove(attachment)),
-                        ),
-                  attached: false,
-                  busy: _active.isNotEmpty,
-                  enabled:
-                      connected &&
-                      !_historyBusy &&
-                      _historyPending == null &&
-                      !_sending &&
-                      _pendingSend == null &&
-                      _session['archived'] != true,
-                  onAttachment: (_) => _attach(),
-                  onVoice: _voice,
-                  onStop: _stop,
-                  onSend: _send,
-                  priority: objects(queue['items']).isEmpty
-                      ? null
-                      : QueueSummary(queue: queue, onOpen: _queue),
-                ),
-            ],
+                if (delegated && objects(queue['items']).isNotEmpty)
+                  QueueSummary(queue: queue, onOpen: _queue),
+                if (!delegated)
+                  MessageComposer(
+                    controller: _draft,
+                    attachments: _attachments.isEmpty
+                        ? null
+                        : DraftAttachments(
+                            attachments: _attachments,
+                            onRemove: (attachment) =>
+                                setState(() => _attachments.remove(attachment)),
+                          ),
+                    attached: false,
+                    busy: _active.isNotEmpty,
+                    enabled:
+                        connected &&
+                        !_historyBusy &&
+                        _historyPending == null &&
+                        !_sending &&
+                        _pendingSend == null &&
+                        _session['archived'] != true,
+                    onAttachment: (_) => _attach(),
+                    onVoice: _voice,
+                    onStop: _stop,
+                    onSend: _send,
+                    priority: objects(queue['items']).isEmpty
+                        ? null
+                        : QueueSummary(queue: queue, onOpen: _queue),
+                  ),
+              ],
+            ),
           ),
         );
       },

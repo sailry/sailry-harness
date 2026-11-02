@@ -542,6 +542,8 @@ class SourceCacheIdentity(unittest.TestCase):
         action = (ROOT / ".github/actions/rust-cache/action.yml").read_text()
         identity = action.split("    - name: Dependency source identity\n", 1)[1].split("    - name:", 1)[0]
         command = identity.split("      run: ", 1)[1].strip()
+        # Match setup-python on CI even when the local system Python is older.
+        command = f'python3() {{ {shlex.quote(sys.executable)} "$@"; }}\n{command}'
         other = self.package({"name": "other", "version": "1.0.0", "source": "git+https://git.example/other#123"})
         expected = self.key(self.original)
         self.assertNotEqual(self.key(other), expected)

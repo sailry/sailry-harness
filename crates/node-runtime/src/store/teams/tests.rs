@@ -56,7 +56,10 @@ async fn checks_revisions_and_keys() {
     renamed.members = roles.iter().map(|role| role.id).collect();
     let renamed = put(db, &renamed, 1).await.unwrap();
     assert_eq!((renamed.id, renamed.revision), (saved.id, 2));
-    assert_eq!(list(db).await.unwrap(), [renamed.clone()]);
+    assert_eq!(
+        list(db).await.unwrap().as_slice(),
+        std::slice::from_ref(&renamed)
+    );
     assert_eq!(
         remove(db, renamed.id, 1).await.unwrap_err().code,
         ErrorCode::RevisionConflict

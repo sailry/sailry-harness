@@ -196,10 +196,7 @@ async fn main_direction_reaches_running_child() {
                     |request| request["tools"].as_array().unwrap().iter().all(|tool| {
                         !["spawn_agent", "guide_agent", "wait_agent"]
                             .iter()
-                            .any(|name| {
-                                tool["function"]["name"] == *name
-                                    || tool["function"]["name"] == name.to_string()
-                            })
+                            .any(|name| tool["function"]["name"] == *name)
                     })
                 )
         );
@@ -398,7 +395,7 @@ async fn continues_after_background_answer() {
         let guide = observed
             .calls
             .iter()
-            .find(|call| call.turn == directed.id && call.name == "guide_agent".to_string())
+            .find(|call| call.turn == directed.id && call.name == "guide_agent")
             .unwrap();
         let guide = guide.with_detail(
             crate::agent_support::details::read(

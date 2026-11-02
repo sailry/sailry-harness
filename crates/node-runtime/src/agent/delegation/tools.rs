@@ -113,9 +113,6 @@ fn parameters() -> Value {
 /// Selection metadata for the captured roster; delivered as turn context.
 pub(in crate::agent) fn context(invocation: &Invocation, tools: &[Registration]) -> String {
     let mounted = |name: &str| tools.iter().any(|entry| entry.tool.name.as_ref() == name);
-    if !mounted(SPAWN) {
-        return String::new();
-    }
     let roster: Vec<_> = invocation
         .turn
         .roles
@@ -136,7 +133,9 @@ pub(in crate::agent) fn context(invocation: &Invocation, tools: &[Registration])
             )
         })
         .collect();
-    let mut text = if roster.is_empty() {
+    let mut text = if !mounted(SPAWN) {
+        String::new()
+    } else if roster.is_empty() {
         "No delegation roles are configured".to_owned()
     } else {
         format!(
@@ -145,8 +144,11 @@ pub(in crate::agent) fn context(invocation: &Invocation, tools: &[Registration])
         )
     };
     if super::super::roles::APPLY.iter().any(|name| mounted(name)) {
+        if !text.is_empty() {
+            text.push('\n');
+        }
         text.push_str(&format!(
-            "\nCaptured conversation revision: {}. Catalog changes do not change this turn's roster. Explicit application affects future admission only; use the exact inspected revision and never silently rebase a conflict.",
+            "Captured conversation revision: {}. Catalog changes do not change this turn's roster. Explicit application affects future admission only; use the exact inspected revision and never silently rebase a conflict.",
             invocation.turn.revision
         ));
     }

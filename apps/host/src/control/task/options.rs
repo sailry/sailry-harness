@@ -186,7 +186,7 @@ pub(super) fn parse(
         Task::Submit {
             version: 1,
             request: request.unwrap_or_default(),
-            target,
+            target: Box::new(target),
             message: text.into(),
             title,
             wait,

@@ -247,7 +247,7 @@ fn marked((icon, fill): Glyph, overridden: bool, selected: bool, cx: &App) -> Ba
             Avatar::new()
                 .with_size(MEMBER)
                 .bg(fill)
-                .border_color(fill)
+                .border_0()
                 .placeholder(icon.size_3p5().when(!selected, |icon| icon.opacity(0.6))),
         )
 }

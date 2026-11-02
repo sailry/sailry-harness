@@ -498,7 +498,10 @@ async fn prefers_member_model() {
         panic!("session expected")
     };
     assert_eq!(session.roles.models.get(&role.id), Some(&chosen));
-    assert_eq!(session.roles.profiles, [role.clone()]);
+    assert_eq!(
+        session.roles.profiles.as_slice(),
+        std::slice::from_ref(&role)
+    );
     let child = invoke(
         &mut fixture,
         first,

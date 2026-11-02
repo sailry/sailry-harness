@@ -34,7 +34,7 @@ pub(super) fn role_tile(appearance: Option<&Appearance>, cx: &App) -> Div {
 
 fn filled(appearance: Option<&Appearance>, fallback: Icon, cx: &App) -> Avatar {
     let (icon, fill) = identity::tinted(appearance, fallback, cx);
-    Avatar::new().bg(fill).border_color(fill).placeholder(icon)
+    Avatar::new().bg(fill).border_0().placeholder(icon)
 }
 
 pub(super) fn count(roles: usize) -> SharedString {

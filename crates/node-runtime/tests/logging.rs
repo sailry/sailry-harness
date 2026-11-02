@@ -377,8 +377,8 @@ async fn observes_shared_lifecycles_without_payloads() {
             reason: ModelFailure::Request
         })
     ));
-    // The pinned GDK default permits three HTTP retries after the first request.
-    assert_eq!(rate_model.requests.lock().unwrap().len(), 4);
+    // The shared GDK policy permits five retries after the first request.
+    assert_eq!(rate_model.requests.lock().unwrap().len(), 6);
     retry_node.shutdown().await.unwrap();
     retry_controller.close().await.unwrap();
 

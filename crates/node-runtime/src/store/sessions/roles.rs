@@ -122,13 +122,13 @@ pub(in crate::store) async fn assign(
     complete(db, node, snapshot).await
 }
 
-/// Capture current providers for every role model and member override.
+/// Capture listed providers while retaining private providers already owned by the roster.
 async fn complete(
     db: &Connection,
     node: NodeId,
     mut snapshot: role::Snapshot,
 ) -> Result<role::Snapshot, Fault> {
-    snapshot.providers.clear();
+    let captured = std::mem::take(&mut snapshot.providers);
     let required: std::collections::BTreeSet<_> = snapshot
         .profiles
         .iter()
@@ -139,6 +139,7 @@ async fn complete(
     for id in required {
         let mut provider = providers::get(db, id)
             .await?
+            .or_else(|| captured.iter().find(|provider| provider.id == id).cloned())
             .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "role provider is unavailable"))?;
         crate::store::providers::presets::capture(db, &mut provider).await?;
         crate::providers::login::capture(&mut provider)?;

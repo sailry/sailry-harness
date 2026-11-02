@@ -356,12 +356,15 @@ impl RenderOnce for Row {
                     .tooltip(label.clone())
                     .accessibility_label(label)
                     .disabled(self.disabled)
-                    .on_click(move |event, window, cx| handler(event, window, cx))
+                    .on_click(move |event, window, cx| {
+                        cx.stop_propagation();
+                        handler(event, window, cx);
+                    })
                     .into_any_element()
             }
         });
-        let trailing = (!self.trailing.is_empty() || mark.is_some()).then(|| {
-            // Trailing controls act on their own; a click here never toggles the row.
+        let controls = (!self.trailing.is_empty()).then(|| {
+            // Only independent controls consume clicks; decorative marks open the row.
             h_flex()
                 .id(SharedString::from(format!("{}-trailing", self.id)))
                 .flex_shrink_0()
@@ -369,6 +372,13 @@ impl RenderOnce for Row {
                 .gap_1()
                 .on_click(|_, _, cx| cx.stop_propagation())
                 .children(self.trailing)
+        });
+        let trailing = (controls.is_some() || mark.is_some()).then(|| {
+            h_flex()
+                .flex_shrink_0()
+                .items_center()
+                .gap_1()
+                .children(controls)
                 .children(mark)
         });
         let line = h_flex()

@@ -224,7 +224,10 @@ async fn selects_future_rosters() {
             panic!("session expected")
         };
         assert_eq!(selected.revision, session.revision + 1);
-        assert_eq!(selected.roles.profiles, [member.clone()]);
+        assert_eq!(
+            selected.roles.profiles.as_slice(),
+            std::slice::from_ref(&member)
+        );
         assert_eq!(selected.roles.team, Some(reviewers.reference()));
         assert_eq!(selected.roles.instructions, reviewers.instructions);
         assert!(selected.roles.models.is_empty());

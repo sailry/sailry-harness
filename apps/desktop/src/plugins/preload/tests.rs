@@ -89,9 +89,23 @@ fn retries_failed_preloads() {
 fn bounds_resources_and_invalidates_revisions() {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
+        fixture.package();
+        let path = fixture.directory.path().join("project/package/plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let extension = &mut manifest["extensions"]["dev.sailry.platform"];
+        extension["settings_page"]["entry"] = extension["desktop"]["entry"].clone();
+        std::fs::write(path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        fixture.install(0);
         let mut resources = resources(&fixture);
         let mut summaries = Vec::new();
-        for name in ["browser", "web-search", "goals", "media", "memory"] {
+        for name in [
+            "browser",
+            "web-search",
+            "project-summary",
+            "media",
+            "memory",
+        ] {
             let summary = package(&fixture, name);
             let prepared = fixture
                 .runtime
