@@ -180,6 +180,14 @@ def lint_packages(selected):
     return sorted({package for lane in selected for package in LINT_PACKAGES.get(lane, ())})
 
 
+def package_arguments(packages):
+    """Cargo package selection; Node's own integration tests and test host need its fixtures."""
+    arguments = [part for package in packages for part in ("-p", package)]
+    if "sailry-node-runtime" in packages:
+        arguments.extend(["--features", "sailry-node-runtime/test-support"])
+    return arguments
+
+
 def lint_command(selection, jobs):
     if (not isinstance(selection, dict) or set(selection) != LANES
             or any(value not in {"true", "false"} for value in selection.values())):
@@ -189,9 +197,7 @@ def lint_command(selection, jobs):
     packages = lint_packages({lane for lane in LANES if selection[lane] == "true"})
     if not packages:
         raise ValueError("No Rust packages selected")
-    command = ["cargo", "clippy", "--locked"]
-    for package in packages:
-        command.extend(["-p", package])
+    command = ["cargo", "clippy", "--locked", *package_arguments(packages)]
     command.extend(["--all-targets", *(["--jobs", jobs] if jobs else []), "--", "-D", "warnings"])
     return command
 
@@ -243,13 +249,13 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
     runtime_host = target / "debug/examples/plugin-test-host"
     if platform.system() == "Windows":
         runtime_host = runtime_host.with_suffix(".exe")
-    packages = [part for package in LINT_PACKAGES["shared"] for part in ("-p", package)]
+    packages = package_arguments(LINT_PACKAGES["shared"])
     backend = ["cargo", "nextest", "run", "--locked", *packages]
 
     def plugin_contracts(selected):
-        # Build the example with the test run's packages so it reuses that dependency graph.
+        # Build the example with the test run's packages and features so it reuses that dependency graph.
         return [
-            (["cargo", "build", "--locked", *selected, "--features", "sailry-node-runtime/test-support", "--example", "plugin-test-host", "--profile", "test", *cargo_jobs], "."),
+            (["cargo", "build", "--locked", *selected, "--example", "plugin-test-host", "--profile", "test", *cargo_jobs], "."),
             ([python, "scripts/test-plugins.py", "--runtime-host", str(runtime_host)], "."),
         ]
     desktop = ["cargo", "nextest", "run", "--locked", "-p", "sailry-content", "-p", "sailry-desktop"]
@@ -311,7 +317,7 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
             raise ValueError("Database tests require the shared package selection")
         if name == "shared" and scope == {"host-mac"}:
             return [{"argv": argv, "cwd": cwd} for argv, cwd in commands["host-mac"]]
-        selected = [part for package in selected for part in ("-p", package)]
+        selected = package_arguments(selected)
         if name == "shared-databases":
             run = ["cargo", "nextest", "run", "--locked", *selected, *nextest_jobs,
                    "--profile", "databases", "--run-ignored", "only", "--filterset", "binary(databases)",

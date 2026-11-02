@@ -24,3 +24,6 @@ pulldown-cmark = { workspace = true, features = ["html"] }
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

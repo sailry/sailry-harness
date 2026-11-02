@@ -98,6 +98,7 @@ This selects nextest's execution settings, not Cargo's release build profile.
 Standard test commands skip provider backoff waits against fixture servers;
 the GDK's paused-clock tests verify retry timing. For focused direct Cargo runs,
 set `GOOSE_PROVIDER_SKIP_BACKOFF=true` to use the same fixture behavior.
+Node integration tests also need `--features sailry-node-runtime/test-support`.
 The backend check then builds the optional production test host and runs package
 tests with that host explicitly selected, including raw-schema parameter matrices.
 

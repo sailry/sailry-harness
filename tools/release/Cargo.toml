@@ -25,3 +25,6 @@ zipsign-api = { workspace = true, features = ["sign-zip", "verify-zip"] }
 [dev-dependencies]
 tempfile.workspace = true
 zip.workspace = true
+
+[lints]
+workspace = true

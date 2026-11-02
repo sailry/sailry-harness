@@ -33,3 +33,6 @@ zstd.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 iroh-relay = { workspace = true, features = ["server", "test-utils"] }
 tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
