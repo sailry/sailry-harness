@@ -44,6 +44,19 @@ pub(crate) fn filled(value: Option<&Appearance>, fallback: Icon, cx: &App) -> (I
     }
 }
 
+/// A tinted identity: the glyph in its color on a translucent fill of the same color.
+/// Identities without a color keep the neutral style of `filled`.
+pub(crate) fn tinted(value: Option<&Appearance>, fallback: Icon, cx: &App) -> (Icon, Hsla) {
+    match value.filter(|value| value.color != "none") {
+        Some(value) => {
+            let tone = color(&value.color, cx);
+            let icon = Icon::default().path(format!("icons/reicon/{}.svg", value.icon));
+            (icon.text_color(tone), tone.opacity(0.18))
+        }
+        None => filled(value, fallback, cx),
+    }
+}
+
 pub(crate) fn color(name: &str, cx: &App) -> Hsla {
     if name == "none" {
         return cx.theme().muted_foreground;

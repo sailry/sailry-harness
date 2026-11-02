@@ -11,7 +11,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sailry_protocol::{projects::Appearance, role, team};
 
-/// Kit Avatar filled with the identity color and a white Reicon glyph.
+/// Kit Avatar tinted with the identity color.
 pub(super) fn avatar(appearance: Option<&Appearance>, cx: &App) -> Avatar {
     let fallback = super::draft::fallback();
     filled(Some(appearance.unwrap_or(&fallback)), Icon::empty(), cx)
@@ -20,7 +20,7 @@ pub(super) fn avatar(appearance: Option<&Appearance>, cx: &App) -> Avatar {
 /// Leading row icon, sized and shaped like the model provider tiles.
 pub(super) fn tile(appearance: Option<&Appearance>, fallback: Icon, cx: &App) -> Div {
     const SIZE: f32 = 36.;
-    let (icon, fill) = identity::filled(appearance, fallback, cx);
+    let (icon, fill) = identity::tinted(appearance, fallback, cx);
     h_flex()
         .size(px(SIZE))
         .flex_shrink_0()
@@ -38,7 +38,7 @@ pub(super) fn role_tile(appearance: Option<&Appearance>, cx: &App) -> Div {
 }
 
 fn filled(appearance: Option<&Appearance>, fallback: Icon, cx: &App) -> Avatar {
-    let (icon, fill) = identity::filled(appearance, fallback, cx);
+    let (icon, fill) = identity::tinted(appearance, fallback, cx);
     Avatar::new().bg(fill).border_color(fill).placeholder(icon)
 }
 

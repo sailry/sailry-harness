@@ -48,15 +48,15 @@ pub(crate) fn picker<T: 'static>(
                 .map(|button| match trigger_style {
                     Trigger::Inline => button.text().child(project(&selected, cx)),
                     Trigger::Avatar => {
-                        let (icon, fill) = super::filled(Some(&selected), Icon::empty(), cx);
-                        // Hover keeps the identity color instead of Kit's neutral ghost fill.
+                        let (icon, fill) = super::tinted(Some(&selected), Icon::empty(), cx);
+                        // Hover deepens the identity tint instead of using Kit's neutral ghost fill.
                         button
                             .custom(
                                 ButtonCustomVariant::new(cx)
                                     .color(fill)
                                     .foreground(gpui_kit::white())
-                                    .hover(fill.opacity(0.85))
-                                    .active(fill.opacity(0.7))
+                                    .hover(fill.alpha((fill.a + 0.08).min(1.)))
+                                    .active(fill.alpha((fill.a + 0.14).min(1.)))
                                     .shadow(false),
                             )
                             // Same tile as the settings rows and model provider icons.
