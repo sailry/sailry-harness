@@ -1,80 +1,90 @@
 import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
+import '../../../ui/kit.dart';
 import '../../../ui/theme.dart';
 import 'parts.dart';
 import 'rules.dart';
 
-/// Available reasoning efforts and the default one, limited to the API's
-/// choices like Desktop.
-class ReasoningCard extends StatelessWidget {
-  const ReasoningCard({
-    super.key,
-    required this.api,
-    required this.model,
-    required this.onChanged,
-  });
-  final String api;
+/// Ordered reasoning efforts with their raw values, a default choice and
+/// free-form additions, like Desktop's effort rows.
+class ReasoningCard extends StatefulWidget {
+  const ReasoningCard({super.key, required this.model, required this.onSave});
   final Json model;
-  final ValueChanged<Json>? onChanged;
+
+  /// Saves an edited model; null while another edit is pending.
+  final Future<bool> Function(Json model)? onSave;
+
+  @override
+  State<ReasoningCard> createState() => _ReasoningCardState();
+}
+
+class _ReasoningCardState extends State<ReasoningCard> {
+  final _input = TextEditingController();
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  Future<void> _add() async {
+    final edited = addEffort(widget.model, _input.text);
+    if (!accept(context, edited == null ? 'providerEffortInvalid' : null)) {
+      return;
+    }
+    // Keep the draft when the save fails.
+    if (await widget.onSave!(edited!) && mounted) _input.clear();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final options = effortOptions(api, model);
-    if (options.isEmpty) return const SizedBox.shrink();
-    final efforts = [...?model['efforts'] as List?];
-    final selected = efforts.map(effortKey).toSet();
-    final fallback = effortKey(model['default_effort']);
+    final efforts = [...?widget.model['efforts'] as List?];
+    final fallback = effortKey(widget.model['default_effort']);
+    final save = widget.onSave;
     return SectionCard(
       title: context.tr('providerEfforts'),
+      count: efforts.length,
       children: [
+        for (final (index, effort) in efforts.indexed)
+          _Row(
+            value: effortValue(effort),
+            selected: effortKey(effort) == fallback,
+            onDefault: save == null
+                ? null
+                : () => save(setDefaultEffort(widget.model, effort as Object)),
+            onRemove: save == null
+                ? null
+                : () => save(removeEffort(widget.model, index)),
+          ),
         Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
             children: [
-              Text(
-                context.tr('providerEffortChoices'),
-                style: dimText(context, 12),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final effort in options)
-                    _Chip(
-                      label: effortLabel(context, effort),
-                      selected: selected.contains(effortKey(effort)),
-                      onTap: onChanged == null
-                          ? null
-                          : () => onChanged!(
-                              toggleEffort(model, effort, options),
-                            ),
-                    ),
-                ],
-              ),
-              if (efforts.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text(
-                  context.tr('providerDefault'),
-                  style: dimText(context, 12),
-                ),
-                const SizedBox(height: 8),
-                _Segments(
-                  labels: [
-                    for (final effort in efforts) effortLabel(context, effort),
-                  ],
-                  selected: efforts.indexWhere(
-                    (effort) => effortKey(effort) == fallback,
+              Expanded(
+                child: TextField(
+                  key: const ValueKey('effort-input'),
+                  controller: _input,
+                  enabled: save != null,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _add(),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: context.tr('providerEffortPlaceholder'),
                   ),
-                  onSelected: onChanged == null
-                      ? null
-                      : (index) => onChanged!(
-                          setDefaultEffort(model, efforts[index] as Object),
-                        ),
                 ),
-              ],
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                key: const ValueKey('effort-add'),
+                onPressed: save == null || efforts.length >= maxEfforts
+                    ? null
+                    : _add,
+                icon: const AppIcon('plus', size: 16),
+                label: Text(context.tr('add')),
+              ),
             ],
           ),
         ),
@@ -83,121 +93,54 @@ class ReasoningCard extends StatelessWidget {
   }
 }
 
-String effortLabel(BuildContext context, Object? effort) {
-  final budget = effort is Map ? effort['budget'] : null;
-  if (budget is num) {
-    return budget < 0 ? context.tr('effortDynamic') : '${budget.toInt()}';
-  }
-  return switch (effort) {
-    'none' => context.tr('effortNone'),
-    'minimal' => context.tr('effortMinimal'),
-    'low' => context.tr('effortLow'),
-    'medium' => context.tr('effortMedium'),
-    'high' => context.tr('effortHigh'),
-    'xhigh' => context.tr('effortXhigh'),
-    'max' => context.tr('effortMax'),
-    _ => effortKey(effort),
-  };
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip({required this.label, required this.selected, this.onTap});
-  final String label;
+class _Row extends StatelessWidget {
+  const _Row({
+    required this.value,
+    required this.selected,
+    required this.onDefault,
+    required this.onRemove,
+  });
+  final String value;
   final bool selected;
-  final VoidCallback? onTap;
+  final VoidCallback? onDefault;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final accent = SailryTheme.accentColor(context, AccentTone.blue);
-    return Semantics(
-      selected: selected,
-      button: true,
-      child: Material(
-        color: selected
-            ? accent.withValues(alpha: .18)
-            : SailryTheme.insetFill(context),
-        shape: const StadiumBorder(),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
+    final label = context.tr(
+      selected ? 'providerEffortDefault' : 'providerEffortSetDefault',
+    );
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: Row(
+        children: [
+          Expanded(
             child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                color: selected ? accent : colors.onSurfaceVariant,
-              ),
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 15, fontFamily: 'monospace'),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Segments extends StatelessWidget {
-  const _Segments({
-    required this.labels,
-    required this.selected,
-    required this.onSelected,
-  });
-  final List<String> labels;
-  final int selected;
-  final ValueChanged<int>? onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: SailryTheme.insetFill(context),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(3),
-        child: Row(
-          children: [
-            for (final (index, label) in labels.indexed)
-              Expanded(
-                child: Semantics(
-                  selected: index == selected,
-                  button: true,
-                  child: Material(
-                    color: index == selected
-                        ? colors.surfaceContainerHigh
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(9),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(9),
-                      onTap: onSelected == null || index == selected
-                          ? null
-                          : () => onSelected!(index),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 7),
-                        child: Text(
-                          label,
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: index == selected
-                                ? FontWeight.w500
-                                : null,
-                            color: index == selected
-                                ? colors.onSurface
-                                : colors.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+          IconButton(
+            tooltip: label,
+            isSelected: selected,
+            onPressed: selected ? null : onDefault,
+            icon: AppIcon(
+              'check',
+              size: 18,
+              color: selected
+                  ? SailryTheme.accentColor(context, AccentTone.green)
+                  : colors.onSurfaceVariant.withValues(alpha: .4),
+            ),
+          ),
+          IconButton(
+            tooltip: context.tr('delete'),
+            onPressed: onRemove,
+            icon: AppIcon('close', size: 18, color: colors.onSurfaceVariant),
+          ),
+        ],
       ),
     );
   }

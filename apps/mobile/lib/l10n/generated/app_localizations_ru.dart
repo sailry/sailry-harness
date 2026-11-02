@@ -2209,31 +2209,17 @@ class AppLocalizationsRu extends AppLocalizations {
   String get providerEfforts => 'Сила рассуждения';
 
   @override
-  String get providerEffortChoices => 'Доступные';
+  String get providerEffortPlaceholder => 'Сила или бюджет токенов';
 
   @override
-  String get effortNone => 'Выкл.';
+  String get providerEffortInvalid =>
+      'Недопустимая сила рассуждения; проверьте названия, дубликаты и поддержку API';
 
   @override
-  String get effortMinimal => 'Минимальная';
+  String get providerEffortDefault => 'Сила по умолчанию';
 
   @override
-  String get effortLow => 'Низкая';
-
-  @override
-  String get effortMedium => 'Средняя';
-
-  @override
-  String get effortHigh => 'Высокая';
-
-  @override
-  String get effortXhigh => 'Очень высокая';
-
-  @override
-  String get effortMax => 'Максимальная';
-
-  @override
-  String get effortDynamic => 'Динамическая';
+  String get providerEffortSetDefault => 'Сделать по умолчанию';
 
   @override
   String get providerSetDefault => 'Сделать моделью по умолчанию';

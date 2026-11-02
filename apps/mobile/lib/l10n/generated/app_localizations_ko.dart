@@ -2172,31 +2172,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get providerEfforts => '추론 강도';
 
   @override
-  String get providerEffortChoices => '선택 가능';
+  String get providerEffortPlaceholder => '강도 또는 토큰 예산';
 
   @override
-  String get effortNone => '끄기';
+  String get providerEffortInvalid => '추론 강도가 잘못되었습니다. 이름, 중복 및 API 지원을 확인하세요';
 
   @override
-  String get effortMinimal => '최소';
+  String get providerEffortDefault => '기본 강도';
 
   @override
-  String get effortLow => '낮음';
-
-  @override
-  String get effortMedium => '중간';
-
-  @override
-  String get effortHigh => '높음';
-
-  @override
-  String get effortXhigh => '매우 높음';
-
-  @override
-  String get effortMax => '최대';
-
-  @override
-  String get effortDynamic => '동적';
+  String get providerEffortSetDefault => '기본값으로 설정';
 
   @override
   String get providerSetDefault => '기본 모델로 설정';

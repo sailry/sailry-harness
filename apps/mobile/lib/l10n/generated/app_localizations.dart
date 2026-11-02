@@ -4320,59 +4320,29 @@ abstract class AppLocalizations {
   /// **'Reasoning effort'**
   String get providerEfforts;
 
-  /// No description provided for @providerEffortChoices.
+  /// No description provided for @providerEffortPlaceholder.
   ///
   /// In en, this message translates to:
-  /// **'Available'**
-  String get providerEffortChoices;
+  /// **'Effort or token budget'**
+  String get providerEffortPlaceholder;
 
-  /// No description provided for @effortNone.
+  /// No description provided for @providerEffortInvalid.
   ///
   /// In en, this message translates to:
-  /// **'Off'**
-  String get effortNone;
+  /// **'Invalid reasoning effort; check names, duplicates and API support'**
+  String get providerEffortInvalid;
 
-  /// No description provided for @effortMinimal.
+  /// No description provided for @providerEffortDefault.
   ///
   /// In en, this message translates to:
-  /// **'Minimal'**
-  String get effortMinimal;
+  /// **'Default effort'**
+  String get providerEffortDefault;
 
-  /// No description provided for @effortLow.
+  /// No description provided for @providerEffortSetDefault.
   ///
   /// In en, this message translates to:
-  /// **'Low'**
-  String get effortLow;
-
-  /// No description provided for @effortMedium.
-  ///
-  /// In en, this message translates to:
-  /// **'Medium'**
-  String get effortMedium;
-
-  /// No description provided for @effortHigh.
-  ///
-  /// In en, this message translates to:
-  /// **'High'**
-  String get effortHigh;
-
-  /// No description provided for @effortXhigh.
-  ///
-  /// In en, this message translates to:
-  /// **'Extra high'**
-  String get effortXhigh;
-
-  /// No description provided for @effortMax.
-  ///
-  /// In en, this message translates to:
-  /// **'Max'**
-  String get effortMax;
-
-  /// No description provided for @effortDynamic.
-  ///
-  /// In en, this message translates to:
-  /// **'Dynamic'**
-  String get effortDynamic;
+  /// **'Set as default'**
+  String get providerEffortSetDefault;
 
   /// No description provided for @providerSetDefault.
   ///

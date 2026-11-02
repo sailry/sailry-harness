@@ -2192,31 +2192,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get providerEfforts => 'Reasoning effort';
 
   @override
-  String get providerEffortChoices => 'Available';
+  String get providerEffortPlaceholder => 'Effort or token budget';
 
   @override
-  String get effortNone => 'Off';
+  String get providerEffortInvalid =>
+      'Invalid reasoning effort; check names, duplicates and API support';
 
   @override
-  String get effortMinimal => 'Minimal';
+  String get providerEffortDefault => 'Default effort';
 
   @override
-  String get effortLow => 'Low';
-
-  @override
-  String get effortMedium => 'Medium';
-
-  @override
-  String get effortHigh => 'High';
-
-  @override
-  String get effortXhigh => 'Extra high';
-
-  @override
-  String get effortMax => 'Max';
-
-  @override
-  String get effortDynamic => 'Dynamic';
+  String get providerEffortSetDefault => 'Set as default';
 
   @override
   String get providerSetDefault => 'Set as default model';

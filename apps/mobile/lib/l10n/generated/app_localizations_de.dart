@@ -2219,31 +2219,17 @@ class AppLocalizationsDe extends AppLocalizations {
   String get providerEfforts => 'Denkaufwand';
 
   @override
-  String get providerEffortChoices => 'Verfügbar';
+  String get providerEffortPlaceholder => 'Aufwand oder Token-Budget';
 
   @override
-  String get effortNone => 'Aus';
+  String get providerEffortInvalid =>
+      'Ungültiger Denkaufwand; Namen, Duplikate und API-Unterstützung prüfen';
 
   @override
-  String get effortMinimal => 'Minimal';
+  String get providerEffortDefault => 'Standardaufwand';
 
   @override
-  String get effortLow => 'Niedrig';
-
-  @override
-  String get effortMedium => 'Mittel';
-
-  @override
-  String get effortHigh => 'Hoch';
-
-  @override
-  String get effortXhigh => 'Sehr hoch';
-
-  @override
-  String get effortMax => 'Max';
-
-  @override
-  String get effortDynamic => 'Dynamisch';
+  String get providerEffortSetDefault => 'Als Standard festlegen';
 
   @override
   String get providerSetDefault => 'Als Standardmodell festlegen';

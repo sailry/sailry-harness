@@ -162,9 +162,8 @@ class _ModelPageState extends State<ModelPage> {
             ),
             if (model['reasoning'] == true)
               ReasoningCard(
-                api: text(provider['api']),
                 model: model,
-                onChanged: idle
+                onSave: idle
                     ? (model) => attempt(context, () => _save(model))
                     : null,
               ),

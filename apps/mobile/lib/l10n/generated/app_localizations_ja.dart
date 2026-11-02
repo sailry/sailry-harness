@@ -2169,31 +2169,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get providerEfforts => '推論の強度';
 
   @override
-  String get providerEffortChoices => '選択可能';
+  String get providerEffortPlaceholder => '強度またはトークン予算';
 
   @override
-  String get effortNone => 'オフ';
+  String get providerEffortInvalid => '推論の強度が無効です。名前、重複、API の対応を確認してください';
 
   @override
-  String get effortMinimal => '最小';
+  String get providerEffortDefault => 'デフォルトの強度';
 
   @override
-  String get effortLow => '低';
-
-  @override
-  String get effortMedium => '中';
-
-  @override
-  String get effortHigh => '高';
-
-  @override
-  String get effortXhigh => '超高';
-
-  @override
-  String get effortMax => '最大';
-
-  @override
-  String get effortDynamic => '動的';
+  String get providerEffortSetDefault => 'デフォルトに設定';
 
   @override
   String get providerSetDefault => 'デフォルトモデルに設定';

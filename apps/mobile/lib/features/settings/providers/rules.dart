@@ -203,33 +203,6 @@ Json mergeDiscovered(
 String effortKey(Object? effort) =>
     effort is String ? effort : jsonEncode(effort);
 
-/// Named efforts the provider API accepts, mirroring protocol validation.
-List<String> apiEfforts(String api) => switch (api) {
-  'azure_ai' => const [],
-  'deepseek' => const ['none', 'high', 'max'],
-  'anthropic' => const ['low', 'medium', 'high', 'xhigh', 'max'],
-  'gemini' => const ['none', 'low', 'medium', 'high'],
-  'chat_completions' ||
-  'responses' ||
-  'azure_open_ai' ||
-  'open_code_go' ||
-  'open_code_zen' ||
-  'plugin' => namedEfforts,
-  _ => const ['low', 'medium', 'high'],
-};
-
-/// Selectable efforts: the API's named choices, then any other saved choice.
-List<Object> effortOptions(String api, Json model) {
-  final options = <Object>[...apiEfforts(api)];
-  final keys = options.map(effortKey).toSet();
-  for (final effort in model['efforts'] as List? ?? const []) {
-    if (effort != null && effort != 'default' && keys.add(effortKey(effort))) {
-      options.add(effort as Object);
-    }
-  }
-  return options;
-}
-
 /// The preferred choice when present, else the first explicit one.
 Object initialEffort(List<Object> choices, Object? preferred) {
   final keys = choices.map(effortKey).toSet();
@@ -242,21 +215,57 @@ Object initialEffort(List<Object> choices, Object? preferred) {
       'default';
 }
 
-/// Adds or removes an effort, keeping option order and a valid default.
-Json toggleEffort(Json model, Object effort, List<Object> options) {
-  final selected = {
-    for (final item in model['efforts'] as List? ?? const []) effortKey(item),
+/// Most efforts one model lists, like Desktop.
+const maxEfforts = 16;
+
+/// Parses an effort the way Desktop does: a named effort, `dynamic`, or a
+/// whole-number token budget. Returns null when the input is invalid.
+Object? parseEffort(String input) {
+  final value = input.trim();
+  if (namedEfforts.contains(value)) return value;
+  if (value == 'dynamic') return const {'budget': -1};
+  if (!RegExp(r'^[+-]?\d+$').hasMatch(value)) return null;
+  final tokens = int.tryParse(value);
+  if (tokens == null || tokens < -0x80000000 || tokens > 0x7fffffff) {
+    return null;
+  }
+  return {'budget': tokens};
+}
+
+/// Raw effort value as Desktop shows it: the name or the token budget.
+String effortValue(Object? effort) {
+  final budget = effort is Map ? effort['budget'] : null;
+  return budget is num ? '${budget.toInt()}' : effortKey(effort);
+}
+
+/// Appends a parsed effort; null when it is invalid, listed or over the limit.
+/// The first effort of an empty list becomes the default.
+Json? addEffort(Json model, String input) {
+  final effort = parseEffort(input);
+  final efforts = [...?model['efforts'] as List?];
+  if (effort == null ||
+      efforts.length >= maxEfforts ||
+      efforts.any((item) => effortKey(item) == effortKey(effort))) {
+    return null;
+  }
+  return {
+    ...model,
+    'efforts': [...efforts, effort],
+    if (efforts.isEmpty) 'default_effort': effort,
+    'custom_efforts': true,
   };
-  final key = effortKey(effort);
-  if (!selected.remove(key)) selected.add(key);
-  final efforts = [
-    for (final option in options)
-      if (selected.contains(effortKey(option))) option,
-  ];
+}
+
+/// Removes an effort; a removed default falls back to the first remaining
+/// effort, like Desktop.
+Json removeEffort(Json model, int index) {
+  final efforts = [...?model['efforts'] as List?];
+  final removed = efforts.removeAt(index);
+  final fallback = effortKey(model['default_effort']) == effortKey(removed);
   return {
     ...model,
     'efforts': efforts,
-    'default_effort': initialEffort(efforts, model['default_effort']),
+    if (fallback) 'default_effort': efforts.firstOrNull ?? 'default',
     'custom_efforts': true,
   };
 }

@@ -2211,31 +2211,17 @@ class AppLocalizationsPt extends AppLocalizations {
   String get providerEfforts => 'Esforço de raciocínio';
 
   @override
-  String get providerEffortChoices => 'Disponíveis';
+  String get providerEffortPlaceholder => 'Esforço ou orçamento de tokens';
 
   @override
-  String get effortNone => 'Desligado';
+  String get providerEffortInvalid =>
+      'Esforço de raciocínio inválido; verifique nomes, duplicados e suporte da API';
 
   @override
-  String get effortMinimal => 'Mínimo';
+  String get providerEffortDefault => 'Esforço padrão';
 
   @override
-  String get effortLow => 'Baixo';
-
-  @override
-  String get effortMedium => 'Médio';
-
-  @override
-  String get effortHigh => 'Alto';
-
-  @override
-  String get effortXhigh => 'Muito alto';
-
-  @override
-  String get effortMax => 'Máximo';
-
-  @override
-  String get effortDynamic => 'Dinâmico';
+  String get providerEffortSetDefault => 'Definir como padrão';
 
   @override
   String get providerSetDefault => 'Definir como modelo padrão';

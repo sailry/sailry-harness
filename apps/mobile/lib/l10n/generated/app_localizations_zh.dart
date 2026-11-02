@@ -2162,31 +2162,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get providerEfforts => '思考强度';
 
   @override
-  String get providerEffortChoices => '可选强度';
+  String get providerEffortPlaceholder => '强度或 Token 预算';
 
   @override
-  String get effortNone => '关闭';
+  String get providerEffortInvalid => '思考强度无效，请检查名称、重复项和接口支持';
 
   @override
-  String get effortMinimal => '最小';
+  String get providerEffortDefault => '默认强度';
 
   @override
-  String get effortLow => '低';
-
-  @override
-  String get effortMedium => '中';
-
-  @override
-  String get effortHigh => '高';
-
-  @override
-  String get effortXhigh => '超高';
-
-  @override
-  String get effortMax => '最大';
-
-  @override
-  String get effortDynamic => '动态';
+  String get providerEffortSetDefault => '设为默认';
 
   @override
   String get providerSetDefault => '设为默认模型';
@@ -4670,31 +4655,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get providerEfforts => '思考強度';
 
   @override
-  String get providerEffortChoices => '可選強度';
+  String get providerEffortPlaceholder => '強度或 Token 預算';
 
   @override
-  String get effortNone => '關閉';
+  String get providerEffortInvalid => '思考強度無效，請檢查名稱、重複項和介面支援';
 
   @override
-  String get effortMinimal => '最小';
+  String get providerEffortDefault => '預設強度';
 
   @override
-  String get effortLow => '低';
-
-  @override
-  String get effortMedium => '中';
-
-  @override
-  String get effortHigh => '高';
-
-  @override
-  String get effortXhigh => '超高';
-
-  @override
-  String get effortMax => '最大';
-
-  @override
-  String get effortDynamic => '動態';
+  String get providerEffortSetDefault => '設為預設';
 
   @override
   String get providerSetDefault => '設為預設模型';

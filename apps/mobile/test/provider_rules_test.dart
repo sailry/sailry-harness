@@ -228,33 +228,74 @@ void main() {
   });
 
   group('efforts', () {
-    test('options follow API validation', () {
-      expect(effortOptions('deepseek', model('a')), ['none', 'high', 'max']);
-      expect(effortOptions('azure_ai', model('a')), isEmpty);
-      expect(effortOptions('responses', model('a')), namedEfforts);
+    test('parses names and budgets like Desktop', () {
+      expect(parseEffort(' xhigh '), 'xhigh');
+      expect(parseEffort('dynamic'), {'budget': -1});
+      expect(parseEffort('4096'), {'budget': 4096});
+      expect(parseEffort('-1'), {'budget': -1});
+      for (final value in [
+        'default',
+        'High',
+        '',
+        '0x10',
+        '1.5',
+        '2147483648',
+      ]) {
+        expect(parseEffort(value), isNull, reason: value);
+      }
     });
 
-    test('saved budgets stay selectable', () {
-      final budget = {'budget': 4096};
-      final options = effortOptions('anthropic', {
-        ...model('a'),
-        'efforts': ['low', budget],
-      });
-      expect(options.last, budget);
-      expect(options.where((effort) => effort == 'low'), hasLength(1));
+    test('values stay raw', () {
+      expect(effortValue('xhigh'), 'xhigh');
+      expect(effortValue({'budget': 4096}), '4096');
+      expect(effortValue({'budget': -1}), '-1');
     });
 
-    test('toggling keeps option order and a valid default', () {
-      final options = effortOptions('responses', model('a'));
-      var edited = toggleEffort(model('a', reasoning: true), 'high', options);
-      edited = toggleEffort(edited, 'low', options);
-      expect(edited['efforts'], ['low', 'high']);
+    test('adding appends and defaults the first effort', () {
+      var edited = addEffort(model('a', reasoning: true), 'high')!;
+      expect(edited['efforts'], ['high']);
       expect(edited['default_effort'], 'high');
       expect(edited['custom_efforts'], isTrue);
-      edited = toggleEffort(edited, 'high', options);
-      expect(edited['efforts'], ['low']);
+      edited = addEffort(edited, '4096')!;
+      expect(edited['efforts'], [
+        'high',
+        {'budget': 4096},
+      ]);
+      expect(edited['default_effort'], 'high');
+    });
+
+    test('adding rejects invalid, listed and excess efforts', () {
+      final listed = {
+        ...model('a'),
+        'efforts': [
+          'low',
+          {'budget': 4096},
+        ],
+      };
+      expect(addEffort(listed, 'nope'), isNull);
+      expect(addEffort(listed, 'low'), isNull);
+      expect(addEffort(listed, '4096'), isNull);
+      final full = {
+        ...model('a'),
+        'efforts': [
+          for (var i = 1; i <= maxEfforts; i++) {'budget': i},
+        ],
+      };
+      expect(addEffort(full, 'low'), isNull);
+    });
+
+    test('removing the default falls back to the first effort', () {
+      var edited = removeEffort({
+        ...model('a'),
+        'efforts': ['low', 'medium', 'high'],
+        'default_effort': 'medium',
+      }, 1);
+      expect(edited['efforts'], ['low', 'high']);
       expect(edited['default_effort'], 'low');
-      edited = toggleEffort(edited, 'low', options);
+      expect(edited['custom_efforts'], isTrue);
+      edited = removeEffort(edited, 1);
+      expect(edited['default_effort'], 'low');
+      edited = removeEffort(edited, 0);
       expect(edited['efforts'], isEmpty);
       expect(edited['default_effort'], 'default');
     });

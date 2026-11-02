@@ -2223,31 +2223,17 @@ class AppLocalizationsFr extends AppLocalizations {
   String get providerEfforts => 'Effort de raisonnement';
 
   @override
-  String get providerEffortChoices => 'Disponibles';
+  String get providerEffortPlaceholder => 'Effort ou budget de tokens';
 
   @override
-  String get effortNone => 'Désactivé';
+  String get providerEffortInvalid =>
+      'Effort de raisonnement invalide ; vérifiez les noms, les doublons et la prise en charge de l’API';
 
   @override
-  String get effortMinimal => 'Minimal';
+  String get providerEffortDefault => 'Effort par défaut';
 
   @override
-  String get effortLow => 'Faible';
-
-  @override
-  String get effortMedium => 'Moyen';
-
-  @override
-  String get effortHigh => 'Élevé';
-
-  @override
-  String get effortXhigh => 'Très élevé';
-
-  @override
-  String get effortMax => 'Max';
-
-  @override
-  String get effortDynamic => 'Dynamique';
+  String get providerEffortSetDefault => 'Définir par défaut';
 
   @override
   String get providerSetDefault => 'Définir comme modèle par défaut';
