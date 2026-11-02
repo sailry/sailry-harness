@@ -61,6 +61,8 @@ pub(super) struct Editor {
     appearance: Option<Appearance>,
     lead: Entity<ModelField>,
     instructions: Entity<TextareaState>,
+    /// Read-only name and summary drawn with the member header's inputs so both align.
+    lead_title: [Entity<InputState>; 2],
     members: Vec<Member>,
     /// Members present when the editor opened; "Add role" lists the others.
     baseline: BTreeSet<RoleId>,
@@ -162,6 +164,8 @@ impl Editor {
         let models = catalog.models.clone();
         let model = template.model.clone();
         let lead = cx.new(|cx| ModelField::new(models, model, "team_follow_conversation", cx));
+        let lead_title = ["team_lead", "team_lead_description"]
+            .map(|key| cx.new(|cx| InputState::new(window, cx).default_value(tr(key))));
         let instructions = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(6, 14)
@@ -181,6 +185,7 @@ impl Editor {
             description,
             lead,
             instructions,
+            lead_title,
             members,
             selected: Selected::Lead,
             adder,
@@ -297,12 +302,39 @@ impl Editor {
             )
     }
 
-    fn details(&self) -> AnyElement {
+    fn details(&self, cx: &App) -> AnyElement {
         match self.selected {
             Selected::Lead => v_flex()
                 .w_full()
                 .gap_4()
-                .child(div().font_semibold().child(tr("team_lead")))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(super::list::tile(
+                            None,
+                            Icon::from(gpui_kit::assets::IconName::Crown),
+                            cx,
+                        ))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    Input::new(&self.lead_title[0])
+                                        .appearance(false)
+                                        .readonly(true)
+                                        .aria_label(tr("team_lead")),
+                                )
+                                .child(
+                                    Input::new(&self.lead_title[1])
+                                        .appearance(false)
+                                        .small()
+                                        .readonly(true)
+                                        .aria_label(tr("team_lead_description")),
+                                ),
+                        ),
+                )
                 .child(
                     Field::new()
                         .label(tr("teams_model"))
@@ -399,7 +431,7 @@ impl Render for Editor {
                             .min_w_0()
                             .h_full()
                             .overflow_y_scrollbar()
-                            .child(self.details()),
+                            .child(self.details(cx)),
                     ),
             )
             .child(self.footer(cx))
