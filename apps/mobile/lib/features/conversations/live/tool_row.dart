@@ -84,6 +84,8 @@ class ToolRow extends StatelessWidget {
     final dim = tone == RowTone.normal ? color.withValues(alpha: .65) : color;
     final style = TextStyle(fontSize: transcriptFontSize, color: color);
     final detail = this.detail?.split('\n').first ?? '';
+    // Fill the available text width so trailing actions reach the row edge.
+    final fit = action == null ? FlexFit.loose : FlexFit.tight;
     final caption = running && tone == RowTone.normal
         ? DefaultTextStyle.merge(
             style: const TextStyle(fontSize: transcriptFontSize),
@@ -98,7 +100,7 @@ class ToolRow extends StatelessWidget {
               AppIcon(icon ?? 'settings', size: 16, color: color),
           const SizedBox(width: 8),
           if (detail.isEmpty)
-            Flexible(child: caption)
+            Flexible(fit: fit, child: caption)
           else ...[
             ConstrainedBox(
               constraints: BoxConstraints(maxWidth: constraints.maxWidth * .6),
@@ -106,6 +108,7 @@ class ToolRow extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Flexible(
+              fit: fit,
               child: Text(
                 detail,
                 maxLines: 1,
@@ -125,11 +128,7 @@ class ToolRow extends StatelessWidget {
               child: AppIcon('chevron', size: 12, color: dim),
             ),
           ],
-          if (action != null) ...[
-            const Spacer(),
-            const SizedBox(width: 8),
-            action!,
-          ],
+          if (action != null) ...[const SizedBox(width: 8), action!],
         ],
       ),
     );

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
+import '../../../ui/identicon.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import '../../resources/session_services.dart';
@@ -345,7 +346,10 @@ class _ActivitySheet extends StatelessWidget {
           group('conversationChild'),
           for (final (child, reference) in activity.children)
             ToolRow(
-              icon: 'spark',
+              leading: (_) => Identicon(
+                seed: text(object(child['run'])['session']),
+                running: host.connected,
+              ),
               label: text(child['name'], context.tr('conversationChild')),
               running: true,
               action: AppIcon(

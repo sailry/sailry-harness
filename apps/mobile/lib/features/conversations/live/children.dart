@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
+import '../../../ui/identicon.dart';
 import '../../../ui/kit.dart';
 import 'tool_row.dart';
 import 'turn_frame.dart';
@@ -41,13 +42,14 @@ class ChildTask extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final run = object(child['run']);
+    final running = connected && (activeRun(run) || continuing);
     return ToolRow(
       key: ValueKey('child-${run['session']}'),
-      icon: 'spark',
+      leading: (_) => Identicon(seed: text(run['session']), running: running),
       label: context.tr('conversationChild'),
       detail: title,
       tone: failedRun(run) ? RowTone.failed : RowTone.normal,
-      running: connected && (activeRun(run) || continuing),
+      running: running,
       action: onOpen == null
           ? null
           : AppIcon(

@@ -695,59 +695,38 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                 updates: _view,
                 onOpenChild: _openChild,
               ),
-              delegated
-                  ? Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (objects(queue['items']).isNotEmpty)
-                          QueueSummary(queue: queue, onOpen: _queue),
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            20,
-                            12,
-                            20,
-                            MediaQuery.paddingOf(context).bottom + 12,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              if (_active.isNotEmpty)
-                                FilledButton(
-                                  onPressed: connected ? _stop : null,
-                                  child: Text(context.tr('stop')),
-                                ),
-                            ],
-                          ),
+              if (delegated && objects(queue['items']).isNotEmpty)
+                SafeArea(
+                  top: false,
+                  child: QueueSummary(queue: queue, onOpen: _queue),
+                ),
+              if (!delegated)
+                MessageComposer(
+                  controller: _draft,
+                  attachments: _attachments.isEmpty
+                      ? null
+                      : DraftAttachments(
+                          attachments: _attachments,
+                          onRemove: (attachment) =>
+                              setState(() => _attachments.remove(attachment)),
                         ),
-                      ],
-                    )
-                  : MessageComposer(
-                      controller: _draft,
-                      attachments: _attachments.isEmpty
-                          ? null
-                          : DraftAttachments(
-                              attachments: _attachments,
-                              onRemove: (attachment) => setState(
-                                () => _attachments.remove(attachment),
-                              ),
-                            ),
-                      attached: false,
-                      busy: _active.isNotEmpty,
-                      enabled:
-                          connected &&
-                          !_historyBusy &&
-                          _historyPending == null &&
-                          !_sending &&
-                          _pendingSend == null &&
-                          _session['archived'] != true,
-                      onAttachment: (_) => _attach(),
-                      onVoice: _voice,
-                      onStop: _stop,
-                      onSend: _send,
-                      priority: objects(queue['items']).isEmpty
-                          ? null
-                          : QueueSummary(queue: queue, onOpen: _queue),
-                    ),
+                  attached: false,
+                  busy: _active.isNotEmpty,
+                  enabled:
+                      connected &&
+                      !_historyBusy &&
+                      _historyPending == null &&
+                      !_sending &&
+                      _pendingSend == null &&
+                      _session['archived'] != true,
+                  onAttachment: (_) => _attach(),
+                  onVoice: _voice,
+                  onStop: _stop,
+                  onSend: _send,
+                  priority: objects(queue['items']).isEmpty
+                      ? null
+                      : QueueSummary(queue: queue, onOpen: _queue),
+                ),
             ],
           ),
         );
