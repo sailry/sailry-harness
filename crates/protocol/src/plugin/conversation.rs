@@ -1,4 +1,5 @@
 //! Plugin assistant declarations bind ordinary Node-owned sessions.
+pub mod sdk;
 use super::Reference;
 use crate::{ProjectId, connection};
 use serde::{Deserialize, Serialize};

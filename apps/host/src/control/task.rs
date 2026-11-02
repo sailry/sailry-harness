@@ -45,6 +45,12 @@ enum Target {
     Worktree {
         worktree: WorktreeId,
         config: Option<Box<SessionConfig>>,
+        #[serde(default)]
+        execution: conversation::Execution,
+        #[serde(default)]
+        team: Option<team::Selection>,
+        #[serde(default)]
+        association: Option<conversation::Association>,
     },
 }
 
@@ -209,7 +215,13 @@ where
                         message,
                     }
                 }
-                Target::Worktree { worktree, config } => {
+                Target::Worktree {
+                    worktree,
+                    config,
+                    execution,
+                    team,
+                    association,
+                } => {
                     let project = match client
                         .execute(client.prepare(Command::ReadWorktreeCatalog { worktree }))
                         .await
@@ -246,7 +258,9 @@ where
                         config: config.map(|config| *config),
                         title,
                         message,
-                        team: None,
+                        execution,
+                        team,
+                        association,
                         models: Default::default(),
                     })
                 }

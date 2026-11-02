@@ -12,6 +12,7 @@ mod media;
 mod models;
 mod roles;
 mod search;
+mod sessions;
 mod terminals;
 #[cfg(test)]
 mod tests;
@@ -58,8 +59,6 @@ impl Host {
         let provider_operation = self.clone();
         let notify = self.clone();
         let transaction = self.clone();
-        let projects = self.clone();
-        let start = self.clone();
         let context = self.clone();
         let identifiers = self.clone();
         let module = HostModule::new("sailry/sdk")
@@ -73,12 +72,6 @@ impl Host {
                 let mut value = serde_json::to_value(&scope).map_err(|error| HostError::new(error.to_string()))?;
                 value["package"]["settings_revision"] = json!(scope.package.settings_revision.to_string());
                 encode(value)
-            })
-            .async_function("readProjectCatalog", move |_| projects.read_public(Command::ReadProjectCatalog))
-            .function("startSession", move |args| {
-                let draft = serde_json::from_value(decode(args.value(0)?)?)
-                    .map_err(|error| HostError::new(error.to_string()))?;
-                start.prepare_public(Command::StartSession(draft))
             })
             .function("prepareTransaction", move |args| {
                 let operations = sailry_protocol::plugin::transaction::sdk::decode(decode(args.value(0)?)?)
@@ -247,7 +240,7 @@ impl Host {
             });
         let module =
             self.session_model_module(self.worktree_module(self.usage_module(module, sources)));
-        let module = self.knowledge_module(module);
+        let module = self.sessions_module(self.knowledge_module(module));
         let module = self.code_module(self.web_module(module));
         self.change_module(self.roles_module(self.media_module(self.computer_module(
             self.file_module(
@@ -397,6 +390,11 @@ pub(in crate::plugins) fn public_output(output: Output) -> Result<Value, HostErr
     if matches!(
         output,
         Output::PluginTransaction(_)
+            | Output::Session(_)
+            | Output::AssociatedSessions(_)
+            | Output::Teams(_)
+            | Output::Team(_)
+            | Output::QueuedTurn(_)
             | Output::Conversation(_)
             | Output::ConversationRuns(_)
             | Output::Queue(_)
@@ -413,12 +411,14 @@ pub(in crate::plugins) fn public_output(output: Output) -> Result<Value, HostErr
     }
     let revision = match &output {
         Output::PluginValue(entry) => Some(entry.revision.to_string()),
-        Output::Session(session) => Some(session.revision.to_string()),
         _ => None,
     };
     let mut value =
         serde_json::to_value(&output).map_err(|error| HostError::new(error.to_string()))?;
     connections::exact_rows(&output, &mut value);
+    if matches!(output, Output::Dispatch(_)) {
+        sailry_protocol::plugin::transaction::sdk::callback_revisions(&mut value["data"]);
+    }
     if let Output::PluginSettings(settings) = &output {
         value["data"]["package"]["settings_revision"] =
             json!(settings.package.settings_revision.to_string());

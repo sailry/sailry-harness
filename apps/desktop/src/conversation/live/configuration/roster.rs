@@ -2,7 +2,7 @@
 //! revision-checked commands; drafts keep them until the session starts.
 use super::super::model_controls::team::{Draft, Roster, Team, effective};
 use super::*;
-use sailry_protocol::{ProviderId, RoleId, role, team};
+use sailry_protocol::{ProviderId, RoleId, conversation::Execution, role, team};
 
 /// The selected member's model as the popover shows it.
 pub(in crate::conversation::live) struct MemberModel {
@@ -23,6 +23,9 @@ impl View {
 
     /// The session roster, else the draft team's members from the execution Node catalog.
     fn member_profiles(&self) -> Vec<&role::Profile> {
+        if self.execution() == Execution::Model {
+            return Vec::new();
+        }
         if let Some(session) = &self.session {
             return session.roles.profiles.iter().collect();
         }
@@ -45,6 +48,12 @@ impl View {
         self.session
             .as_ref()
             .map_or(&self.team_draft.models, |session| &session.roles.models)
+    }
+
+    fn execution(&self) -> Execution {
+        self.session
+            .as_ref()
+            .map_or(self.team_draft.execution, |session| session.roles.execution)
     }
 
     pub(in crate::conversation::live) fn team_roster(&self) -> Roster {
@@ -76,6 +85,7 @@ impl View {
                 .map(Team::from),
         };
         Roster {
+            execution: self.execution(),
             team,
             members: Roster::members(self.member_profiles(), self.member_overrides()),
             teams: teams.iter().map(Team::from).collect(),
@@ -164,6 +174,7 @@ impl View {
     /// Chooses a team; a team with a fixed lead model also switches the lead.
     pub(in crate::conversation::live) fn select_team(
         &mut self,
+        execution: Execution,
         team: Option<Team>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -171,19 +182,23 @@ impl View {
         if self.team_blocked() {
             return;
         }
+        let team = team.filter(|_| execution == Execution::Team);
         let lead = team.as_ref().and_then(|team| team.model.clone());
         let reference = team.map(|team| team.reference);
         if let Some(session) = &self.session {
-            let command = Command::SetSessionTeam {
+            let command = Command::SetSessionExecution {
                 session: session.id,
                 expected_revision: session.revision,
-                team: reference,
+                execution,
+                team: reference.map(Into::into),
+                models: BTreeMap::new(),
             };
-            self.execute(command, actions::Action::Team(lead), window, cx);
+            self.execute(command, actions::Action::Team, window, cx);
             return;
         }
         // Node clears member models with a new team; drafts follow the same rule.
         self.team_draft = Draft {
+            execution,
             team: reference.map(|reference| reference.id),
             models: BTreeMap::new(),
         };
@@ -193,13 +208,8 @@ impl View {
         cx.notify();
     }
 
-    /// Switches the lead to a team's fixed model through the ordinary configuration path.
-    pub(in crate::conversation::live) fn apply_lead(
-        &mut self,
-        model: &role::Model,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// Previews a draft team's lead model; Node admission applies its configuration.
+    fn apply_lead(&mut self, model: &role::Model, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.binding.client.target();
         let Some(channel) = self.provider_ids.get(&(target, model.provider)).copied() else {
             return;
@@ -234,18 +244,16 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.team_blocked() || self.member_overrides().get(&role) == model.as_ref() {
+        if self.team_blocked()
+            || !self
+                .member_profiles()
+                .iter()
+                .any(|profile| profile.id == role)
+            || self.member_overrides().get(&role) == model.as_ref()
+        {
             return;
         }
         if let Some(session) = &self.session {
-            if !session
-                .roles
-                .profiles
-                .iter()
-                .any(|profile| profile.id == role)
-            {
-                return;
-            }
             let command = Command::SetSessionMemberModel {
                 session: session.id,
                 expected_revision: session.revision,

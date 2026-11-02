@@ -5,6 +5,48 @@ use crate::store::agent::tests::fixture::{message, request as tool_request};
 use serde_json::json;
 
 #[tokio::test]
+async fn model_execution_rejects_admission() {
+    let mut fixture = Fixture::new().await;
+    super::super::tests::command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SetSessionExecution {
+            session: fixture.session,
+            expected_revision: 1,
+            execution: sailry_protocol::conversation::Execution::Model,
+            team: None,
+            models: Default::default(),
+        },
+    )
+    .await;
+    let parent = fixture.queued().await;
+    runs::start(&fixture.database.connection, parent)
+        .await
+        .unwrap();
+    runs::claim(&mut fixture.database, &fixture.events)
+        .await
+        .unwrap()
+        .unwrap();
+    let request = ToolIdentity {
+        name: crate::agent::delegation::tools::SPAWN.into(),
+        id: Some("model-call".into()),
+        arguments: json!({"task":"Delegate"}),
+    };
+    let error = admit(
+        &mut fixture.database,
+        parent,
+        &request,
+        request.arguments.clone(),
+        None,
+        &fixture.events,
+    )
+    .await
+    .err()
+    .expect("model execution cannot delegate");
+    assert_eq!(error.code, ErrorCode::PermissionDenied);
+}
+
+#[tokio::test]
 async fn canonical_admission_and_recovery() {
     let mut fixture = Fixture::new().await;
     let parent = fixture.queued().await;

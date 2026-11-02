@@ -95,6 +95,11 @@ pub(super) fn input(
     let session_revision = operations
         .contains(&Operation::ApplyRoles)
         .then(|| invocation.turn.revision.to_string());
+    let execution = config.map(|_| invocation.turn.roles.execution);
+    let team = config
+        .and_then(|_| invocation.turn.roles.team)
+        .map(|team| json!({"id":team.id,"revision":team.revision.to_string()}));
+    let models = config.map(|_| &invocation.turn.roles.models);
     let options = crate::plugins::options::captured(package, &invocation.turn.config)?;
     // Only a person's own text; package-authored, notice and delegated input stay private.
     let message = package
@@ -104,7 +109,7 @@ pub(super) fn input(
         .filter(|_| !invocation.automatic && !invocation.notice && invocation.child.is_none())
         .and_then(|_| excerpt(&invocation.message.text));
     Ok(
-        json!({"roles":roles,"options":options,"session_revision":session_revision,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"message":message,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}}),
+        json!({"roles":roles,"options":options,"session_revision":session_revision,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"execution":execution,"team":team,"models":models,"message":message,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}}),
     )
 }
 

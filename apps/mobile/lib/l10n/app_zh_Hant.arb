@@ -834,6 +834,7 @@
   "about": "關於 Sailry",
   "modelPicker": "選擇模型",
   "team": "團隊",
+  "executionModel": "單一模型",
   "teamDefault": "預設團隊",
   "teamLead": "負責人",
   "memberReset": "重設模型",

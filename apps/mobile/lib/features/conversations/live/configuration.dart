@@ -94,15 +94,11 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
     });
   }
 
-  /// A team that fixes a Lead model also changes the configuration; the Node
-  /// never changes it implicitly.
-  Future<void> _selectTeam(Map<String, dynamic>? team) => _run(
-    () => _commands.select(
-      team,
-      session: () => _session.value,
-      providers: () => _providers,
-    ),
-  );
+  /// The Node applies the execution mode and any fixed team lead model together.
+  Future<void> _selectTeam(String execution, Map<String, dynamic>? team) =>
+      _run(
+        () => _commands.select(execution, team, session: () => _session.value),
+      );
 
   List<Map<String, dynamic>> get _providers => objects(
     widget.host.snapshot['providers'],

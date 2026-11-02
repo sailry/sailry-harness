@@ -1775,6 +1775,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get team => 'Команда';
 
   @override
+  String get executionModel => 'Только модель';
+
+  @override
   String get teamDefault => 'Команда по умолчанию';
 
   @override

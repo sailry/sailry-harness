@@ -150,7 +150,7 @@ pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: O
         operation if code::handles(operation) => ingress.code_index.enabled(),
         Operation::SearchWeb => ingress.search.available(),
         Operation::DelegateAgent | Operation::GuideAgent | Operation::WaitAgent => {
-            invocation.child.is_none() && invocation.connections.bound.is_none()
+            super::super::delegation::tools::available(invocation)
         }
         Operation::InspectMedia => invocation
             .media

@@ -10,6 +10,10 @@ use turso::{Connection, Value};
 #[path = "validation/startup_tests.rs"]
 mod startup_tests;
 
+#[cfg(test)]
+#[path = "validation/sessions.rs"]
+mod sessions;
+
 /// Complete validation remains mandatory for upgrades and backup acceptance.
 pub(in crate::store) async fn stored(db: &Connection) -> Result<(), Error> {
     validate(db, true).await
@@ -147,6 +151,7 @@ async fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
         })?;
     records::<role::Profile>(db, "roles.body", "SELECT body FROM roles").await?;
     records::<sailry_protocol::team::Profile>(db, "teams.body", "SELECT body FROM teams").await?;
+    associations(db).await?;
     if db.prepare("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_settings')").await?.query_row(()).await?.get::<bool>(0)? {
         crate::store::teams::settings::read(db)
             .await
@@ -454,6 +459,26 @@ async fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
         ).await?;
     }
     super::counters::validate(db).await?;
+    Ok(())
+}
+
+async fn associations(db: &Connection) -> Result<(), Error> {
+    let invalid = || Error::Worker("incompatible stored session association".into());
+    let mut rows = db
+        .query(
+            "SELECT namespace,kind,identity FROM session_associations",
+            (),
+        )
+        .await?;
+    while let Some(row) = rows.next().await? {
+        sailry_protocol::conversation::Association {
+            namespace: row.get(0).map_err(|_| invalid())?,
+            kind: row.get(1).map_err(|_| invalid())?,
+            id: row.get(2).map_err(|_| invalid())?,
+        }
+        .validate()
+        .map_err(|_| invalid())?;
+    }
     Ok(())
 }
 

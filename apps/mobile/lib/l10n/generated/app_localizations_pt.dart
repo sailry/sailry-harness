@@ -1777,6 +1777,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get team => 'Equipe';
 
   @override
+  String get executionModel => 'Apenas modelo';
+
+  @override
   String get teamDefault => 'Equipe padrão';
 
   @override

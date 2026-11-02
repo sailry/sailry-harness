@@ -88,10 +88,12 @@ async fn configure(fixture: &mut Fixture) -> Vec<role::Profile> {
     };
     let Output::Session(session) = execute(
         &fixture.client,
-        Command::SetSessionTeam {
+        Command::SetSessionExecution {
+            execution: sailry_protocol::conversation::Execution::Team,
+            models: Default::default(),
             session: session.id,
             expected_revision: session.revision,
-            team: Some(team.reference()),
+            team: Some(team.reference().into()),
         },
     )
     .await

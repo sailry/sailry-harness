@@ -89,6 +89,8 @@ async fn refreshes_only_pristine_explore_instructions() {
             if customized {
                 previous.name = "Custom explorer".into();
                 previous.revision += 1;
+            } else {
+                previous.appearance = None;
             }
             node.shutdown().await.unwrap();
             let path = directory.path().join("node/storage/node.turso");

@@ -716,6 +716,7 @@
   "about": "О Sailry",
   "modelPicker": "Выберите модель",
   "team": "Команда",
+  "executionModel": "Только модель",
   "teamDefault": "Команда по умолчанию",
   "teamLead": "Ведущий",
   "memberReset": "Сбросить модель",

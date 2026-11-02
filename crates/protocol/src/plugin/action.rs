@@ -50,6 +50,8 @@ pub enum Action {
     DelegateAgents,
     #[serde(rename = "roles.read")]
     ReadRoles,
+    #[serde(rename = "teams.read")]
+    ReadTeams,
     #[serde(rename = "roles.write")]
     WriteRoles,
     #[serde(rename = "models.read")]
@@ -167,6 +169,7 @@ impl Action {
             | Self::ReadDatabases
             | Self::ReadSsh
             | Self::ReadRoles
+            | Self::ReadTeams
             | Self::ReadModels
             | Self::RunDecisions
             | Self::InspectMedia
@@ -236,6 +239,7 @@ impl Action {
                 | Self::ReadDatabases
                 | Self::ReadSsh
                 | Self::ReadRoles
+                | Self::ReadTeams
                 | Self::ReadModels
                 | Self::RunDecisions
                 | Self::InspectMedia

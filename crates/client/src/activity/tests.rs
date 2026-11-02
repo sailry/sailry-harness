@@ -10,6 +10,7 @@ fn session(status: Option<Status>) -> Session {
         creation_order: 1,
         archived: false,
         activity: Default::default(),
+        association: None,
         project: None,
         worktree: WorktreeId::new(),
         revision: 1,

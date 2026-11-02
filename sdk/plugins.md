@@ -17,11 +17,45 @@ share the scoped request contract with bounded snapshot observations.
 | Coalesced invalidation | `nextChange(cursor?, scope?)` |
 | Model error handling | `errorCode(error.message)` |
 | Plugin storage | `getValue(key)`, `listKeys(prefix?, after?, limit?)`, `setValue(key, value, revision)`, `deleteValue(key, revision)` |
-| Captured session | `readSession()`, `readConversation(before?, limit?)`, `readConversationRuns(before?, limit?)`, `readConversationRun(turn, revision?)`, `nextConversation(cursor?, projection?)`, `sendMessage(input, revision)`, `stopTurn(turn)`, `setSessionConfig(config, revision)` |
+| Sessions | `startSession(draft)`, `listTeams()`, `listAssociatedSessions(association, before?, limit?)`, `readSession(session?)`, `setSessionExecution(selection, revision, session?)` |
+| Conversation | `readConversation(before?, limit?, session?)`, `readConversationRuns(before?, limit?, session?)`, `readConversationRun(turn, revision?, session?)`, `nextConversation(cursor?, projection?)`, `sendMessage(input, revision, session?)`, `stopTurn(turn)`, `setSessionConfig(config, revision, session?)` |
 | Node HTTP | `requestHttp(request)` |
 | Captured Git | `inspectGit()`, `prepareGitIndex(draft)`, `prepareGitCommit(draft)` |
 | Declarative UI | `publishContributions(states)`, `nextContributionEvent()`, `closeContribution(id)` |
 | Low-level context, resources and UI | Existing `sailry` exports: `context`, `theme`, `Header`, `Image`, `Conversation`, `header_action`, `next_change` |
+
+Desktop and headless callbacks share the same session admission and execution commands.
+`startSession({project, worktree, config, title, message, execution, team, models,
+association})` prepares one durable request: complete it with `completeRequest(id)`
+and retain that ID to recover an uncertain result. `sessions.start` permits creation;
+`teams.read` permits `listTeams()`. Null `config` uses the execution Node's defaults.
+
+`execution: "model"` runs the selected model without a delegation roster and rejects
+team/member overrides. `execution: "team"` captures a team and its roles; omitted
+execution retains the Default team behavior. A `team` selection is `{id, revision?}`.
+An omitted or null revision resolves the latest team on fresh admission; a decimal
+string pins an exact revision and rejects changes. Durable replay always returns
+the originally captured turn. `models` optionally maps role IDs to
+`{provider, model, effort}` overrides. `setSessionExecution(selection, revision,
+session?)` changes future turns through the same session revision fence; sent turns
+retain their immutable selection. Its v1 wire command keeps the existing
+`set_session_team` tag, extended with `execution` and `models`; omitted fields retain
+Team execution and an empty override map. Team revisions in catalogs, sessions and admitted
+turns cross JavaScript as decimal strings, including nested dispatch callbacks.
+
+An optional immutable `association: {kind, id}` records a plugin's business identity,
+for example `{kind: "schedule", id: scheduleId}`. The convenience methods stamp
+`namespace` with the package name and reject a different namespace. Core commands
+and dispatch callbacks require that exact namespace explicitly. Association metadata
+does not grant project or file access. `listAssociatedSessions({kind, id}, before?,
+limit?)` returns `{sessions, next_before}` with stable pagination and requires
+`conversation.read`. An unscoped non-tool plugin may read or control its own associated
+sessions with the corresponding `conversation.read`/`conversation.control` capabilities.
+An existing worktree scope must still match; a captured session cannot be retargeted.
+Pass an associated session ID as the final optional argument to read/send/configuration
+methods, or bind the existing `Conversation.new` component to it. `nextConversation`
+and `stopTurn` retain the captured view scope. Association lookup does not expose
+another package's sessions or unrelated conversation history.
 
 `nextConversation(cursor, 'runs')` observes connection, subscription generation and
 run status/error changes from the shared Client snapshot. Content deltas leave

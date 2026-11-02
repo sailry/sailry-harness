@@ -26,70 +26,85 @@ impl Host {
         let send = self.clone();
         let stop = self.clone();
         let configure = self.clone();
+        let execution = self.clone();
         let observe = self.clone();
         module
-            .async_function("readSession", move |_| {
-                session.read_public(Command::ReadSession {
-                    session: session.session()?,
-                })
+            .async_function("readSession", move |args| {
+                session.read_scoped(
+                    Command::ReadSession {
+                        session: session.target_session(args.get(0))?,
+                    },
+                    true,
+                )
             })
             .async_function("readConversation", move |args| {
-                history.read_public(Command::ReadConversation {
-                    session: history.session()?,
-                    before: args
-                        .get(0)
-                        .and_then(HostValue::as_str)
-                        .map(str::parse::<TurnId>)
-                        .transpose()
-                        .map_err(HostError::new)?,
-                    limit: args
-                        .get(1)
-                        .map(|_| args.integer(1))
-                        .transpose()?
-                        .unwrap_or(20)
-                        .try_into()
-                        .map_err(|_| HostError::new("invalid history page limit"))?,
-                })
+                history.read_scoped(
+                    Command::ReadConversation {
+                        session: history.target_session(args.get(2))?,
+                        before: args
+                            .get(0)
+                            .and_then(HostValue::as_str)
+                            .map(str::parse::<TurnId>)
+                            .transpose()
+                            .map_err(HostError::new)?,
+                        limit: args
+                            .get(1)
+                            .map(|_| args.integer(1))
+                            .transpose()?
+                            .unwrap_or(20)
+                            .try_into()
+                            .map_err(|_| HostError::new("invalid history page limit"))?,
+                    },
+                    true,
+                )
             })
             .async_function("readConversationRuns", move |args| {
-                runs.read_public(Command::ReadConversationRuns {
-                    session: runs.session()?,
-                    before: args
-                        .get(0)
-                        .and_then(HostValue::as_str)
-                        .map(str::parse::<TurnId>)
-                        .transpose()
-                        .map_err(HostError::new)?,
-                    limit: args
-                        .get(1)
-                        .map(|_| args.integer(1))
-                        .transpose()?
-                        .unwrap_or(100)
-                        .try_into()
-                        .map_err(|_| HostError::new("invalid run page limit"))?,
-                })
+                runs.read_scoped(
+                    Command::ReadConversationRuns {
+                        session: runs.target_session(args.get(2))?,
+                        before: args
+                            .get(0)
+                            .and_then(HostValue::as_str)
+                            .map(str::parse::<TurnId>)
+                            .transpose()
+                            .map_err(HostError::new)?,
+                        limit: args
+                            .get(1)
+                            .map(|_| args.integer(1))
+                            .transpose()?
+                            .unwrap_or(100)
+                            .try_into()
+                            .map_err(|_| HostError::new("invalid run page limit"))?,
+                    },
+                    true,
+                )
             })
             .async_function("readConversationRun", move |args| {
-                run.read_public(Command::ReadConversationRun {
-                    session: run.session()?,
-                    turn: args.string(0)?.parse().map_err(HostError::new)?,
-                    expected_revision: args
-                        .get(1)
-                        .filter(|value| !matches!(value, HostValue::Null))
-                        .map(|value| {
-                            value
-                                .as_str()
-                                .ok_or_else(|| HostError::new("revision must be a decimal string"))
-                                .and_then(revision)
-                        })
-                        .transpose()?,
-                })
+                run.read_scoped(
+                    Command::ReadConversationRun {
+                        session: run.target_session(args.get(2))?,
+                        turn: args.string(0)?.parse().map_err(HostError::new)?,
+                        expected_revision: args
+                            .get(1)
+                            .filter(|value| !matches!(value, HostValue::Null))
+                            .map(|value| {
+                                value
+                                    .as_str()
+                                    .ok_or_else(|| {
+                                        HostError::new("revision must be a decimal string")
+                                    })
+                                    .and_then(revision)
+                            })
+                            .transpose()?,
+                    },
+                    true,
+                )
             })
             .function("sendMessage", move |args| {
                 let message = serde_json::from_value(decode(args.value(0)?)?)
                     .map_err(|error| HostError::new(error.to_string()))?;
                 send.prepare_public(Command::QueueTurn {
-                    session: send.session()?,
+                    session: send.target_session(args.get(2))?,
                     expected_revision: revision(args.string(1)?)?,
                     message,
                 })
@@ -104,10 +119,32 @@ impl Host {
                 let config = serde_json::from_value(decode(args.value(0)?)?)
                     .map_err(|error| HostError::new(error.to_string()))?;
                 configure.prepare_public(Command::SetSessionConfig {
-                    session: configure.session()?,
+                    session: configure.target_session(args.get(2))?,
                     expected_revision: revision(args.string(1)?)?,
                     config,
                 })
+            })
+            .function("setSessionExecution", move |args| {
+                let mut selection = decode(args.value(0)?)?;
+                let object = selection
+                    .as_object_mut()
+                    .ok_or_else(|| HostError::new("invalid execution selection"))?;
+                if object
+                    .keys()
+                    .any(|key| !matches!(key.as_str(), "execution" | "team" | "models"))
+                {
+                    return Err(HostError::new("invalid execution selection"));
+                }
+                object.entry("team").or_insert(Value::Null);
+                object.entry("models").or_insert(json!({}));
+                object.insert(
+                    "session".into(),
+                    json!(execution.target_session(args.get(2))?),
+                );
+                object.insert("expected_revision".into(), json!(args.string(1)?));
+                execution.prepare_public(values::command(
+                    json!({"kind":"set_session_team","data":selection}),
+                )?)
             })
             .async_function("nextConversation", move |args| {
                 let projection = match args.get(1) {
@@ -127,6 +164,18 @@ impl Host {
         self.context
             .session
             .ok_or_else(|| HostError::new("plugin has no session scope"))
+    }
+
+    fn target_session(&self, value: Option<&HostValue>) -> Result<SessionId, HostError> {
+        self.check()?;
+        match value {
+            None | Some(HostValue::Null) => self.session(),
+            Some(value) => value
+                .as_str()
+                .ok_or_else(|| HostError::new("invalid session ID"))?
+                .parse()
+                .map_err(HostError::new),
+        }
     }
 
     fn next_conversation(

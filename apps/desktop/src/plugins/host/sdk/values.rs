@@ -59,6 +59,8 @@ pub(in crate::plugins::host) fn revision(value: &str) -> Result<u64, HostError> 
 pub(in crate::plugins::host) fn command(
     mut value: Value,
 ) -> Result<sailry_protocol::Command, HostError> {
+    sailry_protocol::plugin::conversation::sdk::command(&mut value)
+        .map_err(|error| HostError::new(error.message))?;
     if let Some(revision) = value.pointer_mut("/data/package/settings_revision") {
         let exact = if let Some(text) = revision.as_str() {
             self::revision(text)?

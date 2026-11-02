@@ -1745,6 +1745,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get team => '팀';
 
   @override
+  String get executionModel => '단일 모델';
+
+  @override
   String get teamDefault => '기본 팀';
 
   @override

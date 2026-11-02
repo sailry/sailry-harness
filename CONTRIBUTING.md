@@ -493,7 +493,14 @@ sailry wait --session "$SESSION_ID" --turn "$TURN_ID"
 
 Submission uses the Node's current defaults for a new session. An optional
 `--config` JSON file supplies a complete session configuration for a new task;
-existing sessions retain theirs. Without `--expected-revision`, the Node captures
+existing sessions retain theirs. New tasks can select `--execution model` for direct
+model execution or `--execution team --team "$TEAM_ID"` for a team. Omitting execution
+retains Default team behavior. `--team-revision` pins the exact team revision;
+without it, fresh admission resolves the current team while replay retains the original
+capture. An optional `--association` JSON file contains `{ "namespace": "automation",
+"kind": "job", "id": "daily-review" }` for later lookup through the shared session
+protocol. Execution, team, association and configuration options require `--worktree`.
+Model execution cannot select a team. Without `--expected-revision`, the Node captures
 the session's current configuration on first admission; the same request ID and
 input recover that turn even if the session configuration later changes. An
 explicit revision must match for a new admission. `--no-wait` returns after durable

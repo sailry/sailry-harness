@@ -101,6 +101,7 @@ pub(super) async fn capture(
     Ok((
         Session {
             id: SessionId::new(),
+            association: None,
             creation_order: 0,
             archived: false,
             activity: Default::default(),

@@ -18,7 +18,9 @@ const UUID: &str = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 /// Children and resource-bound conversations cannot create or control other agents.
 pub(in crate::agent) fn available(invocation: &Invocation) -> bool {
-    invocation.child.is_none() && invocation.connections.bound.is_none()
+    invocation.child.is_none()
+        && invocation.connections.bound.is_none()
+        && invocation.turn.roles.execution == sailry_protocol::conversation::Execution::Team
 }
 
 pub(in crate::agent) fn bind(

@@ -220,7 +220,7 @@ mod teams {
     #[test]
     fn applies_a_team_or_the_default() {
         let id = TeamId::new();
-        let Command::SetSessionTeam {
+        let Command::SetSessionExecution {
             expected_revision: 5,
             team: Some(selected),
             ..
@@ -234,7 +234,13 @@ mod teams {
         else {
             panic!("team application expected")
         };
-        assert_eq!(selected, team::Reference { id, revision: 2 });
+        assert_eq!(
+            selected,
+            team::Selection {
+                id,
+                revision: Some(2)
+            }
+        );
         assert!(matches!(
             command(
                 Tool::ApplyTeam,
@@ -243,7 +249,7 @@ mod teams {
                 None
             )
             .unwrap(),
-            Command::SetSessionTeam { team: None, .. }
+            Command::SetSessionExecution { team: None, .. }
         ));
         assert_eq!(
             invalid(

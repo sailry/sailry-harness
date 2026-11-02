@@ -1,3 +1,4 @@
+composer_execution_model: "Только модель"
 composer_team_lead: "Ведущий"
 composer_team_default: "Команда по умолчанию"
 composer_team_manage: "Управление командами"

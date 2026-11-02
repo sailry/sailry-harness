@@ -71,6 +71,16 @@ pub(super) fn execute<'a>(
         Command::StartSession(draft) => defer(move || async move {
             super::sessions::start(db, node, caller, profile, request, draft).await
         }),
+        Command::ListAssociatedSessions {
+            association,
+            before,
+            limit,
+        } => defer(move || async move {
+            let page =
+                super::sessions::associations::list(db, request, association, *before, *limit)
+                    .await?;
+            Ok((Output::AssociatedSessions(page), None))
+        }),
         Command::ReadProjectCatalog => defer(move || async move {
             let projects = super::projects::list(db).await?;
             let worktrees = super::worktrees::list(db)
@@ -1328,16 +1338,35 @@ pub(super) fn execute<'a>(
             session.roles = super::sessions::roles::select(db, node, roles, session.roles).await?;
             revise_session(db, session).await
         }),
-        Command::SetSessionTeam {
+        Command::SetSessionExecution {
             session: id,
             expected_revision,
+            execution,
             team,
+            models,
         } => defer(move || async move {
             let mut session = session(db, *id).await?;
             super::sessions::writable(&session)?;
             check_revision(session.revision, *expected_revision)?;
-            session.roles =
-                super::sessions::roles::team(db, node, team.as_ref(), Default::default()).await?;
+            session.roles = super::sessions::roles::execution(
+                db,
+                node,
+                *execution,
+                team.as_ref(),
+                models.clone(),
+            )
+            .await?;
+            if *execution == conversation::Execution::Team
+                && super::sessions::execution::configure(
+                    db,
+                    node,
+                    &mut session.config,
+                    team.as_ref(),
+                )
+                .await?
+            {
+                session.profile = None;
+            }
             revise_session(db, session).await
         }),
         Command::SetSessionMemberModel {
@@ -1587,6 +1616,7 @@ pub(super) async fn session(db: &Connection, id: SessionId) -> Result<Session, F
         row.ok_or_else(|| Fault::new(ErrorCode::NotFound, "session does not exist on this Node"))?;
     Ok(Session {
         id,
+        association: super::sessions::associations::read(db, id).await?,
         creation_order: creation_order.try_into().map_err(storage_error)?,
         archived,
         activity: super::agent::activity::read(db, id).await?,

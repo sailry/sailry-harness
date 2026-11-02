@@ -1780,6 +1780,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get team => 'Equipo';
 
   @override
+  String get executionModel => 'Solo modelo';
+
+  @override
   String get teamDefault => 'Equipo predeterminado';
 
   @override

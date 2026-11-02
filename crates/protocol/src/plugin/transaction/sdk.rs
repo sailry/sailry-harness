@@ -9,6 +9,9 @@ pub fn decode(mut value: Value) -> Result<Vec<Operation>, Fault> {
         return Err(invalid());
     }
     for operation in operations {
+        if operation["kind"] == "dispatch" {
+            crate::plugin::conversation::sdk::handler(&mut operation["data"])?;
+        }
         let pointer = match operation["kind"].as_str() {
             Some(
                 "write"
@@ -108,7 +111,33 @@ pub fn output(output: Output) -> Value {
         Output::PluginConversationValue(entry) => {
             value["data"]["revision"] = json!(entry.revision.to_string())
         }
-        Output::Session(session) => value["data"]["revision"] = json!(session.revision.to_string()),
+        Output::Session(session) => session_revisions(&mut value["data"], &session),
+        Output::AssociatedSessions(page) => {
+            for (value, session) in value["data"]["sessions"]
+                .as_array_mut()
+                .expect("typed sessions")
+                .iter_mut()
+                .zip(page.sessions)
+            {
+                session_revisions(value, &session);
+            }
+        }
+        Output::Teams(teams) => {
+            for (value, team) in value["data"]
+                .as_array_mut()
+                .expect("typed teams")
+                .iter_mut()
+                .zip(teams)
+            {
+                value["revision"] = json!(team.revision.to_string());
+            }
+        }
+        Output::Team(team) => value["data"]["revision"] = json!(team.revision.to_string()),
+        Output::QueuedTurn(turn) => {
+            if let Some(team) = turn.roles.team {
+                value["data"]["roles"]["team"]["revision"] = json!(team.revision.to_string());
+            }
+        }
         Output::Conversation(history) => {
             value["data"]["page"]["queue"]["revision"] =
                 json!(history.page.queue.revision.to_string());
@@ -147,18 +176,53 @@ pub fn output(output: Output) -> Value {
                 value["revision"] = json!(collection.revision.to_string());
             }
         }
-        Output::Dispatch(dispatch::Output::Handler(_) | dispatch::Output::Schedule(_)) => {
-            let record = &mut value["data"]["data"];
-            record["revision"] = json!(
-                record["revision"]
-                    .as_u64()
-                    .expect("typed revision")
-                    .to_string()
-            );
+        Output::Dispatch(dispatch) => {
+            if matches!(
+                dispatch,
+                dispatch::Output::Handler(_) | dispatch::Output::Schedule(_)
+            ) {
+                let record = &mut value["data"]["data"];
+                record["revision"] = json!(
+                    record["revision"]
+                        .as_u64()
+                        .expect("typed revision")
+                        .to_string()
+                );
+            }
+            callback_revisions(&mut value["data"]);
         }
         _ => {}
     }
     value
+}
+
+/// Adapt nested team selections without changing the dispatch record's revision shape.
+pub fn callback_revisions(value: &mut Value) {
+    match value["kind"].as_str() {
+        Some("handler") => callback_revision(&mut value["data"]),
+        Some("handlers") => {
+            for record in value["data"].as_array_mut().expect("typed handlers") {
+                callback_revision(record);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn callback_revision(value: &mut Value) {
+    if let Some(revision) = value
+        .pointer_mut("/callback/command/data/team/revision")
+        .filter(|value| !value.is_null())
+    {
+        *revision = json!(revision.as_u64().expect("typed team revision").to_string());
+    }
+}
+
+fn session_revisions(value: &mut Value, session: &crate::Session) {
+    value["revision"] = json!(session.revision.to_string());
+    if let Some(team) = session.roles.team {
+        value["roles"]["team"]["revision"] = json!(team.revision.to_string());
+    }
 }
 
 fn invalid() -> Fault {
@@ -168,6 +232,106 @@ fn invalid() -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_team_revisions() {
+        let revision = 9_007_199_254_740_993_u64;
+        let handler = json!({
+            "name":"run","revision":"0","enabled":true,"source":{"package":"fixture","topic":"tick"},"queue":"tasks",
+            "callback":{"scope":{"worktree":null,"session":null},"completion":"turn","bindings":{},
+                "command":{"kind":"start_session","data":{"project":null,"worktree":null,"config":null,"title":"Task", "message":{"text":"Run","attachments":[]},
+                    "execution":"team","team":{"id":crate::TeamId::new(),"revision":revision.to_string()}}}}
+        });
+        let operations =
+            decode(json!([{"kind":"dispatch","data":{"kind":"save_handler","data":handler}}]))
+                .unwrap();
+        let Operation::Dispatch(dispatch::Command::SaveHandler(handler)) = &operations[0] else {
+            panic!("handler expected")
+        };
+        let Command::StartSession(start) = &*handler.callback.command else {
+            panic!("start expected")
+        };
+        assert_eq!(start.team.unwrap().revision, Some(revision));
+        for result in [
+            dispatch::Output::Handler(handler.clone()),
+            dispatch::Output::Handlers(vec![handler.clone()]),
+        ] {
+            let value = output(Output::Dispatch(result));
+            let record = if value["data"]["kind"] == "handlers" {
+                assert_eq!(value["data"]["data"][0]["revision"], 0);
+                &value["data"]["data"][0]
+            } else {
+                assert_eq!(value["data"]["data"]["revision"], "0");
+                &value["data"]["data"]
+            };
+            assert_eq!(
+                record["callback"]["command"]["data"]["team"]["revision"],
+                revision.to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn session_team_revisions() {
+        use crate::*;
+        let revision = 9_007_199_254_740_993_u64;
+        let team = team::Profile {
+            id: TeamId::new(),
+            revision,
+            key: "fixture".into(),
+            name: "Fixture".into(),
+            appearance: None,
+            description: String::new(),
+            model: None,
+            instructions: String::new(),
+            members: vec![],
+        };
+        let session = Session {
+            id: SessionId::new(),
+            association: None,
+            creation_order: 1,
+            archived: false,
+            activity: Default::default(),
+            project: None,
+            worktree: WorktreeId::new(),
+            revision,
+            config: SessionConfig {
+                features: Default::default(),
+                assistant: None,
+                resource: None,
+                provider: ProviderId::new(),
+                model: "fixture".into(),
+                effort: Effort::Default,
+                mode: WorkMode::Code,
+                options: Default::default(),
+                permission: Permission::Ask,
+                credential: None,
+            },
+            roles: role::Snapshot {
+                team: Some(team.reference()),
+                ..Default::default()
+            },
+            profile: None,
+            fork: None,
+            delegation: None,
+        };
+        let single = output(Output::Session(session.clone()));
+        assert_eq!(single["data"]["revision"], revision.to_string());
+        assert_eq!(
+            single["data"]["roles"]["team"]["revision"],
+            revision.to_string()
+        );
+        let page = output(Output::AssociatedSessions(
+            conversation::AssociatedSessions {
+                sessions: vec![session],
+                next_before: None,
+            },
+        ));
+        assert_eq!(page["data"]["sessions"][0], single["data"]);
+        let catalog = output(Output::Teams(vec![team.clone()]));
+        assert_eq!(catalog["data"][0]["revision"], revision.to_string());
+        assert_eq!(output(Output::Team(team))["data"], catalog["data"][0]);
+    }
 
     #[test]
     fn installations_keep_exact_revisions() {

@@ -10,6 +10,7 @@ fn session(archived: bool) -> Session {
         creation_order: 0,
         archived,
         activity: Default::default(),
+        association: None,
         project: None,
         worktree: WorktreeId::new(),
         revision: 7,

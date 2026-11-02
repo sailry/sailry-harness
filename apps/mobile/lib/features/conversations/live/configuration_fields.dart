@@ -182,8 +182,8 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
         builder: (context, _) => TeamList(
           state: team.read(),
           onBack: () => setState(() => _choosingTeam = false),
-          onSelected: (selected) async {
-            await team.onTeam(selected);
+          onSelected: (execution, selected) async {
+            await team.onTeam(execution, selected);
             if (mounted) setState(() => _choosingTeam = false);
           },
         ),

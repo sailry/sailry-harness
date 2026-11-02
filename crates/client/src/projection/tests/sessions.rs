@@ -7,6 +7,7 @@ fn session() -> Session {
         creation_order: 1,
         archived: false,
         activity: Default::default(),
+        association: None,
         project: Some(ProjectId::new()),
         worktree: WorktreeId::new(),
         revision: 1,

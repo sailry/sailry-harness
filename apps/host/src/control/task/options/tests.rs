@@ -75,6 +75,10 @@ fn rejects_conflicting_or_repeated_options() {
         vec!["--stdin".into()],
         vec!["--config".into(), "/does/not/exist".into()],
         vec!["--title".into(), "New title".into()],
+        vec!["--execution".into(), "model".into()],
+        vec!["--team".into(), TeamId::new().to_string()],
+        vec!["--team-revision".into(), "1".into()],
+        vec!["--association".into(), "/does/not/exist".into()],
         vec!["--timeout".into(), "0".into()],
         vec!["--timeout".into(), "86401".into()],
         vec!["--data-dir".into(), "relative".into()],
@@ -167,4 +171,112 @@ fn loads_only_explicit_new_task_configuration() {
     };
     assert_eq!(*selected, config);
     assert_eq!(title, "First line");
+}
+
+#[test]
+fn selects_execution_and_association() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("association.json");
+    let association = conversation::Association {
+        namespace: "automation".into(),
+        kind: "job".into(),
+        id: "daily".into(),
+    };
+    std::fs::write(&path, serde_json::to_vec(&association).unwrap()).unwrap();
+    let team = TeamId::new();
+    let base = vec![
+        "submit".into(),
+        "--worktree".into(),
+        WorktreeId::new().to_string(),
+        "--prompt".into(),
+        "Run".into(),
+    ];
+    for (choice, selected) in [("model", None), ("team", Some(team))] {
+        let mut arguments = base.clone();
+        arguments.extend([
+            "--execution".into(),
+            choice.into(),
+            "--association".into(),
+            path.to_str().unwrap().into(),
+        ]);
+        if let Some(team) = selected {
+            arguments.extend([
+                "--team".into(),
+                team.to_string(),
+                "--team-revision".into(),
+                "9007199254740993".into(),
+            ]);
+        }
+        let Task::Submit {
+            target:
+                Target::Worktree {
+                    execution,
+                    team,
+                    association: actual,
+                    ..
+                },
+            ..
+        } = parse_args(&arguments).unwrap().unwrap().task
+        else {
+            panic!("worktree task expected")
+        };
+        assert_eq!(
+            execution,
+            if selected.is_some() {
+                conversation::Execution::Team
+            } else {
+                conversation::Execution::Model
+            }
+        );
+        assert_eq!(
+            team,
+            selected.map(|id| team::Selection {
+                id,
+                revision: Some(9_007_199_254_740_993)
+            })
+        );
+        assert_eq!(actual, Some(association.clone()));
+    }
+    let mut latest = base.clone();
+    latest.extend(["--team".into(), team.to_string()]);
+    let Task::Submit {
+        target:
+            Target::Worktree {
+                execution,
+                team: Some(selection),
+                ..
+            },
+        ..
+    } = parse_args(&latest).unwrap().unwrap().task
+    else {
+        panic!("team selection expected")
+    };
+    assert_eq!(execution, conversation::Execution::Team);
+    assert_eq!(selection.revision, None);
+    for extra in [
+        vec!["--team-revision".into(), "1".into()],
+        vec![
+            "--execution".into(),
+            "model".into(),
+            "--team".into(),
+            team.to_string(),
+        ],
+        vec!["--execution".into(), "unknown".into()],
+        vec![
+            "--execution".into(),
+            "model".into(),
+            "--execution".into(),
+            "team".into(),
+        ],
+        vec![
+            "--team".into(),
+            team.to_string(),
+            "--team-revision".into(),
+            "01".into(),
+        ],
+    ] {
+        let mut arguments = base.clone();
+        arguments.extend(extra);
+        assert!(parse_args(&arguments).is_err(), "{arguments:?}");
+    }
 }

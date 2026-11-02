@@ -3498,6 +3498,12 @@ abstract class AppLocalizations {
   /// **'Team'**
   String get team;
 
+  /// No description provided for @executionModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Model only'**
+  String get executionModel;
+
   /// No description provided for @teamDefault.
   ///
   /// In en, this message translates to:

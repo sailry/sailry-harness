@@ -13,9 +13,11 @@ pub struct Reference {
 /// Immutable definitions and fixed-model providers owned by a session revision.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
+    #[serde(default)]
+    pub execution: crate::conversation::Execution,
     pub profiles: Vec<Profile>,
     pub providers: Vec<crate::conversation::Provider>,
-    /// The selected team revision; None is the Default team with the whole catalog.
+    /// The selected team revision; Team execution with None uses the Default roster.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<crate::team::Reference>,
     /// Frozen lead instructions from the selected team; empty adds nothing.
@@ -33,6 +35,17 @@ impl Snapshot {
     }
 
     pub fn validate(&self) -> Result<(), Fault> {
+        if self.execution == crate::conversation::Execution::Model
+            && (!self.profiles.is_empty()
+                || !self.providers.is_empty()
+                || self.team.is_some()
+                || !self.instructions.is_empty()
+                || !self.models.is_empty())
+        {
+            return Err(Fault::invalid(
+                "model execution cannot include a delegation roster",
+            ));
+        }
         use std::collections::BTreeSet;
         let mut ids = BTreeSet::new();
         let mut keys = BTreeSet::new();

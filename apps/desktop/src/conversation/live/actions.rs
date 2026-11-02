@@ -9,8 +9,7 @@ pub(super) enum Action {
     Document(tokio::sync::watch::Sender<Option<bool>>),
     Resend(TurnId),
     Configure,
-    /// The team changed; a team with a fixed lead model then switches the lead.
-    Team(Option<sailry_protocol::role::Model>),
+    Team,
     Member,
     /// Brings a new session to its draft team before the first turn.
     Roster(Input, Vec<super::model_controls::team::Step>),
@@ -490,8 +489,6 @@ impl View {
                             view.start_turn(&session, message, steps, window, cx);
                         } else if let Action::Roster(message, steps) = action {
                             view.start_turn(&current, message, steps, window, cx);
-                        } else if let Action::Team(Some(model)) = &action {
-                            view.apply_lead(model, window, cx);
                         }
                     }
                     Ok(Ok(Output::QueuedTurn(turn))) => {

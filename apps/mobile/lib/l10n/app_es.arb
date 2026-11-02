@@ -716,6 +716,7 @@
   "about": "Acerca de Sailry",
   "modelPicker": "Elige el modelo",
   "team": "Equipo",
+  "executionModel": "Solo modelo",
   "teamDefault": "Equipo predeterminado",
   "teamLead": "Líder",
   "memberReset": "Restablecer modelo",

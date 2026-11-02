@@ -26,6 +26,7 @@ pub(super) fn label(action: &Action) -> &'static str {
         Action::ManageSsh => "market_permission_ssh_manage",
         Action::DelegateAgents => "market_permission_agents_delegate",
         Action::ReadRoles => "market_permission_roles_read",
+        Action::ReadTeams => "market_permission_teams_read",
         Action::WriteRoles => "market_permission_roles_write",
         Action::ReadModels => "market_permission_models_read",
         Action::RunDecisions => "market_permission_decisions_run",
@@ -84,7 +85,7 @@ fn icon(action: &Action) -> IconName {
     match name.split('.').next().unwrap_or_default() {
         "files" | "artifacts" => IconName::File,
         "storage" | "databases" | "knowledge" => IconName::Database,
-        "agents" | "roles" | "sessions" | "conversation" => IconName::Users,
+        "agents" | "roles" | "teams" | "sessions" | "conversation" => IconName::Users,
         "process" | "terminals" | "ssh" => IconName::SquareTerminal,
         "git" | "code" | "models" => IconName::Code,
         "worktrees" | "projects" => IconName::Folder,

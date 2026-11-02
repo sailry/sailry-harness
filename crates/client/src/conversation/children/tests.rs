@@ -121,6 +121,7 @@ fn snapshot(child: &Child, project: Option<ProjectId>) -> Snapshot {
         creation_order: 0,
         archived: false,
         activity: Default::default(),
+        association: None,
         project,
         worktree: WorktreeId::new(),
         revision: 1,

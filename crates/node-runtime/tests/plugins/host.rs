@@ -9,6 +9,8 @@ use serde_json::json;
 mod deadlines;
 #[path = "host/reads.rs"]
 mod reads;
+#[path = "host/sessions.rs"]
+mod sessions;
 #[path = "host/versions.rs"]
 mod versions;
 

@@ -16,15 +16,39 @@ const scope = call("context", null);
 export function modelCall(operation, value) { return call(operation, value); }
 export function context() { return JSON.parse(JSON.stringify(scope)); }
 export async function readProjectCatalog() { return read("read_project_catalog"); }
-export async function readSession() { return read("read_session", {session:scope.session}); }
-export async function readConversation(before=null, limit=20) { return read("read_conversation", {session:scope.session,before,limit}); }
-export async function readConversationRuns(before=null,limit=100) { return read("read_conversation_runs", {session:scope.session,before,limit}); }
-export async function readConversationRun(turn,revision=null) { return read("read_conversation_run", {session:scope.session,turn,expected_revision:revision}); }
+export async function listTeams() { return read("list_teams"); }
+export async function listAssociatedSessions(association, before=null, limit=32) {
+  return read("list_associated_sessions", {association:ownedAssociation(association),before,limit});
+}
+export async function readSession(session=scope.session) { return read("read_session", {session:session ?? scope.session}); }
+export async function readConversation(before=null, limit=20, session=scope.session) { return read("read_conversation", {session:session ?? scope.session,before,limit}); }
+export async function readConversationRuns(before=null,limit=100,session=scope.session) { return read("read_conversation_runs", {session:session ?? scope.session,before,limit}); }
+export async function readConversationRun(turn,revision=null,session=scope.session) { return read("read_conversation_run", {session:session ?? scope.session,turn,expected_revision:revision}); }
 export async function readTurn(turn,before=null,limit=100) {
   const history=await readConversation(null,1);
   return read("read_turn", {session:scope.session,turn,expected_revision:history.page.revision,before,limit});
 }
-export function startSession(draft) { return prepareRequest({kind:"start_session", data:draft}); }
+function ownedAssociation(association) {
+  if (!association || typeof association !== "object" || Array.isArray(association)) throw new Error("invalid session association");
+  if (association.namespace !== undefined && association.namespace !== scope.package.name) throw Object.assign(new Error("session association belongs to another plugin"), {code:"permission_denied"});
+  return {...association,namespace:scope.package.name};
+}
+export function startSession(draft) {
+  const data = {...draft};
+  if (data.association != null) data.association = ownedAssociation(data.association);
+  return prepareRequest({kind:"start_session", data});
+}
+export function setSessionExecution(selection, revision, session=scope.session) {
+  if (!selection || typeof selection !== "object" || Array.isArray(selection)
+      || Object.keys(selection).some(key => !["execution","team","models"].includes(key))) throw new Error("invalid execution selection");
+  return prepareRequest({kind:"set_session_team",data:{team:null,models:{},...selection,session:session ?? scope.session,expected_revision:revision}});
+}
+export function setSessionConfig(config, revision, session=scope.session) {
+  return prepareRequest({kind:"set_session_config",data:{config,session:session ?? scope.session,expected_revision:revision}});
+}
+export function sendMessage(message, revision, session=scope.session) {
+  return prepareRequest({kind:"queue_turn",data:{message,session:session ?? scope.session,expected_revision:revision}});
+}
 export function prepareRequest(command) { return call("prepare", command); }
 export function prepareTransaction(operations) {
   return prepareRequest({kind: "plugin_transaction", data: {operations}});

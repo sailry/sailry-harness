@@ -141,6 +141,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             .map_err(|_| Fault::invalid("invalid model registration"))?;
                     value = json!(registration.node_command()?);
                 }
+                plugin::conversation::sdk::command(&mut value)?;
                 let revision_path = if matches!(
                     value["kind"].as_str(),
                     Some("request_provider_http" | "execute_provider_http")
@@ -176,6 +177,9 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             | "remove_plugin_conversation_value"
                             | "read_conversation_run"
                             | "submit_turn"
+                            | "queue_turn"
+                            | "set_session_config"
+                            | "set_session_team"
                             | "continue_turn"
                             | "rebuild_knowledge_collection"
                             | "delete_knowledge_collection"
@@ -186,8 +190,13 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     .filter(|value| !value.is_null())
                 {
                     let parsed = if let Some(text) = revision.as_str() {
-                        text.parse::<u64>()
-                            .map_err(|_| sailry_protocol::Fault::invalid("invalid revision"))?
+                        let parsed = text
+                            .parse::<u64>()
+                            .map_err(|_| sailry_protocol::Fault::invalid("invalid revision"))?;
+                        if parsed.to_string() != text {
+                            return Err(sailry_protocol::Fault::invalid("invalid revision"));
+                        }
+                        parsed
                     } else {
                         revision
                             .as_u64()
@@ -411,6 +420,8 @@ fn allowed(command: &Command) -> bool {
             | Command::ExecuteProviderHttp { .. }
             | Command::PluginTransaction { .. }
             | Command::ListRoles
+            | Command::ListTeams
+            | Command::ListAssociatedSessions { .. }
             | Command::ReadArtifact { .. }
             | Command::ListArtifacts { .. }
             | Command::ListArtifactRevisions { .. }
@@ -421,6 +432,9 @@ fn allowed(command: &Command) -> bool {
             | Command::ReadTurnCapture { .. }
             | Command::ReadTurn { .. }
             | Command::SubmitTurn { .. }
+            | Command::QueueTurn { .. }
+            | Command::SetSessionConfig { .. }
+            | Command::SetSessionExecution { .. }
             | Command::ContinueTurn { .. }
             | Command::StopTurn { .. }
             | Command::StartSession(_)

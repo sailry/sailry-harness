@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS session_attention (
     revision INTEGER NOT NULL,
     unread INTEGER NOT NULL CHECK(unread IN (0,1))
 );
+CREATE TABLE IF NOT EXISTS session_associations (
+    session TEXT PRIMARY KEY REFERENCES sessions(id),
+    namespace TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    identity TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS session_association_identity ON session_associations(namespace,kind,identity);
 CREATE TABLE IF NOT EXISTS artifacts (
     id TEXT PRIMARY KEY,
     session TEXT NOT NULL REFERENCES sessions(id),

@@ -16,9 +16,12 @@ class SessionTeam {
 
   Map<String, dynamic> get _roles => object(session['roles']);
 
+  String get execution => text(_roles['execution'], 'team');
+
   /// The selected stored team, or null for the Default team. A team removed
   /// from the catalog keeps only its identity.
   Map<String, dynamic>? get team {
+    if (execution == 'model') return null;
     final reference = _roles['team'];
     if (reference is! Map) return null;
     final id = reference['id'];
@@ -26,7 +29,8 @@ class SessionTeam {
   }
 
   /// Captured roles in roster order.
-  List<Map<String, dynamic>> get members => objects(_roles['profiles']);
+  List<Map<String, dynamic>> get members =>
+      execution == 'model' ? const [] : objects(_roles['profiles']);
 
   Map<String, dynamic> get _overrides => object(_roles['models']);
 
@@ -64,25 +68,29 @@ class TeamChoices {
   final Listenable listenable;
   final SessionTeam Function() read;
 
-  /// Selects a stored team, or the Default team for null.
-  final Future<void> Function(Map<String, dynamic>? team) onTeam;
+  /// Selects model execution or a team; a null team is the Default team.
+  final Future<void> Function(String execution, Map<String, dynamic>? team)
+  onTeam;
 
   /// Sets one member's model, or clears its override for null.
   final Future<void> Function(String role, Map<String, dynamic>? model)
   onMember;
 }
 
-/// `set_session_team` data; a null team selects the Default team.
+/// `set_session_team` data; model execution clears the team and overrides.
 Map<String, dynamic> selectCommand(
   String session,
   int revision,
+  String execution,
   Map<String, dynamic>? team,
 ) => {
   'session': session,
   'expected_revision': revision,
-  'team': team == null
+  'execution': execution,
+  'team': execution == 'model' || team == null
       ? null
       : {'id': team['id'], 'revision': team['revision']},
+  'models': <String, dynamic>{},
 };
 
 /// `set_session_member_model` data; a null model clears the override.
@@ -103,34 +111,6 @@ Map<String, dynamic> memberCommand(
           'effort': model['effort'],
         },
 };
-
-/// The lead configuration a team fixes, or null when it keeps the current one.
-Map<String, dynamic>? leadConfig(
-  Map<String, dynamic> config,
-  Map<String, dynamic> team,
-  List<Map<String, dynamic>> providers,
-) {
-  final model = team['model'];
-  if (model is! Map) return null;
-  final provider = providers
-      .where((item) => item['id'] == model['provider'])
-      .firstOrNull;
-  final definition = objects(
-    provider?['models'],
-  ).where((item) => item['id'] == model['model']).firstOrNull;
-  final next = {
-    ...config,
-    'provider': model['provider'],
-    'credential': provider?['credential'],
-    'model': model['model'],
-    'effort': model['effort'] ?? definition?['default_effort'] ?? 'default',
-  };
-  final unchanged =
-      next['provider'] == config['provider'] &&
-      next['model'] == config['model'] &&
-      next['effort'] == config['effort'];
-  return unchanged ? null : next;
-}
 
 /// The model chip shows a non-default team's name instead of the lead model.
 String chipLabel(

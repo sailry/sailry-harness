@@ -4,7 +4,7 @@ use super::*;
 use gpui_kit::component::{
     avatar::Avatar, badge::Badge, scroll::ScrollableElement as _, separator::Separator,
 };
-use sailry_protocol::{RoleId, TeamId, projects::Appearance, role, team};
+use sailry_protocol::{RoleId, TeamId, conversation::Execution, projects::Appearance, role, team};
 
 /// Height of the team row, including the gap above the effort controls.
 pub(super) const ROW_HEIGHT: f32 = 40.;
@@ -44,6 +44,7 @@ pub(in crate::conversation::live) struct Member {
 /// The conversation's team as the popover shows it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(in crate::conversation::live) struct Roster {
+    pub execution: Execution,
     /// The selected stored team; None is the Default team.
     pub team: Option<Team>,
     pub members: Vec<Member>,
@@ -93,13 +94,19 @@ impl Roster {
         self.members.iter().any(|member| member.role == role)
     }
 
-    fn selected(&self, team: Option<TeamId>) -> bool {
-        self.team.as_ref().map(|team| team.reference.id) == team
+    pub(super) fn selected(&self, execution: Execution, team: Option<TeamId>) -> bool {
+        self.execution == execution && self.team.as_ref().map(|team| team.reference.id) == team
     }
 
     /// Explicit selection recaptures changed catalog members, even when the team
     /// revision is unchanged. Unchanged selection keeps conversation overrides.
-    pub(super) fn changes(&self, team: Option<&Team>) -> bool {
+    pub(super) fn changes(&self, execution: Execution, team: Option<&Team>) -> bool {
+        if self.execution != execution {
+            return true;
+        }
+        if execution == Execution::Model {
+            return false;
+        }
         if self.team.as_ref().map(|team| team.reference) != team.map(|team| team.reference) {
             return true;
         }
@@ -129,6 +136,7 @@ pub(in crate::conversation::live) fn effective<'a>(
 /// Team choice of a conversation without a session, applied once the session exists.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(in crate::conversation::live) struct Draft {
+    pub execution: Execution,
     /// None is the Default team; the current catalog revision is sent at start.
     pub team: Option<TeamId>,
     pub models: BTreeMap<RoleId, role::Model>,
@@ -137,17 +145,20 @@ pub(in crate::conversation::live) struct Draft {
 /// One revision-checked change that brings a new session to its draft team.
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::conversation::live) enum Step {
-    Team(Option<team::Reference>),
+    Execution(Execution, Option<team::Reference>),
     Member(RoleId, role::Model),
 }
 
 impl Draft {
     pub(in crate::conversation::live) fn steps(&self, teams: &[team::Profile]) -> Vec<Step> {
+        if self.execution == Execution::Model {
+            return vec![Step::Execution(Execution::Model, None)];
+        }
         let team = self
             .team
             .and_then(|id| teams.iter().find(|team| team.id == id))
             .map(team::Profile::reference);
-        team.map(|team| Step::Team(Some(team)))
+        team.map(|team| Step::Execution(Execution::Team, Some(team)))
             .into_iter()
             .chain(
                 self.models
@@ -167,11 +178,15 @@ impl Step {
         roles: &role::Snapshot,
     ) -> Option<Command> {
         match self {
-            Self::Team(team) => (roles.team != *team).then_some(Command::SetSessionTeam {
-                session,
-                expected_revision: revision,
-                team: *team,
-            }),
+            Self::Execution(execution, team) => (roles.execution != *execution
+                || roles.team != *team)
+                .then_some(Command::SetSessionExecution {
+                    session,
+                    expected_revision: revision,
+                    execution: *execution,
+                    team: team.map(Into::into),
+                    models: BTreeMap::new(),
+                }),
             Self::Member(role, model) => (roles.profiles.iter().any(|item| item.id == *role)
                 && roles.models.get(role) != Some(model))
             .then(|| Command::SetSessionMemberModel {
@@ -196,10 +211,13 @@ fn identity(
     crate::workspace::appearance::filled(appearance, Icon::from(fallback), cx)
 }
 
-fn icon(team: Option<&Team>, cx: &App) -> Glyph {
+fn icon(execution: Execution, team: Option<&Team>, cx: &App) -> Glyph {
     identity(
         team.and_then(|team| team.appearance.as_ref()),
-        gpui_kit::assets::IconName::Users,
+        match execution {
+            Execution::Model => gpui_kit::assets::IconName::Bot,
+            Execution::Team => gpui_kit::assets::IconName::Users,
+        },
         cx,
     )
 }
@@ -207,8 +225,13 @@ fn icon(team: Option<&Team>, cx: &App) -> Glyph {
 /// Member avatars fill their button so no second circle shows around them.
 const MEMBER: Pixels = px(24.);
 
-fn name(team: Option<&Team>) -> SharedString {
-    team.map_or_else(|| tr("composer_team_default"), |team| team.name.clone())
+fn name(execution: Execution, team: Option<&Team>) -> SharedString {
+    match execution {
+        Execution::Model => tr("composer_execution_model"),
+        Execution::Team => {
+            team.map_or_else(|| tr("composer_team_default"), |team| team.name.clone())
+        }
+    }
 }
 
 fn avatar(icon: Glyph, overridden: bool, cx: &App) -> Badge {
@@ -231,7 +254,7 @@ fn marked((icon, fill): Glyph, overridden: bool, selected: bool, cx: &App) -> Ba
 
 /// The composer chip's team identity; the dot marks member overrides.
 pub(super) fn chip_avatar(team: Option<&Team>, overridden: bool, cx: &App) -> Badge {
-    let (glyph, fill) = icon(team, cx);
+    let (glyph, fill) = icon(Execution::Team, team, cx);
     Badge::new()
         .when(overridden, |badge| badge.dot().color(cx.theme().primary))
         .child(
@@ -270,15 +293,15 @@ impl Panel {
                     .pl_0()
                     .pr_1()
                     .flex_shrink_0()
-                    .tooltip(name(team))
-                    .accessibility_label(name(team))
+                    .tooltip(name(roster.execution, team))
+                    .accessibility_label(name(roster.execution, team))
                     .debug_selector(|| "model-team-choose".into())
                     .disabled(locked)
                     .child(
                         h_flex()
                             .gap_0p5()
                             .items_center()
-                            .child(avatar(icon(team, cx), false, cx))
+                            .child(avatar(icon(roster.execution, team, cx), false, cx))
                             .child(Icon::new(IconName::ChevronRight).size_3()),
                     )
                     .on_click(cx.listener(|panel, _, _, cx| {
@@ -360,57 +383,65 @@ impl Panel {
     ) -> AnyElement {
         let roster = &settings.roster;
         let locked = settings.busy || settings.pending || !settings.connected;
-        let choices = std::iter::once((None, None, roster.catalog.len()))
-            .chain(
-                roster
-                    .teams
-                    .iter()
-                    .map(|team| (Some(team.reference.id), Some(team), team.members.len())),
+        let choices = [
+            (Execution::Model, None, None, 0),
+            (Execution::Team, None, None, roster.catalog.len()),
+        ]
+        .into_iter()
+        .chain(roster.teams.iter().map(|team| {
+            (
+                Execution::Team,
+                Some(team.reference.id),
+                Some(team),
+                team.members.len(),
             )
-            .enumerate()
-            .map(|(index, (id, team, members))| {
-                let selected = roster.selected(id);
-                Button::new(("model-team-option", index))
-                    .text()
-                    .w_full()
-                    .h_8()
-                    .px_2()
-                    .disabled(locked)
-                    .selected(selected)
-                    .accessibility_label(name(team))
-                    .debug_selector(move || format!("model-team-option-{index}"))
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .min_w_0()
-                            .gap_2()
-                            .items_center()
-                            .child(avatar(icon(team, cx), false, cx))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_sm()
-                                    .line_height(px(20.))
-                                    .child(name(team)),
-                            )
-                            .child(
+        }))
+        .enumerate()
+        .map(|(index, (execution, id, team, members))| {
+            let selected = roster.selected(execution, id);
+            Button::new(("model-team-option", index))
+                .text()
+                .w_full()
+                .h_8()
+                .px_2()
+                .disabled(locked)
+                .selected(selected)
+                .accessibility_label(name(execution, team))
+                .debug_selector(move || format!("model-team-option-{index}"))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_2()
+                        .items_center()
+                        .child(avatar(icon(execution, team, cx), false, cx))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_sm()
+                                .line_height(px(20.))
+                                .child(name(execution, team)),
+                        )
+                        .when(execution == Execution::Team, |row| {
+                            row.child(
                                 div()
                                     .flex_shrink_0()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(members.to_string()),
                             )
-                            .child(div().size_4().flex_shrink_0().when(selected, |check| {
-                                check.child(Icon::new(IconName::Check).size_4())
-                            })),
-                    )
-                    .on_click(
-                        cx.listener(move |panel, _, window, cx| panel.choose_team(id, window, cx)),
-                    )
-            })
-            .collect::<Vec<_>>();
+                        })
+                        .child(div().size_4().flex_shrink_0().when(selected, |check| {
+                            check.child(Icon::new(IconName::Check).size_4())
+                        })),
+                )
+                .on_click(cx.listener(move |panel, _, window, cx| {
+                    panel.choose_team(execution, id, window, cx)
+                }))
+        })
+        .collect::<Vec<_>>();
         let owner = self.owner.clone();
         v_flex()
             .debug_selector(|| "model-team-list".into())
@@ -480,7 +511,13 @@ impl Panel {
         cx.notify();
     }
 
-    fn choose_team(&mut self, team: Option<TeamId>, window: &mut Window, cx: &mut Context<Self>) {
+    fn choose_team(
+        &mut self,
+        execution: Execution,
+        team: Option<TeamId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(settings) = &self.settings else {
             return;
         };
@@ -495,10 +532,10 @@ impl Panel {
         if team.is_some() && chosen.is_none() {
             return;
         }
-        if settings.roster.changes(chosen.as_ref()) {
-            let _ = self
-                .owner
-                .update(cx, |view, cx| view.select_team(chosen, window, cx));
+        if settings.roster.changes(execution, chosen.as_ref()) {
+            let _ = self.owner.update(cx, |view, cx| {
+                view.select_team(execution, chosen, window, cx)
+            });
             self.member = None;
         }
         self.back(window, cx);

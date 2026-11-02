@@ -91,6 +91,26 @@ configuration database, never public events, logs or UI caches. Projects remain
 at registered paths; profiles contain Node storage, plugin packages/data and
 uploaded attachments.
 
+`Session` is the shared conversation container for controllers, Host automation
+and plugins. `StartSession` atomically creates it and admits its first turn;
+subsequent messages use the same revision-checked queue and canonical history.
+An optional immutable association (`namespace`, `kind`, `id`) links a session to
+an external business object alongside its project and worktree. Association pages
+use creation-order cursors. A plugin can discover and explicitly control its own
+associated main sessions through declared conversation capabilities; its stable
+package name supplies the namespace and captured worktree limits still apply.
+Associations grant no file, terminal or other resource authority.
+
+Execution explicitly selects a single model or a team. Model execution captures
+an empty roster and exposes no delegation tools. Team execution selects either
+the default roster or a named team; the Node applies the team's fixed lead model
+and member choices in the same configuration revision. Exact team selections
+check the requested revision; a selection without a revision resolves the latest
+team at fresh admission. Both freeze the actual team revision, instructions and
+models. Durable request replay retains its original result. Existing stored
+sessions without an execution field retain default-team behavior. Desktop,
+Mobile, Host and plugin SDKs use this same configuration and admission owner.
+
 The Node uses the native Turso Rust driver for `storage/node.turso` and
 `storage/knowledge.turso`. Each database has one shared native handle; an operation
 leases its own connection and keeps related SQL in one transaction. Every

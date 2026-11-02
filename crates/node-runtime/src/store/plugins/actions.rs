@@ -144,6 +144,16 @@ impl Database {
                 {
                     (Some(Action::ReadUsage), None, None)
                 }
+                Command::ListTeams => (Some(Action::ReadTeams), None, None),
+                Command::ListAssociatedSessions { association, .. }
+                    if context.turn.is_none() && context.session.is_none() =>
+                {
+                    association.validate()?;
+                    if association.namespace != context.package.name {
+                        return Err(denied("session association belongs to another package"));
+                    }
+                    (Some(Action::ReadConversation), None, None)
+                }
                 Command::ListRoles
                     if context.turn.is_some()
                         || (context.turn.is_none()
@@ -233,6 +243,12 @@ impl Database {
                 Command::StartSession(draft)
                     if context.turn.is_none() && context.session.is_none() =>
                 {
+                    if let Some(association) = &draft.association {
+                        association.validate()?;
+                        if association.namespace != context.package.name {
+                            return Err(denied("session association belongs to another package"));
+                        }
+                    }
                     if let Some(config) = &draft.config {
                         super::options::validate(
                             &self.connection,
@@ -575,6 +591,8 @@ impl Database {
                 | Command::SubmitTurn { session, .. }
                 | Command::ContinueTurn { session, .. }
                 | Command::SetSessionConfig { session, .. }
+                | Command::SetSessionExecution { session, .. }
+                | Command::SetSessionMemberModel { session, .. }
                 | Command::SetQueuePaused { session, .. }
                 | Command::MoveQueuedTurn { session, .. } => {
                     (Some(Action::ControlConversation), None, Some(*session))
@@ -639,8 +657,14 @@ impl Database {
                 _ => return Err(denied("command is not exposed to plugin software actions")),
             }
         };
-        if worktree.is_some_and(|worktree| Some(worktree) != context.worktree)
-            || session.is_some_and(|session| context.session != Some(session))
+        if worktree.is_some_and(|worktree| Some(worktree) != context.worktree) {
+            return Err(denied(
+                "plugin action is outside the captured resource scope",
+            ));
+        }
+        if let Some(session) = session
+            && context.session != Some(session)
+            && !sessions::associations::owns(&self.connection, context, session).await?
         {
             return Err(denied(
                 "plugin action is outside the captured resource scope",
@@ -724,6 +748,8 @@ impl Database {
             && matches!(
                 request.command,
                 Command::ListRoles
+                    | Command::ListTeams
+                    | Command::ListAssociatedSessions { .. }
                     | Command::ReadProjectCatalog
                     | Command::PutRole { .. }
                     | Command::RemoveRole { .. }

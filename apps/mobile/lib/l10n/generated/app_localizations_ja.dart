@@ -1743,6 +1743,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get team => 'チーム';
 
   @override
+  String get executionModel => '単一モデル';
+
+  @override
   String get teamDefault => 'デフォルトチーム';
 
   @override

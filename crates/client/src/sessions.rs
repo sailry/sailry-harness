@@ -35,6 +35,7 @@ mod tests {
             creation_order: order,
             archived: false,
             activity: Default::default(),
+            association: None,
             project,
             worktree: WorktreeId::new(),
             revision: 1,

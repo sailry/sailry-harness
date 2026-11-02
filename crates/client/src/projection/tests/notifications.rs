@@ -14,6 +14,7 @@ fn retains_canonical_failure_details() {
         creation_order: 1,
         archived: false,
         activity: Default::default(),
+        association: None,
         project: None,
         worktree: WorktreeId::new(),
         revision: 1,

@@ -27,6 +27,7 @@
             "ssh.manage",
             "agents.delegate",
             "roles.read",
+            "teams.read",
             "roles.write",
             "models.read",
             "decisions.run",

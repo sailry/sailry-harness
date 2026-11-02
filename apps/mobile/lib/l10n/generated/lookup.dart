@@ -576,6 +576,7 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'about' => strings.about,
   'modelPicker' => strings.modelPicker,
   'team' => strings.team,
+  'executionModel' => strings.executionModel,
   'teamDefault' => strings.teamDefault,
   'teamLead' => strings.teamLead,
   'memberReset' => strings.memberReset,

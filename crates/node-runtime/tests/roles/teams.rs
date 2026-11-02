@@ -1,6 +1,9 @@
 use super::sessions::{create, execute, provider, queue, snapshot};
 use super::*;
 
+#[path = "teams/execution.rs"]
+mod execution;
+
 fn team(key: &str, members: Vec<RoleId>) -> team::Profile {
     team::Profile {
         id: TeamId::new(),
@@ -193,10 +196,12 @@ async fn selects_future_rosters() {
             assert_eq!(
                 revise(
                     &client,
-                    Command::SetSessionTeam {
+                    Command::SetSessionExecution {
+                        execution: conversation::Execution::Team,
+                        models: Default::default(),
                         session: session.id,
                         expected_revision: session.revision,
-                        team,
+                        team: team.map(Into::into),
                     },
                 )
                 .await
@@ -205,10 +210,12 @@ async fn selects_future_rosters() {
                 expected
             );
         }
-        let request = client.prepare(Command::SetSessionTeam {
+        let request = client.prepare(Command::SetSessionExecution {
+            execution: conversation::Execution::Team,
+            models: Default::default(),
             session: session.id,
             expected_revision: session.revision,
-            team: Some(reviewers.reference()),
+            team: Some(reviewers.reference().into()),
         });
         let admitted = client.dispatch(request.clone()).await.unwrap();
         assert!(admitted.receipt.durable);
@@ -301,7 +308,9 @@ async fn selects_future_rosters() {
         .unwrap();
         let default = revise(
             &client,
-            Command::SetSessionTeam {
+            Command::SetSessionExecution {
+                execution: conversation::Execution::Team,
+                models: Default::default(),
                 session: session.id,
                 expected_revision: overridden.revision,
                 team: None,
@@ -316,12 +325,14 @@ async fn selects_future_rosters() {
         let Output::QueuedTurn(started) = execute(
             &client,
             Command::StartSession(conversation::Start {
+                execution: conversation::Execution::Team,
+                association: None,
                 project: session.project,
                 worktree: Some(session.worktree),
                 config: None,
                 title: "Team start".into(),
                 message: "Start with a team".into(),
-                team: Some(reviewers.reference()),
+                team: Some(reviewers.reference().into()),
                 models: Default::default(),
             }),
         )

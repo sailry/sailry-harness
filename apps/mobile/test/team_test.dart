@@ -21,12 +21,14 @@ const frontend = {
 };
 
 Map<String, dynamic> session({
+  String? execution,
   Map<String, dynamic>? team,
   Map<String, dynamic> models = const {},
 }) => {
   'id': 'session-1',
   'revision': 7,
   'roles': {
+    'execution': ?execution,
     'profiles': [reviewer, builder],
     'providers': [],
     'team': ?team,
@@ -38,18 +40,32 @@ String tr(String key) => '<$key>';
 
 void main() {
   group('commands', () {
-    test('team selection sends the stored revision', () {
-      expect(selectCommand('session-1', 7, frontend), {
+    test('model execution clears the team and overrides', () {
+      expect(selectCommand('session-1', 7, 'model', frontend), {
         'session': 'session-1',
         'expected_revision': 7,
+        'execution': 'model',
+        'team': null,
+        'models': <String, dynamic>{},
+      });
+    });
+
+    test('team selection sends the stored revision', () {
+      expect(selectCommand('session-1', 7, 'team', frontend), {
+        'session': 'session-1',
+        'expected_revision': 7,
+        'execution': 'team',
+        'models': <String, dynamic>{},
         'team': {'id': 'team-front', 'revision': 3},
       });
     });
 
     test('Default team sends a null team', () {
-      expect(selectCommand('session-1', 7, null), {
+      expect(selectCommand('session-1', 7, 'team', null), {
         'session': 'session-1',
         'expected_revision': 7,
+        'execution': 'team',
+        'models': <String, dynamic>{},
         'team': null,
       });
     });
@@ -74,45 +90,23 @@ void main() {
     });
   });
 
-  group('leadConfig', () {
-    const config = {
-      'mode': 'code',
-      'provider': 'p-old',
-      'credential': null,
-      'model': 'old',
-      'effort': 'default',
-    };
-    const providers = [
-      {
-        'id': 'p-lead',
-        'credential': 'c-lead',
-        'models': [
-          {'id': 'lead', 'default_effort': 'medium'},
-        ],
-      },
-    ];
-
-    test('applies the team model with its provider credential', () {
-      expect(leadConfig(config, frontend, providers), {
-        'mode': 'code',
-        'provider': 'p-lead',
-        'credential': 'c-lead',
-        'model': 'lead',
-        'effort': 'medium',
-      });
-    });
-
-    test('keeps the configuration without a team model', () {
-      expect(leadConfig(config, {...frontend, 'model': null}, providers), null);
-    });
-
-    test('skips an unchanged model', () {
-      final current = leadConfig(config, frontend, providers)!;
-      expect(leadConfig(current, frontend, providers), null);
-    });
-  });
-
   group('SessionTeam', () {
+    test('omitted execution preserves the Default team', () {
+      final state = SessionTeam(session(), [frontend]);
+      expect(state.execution, 'team');
+      expect(state.members, hasLength(2));
+    });
+
+    test('model execution has no delegation roster', () {
+      final state = SessionTeam(
+        session(execution: 'model', team: {'id': 'team-front', 'revision': 3}),
+        [frontend],
+      );
+      expect(state.execution, 'model');
+      expect(state.team, isNull);
+      expect(state.members, isEmpty);
+    });
+
     test('Default team has no stored team', () {
       expect(SessionTeam(session(), [frontend]).team, null);
     });
@@ -199,6 +193,17 @@ void main() {
 
   group('chipLabel', () {
     const config = {'model': 'lead-model'};
+
+    test('model execution shows the model', () {
+      expect(
+        chipLabel(
+          SessionTeam(session(execution: 'model'), [frontend]),
+          config,
+          tr,
+        ),
+        'lead-model',
+      );
+    });
 
     test('Default team shows the model', () {
       expect(

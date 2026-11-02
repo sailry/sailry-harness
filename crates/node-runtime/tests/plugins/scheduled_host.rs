@@ -8,6 +8,8 @@ use tokio::sync::Notify;
 mod admission;
 #[path = "scheduled_host/calendar.rs"]
 mod calendar;
+#[path = "scheduled_host/execution.rs"]
+mod execution;
 #[path = "scheduled_host/stop.rs"]
 mod stop;
 

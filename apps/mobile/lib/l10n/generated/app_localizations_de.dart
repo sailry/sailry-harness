@@ -1783,6 +1783,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get team => 'Team';
 
   @override
+  String get executionModel => 'Nur Modell';
+
+  @override
   String get teamDefault => 'Standardteam';
 
   @override

@@ -45,6 +45,24 @@ pub struct Reference {
     pub revision: u64,
 }
 
+/// None resolves the current team at fresh admission; receipts retain the result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Selection {
+    pub id: TeamId,
+    #[serde(default)]
+    pub revision: Option<u64>,
+}
+
+impl From<Reference> for Selection {
+    fn from(reference: Reference) -> Self {
+        Self {
+            id: reference.id,
+            revision: Some(reference.revision),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Profile {
     pub id: TeamId,

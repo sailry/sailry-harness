@@ -716,6 +716,7 @@
   "about": "Sailryについて",
   "modelPicker": "モデルを選択",
   "team": "チーム",
+  "executionModel": "単一モデル",
   "teamDefault": "デフォルトチーム",
   "teamLead": "リーダー",
   "memberReset": "モデルをリセット",

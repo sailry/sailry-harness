@@ -2,7 +2,7 @@ use super::{Target, Task};
 use sailry_protocol::*;
 use std::{ffi::OsString, io::Read, path::PathBuf};
 
-const USAGE: &str = "Usage: sailry submit (--session <id> | --worktree <id>) (--prompt <text> | --prompt-file <path> | --stdin) [--request-id <id>] [--expected-revision <number>] [--config <JSON file>] [--title <text>] [--no-wait] [--timeout <seconds>] [--data-dir <profile>]\n       sailry wait --session <id> --turn <id> [--timeout <seconds>] [--data-dir <profile>]\nWrites one JSON result. Exit codes: 0 admitted/completed, 1 failed/stopped, 3 approval/input/paused, 4 uncertain, 124 timeout, 130 observation cancelled. Waiting never grants approvals or stops execution.";
+const USAGE: &str = "Usage: sailry submit (--session <id> | --worktree <id>) (--prompt <text> | --prompt-file <path> | --stdin) [--request-id <id>] [--expected-revision <number>] [--config <JSON file>] [--execution model|team] [--team <id>] [--team-revision <number>] [--association <JSON file>] [--title <text>] [--no-wait] [--timeout <seconds>] [--data-dir <profile>]\n       sailry wait --session <id> --turn <id> [--timeout <seconds>] [--data-dir <profile>]\nWrites one JSON result. Exit codes: 0 admitted/completed, 1 failed/stopped, 3 approval/input/paused, 4 uncertain, 124 timeout, 130 observation cancelled. Waiting never grants approvals or stops execution.";
 
 pub(super) struct Options {
     pub profile: PathBuf,
@@ -31,6 +31,10 @@ pub(super) fn parse(
     let mut request: Option<RequestId> = None;
     let mut revision = None;
     let mut config = None;
+    let mut execution = None;
+    let mut team = None;
+    let mut team_revision = None;
+    let mut association = None;
     let mut input = None;
     let mut title = None;
     let mut timeout = None;
@@ -59,6 +63,8 @@ pub(super) fn parse(
             input = Some(Input::File(PathBuf::from(value)));
         } else if argument == "--config" && config.is_none() && command == "submit" {
             config = Some(PathBuf::from(value));
+        } else if argument == "--association" && association.is_none() && command == "submit" {
+            association = Some(PathBuf::from(value));
         } else {
             let value = value
                 .into_string()
@@ -74,6 +80,23 @@ pub(super) fn parse(
             } else if argument == "--expected-revision" && revision.is_none() && command == "submit"
             {
                 revision = Some(value.parse::<u64>()?);
+            } else if argument == "--execution" && execution.is_none() && command == "submit" {
+                execution = Some(match value.as_str() {
+                    "model" => conversation::Execution::Model,
+                    "team" => conversation::Execution::Team,
+                    _ => return Err("--execution must be model or team".into()),
+                });
+            } else if argument == "--team" && team.is_none() && command == "submit" {
+                team = Some(value.parse::<TeamId>()?);
+            } else if argument == "--team-revision"
+                && team_revision.is_none()
+                && command == "submit"
+            {
+                let parsed = value.parse::<u64>()?;
+                if parsed.to_string() != value {
+                    return Err("--team-revision must be a canonical decimal integer".into());
+                }
+                team_revision = Some(parsed);
             } else if argument == "--timeout" && timeout.is_none() {
                 timeout = Some(value.parse::<u64>()?);
             } else if argument == "--title" && title.is_none() && command == "submit" {
@@ -100,10 +123,22 @@ pub(super) fn parse(
         if session.is_some() == worktree.is_some() {
             return Err("choose one session or worktree".into());
         }
-        if session.is_some() && (config.is_some() || title.is_some())
+        if session.is_some()
+            && (config.is_some()
+                || title.is_some()
+                || execution.is_some()
+                || team.is_some()
+                || team_revision.is_some()
+                || association.is_some())
             || worktree.is_some() && revision.is_some()
         {
-            return Err("configuration/title require a new worktree task; expected revision requires a session".into());
+            return Err("configuration/title/execution/association require a new worktree task; expected revision requires a session".into());
+        }
+        if team_revision.is_some() && team.is_none() {
+            return Err("--team-revision requires --team".into());
+        }
+        if execution == Some(conversation::Execution::Model) && team.is_some() {
+            return Err("model execution cannot select a team".into());
         }
         let text = match input.ok_or(USAGE)? {
             Input::Text(text) => text,
@@ -120,6 +155,20 @@ pub(super) fn parse(
             },
             None => Target::Worktree {
                 worktree: worktree.unwrap(),
+                execution: execution.unwrap_or_default(),
+                team: team.map(|id| team::Selection {
+                    id,
+                    revision: team_revision,
+                }),
+                association: association
+                    .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+                        let value = serde_json::from_str::<conversation::Association>(&read(
+                            std::fs::File::open(path)?,
+                        )?)?;
+                        value.validate()?;
+                        Ok(value)
+                    })
+                    .transpose()?,
                 config: config
                     .map(|path| -> Result<_, Box<dyn std::error::Error>> {
                         Ok(Box::new(serde_json::from_str::<SessionConfig>(&read(

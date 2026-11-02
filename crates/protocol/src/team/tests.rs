@@ -81,10 +81,12 @@ fn classifies_commands() {
             team: TeamId::new(),
             expected_revision: 1,
         },
-        crate::Command::SetSessionTeam {
+        crate::Command::SetSessionExecution {
+            execution: crate::conversation::Execution::Team,
+            models: Default::default(),
             session,
             expected_revision: 1,
-            team: Some(profile().reference()),
+            team: Some(profile().reference().into()),
         },
         crate::Command::SetSessionMemberModel {
             session,
@@ -100,7 +102,9 @@ fn classifies_commands() {
             command
         );
     }
-    let encoded = serde_json::to_value(crate::Command::SetSessionTeam {
+    let encoded = serde_json::to_value(crate::Command::SetSessionExecution {
+        execution: crate::conversation::Execution::Team,
+        models: Default::default(),
         session,
         expected_revision: 1,
         team: None,
@@ -108,6 +112,21 @@ fn classifies_commands() {
     .unwrap();
     assert_eq!(encoded["kind"], "set_session_team");
     assert!(encoded["data"]["team"].is_null());
+}
+
+#[test]
+fn preserves_stored_selection_commands() {
+    let session = SessionId::new();
+    let team = TeamId::new();
+    let stored = format!(
+        r#"{{"kind":"set_session_team","data":{{"session":"{session}","expected_revision":1,"team":{{"id":"{team}","revision":2}}}}}}"#
+    );
+    let command: crate::Command = serde_json::from_str(&stored).unwrap();
+    assert!(matches!(command, crate::Command::SetSessionExecution {
+        execution: crate::conversation::Execution::Team, ref models, ..
+    } if models.is_empty()));
+    // Existing approval digests and request identities keep their original bytes.
+    assert_eq!(serde_json::to_string(&command).unwrap(), stored);
 }
 
 mod settings {

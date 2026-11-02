@@ -20,6 +20,8 @@ async fn start_captures_defaults_once() {
             panic!("catalog expected")
         };
         let mut draft = conversation::Start {
+            execution: conversation::Execution::Team,
+            association: None,
             project: Some(catalog.projects[0].id),
             worktree: Some(tree),
             config: None,

@@ -688,6 +688,11 @@ pub enum Command {
     ReadSession {
         session: SessionId,
     },
+    ListAssociatedSessions {
+        association: crate::conversation::Association,
+        before: Option<SessionId>,
+        limit: u16,
+    },
     ReadConversation {
         session: SessionId,
         before: Option<crate::TurnId>,
@@ -1595,12 +1600,21 @@ pub enum Command {
         expected_revision: u64,
         roles: Vec<crate::role::Reference>,
     },
-    /// Capture a team's members and lead instructions; None selects the Default team.
-    /// Clears member models and affects future admission only.
-    SetSessionTeam {
+    /// Select model or team execution and replace member overrides for future admission.
+    /// A team without an explicit selection uses the Default roster.
+    // Preserve the command identity already stored in durable approvals and requests.
+    #[serde(rename = "set_session_team")]
+    SetSessionExecution {
         session: SessionId,
         expected_revision: u64,
-        team: Option<crate::team::Reference>,
+        #[serde(
+            default,
+            skip_serializing_if = "crate::conversation::Execution::is_team"
+        )]
+        execution: crate::conversation::Execution,
+        team: Option<crate::team::Selection>,
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        models: std::collections::BTreeMap<crate::RoleId, crate::role::Model>,
     },
     /// Set or clear one member's model for future delegation in this session.
     SetSessionMemberModel {
@@ -1691,6 +1705,7 @@ impl Command {
                 | Self::ReadConversationRuns { .. }
                 | Self::ReadConversationRun { .. }
                 | Self::ReadSession { .. }
+                | Self::ListAssociatedSessions { .. }
                 | Self::ReadUsage(_)
                 | Self::ReadActivity { .. }
                 | Self::ReadTurnCapture { .. }
@@ -2167,6 +2182,7 @@ pub enum Output {
     },
     Defaults(Defaults),
     Session(Session),
+    AssociatedSessions(crate::conversation::AssociatedSessions),
     SessionsArchived(Vec<Session>),
     SessionsRemoved(Vec<SessionId>),
     SessionOrder(Vec<SessionId>),

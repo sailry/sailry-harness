@@ -478,10 +478,12 @@ fn command(
                     })
                 }
             };
-            Command::SetSessionTeam {
+            Command::SetSessionExecution {
+                execution: sailry_protocol::conversation::Execution::Team,
+                models: Default::default(),
                 session: conversation()?,
                 expected_revision: expected,
-                team,
+                team: team.map(Into::into),
             }
         }
     })

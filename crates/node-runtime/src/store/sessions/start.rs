@@ -9,7 +9,7 @@ pub(in crate::store) async fn start(
     request: &Request,
     draft: &conversation::Start,
 ) -> Result<(Output, Option<Event>), Fault> {
-    let config = match &draft.config {
+    let mut config = match &draft.config {
         Some(config) => config.clone(),
         None => commands::defaults(db).await?.config.ok_or_else(|| {
             Fault::new(
@@ -18,7 +18,20 @@ pub(in crate::store) async fn start(
             )
         })?,
     };
-    let roles = roles::team(db, node, draft.team.as_ref(), draft.models.clone()).await?;
+    if let Some(association) = &draft.association {
+        association.validate()?;
+    }
+    let roles = roles::execution(
+        db,
+        node,
+        draft.execution,
+        draft.team.as_ref(),
+        draft.models.clone(),
+    )
+    .await?;
+    if draft.execution == conversation::Execution::Team {
+        execution::configure(db, node, &mut config, draft.team.as_ref()).await?;
+    }
     let (Output::Session(session), _) = create(
         db,
         node,
@@ -35,6 +48,9 @@ pub(in crate::store) async fn start(
     else {
         unreachable!()
     };
+    if let Some(association) = &draft.association {
+        associations::bind(db, session.id, association).await?;
+    }
     let (Output::Session(session), _) =
         rename(db, session.id, session.revision, &draft.title).await?
     else {

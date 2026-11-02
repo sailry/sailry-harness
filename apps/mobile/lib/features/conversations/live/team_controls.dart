@@ -18,8 +18,15 @@ class TeamIcon extends StatelessWidget {
       ProjectIcon(project: team ?? const {}, size: size, fallback: 'profile');
 }
 
-String teamName(Map<String, dynamic>? team, String Function(String) tr) =>
-    team == null ? tr('teamDefault') : text(team['name'], tr('team'));
+String teamName(
+  String execution,
+  Map<String, dynamic>? team,
+  String Function(String) tr,
+) => execution == 'model'
+    ? tr('executionModel')
+    : team == null
+    ? tr('teamDefault')
+    : text(team['name'], tr('team'));
 
 /// The selected team followed by the Lead and member avatars.
 class TeamBar extends StatelessWidget {
@@ -58,10 +65,13 @@ class TeamBar extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   spacing: 6,
                   children: [
-                    TeamIcon(team: team),
+                    if (state.execution == 'model')
+                      const AppIcon('ai', size: 16)
+                    else
+                      TeamIcon(team: team),
                     Flexible(
                       child: Text(
-                        teamName(team, context.tr),
+                        teamName(state.execution, team, context.tr),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 14, color: colors.onSurface),
@@ -176,8 +186,8 @@ class TeamList extends StatelessWidget {
   final SessionTeam state;
   final VoidCallback onBack;
 
-  /// Receives a stored team, or null for the Default team.
-  final ValueChanged<Map<String, dynamic>?> onSelected;
+  /// Receives an execution mode and optional stored team.
+  final void Function(String execution, Map<String, dynamic>? team) onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -185,9 +195,9 @@ class TeamList extends StatelessWidget {
     Widget row(Map<String, dynamic>? team) => ChoiceRow(
       key: ValueKey('team-${team?['id'] ?? 'default'}'),
       leading: TeamIcon(team: team, size: 20),
-      label: teamName(team, context.tr),
-      selected: team?['id'] == current,
-      onTap: () => onSelected(team),
+      label: teamName('team', team, context.tr),
+      selected: state.execution == 'team' && team?['id'] == current,
+      onTap: () => onSelected('team', team),
     );
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -209,6 +219,13 @@ class TeamList extends StatelessWidget {
             ),
             const SizedBox(width: 48),
           ],
+        ),
+        ChoiceRow(
+          key: const ValueKey('execution-model'),
+          leading: const AppIcon('ai', size: 20),
+          label: context.tr('executionModel'),
+          selected: state.execution == 'model',
+          onTap: () => onSelected('model', null),
         ),
         row(null),
         for (final team in state.teams) row(team),

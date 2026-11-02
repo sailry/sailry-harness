@@ -6,6 +6,8 @@ mod tests;
 
 use super::{commands, database::storage_error};
 pub(super) mod assistants;
+pub(super) mod associations;
+pub(super) mod execution;
 mod forks;
 pub(super) use forks::{fork, origin};
 mod rewind;
@@ -83,6 +85,7 @@ pub(super) async fn create(
     };
     let mut session = Session {
         id,
+        association: None,
         creation_order: 0,
         archived: false,
         activity: Default::default(),
@@ -136,6 +139,9 @@ pub(in crate::store) async fn insert(db: &Connection, session: &Session) -> Resu
     )
     .await
     .map_err(storage_error)?;
+    if let Some(association) = &session.association {
+        associations::bind(db, session.id, association).await?;
+    }
     commands::insert_revision(db, session).await?;
     Ok(creation_order)
 }

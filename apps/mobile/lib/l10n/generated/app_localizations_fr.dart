@@ -1789,6 +1789,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get team => 'Équipe';
 
   @override
+  String get executionModel => 'Modèle seul';
+
+  @override
   String get teamDefault => 'Équipe par défaut';
 
   @override

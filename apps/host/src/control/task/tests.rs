@@ -110,6 +110,13 @@ async fn creates_and_admits_atomically() {
             target: Target::Worktree {
                 worktree: fixture.session.worktree,
                 config: Some(Box::new(fixture.session.config.clone())),
+                execution: conversation::Execution::Model,
+                team: None,
+                association: Some(conversation::Association {
+                    namespace: "automation".into(),
+                    kind: "job".into(),
+                    id: "daily".into(),
+                }),
             },
             message: "Start a new registered worktree task".into(),
             title: "Atomic task".into(),
@@ -136,6 +143,9 @@ async fn creates_and_admits_atomically() {
         assert_eq!(session.config, fixture.session.config);
         assert_eq!(session.worktree, fixture.session.worktree);
         assert_eq!(session.activity.title, "Atomic task");
+        assert_eq!(session.roles.execution, conversation::Execution::Model);
+        assert!(session.roles.profiles.is_empty());
+        assert_eq!(session.association.as_ref().unwrap().id, "daily");
         let repeated = fixture.exchange(&task).await;
         assert_eq!(repeated.last().unwrap().session, completed.session);
         assert_eq!(repeated.last().unwrap().turn, completed.turn);
@@ -622,6 +632,74 @@ async fn distinguishes_history_failure_from_task_failure() {
             fixture.wait(original.turn.unwrap(), 10).await.state,
             State::Completed
         );
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn captures_team_selection_and_replay() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote, fixture::models::Server::start(false).await).await;
+        let Output::Team(mut team) = fixture
+            .execute(Command::PutTeam {
+                team: team::Profile {
+                    id: TeamId::new(),
+                    revision: 0,
+                    key: "automation".into(),
+                    name: "Automation".into(),
+                    appearance: None,
+                    description: String::new(),
+                    model: None,
+                    instructions: "Complete the task".into(),
+                    members: vec![],
+                },
+                expected_revision: 0,
+            })
+            .await
+        else {
+            panic!("team expected")
+        };
+        let task = Task::Submit {
+            version: 1,
+            request: RequestId::new(),
+            target: Target::Worktree {
+                worktree: fixture.session.worktree,
+                config: Some(Box::new(fixture.session.config.clone())),
+                execution: conversation::Execution::Team,
+                team: Some(team::Selection {
+                    id: team.id,
+                    revision: None,
+                }),
+                association: None,
+            },
+            message: "Run".into(),
+            title: "Team task".into(),
+            wait: true,
+            timeout: 10,
+        };
+        let responses = fixture.exchange(&task).await;
+        let completed = responses.last().unwrap();
+        assert_eq!(completed.state, State::Completed, "{responses:?}");
+        let Output::Session(session) = fixture
+            .execute(Command::ReadSession {
+                session: completed.session.unwrap(),
+            })
+            .await
+        else {
+            panic!("session expected")
+        };
+        assert_eq!(session.roles.execution, conversation::Execution::Team);
+        assert_eq!(session.roles.team, Some(team.reference()));
+        team.instructions = "Updated instructions".into();
+        fixture
+            .execute(Command::PutTeam {
+                expected_revision: team.revision,
+                team,
+            })
+            .await;
+        let repeated = fixture.exchange(&task).await;
+        assert_eq!(repeated.last().unwrap().turn, completed.turn);
+        assert_eq!(fixture.model.requests.lock().unwrap().len(), 1);
         fixture.close().await;
     }
 }

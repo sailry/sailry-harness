@@ -22,6 +22,8 @@ async fn ordinary_callbacks_retain_exact_authority() {
         completion: Completion::Turn,
         command: Box::new(protocol::Command::StartSession(
             protocol::conversation::Start {
+                execution: protocol::conversation::Execution::Team,
+                association: None,
                 project: None,
                 worktree: None,
                 config: None,

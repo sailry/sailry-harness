@@ -277,6 +277,11 @@ pub(super) async fn admit(
             .map_err(storage_error)?;
         tx.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
         let run = calls::active(&tx, parent).await?;
+        if super::super::sessions::roles::for_turn(&tx, parent).await?.execution
+            != sailry_protocol::conversation::Execution::Team
+        {
+            return Err(Fault::new(ErrorCode::PermissionDenied, "model execution cannot delegate"));
+        }
         let previous = super::super::commands::session(&tx, run.session).await?;
         super::super::sessions::writable(&previous)?;
         let (entry, index) = calls::locate(&tx, parent, request).await?;

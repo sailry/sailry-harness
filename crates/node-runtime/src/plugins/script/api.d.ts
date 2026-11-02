@@ -1,5 +1,24 @@
 /** Node callback subset of sailry/sdk. Model installation and card modules have separate declarations. */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+export type Execution = "model" | "team";
+/** Omit revision to resolve the current team on fresh admission. */
+export type TeamSelection = {id: string; revision?: string | null};
+export type MemberModel = {provider: string; model: string; effort?: Json};
+export type ExecutionSelection = {
+  execution: Execution; team?: TeamSelection | null; models?: Record<string, MemberModel>;
+};
+export type SessionAssociation = {kind: string; id: string; namespace?: string};
+export type Session = {id: string; revision: string; config: Json} & Record<string, Json>;
+export type TeamProfile = {
+  id: string; revision: string; key: string; name: string; description: string;
+  appearance: Json; model: MemberModel | null; instructions: string; members: string[];
+};
+/** Requires teams.read. Catalog revisions remain exact decimal strings. */
+export function listTeams(): Promise<TeamProfile[]>;
+/** Requires conversation.read; namespace is the calling package's name. */
+export function listAssociatedSessions(association: SessionAssociation, before?: string | null, limit?: number): Promise<{sessions: Session[]; next_before: string | null}>;
+/** Requires conversation.control and the captured or package-associated session. */
+export function setSessionExecution(selection: ExecutionSelection, expectedRevision: string, session?: string | null): string;
 export type Entry = { key: string; revision: string; value: Json; present: boolean };
 /** Opaque private state follows visible conversation history. Restoration does not authorize execution. */
 export type ConversationEntry = Entry & { restored: boolean };
@@ -35,7 +54,12 @@ export function context(): Json;
 /** Registered projects and worktrees only; requires projects.read and an unscoped context. */
 export function readProjectCatalog(): Promise<Json>;
 /** Atomically creates and queues the first turn. Requires sessions.start; null config uses Node defaults. */
-export function startSession(draft: {project: string | null; worktree: string | null; config: Json; title: string; message: {text: string; attachments: string[]; references?: Json[]}}): string;
+export function startSession(draft: {
+  project: string | null; worktree: string | null; config: Json; title: string;
+  message: {text: string; attachments: string[]; references?: Json[]};
+  execution?: Execution; team?: TeamSelection | null; models?: Record<string, MemberModel>;
+  association?: SessionAssociation | null;
+}): string;
 export function prepareRequest(command: Json): string;
 /** Up to 64 private KV, dispatch, notification or scoped queue/turn operations, committed atomically. */
 export function prepareTransaction(operations: Json[]): string;
@@ -130,12 +154,15 @@ export function prepareFile(path: string, text: string, expectedRevision: string
 export function newId(): string;
 /** Stable for this turn, package, tool and canonical call across flow evaluations. */
 export function callId(): string;
-export function readSession(): Promise<Json>;
+export function readSession(session?: string | null): Promise<Session>;
 /** page.queue.revision is an exact decimal string for queue_pause transactions. */
-export function readConversation(before?:string|null,limit?:number): Promise<Json>;
+export function readConversation(before?:string|null,limit?:number,session?:string|null): Promise<Json>;
 /** Lifecycle metadata only. Structural and queue revisions are exact decimal strings. */
-export function readConversationRuns(before?: string | null, limit?: number): Promise<Json>;
-export function readConversationRun(turn: string, revision?: string | null): Promise<Json>;
+export function readConversationRuns(before?: string | null, limit?: number, session?: string | null): Promise<Json>;
+export function readConversationRun(turn: string, revision?: string | null, session?: string | null): Promise<Json>;
+/** Prepare durable commands, then complete the returned stable request ID. */
+export function sendMessage(input: Json, expectedRevision: string, session?: string | null): string;
+export function setSessionConfig(config: Json, expectedRevision: string, session?: string | null): string;
 export function readTurn(turn:string,before?:number|null,limit?:number): Promise<Json>;
 /** Ephemeral policy state shared only by this package's callbacks and tools in one turn. */
 export function readTurnState(): Json;

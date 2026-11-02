@@ -8,23 +8,22 @@ const team = {
   'revision': 4,
   'model': {'provider': 'provider-new', 'model': 'new'},
 };
-const providers = [
-  {
-    'id': 'provider-new',
-    'credential': 'credential-new',
-    'models': [
-      {'id': 'new', 'default_effort': 'high'},
-    ],
-  },
-];
+const selectedConfig = {
+  'provider': 'provider-new',
+  'credential': 'credential-new',
+  'model': 'new',
+  'effort': 'high',
+  'mode': 'flagship',
+  'permission': 'ask',
+};
 
 class Fixture {
-  Fixture({this.uncertain = 'set_session_team'}) {
+  Fixture({this.uncertain = true}) {
     commands = ConfigurationCommands(
       command: (kind, data) async {
         sent.add((kind, data!));
         final response = apply(kind, data);
-        if (kind == uncertain) {
+        if (uncertain) {
           receipts['request-$kind'] = response;
           throw CommandFailure('outcome_unknown', request: 'request-$kind');
         }
@@ -41,7 +40,7 @@ class Fixture {
     );
   }
 
-  String? uncertain;
+  final bool uncertain;
   final sent = <(String, Map<String, dynamic>)>[];
   final recovered = <String>[];
   final receipts = <String, Map<String, dynamic>>{};
@@ -63,55 +62,81 @@ class Fixture {
     'data': {
       ...session,
       'revision': (data['expected_revision'] as int) + 1,
-      if (kind == 'set_session_team') 'roles': {'team': data['team']},
+      if (kind == 'set_session_team') ...{
+        'roles': {
+          'execution': data['execution'],
+          'team': data['team'],
+          'models': data['models'],
+        },
+        if (data['team'] != null) 'config': selectedConfig,
+      },
       if (kind == 'set_session_config') 'config': data['config'],
     },
   };
 
   Future<void> select() =>
-      commands.select(team, session: () => session, providers: () => providers);
+      commands.select('team', team, session: () => session);
 }
 
 void main() {
-  test('confirmed team selection applies the lead model', () async {
-    final fixture = Fixture(uncertain: null);
-    await fixture.select();
-    expect(fixture.sent.map((entry) => entry.$1), [
-      'set_session_team',
-      'set_session_config',
-    ]);
-    expect(fixture.sent.last.$2['expected_revision'], 8);
-    expect(fixture.session['revision'], 9);
-    expect(fixture.session['config'], {
-      'provider': 'provider-new',
-      'credential': 'credential-new',
-      'model': 'new',
-      'effort': 'high',
-      'mode': 'flagship',
-      'permission': 'ask',
+  test('model execution preserves the lead configuration', () async {
+    final fixture = Fixture(uncertain: false);
+    final config = fixture.session['config'];
+    await fixture.commands.select(
+      'model',
+      team,
+      session: () => fixture.session,
+    );
+    expect(fixture.sent.map((entry) => entry.$1), ['set_session_team']);
+    expect(fixture.sent.single.$2, {
+      'session': 'session-1',
+      'expected_revision': 7,
+      'execution': 'model',
+      'team': null,
+      'models': <String, dynamic>{},
     });
+    expect(fixture.session['config'], config);
   });
 
-  test('recovered team selection advances exactly once', () async {
+  test('recovered model execution keeps its original request', () async {
+    final fixture = Fixture();
+    await expectLater(
+      fixture.commands.select('model', null, session: () => fixture.session),
+      throwsA(isA<CommandFailure>()),
+    );
+    await fixture.commands.check();
+    expect(fixture.recovered, ['request-set_session_team']);
+    expect(fixture.sent, hasLength(1));
+    expect(object(fixture.session['roles'])['execution'], 'model');
+    expect(object(fixture.session['config'])['model'], 'old');
+    expect(fixture.commands.pending, isFalse);
+  });
+
+  test('team selection accepts the effective Node configuration', () async {
+    final fixture = Fixture(uncertain: false);
+    await fixture.select();
+    expect(fixture.sent.map((entry) => entry.$1), ['set_session_team']);
+    expect(fixture.session['revision'], 8);
+    expect(fixture.session['config'], selectedConfig);
+  });
+
+  test('recovered team selection sends no follow-up command', () async {
     final fixture = Fixture();
     await expectLater(fixture.select(), throwsA(isA<CommandFailure>()));
     expect(fixture.commands.pending, isTrue);
     expect(fixture.sent, hasLength(1));
     await fixture.commands.check();
     expect(fixture.recovered, ['request-set_session_team']);
-    expect(fixture.sent.map((entry) => entry.$1), [
-      'set_session_team',
-      'set_session_config',
-    ]);
-    expect(fixture.sent.last.$2['expected_revision'], 8);
-    expect(object(fixture.session['config'])['model'], 'new');
+    expect(fixture.sent.map((entry) => entry.$1), ['set_session_team']);
+    expect(fixture.session['revision'], 8);
+    expect(fixture.session['config'], selectedConfig);
     expect(fixture.commands.pending, isFalse);
     await fixture.commands.check();
-    expect(fixture.sent, hasLength(2));
+    expect(fixture.sent, hasLength(1));
     expect(fixture.recovered, hasLength(1));
   });
 
-  test('uncertain recovery retains the team continuation', () async {
+  test('uncertain recovery retains the original request', () async {
     final fixture = Fixture()..failure = 'outcome_unknown';
     await expectLater(fixture.select(), throwsA(isA<CommandFailure>()));
     await expectLater(fixture.commands.check(), throwsA(isA<CommandFailure>()));
@@ -119,15 +144,15 @@ void main() {
     expect(fixture.commands.pending, isTrue);
     fixture.failure = null;
     await fixture.commands.check();
-    expect(fixture.sent, hasLength(2));
+    expect(fixture.sent, hasLength(1));
     expect(fixture.recovered, [
       'request-set_session_team',
       'request-set_session_team',
     ]);
-    expect(object(fixture.session['config'])['model'], 'new');
+    expect(fixture.session['config'], selectedConfig);
   });
 
-  test('rejected team selection discards the continuation', () async {
+  test('rejected selection clears the pending request', () async {
     final fixture = Fixture()..failure = 'revision_conflict';
     await expectLater(fixture.select(), throwsA(isA<CommandFailure>()));
     await expectLater(fixture.commands.check(), throwsA(isA<CommandFailure>()));
@@ -138,36 +163,7 @@ void main() {
     expect(object(fixture.session['config'])['model'], 'old');
   });
 
-  test('uncertain lead update keeps its own request', () async {
-    final fixture = Fixture(uncertain: 'set_session_config');
-    await expectLater(fixture.select(), throwsA(isA<CommandFailure>()));
-    expect(fixture.sent, hasLength(2));
-    expect(fixture.session['revision'], 8);
-    await fixture.commands.check();
-    expect(fixture.recovered, ['request-set_session_config']);
-    expect(fixture.sent, hasLength(2));
-    expect(object(fixture.session['config'])['model'], 'new');
-    expect(fixture.commands.pending, isFalse);
-  });
-
-  test('recovery retains an uncertain follow-up request', () async {
-    final fixture = Fixture();
-    await expectLater(fixture.select(), throwsA(isA<CommandFailure>()));
-    fixture.uncertain = 'set_session_config';
-    await expectLater(fixture.commands.check(), throwsA(isA<CommandFailure>()));
-    expect(fixture.commands.pending, isTrue);
-    expect(fixture.session['revision'], 8);
-    await fixture.commands.check();
-    expect(fixture.recovered, [
-      'request-set_session_team',
-      'request-set_session_config',
-    ]);
-    expect(fixture.sent, hasLength(2));
-    expect(object(fixture.session['config'])['model'], 'new');
-    expect(fixture.commands.pending, isFalse);
-  });
-
-  test('inactive owners cannot continue a recovered operation', () async {
+  test('inactive owners cannot recover an operation', () async {
     final fixture = Fixture();
     await expectLater(fixture.select(), throwsA(isA<CommandFailure>()));
     fixture.active = false;

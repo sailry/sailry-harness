@@ -1763,6 +1763,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get team => 'Team';
 
   @override
+  String get executionModel => 'Model only';
+
+  @override
   String get teamDefault => 'Default team';
 
   @override

@@ -3,6 +3,14 @@ use sailry_protocol::ErrorCode;
 
 const SESSION: &str = "0f0e0d0c-0b0a-4908-8706-050403020100";
 
+#[tokio::test]
+async fn model_execution_excludes_delegation() {
+    let mut fixture = crate::agent::delegation::tests::Fixture::new().await;
+    assert!(available(&fixture.invocation));
+    fixture.invocation.turn.roles.execution = sailry_protocol::conversation::Execution::Model;
+    assert!(!available(&fixture.invocation));
+}
+
 mod prepare {
     use super::*;
 

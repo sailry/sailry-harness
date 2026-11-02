@@ -4,6 +4,7 @@ use serde_json::json;
 
 fn session() -> Session {
     Session {
+        association: None,
         id: SessionId::new(),
         creation_order: 1,
         archived: false,

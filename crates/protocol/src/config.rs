@@ -78,6 +78,8 @@ pub struct Defaults {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub id: SessionId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub association: Option<crate::conversation::Association>,
     /// Node-local immutable creation sequence. Historical stored receipts default to zero.
     #[serde(default)]
     pub creation_order: u64,

@@ -1,5 +1,7 @@
 //! UI-independent conversation projections; execution-engine types stay on the Node.
 pub mod assets;
+mod association;
+pub use association::{AssociatedSessions, Association};
 pub mod background;
 pub mod catalog;
 pub mod compaction;
@@ -23,6 +25,21 @@ use crate::{CredentialRef, Fault, NodeId, ProviderId, SessionId, TurnId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Session execution policy; existing sessions retain the Default team behavior.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Execution {
+    Model,
+    #[default]
+    Team,
+}
+
+impl Execution {
+    pub const fn is_team(&self) -> bool {
+        matches!(self, Self::Team)
+    }
+}
+
 /// Sent and queued input; attachment bytes belong to the execution Node.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Input {
@@ -42,9 +59,14 @@ pub struct Start {
     pub config: Option<crate::SessionConfig>,
     pub title: String,
     pub message: Input,
-    /// None selects the Default team with the whole role catalog.
+    #[serde(default, skip_serializing_if = "Execution::is_team")]
+    pub execution: Execution,
+    /// Business identity only; it does not grant access to a project or resource.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<crate::team::Reference>,
+    pub association: Option<Association>,
+    /// Team execution without a selection uses the whole role catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<crate::team::Selection>,
     /// Member model overrides for the selected team's roles.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub models: std::collections::BTreeMap<crate::RoleId, crate::role::Model>,

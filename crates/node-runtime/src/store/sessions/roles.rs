@@ -27,6 +27,7 @@ pub(in crate::store) async fn select(
         db,
         node,
         role::Snapshot {
+            execution: conversation::Execution::Team,
             profiles,
             providers: vec![],
             team: previous.team,
@@ -53,14 +54,27 @@ pub(in crate::store) async fn capture(
     .await
 }
 
-/// Capture an exact team revision, or the whole catalog for the Default team.
-pub(in crate::store) async fn team(
+/// Resolve execution at admission and freeze the selected roster.
+pub(in crate::store) async fn execution(
     db: &Connection,
     node: NodeId,
-    reference: Option<&team::Reference>,
+    execution: conversation::Execution,
+    reference: Option<&team::Selection>,
     models: std::collections::BTreeMap<RoleId, role::Model>,
 ) -> Result<role::Snapshot, Fault> {
+    if execution == conversation::Execution::Model {
+        if reference.is_some() || !models.is_empty() {
+            return Err(Fault::invalid(
+                "model execution cannot select a team or member models",
+            ));
+        }
+        return Ok(role::Snapshot {
+            execution,
+            ..Default::default()
+        });
+    }
     let mut snapshot = role::Snapshot {
+        execution,
         models,
         ..Default::default()
     };
@@ -70,7 +84,9 @@ pub(in crate::store) async fn team(
             let team = crate::store::teams::get(db, reference.id)
                 .await?
                 .ok_or_else(|| Fault::new(ErrorCode::NotFound, "team does not exist"))?;
-            crate::store::commands::check_revision(team.revision, reference.revision)?;
+            if let Some(revision) = reference.revision {
+                crate::store::commands::check_revision(team.revision, revision)?;
+            }
             for member in &team.members {
                 snapshot.profiles.push(
                     crate::store::roles::get(db, *member)
@@ -78,7 +94,7 @@ pub(in crate::store) async fn team(
                         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "role does not exist"))?,
                 );
             }
-            snapshot.team = Some(*reference);
+            snapshot.team = Some(team.reference());
             snapshot.instructions = team.instructions;
         }
     }

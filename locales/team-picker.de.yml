@@ -1,3 +1,4 @@
+composer_execution_model: "Nur Modell"
 composer_team_lead: "Leitung"
 composer_team_default: "Standardteam"
 composer_team_manage: "Teams verwalten"

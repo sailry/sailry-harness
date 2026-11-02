@@ -1741,6 +1741,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get team => '团队';
 
   @override
+  String get executionModel => '单模型';
+
+  @override
   String get teamDefault => '默认团队';
 
   @override
@@ -4232,6 +4235,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get team => '團隊';
+
+  @override
+  String get executionModel => '單一模型';
 
   @override
   String get teamDefault => '預設團隊';
