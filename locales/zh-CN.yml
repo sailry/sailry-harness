@@ -316,7 +316,6 @@ session_delete: 删除会话
 session_delete_confirm: 删除此会话及其子代理会话，无法恢复
 session_delete_busy: 请先停止会话，再删除
 session_changed: 会话已变化，请重新操作
-workspace_restore: 恢复并打开会话
 workspace_copy_path: 复制路径
 workspace_copy_title: 复制标题
 workspace_open_session: 打开会话

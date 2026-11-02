@@ -1,6 +1,11 @@
 use super::{Owner, model::Key};
 use crate::theme::DialogStyle as _;
-use crate::{preview::Page, shell::Shell, tr};
+use crate::{
+    preview::Page,
+    shell::Shell,
+    tr,
+    ui::modal_list::{List, Row},
+};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
     input::{Input, InputState},
@@ -477,41 +482,35 @@ impl Shell {
                 .form_title(tr("workspace_records"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(560.)))
                 .child(
-                    v_flex()
+                    div()
                         .id("session-records")
                         .max_h(px(360.))
                         .overflow_y_scrollbar()
-                        .gap_1()
-                        .children(records.iter().map(|(key, title, archived)| {
-                            let key = *key;
-                            let owner = owner.clone();
-                            Button::new(("session-record", key.1))
-                                .ghost()
-                                .w_full()
-                                .debug_selector(move || format!("session-record-{}", key.1))
-                                .icon(if *archived {
-                                    IconName::Inbox
-                                } else {
-                                    IconName::Bot
-                                })
-                                .label(title.clone())
-                                .tooltip(tr(if *archived {
-                                    "workspace_restore"
-                                } else {
-                                    "workspace_open_session"
-                                }))
-                                .on_click(move |_, window, cx| {
-                                    window.close_dialog(cx);
-                                    _ = owner.update(cx, |this, cx| {
-                                        if let Some(session) = this.workspace.sessions.get_mut(&key)
-                                        {
-                                            session.archived = false;
-                                        }
-                                        this.sidebar.open_project(project);
-                                        this.select_session(key, window, cx);
-                                    });
-                                })
-                        })),
+                        .child(List::new("session-record-list").rows(records.iter().map(
+                            |(key, title, archived)| {
+                                let key = *key;
+                                let owner = owner.clone();
+                                Row::new(format!("session-record-{}", key.1), title.clone())
+                                    .leading(Icon::new(if *archived {
+                                        IconName::Inbox
+                                    } else {
+                                        IconName::Bot
+                                    }))
+                                    .chevron()
+                                    .on_click(move |_, window, cx| {
+                                        window.close_dialog(cx);
+                                        _ = owner.update(cx, |this, cx| {
+                                            if let Some(session) =
+                                                this.workspace.sessions.get_mut(&key)
+                                            {
+                                                session.archived = false;
+                                            }
+                                            this.sidebar.open_project(project);
+                                            this.select_session(key, window, cx);
+                                        });
+                                    })
+                            },
+                        ))),
                 )
         });
     }
