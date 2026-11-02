@@ -184,21 +184,19 @@ impl Step {
     }
 }
 
-/// A role or team identity; absent appearances use the standard glyph.
+/// An identity glyph and the color it sits on.
+type Glyph = (Icon, Hsla);
+
+/// A role or team identity: a white glyph on its color; absent appearances stay neutral.
 fn identity(
     appearance: Option<&Appearance>,
     fallback: gpui_kit::assets::IconName,
     cx: &App,
-) -> Icon {
-    match appearance {
-        Some(appearance) => Icon::default()
-            .path(format!("icons/reicon/{}.svg", appearance.icon))
-            .text_color(crate::workspace::appearance::color(&appearance.color, cx)),
-        None => Icon::new(fallback).text_color(cx.theme().muted_foreground),
-    }
+) -> Glyph {
+    crate::workspace::appearance::filled(appearance, Icon::from(fallback), cx)
 }
 
-fn icon(team: Option<&Team>, cx: &App) -> Icon {
+fn icon(team: Option<&Team>, cx: &App) -> Glyph {
     identity(
         team.and_then(|team| team.appearance.as_ref()),
         gpui_kit::assets::IconName::Users,
@@ -213,17 +211,19 @@ fn name(team: Option<&Team>) -> SharedString {
     team.map_or_else(|| tr("composer_team_default"), |team| team.name.clone())
 }
 
-fn avatar(icon: Icon, overridden: bool, cx: &App) -> Badge {
+fn avatar(icon: Glyph, overridden: bool, cx: &App) -> Badge {
     marked(icon, overridden, false, cx)
 }
 
 /// The selected member is ringed in the theme accent instead of sitting on a button fill.
-fn marked(icon: Icon, overridden: bool, selected: bool, cx: &App) -> Badge {
+fn marked((icon, fill): Glyph, overridden: bool, selected: bool, cx: &App) -> Badge {
     Badge::new()
         .when(overridden, |badge| badge.dot().color(cx.theme().primary))
         .child(
             Avatar::new()
                 .with_size(MEMBER)
+                .bg(fill)
+                .border_color(fill)
                 .placeholder(icon.size_4())
                 .when(selected, |avatar| {
                     avatar.border_2().border_color(cx.theme().primary)
@@ -233,12 +233,15 @@ fn marked(icon: Icon, overridden: bool, selected: bool, cx: &App) -> Badge {
 
 /// The composer chip's team identity; the dot marks member overrides.
 pub(super) fn chip_avatar(team: Option<&Team>, overridden: bool, cx: &App) -> Badge {
+    let (glyph, fill) = icon(team, cx);
     Badge::new()
         .when(overridden, |badge| badge.dot().color(cx.theme().primary))
         .child(
             Avatar::new()
                 .with_size(px(20.))
-                .placeholder(icon(team, cx).size_3()),
+                .bg(fill)
+                .border_color(fill)
+                .placeholder(glyph.size_3()),
         )
 }
 
@@ -294,17 +297,14 @@ impl Panel {
                     .min_w_0()
                     .gap_1()
                     .items_center()
-                    .child(
-                        self.member_button(
-                            "model-team-lead",
-                            None,
-                            lead.clone(),
-                            Icon::new(gpui_kit::assets::IconName::Crown)
-                                .text_color(cx.theme().muted_foreground),
-                            false,
-                            cx,
-                        ),
-                    )
+                    .child(self.member_button(
+                        "model-team-lead",
+                        None,
+                        lead.clone(),
+                        identity(None, gpui_kit::assets::IconName::Crown, cx),
+                        false,
+                        cx,
+                    ))
                     .children(roster.members.iter().enumerate().map(|(index, member)| {
                         self.member_button(
                             SharedString::from(format!("model-team-member-{index}")),
@@ -329,7 +329,7 @@ impl Panel {
         id: impl Into<SharedString>,
         role: Option<RoleId>,
         name: SharedString,
-        icon: Icon,
+        icon: Glyph,
         overridden: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {

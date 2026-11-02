@@ -10,6 +10,15 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sailry_protocol::projects::{Appearance, COLORS, ICONS};
 
+/// How the chooser's trigger is drawn.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Trigger {
+    /// The bare glyph, sized for an input prefix or a list row.
+    Inline,
+    /// A filled circle that reads as the editable identity of a dialog header.
+    Avatar,
+}
+
 pub(crate) struct Selection<T> {
     pub selected: Appearance,
     pub read: fn(&T) -> Appearance,
@@ -20,6 +29,7 @@ pub(crate) fn picker<T: 'static>(
     id: &str,
     owner: WeakEntity<T>,
     selection: Selection<T>,
+    trigger_style: Trigger,
     disabled: bool,
     label: SharedString,
     cx: &App,
@@ -35,8 +45,20 @@ pub(crate) fn picker<T: 'static>(
         .map(|popover| crate::theme::popover(popover, cx))
         .trigger(
             Button::new(SharedString::from(format!("{id}-identity")))
-                .text()
-                .child(project(&selected, cx))
+                .map(|button| match trigger_style {
+                    Trigger::Inline => button.text().child(project(&selected, cx)),
+                    Trigger::Avatar => {
+                        let (icon, fill) = super::filled(Some(&selected), Icon::empty(), cx);
+                        button
+                            .ghost()
+                            .rounded_full()
+                            .size_10()
+                            .p_0()
+                            .flex_shrink_0()
+                            .bg(fill)
+                            .child(icon.size_5())
+                    }
+                })
                 .disabled(disabled)
                 .accessibility_label(label)
                 .debug_selector(move || trigger.clone()),

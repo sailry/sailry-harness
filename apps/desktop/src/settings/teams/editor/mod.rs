@@ -270,6 +270,7 @@ impl Editor {
                     },
                     write: |editor, value| editor.appearance = Some(value),
                 },
+                crate::workspace::appearance::Trigger::Avatar,
                 locked,
                 tr("role_appearance"),
                 cx,

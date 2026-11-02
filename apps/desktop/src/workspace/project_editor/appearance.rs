@@ -10,6 +10,7 @@ impl Editor {
                 read: |editor: &Editor| editor.appearance.clone(),
                 write: |editor, value| editor.appearance = value,
             },
+            super::super::appearance::Trigger::Inline,
             self.pending,
             tr("project_appearance"),
             cx,

@@ -11,24 +11,24 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sailry_protocol::{projects::Appearance, role, team};
 
-/// Kit Avatar with a Reicon identity glyph in its named color.
+/// Kit Avatar filled with the identity color and a white Reicon glyph.
 pub(super) fn avatar(appearance: Option<&Appearance>, cx: &App) -> Avatar {
-    let value = appearance.cloned().unwrap_or_else(super::draft::fallback);
-    Avatar::new().placeholder(
-        Icon::default()
-            .path(format!("icons/reicon/{}.svg", value.icon))
-            .text_color(identity::color(&value.color, cx)),
-    )
+    let fallback = super::draft::fallback();
+    filled(Some(appearance.unwrap_or(&fallback)), Icon::empty(), cx)
 }
 
 /// The Default team and teams without an appearance use the standard team glyph.
 pub(super) fn team_avatar(appearance: Option<&Appearance>, cx: &App) -> Avatar {
-    match appearance {
-        Some(_) => avatar(appearance, cx),
-        None => Avatar::new().placeholder(
-            Icon::from(gpui_kit::assets::IconName::Users).text_color(cx.theme().muted_foreground),
-        ),
-    }
+    filled(
+        appearance,
+        Icon::from(gpui_kit::assets::IconName::Users),
+        cx,
+    )
+}
+
+fn filled(appearance: Option<&Appearance>, fallback: Icon, cx: &App) -> Avatar {
+    let (icon, fill) = identity::filled(appearance, fallback, cx);
+    Avatar::new().bg(fill).border_color(fill).placeholder(icon)
 }
 
 pub(super) fn count(roles: usize) -> SharedString {

@@ -14,6 +14,7 @@ use gpui_kit::component::{
     switch::Switch,
     *,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sailry_protocol::{RoleId, projects::Appearance, role};
 
@@ -196,11 +197,13 @@ impl RoleForm {
         cx.notify();
     }
 
-    fn presets(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// `field` matches the form's inputs; otherwise it sits small beside the prompt label.
+    fn presets(&self, field: bool, cx: &mut Context<Self>) -> AnyElement {
         let owner = cx.entity().downgrade();
         Button::new("role-presets")
             .outline()
-            .small()
+            .when(field, |button| button.w_full())
+            .when(!field, |button| button.small())
             .label(tr("role_presets"))
             .dropdown_caret(true)
             .disabled(self.locked)
@@ -217,7 +220,7 @@ impl RoleForm {
             .into_any_element()
     }
 
-    fn identity(&self, cx: &mut Context<Self>) -> Popover {
+    fn identity(&self, trigger: identity::Trigger, cx: &mut Context<Self>) -> Popover {
         identity::picker(
             "role",
             cx.entity().downgrade(),
@@ -226,6 +229,7 @@ impl RoleForm {
                 read: |form: &RoleForm| form.appearance.clone().unwrap_or_else(draft::fallback),
                 write: |form, value| form.appearance = Some(value),
             },
+            trigger,
             self.locked,
             tr("role_appearance"),
             cx,
@@ -289,12 +293,12 @@ impl RoleForm {
             .children(self.creating.then(|| {
                 Field::new()
                     .label(tr("role_presets"))
-                    .child(self.presets(cx))
+                    .child(self.presets(true, cx))
             }))
             .child(pair(
                 Field::new().label(tr("settings_name")).child(
                     Input::new(&self.name)
-                        .prefix(self.identity(cx))
+                        .prefix(self.identity(identity::Trigger::Inline, cx))
                         .disabled(locked)
                         .aria_label(tr("settings_name")),
                 ),
@@ -317,7 +321,7 @@ impl RoleForm {
                     .child(self.model.clone()),
             )
             .child(self.read_only_row(cx))
-            .child(self.prompt((!self.creating).then(|| self.presets(cx))))
+            .child(self.prompt((!self.creating).then(|| self.presets(false, cx))))
             .into_any_element()
     }
 
@@ -327,24 +331,28 @@ impl RoleForm {
             .w_full()
             .gap_4()
             .child(
-                h_flex().w_full().gap_3().child(self.identity(cx)).child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .child(
-                            Input::new(&self.name)
-                                .appearance(false)
-                                .disabled(locked)
-                                .aria_label(tr("settings_name")),
-                        )
-                        .child(
-                            Input::new(&self.description)
-                                .appearance(false)
-                                .small()
-                                .disabled(locked)
-                                .aria_label(tr("teams_description")),
-                        ),
-                ),
+                h_flex()
+                    .w_full()
+                    .gap_3()
+                    .child(self.identity(identity::Trigger::Avatar, cx))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                Input::new(&self.name)
+                                    .appearance(false)
+                                    .disabled(locked)
+                                    .aria_label(tr("settings_name")),
+                            )
+                            .child(
+                                Input::new(&self.description)
+                                    .appearance(false)
+                                    .small()
+                                    .disabled(locked)
+                                    .aria_label(tr("teams_description")),
+                            ),
+                    ),
             )
             .child(
                 Field::new()
