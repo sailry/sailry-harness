@@ -60,7 +60,9 @@ jobs:
             --event "$RUNNER_TEMP/published-release.json" --repository "$GITHUB_REPOSITORY"
       - name: Build pinned release producer
         if: steps.canonical.outputs.ready == 'true'
-        run: cargo build --locked --release -p sailry-release
+        run: |
+          rustup toolchain install
+          cargo build --locked --release -p sailry-release
       - name: Publish signed catalog to the exact release
         id: catalog
         if: steps.canonical.outputs.ready == 'true'

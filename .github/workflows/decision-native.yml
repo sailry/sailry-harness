@@ -35,6 +35,7 @@ jobs:
           persist-credentials: false
       - name: Pinned Rust toolchain
         run: |
+          rustup toolchain install
           rustup show active-toolchain
           rustc -vV
           uname -srm

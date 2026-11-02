@@ -106,6 +106,7 @@ jobs:
           use-cache: false
       - name: Pinned Rust toolchain
         run: |
+          rustup toolchain install
           rustup show active-toolchain
           test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
           xcodebuild -version
@@ -167,6 +168,7 @@ jobs:
           use-cache: false
       - name: Pinned Rust toolchain
         run: |
+          rustup toolchain install
           rustup show active-toolchain
           test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
           xcodebuild -version
@@ -269,6 +271,7 @@ jobs:
           use-cache: false
       - name: Pinned Rust toolchain
         run: |
+          rustup toolchain install
           rustup show active-toolchain
           test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
           xcodebuild -version
@@ -349,6 +352,7 @@ jobs:
           use-cache: false
       - name: Pinned Rust toolchain
         run: |
+          rustup toolchain install
           rustup show active-toolchain
           test "$(rustc -vV | awk '/^host: / {print $2}')" = x86_64-unknown-linux-gnu
       - name: Linux build and sandbox prerequisites
@@ -417,6 +421,8 @@ jobs:
         if: needs.source.outputs.mobile == 'true'
         working-directory: apps/mobile
         run: flutter pub get --enforce-lockfile
+      - name: Pinned Rust toolchain
+        run: rustup toolchain install
       - name: Search prerequisite
         run: brew install ripgrep
       - name: Rust dependency caches
@@ -503,6 +509,7 @@ jobs:
       - name: Android native prerequisites
         run: |
           printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
+          rustup toolchain install
           rustup target add aarch64-linux-android
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes ripgrep
