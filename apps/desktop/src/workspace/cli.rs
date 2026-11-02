@@ -1,12 +1,11 @@
 use super::{Owner, model::Profile};
 use crate::theme::DialogStyle as _;
-use crate::{shell::Shell, tr};
-use gpui_kit::component::{
-    button::{Button, ButtonVariants},
-    scroll::ScrollableElement,
-    *,
+use crate::{
+    shell::Shell,
+    tr,
+    ui::modal_list::{List, Row},
 };
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::{button::Button, scroll::ScrollableElement, *};
 use gpui_kit::*;
 pub(crate) mod menu;
 
@@ -106,50 +105,24 @@ impl Render for Launcher {
                 div()
                     .max_h((window.viewport_size().height - px(340.)).clamp(px(100.), px(300.)))
                     .child(
-                        v_flex()
-                            .id("cli-profiles")
-                            .gap_1()
-                            .p_1()
-                            .overflow_y_scrollbar()
-                            .children(self.profiles.iter().cloned().map(|profile| {
-                                Button::new(profile.id)
-                                    .custom(crate::theme::subtle_button(cx))
-                                    .w_full()
-                                    .accessibility_label(profile.name.clone())
-                                    .child(
-                                        h_flex()
-                                            .w_full()
-                                            .gap_3()
-                                            .child(
-                                                Icon::new(IconName::SquareTerminal)
-                                                    .size_4()
-                                                    .flex_shrink_0(),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .truncate()
-                                                    .text_sm()
-                                                    .child(format!(
-                                                        "{} ({})",
-                                                        profile.name, profile.executable
-                                                    )),
-                                            ),
+                        div().id("cli-profiles").overflow_y_scrollbar().child(
+                            List::new("cli-profile-list")
+                                .rows(self.profiles.iter().cloned().map(|profile| {
+                                    Row::new(
+                                        format!("cli-profile-{}", profile.id),
+                                        profile.name.clone(),
                                     )
-                                    .debug_selector(move || format!("cli-profile-{}", profile.id))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.launch(&profile, window, cx)
-                                    }))
-                            }))
-                            .when(self.profiles.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .text_sm()
-                                        .debug_selector(|| "cli-empty".into())
-                                        .child(tr("cli_empty")),
-                                )
-                            }),
+                                    .subtitle(profile.executable.clone())
+                                    .leading(Icon::new(IconName::SquareTerminal))
+                                    .chevron()
+                                    .on_click(cx.listener(
+                                        move |this, _, window, cx| {
+                                            this.launch(&profile, window, cx)
+                                        },
+                                    ))
+                                }))
+                                .empty(tr("cli_empty")),
+                        ),
                     ),
             )
             .child(
