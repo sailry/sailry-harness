@@ -66,8 +66,8 @@ jobs:
           python3 - <<'PYTHON'
           import json, os, subprocess
           targets = [
-              {'runner': 'macos-15', 'target': 'aarch64-apple-darwin', 'jobs': 1},
-              {'runner': 'macos-15-intel', 'target': 'x86_64-apple-darwin', 'jobs': 2},
+              {'runner': 'macos-15', 'target': 'aarch64-apple-darwin', 'jobs': 3},
+              {'runner': 'macos-15-intel', 'target': 'x86_64-apple-darwin', 'jobs': 4},
           ]
           if os.environ['RESUME_INTEL_FROM']:
               subprocess.run(['python3', '.workflow-tools/scripts/recover-desktop.py',
@@ -83,7 +83,7 @@ jobs:
     needs: version
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.version.outputs.matrix || '{"include":[{"runner":"macos-15","target":"aarch64-apple-darwin","jobs":1},{"runner":"macos-15-intel","target":"x86_64-apple-darwin","jobs":2}]}') }}
+      matrix: ${{ fromJSON(needs.version.outputs.matrix || '{"include":[{"runner":"macos-15","target":"aarch64-apple-darwin","jobs":3},{"runner":"macos-15-intel","target":"x86_64-apple-darwin","jobs":4}]}') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     env:
@@ -211,7 +211,7 @@ jobs:
     needs: [version, build]
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.version.outputs.matrix || '{"include":[{"runner":"macos-15","target":"aarch64-apple-darwin","jobs":1},{"runner":"macos-15-intel","target":"x86_64-apple-darwin","jobs":2}]}') }}
+      matrix: ${{ fromJSON(needs.version.outputs.matrix || '{"include":[{"runner":"macos-15","target":"aarch64-apple-darwin","jobs":3},{"runner":"macos-15-intel","target":"x86_64-apple-darwin","jobs":4}]}') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     env:

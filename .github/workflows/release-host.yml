@@ -64,10 +64,10 @@ jobs:
         include:
           - runner: macos-15
             target: aarch64-apple-darwin
-            jobs: 1
+            jobs: 3
           - runner: macos-15-intel
             target: x86_64-apple-darwin
-            jobs: 2
+            jobs: 4
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     env:

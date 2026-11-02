@@ -396,7 +396,8 @@ TestFlight group in App Store Connect. External testing may require Beta App
 Review. The workflow does not infer encryption declarations or invite testers.
 
 Apple silicon and Intel runners build native Desktop DMGs, updater ZIPs and
-standalone macOS Host archives. Desktop contains its local Node, not remote Host
+standalone macOS Host archives. Native macOS release builds use four Cargo jobs
+on Intel and three on Apple silicon. Desktop contains its local Node, not remote Host
 binaries or a Python runtime. Independent Linux amd64 and arm64 runners each
 build one Host architecture with glibc 2.34 targeting. The locked ARM64 Decision
 libraries additionally require glibc 2.38; the compatibility check verifies their

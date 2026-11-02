@@ -290,8 +290,8 @@ class ReleaseWorkflows(unittest.TestCase):
         defaults = ast.literal_eval("[" + workflow.split("targets = [", 1)[1].split("]", 1)[0] + "]")
         fallback = json.loads(desktop.split("fromJSON(needs.version.outputs.matrix || '", 1)[1].split("') }}", 1)[0])
         self.assertEqual(defaults, [
-            {"runner": "macos-15", "target": "aarch64-apple-darwin", "jobs": 1},
-            {"runner": "macos-15-intel", "target": "x86_64-apple-darwin", "jobs": 2},
+            {"runner": "macos-15", "target": "aarch64-apple-darwin", "jobs": 3},
+            {"runner": "macos-15-intel", "target": "x86_64-apple-darwin", "jobs": 4},
         ])
         self.assertEqual(fallback, {"include": defaults})
         self.assertIn("runner: macos-15", host)
