@@ -6,10 +6,10 @@ use crate::{
     plugins::{emblem, metadata},
     theme::DialogStyle,
     tr,
+    ui::modal_list,
 };
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
-    checkbox::Checkbox,
     dialog::DialogFooter,
     spinner::Spinner,
     *,
@@ -218,124 +218,129 @@ impl Render for State {
                     .text_color(cx.theme().muted_foreground)
                     .child(self.binding.label.clone()),
             )
-            .children(
-                self.dialog
-                    .iter()
-                    .flat_map(|selection| &selection.rows)
-                    .map(|(name, row)| {
-                        let selection_name = name.clone();
-                        let expand_name = name.clone();
-                        let retry_name = name.clone();
-                        let retryable = self.batch.as_ref().map_or_else(
-                            || self.entries.contains_key(name),
-                            |batch| {
-                                batch
-                                    .entries
-                                    .front()
-                                    .is_some_and(|entry| entry.current.name == *name)
-                            },
-                        );
-                        v_flex()
-                            .w_full()
-                            .min_w_0()
-                            .flex_shrink_0()
-                            .rounded_lg()
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .p_3()
-                            .gap_3()
-                            .debug_selector({
-                                let name = name.clone();
-                                move || format!("plugin-update-card-{name}")
-                            })
-                            .child(
+            .child(
+                modal_list::List::new("plugin-update-rows").rows(
+                    self.dialog
+                        .iter()
+                        .flat_map(|selection| &selection.rows)
+                        .map(|(name, row)| {
+                            let selection_name = name.clone();
+                            let expand_name = name.clone();
+                            let retry_name = name.clone();
+                            let retryable = self.batch.as_ref().map_or_else(
+                                || self.entries.contains_key(name),
+                                |batch| {
+                                    batch
+                                        .entries
+                                        .front()
+                                        .is_some_and(|entry| entry.current.name == *name)
+                                },
+                            );
+                            let interactive = !locked && row.status == Status::Ready;
+                            let notes = row.expanded.then(|| {
+                                v_flex()
+                                    .w_full()
+                                    .gap_2()
+                                    .when(row.status != Status::Blocked, |view| {
+                                        view.when_some(
+                                            row.info.release_notes.as_ref(),
+                                            |view, notes| {
+                                                view.child(
+                                                    div().font_medium().child(
+                                                        row.info
+                                                            .summary
+                                                            .version
+                                                            .clone()
+                                                            .unwrap_or_else(|| "—".into()),
+                                                    ),
+                                                )
+                                                .child(super::super::notes::view(notes))
+                                            },
+                                        )
+                                    })
+                                    .when_some(row.blocked.as_ref(), |view, blocked| {
+                                        view.when_some(
+                                            blocked.release_notes.as_ref(),
+                                            |view, notes| {
+                                                view.child(
+                                                    div()
+                                                        .font_medium()
+                                                        .child(blocked.version.clone()),
+                                                )
+                                                .child(super::super::notes::view(notes))
+                                            },
+                                        )
+                                    })
+                                    .when(row.status != Status::Blocked, |view| {
+                                        view.child(
+                                            div()
+                                                .text_sm()
+                                                .font_medium()
+                                                .child(tr("plugins_update_changes")),
+                                        )
+                                    })
+                                    .children(
+                                        [
+                                            ("plugins_update_tools", &row.changes.tools, false),
+                                            ("plugins_update_skills", &row.changes.skills, false),
+                                            (
+                                                "plugins_update_settings",
+                                                &row.changes.settings,
+                                                false,
+                                            ),
+                                            ("plugins_update_actions", &row.changes.actions, true),
+                                        ]
+                                        .into_iter()
+                                        .filter(|(_, delta, _)| !delta.empty())
+                                        .map(
+                                            |(key, delta, permissions)| {
+                                                delta_view(key, delta, permissions, cx)
+                                            },
+                                        ),
+                                    )
+                            });
+                            let blocked = row.blocked.as_ref().map(|blocked| {
                                 h_flex()
                                     .w_full()
-                                    .gap_3()
+                                    .gap_2()
                                     .items_center()
                                     .child(
                                         div()
-                                            .debug_selector({
-                                                let name = name.clone();
-                                                move || format!("plugin-update-select-{name}")
-                                            })
-                                            .child(
-                                                Checkbox::new(SharedString::from(format!(
-                                                    "plugin-update-select-{name}"
-                                                )))
-                                                .checked(row.selected)
-                                                .disabled(locked || row.status != Status::Ready)
-                                                .accessibility_label(metadata::title(&row.info))
-                                                .on_click(cx.listener(
-                                                    move |state, checked, _, cx| {
-                                                        if let Some(row) = state
-                                                            .dialog
-                                                            .as_mut()
-                                                            .and_then(|selection| {
-                                                                selection
-                                                                    .rows
-                                                                    .get_mut(&selection_name)
-                                                            })
-                                                        {
-                                                            row.selected = *checked;
-                                                        }
-                                                        cx.notify();
-                                                    },
-                                                )),
-                                            ),
-                                    )
-                                    .child(emblem::grid(
-                                        name,
-                                        row.info
-                                            .extension
-                                            .as_ref()
-                                            .and_then(|extension| extension.tint),
-                                        emblem::glyph(&row.info),
-                                        row.info.icon.as_deref(),
-                                        px(32.),
-                                    ))
-                                    .child(
-                                        v_flex()
                                             .flex_1()
                                             .min_w_0()
-                                            .gap_1()
-                                            .child(
-                                                div()
-                                                    .truncate()
-                                                    .font_medium()
-                                                    .debug_selector({
-                                                        let name = name.clone();
-                                                        move || {
-                                                            format!("plugin-update-title-{name}")
-                                                        }
-                                                    })
-                                                    .child(metadata::title(&row.info)),
-                                            )
-                                            .child(
-                                                div()
-                                                    .truncate()
-                                                    .text_sm()
-                                                    .text_color(cx.theme().muted_foreground)
-                                                    .debug_selector({
-                                                        let name = name.clone();
-                                                        move || {
-                                                            format!("plugin-update-version-{name}")
-                                                        }
-                                                    })
-                                                    .child(row.version()),
-                                            ),
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(format!(
+                                                "{} · {}",
+                                                blocked.version,
+                                                super::super::compatibility::message(
+                                                    &blocked.required,
+                                                    &self.binding,
+                                                    cx
+                                                )
+                                            )),
                                     )
-                                    .when(row.status == Status::Updating, |view| {
-                                        view.child(Spinner::new().small())
-                                    })
-                                    .when(row.status == Status::Succeeded, |view| {
-                                        view.child(
-                                            Icon::new(IconName::CircleCheck)
-                                                .text_color(cx.theme().success),
-                                        )
-                                    })
-                                    .when(row.status == Status::Failed, |view| {
-                                        view.child(
+                                    .children(super::super::compatibility::action(
+                                        SharedString::from(format!("plugin-update-sailry-{name}")),
+                                        &self.binding,
+                                        cx,
+                                    ))
+                            });
+                            let details = (blocked.is_some() || notes.is_some()).then(|| {
+                                v_flex().w_full().gap_3().children(blocked).children(notes)
+                            });
+                            let status = match row.status {
+                                Status::Updating => Some(Spinner::new().small().into_any_element()),
+                                Status::Succeeded => Some(
+                                    Icon::new(IconName::CircleCheck)
+                                        .text_color(cx.theme().success)
+                                        .into_any_element(),
+                                ),
+                                Status::Failed => Some(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .child(
                                             Icon::new(IconName::CircleX)
                                                 .text_color(cx.theme().danger),
                                         )
@@ -343,7 +348,6 @@ impl Render for State {
                                             Button::new(SharedString::from(format!(
                                                 "plugin-update-retry-{name}"
                                             )))
-                                            .small()
                                             .ghost()
                                             .icon(Icon::empty().path("icons/rotate-ccw.svg"))
                                             .tooltip(tr("plugins_retry"))
@@ -374,141 +378,68 @@ impl Render for State {
                                                 }
                                             })),
                                         )
-                                    })
-                                    .child(
-                                        Button::new(SharedString::from(format!(
-                                            "plugin-update-expand-{name}"
-                                        )))
-                                        .small()
-                                        .ghost()
-                                        .icon(if row.expanded {
-                                            IconName::ChevronUp
-                                        } else {
-                                            IconName::ChevronDown
-                                        })
-                                        .tooltip(tr("plugins_update_changes"))
-                                        .accessibility_label(tr("plugins_update_changes"))
-                                        .debug_selector({
-                                            let name = name.clone();
-                                            move || format!("plugin-update-expand-{name}")
-                                        })
-                                        .on_click(
-                                            cx.listener(move |state, _, _, cx| {
-                                                if let Some(row) =
-                                                    state.dialog.as_mut().and_then(|selection| {
-                                                        selection.rows.get_mut(&expand_name)
-                                                    })
-                                                {
-                                                    row.expanded = !row.expanded;
-                                                }
-                                                cx.notify();
-                                            }),
-                                        ),
-                                    ),
+                                        .into_any_element(),
+                                ),
+                                Status::Ready | Status::Blocked => None,
+                            };
+                            let expand = Button::new(SharedString::from(format!(
+                                "plugin-update-expand-{name}"
+                            )))
+                            .ghost()
+                            .icon(if row.expanded {
+                                IconName::ChevronUp
+                            } else {
+                                IconName::ChevronDown
+                            })
+                            .tooltip(tr("plugins_update_changes"))
+                            .accessibility_label(tr("plugins_update_changes"))
+                            .debug_selector({
+                                let name = name.clone();
+                                move || format!("plugin-update-expand-{name}")
+                            })
+                            .on_click(cx.listener(
+                                move |state, _, _, cx| {
+                                    if let Some(row) = state
+                                        .dialog
+                                        .as_mut()
+                                        .and_then(|selection| selection.rows.get_mut(&expand_name))
+                                    {
+                                        row.expanded = !row.expanded;
+                                    }
+                                    cx.notify();
+                                },
+                            ));
+                            modal_list::Row::new(
+                                format!("plugin-update-select-{name}"),
+                                metadata::title(&row.info),
                             )
-                            .when_some(row.blocked.as_ref(), |view, blocked| {
-                                view.child(
-                                    h_flex()
-                                        .w_full()
-                                        .gap_2()
-                                        .items_center()
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .text_sm()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(format!(
-                                                    "{} · {}",
-                                                    blocked.version,
-                                                    super::super::compatibility::message(
-                                                        &blocked.required,
-                                                        &self.binding,
-                                                        cx
-                                                    )
-                                                )),
-                                        )
-                                        .children(super::super::compatibility::action(
-                                            SharedString::from(format!(
-                                                "plugin-update-sailry-{name}"
-                                            )),
-                                            &self.binding,
-                                            cx,
-                                        )),
-                                )
+                            .subtitle(row.version())
+                            .leading(emblem::grid(
+                                name,
+                                row.info
+                                    .extension
+                                    .as_ref()
+                                    .and_then(|extension| extension.tint),
+                                emblem::glyph(&row.info),
+                                row.info.icon.as_deref(),
+                                px(32.),
+                            ))
+                            .checkbox(row.selected)
+                            .when_some(status, |item, status| item.trailing(status))
+                            .trailing(expand)
+                            .when_some(details, |item, details| item.details(details))
+                            .when(interactive, |item| {
+                                item.on_click(cx.listener(move |state, _, _, cx| {
+                                    if let Some(row) = state.dialog.as_mut().and_then(|selection| {
+                                        selection.rows.get_mut(&selection_name)
+                                    }) {
+                                        row.selected = !row.selected;
+                                    }
+                                    cx.notify();
+                                }))
                             })
-                            .when(row.expanded, |view| {
-                                view.child(
-                                    v_flex()
-                                        .gap_2()
-                                        .when(row.status != Status::Blocked, |view| {
-                                            view.when_some(
-                                                row.info.release_notes.as_ref(),
-                                                |view, notes| {
-                                                    view.child(
-                                                        div().font_medium().child(
-                                                            row.info
-                                                                .summary
-                                                                .version
-                                                                .clone()
-                                                                .unwrap_or_else(|| "—".into()),
-                                                        ),
-                                                    )
-                                                    .child(super::super::notes::view(notes))
-                                                },
-                                            )
-                                        })
-                                        .when_some(row.blocked.as_ref(), |view, blocked| {
-                                            view.when_some(
-                                                blocked.release_notes.as_ref(),
-                                                |view, notes| {
-                                                    view.child(
-                                                        div()
-                                                            .font_medium()
-                                                            .child(blocked.version.clone()),
-                                                    )
-                                                    .child(super::super::notes::view(notes))
-                                                },
-                                            )
-                                        })
-                                        .when(row.status != Status::Blocked, |view| {
-                                            view.child(
-                                                div()
-                                                    .text_sm()
-                                                    .font_medium()
-                                                    .child(tr("plugins_update_changes")),
-                                            )
-                                        })
-                                        .children(
-                                            [
-                                                ("plugins_update_tools", &row.changes.tools, false),
-                                                (
-                                                    "plugins_update_skills",
-                                                    &row.changes.skills,
-                                                    false,
-                                                ),
-                                                (
-                                                    "plugins_update_settings",
-                                                    &row.changes.settings,
-                                                    false,
-                                                ),
-                                                (
-                                                    "plugins_update_actions",
-                                                    &row.changes.actions,
-                                                    true,
-                                                ),
-                                            ]
-                                            .into_iter()
-                                            .filter(|(_, delta, _)| !delta.empty())
-                                            .map(
-                                                |(key, delta, permissions)| {
-                                                    delta_view(key, delta, permissions, cx)
-                                                },
-                                            ),
-                                        ),
-                                )
-                            })
-                    }),
+                        }),
+                ),
             )
     }
 }
