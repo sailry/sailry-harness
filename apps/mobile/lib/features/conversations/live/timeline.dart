@@ -157,16 +157,14 @@ class _LiveTimelineState extends State<LiveTimeline> {
           // Reasoning stays out of the mobile transcript; tools merge around it.
           return const SizedBox.shrink();
         case 'compaction':
-          return ExpansionTile(
-            key: PageStorageKey('summary-${entry['id']}-$index'),
-            tilePadding: EdgeInsets.zero,
-            title: Text(context.tr('conversationCompacted')),
-            children: [
-              MarkdownContent(
-                data as String,
-                key: const PageStorageKey('summary-text'),
-              ),
-            ],
+          // The summary is model context; the transcript only marks where it happened.
+          return Padding(
+            key: ValueKey('summary-${entry['id']}-$index'),
+            padding: const EdgeInsets.only(bottom: 8),
+            child: ActivityText(
+              context.tr('conversationCompacted'),
+              active: false,
+            ),
           );
         case 'attachment':
           final attachment = object(data);
