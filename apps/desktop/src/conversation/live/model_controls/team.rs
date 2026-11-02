@@ -286,16 +286,17 @@ impl Panel {
                         cx.notify();
                     })),
             )
-            // Team at the start, members at the end; a long roster shrinks and scrolls.
-            .child(div().flex_1())
             .child(
                 h_flex()
                     .id("model-team-members")
                     .debug_selector(|| "model-team-members".into())
-                    .flex_shrink()
+                    .flex_1()
                     .min_w_0()
                     .gap_1()
                     .items_center()
+                    // Kit's scroll area fills the row, so the spacer lives inside it: members
+                    // sit at the end, and the spacer collapses when a long roster scrolls.
+                    .child(div().flex_1())
                     .child(self.member_button(
                         "model-team-lead",
                         None,
