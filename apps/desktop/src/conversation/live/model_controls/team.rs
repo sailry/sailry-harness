@@ -262,30 +262,37 @@ impl Panel {
             .gap_2()
             .items_center()
             .child(
-                // Icon only; the name stays in the tooltip and accessible label.
+                // Icon and chevron; the name stays in the tooltip and accessible label.
                 Button::new("model-team-choose")
                     .text()
                     .rounded_full()
-                    .w(MEMBER)
                     .h(MEMBER)
-                    .p_0()
+                    .pl_0()
+                    .pr_1()
                     .flex_shrink_0()
                     .tooltip(name(team))
                     .accessibility_label(name(team))
                     .debug_selector(|| "model-team-choose".into())
                     .disabled(locked)
-                    .child(avatar(icon(team, cx), false, cx))
+                    .child(
+                        h_flex()
+                            .gap_0p5()
+                            .items_center()
+                            .child(avatar(icon(team, cx), false, cx))
+                            .child(Icon::new(IconName::ChevronRight).size_3()),
+                    )
                     .on_click(cx.listener(|panel, _, _, cx| {
                         panel.layer = Layer::Teams;
                         cx.notify();
                     })),
             )
-            .child(Separator::vertical().h_4().flex_shrink_0())
+            // Team at the start, members at the end; a long roster shrinks and scrolls.
+            .child(div().flex_1())
             .child(
                 h_flex()
                     .id("model-team-members")
                     .debug_selector(|| "model-team-members".into())
-                    .flex_1()
+                    .flex_shrink()
                     .min_w_0()
                     .gap_1()
                     .items_center()
