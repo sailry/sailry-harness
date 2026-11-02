@@ -227,9 +227,8 @@ impl Editor {
             .trigger_style(StyleRefinement::default().w_full())
             .trigger(
                 Button::new("team-add-role-trigger")
-                    .ghost()
+                    .outline()
                     .w_full()
-                    .justify_start()
                     .icon(IconName::Plus)
                     .label(tr("team_add_role"))
                     .disabled(locked),
@@ -320,37 +319,23 @@ impl Editor {
     }
 }
 
-/// The "Add role" popover content: search, a checkbox per candidate role and "New role".
+/// The "Add role" popover content: a checkbox per candidate role and "New role".
 pub(super) struct Adder {
     editor: WeakEntity<Editor>,
-    search: Entity<InputState>,
     pub popover: Option<WeakEntity<PopoverState>>,
-    _search: Subscription,
 }
 
 impl Adder {
-    pub fn new(editor: WeakEntity<Editor>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder(tr("team_search_roles")));
-        let subscription = cx.subscribe(
-            &search,
-            |_, _, event: &gpui_kit::component::input::InputEvent, cx| {
-                if matches!(event, gpui_kit::component::input::InputEvent::Change) {
-                    cx.notify();
-                }
-            },
-        );
+    pub fn new(editor: WeakEntity<Editor>) -> Self {
         Self {
             editor,
-            search,
             popover: None,
-            _search: subscription,
         }
     }
 }
 
 impl Render for Adder {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let query = self.search.read(cx).value().trim().to_lowercase();
         let candidates = self
             .editor
             .upgrade()
@@ -359,11 +344,6 @@ impl Render for Adder {
         let rows = candidates
             .into_iter()
             .map(|(role, checked)| (draft::label(&role).0, role, checked))
-            .filter(|(name, role, _)| {
-                query.is_empty()
-                    || name.to_lowercase().contains(&query)
-                    || role.key.contains(&query)
-            })
             .enumerate()
             .map(|(index, (name, role, checked))| {
                 let editor = self.editor.clone();
@@ -391,13 +371,6 @@ impl Render for Adder {
         v_flex()
             .w(px(280.))
             .gap_1()
-            .child(
-                Input::new(&self.search)
-                    .small()
-                    .cleanable(true)
-                    .prefix(Icon::new(IconName::Search).small())
-                    .aria_label(tr("team_search_roles")),
-            )
             .child(
                 v_flex()
                     .id("team-candidates")

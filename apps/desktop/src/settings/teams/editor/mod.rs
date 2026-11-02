@@ -168,7 +168,7 @@ impl Editor {
                 .default_value(template.instructions.clone())
         });
         let owner = cx.weak_entity();
-        let adder = cx.new(|cx| members::Adder::new(owner, window, cx));
+        let adder = cx.new(|_| members::Adder::new(owner));
         let subscriptions = vec![cx.observe(&lead, |_, _, cx| cx.notify())];
         let mut editor = Self {
             baseline: members.iter().map(|member| member.id).collect(),

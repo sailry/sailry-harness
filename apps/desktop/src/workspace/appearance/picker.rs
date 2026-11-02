@@ -2,7 +2,7 @@
 use super::{color, project};
 use crate::tr;
 use gpui_kit::component::{
-    button::{Button, ButtonVariants},
+    button::{Button, ButtonCustomVariant, ButtonVariants},
     popover::Popover,
     *,
 };
@@ -49,13 +49,20 @@ pub(crate) fn picker<T: 'static>(
                     Trigger::Inline => button.text().child(project(&selected, cx)),
                     Trigger::Avatar => {
                         let (icon, fill) = super::filled(Some(&selected), Icon::empty(), cx);
+                        // Hover keeps the identity color instead of Kit's neutral ghost fill.
                         button
-                            .ghost()
+                            .custom(
+                                ButtonCustomVariant::new(cx)
+                                    .color(fill)
+                                    .foreground(gpui_kit::white())
+                                    .hover(fill.opacity(0.85))
+                                    .active(fill.opacity(0.7))
+                                    .shadow(false),
+                            )
                             .rounded_full()
                             .size_10()
                             .p_0()
                             .flex_shrink_0()
-                            .bg(fill)
                             .child(icon.size_5())
                     }
                 })
