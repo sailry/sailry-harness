@@ -1,10 +1,12 @@
 //! Shared connection-scope form, composed from Kit controls.
-use crate::tr;
+use crate::{
+    tr,
+    ui::modal_list::{List, Row},
+};
 use gpui_kit::component::form::Field;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     component::{
-        checkbox::Checkbox,
         radio::{Radio, RadioGroup},
         *,
     },
@@ -79,38 +81,34 @@ impl Render for Picker {
             )
             .when(self.scope == 2, |body| {
                 body.child(
-                    v_flex()
+                    div()
                         .id("connection-projects")
+                        .w_full()
                         .max_h_48()
                         .overflow_y_scroll()
-                        .gap_2()
-                        .py_1()
-                        .when(self.projects.is_empty(), |body| {
-                            body.child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(tr("connection_no_projects")),
-                            )
-                        })
-                        .children(self.projects.iter().map(|project| {
-                            let id = project.id;
-                            Checkbox::new(id.to_string())
-                                .text_sm()
-                                .label(project.name.clone())
-                                .checked(self.selected.contains(&id))
-                                .disabled(self.locked)
-                                .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                                    if *checked {
-                                        if !this.selected.contains(&id) {
-                                            this.selected.push(id);
-                                        }
-                                    } else {
-                                        this.selected.retain(|entry| *entry != id);
-                                    }
-                                    cx.notify();
+                        .child(
+                            List::new("connection-project-list")
+                                .rows(self.projects.iter().map(|project| {
+                                    let id = project.id;
+                                    Row::new(
+                                        format!("connection-project-{id}"),
+                                        project.name.clone(),
+                                    )
+                                    .checkbox(self.selected.contains(&id))
+                                    .disabled(self.locked)
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            if this.selected.contains(&id) {
+                                                this.selected.retain(|entry| *entry != id);
+                                            } else {
+                                                this.selected.push(id);
+                                            }
+                                            cx.notify();
+                                        },
+                                    ))
                                 }))
-                        })),
+                                .empty(tr("connection_no_projects")),
+                        ),
                 )
             });
         crate::ui::form::vertical().child(Field::new().label(tr("connection_scope")).child(choices))
