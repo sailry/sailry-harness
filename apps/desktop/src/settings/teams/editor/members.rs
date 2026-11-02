@@ -138,8 +138,8 @@ impl Editor {
                 h_flex()
                     .w_full()
                     .min_w_0()
-                    .gap_2()
-                    .child(avatar.xsmall())
+                    .gap_3()
+                    .child(avatar.with_size(px(32.)))
                     .child(
                         v_flex()
                             .flex_1()

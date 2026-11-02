@@ -93,8 +93,10 @@ fn virtual_team(catalog: &Catalog) -> team::Profile {
 pub(super) fn open(catalog: Catalog, target: Target, window: &mut Window, cx: &mut App) {
     let editor = cx.new(|cx| Editor::new(catalog, target, window, cx));
     window.open_dialog(cx, move |dialog, window, cx| {
+        // Same padding as the other settings forms, so Kit places the close button alike.
         dialog
             .floating_surface(cx)
+            .p_6()
             .w((window.viewport_size().width - px(48.)).min(px(860.)))
             .overlay_closable(false)
             .child(editor.clone())
