@@ -36,7 +36,7 @@ impl Workspace {
                 h_flex()
                     .min_w_0()
                     .gap_3()
-                    .child(list::avatar(role.appearance.as_ref(), cx).small())
+                    .child(list::role_tile(role.appearance.as_ref(), cx))
                     .child(
                         v_flex()
                             .flex_1()

@@ -17,13 +17,24 @@ pub(super) fn avatar(appearance: Option<&Appearance>, cx: &App) -> Avatar {
     filled(Some(appearance.unwrap_or(&fallback)), Icon::empty(), cx)
 }
 
-/// The Default team and teams without an appearance use the standard team glyph.
-pub(super) fn team_avatar(appearance: Option<&Appearance>, cx: &App) -> Avatar {
-    filled(
-        appearance,
-        Icon::from(gpui_kit::assets::IconName::Users),
-        cx,
-    )
+/// Leading row icon, sized and shaped like the model provider tiles.
+pub(super) fn tile(appearance: Option<&Appearance>, fallback: Icon, cx: &App) -> Div {
+    const SIZE: f32 = 36.;
+    let (icon, fill) = identity::filled(appearance, fallback, cx);
+    h_flex()
+        .size(px(SIZE))
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .rounded(px(11.))
+        .bg(fill)
+        .child(icon.size(px(SIZE * 5. / 9.)))
+}
+
+/// A role's row tile; roles without an appearance use the standard agent glyph.
+pub(super) fn role_tile(appearance: Option<&Appearance>, cx: &App) -> Div {
+    let fallback = super::draft::fallback();
+    tile(Some(appearance.unwrap_or(&fallback)), Icon::empty(), cx)
 }
 
 fn filled(appearance: Option<&Appearance>, fallback: Icon, cx: &App) -> Avatar {
@@ -133,8 +144,11 @@ impl Workspace {
                     .w_full()
                     .min_w_0()
                     .gap_3()
-                    // Same size as the role rows' avatars.
-                    .child(team_avatar(team.and_then(|team| team.appearance.as_ref()), cx).small())
+                    .child(tile(
+                        team.and_then(|team| team.appearance.as_ref()),
+                        Icon::from(gpui_kit::assets::IconName::Users),
+                        cx,
+                    ))
                     .child(
                         v_flex()
                             .flex_1()

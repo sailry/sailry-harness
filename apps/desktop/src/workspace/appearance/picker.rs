@@ -59,11 +59,12 @@ pub(crate) fn picker<T: 'static>(
                                     .active(fill.opacity(0.7))
                                     .shadow(false),
                             )
-                            .rounded_full()
-                            .size_10()
+                            // Same tile as the settings rows and model provider icons.
+                            .rounded(px(11.))
+                            .size(px(36.))
                             .p_0()
                             .flex_shrink_0()
-                            .child(icon.size_5())
+                            .child(icon.size(px(20.)))
                     }
                 })
                 .disabled(disabled)
