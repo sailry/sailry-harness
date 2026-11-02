@@ -119,13 +119,7 @@ impl Workspace {
                     .gap_3()
                     .child(tabs)
                     .child(div().flex_1())
-                    .child(
-                        create
-                            .primary()
-                            .small()
-                            .icon(IconName::Plus)
-                            .disabled(locked),
-                    ),
+                    .child(create.primary().icon(IconName::Plus).disabled(locked)),
             )
             .child(body)
             .into_any_element()
