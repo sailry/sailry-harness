@@ -85,11 +85,8 @@ pub(super) async fn capture(
             .iter()
             .find(|entry| entry.id == model.model)
             .ok_or_else(|| sailry_protocol::Fault::invalid("frozen role model is missing"))?;
-        if config.provider != selected.id || config.model != model.model {
-            config.features.clear();
-        } else {
-            metadata.retain_features(selected.api, &mut config.features);
-        }
+        // The lead's choices such as fast carry over wherever the member's model offers them.
+        metadata.retain_features(selected.api, &mut config.features);
         config.provider = selected.id;
         config.credential = selected.credential.clone();
         config.model = model.model.clone();
