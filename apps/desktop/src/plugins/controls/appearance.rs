@@ -80,7 +80,6 @@ pub(super) fn extend(
                         let _ = state.sender.try_send(json!({"id":state.id,"value":value}));
                     },
                 },
-                crate::workspace::appearance::Trigger::Inline,
                 props.disabled || stop.is_cancelled(),
                 props.label.into(),
                 cx,

@@ -2,7 +2,7 @@
 //! native port of the delegation plugin's role page; the turn budget keeps its stored value.
 use super::{
     Binding, Catalog,
-    form::{self, Layout, RoleForm},
+    form::{self, RoleForm},
     list,
     requests::{self, Subject},
 };
@@ -143,8 +143,7 @@ impl Dialog {
             });
             let original = profile.unwrap_or_else(|| form::blank(RoleId::new()));
             let models = catalog.models.clone();
-            let form =
-                cx.new(|cx| RoleForm::new(original, creating, models, Layout::Dialog, window, cx));
+            let form = cx.new(|cx| RoleForm::new(original, creating, models, window, cx));
             cx.observe(&form, |_, _, cx| cx.notify()).detach();
             Dialog {
                 binding: catalog.binding.clone(),
@@ -176,7 +175,7 @@ impl Dialog {
         }
         if self.request.is_none() {
             let form = self.form.read(cx);
-            match form.profile(None, cx) {
+            match form.profile(cx) {
                 Ok(role) => {
                     let expected_revision = form.original.revision;
                     self.request = Some(self.binding.client.prepare(Command::PutRole {

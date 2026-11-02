@@ -1,4 +1,4 @@
-//! One role form serves the Roles tab dialog and the team editor's member column.
+//! The Roles tab dialog form; teams only reference roles and never edit them.
 //! Fields without a control (turn budget, skills, tools) keep their stored values.
 use super::{
     draft::{self, Preset},
@@ -17,14 +17,6 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sailry_protocol::{RoleId, projects::Appearance, role};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Layout {
-    /// Roles tab: presets and the selection identifier are editable.
-    Dialog,
-    /// Team editor: identity inline above model, instructions and read-only.
-    Member,
-}
 
 pub(super) fn blank(id: RoleId) -> role::Profile {
     role::Profile {
@@ -45,8 +37,7 @@ pub(super) fn blank(id: RoleId) -> role::Profile {
 
 pub(super) struct RoleForm {
     pub original: role::Profile,
-    pub creating: bool,
-    layout: Layout,
+    creating: bool,
     name: Entity<InputState>,
     key: Entity<InputState>,
     description: Entity<InputState>,
@@ -65,7 +56,6 @@ impl RoleForm {
         original: role::Profile,
         creating: bool,
         models: Models,
-        layout: Layout,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -106,7 +96,6 @@ impl RoleForm {
             read_only: original.read_only,
             original,
             creating,
-            layout,
             name,
             key,
             description,
@@ -117,20 +106,8 @@ impl RoleForm {
         }
     }
 
-    pub fn name(&self, cx: &App) -> SharedString {
+    fn name(&self, cx: &App) -> SharedString {
         self.name.read(cx).value().trim().to_owned().into()
-    }
-
-    pub fn appearance(&self) -> Option<&Appearance> {
-        self.appearance.as_ref()
-    }
-
-    pub fn model(&self, cx: &App) -> Option<role::Model> {
-        self.model.read(cx).value().cloned()
-    }
-
-    pub fn read_only(&self) -> bool {
-        self.read_only
     }
 
     pub fn lock(&mut self, locked: bool, cx: &mut Context<Self>) {
@@ -140,15 +117,9 @@ impl RoleForm {
         cx.notify();
     }
 
-    /// Adopts the Node's saved revision so a later save sends it as the expected revision.
-    pub fn accept(&mut self, saved: role::Profile) {
-        self.original = saved;
-        self.creating = false;
-    }
-
-    /// Builds the profile to save. `key` replaces the identifier field's value when given.
-    pub fn profile(&self, key: Option<String>, cx: &App) -> Result<role::Profile, &'static str> {
-        let key = key.unwrap_or_else(|| self.key.read(cx).value().trim().to_owned());
+    /// Builds the profile to save.
+    pub fn profile(&self, cx: &App) -> Result<role::Profile, &'static str> {
+        let key = self.key.read(cx).value().trim().to_owned();
         let mut name = self.name(cx).to_string();
         if !draft::valid_key(&key) || name.is_empty() {
             return Err("teams_role_invalid");
@@ -167,7 +138,7 @@ impl RoleForm {
             appearance: self.appearance.clone(),
             description,
             read_only: self.read_only,
-            model: self.model(cx),
+            model: self.model.read(cx).value().cloned(),
             instructions: self.instructions.read(cx).value().to_string(),
             ..self.original.clone()
         })
@@ -220,7 +191,7 @@ impl RoleForm {
             .into_any_element()
     }
 
-    fn identity(&self, trigger: identity::Trigger, cx: &mut Context<Self>) -> Popover {
+    fn identity(&self, cx: &mut Context<Self>) -> Popover {
         identity::picker(
             "role",
             cx.entity().downgrade(),
@@ -229,7 +200,6 @@ impl RoleForm {
                 read: |form: &RoleForm| form.appearance.clone().unwrap_or_else(draft::fallback),
                 write: |form, value| form.appearance = Some(value),
             },
-            trigger,
             self.locked,
             tr("role_appearance"),
             cx,
@@ -298,7 +268,7 @@ impl RoleForm {
             .child(pair(
                 Field::new().label(tr("settings_name")).child(
                     Input::new(&self.name)
-                        .prefix(self.identity(identity::Trigger::Inline, cx))
+                        .prefix(self.identity(cx))
                         .disabled(locked)
                         .aria_label(tr("settings_name")),
                 ),
@@ -324,52 +294,10 @@ impl RoleForm {
             .child(self.prompt((!self.creating).then(|| self.presets(false, cx))))
             .into_any_element()
     }
-
-    fn member(&self, cx: &mut Context<Self>) -> AnyElement {
-        let locked = self.locked;
-        v_flex()
-            .w_full()
-            .gap_4()
-            .child(
-                h_flex()
-                    .w_full()
-                    .gap_3()
-                    .child(self.identity(identity::Trigger::Avatar, cx))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                Input::new(&self.name)
-                                    .appearance(false)
-                                    .disabled(locked)
-                                    .aria_label(tr("settings_name")),
-                            )
-                            .child(
-                                Input::new(&self.description)
-                                    .appearance(false)
-                                    .small()
-                                    .disabled(locked)
-                                    .aria_label(tr("teams_description")),
-                            ),
-                    ),
-            )
-            .child(
-                Field::new()
-                    .label(tr("teams_model"))
-                    .child(self.model.clone()),
-            )
-            .child(self.prompt(None))
-            .child(self.read_only_row(cx))
-            .into_any_element()
-    }
 }
 
 impl Render for RoleForm {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        match self.layout {
-            Layout::Dialog => self.dialog(cx),
-            Layout::Member => self.member(cx),
-        }
+        self.dialog(cx)
     }
 }

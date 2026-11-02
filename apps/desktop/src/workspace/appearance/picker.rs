@@ -2,22 +2,13 @@
 use super::{color, project};
 use crate::tr;
 use gpui_kit::component::{
-    button::{Button, ButtonCustomVariant, ButtonVariants},
+    button::{Button, ButtonVariants},
     popover::Popover,
     *,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sailry_protocol::projects::{Appearance, COLORS, ICONS};
-
-/// How the chooser's trigger is drawn.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Trigger {
-    /// The bare glyph, sized for an input prefix or a list row.
-    Inline,
-    /// A filled circle that reads as the editable identity of a dialog header.
-    Avatar,
-}
 
 pub(crate) struct Selection<T> {
     pub selected: Appearance,
@@ -29,7 +20,6 @@ pub(crate) fn picker<T: 'static>(
     id: &str,
     owner: WeakEntity<T>,
     selection: Selection<T>,
-    trigger_style: Trigger,
     disabled: bool,
     label: SharedString,
     cx: &App,
@@ -45,28 +35,8 @@ pub(crate) fn picker<T: 'static>(
         .map(|popover| crate::theme::popover(popover, cx))
         .trigger(
             Button::new(SharedString::from(format!("{id}-identity")))
-                .map(|button| match trigger_style {
-                    Trigger::Inline => button.text().child(project(&selected, cx)),
-                    Trigger::Avatar => {
-                        let (icon, fill) = super::tinted(Some(&selected), Icon::empty(), cx);
-                        // Hover deepens the identity tint instead of using Kit's neutral ghost fill.
-                        button
-                            .custom(
-                                ButtonCustomVariant::new(cx)
-                                    .color(fill)
-                                    .foreground(gpui_kit::white())
-                                    .hover(fill.alpha((fill.a + 0.08).min(1.)))
-                                    .active(fill.alpha((fill.a + 0.14).min(1.)))
-                                    .shadow(false),
-                            )
-                            // Same tile as the settings rows and model provider icons.
-                            .rounded(px(11.))
-                            .size(px(36.))
-                            .p_0()
-                            .flex_shrink_0()
-                            .child(icon.size(px(20.)))
-                    }
-                })
+                .text()
+                .child(project(&selected, cx))
                 .disabled(disabled)
                 .accessibility_label(label)
                 .debug_selector(move || trigger.clone()),

@@ -1,14 +1,11 @@
-//! The team modal: one Kit dialog with the member list on the left and the selected
-//! member on the right. Role changes and the team are written together on Save.
+//! The team dialog: one form column with the team identity, the lead's model and prompt,
+//! then the member list. Teams only reference catalog roles; roles are edited in the
+//! Roles tab, so Save writes the team alone.
 mod members;
 mod save;
 
-use super::{
-    Catalog,
-    form::{self, Layout, RoleForm},
-    models::ModelField,
-};
-use crate::{theme::DialogStyle as _, tr};
+use super::{Catalog, models::ModelField};
+use crate::{theme::DialogStyle as _, tr, workspace::appearance as identity};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
     form::Field,
@@ -18,7 +15,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use sailry_protocol::{Request, RoleId, TeamId, projects::Appearance, role, team};
+use sailry_protocol::{Request, RoleId, TeamId, projects::Appearance, team};
 use std::collections::BTreeSet;
 
 pub(super) enum Target {
@@ -28,27 +25,6 @@ pub(super) enum Target {
     Copy(Option<team::Profile>),
     /// The virtual Default team, shown read-only.
     Default,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Selected {
-    Lead,
-    Member(RoleId),
-}
-
-struct Member {
-    id: RoleId,
-    /// The catalog role; None until a role created here is first saved.
-    original: Option<role::Profile>,
-    /// Created when the member is first selected; untouched members are not rewritten.
-    form: Option<Entity<RoleForm>>,
-}
-
-/// One revision-checked write in a team save.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Step {
-    Role(RoleId),
-    Team,
 }
 
 pub(super) struct Editor {
@@ -61,17 +37,12 @@ pub(super) struct Editor {
     appearance: Option<Appearance>,
     lead: Entity<ModelField>,
     instructions: Entity<TextareaState>,
-    /// Read-only name and summary drawn with the member header's inputs so both align.
-    lead_title: [Entity<InputState>; 2],
-    members: Vec<Member>,
+    members: Vec<RoleId>,
     /// Members present when the editor opened; "Add role" lists the others.
     baseline: BTreeSet<RoleId>,
-    selected: Selected,
     adder: Entity<members::Adder>,
     /// The write in flight or with an uncertain outcome, retried with the same request ID.
-    request: Option<(Step, Request)>,
-    /// Roles written during the current save.
-    saved: BTreeSet<RoleId>,
+    request: Option<Request>,
     pending: bool,
     error: Option<&'static str>,
     _subscriptions: Vec<Subscription>,
@@ -93,13 +64,16 @@ fn virtual_team(catalog: &Catalog) -> team::Profile {
 }
 
 pub(super) fn open(catalog: Catalog, target: Target, window: &mut Window, cx: &mut App) {
+    let title = tr(match target {
+        Target::Edit(_) => "team_edit",
+        Target::Default => "team_default",
+        Target::New | Target::Copy(_) => "team_new",
+    });
     let editor = cx.new(|cx| Editor::new(catalog, target, window, cx));
     window.open_dialog(cx, move |dialog, window, cx| {
-        // Same padding as the other settings forms, so Kit places the close button alike.
         dialog
-            .floating_surface(cx)
-            .p_6()
-            .w((window.viewport_size().width - px(48.)).min(px(860.)))
+            .form_title(title.clone(), cx)
+            .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .overlay_closable(false)
             .child(editor.clone())
     });
@@ -141,20 +115,17 @@ impl Editor {
             }
             Target::Default => (virtual_team(&catalog), None, true),
         };
+        // Members whose role left the catalog are dropped from the draft.
         let members: Vec<_> = template
             .members
             .iter()
-            .filter_map(|id| catalog.roles.iter().find(|role| role.id == *id))
-            .map(|role| Member {
-                id: role.id,
-                original: Some(role.clone()),
-                form: None,
-            })
+            .copied()
+            .filter(|id| catalog.roles.iter().any(|role| role.id == *id))
             .collect();
         let name = cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(template.name.clone())
-                .placeholder(tr("team_name"))
+                .placeholder(tr("form_name_hint"))
         });
         let description = cx.new(|cx| {
             InputState::new(window, cx)
@@ -164,18 +135,16 @@ impl Editor {
         let models = catalog.models.clone();
         let model = template.model.clone();
         let lead = cx.new(|cx| ModelField::new(models, model, "team_follow_conversation", cx));
-        let lead_title = ["team_lead", "team_lead_description"]
-            .map(|key| cx.new(|cx| InputState::new(window, cx).default_value(tr(key))));
         let instructions = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(6, 14)
+                .auto_grow(3, 10)
                 .default_value(template.instructions.clone())
         });
         let owner = cx.weak_entity();
         let adder = cx.new(|_| members::Adder::new(owner));
         let subscriptions = vec![cx.observe(&lead, |_, _, cx| cx.notify())];
         let mut editor = Self {
-            baseline: members.iter().map(|member| member.id).collect(),
+            baseline: members.iter().copied().collect(),
             catalog,
             appearance: template.appearance.clone(),
             template,
@@ -185,12 +154,9 @@ impl Editor {
             description,
             lead,
             instructions,
-            lead_title,
             members,
-            selected: Selected::Lead,
             adder,
             request: None,
-            saved: BTreeSet::new(),
             pending: false,
             error: None,
             _subscriptions: subscriptions,
@@ -208,163 +174,95 @@ impl Editor {
         let locked = self.locked();
         self.lead
             .update(cx, |lead, cx| lead.set_disabled(locked, cx));
-        for form in self.members.iter().filter_map(|member| member.form.clone()) {
-            form.update(cx, |form, cx| form.lock(locked, cx));
-        }
         cx.notify();
     }
 
-    fn member(&self, id: RoleId) -> Option<&Member> {
-        self.members.iter().find(|member| member.id == id)
-    }
-
-    fn mount(
-        &mut self,
-        original: role::Profile,
-        creating: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<RoleForm> {
-        let models = self.catalog.models.clone();
+    fn fields(&self, cx: &mut Context<Self>) -> [AnyElement; 4] {
         let locked = self.locked();
-        let form = cx.new(|cx| {
-            let mut form = RoleForm::new(original, creating, models, Layout::Member, window, cx);
-            form.lock(locked, cx);
-            form
-        });
-        self._subscriptions
-            .push(cx.observe(&form, |_, _, cx| cx.notify()));
-        form
-    }
-
-    fn select(&mut self, selected: Selected, window: &mut Window, cx: &mut Context<Self>) {
-        if let Selected::Member(id) = selected {
-            let Some(index) = self.members.iter().position(|member| member.id == id) else {
-                return;
-            };
-            if self.members[index].form.is_none() {
-                let original = self.members[index]
-                    .original
+        let picker = identity::picker(
+            "team",
+            cx.entity().downgrade(),
+            identity::Selection {
+                selected: self
+                    .appearance
                     .clone()
-                    .unwrap_or_else(|| form::blank(id));
-                let form = self.mount(original, false, window, cx);
-                self.members[index].form = Some(form);
-            }
-        }
-        self.selected = selected;
-        cx.notify();
-    }
-
-    fn header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let locked = self.locked();
-        h_flex()
-            .w_full()
-            .gap_3()
-            .pr_8()
-            .child(crate::workspace::appearance::picker(
-                "team",
-                cx.entity().downgrade(),
-                crate::workspace::appearance::Selection {
-                    selected: self
+                    .unwrap_or_else(super::draft::fallback),
+                read: |editor: &Editor| {
+                    editor
                         .appearance
                         .clone()
-                        .unwrap_or_else(super::draft::fallback),
-                    read: |editor: &Editor| {
-                        editor
-                            .appearance
-                            .clone()
-                            .unwrap_or_else(super::draft::fallback)
-                    },
-                    write: |editor, value| editor.appearance = Some(value),
+                        .unwrap_or_else(super::draft::fallback)
                 },
-                crate::workspace::appearance::Trigger::Avatar,
-                locked,
-                tr("role_appearance"),
-                cx,
-            ))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        Input::new(&self.name)
-                            .appearance(false)
-                            .disabled(locked)
-                            .aria_label(tr("team_name")),
-                    )
-                    .child(
-                        Input::new(&self.description)
-                            .appearance(false)
-                            .small()
-                            .disabled(locked)
-                            .aria_label(tr("teams_description")),
-                    ),
-            )
-    }
-
-    fn details(&self, cx: &App) -> AnyElement {
-        match self.selected {
-            Selected::Lead => v_flex()
-                .w_full()
-                .gap_4()
+                write: |editor, value| editor.appearance = Some(value),
+            },
+            locked,
+            tr("role_appearance"),
+            cx,
+        );
+        [
+            Field::new()
+                .label(tr("settings_name"))
                 .child(
-                    h_flex()
-                        .w_full()
-                        .gap_3()
-                        .child(super::list::tile(
-                            None,
-                            Icon::from(gpui_kit::assets::IconName::Crown),
-                            cx,
-                        ))
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .child(
-                                    Input::new(&self.lead_title[0])
-                                        .appearance(false)
-                                        .readonly(true)
-                                        .aria_label(tr("team_lead")),
-                                )
-                                .child(
-                                    Input::new(&self.lead_title[1])
-                                        .appearance(false)
-                                        .small()
-                                        .readonly(true)
-                                        .aria_label(tr("team_lead_description")),
-                                ),
-                        ),
-                )
-                .child(
-                    Field::new()
-                        .label(tr("teams_model"))
-                        .child(self.lead.clone()),
-                )
-                .child(
-                    Field::new().label(tr("role_instructions")).child(
-                        Textarea::new(&self.instructions)
-                            .readonly(self.locked())
-                            .aria_label(tr("role_instructions")),
-                    ),
+                    Input::new(&self.name)
+                        .prefix(picker)
+                        .disabled(locked)
+                        .aria_label(tr("settings_name")),
                 )
                 .into_any_element(),
-            Selected::Member(id) => self
-                .member(id)
-                .and_then(|member| member.form.clone())
-                .map_or_else(|| div().into_any_element(), IntoElement::into_any_element),
-        }
+            Field::new()
+                .label(tr("teams_description"))
+                .child(
+                    Input::new(&self.description)
+                        .disabled(locked)
+                        .aria_label(tr("teams_description")),
+                )
+                .into_any_element(),
+            Field::new()
+                .label(tr("team_lead_model"))
+                .child(self.lead.clone())
+                .into_any_element(),
+            Field::new()
+                .label(tr("team_lead_instructions"))
+                .child(
+                    Textarea::new(&self.instructions)
+                        .readonly(locked)
+                        .aria_label(tr("team_lead_instructions")),
+                )
+                .into_any_element(),
+        ]
     }
 
     fn footer(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let retry = self.request.is_some() && !self.pending;
-        let removable = self.original.is_some() && !self.builtin;
-        h_flex()
+        let footer = h_flex()
             .w_full()
             .gap_2()
             .pt_4()
             .border_t_1()
-            .border_color(cx.theme().border)
-            .when(removable, |footer| {
+            .border_color(cx.theme().border);
+        if self.builtin {
+            return footer
+                .child(div().flex_1())
+                .child(
+                    Button::new("team-copy")
+                        .label(tr("team_duplicate"))
+                        .on_click(cx.listener(|editor, _, window, cx| editor.copy(window, cx))),
+                )
+                .child(
+                    Button::new("team-close")
+                        .label(tr("close"))
+                        .on_click(|_, window, cx| window.close_dialog(cx)),
+                );
+        }
+        let retry = self.request.is_some() && !self.pending;
+        let save = if retry {
+            "role_retry"
+        } else if self.original.is_some() {
+            "settings_save"
+        } else {
+            "team_create"
+        };
+        footer
+            .when(self.original.is_some(), |footer| {
                 footer.child(
                     Button::new("team-delete")
                         .danger()
@@ -376,22 +274,23 @@ impl Editor {
             .child(div().flex_1())
             .child(
                 Button::new("team-cancel")
-                    .label(tr(if self.builtin {
-                        "close"
-                    } else {
-                        "settings_cancel"
-                    }))
+                    .label(tr("settings_cancel"))
                     .on_click(|_, window, cx| window.close_dialog(cx)),
             )
-            .when(!self.builtin, |footer| {
-                footer.child(
-                    Button::new("team-save")
-                        .primary()
-                        .label(tr(if retry { "role_retry" } else { "settings_save" }))
-                        .disabled(self.pending)
-                        .on_click(cx.listener(|editor, _, window, cx| editor.save(window, cx))),
-                )
-            })
+            .child(
+                Button::new("team-save")
+                    .primary()
+                    .label(tr(save))
+                    .disabled(self.pending)
+                    .on_click(cx.listener(|editor, _, window, cx| editor.save(window, cx))),
+            )
+    }
+
+    /// Replaces the read-only Default team with an editable copy.
+    fn copy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let catalog = self.catalog.clone();
+        window.close_dialog(cx);
+        open(catalog, Target::Copy(None), window, cx);
     }
 
     fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -410,29 +309,20 @@ impl Editor {
 
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let height = (window.viewport_size().height - px(280.))
-            .max(px(260.))
-            .min(px(480.));
+        let height = (window.viewport_size().height - px(240.)).max(px(260.));
+        let fields = (!self.builtin).then(|| self.fields(cx));
         v_flex()
             .w_full()
-            .gap_4()
-            .child(self.header(cx))
+            .gap_6()
             .child(
-                h_flex()
+                v_flex()
+                    .id("team-form")
                     .w_full()
-                    .h(height)
-                    .items_start()
+                    .max_h(height)
                     .gap_4()
-                    .child(self.column(cx))
-                    .child(
-                        v_flex()
-                            .id("team-details")
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .overflow_y_scrollbar()
-                            .child(self.details(cx)),
-                    ),
+                    .overflow_y_scrollbar()
+                    .children(fields.into_iter().flatten())
+                    .child(self.member_list(cx)),
             )
             .child(self.footer(cx))
     }

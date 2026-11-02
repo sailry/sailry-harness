@@ -2,7 +2,7 @@
 use gpui_kit::{component::*, *};
 use sailry_protocol::projects::Appearance;
 mod picker;
-pub(crate) use picker::{Selection, Trigger, picker};
+pub(crate) use picker::{Selection, picker};
 
 pub(crate) fn project(value: &Appearance, cx: &App) -> Div {
     // Match the sidebar's text-sm host icons.
