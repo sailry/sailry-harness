@@ -8,6 +8,10 @@ void registerIconLicense() {
     final notice = await rootBundle.loadString('assets/icons/NOTICE.txt');
     final license = await rootBundle.loadString('assets/icons/LICENSE.txt');
     yield LicenseEntryWithLineBreaks(['Reicon'], '$notice\n$license');
+    final lucide = await rootBundle.loadString(
+      'assets/icons/LICENSE-LUCIDE.txt',
+    );
+    yield LicenseEntryWithLineBreaks(['Lucide'], lucide);
     final monsters = await rootBundle.loadString(
       'third_party_licenses/kenney-monsters.md',
     );

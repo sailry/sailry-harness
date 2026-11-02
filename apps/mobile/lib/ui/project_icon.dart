@@ -10,9 +10,11 @@ class ProjectIcon extends StatelessWidget {
     required this.project,
     this.size = 20,
     this.fallback = 'folder',
+    this.color,
   });
   final Map<String, dynamic> project;
   final double size;
+  final Color? color;
 
   /// The asset used when the item has no known appearance icon.
   final String fallback;
@@ -72,14 +74,18 @@ class ProjectIcon extends StatelessWidget {
         : fallback;
     final palette = colors[appearance['color']];
     final theme = Theme.of(context);
-    final color = palette == null
-        ? theme.colorScheme.onSurface
-        : Color(theme.brightness == Brightness.dark ? palette.$1 : palette.$2);
+    final ink =
+        color ??
+        (palette == null
+            ? theme.colorScheme.onSurface
+            : Color(
+                theme.brightness == Brightness.dark ? palette.$1 : palette.$2,
+              ));
     return SvgPicture.asset(
       'assets/icons/projects/$asset.svg',
       width: size,
       height: size,
-      colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      colorFilter: ColorFilter.mode(ink, BlendMode.srcIn),
     );
   }
 }

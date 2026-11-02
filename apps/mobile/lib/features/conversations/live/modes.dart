@@ -117,6 +117,11 @@ class ConversationModes extends ChangeNotifier {
     final generation = ++_generation;
     final names = summaries.map((summary) => text(summary['name'])).toSet();
     _cache.removeWhere((name, _) => !names.contains(name));
+    _modes = [
+      for (final summary in summaries)
+        if (_cache[text(summary['name'])] case final cached?)
+          if (cached.$1 == _identity(summary)) ...cached.$2,
+    ];
     ready = false;
     error = null;
     notifyListeners();
@@ -151,35 +156,63 @@ class ConversationModes extends ChangeNotifier {
     List<Map<String, dynamic>> summaries,
     int generation,
   ) async {
-    try {
-      final packages = await Future.wait(summaries.map(_read));
-      if (_disposed || generation != _generation) return;
-      for (var index = 0; index < summaries.length; index++) {
-        final summary = summaries[index];
-        _cache[text(summary['name'])] = (_identity(summary), packages[index]);
+    final failures = <Object>[];
+    final packages = await Future.wait(
+      summaries.map((summary) async {
+        try {
+          return await _read(summary);
+        } catch (failure) {
+          failures.add(failure);
+          return null;
+        }
+      }),
+    );
+    if (_disposed || generation != _generation) return;
+    for (var index = 0; index < summaries.length; index++) {
+      final summary = summaries[index];
+      final modes = packages[index];
+      if (modes != null) {
+        _cache[text(summary['name'])] = (_identity(summary), modes);
       }
-      _modes = packages.expand((modes) => modes).toList();
-      ready = true;
-    } catch (failure) {
-      if (_disposed || generation != _generation) return;
-      error = failure;
     }
+    _modes = packages.nonNulls.expand((modes) => modes).toList();
+    error = failures.firstOrNull;
+    ready = error == null;
     notifyListeners();
   }
 
   List<ConversationMode> choices(Map<String, dynamic> config) {
-    if (!ready) return [];
     final keys = _project(config, _modes)['choices'] as List;
     return [
       for (final key in keys) _modes.firstWhere((mode) => mode.key == key),
     ];
   }
 
-  String? selected(Map<String, dynamic> config) =>
-      ready ? _project(config, _modes)['selected'] as String? : null;
+  /// Option clearing needs declarations only for namespaces with saved options.
+  /// Unrelated metadata reads do not prevent built-in mode selection.
+  bool canSelect(Map<String, dynamic> config) {
+    if (!host.connected) return false;
+    final options = object(config['options']);
+    return objects(host.snapshot['plugins']).every((summary) {
+      final name = text(summary['name']);
+      return object(options[name]).isEmpty ||
+          _cache[name]?.$1 == _identity(summary);
+    });
+  }
+
+  String? selected(Map<String, dynamic> config) => canSelect(config)
+      ? _project(config, _modes)['selected'] as String?
+      : text(config['mode'], 'code');
 
   Map<String, dynamic>? select(Map<String, dynamic> config, String key) =>
-      ready && host.connected ? _select(config, _modes, key) : null;
+      canSelect(config) ? _select(config, _modes, key) : null;
+
+  Future<void> reload() {
+    if (!ready && error == null) return settled;
+    _inventory = null;
+    _changed();
+    return settled;
+  }
 
   @override
   void dispose() {

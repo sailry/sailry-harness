@@ -40,18 +40,8 @@ String tr(String key) => '<$key>';
 
 void main() {
   group('commands', () {
-    test('model execution clears the team and overrides', () {
-      expect(selectCommand('session-1', 7, 'model', frontend), {
-        'session': 'session-1',
-        'expected_revision': 7,
-        'execution': 'model',
-        'team': null,
-        'models': <String, dynamic>{},
-      });
-    });
-
     test('team selection sends the stored revision', () {
-      expect(selectCommand('session-1', 7, 'team', frontend), {
+      expect(selectCommand('session-1', 7, frontend), {
         'session': 'session-1',
         'expected_revision': 7,
         'execution': 'team',
@@ -61,7 +51,7 @@ void main() {
     });
 
     test('Default team sends a null team', () {
-      expect(selectCommand('session-1', 7, 'team', null), {
+      expect(selectCommand('session-1', 7, null), {
         'session': 'session-1',
         'expected_revision': 7,
         'execution': 'team',

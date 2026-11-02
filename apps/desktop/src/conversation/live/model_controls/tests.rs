@@ -161,11 +161,8 @@ mod teams {
                 ..Default::default()
             };
             assert_eq!(roster.chip(), Chip::Model);
-            assert!(roster.selected(Execution::Model, None));
-            assert!(!roster.selected(Execution::Team, None));
-            assert!(roster.changes(Execution::Team, None));
-            assert!(!roster.changes(Execution::Model, None));
-            assert!(Roster::default().changes(Execution::Model, None));
+            assert!(!roster.selected(None));
+            assert!(roster.changes(None));
         }
 
         #[test]
@@ -212,13 +209,13 @@ mod teams {
                 team: Some(Team::from(&profile)),
                 ..Default::default()
             };
-            assert!(!roster.changes(Execution::Team, Some(&Team::from(&profile))));
+            assert!(!roster.changes(Some(&Team::from(&profile))));
             let newer = team::Profile {
                 revision: profile.revision + 1,
                 ..profile
             };
-            assert!(roster.changes(Execution::Team, Some(&Team::from(&newer))));
-            assert!(roster.changes(Execution::Team, None));
+            assert!(roster.changes(Some(&Team::from(&newer))));
+            assert!(roster.changes(None));
         }
 
         #[test]
@@ -229,11 +226,11 @@ mod teams {
                 catalog: roles.iter().map(role::Profile::reference).collect(),
                 ..Default::default()
             };
-            assert!(roster.changes(Execution::Team, None));
+            assert!(roster.changes(None));
             roster.members = Roster::members(&roles, &BTreeMap::new());
-            assert!(!roster.changes(Execution::Team, None));
+            assert!(!roster.changes(None));
             roster.catalog.pop();
-            assert!(roster.changes(Execution::Team, None));
+            assert!(roster.changes(None));
         }
 
         #[test]
@@ -246,12 +243,12 @@ mod teams {
                 catalog: roles.iter().map(role::Profile::reference).collect(),
                 ..Default::default()
             };
-            assert!(!roster.changes(Execution::Team, Some(&team)));
+            assert!(!roster.changes(Some(&team)));
             // An unrelated role edit does not reset the selected team's overrides.
             roster.catalog[1].revision += 1;
-            assert!(!roster.changes(Execution::Team, Some(&team)));
+            assert!(!roster.changes(Some(&team)));
             roster.catalog[0].revision += 1;
-            assert!(roster.changes(Execution::Team, Some(&team)));
+            assert!(roster.changes(Some(&team)));
         }
 
         #[test]
@@ -264,7 +261,7 @@ mod teams {
                 ..Default::default()
             };
             assert!(roster.members[0].overridden);
-            assert!(!roster.changes(Execution::Team, None));
+            assert!(!roster.changes(None));
         }
     }
 
@@ -290,40 +287,21 @@ mod teams {
         use super::*;
 
         #[test]
-        fn model_execution_clears_delegation_before_submission() {
-            let role = profile("reviewer", None);
-            let catalog = stored(vec![role.id]);
-            let draft = Draft {
-                execution: Execution::Model,
-                team: Some(catalog.id),
-                models: BTreeMap::from([(role.id, model("fast"))]),
-            };
-            let steps = draft.steps(&[catalog]);
-            assert_eq!(steps, vec![Step::Execution(Execution::Model, None)]);
+        fn team_selection_replaces_model_execution() {
             let session = SessionId::new();
             let captured = role::Snapshot {
-                profiles: vec![role],
+                execution: Execution::Model,
                 ..Default::default()
             };
             assert_eq!(
-                steps[0].command(session, 4, &captured),
+                Step::Team(None).command(session, 4, &captured),
                 Some(Command::SetSessionExecution {
                     session,
                     expected_revision: 4,
-                    execution: Execution::Model,
+                    execution: Execution::Team,
                     team: None,
                     models: BTreeMap::new(),
                 })
-            );
-            let applied = role::Snapshot {
-                execution: Execution::Model,
-                ..Default::default()
-            };
-            assert!(steps[0].command(session, 5, &applied).is_none());
-            assert!(
-                Step::Execution(Execution::Team, None)
-                    .command(session, 5, &applied)
-                    .is_some()
             );
         }
 
@@ -338,14 +316,13 @@ mod teams {
             let catalog = stored(vec![roles[0].id]);
             let fast = model("fast");
             let draft = Draft {
-                execution: Execution::Team,
                 team: Some(catalog.id),
                 models: BTreeMap::from([(roles[0].id, fast.clone())]),
             };
             assert_eq!(
                 draft.steps(std::slice::from_ref(&catalog)),
                 vec![
-                    Step::Execution(Execution::Team, Some(catalog.reference())),
+                    Step::Team(Some(catalog.reference())),
                     Step::Member(roles[0].id, fast.clone()),
                 ]
             );
@@ -363,8 +340,7 @@ mod teams {
                 ..Default::default()
             };
             assert_eq!(
-                Step::Execution(Execution::Team, Some(catalog.reference()))
-                    .command(session, 4, &captured),
+                Step::Team(Some(catalog.reference())).command(session, 4, &captured),
                 Some(Command::SetSessionExecution {
                     session,
                     expected_revision: 4,
@@ -395,11 +371,7 @@ mod teams {
                 models: BTreeMap::from([(roles[0].id, chosen.clone())]),
                 ..Default::default()
             };
-            assert!(
-                Step::Execution(Execution::Team, None)
-                    .command(session, 1, &applied)
-                    .is_none()
-            );
+            assert!(Step::Team(None).command(session, 1, &applied).is_none());
             assert!(
                 Step::Member(roles[0].id, chosen.clone())
                     .command(session, 1, &applied)

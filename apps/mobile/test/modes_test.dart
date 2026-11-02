@@ -83,8 +83,8 @@ HostConnection host(
 
 ConversationModes controllerFor(HostConnection owner) => ConversationModes(
   owner,
-  project: (_, modes) => {
-    'selected': 'client-selection',
+  project: (config, modes) => {
+    'selected': modes.isEmpty ? config['mode'] : 'client-selection',
     'choices': modes.map((mode) => mode.key).toList(),
   },
   select: (config, _, _) => config,
@@ -113,7 +113,7 @@ void main() {
     });
   });
 
-  test('loading cannot present or commit a selection', () async {
+  test('pending option metadata preserves the current label', () async {
     final reply = Completer<Map<String, dynamic>>();
     final info = package('first');
     final owner = host({'first': info}, read: (_, _) => reply.future);
@@ -122,7 +122,7 @@ void main() {
     addTearDown(modes.dispose);
     final current = config();
     expect(modes.ready, false);
-    expect(modes.selected(current), isNull);
+    expect(modes.selected(current), 'code');
     expect(modes.choices(current), isEmpty);
     expect(modes.select(current, 'code'), isNull);
     reply.complete({'data': info});
@@ -132,6 +132,88 @@ void main() {
     owner.connected = false;
     owner.notifyListeners();
     expect(modes.select(current, 'code'), isNull);
+  });
+
+  test('built-in selection does not wait for unrelated metadata', () async {
+    final reply = Completer<Map<String, dynamic>>();
+    final info = package('unrelated');
+    final owner = host({'unrelated': info}, read: (_, _) => reply.future);
+    final modes = controllerFor(owner);
+    addTearDown(owner.dispose);
+    addTearDown(modes.dispose);
+    final current = {...config(), 'options': <String, dynamic>{}};
+    expect(modes.ready, isFalse);
+    expect(modes.selected(current), 'code');
+    expect(modes.canSelect(current), isTrue);
+    expect(modes.select(current, 'flagship'), same(current));
+    reply.complete({'data': info});
+    await modes.settled;
+  });
+
+  test('unrelated failures retain valid mode choices', () async {
+    final info = package('first');
+    final owner = host(
+      {'first': info, 'unused': package('unused')},
+      read: (_, data) async {
+        if (data!['name'] == 'unused') {
+          throw const CommandFailure('unavailable');
+        }
+        return {'data': info};
+      },
+    );
+    final selected = <String>[];
+    final modes = ConversationModes(
+      owner,
+      project: (config, modes) => {
+        'selected': config['mode'],
+        'choices': modes.map((mode) => mode.key).toList(),
+      },
+      select: (config, modes, key) {
+        expect(modes.map((mode) => mode.key), ['first/selected']);
+        selected.add(key);
+        return {...config, 'mode': key};
+      },
+    );
+    addTearDown(owner.dispose);
+    addTearDown(modes.dispose);
+    await modes.settled;
+    expect(modes.ready, isFalse);
+    expect(modes.error, isA<CommandFailure>());
+    expect(modes.choices(config()).single.key, 'first/selected');
+    for (final mode in ['code', 'plan', 'flagship']) {
+      final current = {...config(), 'mode': mode};
+      expect(modes.selected(current), mode);
+      expect(modes.select(current, mode)?['mode'], mode);
+    }
+    expect(selected, ['code', 'plan', 'flagship']);
+  });
+
+  test('retry restores declarations needed for option clearing', () async {
+    final info = package('first');
+    var unavailable = true;
+    var reads = 0;
+    final owner = host(
+      {'first': info},
+      read: (_, _) async {
+        reads++;
+        if (unavailable) throw const CommandFailure('unavailable');
+        return {'data': info};
+      },
+    );
+    final modes = controllerFor(owner);
+    addTearDown(owner.dispose);
+    addTearDown(modes.dispose);
+    await modes.settled;
+    final current = config();
+    expect(modes.selected(current), 'code');
+    expect(modes.canSelect(current), isFalse);
+    expect(modes.select(current, 'plan'), isNull);
+    unavailable = false;
+    await modes.reload();
+    expect(reads, 2);
+    expect(modes.ready, isTrue);
+    expect(modes.error, isNull);
+    expect(modes.select(current, 'plan'), same(current));
   });
 
   test('inventory changes invalidate only the affected metadata', () async {
@@ -159,7 +241,7 @@ void main() {
       'plugins': packages.values.map((info) => info['summary']).toList(),
     };
     owner.notifyListeners();
-    expect(modes.selected(config()), isNull);
+    expect(modes.selected(config()), 'code');
     await modes.settled;
     expect(reads, ['first', 'second', 'first']);
     expect(
@@ -210,7 +292,7 @@ void main() {
     final current = config();
     await modes.settled;
     expect(modes.error, isA<CommandFailure>());
-    expect(modes.selected(current), isNull);
+    expect(modes.selected(current), 'code');
     expect(modes.select(current, 'code'), isNull);
     expect(current, config());
   });

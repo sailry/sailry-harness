@@ -102,6 +102,7 @@ impl Editor {
             .trigger_style(StyleRefinement::default().w_full())
             .trigger(
                 modal_list::action("team-add-role-trigger", tr("team_add_role"))
+                    .h_8()
                     .disabled(locked || exhausted),
             )
             .content(move |_, _, _| adder.clone())

@@ -53,7 +53,7 @@ impl View {
     fn execution(&self) -> Execution {
         self.session
             .as_ref()
-            .map_or(self.team_draft.execution, |session| session.roles.execution)
+            .map_or(Execution::Team, |session| session.roles.execution)
     }
 
     pub(in crate::conversation::live) fn team_roster(&self) -> Roster {
@@ -174,7 +174,6 @@ impl View {
     /// Chooses a team; a team with a fixed lead model also switches the lead.
     pub(in crate::conversation::live) fn select_team(
         &mut self,
-        execution: Execution,
         team: Option<Team>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -182,14 +181,13 @@ impl View {
         if self.team_blocked() {
             return;
         }
-        let team = team.filter(|_| execution == Execution::Team);
         let lead = team.as_ref().and_then(|team| team.model.clone());
         let reference = team.map(|team| team.reference);
         if let Some(session) = &self.session {
             let command = Command::SetSessionExecution {
                 session: session.id,
                 expected_revision: session.revision,
-                execution,
+                execution: Execution::Team,
                 team: reference.map(Into::into),
                 models: BTreeMap::new(),
             };
@@ -198,7 +196,6 @@ impl View {
         }
         // Node clears member models with a new team; drafts follow the same rule.
         self.team_draft = Draft {
-            execution,
             team: reference.map(|reference| reference.id),
             models: BTreeMap::new(),
         };

@@ -74,40 +74,35 @@ class Fixture {
     },
   };
 
-  Future<void> select() =>
-      commands.select('team', team, session: () => session);
+  Future<void> select() => commands.select(team, session: () => session);
 }
 
 void main() {
-  test('model execution preserves the lead configuration', () async {
+  test('Default team preserves the lead configuration', () async {
     final fixture = Fixture(uncertain: false);
     final config = fixture.session['config'];
-    await fixture.commands.select(
-      'model',
-      team,
-      session: () => fixture.session,
-    );
+    await fixture.commands.select(null, session: () => fixture.session);
     expect(fixture.sent.map((entry) => entry.$1), ['set_session_team']);
     expect(fixture.sent.single.$2, {
       'session': 'session-1',
       'expected_revision': 7,
-      'execution': 'model',
+      'execution': 'team',
       'team': null,
       'models': <String, dynamic>{},
     });
     expect(fixture.session['config'], config);
   });
 
-  test('recovered model execution keeps its original request', () async {
+  test('recovered Default team keeps its original request', () async {
     final fixture = Fixture();
     await expectLater(
-      fixture.commands.select('model', null, session: () => fixture.session),
+      fixture.commands.select(null, session: () => fixture.session),
       throwsA(isA<CommandFailure>()),
     );
     await fixture.commands.check();
     expect(fixture.recovered, ['request-set_session_team']);
     expect(fixture.sent, hasLength(1));
-    expect(object(fixture.session['roles'])['execution'], 'model');
+    expect(object(fixture.session['roles'])['execution'], 'team');
     expect(object(fixture.session['config'])['model'], 'old');
     expect(fixture.commands.pending, isFalse);
   });

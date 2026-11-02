@@ -19,19 +19,13 @@ class ConfigurationCommands {
   bool get pending => _pending != null;
 
   Future<void> select(
-    String execution,
     Map<String, dynamic>? team, {
     required Map<String, dynamic> Function() session,
   }) {
     final current = session();
     return send(
       'set_session_team',
-      selectCommand(
-        current['id'] as String,
-        current['revision'] as int,
-        execution,
-        team,
-      ),
+      selectCommand(current['id'] as String, current['revision'] as int, team),
     );
   }
 

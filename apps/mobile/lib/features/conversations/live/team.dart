@@ -68,26 +68,24 @@ class TeamChoices {
   final Listenable listenable;
   final SessionTeam Function() read;
 
-  /// Selects model execution or a team; a null team is the Default team.
-  final Future<void> Function(String execution, Map<String, dynamic>? team)
-  onTeam;
+  /// Selects a stored team; null selects the Default team.
+  final Future<void> Function(Map<String, dynamic>? team) onTeam;
 
   /// Sets one member's model, or clears its override for null.
   final Future<void> Function(String role, Map<String, dynamic>? model)
   onMember;
 }
 
-/// `set_session_team` data; model execution clears the team and overrides.
+/// `set_session_team` data; team selection clears member overrides.
 Map<String, dynamic> selectCommand(
   String session,
   int revision,
-  String execution,
   Map<String, dynamic>? team,
 ) => {
   'session': session,
   'expected_revision': revision,
-  'execution': execution,
-  'team': execution == 'model' || team == null
+  'execution': 'team',
+  'team': team == null
       ? null
       : {'id': team['id'], 'revision': team['revision']},
   'models': <String, dynamic>{},

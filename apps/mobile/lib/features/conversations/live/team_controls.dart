@@ -3,19 +3,19 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
-import '../../../ui/project_icon.dart';
+import '../../../ui/identity_avatar.dart';
 import 'choice_row.dart';
 import 'team.dart';
 
 /// A team's appearance; the Default team and plain teams share one icon.
 class TeamIcon extends StatelessWidget {
-  const TeamIcon({super.key, required this.team, this.size = 16});
+  const TeamIcon({super.key, required this.team, this.size = 24});
   final Map<String, dynamic>? team;
   final double size;
 
   @override
   Widget build(BuildContext context) =>
-      ProjectIcon(project: team ?? const {}, size: size, fallback: 'profile');
+      IdentityAvatar(identity: team, size: size, fallback: 'users');
 }
 
 String teamName(
@@ -66,7 +66,7 @@ class TeamBar extends StatelessWidget {
                   spacing: 6,
                   children: [
                     if (state.execution == 'model')
-                      const AppIcon('ai', size: 16)
+                      const IdentityAvatar(fallback: 'bot', size: 24)
                     else
                       TeamIcon(team: team),
                     Flexible(
@@ -96,7 +96,8 @@ class TeamBar extends StatelessWidget {
                   context,
                   key: const ValueKey('team-lead'),
                   name: context.tr('teamLead'),
-                  icon: const AppIcon('spark', size: 18),
+                  identity: null,
+                  fallback: 'crown',
                   selected: member == null,
                   dot: false,
                   onTap: () => onMember(null),
@@ -106,7 +107,8 @@ class TeamBar extends StatelessWidget {
                     context,
                     key: ValueKey('team-member-${role['id']}'),
                     name: text(role['name']),
-                    icon: ProjectIcon(project: role, size: 18, fallback: 'ai'),
+                    identity: role,
+                    fallback: 'bot',
                     selected: member == role['id'],
                     dot: state.overridden(text(role['id'])),
                     onTap: () => onMember(text(role['id'])),
@@ -123,7 +125,8 @@ class TeamBar extends StatelessWidget {
     BuildContext context, {
     required Key key,
     required String name,
-    required Widget icon,
+    required Map<String, dynamic>? identity,
+    required String fallback,
     required bool selected,
     required bool dot,
     required VoidCallback onTap,
@@ -138,32 +141,41 @@ class TeamBar extends StatelessWidget {
           selected: selected,
           label: name,
           excludeSemantics: true,
-          child: Material(
-            color: selected ? colors.surfaceContainerHigh : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              key: key,
-              onTap: onTap,
-              child: SizedBox.square(
-                dimension: 40,
-                child: Stack(
-                  children: [
-                    Center(child: icon),
-                    if (dot)
-                      Positioned(
-                        top: 6,
-                        right: 6,
-                        child: Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: colors.primary,
-                          ),
+          child: Center(
+            child: SizedBox.square(
+              dimension: 40,
+              child: Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  key: key,
+                  onTap: onTap,
+                  customBorder: const CircleBorder(),
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: IdentityAvatar(
+                          identity: identity,
+                          fallback: fallback,
+                          selected: selected,
                         ),
                       ),
-                  ],
+                      if (dot)
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: colors.primary,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -186,18 +198,18 @@ class TeamList extends StatelessWidget {
   final SessionTeam state;
   final VoidCallback onBack;
 
-  /// Receives an execution mode and optional stored team.
-  final void Function(String execution, Map<String, dynamic>? team) onSelected;
+  /// Receives the stored team, or null for the Default team.
+  final ValueChanged<Map<String, dynamic>?> onSelected;
 
   @override
   Widget build(BuildContext context) {
     final current = state.team?['id'];
     Widget row(Map<String, dynamic>? team) => ChoiceRow(
       key: ValueKey('team-${team?['id'] ?? 'default'}'),
-      leading: TeamIcon(team: team, size: 20),
+      leading: TeamIcon(team: team, size: 28),
       label: teamName('team', team, context.tr),
       selected: state.execution == 'team' && team?['id'] == current,
-      onTap: () => onSelected('team', team),
+      onTap: () => onSelected(team),
     );
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -219,13 +231,6 @@ class TeamList extends StatelessWidget {
             ),
             const SizedBox(width: 48),
           ],
-        ),
-        ChoiceRow(
-          key: const ValueKey('execution-model'),
-          leading: const AppIcon('ai', size: 20),
-          label: context.tr('executionModel'),
-          selected: state.execution == 'model',
-          onTap: () => onSelected('model', null),
         ),
         row(null),
         for (final team in state.teams) row(team),

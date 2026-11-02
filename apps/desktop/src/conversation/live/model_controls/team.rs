@@ -94,18 +94,16 @@ impl Roster {
         self.members.iter().any(|member| member.role == role)
     }
 
-    pub(super) fn selected(&self, execution: Execution, team: Option<TeamId>) -> bool {
-        self.execution == execution && self.team.as_ref().map(|team| team.reference.id) == team
+    pub(super) fn selected(&self, team: Option<TeamId>) -> bool {
+        self.execution == Execution::Team
+            && self.team.as_ref().map(|team| team.reference.id) == team
     }
 
     /// Explicit selection recaptures changed catalog members, even when the team
     /// revision is unchanged. Unchanged selection keeps conversation overrides.
-    pub(super) fn changes(&self, execution: Execution, team: Option<&Team>) -> bool {
-        if self.execution != execution {
+    pub(super) fn changes(&self, team: Option<&Team>) -> bool {
+        if self.execution != Execution::Team {
             return true;
-        }
-        if execution == Execution::Model {
-            return false;
         }
         if self.team.as_ref().map(|team| team.reference) != team.map(|team| team.reference) {
             return true;
@@ -136,7 +134,6 @@ pub(in crate::conversation::live) fn effective<'a>(
 /// Team choice of a conversation without a session, applied once the session exists.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(in crate::conversation::live) struct Draft {
-    pub execution: Execution,
     /// None is the Default team; the current catalog revision is sent at start.
     pub team: Option<TeamId>,
     pub models: BTreeMap<RoleId, role::Model>,
@@ -145,20 +142,17 @@ pub(in crate::conversation::live) struct Draft {
 /// One revision-checked change that brings a new session to its draft team.
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::conversation::live) enum Step {
-    Execution(Execution, Option<team::Reference>),
+    Team(Option<team::Reference>),
     Member(RoleId, role::Model),
 }
 
 impl Draft {
     pub(in crate::conversation::live) fn steps(&self, teams: &[team::Profile]) -> Vec<Step> {
-        if self.execution == Execution::Model {
-            return vec![Step::Execution(Execution::Model, None)];
-        }
         let team = self
             .team
             .and_then(|id| teams.iter().find(|team| team.id == id))
             .map(team::Profile::reference);
-        team.map(|team| Step::Execution(Execution::Team, Some(team)))
+        team.map(|team| Step::Team(Some(team)))
             .into_iter()
             .chain(
                 self.models
@@ -178,12 +172,11 @@ impl Step {
         roles: &role::Snapshot,
     ) -> Option<Command> {
         match self {
-            Self::Execution(execution, team) => (roles.execution != *execution
-                || roles.team != *team)
+            Self::Team(team) => (roles.execution != Execution::Team || roles.team != *team)
                 .then_some(Command::SetSessionExecution {
                     session,
                     expected_revision: revision,
-                    execution: *execution,
+                    execution: Execution::Team,
                     team: team.map(Into::into),
                     models: BTreeMap::new(),
                 }),
@@ -383,65 +376,57 @@ impl Panel {
     ) -> AnyElement {
         let roster = &settings.roster;
         let locked = settings.busy || settings.pending || !settings.connected;
-        let choices = [
-            (Execution::Model, None, None, 0),
-            (Execution::Team, None, None, roster.catalog.len()),
-        ]
-        .into_iter()
-        .chain(roster.teams.iter().map(|team| {
-            (
-                Execution::Team,
-                Some(team.reference.id),
-                Some(team),
-                team.members.len(),
+        let choices = std::iter::once((None, None, roster.catalog.len()))
+            .chain(
+                roster
+                    .teams
+                    .iter()
+                    .map(|team| (Some(team.reference.id), Some(team), team.members.len())),
             )
-        }))
-        .enumerate()
-        .map(|(index, (execution, id, team, members))| {
-            let selected = roster.selected(execution, id);
-            Button::new(("model-team-option", index))
-                .text()
-                .w_full()
-                .h_8()
-                .px_2()
-                .disabled(locked)
-                .selected(selected)
-                .accessibility_label(name(execution, team))
-                .debug_selector(move || format!("model-team-option-{index}"))
-                .child(
-                    h_flex()
-                        .w_full()
-                        .min_w_0()
-                        .gap_2()
-                        .items_center()
-                        .child(avatar(icon(execution, team, cx), false, cx))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_sm()
-                                .line_height(px(20.))
-                                .child(name(execution, team)),
-                        )
-                        .when(execution == Execution::Team, |row| {
-                            row.child(
+            .enumerate()
+            .map(|(index, (id, team, members))| {
+                let selected = roster.selected(id);
+                Button::new(("model-team-option", index))
+                    .text()
+                    .w_full()
+                    .h_8()
+                    .px_2()
+                    .disabled(locked)
+                    .selected(selected)
+                    .accessibility_label(name(Execution::Team, team))
+                    .debug_selector(move || format!("model-team-option-{index}"))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .gap_2()
+                            .items_center()
+                            .child(avatar(icon(Execution::Team, team, cx), false, cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_sm()
+                                    .line_height(px(20.))
+                                    .child(name(Execution::Team, team)),
+                            )
+                            .child(
                                 div()
                                     .flex_shrink_0()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(members.to_string()),
                             )
-                        })
-                        .child(div().size_4().flex_shrink_0().when(selected, |check| {
-                            check.child(Icon::new(IconName::Check).size_4())
-                        })),
-                )
-                .on_click(cx.listener(move |panel, _, window, cx| {
-                    panel.choose_team(execution, id, window, cx)
-                }))
-        })
-        .collect::<Vec<_>>();
+                            .child(div().size_4().flex_shrink_0().when(selected, |check| {
+                                check.child(Icon::new(IconName::Check).size_4())
+                            })),
+                    )
+                    .on_click(
+                        cx.listener(move |panel, _, window, cx| panel.choose_team(id, window, cx)),
+                    )
+            })
+            .collect::<Vec<_>>();
         let owner = self.owner.clone();
         v_flex()
             .debug_selector(|| "model-team-list".into())
@@ -511,13 +496,7 @@ impl Panel {
         cx.notify();
     }
 
-    fn choose_team(
-        &mut self,
-        execution: Execution,
-        team: Option<TeamId>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn choose_team(&mut self, team: Option<TeamId>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(settings) = &self.settings else {
             return;
         };
@@ -532,10 +511,10 @@ impl Panel {
         if team.is_some() && chosen.is_none() {
             return;
         }
-        if settings.roster.changes(execution, chosen.as_ref()) {
-            let _ = self.owner.update(cx, |view, cx| {
-                view.select_team(execution, chosen, window, cx)
-            });
+        if settings.roster.changes(chosen.as_ref()) {
+            let _ = self
+                .owner
+                .update(cx, |view, cx| view.select_team(chosen, window, cx));
             self.member = None;
         }
         self.back(window, cx);

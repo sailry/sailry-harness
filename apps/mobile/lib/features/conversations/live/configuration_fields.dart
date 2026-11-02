@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
@@ -93,17 +95,19 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
     final colors = Theme.of(context).colorScheme;
     final config = widget.config;
     final selectedMode = _modes.selected(config);
-    final modes = [
+    List<(String, String, bool)> modeChoices() => [
       for (final (value, label) in const [
         ('code', 'conversationCode'),
         ('plan', 'conversationPlan'),
         ('flagship', 'conversationFlagship'),
       ])
         (value, context.tr(label), true),
-      for (final mode in _modes.choices(config))
+      for (final mode in _modes.choices(widget.config))
         (mode.key, mode.label(Localizations.localeOf(context)), mode.enabled),
     ];
-    final current = modes.where((mode) => mode.$1 == selectedMode).firstOrNull;
+    final current = modeChoices()
+        .where((mode) => mode.$1 == selectedMode)
+        .firstOrNull;
     Widget choices(String field, List<(String, String)> values) =>
         SegmentedButton<String>(
           key: ValueKey('configuration-$field'),
@@ -134,7 +138,7 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
       minVerticalPadding: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       titleTextStyle: TextStyle(fontSize: 15, color: colors.onSurface),
-      enabled: widget.enabled && _modes.ready,
+      enabled: widget.enabled,
       title: Text(context.tr('conversationMode')),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -148,20 +152,24 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
         ],
       ),
       onTap: () async {
+        if (_modes.error != null) unawaited(_modes.reload());
         final key = await showAppSheet<String>(
           context,
           context.tr('conversationMode'),
-          child: Builder(
-            builder: (sheet) => Column(
+          child: ListenableBuilder(
+            listenable: _modes,
+            builder: (sheet, _) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                for (final (value, label, enabled) in modes)
+                for (final (value, label, enabled) in modeChoices())
                   Opacity(
-                    opacity: enabled ? 1 : .45,
+                    opacity: enabled && _modes.canSelect(widget.config)
+                        ? 1
+                        : .45,
                     child: ChoiceRow(
                       label: label,
-                      selected: value == selectedMode,
-                      onTap: enabled
+                      selected: value == _modes.selected(widget.config),
+                      onTap: enabled && _modes.canSelect(widget.config)
                           ? () => Navigator.pop(sheet, value)
                           : () {},
                     ),
@@ -170,7 +178,9 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
             ),
           ),
         );
-        if (key == null || key == selectedMode || !mounted) return;
+        if (!mounted || key == null || key == _modes.selected(widget.config)) {
+          return;
+        }
         final next = _modes.select(widget.config, key);
         if (next != null) _commit(next);
       },
@@ -182,8 +192,8 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
         builder: (context, _) => TeamList(
           state: team.read(),
           onBack: () => setState(() => _choosingTeam = false),
-          onSelected: (execution, selected) async {
-            await team.onTeam(execution, selected);
+          onSelected: (selected) async {
+            await team.onTeam(selected);
             if (mounted) setState(() => _choosingTeam = false);
           },
         ),
