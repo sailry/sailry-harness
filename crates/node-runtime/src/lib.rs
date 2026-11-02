@@ -631,7 +631,7 @@ impl Node {
         self.ingress.web.fixture(host, address);
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_connector_fixture(&self, origin: &str, endpoint: &str) {
         self.ingress.plugins.connectors.fixture(origin, endpoint);
     }

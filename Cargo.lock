@@ -14580,7 +14580,6 @@ dependencies = [
  "sailry-embedding",
  "sailry-link",
  "sailry-model-assets",
- "sailry-node-runtime",
  "sailry-ocr",
  "sailry-protocol",
  "schemars 1.2.2",

@@ -299,6 +299,9 @@ class Lint(unittest.TestCase):
                 ["cargo", "clippy", "--locked", "-p", "sailry-host", "--all-targets",
                  "--jobs", "1", "--", "-D", "warnings"], env={}, check=False)
             prepare.assert_called_once_with(ROOT, None, libraries=False)
+        shared = ci.lint_command(ci.outputs({"shared"}), None)
+        self.assertEqual(shared[shared.index("--features") + 1], "sailry-node-runtime/test-support")
+        self.assertLess(shared.index("--features"), shared.index("--all-targets"))
         for selection, jobs in (({}, "1"), (ci.outputs(set()), "1"),
                                 (ci.outputs({"host"}), "0"), (ci.outputs({"host"}), "1; false")):
             with self.subTest(selection=selection, jobs=jobs):
@@ -356,6 +359,8 @@ class Commands(unittest.TestCase):
         build = commands[1]["argv"]
         self.assertEqual(build[:3], ["cargo", "build", "--locked"])
         self.assertEqual(build[build.index("--features") + 1], "sailry-node-runtime/test-support")
+        run = commands[0]["argv"]
+        self.assertEqual(run[run.index("--features") + 1], "sailry-node-runtime/test-support")
         packages = lambda argv: [argv[index + 1] for index, value in enumerate(argv) if value == "-p"]
         self.assertEqual(packages(build), packages(commands[0]["argv"]))
         self.assertEqual(build[build.index("--example") + 1], "plugin-test-host")

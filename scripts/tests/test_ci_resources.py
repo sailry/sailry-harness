@@ -210,6 +210,8 @@ class SharedCommands(unittest.TestCase):
                 self.assertIn("--test-threads=1", database)
                 self.assertNotIn("--run-ignored", run)
                 self.assertEqual(build[build.index("--features") + 1], "sailry-node-runtime/test-support")
+                for argv in (run, database):
+                    self.assertEqual(argv[argv.index("--features") + 1], "sailry-node-runtime/test-support")
                 self.assertEqual(build[build.index("--example") + 1], "plugin-test-host")
                 self.assertEqual(contracts[1], "scripts/test-plugins.py")
 
@@ -344,7 +346,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04", host)
         self.assertIn("bubblewrap libx11-dev libxi-dev libxtst-dev", host)
         self.assertIn("cargo nextest run --locked -p sailry-host --timings", host)
-        self.assertIn("-p sailry-host --timings", shared)
+        self.assertIn("-p sailry-host --features sailry-node-runtime/test-support --timings", shared)
         self.assertIn("not (package(sailry-host) and not binary(lifecycle))", shared)
         combined = shared.split("      - name: Shared and macOS Host contracts\n", 1)[1].split("      - ", 1)[0]
         self.assertNotIn("if: ", combined)
