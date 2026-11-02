@@ -20,6 +20,9 @@ abstract class Controller implements RustOpaqueInterface {
   /// Forget this device's saved pairing without contacting the host.
   Future<void> forget({required String address});
 
+  /// Public controller identity, encoded like Node IDs in protocol snapshots.
+  Future<String> id();
+
   Future<void> markNotificationRead({required String id});
 
   Future<void> markNotificationsRead();

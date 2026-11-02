@@ -38,6 +38,26 @@ async fn request(stream: &mut TcpStream) -> Value {
 }
 
 #[tokio::test]
+async fn identity_survives_reopening() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("controller");
+    let controller = Controller::open(path.to_str().unwrap().into(), false, vec![])
+        .await
+        .unwrap();
+    let identity = controller.id().unwrap();
+    let decoded: sailry_protocol::NodeId = serde_json::from_str(&identity).unwrap();
+    assert_eq!(decoded.0, *controller.handle.address().id.as_bytes());
+    controller.close().await.unwrap();
+    assert!(controller.id().is_err());
+
+    let reopened = Controller::open(path.to_str().unwrap().into(), false, vec![])
+        .await
+        .unwrap();
+    assert_eq!(reopened.id().unwrap(), identity);
+    reopened.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn retries_the_same_pin_after_lost_reply() {
     let directory = tempfile::tempdir().unwrap();
     let host = Link::controller(directory.path().join("host"), NetworkScope::default())

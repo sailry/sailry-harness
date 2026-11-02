@@ -63,7 +63,8 @@ Future<void> main() async {
     await connection.execute(request: snapshotRequest),
   );
   final worktree = snapshot['Ok']['data']['worktrees'][0]['id'];
-  final terminalId = await terminal.create(connection, worktree);
+  final identity = await controller.id();
+  final terminalId = await terminal.create(connection, worktree, identity);
   final usageFixture = await usage.create(
     connection,
     snapshot['Ok']['data']['projects'][0]['id'],
@@ -153,7 +154,11 @@ Future<void> main() async {
   );
   connection.dispose();
   connection = await controller.connect(address: address);
-  await terminal.restore(connection, terminalId, worktree);
+  check(
+    await controller.id() == identity,
+    'controller identity survives reopening',
+  );
+  await terminal.restore(connection, terminalId, worktree, identity);
   await conversation.restore(connection, conversationFixture);
   await usage.restore(connection, usageFixture);
   check(

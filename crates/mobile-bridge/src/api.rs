@@ -41,6 +41,13 @@ pub struct Controller {
 }
 
 impl Controller {
+    /// Public controller identity, encoded like Node IDs in protocol snapshots.
+    pub fn id(&self) -> Result<String, String> {
+        self.check()?;
+        let id = sailry_protocol::NodeId(*self.handle.address().id.as_bytes());
+        serde_json::to_string(&id).map_err(error)
+    }
+
     pub fn set_name(&self, name: String) -> Result<(), String> {
         self.check()?;
         self.handle.set_name(name).map_err(error)

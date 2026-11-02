@@ -43,11 +43,9 @@ String content(Map<String, dynamic> snapshot) {
   ].expand((line) => line['spans'] as List).map((span) => span['text']).join();
 }
 
-Future<String> create(Connection connection, String worktree) async {
+Map<String, dynamic> launch() {
   final color = {'red': 240, 'green': 241, 'blue': 242};
-  final created = await execute(connection, 'create_terminal', {
-    'access': 'workspace',
-    'worktree': worktree,
+  return {
     'viewport': {
       'columns': 80,
       'rows': 24,
@@ -60,9 +58,28 @@ Future<String> create(Connection connection, String worktree) async {
       'palette': List.filled(16, color),
       'color_scheme': 'dark',
     },
+  };
+}
+
+Future<String> create(
+  Connection connection,
+  String worktree,
+  String identity,
+) async {
+  final created = await execute(connection, 'create_terminal', {
+    'access': 'unrestricted',
+    'worktree': worktree,
+    ...launch(),
   });
   final info = created['data'];
-  check(info['access'] == 'workspace', 'local terminal retains workspace access');
+  check(
+    info['access'] == 'unrestricted',
+    'manual terminal uses the complete environment',
+  );
+  check(
+    jsonEncode(info['owner']) == identity,
+    'terminal belongs to the creating controller',
+  );
   final id = info['id'] as String;
   final revision = info['revision'];
   final updates = await connection.watchTerminal(terminal: id);
@@ -84,14 +101,99 @@ Future<String> create(Connection connection, String worktree) async {
         snapshot['screen']['columns'] == 100 &&
         snapshot['screen']['rows'].length == 30,
   );
+  await enter(
+    connection,
+    id,
+    revision,
+    "printf '%s\\n' ffi-run >> ffi-terminal.txt; printf 'ffi-%s\\n' ready",
+  );
+  final ready = await until(
+    updates,
+    (snapshot) => content(snapshot).contains('ffi-ready'),
+  );
+  check(
+    ready['sequence'] > first['sequence'],
+    'terminal updates reduced by Rust Client',
+  );
+  // A buffered update may win the race; cancellation must still release a blocked next.
+  final pending = updates.next().then((_) {}, onError: (_) {});
+  await updates.close();
+  await pending.timeout(const Duration(seconds: 2));
+  var closed = false;
+  try {
+    await updates.next();
+  } catch (_) {
+    closed = true;
+  }
+  check(closed, 'closed terminal subscription rejects next');
+  updates.dispose();
+  return id;
+}
+
+Future<void> restore(
+  Connection connection,
+  String id,
+  String worktree,
+  String identity,
+) async {
+  final opened = (await execute(connection, 'open_terminal', {
+    'terminal': id,
+    ...launch(),
+  }))['data'];
+  check(
+    opened['id'] == id && jsonEncode(opened['owner']) == identity,
+    'reopening preserves this controller input ownership',
+  );
+  final updates = await connection.watchTerminal(terminal: id);
+  final snapshot = await until(
+    updates,
+    (snapshot) => content(snapshot).contains('ffi-ready'),
+  );
+  check(
+    snapshot['info']['status']['kind'] == 'running',
+    'controller disposal preserves PTY',
+  );
+  final file = await execute(connection, 'read_file', {
+    'worktree': worktree,
+    'path': 'ffi-terminal.txt',
+  });
+  check(
+    file['data']['text'] == 'ffi-run\n',
+    'reconnect never replays terminal input',
+  );
+  await enter(
+    connection,
+    id,
+    opened['revision'],
+    "printf 'ffi-%s\\n' returned",
+  );
+  await until(
+    updates,
+    (snapshot) => content(snapshot).contains('ffi-returned'),
+  );
+  await execute(connection, 'close_terminal', {
+    'worktree': worktree,
+    'terminal': id,
+  });
+  await until(
+    updates,
+    (snapshot) => snapshot['info']['status']['kind'] == 'closed',
+  );
+  await updates.close();
+  updates.dispose();
+}
+
+Future<void> enter(
+  Connection connection,
+  String id,
+  int revision,
+  String text,
+) async {
   await execute(connection, 'input_terminal', {
     'terminal': id,
     'revision': revision,
     'input': {
-      'paste': {
-        'text':
-            "printf '%s\\n' ffi-run >> ffi-terminal.txt; printf 'ffi-%s\\n' ready",
-      },
+      'paste': {'text': text},
     },
   });
   await execute(connection, 'input_terminal', {
@@ -116,55 +218,4 @@ Future<String> create(Connection connection, String worktree) async {
       },
     },
   });
-  final ready = await until(
-    updates,
-    (snapshot) => content(snapshot).contains('ffi-ready'),
-  );
-  check(
-    ready['sequence'] > first['sequence'],
-    'terminal updates reduced by Rust Client',
-  );
-  // A buffered update may win the race; cancellation must still release a blocked next.
-  final pending = updates.next().then((_) {}, onError: (_) {});
-  await updates.close();
-  await pending.timeout(const Duration(seconds: 2));
-  var closed = false;
-  try {
-    await updates.next();
-  } catch (_) {
-    closed = true;
-  }
-  check(closed, 'closed terminal subscription rejects next');
-  updates.dispose();
-  return id;
-}
-
-Future<void> restore(Connection connection, String id, String worktree) async {
-  final updates = await connection.watchTerminal(terminal: id);
-  final snapshot = await until(
-    updates,
-    (snapshot) => content(snapshot).contains('ffi-ready'),
-  );
-  check(
-    snapshot['info']['status']['kind'] == 'running',
-    'controller disposal preserves PTY',
-  );
-  final file = await execute(connection, 'read_file', {
-    'worktree': worktree,
-    'path': 'ffi-terminal.txt',
-  });
-  check(
-    file['data']['text'] == 'ffi-run\n',
-    'reconnect never replays terminal input',
-  );
-  await execute(connection, 'close_terminal', {
-    'worktree': worktree,
-    'terminal': id,
-  });
-  await until(
-    updates,
-    (snapshot) => snapshot['info']['status']['kind'] == 'closed',
-  );
-  await updates.close();
-  updates.dispose();
 }

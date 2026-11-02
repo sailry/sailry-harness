@@ -20,6 +20,7 @@ pub(crate) struct State {
     selected: BTreeMap<(NodeId, WorktreeId), TerminalId>,
     owners: BTreeMap<(NodeId, TerminalId), Option<ProjectId>>,
     pending: BTreeSet<(NodeId, WorktreeId)>,
+    pub(super) closing: BTreeMap<(NodeId, TerminalId), super::menus::terminal::Closing>,
 }
 
 impl State {

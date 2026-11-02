@@ -9,6 +9,7 @@ mod project;
 mod rename;
 mod session;
 mod session_actions;
+pub(super) mod terminal;
 #[cfg(test)]
 mod tests;
 mod window;
@@ -260,6 +261,12 @@ impl Shell {
             }
             return;
         }
+        if matches!(action.target, Target::Terminal(_)) && action.command == Command::Close {
+            if let Some(command) = action.terminal_close(&snapshot) {
+                self.close_live_terminal(command, window, cx);
+            }
+            return;
+        }
         let deferred = action.clone();
         if self.guard_file_navigation(window, cx, move |shell, window, cx| {
             shell.live_resource_action(&deferred, window, cx)
@@ -313,9 +320,6 @@ impl Shell {
                         self.select_live_project(project, window, cx);
                     }
                     self.reveal_terminal(tree.project, terminal, window, cx);
-                    if action.command == Command::Close {
-                        self.terminal_action(Some(id), window, cx);
-                    }
                 }
             }
             Target::Host => {}

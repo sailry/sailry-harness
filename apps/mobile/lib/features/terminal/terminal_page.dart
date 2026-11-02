@@ -16,6 +16,7 @@ import '../../ui/toast.dart';
 import 'appearance.dart';
 import 'cursor.dart';
 import 'grid.dart';
+import 'session.dart';
 import 'toolbar.dart';
 
 class TerminalPage extends StatefulWidget {
@@ -47,8 +48,8 @@ class _TerminalPageState extends State<TerminalPage>
   final _modifiers = <String>{};
   HostConnection? _host;
   TerminalUpdates? _updates;
-  String? _terminal;
-  String? _launchRequest;
+  TerminalSession? _session;
+  String? get _terminal => _session?.terminal ?? widget.terminalId;
   int? _lease;
   Map<String, dynamic> _snapshot = {};
   Map<String, dynamic>? _viewport;
@@ -126,52 +127,31 @@ class _TerminalPageState extends State<TerminalPage>
       _error = null;
     });
     try {
-      String? terminal = _terminal ?? widget.terminalId;
-      if (terminal == null &&
-          !widget.createNew &&
-          _launchRequest == null &&
-          widget.worktreeId != null) {
-        final existing = objects(host.snapshot['terminals'])
-            .where(
-              (info) =>
-                  info['worktree'] == widget.worktreeId &&
-                  object(info['status'])['kind'] != 'closed',
-            )
-            .firstOrNull;
-        terminal = existing?['id'] as String?;
+      final launch = terminalLaunch(context);
+      if (_session == null) {
+        final controller = AppSession.of(context).controller;
+        if (controller == null) throw StateError('Controller is unavailable');
+        final identity = await controller.id();
+        if (!mounted) return;
+        _session = TerminalSession(
+          controller: identity,
+          command: host.command,
+          execute: host.execute,
+          terminal: widget.terminalId,
+          worktree: widget.worktreeId,
+          createNew: widget.createNew,
+        );
       }
-      if (terminal == null) {
-        if (widget.worktreeId == null) {
-          throw StateError('A worktree is required to create a terminal');
-        }
-        final result = _launchRequest == null
-            ? await host.command('create_terminal', {
-                'access': 'workspace',
-                'worktree': widget.worktreeId,
-                ...terminalLaunch(context),
-              })
-            : await host.execute(_launchRequest!);
-        final info = object(result['data']);
-        terminal = text(info['id']);
-        _terminal = terminal;
-        _launchRequest = null;
-        _lease = number(info['revision']).toInt();
-      } else {
-        _terminal = terminal;
-        // The Node alone decides whether the persisted terminal needs a new PTY.
-        if (_launchRequest == null) {
-          await host.command('open_terminal', {
-            'terminal': terminal,
-            ...terminalLaunch(context),
-          });
-        } else {
-          await host.execute(_launchRequest!);
-        }
-        _launchRequest = null;
-      }
+      final session = _session!;
+      final info = await session.open(
+        launch,
+        objects(host.snapshot['terminals']),
+      );
       if (!mounted) return;
-      _terminal = terminal;
-      final updates = await host.connection.watchTerminal(terminal: terminal);
+      _lease = session.lease(info);
+      final updates = await host.connection.watchTerminal(
+        terminal: session.terminal!,
+      );
       if (!mounted) {
         await updates.close();
         updates.dispose();
@@ -179,13 +159,6 @@ class _TerminalPageState extends State<TerminalPage>
       }
       _updates = updates;
       unawaited(_watch(updates));
-    } on CommandFailure catch (error) {
-      if (mounted) {
-        setState(() {
-          if (error.code == 'outcome_unknown') _launchRequest = error.request;
-          _error = failureText(error, translate: context.tr);
-        });
-      }
     } catch (error) {
       if (mounted) {
         setState(() => _error = failureText(error, translate: context.tr));
