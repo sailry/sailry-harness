@@ -545,18 +545,10 @@ impl Editor {
             self.field_form(kind)
         } else {
             match auth {
-                Auth::LocalCli { .. } if self.inspecting => account::loading(cx),
+                Auth::LocalCli { .. } if self.inspecting => account::loading(),
                 Auth::LocalCli { .. } => v_flex()
                     .gap_3()
-                    .when(self.cli.is_some(), |element| {
-                        element.child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(tr("connector_choose_account")),
-                        )
-                    })
-                    .child(account::list(self.cli.as_ref(), cx))
+                    .child(account::list(self.cli.as_ref()))
                     .when(self.cli.is_none(), |element| {
                         element.child(
                             h_flex().justify_end().child(

@@ -1,75 +1,31 @@
 //! The local CLI account a connector binds, presented as a one-row selection list.
 use super::*;
-use gpui_kit::component::{avatar::Avatar, radio::Radio, skeleton::Skeleton};
+use crate::ui::modal_list::{List, Row};
+use gpui_kit::component::{avatar::Avatar, skeleton::Skeleton};
 
-const ROW_HEIGHT: f32 = 52.;
 // Kit's standard small avatar; custom pixel sizes do not center its initials.
 const AVATAR_SIZE: f32 = 24.;
 
-pub(super) fn list(identity: Option<&connector::Identity>, cx: &App) -> AnyElement {
-    let theme = cx.theme();
-    let row = h_flex()
-        .w_full()
-        .h(px(ROW_HEIGHT))
-        .px_3p5()
-        .gap_3()
-        .items_center();
-    let row = match identity {
-        Some(identity) => row
-            .bg(theme.accent)
-            .child(Avatar::new().name(identity.name.clone()).small())
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.foreground)
-                            .truncate()
-                            .child(identity.name.clone()),
-                    )
-                    .when(identity.id != identity.name, |text| {
-                        text.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .truncate()
-                                .child(identity.id.clone()),
-                        )
-                    }),
-            )
-            .child(
-                Radio::new("connector-account")
-                    .checked(true)
-                    .accessibility_label(identity.name.clone()),
-            ),
-        None => row
-            .child(
-                div()
-                    .size(px(AVATAR_SIZE))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(Icon::new(IconName::CircleAlert).text_color(theme.muted_foreground)),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(tr("connector_not_connected")),
-            ),
-    };
-    frame(row, cx)
+pub(super) fn list(identity: Option<&connector::Identity>) -> AnyElement {
+    let list = List::new("connector-accounts").heading(tr("connector_choose_account"));
+    match identity {
+        Some(identity) => list
+            .rows([Row::new("connector-account", identity.name.clone())
+                .leading(Avatar::new().name(identity.name.clone()).small())
+                .when(identity.id != identity.name, |row| {
+                    row.subtitle(identity.id.clone())
+                })
+                .selected(true)])
+            .into_any_element(),
+        None => List::new("connector-accounts")
+            .empty(tr("connector_not_connected"))
+            .into_any_element(),
+    }
 }
 
 /// Holds the account row's place while the Node inspects the local CLI.
-pub(super) fn loading(cx: &App) -> AnyElement {
-    let row = h_flex()
-        .w_full()
-        .h(px(ROW_HEIGHT))
-        .px_3p5()
+pub(super) fn loading() -> AnyElement {
+    let placeholder = h_flex()
         .gap_3()
         .items_center()
         .child(
@@ -84,18 +40,7 @@ pub(super) fn loading(cx: &App) -> AnyElement {
                 .child(Skeleton::new().h_3().w(px(120.)).rounded_sm())
                 .child(Skeleton::new().secondary().h_2p5().w(px(80.)).rounded_sm()),
         );
-    frame(row, cx)
-}
-
-fn frame(row: impl IntoElement, cx: &App) -> AnyElement {
-    let theme = cx.theme();
-    div()
-        .w_full()
-        .bg(theme.colors.list)
-        .border_1()
-        .border_color(theme.border)
-        .rounded(theme.radius_2xl())
-        .overflow_hidden()
-        .child(row)
+    List::new("connector-accounts")
+        .rows([Row::new("connector-account-loading", "").leading(placeholder)])
         .into_any_element()
 }

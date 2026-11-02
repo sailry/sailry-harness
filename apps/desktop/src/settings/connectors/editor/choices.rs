@@ -1,5 +1,6 @@
 //! Connector choices reuse their package's localized presentation metadata.
 use super::*;
+use crate::ui::modal_list::{List, Row};
 
 impl Editor {
     pub(super) fn choices(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -56,49 +57,16 @@ impl Editor {
                     None => label.clone(),
                 };
                 Some(
-                    Button::new(("connector-type", index))
-                        .outline()
-                        .w_full()
-                        .h_auto()
-                        .p_3()
-                        .justify_start()
-                        .disabled(self.pending || (!kind.enabled && !added))
-                        .accessibility_label(accessibility)
-                        .child(
-                            h_flex()
-                                .w_full()
-                                .min_w_0()
-                                .items_center()
-                                .gap_3()
-                                .child(
-                                    crate::plugins::emblem::surface(&label, None, px(32.))
-                                        .flex_shrink_0()
-                                        .child(icon.size_5()),
-                                )
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .items_start()
-                                        .gap_1()
-                                        .child(div().w_full().truncate().child(label))
-                                        .when_some(description, |element, description| {
-                                            element.child(
-                                                div()
-                                                    .w_full()
-                                                    .truncate()
-                                                    .text_xs()
-                                                    .text_color(cx.theme().muted_foreground)
-                                                    .child(description),
-                                            )
-                                        }),
-                                )
-                                .when(added, |row| {
-                                    row.child(
-                                        Tag::secondary().xsmall().child(tr("connector_added")),
-                                    )
-                                }),
+                    Row::new(format!("connector-type-{index}"), label.clone())
+                        .leading(
+                            crate::plugins::emblem::surface(&label, None, px(32.))
+                                .child(icon.size_5()),
                         )
+                        .when_some(description, |row, description| row.subtitle(description))
+                        .when(added, |row| row.meta(tr("connector_added")))
+                        .label(accessibility)
+                        .chevron()
+                        .disabled(self.pending || (!kind.enabled && !added))
                         .on_click(
                             cx.listener(move |this, _, window, cx| this.pick(index, window, cx)),
                         ),
@@ -111,19 +79,15 @@ impl Editor {
             .child(div().text_lg().font_semibold().child(tr("connector_add")))
             .child(Input::new(&self.query).cleanable(true))
             .child(
-                v_flex()
+                div()
                     .id("connector-type-list")
                     .max_h(px(420.))
                     .overflow_y_scroll()
-                    .gap_2()
-                    .when(rows.is_empty(), |element| {
-                        element.child(crate::empty_state::list(
-                            IconName::Network,
-                            "connector_empty",
-                            cx,
-                        ))
-                    })
-                    .children(rows),
+                    .child(
+                        List::new("connector-types")
+                            .rows(rows)
+                            .empty(tr("connector_empty")),
+                    ),
             )
             .into_any_element()
     }
