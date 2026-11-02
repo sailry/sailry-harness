@@ -15,6 +15,7 @@ import 'draft_settings.dart';
 import 'page.dart';
 import 'presentation.dart' show failureLabel;
 import 'voice.dart';
+import 'team.dart';
 
 /// A local draft becomes a Node session only when the first message is sent.
 class NewConversationPage extends StatefulWidget {
@@ -104,31 +105,28 @@ class _NewConversationPageState extends State<NewConversationPage> {
   void _settings() => showAppSheet(
     context,
     context.tr('modelPicker'),
-    child: StatefulBuilder(
-      builder: (context, update) {
-        void change(VoidCallback action) {
-          setState(action);
-          update(() {});
-        }
-
-        return DraftSettings(
-          host: widget.host,
-          projects: objects(widget.host.snapshot['projects']),
-          worktrees: _creation.worktrees,
-          project: _creation.project,
-          worktree: _creation.worktree,
-          providers: _creation.providers,
-          config: _creation.config,
-          onProject: (project) => change(() {
-            _creation.project = project;
-            _creation.worktree = _creation.worktrees.firstOrNull;
-          }),
-          onWorktree: (tree) => change(() => _creation.worktree = tree),
-          onConfig: (config) => change(() {
-            _creation.configure(config);
-          }),
-        );
-      },
+    child: ListenableBuilder(
+      listenable: _creation,
+      builder: (context, _) => DraftSettings(
+        host: widget.host,
+        projects: objects(widget.host.snapshot['projects']),
+        worktrees: _creation.worktrees,
+        project: _creation.project,
+        worktree: _creation.worktree,
+        providers: _creation.providers,
+        config: _creation.config,
+        team: TeamChoices(
+          listenable: _creation,
+          read: () => _creation.team,
+          onTeam: (team) async => _creation.selectTeam(team),
+          onMember: (role, model) async =>
+              _creation.configureMember(role, model),
+        ),
+        locationEnabled: _creation.locationEditable,
+        onProject: (project) => _creation.project = project,
+        onWorktree: _creation.selectWorktree,
+        onConfig: _creation.configure,
+      ),
     ),
   );
 

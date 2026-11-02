@@ -27,7 +27,7 @@ class ModelControls extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>>? onCommitted;
   final bool enabled;
 
-  /// A live session's team; new conversations use the Default team.
+  /// Team choices for a live session or a new conversation draft.
   final TeamChoices? team;
 
   /// Opens the team list in place of the controls.
@@ -122,12 +122,39 @@ class _ModelControlsState extends State<ModelControls> {
         : state!.overridden(role)
         ? () => _setMember(role, null)
         : null;
+    final name = member == null ? context.tr('teamLead') : text(member['name']);
+    final resetButton = IconButton(
+      key: const ValueKey('model-reset'),
+      style: IconButton.styleFrom(
+        minimumSize: const Size.square(40),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      tooltip: context.tr(member == null ? 'resetReasoning' : 'memberReset'),
+      onPressed: enabled ? reset : null,
+      icon: const AppIcon('refresh', size: 20),
+    );
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Row(
           children: [
-            const SizedBox(width: 40),
+            if (state != null)
+              Expanded(
+                child: Tooltip(
+                  message: name,
+                  child: Text(
+                    name,
+                    key: const ValueKey('model-role-name'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              )
+            else
+              const SizedBox(width: 40),
             Expanded(
               child: Text(
                 label,
@@ -137,18 +164,15 @@ class _ModelControlsState extends State<ModelControls> {
                 ).textTheme.titleMedium?.copyWith(color: colors.primary),
               ),
             ),
-            IconButton(
-              key: const ValueKey('model-reset'),
-              style: IconButton.styleFrom(
-                minimumSize: const Size.square(40),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              tooltip: context.tr(
-                member == null ? 'resetReasoning' : 'memberReset',
-              ),
-              onPressed: enabled ? reset : null,
-              icon: const AppIcon('refresh', size: 20),
-            ),
+            if (state != null)
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: resetButton,
+                ),
+              )
+            else
+              resetButton,
           ],
         ),
         TextButton(

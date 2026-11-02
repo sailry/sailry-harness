@@ -107,7 +107,7 @@ class TeamBar extends StatelessWidget {
                     context,
                     key: ValueKey('team-member-${role['id']}'),
                     name: text(role['name']),
-                    identity: role,
+                    identity: {'appearance': state.appearance(role)},
                     fallback: 'bot',
                     selected: member == role['id'],
                     dot: state.overridden(text(role['id'])),

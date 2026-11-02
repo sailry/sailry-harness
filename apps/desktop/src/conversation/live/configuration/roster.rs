@@ -87,7 +87,7 @@ impl View {
         Roster {
             execution: self.execution(),
             team,
-            members: Roster::members(self.member_profiles(), self.member_overrides()),
+            members: Roster::members(self.member_profiles(), self.member_overrides(), roles),
             teams: teams.iter().map(Team::from).collect(),
             catalog: roles.iter().map(role::Profile::reference).collect(),
         }

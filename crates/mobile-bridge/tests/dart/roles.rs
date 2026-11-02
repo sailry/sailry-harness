@@ -1,6 +1,6 @@
 use sailry_client::Client;
 use sailry_node_runtime::Node;
-use sailry_protocol::{Command, Output, RoleId};
+use sailry_protocol::{Command, Output, RoleId, TeamId};
 
 #[test]
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
@@ -35,6 +35,7 @@ fn persists_catalog_without_controller() {
         .env("SAILRY_ROLE", original.to_string())
         .env("SAILRY_REPLACEMENT_ROLE", replacement.to_string())
         .env("SAILRY_ROLE_PROVIDER", provider.id.to_string())
+        .env("SAILRY_TEAM", TeamId::new().to_string())
         .spawn()
         .unwrap();
     let status = super::wait(child);
@@ -52,7 +53,9 @@ fn persists_catalog_without_controller() {
     };
     assert_eq!(roles.len(), 1);
     assert_eq!(roles[0].id, replacement);
-    assert_eq!(roles[0].revision, 1);
+    assert_eq!(roles[0].revision, 2);
+    assert_eq!(roles[0].appearance.as_ref().unwrap().icon, "tools");
+    assert_eq!(roles[0].appearance.as_ref().unwrap().color, "orange");
     assert_eq!(roles[0].key, "review");
     assert_eq!(roles[0].model.as_ref().unwrap().provider, provider.id);
     assert_eq!(roles[0].skills, ["local-review"]);

@@ -170,7 +170,7 @@ mod teams {
             let roles = [profile("reviewer", None)];
             let overrides = BTreeMap::from([(roles[0].id, model("fast"))]);
             let roster = Roster {
-                members: Roster::members(&roles, &overrides),
+                members: Roster::members(&roles, &overrides, &[]),
                 ..Default::default()
             };
             assert_eq!(roster.chip(), Chip::Model);
@@ -182,7 +182,7 @@ mod teams {
             let team = Team::from(&stored(roles.iter().map(|role| role.id).collect()));
             let mut roster = Roster {
                 team: Some(team.clone()),
-                members: Roster::members(&roles, &BTreeMap::new()),
+                members: Roster::members(&roles, &BTreeMap::new(), &[]),
                 ..Default::default()
             };
             assert_eq!(
@@ -192,7 +192,8 @@ mod teams {
                     overridden: false
                 }
             );
-            roster.members = Roster::members(&roles, &BTreeMap::from([(roles[1].id, model("x"))]));
+            roster.members =
+                Roster::members(&roles, &BTreeMap::from([(roles[1].id, model("x"))]), &[]);
             assert_eq!(
                 roster.chip(),
                 Chip::Team {
@@ -222,12 +223,12 @@ mod teams {
         fn default_recaptures_catalog_membership() {
             let roles = [profile("reviewer", None), profile("tester", None)];
             let mut roster = Roster {
-                members: Roster::members(&roles[..1], &BTreeMap::new()),
+                members: Roster::members(&roles[..1], &BTreeMap::new(), &[]),
                 catalog: roles.iter().map(role::Profile::reference).collect(),
                 ..Default::default()
             };
             assert!(roster.changes(None));
-            roster.members = Roster::members(&roles, &BTreeMap::new());
+            roster.members = Roster::members(&roles, &BTreeMap::new(), &[]);
             assert!(!roster.changes(None));
             roster.catalog.pop();
             assert!(roster.changes(None));
@@ -239,7 +240,7 @@ mod teams {
             let team = Team::from(&stored(vec![roles[0].id]));
             let mut roster = Roster {
                 team: Some(team.clone()),
-                members: Roster::members(&roles[..1], &BTreeMap::new()),
+                members: Roster::members(&roles[..1], &BTreeMap::new(), &[]),
                 catalog: roles.iter().map(role::Profile::reference).collect(),
                 ..Default::default()
             };
@@ -256,13 +257,71 @@ mod teams {
             let roles = [profile("reviewer", None)];
             let overrides = BTreeMap::from([(roles[0].id, model("custom"))]);
             let roster = Roster {
-                members: Roster::members(&roles, &overrides),
+                members: Roster::members(&roles, &overrides, &[]),
                 catalog: roles.iter().map(role::Profile::reference).collect(),
                 ..Default::default()
             };
             assert!(roster.members[0].overridden);
             assert!(!roster.changes(None));
         }
+    }
+
+    #[test]
+    fn appearances_follow_catalog_identity_only() {
+        use sailry_protocol::projects::Appearance;
+
+        let captured = profile("reviewer", Some(model("captured")));
+        let removed = role::Profile {
+            appearance: Some(Appearance {
+                icon: "code".into(),
+                color: "blue".into(),
+            }),
+            ..profile("removed", None)
+        };
+        let current = role::Profile {
+            revision: captured.revision + 1,
+            appearance: Some(Appearance {
+                icon: "science".into(),
+                color: "green".into(),
+            }),
+            model: Some(model("current")),
+            ..captured.clone()
+        };
+        let replacement = role::Profile {
+            id: RoleId::new(),
+            appearance: Some(Appearance {
+                icon: "ai".into(),
+                color: "cyan".into(),
+            }),
+            ..removed.clone()
+        };
+        let overrides = BTreeMap::from([(captured.id, model("override"))]);
+        let members = Roster::members(
+            [&captured, &removed],
+            &overrides,
+            &[current.clone(), replacement],
+        );
+        assert_eq!(members.len(), 2);
+        assert_eq!(members[0].appearance, current.appearance);
+        assert_eq!(members[0].revision, captured.revision);
+        assert!(members[0].overridden);
+        assert_eq!(members[1].appearance, removed.appearance);
+        assert_eq!(captured.model.as_ref().unwrap().model, "captured");
+        assert_eq!(effective(&overrides, &captured).unwrap().model, "override");
+
+        let neutral = role::Profile {
+            appearance: None,
+            ..current
+        };
+        assert!(
+            Roster::members([&captured], &overrides, &[neutral])[0]
+                .appearance
+                .is_none()
+        );
+        assert_eq!(
+            Roster::members([&removed], &overrides, &[])[0].appearance,
+            removed.appearance
+        );
     }
 
     #[test]

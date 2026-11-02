@@ -40,7 +40,8 @@ void main() {
 
   test('project scope survives resource updates', () async {
     for (final (initial, project, worktree) in <(String?, String?, String?)>[
-      (null, 'project-a', 'tree-a'),
+      (null, null, null),
+      ('project-a', 'project-a', 'tree-a'),
       ('', null, null),
     ]) {
       Map<String, dynamic>? requested;
@@ -102,6 +103,27 @@ void main() {
     expect(requested!['worktree'], 'tree-a');
   });
 
+  test('Chats selection survives host refresh and clears worktree', () {
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      snapshot: snapshot('a'),
+    );
+    final draft = CreationDraft(host, initialProject: 'project-a');
+    addTearDown(draft.dispose);
+    addTearDown(host.dispose);
+    expect(draft.worktree?['id'], 'tree-a');
+    draft.project = null;
+    expect(draft.project, isNull);
+    expect(draft.worktree, isNull);
+    host.snapshot = snapshot('b');
+    host.notifyListeners();
+    expect(draft.project, isNull);
+    expect(draft.worktree, isNull);
+    draft.project = {'id': 'project-b'};
+    expect(draft.worktree?['id'], 'tree-b');
+  });
+
   test('late resources capture defaults once', () async {
     Map<String, dynamic>? requested;
     final host = HostConnection.test(
@@ -113,7 +135,7 @@ void main() {
         return {'data': admitted(data!)};
       },
     );
-    final draft = CreationDraft(host);
+    final draft = CreationDraft(host, initialProject: 'project-a');
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
     expect(draft.hasModel, isFalse);
@@ -159,7 +181,7 @@ void main() {
         return {'data': admitted(data)};
       },
     );
-    final draft = CreationDraft(host);
+    final draft = CreationDraft(host, initialProject: 'project-a');
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
     draft.project = next;
@@ -212,7 +234,10 @@ void main() {
       );
       final app = AppSession.test(hosts: [first, second]);
       app.selectHost(second.id);
-      final draft = CreationDraft(app.selectedHost!);
+      final draft = CreationDraft(
+        app.selectedHost!,
+        initialProject: 'project-b',
+      );
       addTearDown(draft.dispose);
       addTearDown(app.dispose);
       final sending = draft.send(hasInput: true);
@@ -248,7 +273,7 @@ void main() {
       command: (_, _) async =>
           throw StateError('Unavailable draft was admitted'),
     );
-    final draft = CreationDraft(host);
+    final draft = CreationDraft(host, initialProject: 'project-a');
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
     expect(draft.hasModel, isFalse);
@@ -270,7 +295,7 @@ void main() {
       command: (_, _) => reply.future,
     );
     addTearDown(host.dispose);
-    final draft = CreationDraft(host);
+    final draft = CreationDraft(host, initialProject: 'project-a');
     final sending = draft.send(hasInput: true);
     draft.dispose();
     reply.complete({'data': {}});

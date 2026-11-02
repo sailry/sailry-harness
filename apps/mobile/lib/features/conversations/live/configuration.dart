@@ -34,8 +34,11 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
   );
   late final _team = TeamChoices(
     listenable: Listenable.merge([_session, widget.host]),
-    read: () =>
-        SessionTeam(_session.value, objects(widget.host.snapshot['teams'])),
+    read: () => SessionTeam(
+      _session.value,
+      objects(widget.host.snapshot['teams']),
+      catalog: objects(widget.host.snapshot['roles']),
+    ),
     onTeam: _selectTeam,
     onMember: (role, model) => _run(
       () => _commands.send(

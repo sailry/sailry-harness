@@ -4,12 +4,15 @@ import '../../../runtime/json.dart';
 
 /// One session's captured team roster with the host's stored team catalog.
 class SessionTeam {
-  const SessionTeam(this.session, this.teams);
+  const SessionTeam(this.session, this.teams, {this.catalog = const []});
 
   final Map<String, dynamic> session;
 
   /// Stored teams only; the Default team is virtual and selects every role.
   final List<Map<String, dynamic>> teams;
+
+  /// Current role identities, used only for their display appearance.
+  final List<Map<String, dynamic>> catalog;
 
   /// The latest admitted Lead configuration, including changes made in the picker.
   Map<String, dynamic> get config => object(session['config']);
@@ -31,6 +34,12 @@ class SessionTeam {
   /// Captured roles in roster order.
   List<Map<String, dynamic>> get members =>
       execution == 'model' ? const [] : objects(_roles['profiles']);
+
+  /// Match the current role by identity; removed roles retain their capture.
+  Map<String, dynamic> appearance(Map<String, dynamic> member) => object(
+    (catalog.where((role) => role['id'] == member['id']).firstOrNull ??
+        member)['appearance'],
+  );
 
   Map<String, dynamic> get _overrides => object(_roles['models']);
 

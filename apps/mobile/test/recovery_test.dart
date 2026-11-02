@@ -37,7 +37,7 @@ void main() {
             throw const CommandFailure('outcome_unknown', request: 'original');
           },
         );
-        final draft = CreationDraft(host);
+        final draft = CreationDraft(host, initialProject: 'project-a');
         addTearDown(draft.dispose);
         addTearDown(host.dispose);
         await expectLater(
@@ -120,7 +120,7 @@ void main() {
         throw const CommandFailure('outcome_unknown', request: 'original');
       },
     );
-    final draft = CreationDraft(host);
+    final draft = CreationDraft(host, initialProject: 'project-a');
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
     await expectLater(

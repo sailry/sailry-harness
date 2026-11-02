@@ -81,6 +81,75 @@ void main() {
   });
 
   group('SessionTeam', () {
+    test('current appearances preserve captured membership and models', () {
+      final captured = session();
+      final before = session();
+      final state = SessionTeam(
+        captured,
+        [frontend],
+        catalog: [
+          {
+            ...builder,
+            'appearance': {'icon': 'tools', 'color': 'orange'},
+            'model': {'provider': 'new', 'model': 'new'},
+          },
+          {
+            ...reviewer,
+            'appearance': {'icon': 'science', 'color': 'green'},
+            'model': {'provider': 'new', 'model': 'new'},
+          },
+          {'id': 'added-later', 'appearance': frontend['appearance']},
+        ],
+      );
+      expect(state.members, [reviewer, builder]);
+      expect(state.appearance(reviewer), {'icon': 'science', 'color': 'green'});
+      expect(state.appearance(builder), {'icon': 'tools', 'color': 'orange'});
+      expect(state.model(reviewer), reviewer['model']);
+      expect(state.model(builder), isNull);
+      expect(captured, before);
+    });
+
+    test('removed roles keep appearance despite reused names', () {
+      final removed = {
+        ...reviewer,
+        'appearance': {'icon': 'code', 'color': 'blue'},
+      };
+      final state = SessionTeam(
+        session(),
+        [],
+        catalog: [
+          {
+            ...removed,
+            'id': 'replacement',
+            'appearance': {'icon': 'ai', 'color': 'cyan'},
+          },
+        ],
+      );
+      expect(state.appearance(removed), removed['appearance']);
+      expect(
+        SessionTeam(session(), []).appearance(removed),
+        removed['appearance'],
+      );
+    });
+
+    test('current neutral appearance replaces captured color', () {
+      final captured = {
+        ...reviewer,
+        'appearance': {'icon': 'code', 'color': 'blue'},
+      };
+      final state = SessionTeam(
+        session(),
+        [],
+        catalog: [
+          {
+            ...reviewer,
+            'appearance': {'icon': 'writing', 'color': 'none'},
+          },
+        ],
+      );
+      expect(state.appearance(captured), {'icon': 'writing', 'color': 'none'});
+    });
+
     test('omitted execution preserves the Default team', () {
       final state = SessionTeam(session(), [frontend]);
       expect(state.execution, 'team');

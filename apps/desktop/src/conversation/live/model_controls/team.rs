@@ -67,6 +67,7 @@ impl Roster {
     pub(in crate::conversation::live) fn members<'a>(
         profiles: impl IntoIterator<Item = &'a role::Profile>,
         models: &BTreeMap<RoleId, role::Model>,
+        catalog: &[role::Profile],
     ) -> Vec<Member> {
         profiles
             .into_iter()
@@ -74,7 +75,13 @@ impl Roster {
                 role: profile.id,
                 revision: profile.revision,
                 name: crate::settings::role_label(profile).0,
-                appearance: profile.appearance.clone(),
+                // Display the current identity without changing the captured role.
+                appearance: catalog
+                    .iter()
+                    .find(|role| role.id == profile.id)
+                    .unwrap_or(profile)
+                    .appearance
+                    .clone(),
                 overridden: models.contains_key(&profile.id),
             })
             .collect()

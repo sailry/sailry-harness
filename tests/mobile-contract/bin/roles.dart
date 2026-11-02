@@ -5,6 +5,7 @@ import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'conversation.dart' show check, execute;
+import 'teams.dart' as teams;
 
 Future<List<dynamic>> catalog(
   Updates updates,
@@ -44,6 +45,13 @@ Future<void> main() async {
     shipped.every((role) => role['read_only'] == true),
     'Shipped roles are read only',
   );
+  check(
+    shipped[0]['appearance']['icon'] == 'code' &&
+        shipped[0]['appearance']['color'] == 'teal' &&
+        shipped[1]['appearance']['icon'] == 'globe' &&
+        shipped[1]['appearance']['color'] == 'violet',
+    'distinct role appearances survive the native subscription',
+  );
   for (final role in shipped) {
     await execute(connection, 'remove_role', {
       'role': role['id'],
@@ -69,6 +77,7 @@ Future<void> main() async {
     'revision': 0,
     'key': 'review',
     'name': 'Review 中文',
+    'appearance': {'icon': 'science', 'color': 'green'},
     'description': 'Inspect changes',
     'read_only': false,
     'model': null,
@@ -223,6 +232,7 @@ Future<void> main() async {
     !jsonEncode(state).contains('isolated-ffi-configuration-credential'),
     'no credentials in snapshot',
   );
+  await teams.selection(connection, replacement, env['SAILRY_TEAM']!);
   await updates.close();
   updates.dispose();
   await connection.close();
