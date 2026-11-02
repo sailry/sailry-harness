@@ -582,9 +582,19 @@ impl Render for Editor {
                 ),
             );
         }
-        let models = (0..self.models.len())
-            .map(|index| self.render_model(index, cx))
-            .collect::<Vec<_>>();
+        let models = crate::ui::modal_list::List::new("provider-models")
+            .rows(
+                (0..self.models.len())
+                    .map(|index| self.render_model(index, cx))
+                    .collect::<Vec<_>>(),
+            )
+            .empty(tr("provider_models_empty"))
+            .action(
+                crate::ui::modal_list::action("provider-add-model", tr("provider_add_model"))
+                    .disabled(self.pending)
+                    .debug_selector(|| "provider-add-model".into())
+                    .on_click(cx.listener(|editor, _, window, cx| editor.add_model(window, cx))),
+            );
         v_flex()
             .id("provider-editor-scroll")
             .track_focus(&self.focus)
@@ -644,27 +654,9 @@ impl Render for Editor {
                             .on_click(
                                 cx.listener(|editor, _, window, cx| editor.discover(window, cx)),
                             ),
-                    )
-                    .child(
-                        Button::new("provider-add-model")
-                            .disabled(self.pending)
-                            .primary()
-                            .debug_selector(|| "provider-add-model".into())
-                            .label(tr("settings_add"))
-                            .on_click(
-                                cx.listener(|editor, _, window, cx| editor.add_model(window, cx)),
-                            ),
                     ),
             )
-            .when(self.models.is_empty(), |this| {
-                this.child(
-                    super::Group::new("provider_models")
-                        .outline()
-                        .heading(false)
-                        .empty(IconName::Bot, "provider_models_empty"),
-                )
-            })
-            .children(models)
+            .child(models)
             .vertical_scrollbar(&self.scroll)
             .into_any_element()
     }
