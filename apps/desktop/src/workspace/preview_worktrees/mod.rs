@@ -1,11 +1,15 @@
 use super::Owner;
 use crate::theme::DialogStyle as _;
-use crate::{preview::Page, shell::Shell, tr};
+use crate::{
+    preview::Page,
+    shell::Shell,
+    tr,
+    ui::modal_list::{List, Row},
+};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
     form::field,
     input::{Input, InputState},
-    list::ListItem,
     scroll::ScrollableElement,
     *,
 };
@@ -58,71 +62,28 @@ impl Shell {
                         worktree: id,
                         ..target
                     };
-                    ListItem::new(("worktree", id))
-                        .debug_selector(move || format!("worktree-row-{id}"))
-                        .rounded(cx.theme().radius)
-                        .confirmed(target.worktree == id)
-                        .child(
-                            h_flex()
-                                .min_w_0()
-                                .gap_3()
-                                .child(Icon::new(IconName::Network).size_4())
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .gap_0p5()
-                                        .child(div().truncate().text_sm().child(branch.clone()))
-                                        .child(
-                                            div()
-                                                .truncate()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(path.clone()),
-                                        )
-                                        .when_some(base_ref.clone(), |this, base| {
-                                            this.child(
-                                                div()
-                                                    .truncate()
-                                                    .text_xs()
-                                                    .text_color(cx.theme().muted_foreground)
-                                                    .child(format!(
-                                                        "{} {base}",
-                                                        tr("worktree_base")
-                                                    )),
-                                            )
-                                        }),
-                                )
-                                .child(
-                                    div()
-                                        .w_5()
-                                        .flex_shrink_0()
-                                        .debug_selector(move || format!("worktree-check-{id}"))
-                                        .when(target.worktree == id, |this| {
-                                            this.child(Icon::new(IconName::Check).size_4())
-                                        }),
-                                )
-                                .child(
-                                    Button::new(("worktree-remove", id))
-                                        .ghost()
-                                        .small()
-                                        .icon(IconName::CircleX)
-                                        .flex_shrink_0()
-                                        .disabled(reason.is_some())
-                                        .tooltip(tr(reason.unwrap_or("worktree_remove")))
-                                        .accessibility_label(
-                                            tr(reason.unwrap_or("worktree_remove")),
-                                        )
-                                        .debug_selector(move || format!("worktree-remove-{id}"))
-                                        .on_click(move |_, window, cx| {
-                                            cx.stop_propagation();
-                                            window.close_dialog(cx);
-                                            _ = remove.update(cx, |shell, cx| {
-                                                shell.remove_worktree_dialog(owner, window, cx)
-                                            });
-                                        }),
-                                ),
+                    Row::new(format!("worktree-row-{id}"), branch.clone())
+                        .leading(Icon::new(IconName::Network))
+                        .subtitle(path.clone())
+                        .when_some(base_ref.clone(), |row, base| {
+                            row.meta(format!("{} {base}", tr("worktree_base")))
+                        })
+                        .trailing(
+                            Button::new(("worktree-remove", id))
+                                .ghost()
+                                .icon(IconName::Close)
+                                .disabled(reason.is_some())
+                                .tooltip(tr(reason.unwrap_or("worktree_remove")))
+                                .accessibility_label(tr(reason.unwrap_or("worktree_remove")))
+                                .debug_selector(move || format!("worktree-remove-{id}"))
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    _ = remove.update(cx, |shell, cx| {
+                                        shell.remove_worktree_dialog(owner, window, cx)
+                                    });
+                                }),
                         )
+                        .selected(target.worktree == id)
                         .on_click(move |_, window, cx| {
                             _ = shell.update(cx, |this, cx| {
                                 if this.workspace.contains(owner) {
@@ -153,11 +114,10 @@ impl Shell {
                                 .min(px(360.)),
                         )
                         .child(
-                            v_flex()
+                            div()
                                 .id("worktree-list")
-                                .gap_1()
                                 .overflow_y_scrollbar()
-                                .children(rows),
+                                .child(List::new("worktree-rows").rows(rows)),
                         ),
                 )
                 .footer(
