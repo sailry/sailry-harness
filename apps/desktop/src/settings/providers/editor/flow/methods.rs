@@ -1,5 +1,6 @@
 //! Connection methods keep the directory's declarations and order within each access group.
 use super::*;
+use crate::ui::modal_list::{List, Row};
 use sailry_protocol::conversation::presets::Entry;
 
 fn sections(choices: Vec<Entry>) -> [Vec<Entry>; 2] {
@@ -32,90 +33,47 @@ pub(super) fn render(editor: &Editor, cx: &Context<Editor>) -> AnyElement {
                 .font_medium()
                 .child(brand_label(first)),
         );
-    let sections = sections(choices);
+    let blocked = editor.navigation_blocked();
+    let lists = sections(choices)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, choices)| !choices.is_empty())
+        .map(|(index, choices)| {
+            let account = index == 0;
+            List::new(format!("provider-methods-{index}"))
+                .icon(if account { Access::Login } else { Access::Key }.icon())
+                .heading(tr(if account {
+                    "provider_access_login"
+                } else {
+                    "provider_access_api"
+                }))
+                .rows(choices.into_iter().map(|entry| {
+                    let route = &entry.preset.routes[0];
+                    let access = Access::of(
+                        presets::kind(&entry, route),
+                        account,
+                        presets::custom_endpoint(&entry, route),
+                    );
+                    Row::new(
+                        format!("provider-method-{}", entry.preset.id),
+                        presets::label(&entry.preset),
+                    )
+                    .when(!account, |row| row.subtitle(tr(access.key())))
+                    .chevron()
+                    .disabled(blocked)
+                    .on_click(cx.listener(move |editor, _, window, cx| {
+                        editor.choose_entry(entry.clone(), window, cx);
+                    }))
+                }))
+        })
+        .collect::<Vec<_>>();
     v_flex()
         .w_full()
         .px_7()
         .pt(px(15.))
         .pb(px(30.))
         .child(context)
-        .child(
-            v_flex().gap(px(22.)).children(sections.into_iter().enumerate().filter_map(
-                |(index, choices)| {
-                    if choices.is_empty() {
-                        return None;
-                    }
-                    let account = index == 0;
-                    Some(
-                        v_flex()
-                            .w_full()
-                            .gap_2()
-                            .child(
-                                h_flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(if account { Access::Login } else { Access::Key }.icon().size_4())
-                                    .child(tr(if account { "provider_access_login" } else { "provider_access_api" })),
-                            )
-                            .child(
-                                v_flex()
-                                    .w_full()
-                                    .border_1()
-                                    .border_color(cx.theme().border)
-                                    .rounded(cx.theme().radius_lg)
-                                    .overflow_hidden()
-                                    .bg(cx.theme().secondary)
-                                    .children(choices.into_iter().enumerate().map(|(position, entry)| {
-                                        let route = &entry.preset.routes[0];
-                                        let access = Access::of(
-                                            presets::kind(&entry, route),
-                                            account,
-                                            presets::custom_endpoint(&entry, route),
-                                        );
-                                        let label = presets::label(&entry.preset);
-                                        div()
-                                            .w_full()
-                                            .when(position > 0, |row| row.border_t_1().border_color(cx.theme().border))
-                                            .child(
-                                                Button::new(SharedString::from(format!("provider-method-{}", entry.preset.id)))
-                                                    .ghost()
-                                                    .rounded(gpui_kit::component::button::ButtonRounded::None)
-                                                    .w_full()
-                                                    .h(px(if account { 53. } else { 70. }))
-                                                    .px_4()
-                                                    .disabled(editor.navigation_blocked())
-                                                    .accessibility_label(label.clone())
-                                                    .child(
-                                                        h_flex()
-                                                            .size_full()
-                                                            .min_w_0()
-                                                            .items_center()
-                                                            .gap_3()
-                                                            .child(
-                                                                v_flex()
-                                                                    .flex_1()
-                                                                    .min_w_0()
-                                                                    .items_start()
-                                                                    .gap_0p5()
-                                                                    .child(div().max_w_full().truncate().text_sm().font_medium().child(label))
-                                                                    .when(!account, |column| column.child(
-                                                                        div().max_w_full().truncate().text_xs().text_color(cx.theme().muted_foreground).child(tr(access.key()))
-                                                                    )),
-                                                            )
-                                                            .child(Icon::new(IconName::ChevronRight).size_4().text_color(cx.theme().muted_foreground)),
-                                                    )
-                                                    .on_click(cx.listener(move |editor, _, window, cx| {
-                                                        editor.choose_entry(entry.clone(), window, cx);
-                                                    })),
-                                            )
-                                    })),
-                            ),
-                    )
-                },
-            )),
-        )
+        .child(v_flex().gap(px(22.)).children(lists))
         .into_any_element()
 }
 
