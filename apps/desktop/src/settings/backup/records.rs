@@ -1,9 +1,9 @@
 //! Backup selection is scoped to the restore action, not the settings page.
 use super::*;
 use crate::{
-    settings::{entry::Entry, group::Group},
     theme::DialogStyle as _,
     tr,
+    ui::modal_list::{List, Row},
 };
 use gpui_kit::{
     component::{button::Button, scroll::ScrollableElement},
@@ -46,10 +46,7 @@ impl Panel {
 impl Render for Records {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let panel = self.owner.read(cx);
-        let mut rows = Group::new("backup_records")
-            .heading(false)
-            .card(false)
-            .empty(IconName::Inbox, "backup_empty");
+        let mut rows = Vec::new();
         if let Some(page) = &panel.page {
             for record in &page.records {
                 let label = chrono::DateTime::from_timestamp_millis(
@@ -61,14 +58,8 @@ impl Render for Records {
                         .to_string()
                 })
                 .unwrap_or_else(|| record.id.clone());
-                let mut row = Entry::new(
-                    format!("backup-record-{}", record.id),
-                    v_flex().gap_1().child(label).child(
-                        div().text_color(cx.theme().muted_foreground).child(format!(
-                            "{:.1} MiB",
-                            record.size_bytes as f64 / (1024. * 1024.)
-                        )),
-                    ),
+                let mut row = Row::new(format!("backup-record-{}", record.id), label).subtitle(
+                    format!("{:.1} MiB", record.size_bytes as f64 / (1024. * 1024.)),
                 );
                 let copies = page.locations.get(&record.id);
                 for (location, available, key) in [
@@ -86,7 +77,7 @@ impl Render for Records {
                     if available {
                         let owner = self.owner.clone();
                         let record = record.clone();
-                        row = row.action(
+                        row = row.trailing(
                             Button::new(SharedString::from(format!(
                                 "backup-restore-{}-{location:?}",
                                 record.id
@@ -99,12 +90,16 @@ impl Render for Records {
                         );
                     }
                 }
-                rows = rows.child(row);
+                rows.push(row);
             }
         }
         v_flex()
             .gap_3()
-            .child(rows)
+            .child(
+                List::new("backup-records")
+                    .rows(rows)
+                    .empty(tr("backup_empty")),
+            )
             .when(panel.loading, |view| view.child(spinner::Spinner::new()))
             .when(
                 panel.page.as_ref().is_some_and(|page| page.partial),

@@ -1,9 +1,9 @@
 //! Session management uses the same revision-bound commands as conversation menus.
 use super::*;
 use crate::{
-    settings::{entry::Entry, group::Group},
     theme::DialogStyle as _,
     tr,
+    ui::modal_list::{List, Row},
 };
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
@@ -110,10 +110,7 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
 impl Render for Archives {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let panel = self.owner.read(cx);
-        let mut rows = Group::new("backup_archived_sessions")
-            .heading(false)
-            .card(false)
-            .empty(IconName::Inbox, "backup_no_archived");
+        let mut rows = Vec::new();
         for session in panel
             .sessions
             .iter()
@@ -125,9 +122,9 @@ impl Render for Archives {
             let id = session.id;
             let revision = session.revision;
             let name = title.clone();
-            rows = rows.child(
-                Entry::new(format!("backup-session-{id}"), title)
-                    .action(
+            rows.push(
+                Row::new(format!("backup-session-{id}"), title)
+                    .trailing(
                         Button::new(SharedString::from(format!("backup-unarchive-{id}")))
                             .label(tr("backup_unarchive"))
                             .disabled(panel.locked())
@@ -145,7 +142,7 @@ impl Render for Archives {
                                 });
                             }),
                     )
-                    .action(
+                    .trailing(
                         Button::new(SharedString::from(format!("backup-delete-{id}")))
                             .danger()
                             .label(tr("backup_delete"))
@@ -166,7 +163,11 @@ impl Render for Archives {
             );
         }
         div()
-            .child(rows)
+            .child(
+                List::new("backup-archived-sessions")
+                    .rows(rows)
+                    .empty(tr("backup_no_archived")),
+            )
             .max_h((window.viewport_size().height - px(240.)).max(px(180.)))
             .overflow_y_scrollbar()
     }
