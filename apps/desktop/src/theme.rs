@@ -363,7 +363,7 @@ mod tests {
             assert!((cx.theme().list_active.a - 51. / 255.).abs() < 0.001);
             assert!((cx.theme().table_active.a - 51. / 255.).abs() < 0.001);
             assert!((cx.theme().muted.a - 18. / 255.).abs() < 0.001);
-            assert!((cx.theme().border.a - 16. / 255.).abs() < 0.001);
+            assert!((cx.theme().border.a - 12. / 255.).abs() < 0.001);
             assert_eq!(cx.theme().table_active_border, cx.theme().ring);
         });
     }
@@ -567,14 +567,16 @@ mod tests {
                     theme.input,
                     theme.table_row_border,
                 ] {
-                    assert_eq!(border, theme.border);
+                    assert!((border.a - 16. / 255.).abs() < 0.001);
+                    assert_eq!(border, theme.input);
                 }
                 assert_eq!(theme.semantic_tokens().colors.border, theme.border);
                 let base = cx.global::<gpui_kit::base::Theme>();
                 assert_eq!(base.tokens.colors.border, theme.border);
-                assert_eq!(base.tokens.colors.input, theme.border);
+                assert_eq!(base.tokens.colors.input, theme.input);
                 assert_eq!(base.resizable.handle, Some(theme.border));
-                assert!((theme.border.a - 16. / 255.).abs() < 0.001);
+                let border_alpha = if mode.is_dark() { 12. } else { 16. } / 255.;
+                assert!((theme.border.a - border_alpha).abs() < 0.001);
                 assert!((theme.sidebar_border.a - 20. / 255.).abs() < 0.001);
                 assert!(theme.border.a <= 0.1);
                 assert!(theme.sidebar_border.a > theme.border.a);

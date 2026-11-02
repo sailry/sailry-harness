@@ -4,6 +4,7 @@ use crate::content::selection::Excerpt;
 use gpui_kit::{
     base::{Placement, Positioner},
     component::button::{Button, ButtonVariants},
+    prelude::FluentBuilder as _,
 };
 
 impl View {
@@ -66,6 +67,9 @@ impl View {
                         h_flex()
                             .id("message-selection-actions")
                             .popover_style(cx)
+                            .when(cx.theme().is_dark(), |surface| {
+                                surface.refine_style(&crate::theme::popup_style(cx))
+                            })
                             .rounded_full_style(cx)
                             .p_1()
                             .gap_1()

@@ -59,7 +59,6 @@ pub(super) fn configure(colors: &mut ThemeConfigColors, dark: bool) {
         *color = Some(active.into());
     }
     for color in [
-        &mut colors.border,
         &mut colors.input,
         &mut colors.status_bar_border,
         &mut colors.table_row_border,
@@ -68,6 +67,7 @@ pub(super) fn configure(colors: &mut ThemeConfigColors, dark: bool) {
     ] {
         *color = Some(border.into());
     }
+    colors.border = Some(if dark { "#ffffff0c" } else { border }.into());
     // Shell boundaries need to remain visible over the native window material.
     colors.sidebar_border = Some(if dark { "#ffffff14" } else { "#00000014" }.into());
     for color in [

@@ -1,27 +1,38 @@
 //! Application styles for Kit surfaces with public refinement hooks.
 use gpui_kit::{
     component::{
-        ActiveTheme as _, StyledExt as _, Theme, notification::Notification, popover::Popover,
-        tooltip::Tooltip,
+        ActiveTheme as _, StyledExt as _, Theme, ThemeStyled as _, notification::Notification,
+        popover::Popover, tooltip::Tooltip,
     },
     *,
 };
 
-/// Kit 7fc6a4c draws its default popover edge as a private shadow ring.
-/// Public surface styles are merged afterward, so semantic elevation removes
-/// that ring without changing the control, its motion, or dark appearance.
+/// Kit 4424427 draws popover edges with a private foreground shadow ring.
+/// Its public style refinement lets shared surfaces use our semantic border.
 pub(crate) fn popover(surface: Popover, cx: &App) -> Popover {
     surface.refine_style(&popup_style(cx))
 }
 
 /// Shared by styled Popover and application-owned Base Popover content.
 pub(crate) fn popup_style(cx: &App) -> StyleRefinement {
-    if cx.theme().is_dark() {
-        StyleRefinement::default()
-    } else {
-        StyleRefinement::default()
+    if !cx.theme().is_dark() {
+        return StyleRefinement::default()
             .border_0()
-            .shadow(cx.theme().shadow_tokens().md)
+            .shadow(cx.theme().shadow_tokens().md);
+    }
+    if super::variant(cx).is_some() {
+        return StyleRefinement::default();
+    }
+    let mut shadows = StyleRefinement::default().popover_style(cx).box_shadow;
+    // Retain Kit's elevation and recolor only its crisp outer ring.
+    for shadow in shadows.iter_mut().flatten() {
+        if shadow.blur_radius == px(0.) && shadow.spread_radius > px(0.) {
+            shadow.color = cx.theme().border;
+        }
+    }
+    StyleRefinement {
+        box_shadow: shadows,
+        ..Default::default()
     }
 }
 

@@ -283,6 +283,9 @@ impl View {
             .id("live-reference-picker")
             .debug_selector(|| "live-reference-picker".into())
             .popover_style(cx)
+            .when(cx.theme().is_dark(), |surface| {
+                surface.refine_style(&crate::theme::popup_style(cx))
+            })
             .w(bounds.size.width)
             .bottom_1p5()
             .p_1()

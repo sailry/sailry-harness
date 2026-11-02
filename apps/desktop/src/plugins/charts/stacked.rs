@@ -4,6 +4,7 @@ use gpui_kit::component::plot::{
     scale::{Scale, ScaleBand, ScaleLinear},
     shape::{Stack, StackSeries},
 };
+use gpui_kit::prelude::FluentBuilder as _;
 
 /// Widest bar; sparse charts center narrower bars in their bands.
 pub(super) const MAX_BAR: f32 = 28.;
@@ -266,6 +267,9 @@ impl Plot for StackedChart {
         let id = format!("{}-tooltip", self.id);
         let content = v_flex()
             .popover_style(cx)
+            .when(cx.theme().is_dark(), |surface| {
+                surface.refine_style(&crate::theme::popup_style(cx))
+            })
             .p_3()
             .gap_2()
             .text_sm()

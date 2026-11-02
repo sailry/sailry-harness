@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::prelude::FluentBuilder as _;
 
 /// Largest cell pitch; wider plots keep this pitch and leave the remainder empty.
 pub(super) const MAX_PITCH: f32 = 24.;
@@ -160,6 +161,9 @@ impl Plot for Heatmap {
         let id = format!("{}-tooltip", self.id);
         let mut content = v_flex()
             .popover_style(cx)
+            .when(cx.theme().is_dark(), |surface| {
+                surface.refine_style(&crate::theme::popup_style(cx))
+            })
             .p_3()
             .text_sm()
             .debug_selector(move || id.clone())
