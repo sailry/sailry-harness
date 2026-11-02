@@ -139,8 +139,15 @@ Future<void> main() async {
     });
     final done = await observed(watches[index], (view) {
       final summary = activity(view, sessions[index]);
+      // Completion notices follow activity in the ordered feed.
+      final outcomes = (view['notifications'] as List).where(
+        (notice) =>
+            notice['session'] == sessions[index] &&
+            notice['kind'] == 'Completed',
+      );
       return summary['run']['status'] == 'completed' &&
-          (index != 0 || summary['run']['turn'] == queued['id']);
+          (index != 0 || summary['run']['turn'] == queued['id']) &&
+          outcomes.length == (index == 0 ? 2 : 1);
     });
     check(
       activity(done, sessions[index])['queued'] == 0,
@@ -160,7 +167,9 @@ Future<void> main() async {
     completed.length == 3 &&
         completedIds.length == 3 &&
         inbox['notices'].length == 7,
-    'fast consecutive completion and input notices survive coalescing',
+    'fast consecutive completion and input notices survive coalescing: '
+    '${completed.length} completed, ${completedIds.length} distinct, '
+    '${inbox['notices'].length} total',
   );
   await controller.markNotificationsRead();
   check(
