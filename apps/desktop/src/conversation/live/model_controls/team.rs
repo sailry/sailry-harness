@@ -420,27 +420,18 @@ impl Panel {
             .gap_1()
             .child(
                 h_flex()
-                    .relative()
                     .w_full()
                     .h_8()
                     .flex_shrink_0()
                     .items_center()
-                    .justify_center()
                     .child(
-                        div().absolute().left_0().top_0().child(
-                            Button::new("model-team-back")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ArrowLeft)
-                                .tooltip(tr("composer_model_settings"))
-                                .size_8()
-                                .rounded_full()
-                                .on_click(
-                                    cx.listener(|panel, _, window, cx| panel.back(window, cx)),
-                                ),
-                        ),
-                    )
-                    .child(div().text_sm().child(tr("settings_teams"))),
+                        Button::new("model-team-back")
+                            .ghost()
+                            .small()
+                            .icon(IconName::ArrowLeft)
+                            .label(tr("composer_back"))
+                            .on_click(cx.listener(|panel, _, window, cx| panel.back(window, cx))),
+                    ),
             )
             .child(
                 v_flex()
@@ -466,7 +457,15 @@ impl Panel {
                                     .gap_2()
                                     .items_center()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(Icon::new(IconName::Settings).size_4())
+                                    // Same slot as the team avatars so the labels line up.
+                                    .child(
+                                        div()
+                                            .w(MEMBER)
+                                            .flex_shrink_0()
+                                            .flex()
+                                            .justify_center()
+                                            .child(Icon::new(IconName::Settings).size_4()),
+                                    )
                                     .child(
                                         div()
                                             .flex_1()
