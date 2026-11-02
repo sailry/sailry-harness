@@ -181,6 +181,10 @@ futures = "=0.3.34"
 url = "=2.5.8"
 tokio-tungstenite = { version = "=0.28.0", features = ["rustls-tls-webpki-roots", "connect"] }
 
+[workspace.lints.rust]
+# macOS ld64 reports oversized compact unwind tables for every large debug binary; the notice is not actionable.
+linker_messages = "allow"
+
 [patch.crates-io]
 gpui-fast = { git = "https://github.com/dux-web/gpui-fast", rev = "82d917787a233f508ae06ef12a48518085c47297" }
 gpui-fast-macros = { git = "https://github.com/dux-web/gpui-fast", rev = "82d917787a233f508ae06ef12a48518085c47297" }

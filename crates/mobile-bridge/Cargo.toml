@@ -42,5 +42,7 @@ uuid.workspace = true
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtilities", "NSURL"] }
 
+# Cargo cannot combine workspace lints with this bridge-only cfg; keep both here.
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+linker_messages = "allow"

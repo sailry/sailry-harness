@@ -204,3 +204,6 @@ http-body-util.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 iroh.workspace = true
 sailry-client.workspace = true
+
+[lints]
+workspace = true
