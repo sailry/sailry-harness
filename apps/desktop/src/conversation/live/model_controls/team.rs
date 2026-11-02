@@ -416,21 +416,7 @@ impl Panel {
             .w(size.width)
             .h(size.height)
             .gap_1()
-            .child(
-                h_flex()
-                    .w_full()
-                    .h_8()
-                    .flex_shrink_0()
-                    .items_center()
-                    .child(
-                        Button::new("model-team-back")
-                            .ghost()
-                            .small()
-                            .icon(IconName::ArrowLeft)
-                            .label(tr("composer_back"))
-                            .on_click(cx.listener(|panel, _, window, cx| panel.back(window, cx))),
-                    ),
-            )
+            // No back header: choosing any team, including the current one, returns.
             .child(
                 v_flex()
                     .id("model-team-scroll")
