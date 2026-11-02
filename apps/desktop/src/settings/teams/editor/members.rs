@@ -1,7 +1,7 @@
 //! The member column: the pinned lead, role rows ordered by dragging, and "Add role".
 //! Removing a member only changes this team; the role stays in the shared catalog.
 use super::*;
-use crate::settings::teams::list;
+use crate::settings::teams::{draft, list};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{
     avatar::Avatar,
@@ -59,7 +59,7 @@ impl Editor {
                 }
             }
             (None, Some(role)) => Line {
-                name: role.name.clone().into(),
+                name: draft::label(role).0,
                 appearance: role.appearance.clone(),
                 model: role.model.clone(),
                 read_only: role.read_only,
@@ -358,13 +358,14 @@ impl Render for Adder {
             .unwrap_or_default();
         let rows = candidates
             .into_iter()
-            .filter(|(role, _)| {
+            .map(|(role, checked)| (draft::label(&role).0, role, checked))
+            .filter(|(name, role, _)| {
                 query.is_empty()
-                    || role.name.to_lowercase().contains(&query)
+                    || name.to_lowercase().contains(&query)
                     || role.key.contains(&query)
             })
             .enumerate()
-            .map(|(index, (role, checked))| {
+            .map(|(index, (name, role, checked))| {
                 let editor = self.editor.clone();
                 let id = role.id;
                 h_flex()
@@ -376,20 +377,13 @@ impl Render for Adder {
                     .child(
                         Checkbox::new(("team-candidate", index))
                             .checked(checked)
-                            .accessibility_label(role.name.clone())
+                            .accessibility_label(name.clone())
                             .on_click(move |checked: &bool, _, cx| {
                                 _ = editor.update(cx, |editor, cx| editor.toggle(id, *checked, cx));
                             }),
                     )
                     .child(list::avatar(role.appearance.as_ref(), cx).xsmall())
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_sm()
-                            .child(role.name),
-                    )
+                    .child(div().flex_1().min_w_0().truncate().text_sm().child(name))
             })
             .collect::<Vec<_>>();
         let editor = self.editor.clone();

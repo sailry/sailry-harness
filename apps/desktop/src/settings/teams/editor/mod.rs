@@ -113,7 +113,7 @@ impl Editor {
                     revision: 0,
                     key: String::new(),
                     name: String::new(),
-                    appearance: None,
+                    appearance: Some(Appearance::random()),
                     description: String::new(),
                     model: None,
                     instructions: String::new(),
@@ -132,6 +132,7 @@ impl Editor {
                 copy.id = TeamId::new();
                 copy.revision = 0;
                 copy.key = String::new();
+                copy.appearance.get_or_insert_with(Appearance::random);
                 (copy, None, false)
             }
             Target::Default => (virtual_team(&catalog), None, true),

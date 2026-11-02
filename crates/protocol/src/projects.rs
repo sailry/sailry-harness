@@ -50,6 +50,18 @@ pub struct Appearance {
     pub color: String,
 }
 
+impl Appearance {
+    /// A random icon with a visible color, so unconfigured resources stay distinguishable.
+    pub fn random() -> Self {
+        let bytes = uuid::Uuid::new_v4().into_bytes();
+        let colors = &COLORS[1..];
+        Self {
+            icon: ICONS[usize::from(bytes[0]) % ICONS.len()].into(),
+            color: colors[usize::from(bytes[1]) % colors.len()].into(),
+        }
+    }
+}
+
 impl Default for Appearance {
     fn default() -> Self {
         Self {

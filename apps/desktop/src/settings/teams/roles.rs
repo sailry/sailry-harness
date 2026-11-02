@@ -30,6 +30,7 @@ impl Workspace {
         let rows = roles.iter().enumerate().map(|(index, role)| {
             let edit = role.clone();
             let remove = role.clone();
+            let (name, description) = super::draft::label(role);
             Entry::new(
                 format!("role-{index}"),
                 h_flex()
@@ -41,16 +42,16 @@ impl Workspace {
                             .flex_1()
                             .min_w_0()
                             .gap_0p5()
-                            .child(div().truncate().child(role.name.clone()))
+                            .child(div().truncate().child(name))
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .truncate()
-                                    .child(if role.description.is_empty() {
-                                        format!("@{}", role.key)
+                                    .child(if description.is_empty() {
+                                        format!("@{}", role.key).into()
                                     } else {
-                                        role.description.clone()
+                                        description
                                     }),
                             ),
                     ),
@@ -98,8 +99,8 @@ impl Workspace {
         let Some(catalog) = self.team_catalog() else {
             return;
         };
-        let prompt =
-            rust_i18n::t!("teams_role_delete_prompt", name = role.name.as_str()).to_string();
+        let name = super::draft::label(&role).0;
+        let prompt = rust_i18n::t!("teams_role_delete_prompt", name = name.as_ref()).to_string();
         crate::prompts::confirm(
             &tr("settings_delete"),
             &prompt,

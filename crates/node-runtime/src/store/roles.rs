@@ -1,6 +1,6 @@
 //! Role configuration shares Node transactions and durable command receipts.
 use super::database::{encode, storage_error};
-use sailry_protocol::{ErrorCode, Fault, RoleId, role};
+use sailry_protocol::{ErrorCode, Fault, RoleId, projects::Appearance, role};
 use turso::{Connection, params};
 pub(super) mod approvals;
 
@@ -11,10 +11,10 @@ fn explore(id: RoleId) -> role::Profile {
     role::Profile {
         id,
         revision: 0,
-        key: "explore".into(),
-        name: "Explore".into(),
-        appearance: None,
-        description: "Read existing code and report findings with exact paths".into(),
+        key: role::EXPLORE.key.into(),
+        name: role::EXPLORE.name.into(),
+        appearance: Some(role::EXPLORE.appearance()),
+        description: role::EXPLORE.description.into(),
         read_only: true,
         model: None,
         max_turns: None,
@@ -31,10 +31,10 @@ pub(super) async fn initialize(db: &Connection) -> Result<(), Fault> {
         &role::Profile {
             id: RoleId::new(),
             revision: 0,
-            key: "research".into(),
-            name: "Research".into(),
-            appearance: None,
-            description: "Investigate public sources and return supported conclusions".into(),
+            key: role::RESEARCH.key.into(),
+            name: role::RESEARCH.name.into(),
+            appearance: Some(role::RESEARCH.appearance()),
+            description: role::RESEARCH.description.into(),
             read_only: true,
             model: None,
             max_turns: Some(8),
@@ -64,12 +64,31 @@ async fn outdated(db: &Connection) -> Result<Option<role::Profile>, Fault> {
             .map_err(storage_error)?;
     let mut previous = explore(profile.id);
     previous.revision = 1;
+    previous.appearance = None;
     previous.instructions = PREVIOUS_EXPLORE.into();
     Ok((profile == previous).then_some(profile))
 }
 
+/// Stores a visible appearance for a role or team saved without one.
+pub(super) fn fill(key: &str, appearance: &mut Option<Appearance>) -> bool {
+    if appearance.is_some() {
+        return false;
+    }
+    *appearance = Some(
+        role::Builtin::find(key)
+            .map(role::Builtin::appearance)
+            .unwrap_or_else(Appearance::random),
+    );
+    true
+}
+
 pub(in crate::store) async fn needs_refresh(db: &Connection) -> Result<bool, Fault> {
-    Ok(outdated(db).await?.is_some())
+    Ok(outdated(db).await?.is_some()
+        || list(db).await?.iter().any(|role| role.appearance.is_none())
+        || super::teams::list(db)
+            .await?
+            .iter()
+            .any(|team| team.appearance.is_none()))
 }
 
 /// Called only by the existing backed-up, current-format update transaction.
@@ -78,7 +97,13 @@ pub(in crate::store) async fn refresh(db: &Connection) -> Result<(), Fault> {
         profile.instructions = EXPLORE_INSTRUCTIONS.into();
         put(db, &profile, profile.revision).await?;
     }
-    Ok(())
+    for mut role in list(db).await? {
+        if fill(&role.key, &mut role.appearance) {
+            role.revision = next(role.revision)?;
+            write(db, &role).await?;
+        }
+    }
+    super::teams::fill_appearances(db).await
 }
 
 pub(super) async fn get(db: &Connection, id: RoleId) -> Result<Option<role::Profile>, Fault> {
@@ -147,15 +172,25 @@ pub(super) async fn put(
         validate_model(&provider, selection)?;
     }
     let mut role = role.clone();
-    role.revision = revision
+    fill(&role.key, &mut role.appearance);
+    role.revision = next(revision)?;
+    write(db, &role).await?;
+    Ok(role)
+}
+
+fn next(revision: u64) -> Result<u64, Fault> {
+    revision
         .checked_add(1)
         .filter(|value| *value <= i64::MAX as u64)
-        .ok_or_else(|| Fault::invalid("role revision exhausted"))?;
+        .ok_or_else(|| Fault::invalid("role revision exhausted"))
+}
+
+async fn write(db: &Connection, role: &role::Profile) -> Result<(), Fault> {
     db.execute(
         "INSERT INTO roles(id,key,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET key=excluded.key,body=excluded.body",
-        params![role.id.to_string(), role.key.as_str(), encode(&role)?],
+        params![role.id.to_string(), role.key.as_str(), encode(role)?],
     ).await.map_err(storage_error)?;
-    Ok(role)
+    Ok(())
 }
 
 pub(super) fn validate_model(

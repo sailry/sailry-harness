@@ -88,3 +88,66 @@ async fn prunes_removed_roles() {
     assert_eq!(pruned, [expected.clone()]);
     assert_eq!(list(db).await.unwrap(), [expected, other]);
 }
+
+mod appearance {
+    use super::*;
+    use crate::store::roles;
+    use sailry_protocol::role::Builtin;
+
+    #[tokio::test]
+    async fn seeds_builtin_roles() {
+        let (_root, database) = open().await;
+        let seeded = roles::list(&database.connection).await.unwrap();
+        assert_eq!(seeded.len(), 2);
+        for role in seeded {
+            let builtin = Builtin::find(&role.key).unwrap();
+            assert_eq!(role.appearance, Some(builtin.appearance()));
+        }
+    }
+
+    #[tokio::test]
+    async fn fills_missing_on_save() {
+        let (_root, database) = open().await;
+        let db = &database.connection;
+        let mut role = roles::list(db).await.unwrap().remove(0);
+        role.key = "review".into();
+        role.id = RoleId::new();
+        role.revision = 0;
+        role.appearance = None;
+        let role = roles::put(db, &role, 0).await.unwrap();
+        let color = &role.appearance.as_ref().unwrap().color;
+        assert_ne!(color, "none");
+        assert_eq!(roles::get(db, role.id).await.unwrap(), Some(role.clone()));
+        let team = put(db, &profile("review", vec![role.id]), 0).await.unwrap();
+        assert!(team.appearance.is_some());
+        assert_eq!(get(db, team.id).await.unwrap(), Some(team));
+    }
+
+    #[tokio::test]
+    async fn fills_stored_rows_at_startup() {
+        let (_root, database) = open().await;
+        let db = &database.connection;
+        assert!(!roles::needs_refresh(db).await.unwrap());
+        let mut role = roles::list(db).await.unwrap().remove(0);
+        role.appearance = None;
+        db.execute(
+            "UPDATE roles SET body=?2 WHERE id=?1",
+            params![role.id.to_string(), encode(&role).unwrap()],
+        )
+        .await
+        .unwrap();
+        let mut team = put(db, &profile("review", vec![role.id]), 0).await.unwrap();
+        team.appearance = None;
+        write(db, &team).await.unwrap();
+        assert!(roles::needs_refresh(db).await.unwrap());
+        roles::refresh(db).await.unwrap();
+        assert!(!roles::needs_refresh(db).await.unwrap());
+        let filled = roles::get(db, role.id).await.unwrap().unwrap();
+        let builtin = Builtin::find(&role.key).unwrap();
+        assert_eq!(filled.appearance, Some(builtin.appearance()));
+        assert_eq!(filled.revision, role.revision + 1);
+        let stored = get(db, team.id).await.unwrap().unwrap();
+        assert!(stored.appearance.is_some());
+        assert_eq!(stored.revision, team.revision + 1);
+    }
+}

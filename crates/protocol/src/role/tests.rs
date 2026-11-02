@@ -196,3 +196,22 @@ mod snapshot {
         );
     }
 }
+
+#[test]
+fn builtins_have_visible_appearances() {
+    for builtin in [&EXPLORE, &RESEARCH] {
+        assert_eq!(Builtin::find(builtin.key).unwrap().name, builtin.name);
+        let mut value = profile();
+        value.appearance = Some(builtin.appearance());
+        value.validate().unwrap();
+        assert_ne!(builtin.color, "none");
+    }
+    assert!(Builtin::find("review").is_none());
+    for _ in 0..64 {
+        let mut value = profile();
+        let appearance = crate::projects::Appearance::random();
+        assert_ne!(appearance.color, "none");
+        value.appearance = Some(appearance);
+        value.validate().unwrap();
+    }
+}

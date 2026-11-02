@@ -73,3 +73,35 @@ fn research_preset_keeps_plugin_template() {
     assert_eq!(preset.skills(), ["web-search:research"]);
     assert!(valid_key(preset.key()));
 }
+
+mod builtin_labels {
+    use super::*;
+
+    fn seeded(builtin: &role::Builtin) -> role::Profile {
+        role::Profile {
+            key: builtin.key.into(),
+            name: builtin.name.into(),
+            description: builtin.description.into(),
+            ..crate::settings::teams::form::blank(sailry_protocol::RoleId::new())
+        }
+    }
+
+    #[test]
+    fn localizes_unchanged_text() {
+        let (name, description) = label(&seeded(&role::EXPLORE));
+        assert_eq!(name, tr("role_builtin_explore_name"));
+        assert_eq!(description, tr("role_builtin_explore_description"));
+        let (name, _) = label(&seeded(&role::RESEARCH));
+        assert_eq!(name, tr("role_builtin_research_name"));
+    }
+
+    #[test]
+    fn keeps_edited_text() {
+        let mut profile = seeded(&role::EXPLORE);
+        profile.name = "Scout".into();
+        assert_eq!(label(&profile).0.as_ref(), "Scout");
+        let mut other = seeded(&role::EXPLORE);
+        other.key = "scout".into();
+        assert_eq!(label(&other).0.as_ref(), "Explore");
+    }
+}

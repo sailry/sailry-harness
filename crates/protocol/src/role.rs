@@ -157,6 +157,49 @@ impl Profile {
     }
 }
 
+/// Text and appearance of a role the Node seeds into new storage.
+/// Controllers may localize the name and description while they still match.
+pub struct Builtin {
+    pub key: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub icon: &'static str,
+    pub color: &'static str,
+}
+
+impl Builtin {
+    pub fn appearance(&self) -> crate::projects::Appearance {
+        crate::projects::Appearance {
+            icon: self.icon.into(),
+            color: self.color.into(),
+        }
+    }
+
+    pub fn find(key: &str) -> Option<&'static Self> {
+        match key {
+            "explore" => Some(&EXPLORE),
+            "research" => Some(&RESEARCH),
+            _ => None,
+        }
+    }
+}
+
+pub const EXPLORE: Builtin = Builtin {
+    key: "explore",
+    name: "Explore",
+    description: "Read existing code and report findings with exact paths",
+    icon: "code",
+    color: "teal",
+};
+
+pub const RESEARCH: Builtin = Builtin {
+    key: "research",
+    name: "Research",
+    description: "Investigate public sources and return supported conclusions",
+    icon: "globe",
+    color: "violet",
+};
+
 /// Selection keys shared by roles and teams.
 pub(crate) fn key(value: &str) -> bool {
     let key = value.as_bytes();

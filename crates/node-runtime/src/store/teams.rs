@@ -93,9 +93,21 @@ pub(super) async fn put(
         super::roles::validate_model(&provider, selection)?;
     }
     let mut team = team.clone();
+    super::roles::fill(&team.key, &mut team.appearance);
     team.revision = next(revision)?;
     write(db, &team).await?;
     Ok(team)
+}
+
+/// Startup fill for stored teams without an appearance, advancing each revision.
+pub(super) async fn fill_appearances(db: &Connection) -> Result<(), Fault> {
+    for mut team in list(db).await? {
+        if super::roles::fill(&team.key, &mut team.appearance) {
+            team.revision = next(team.revision)?;
+            write(db, &team).await?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) async fn remove(db: &Connection, id: TeamId, expected: u64) -> Result<(), Fault> {

@@ -31,7 +31,7 @@ pub(super) fn blank(id: RoleId) -> role::Profile {
         revision: 0,
         key: String::new(),
         name: String::new(),
-        appearance: None,
+        appearance: Some(Appearance::random()),
         description: String::new(),
         read_only: false,
         model: None,
@@ -51,6 +51,8 @@ pub(super) struct RoleForm {
     description: Entity<InputState>,
     instructions: Entity<TextareaState>,
     appearance: Option<Appearance>,
+    /// Localized seeded text shown in place of the stored name and description.
+    shown: (SharedString, SharedString),
     read_only: bool,
     model: Entity<ModelField>,
     locked: bool,
@@ -66,9 +68,10 @@ impl RoleForm {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let shown = draft::label(&original);
         let name = cx.new(|cx| {
             InputState::new(window, cx)
-                .default_value(original.name.clone())
+                .default_value(shown.0.clone())
                 .placeholder(tr("form_name_hint"))
         });
         let key = cx.new(|cx| {
@@ -78,7 +81,7 @@ impl RoleForm {
         });
         let description = cx.new(|cx| {
             InputState::new(window, cx)
-                .default_value(original.description.clone())
+                .default_value(shown.1.clone())
                 .placeholder(tr("teams_description"))
         });
         let instructions = cx.new(|cx| {
@@ -98,6 +101,7 @@ impl RoleForm {
         }
         Self {
             appearance: original.appearance.clone(),
+            shown,
             read_only: original.read_only,
             original,
             creating,
@@ -144,15 +148,23 @@ impl RoleForm {
     /// Builds the profile to save. `key` replaces the identifier field's value when given.
     pub fn profile(&self, key: Option<String>, cx: &App) -> Result<role::Profile, &'static str> {
         let key = key.unwrap_or_else(|| self.key.read(cx).value().trim().to_owned());
-        let name = self.name(cx).to_string();
+        let mut name = self.name(cx).to_string();
         if !draft::valid_key(&key) || name.is_empty() {
             return Err("teams_role_invalid");
+        }
+        // Unedited localized seeded text keeps the stored text, so it stays localizable.
+        if name == self.shown.0.as_ref() {
+            name.clone_from(&self.original.name);
+        }
+        let mut description = self.description.read(cx).value().to_string();
+        if description == self.shown.1.as_ref() {
+            description.clone_from(&self.original.description);
         }
         Ok(role::Profile {
             key,
             name,
             appearance: self.appearance.clone(),
-            description: self.description.read(cx).value().to_string(),
+            description,
             read_only: self.read_only,
             model: self.model(cx),
             instructions: self.instructions.read(cx).value().to_string(),

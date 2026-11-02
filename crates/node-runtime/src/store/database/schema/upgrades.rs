@@ -117,7 +117,8 @@ mod tests {
                  INSERT INTO node VALUES(1,1);
                  CREATE TABLE artifacts(body BLOB);
                  CREATE TABLE artifact_revisions(body BLOB);
-                 CREATE TABLE roles(key TEXT,body BLOB);",
+                 CREATE TABLE roles(key TEXT,body BLOB);
+                 CREATE TABLE teams(key TEXT,body BLOB);",
             )
             .await
             .unwrap();

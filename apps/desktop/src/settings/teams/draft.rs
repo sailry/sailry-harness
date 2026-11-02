@@ -1,6 +1,8 @@
 //! Role and team drafting rules. Presets, effort selection and key rules are adapted
 //! from the delegation plugin's role settings (Sailry ef5e82ea, `desktop/draft.js`).
-use sailry_protocol::{Effort, projects::Appearance};
+use crate::tr;
+use gpui_kit::SharedString;
+use sailry_protocol::{Effort, projects::Appearance, role};
 use std::collections::BTreeSet;
 
 /// Complete templates for new roles; editing an existing role replaces only its instructions.
@@ -67,7 +69,7 @@ impl Preset {
             Self::Review => ("code", "blue"),
             Self::Test => ("science", "green"),
             Self::Implement => ("tools", "orange"),
-            Self::Research => ("ai", "none"),
+            Self::Research => ("ai", "cyan"),
             Self::Docs => ("writing", "violet"),
         };
         Appearance {
@@ -93,7 +95,31 @@ impl Preset {
     }
 }
 
-/// The standard agent identity for roles without a stored appearance.
+/// Display name and description, localized while a seeded role keeps the Node's text.
+pub(crate) fn label(role: &role::Profile) -> (SharedString, SharedString) {
+    let keys = match role::Builtin::find(&role.key) {
+        Some(builtin) if role.name == builtin.name && role.description == builtin.description => {
+            match builtin.key {
+                "explore" => Some((
+                    "role_builtin_explore_name",
+                    "role_builtin_explore_description",
+                )),
+                "research" => Some((
+                    "role_builtin_research_name",
+                    "role_builtin_research_description",
+                )),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    match keys {
+        Some((name, description)) => (tr(name), tr(description)),
+        None => (role.name.clone().into(), role.description.clone().into()),
+    }
+}
+
+/// The standard agent identity for legacy roles without a stored appearance.
 pub(super) fn fallback() -> Appearance {
     Appearance {
         icon: "ai".into(),
