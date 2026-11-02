@@ -112,7 +112,7 @@ def executable(directory, asset):
 def architecture(path, asset):
     NATIVE.ordinary(path)
     if asset["platform"] == "macos":
-        run("lipo", "-verify_arch", asset["arch"], path)
+        run("lipo", path, "-verify_arch", asset["arch"])
         return
     with path.open("rb") as binary:
         if binary.read(2) != b"MZ":

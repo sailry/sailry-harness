@@ -61,6 +61,20 @@ class Inputs(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "architecture"):
                     helper.architecture(path, {"platform": "windows", "arch": "arm64" if arch == "amd64" else "amd64"})
 
+    @unittest.skipUnless(platform.system() == "Darwin", "Requires macOS lipo")
+    def test_checks_macos_architecture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "Sailry Computer Use"
+            for arch, cpu, subtype in (("arm64", 0x100000c, 0), ("x86_64", 0x1000007, 3)):
+                with self.subTest(arch=arch):
+                    path.write_bytes(struct.pack("<8I", 0xfeedfacf, cpu, subtype, 2, 0, 0, 0, 0))
+                    with patch.object(helper, "run", wraps=helper.run) as run:
+                        helper.architecture(path, {"platform": "macos", "arch": arch})
+                    # Xcode 26.3 consumes everything after -verify_arch as architecture names.
+                    self.assertEqual(run.call_args.args, ("lipo", path, "-verify_arch", arch))
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        helper.architecture(path, {"platform": "macos", "arch": "x86_64" if arch == "arm64" else "arm64"})
+
     def test_rejects_escaping_archives(self):
         with tempfile.TemporaryDirectory() as temporary:
             data = io.BytesIO()
