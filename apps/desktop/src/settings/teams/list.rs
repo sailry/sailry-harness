@@ -1,12 +1,7 @@
 //! Teams tab rows: the virtual Default team first, then stored teams in Node key order.
 use super::{Catalog, editor::Target, menu};
 use crate::{settings::Workspace, tr, workspace::appearance as identity};
-use gpui_kit::component::{
-    avatar::{Avatar, AvatarGroup},
-    list::ListItem,
-    tag::Tag,
-    *,
-};
+use gpui_kit::component::{avatar::Avatar, list::ListItem, tag::Tag, *};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sailry_protocol::{projects::Appearance, role, team};
@@ -176,10 +171,11 @@ impl Workspace {
                             }),
                     )
                     .child(
-                        AvatarGroup::new().xsmall().limit(5).children(
-                            selected
-                                .iter()
-                                .map(|role| avatar(role.appearance.as_ref(), cx)),
+                        // Side by side rather than stacked; the count beside them gives the total.
+                        h_flex().flex_shrink_0().gap_1().children(
+                            selected.iter().take(5).map(|role| {
+                                avatar(role.appearance.as_ref(), cx).with_size(px(20.))
+                            }),
                         ),
                     )
                     .child(
