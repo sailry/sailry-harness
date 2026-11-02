@@ -709,12 +709,8 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                             MediaQuery.paddingOf(context).bottom + 12,
                           ),
                           child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
                             children: [
-                              Expanded(
-                                child: Text(
-                                  context.tr('conversationChildReadonly'),
-                                ),
-                              ),
                               if (_active.isNotEmpty)
                                 FilledButton(
                                   onPressed: connected ? _stop : null,
