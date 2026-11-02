@@ -126,9 +126,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationChild => 'Subtask';
 
   @override
-  String get conversationChildReadonly => 'Subtask chat';
-
-  @override
   String get conversationOffline => 'Connection lost';
 
   @override

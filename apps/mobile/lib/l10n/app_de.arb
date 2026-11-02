@@ -75,7 +75,6 @@
   },
   "conversationStepSkipped": "Übersprungen",
   "conversationChild": "Unteraufgabe",
-  "conversationChildReadonly": "Subtask-Chat",
   "conversationOffline": "Verbindung verloren",
   "conversationUnavailable": "Chat nicht verfügbar",
   "conversationFailed": "Vorgang fehlgeschlagen; versuchen Sie es erneut",

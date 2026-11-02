@@ -318,12 +318,6 @@ abstract class AppLocalizations {
   /// **'Subtask'**
   String get conversationChild;
 
-  /// No description provided for @conversationChildReadonly.
-  ///
-  /// In en, this message translates to:
-  /// **'Subtask chat'**
-  String get conversationChildReadonly;
-
   /// No description provided for @conversationOffline.
   ///
   /// In en, this message translates to:

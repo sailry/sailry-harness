@@ -75,7 +75,6 @@
   },
   "conversationStepSkipped": "Skipped",
   "conversationChild": "Subtask",
-  "conversationChildReadonly": "Subtask chat",
   "conversationOffline": "Connection lost",
   "conversationUnavailable": "Chat unavailable",
   "conversationFailed": "Operation failed; retry",

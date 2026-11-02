@@ -121,9 +121,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationChild => '子任务';
 
   @override
-  String get conversationChildReadonly => '子任务会话';
-
-  @override
   String get conversationOffline => '连接已断开';
 
   @override
@@ -2630,9 +2627,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationChild => '子任務';
-
-  @override
-  String get conversationChildReadonly => '子任務會話';
 
   @override
   String get conversationOffline => '連線已斷開';

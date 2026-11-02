@@ -43,7 +43,6 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'conversationGoalBudget' => strings.conversationGoalBudget('{count}'),
   'conversationStepSkipped' => strings.conversationStepSkipped,
   'conversationChild' => strings.conversationChild,
-  'conversationChildReadonly' => strings.conversationChildReadonly,
   'conversationOffline' => strings.conversationOffline,
   'conversationUnavailable' => strings.conversationUnavailable,
   'conversationFailed' => strings.conversationFailed,

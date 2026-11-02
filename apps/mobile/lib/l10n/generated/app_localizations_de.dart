@@ -126,9 +126,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get conversationChild => 'Unteraufgabe';
 
   @override
-  String get conversationChildReadonly => 'Subtask-Chat';
-
-  @override
   String get conversationOffline => 'Verbindung verloren';
 
   @override

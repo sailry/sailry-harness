@@ -75,7 +75,6 @@
   },
   "conversationStepSkipped": "건너뜀",
   "conversationChild": "하위 작업",
-  "conversationChildReadonly": "하위 작업 채팅",
   "conversationOffline": "연결 끊김Comment",
   "conversationUnavailable": "사용할 수 없는 채팅",
   "conversationFailed": "작업 실패; 다시 시도하기",

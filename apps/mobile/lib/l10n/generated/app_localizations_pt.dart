@@ -127,9 +127,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationChild => 'Subtarefa';
 
   @override
-  String get conversationChildReadonly => 'Subtarefa de chat';
-
-  @override
   String get conversationOffline => 'Conexão perdida';
 
   @override

@@ -75,7 +75,6 @@
   },
   "conversationStepSkipped": "已跳过",
   "conversationChild": "子任务",
-  "conversationChildReadonly": "子任务会话",
   "conversationOffline": "连接已断开",
   "conversationUnavailable": "会话不可用",
   "conversationFailed": "操作失败，请重试",

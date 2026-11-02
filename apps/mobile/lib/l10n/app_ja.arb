@@ -75,7 +75,6 @@
   },
   "conversationStepSkipped": "スキップ済み",
   "conversationChild": "サブタスク",
-  "conversationChildReadonly": "サブタスクチャット",
   "conversationOffline": "接続が途絶えました",
   "conversationUnavailable": "チャットが利用できません",
   "conversationFailed": "操作に失敗しました。やり直します",

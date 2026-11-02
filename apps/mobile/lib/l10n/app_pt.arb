@@ -75,7 +75,6 @@
   },
   "conversationStepSkipped": "Ignorado",
   "conversationChild": "Subtarefa",
-  "conversationChildReadonly": "Subtarefa de chat",
   "conversationOffline": "Conexão perdida",
   "conversationUnavailable": "Chat não disponível",
   "conversationFailed": "Operação falhou; tente novamente",

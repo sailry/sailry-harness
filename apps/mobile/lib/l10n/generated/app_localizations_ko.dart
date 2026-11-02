@@ -124,9 +124,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationChild => '하위 작업';
 
   @override
-  String get conversationChildReadonly => '하위 작업 채팅';
-
-  @override
   String get conversationOffline => '연결 끊김Comment';
 
   @override

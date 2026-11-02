@@ -127,9 +127,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationChild => 'Sous-tâche';
 
   @override
-  String get conversationChildReadonly => 'Sous-tâche de chat';
-
-  @override
   String get conversationOffline => 'Connexion perdue';
 
   @override

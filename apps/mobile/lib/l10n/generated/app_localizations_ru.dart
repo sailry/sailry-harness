@@ -126,9 +126,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationChild => 'Подзадача';
 
   @override
-  String get conversationChildReadonly => 'Подзадача чата';
-
-  @override
   String get conversationOffline => 'Соединение прервано';
 
   @override

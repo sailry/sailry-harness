@@ -75,7 +75,6 @@
   },
   "conversationStepSkipped": "Пропущено",
   "conversationChild": "Подзадача",
-  "conversationChildReadonly": "Подзадача чата",
   "conversationOffline": "Соединение прервано",
   "conversationUnavailable": "Чат недоступен",
   "conversationFailed": "Операция не удалась; повторите попытку",

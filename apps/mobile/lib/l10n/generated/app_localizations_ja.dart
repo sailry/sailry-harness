@@ -123,9 +123,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationChild => 'サブタスク';
 
   @override
-  String get conversationChildReadonly => 'サブタスクチャット';
-
-  @override
   String get conversationOffline => '接続が途絶えました';
 
   @override

@@ -126,9 +126,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get conversationChild => 'Subtarea';
 
   @override
-  String get conversationChildReadonly => 'Chat de subtareas';
-
-  @override
   String get conversationOffline => 'Se perdió la conexión';
 
   @override
