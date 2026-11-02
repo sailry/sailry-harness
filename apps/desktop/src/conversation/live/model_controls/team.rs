@@ -205,18 +205,19 @@ fn icon(team: Option<&Team>, cx: &App) -> Glyph {
 }
 
 /// Member avatars fill their button so no second circle shows around them.
-const MEMBER: Pixels = px(28.);
+const MEMBER: Pixels = px(24.);
 
 fn name(team: Option<&Team>) -> SharedString {
     team.map_or_else(|| tr("composer_team_default"), |team| team.name.clone())
 }
 
 fn avatar(icon: Glyph, overridden: bool, cx: &App) -> Badge {
-    marked(icon, overridden, false, cx)
+    marked(icon, overridden, true, cx)
 }
 
-/// The selected member is ringed in the theme accent instead of sitting on a button fill.
+/// Unselected members fade so the selected one stands out without a ring.
 fn marked((icon, fill): Glyph, overridden: bool, selected: bool, cx: &App) -> Badge {
+    let fill = if selected { fill } else { fill.opacity(0.35) };
     Badge::new()
         .when(overridden, |badge| badge.dot().color(cx.theme().primary))
         .child(
@@ -224,10 +225,7 @@ fn marked((icon, fill): Glyph, overridden: bool, selected: bool, cx: &App) -> Ba
                 .with_size(MEMBER)
                 .bg(fill)
                 .border_color(fill)
-                .placeholder(icon.size_4())
-                .when(selected, |avatar| {
-                    avatar.border_1().border_color(cx.theme().primary)
-                }),
+                .placeholder(icon.size_3p5().when(!selected, |icon| icon.opacity(0.6))),
         )
 }
 
