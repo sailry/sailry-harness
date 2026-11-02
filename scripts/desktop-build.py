@@ -159,11 +159,15 @@ def select(root, tag, run_id, revision, source, specifications, signed_arm):
             or run.get("head_repository", {}).get("full_name") != repository):
         raise ValueError("Formal publication requires the original Desktop producer workflow")
     jobs = client.api("GET", endpoint + "/jobs?filter=latest&per_page=100")["jobs"]
-    publishers = [job for job in jobs if job.get("name") == "Publish Desktop and start follow-ups"]
-    if (len(publishers) != 1 or not any(step.get("name") == "Verify archives and publish Desktop"
-                                      and step.get("conclusion") == "success"
-                                      for step in publishers[0].get("steps", []))):
-        raise ValueError("The initial Desktop packages have not been published by this producer")
+    # Signing can recover successful native builds even if optional ad-hoc packaging failed.
+    # Restore still verifies each artifact's original attempt, checksums and build provenance.
+    for target in expected:
+        producers = [job for job in jobs if job.get("name") == f"Build Desktop {target}"]
+        if (len(producers) != 1 or producers[0].get("conclusion") != "success"
+                or any(not any(step.get("name") == name and step.get("conclusion") == "success"
+                               for step in producers[0].get("steps", []))
+                       for name in ("Build native Desktop", "Preserve native Desktop"))):
+            raise ValueError("Formal signing requires successful native Desktop producers")
     actual = identities(client, repository, int(run_id), revision, expected)
     if sorted(actual, key=lambda item: item["target"]) != sorted(records, key=lambda item: item["target"]):
         raise ValueError("Formal publication artifact identities differ from the producer")

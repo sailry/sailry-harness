@@ -70,8 +70,8 @@ class GitHub:
                 raise AssertionError("Signing retries must use the original successful producer")
             return {"jobs": [self.job]}
         if "/jobs?" in endpoint:
-            return {"jobs": [{"name": "Publish Desktop and start follow-ups", "steps": [
-                {"name": "Verify archives and publish Desktop", "conclusion": "success"}]}]}
+            return {"jobs": [self.job, {"name": "Publish Desktop and start follow-ups",
+                                       "conclusion": "skipped", "steps": []}]}
         return self.run
 
 
@@ -251,6 +251,22 @@ class FormalSelection(unittest.TestCase):
                     build.select(ROOT, EXPECTED["tag"], "7", value, PRODUCT, json.dumps(wrong), True)
             with self.assertRaises(ValueError):
                 build.select(ROOT, "v2.0.0", "7", CONTROLLER, "d" * 40, json.dumps(specs), True)
+
+    def test_rejects_unfinished_native_builds(self):
+        client = GitHub(b"fixture")
+        specs = [{"target": TARGET, "id": 9, "digest": client.artifact["digest"]}]
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/product"}), \
+                patch.object(build.publication, "GitHub", return_value=client), \
+                patch.object(build.publication, "tagged_commit", return_value=PRODUCT), \
+                patch.object(build.publication, "release"):
+            for conclusion in (None, "cancelled", "failure"):
+                client.job["conclusion"] = conclusion
+                with self.subTest(conclusion=conclusion), self.assertRaisesRegex(ValueError, "native Desktop producers"):
+                    build.select(ROOT, EXPECTED["tag"], "7", CONTROLLER, PRODUCT, json.dumps(specs), True)
+            client.job["conclusion"] = "success"
+            client.job["steps"][1]["conclusion"] = "failure"
+            with self.assertRaisesRegex(ValueError, "native Desktop producers"):
+                build.select(ROOT, EXPECTED["tag"], "7", CONTROLLER, PRODUCT, json.dumps(specs), True)
 
     def test_rejects_ambiguous_or_unsafe_artifact_inputs(self):
         values = ([], [{"target": TARGET, "id": 0, "digest": "sha256:" + "a" * 64}],

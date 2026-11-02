@@ -217,6 +217,10 @@ class Workflow(unittest.TestCase):
         self.assertLess(formal.index("name: Recover signed ARM packages"), formal.index("name: Use workflow notarization helper"))
         self.assertLess(formal.index("name: Use workflow notarization helper"), formal.index("name: Sign, notarize and package"))
         self.assertIn("shutil.copyfile('.workflow-tools/scripts/package/notarize-macos.py', 'scripts/package/notarize-macos.py')", formal)
+        for source in (workflow, formal, (ROOT / ".github/workflows/release-host.yml").read_text()):
+            self.assertIn("shutil.copyfile('.workflow-tools/scripts/package/ocu-helper.py', 'scripts/package/ocu-helper.py')", source)
+        self.assertLess(workflow.index("name: Restore compiled Desktop"), workflow.index("name: Use workflow packaging helper"))
+        self.assertLess(workflow.index("name: Use workflow packaging helper"), workflow.index("name: Assemble ad-hoc Desktop"))
         for source in (workflow, formal):
             self.assertIn('path: ${{ runner.temp }}/recovered-arm/*', source)
             self.assertIn('pattern: packages-*', source)

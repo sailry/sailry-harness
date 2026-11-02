@@ -7,6 +7,10 @@ on:
         description: 'Exact version tag to build; run this workflow from main'
         type: string
         required: true
+      linux_run:
+        description: 'Reuse successful Linux packages from this exact-source Host run'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -188,6 +192,15 @@ jobs:
           path: target/cargo-timings/*.html
           if-no-files-found: ignore
           retention-days: 14
+      - name: Use workflow packaging helper
+        run: |
+          python3 - <<'PYTHON'
+          import shutil, subprocess
+          product = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          tooling = subprocess.check_output(['git', '-C', '.workflow-tools', 'rev-parse', 'HEAD'], text=True).strip()
+          print(f'Product source: {product}; packaging helper source: {tooling}')
+          shutil.copyfile('.workflow-tools/scripts/package/ocu-helper.py', 'scripts/package/ocu-helper.py')
+          PYTHON
       - name: Import signing credentials
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
@@ -229,6 +242,7 @@ jobs:
   host:
     name: Linux Host ${{ matrix.target }}
     needs: version
+    if: inputs.linux_run == ''
     strategy:
       fail-fast: false
       matrix:
@@ -347,10 +361,12 @@ jobs:
   publish:
     name: Append Host assets to the published release
     needs: [build, host]
+    if: ${{ always() && needs.build.result == 'success' && (needs.host.result == 'success' || (needs.host.result == 'skipped' && inputs.linux_run != '')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -371,6 +387,14 @@ jobs:
           pattern: host-*
           path: packages
           merge-multiple: true
+      - name: Recover successful Linux packages
+        if: inputs.linux_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINUX_RUN: ${{ inputs.linux_run }}
+        run: |
+          python3 .workflow-tools/scripts/recover-host.py --source "$GITHUB_WORKSPACE" \
+            --tag "$RELEASE_TAG" --run "$LINUX_RUN" --directory packages
       - name: Verify Host archives and append installer
         env:
           GH_TOKEN: ${{ github.token }}
