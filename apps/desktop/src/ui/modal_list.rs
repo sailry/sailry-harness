@@ -292,6 +292,13 @@ impl Row {
         self
     }
 
+    /// Content under the row without a disclosure chevron, for rows whose click
+    /// does something else, such as selection. Trailing controls may toggle it.
+    pub fn details(mut self, content: impl IntoElement) -> Self {
+        self.content = Some(content.into_any_element());
+        self
+    }
+
     /// Reorders by dragging: shows a grip and drops `payload` onto other rows.
     pub fn draggable<T: Render + Clone>(
         mut self,
