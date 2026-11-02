@@ -335,7 +335,7 @@ impl Panel {
             .into_any_element()
     }
 
-    /// Team choices laid out like the model list: a rail with back, then rows.
+    /// Team choices under a header with back and title.
     pub(super) fn team_list(
         &self,
         settings: &Settings,
@@ -396,31 +396,35 @@ impl Panel {
             })
             .collect::<Vec<_>>();
         let owner = self.owner.clone();
-        h_flex()
+        v_flex()
             .debug_selector(|| "model-team-list".into())
             .flex_shrink_0()
             .w(size.width)
             .h(size.height)
-            .items_stretch()
-            .gap_3()
+            .gap_1()
             .child(
-                v_flex()
-                    .w_12()
-                    .h_full()
+                h_flex()
+                    .relative()
+                    .w_full()
+                    .h_8()
                     .flex_shrink_0()
-                    .p_1()
-                    .rounded(cx.theme().radius_2xl())
-                    .bg(cx.theme().secondary)
+                    .items_center()
+                    .justify_center()
                     .child(
-                        Button::new("model-team-back")
-                            .text()
-                            .icon(IconName::ArrowLeft)
-                            .tooltip(tr("composer_model_settings"))
-                            .w_10()
-                            .h_10()
-                            .rounded_full()
-                            .on_click(cx.listener(|panel, _, window, cx| panel.back(window, cx))),
-                    ),
+                        div().absolute().left_0().top_0().child(
+                            Button::new("model-team-back")
+                                .ghost()
+                                .small()
+                                .icon(IconName::ArrowLeft)
+                                .tooltip(tr("composer_model_settings"))
+                                .size_8()
+                                .rounded_full()
+                                .on_click(
+                                    cx.listener(|panel, _, window, cx| panel.back(window, cx)),
+                                ),
+                        ),
+                    )
+                    .child(div().text_sm().child(tr("settings_teams"))),
             )
             .child(
                 v_flex()
