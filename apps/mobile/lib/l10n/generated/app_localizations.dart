@@ -543,7 +543,7 @@ abstract class AppLocalizations {
   /// No description provided for @conversationCode.
   ///
   /// In en, this message translates to:
-  /// **'Execute'**
+  /// **'Standard'**
   String get conversationCode;
 
   /// No description provided for @conversationPlan.

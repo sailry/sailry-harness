@@ -242,7 +242,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationMode => 'Modo de trabalho';
 
   @override
-  String get conversationCode => 'Executar';
+  String get conversationCode => 'Padrão';
 
   @override
   String get conversationPlan => 'Plano';

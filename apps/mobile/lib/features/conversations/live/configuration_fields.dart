@@ -8,6 +8,7 @@ import 'model_controls.dart';
 import '../../../ui/kit.dart';
 import 'modes.dart';
 import 'team.dart';
+import 'team_controls.dart';
 import 'presentation.dart' show failureLabel;
 
 class ConfigurationFields extends StatefulWidget {
@@ -37,6 +38,9 @@ class ConfigurationFields extends StatefulWidget {
 class _ConfigurationFieldsState extends State<ConfigurationFields> {
   late ConversationModes _modes;
   Object? _reported;
+
+  /// The team list replaces the fields until a team is chosen.
+  bool _choosingTeam = false;
 
   @override
   void initState() {
@@ -124,7 +128,12 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
     // Plugin packages can add modes, so a list scales where segments would not.
     final mode = ListTile(
       key: const ValueKey('configuration-mode'),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      // Match the sheet's choice rows instead of the dense sheet tiles.
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+      minTileHeight: 44,
+      minVerticalPadding: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      titleTextStyle: TextStyle(fontSize: 15, color: colors.onSurface),
       enabled: widget.enabled && _modes.ready,
       title: Text(context.tr('conversationMode')),
       trailing: Row(
@@ -132,7 +141,7 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
         children: [
           Text(
             current?.$2 ?? '',
-            style: TextStyle(color: colors.onSurfaceVariant),
+            style: TextStyle(fontSize: 15, color: colors.onSurfaceVariant),
           ),
           const SizedBox(width: 6),
           AppIcon('chevron', size: 14, color: colors.onSurfaceVariant),
@@ -166,6 +175,20 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
         if (next != null) _commit(next);
       },
     );
+    final team = widget.team;
+    if (team != null && _choosingTeam) {
+      return ListenableBuilder(
+        listenable: team.listenable,
+        builder: (context, _) => TeamList(
+          state: team.read(),
+          onBack: () => setState(() => _choosingTeam = false),
+          onSelected: (selected) async {
+            await team.onTeam(selected);
+            if (mounted) setState(() => _choosingTeam = false);
+          },
+        ),
+      );
+    }
     return FormBody(
       children: [
         ModelControls(
@@ -174,7 +197,10 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
           enabled: widget.enabled,
           onChanged: widget.onChanged,
           onCommitted: widget.onCommitted,
-          team: widget.team,
+          team: team,
+          onTeam: widget.enabled
+              ? () => setState(() => _choosingTeam = true)
+              : null,
         ),
         mode,
         choices('permission', [

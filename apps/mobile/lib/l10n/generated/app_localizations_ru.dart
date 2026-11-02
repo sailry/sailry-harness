@@ -240,7 +240,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationMode => 'Режим работы';
 
   @override
-  String get conversationCode => 'Выполнить';
+  String get conversationCode => 'Стандарт';
 
   @override
   String get conversationPlan => 'План';

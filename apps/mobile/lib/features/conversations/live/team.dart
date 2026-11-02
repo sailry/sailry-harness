@@ -43,6 +43,13 @@ class SessionTeam {
   /// A picker selection follows the latest Lead when the member has no model.
   Map<String, dynamic> selection(Map<String, dynamic>? member) =>
       (member == null ? null : model(member)) ?? config;
+
+  /// A member's current model with another effort; a member following the
+  /// Lead fixes the Lead model.
+  Map<String, dynamic> effort(Map<String, dynamic> member, Object? effort) => {
+    ...selection(member),
+    'effort': effort,
+  };
 }
 
 /// Live team state and the owner's revision-checked team commands.

@@ -164,7 +164,7 @@ class TeamBar extends StatelessWidget {
   }
 }
 
-/// The Default team and stored teams; choosing one returns to the models.
+/// The Default team and stored teams; choosing one returns to the controls.
 class TeamList extends StatelessWidget {
   const TeamList({
     super.key,
@@ -190,6 +190,7 @@ class TeamList extends StatelessWidget {
       onTap: () => onSelected(team),
     );
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
@@ -209,12 +210,8 @@ class TeamList extends StatelessWidget {
             const SizedBox(width: 48),
           ],
         ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.only(bottom: 8),
-            children: [row(null), for (final team in state.teams) row(team)],
-          ),
-        ),
+        row(null),
+        for (final team in state.teams) row(team),
       ],
     );
   }

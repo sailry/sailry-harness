@@ -235,7 +235,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationMode => '작업 모드';
 
   @override
-  String get conversationCode => '실행';
+  String get conversationCode => '표준';
 
   @override
   String get conversationPlan => '계획';

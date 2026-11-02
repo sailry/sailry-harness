@@ -234,7 +234,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationMode => 'ワークモード';
 
   @override
-  String get conversationCode => '実行';
+  String get conversationCode => '標準';
 
   @override
   String get conversationPlan => '計画';

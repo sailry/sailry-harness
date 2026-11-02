@@ -166,6 +166,35 @@ void main() {
       expect(updated.selection(builder)['model'], 'lead');
       expect(updated.selection(reviewer)['model'], 'own');
     });
+
+    test('effort keeps the member model', () {
+      final state = SessionTeam(session(), const []);
+      expect(
+        memberCommand(
+          'session-1',
+          7,
+          'role-review',
+          state.effort(reviewer, 'high'),
+        )['model'],
+        {'provider': 'p-own', 'model': 'own', 'effort': 'high'},
+      );
+    });
+
+    test('effort for a Lead follower fixes the Lead model', () {
+      final state = SessionTeam({
+        ...session(),
+        'config': {'provider': 'p-lead', 'credential': 'c', 'model': 'lead'},
+      }, const []);
+      expect(
+        memberCommand(
+          'session-1',
+          7,
+          'role-build',
+          state.effort(builder, 'low'),
+        )['model'],
+        {'provider': 'p-lead', 'model': 'lead', 'effort': 'low'},
+      );
+    });
   });
 
   group('chipLabel', () {

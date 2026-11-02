@@ -232,7 +232,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationMode => '工作模式';
 
   @override
-  String get conversationCode => '执行';
+  String get conversationCode => '标准';
 
   @override
   String get conversationPlan => '计划';
@@ -2743,10 +2743,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationMode => '工作模式';
 
   @override
-  String get conversationCode => '執行';
+  String get conversationCode => '標準';
 
   @override
-  String get conversationPlan => '計劃';
+  String get conversationPlan => '計畫';
 
   @override
   String get conversationFlagship => '旗艦';

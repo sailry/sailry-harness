@@ -239,7 +239,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationMode => 'Work mode';
 
   @override
-  String get conversationCode => 'Execute';
+  String get conversationCode => 'Standard';
 
   @override
   String get conversationPlan => 'Plan';

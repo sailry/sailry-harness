@@ -244,7 +244,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get conversationMode => 'Arbeitsmodus';
 
   @override
-  String get conversationCode => 'Ausführen';
+  String get conversationCode => 'Standard';
 
   @override
   String get conversationPlan => 'Plan';

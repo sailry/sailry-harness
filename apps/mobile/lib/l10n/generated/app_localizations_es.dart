@@ -241,7 +241,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get conversationMode => 'Modo de trabajo';
 
   @override
-  String get conversationCode => 'Ejecutar';
+  String get conversationCode => 'Estándar';
 
   @override
   String get conversationPlan => 'Plan';

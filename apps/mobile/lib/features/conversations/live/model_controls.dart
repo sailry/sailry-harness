@@ -8,7 +8,8 @@ import 'team.dart';
 import 'team_controls.dart';
 
 /// Edits a configuration draft; the owning form admits the revision to the Node.
-class ModelControls extends StatelessWidget {
+/// With a team, the model and effort act on the selected avatar.
+class ModelControls extends StatefulWidget {
   const ModelControls({
     super.key,
     required this.providers,
@@ -17,6 +18,7 @@ class ModelControls extends StatelessWidget {
     this.onCommitted,
     this.enabled = true,
     this.team,
+    this.onTeam,
   });
 
   final List<Map<String, dynamic>> providers;
@@ -28,32 +30,98 @@ class ModelControls extends StatelessWidget {
   /// A live session's team; new conversations use the Default team.
   final TeamChoices? team;
 
+  /// Opens the team list in place of the controls.
+  final VoidCallback? onTeam;
+
+  @override
+  State<ModelControls> createState() => _ModelControlsState();
+}
+
+class _ModelControlsState extends State<ModelControls> {
+  /// The selected member's role ID; null selects the Lead.
+  String? _member;
+
+  /// A member's effort while the slider moves, before admission.
+  String? _effort;
+
   void _commit(Map<String, dynamic> value) {
-    onChanged(value);
-    onCommitted?.call(value);
+    widget.onChanged(value);
+    widget.onCommitted?.call(value);
+  }
+
+  Future<void> _setMember(String role, Map<String, dynamic>? model) async {
+    await widget.team!.onMember(role, model);
+    if (mounted) setState(() => _effort = null);
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = providers
-        .where((p) => p['id'] == config['provider'])
+    final team = widget.team;
+    if (team == null) return _controls(context, null, null);
+    return ListenableBuilder(
+      listenable: team.listenable,
+      builder: (context, _) {
+        final state = team.read();
+        final member = state.members
+            .where((m) => m['id'] == _member)
+            .firstOrNull;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TeamBar(
+              state: state,
+              member: member?['id'] as String?,
+              onTeam: widget.onTeam ?? () {},
+              onMember: (id) => setState(() {
+                _member = id;
+                _effort = null;
+              }),
+            ),
+            const SizedBox(height: 8),
+            _controls(context, state, member),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _controls(
+    BuildContext context,
+    SessionTeam? state,
+    Map<String, dynamic>? member,
+  ) {
+    final enabled = widget.enabled;
+    final config = widget.config;
+    final role = text(member?['id']);
+    final selection = member == null ? config : state!.selection(member);
+    final provider = widget.providers
+        .where((p) => p['id'] == selection['provider'])
         .firstOrNull;
     final model = objects(
       provider?['models'],
-    ).where((m) => m['id'] == config['model']).firstOrNull;
+    ).where((m) => m['id'] == selection['model']).firstOrNull;
     final efforts = <String>{
       ...(model?['efforts'] as List? ?? []).whereType<String>(),
     }.toList();
     final initial = model?['default_effort'] ?? 'default';
-    final current = config['effort'] ?? 'default';
+    final current = member == null
+        ? config['effort'] ?? 'default'
+        : _effort ?? selection['effort'] ?? initial;
     final selected = efforts.indexOf(current is String ? current : '');
     final budget = object(current)['budget'];
     final label = budget == null
         ? text(current)
         : '${context.tr('conversationBudget')}: $budget';
     final colors = Theme.of(context).colorScheme;
-    final state = team?.read();
-    final selectedTeam = state?.team;
+    // A member resets its override; the Lead resets its effort.
+    final reset = member == null
+        ? current != initial
+              ? () => _commit({...config, 'effort': initial})
+              : null
+        : state!.overridden(role)
+        ? () => _setMember(role, null)
+        : null;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -70,14 +138,15 @@ class ModelControls extends StatelessWidget {
               ),
             ),
             IconButton(
+              key: const ValueKey('model-reset'),
               style: IconButton.styleFrom(
                 minimumSize: const Size.square(40),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              tooltip: context.tr('resetReasoning'),
-              onPressed: enabled && current != initial
-                  ? () => _commit({...config, 'effort': initial})
-                  : null,
+              tooltip: context.tr(
+                member == null ? 'resetReasoning' : 'memberReset',
+              ),
+              onPressed: enabled ? reset : null,
               icon: const AppIcon('refresh', size: 20),
             ),
           ],
@@ -92,43 +161,37 @@ class ModelControls extends StatelessWidget {
           onPressed: !enabled
               ? null
               : () async {
-                  final selection = await showAppSheet<Map<String, dynamic>>(
+                  final choice = await showAppSheet<Map<String, dynamic>>(
                     context,
                     context.tr('modelPicker'),
                     scroll: false,
                     child: ModelChoices(
-                      providers: providers,
-                      config: config,
-                      team: team,
+                      providers: widget.providers,
+                      selection: selection,
+                      // A member without a model follows the Lead.
+                      hint: member != null && state!.model(member) == null,
                     ),
                   );
-                  if (selection != null) {
-                    final current = team?.read().config ?? config;
-                    _commit({...current, ...selection});
+                  if (choice == null || !mounted) return;
+                  if (member == null) {
+                    final latest = widget.team?.read().config ?? config;
+                    _commit({...latest, ...choice});
+                  } else {
+                    await _setMember(role, choice);
                   }
                 },
-          child: _withTooltip(
-            // A team chip hides the Lead model; the tooltip keeps it available.
-            selectedTeam == null
-                ? null
-                : '${chipLabel(null, config, context.tr)} · $label',
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (selectedTeam != null) ...[
-                  TeamIcon(team: selectedTeam),
-                  const SizedBox(width: 6),
-                ],
-                Flexible(
-                  child: Text(
-                    chipLabel(state, config, context.tr),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  chipLabel(null, selection, context.tr),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(width: 8),
-                const AppIcon('chevron', size: 16),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              const AppIcon('chevron', size: 16),
+            ],
           ),
         ),
         if (efforts.isNotEmpty) ...[
@@ -146,26 +209,34 @@ class ModelControls extends StatelessWidget {
               semanticFormatterCallback: (value) =>
                   efforts[value.round().clamp(0, efforts.length - 1)],
               onChanged: enabled && efforts.length > 1
-                  ? (value) =>
-                        onChanged({...config, 'effort': efforts[value.round()]})
+                  ? (value) {
+                      final effort = efforts[value.round()];
+                      if (member == null) {
+                        widget.onChanged({...config, 'effort': effort});
+                      } else {
+                        setState(() => _effort = effort);
+                      }
+                    }
                   : null,
               onChangeEnd: enabled && efforts.length > 1
-                  ? (value) => onCommitted?.call({
-                      ...config,
-                      'effort': efforts[value.round()],
-                    })
+                  ? (value) {
+                      final effort = efforts[value.round()];
+                      if (member == null) {
+                        widget.onCommitted?.call({...config, 'effort': effort});
+                      } else if (effort != (selection['effort'] ?? initial)) {
+                        _setMember(role, state!.effort(member, effort));
+                      } else {
+                        setState(() => _effort = null);
+                      }
+                    }
                   : null,
             ),
           ),
         ],
-        const SizedBox(height: 12),
       ],
     );
   }
 }
-
-Widget _withTooltip(String? message, Widget child) =>
-    message == null ? child : Tooltip(message: message, child: child);
 
 String _modelLabel(Map<String, dynamic> model) =>
     text(model['display_name'], text(model['id']));
@@ -177,17 +248,19 @@ String _family(Map<String, dynamic> provider) {
 }
 
 /// Desktop-style picker: a family rail beside collapsible provider groups.
-/// With a team, the rail and list pick the model of the selected avatar.
+/// Closes with the chosen provider, credential, model and default effort.
 class ModelChoices extends StatefulWidget {
   const ModelChoices({
     super.key,
     required this.providers,
-    required this.config,
-    this.team,
+    required this.selection,
+    this.hint = false,
   });
   final List<Map<String, dynamic>> providers;
-  final Map<String, dynamic> config;
-  final TeamChoices? team;
+  final Map<String, dynamic> selection;
+
+  /// Marks the selection as inherited rather than chosen.
+  final bool hint;
 
   @override
   State<ModelChoices> createState() => _ModelChoicesState();
@@ -200,162 +273,20 @@ class _ModelChoicesState extends State<ModelChoices> {
   late final _families = <String>{
     for (final p in _providers) _family(p),
   }.toList();
-  String? _familyKey;
-  (Object?, Object?)? _selectedModel;
+  late String? _familyKey = _familyOf(widget.selection['provider']);
   final _collapsed = <Object?>{};
-
-  /// The selected member's role ID; null selects the Lead.
-  String? _member;
-  bool _choosingTeam = false;
-  bool _busy = false;
 
   String? _familyOf(Object? provider) {
     final current = _providers.where((p) => p['id'] == provider).firstOrNull;
     return current == null ? _families.firstOrNull : _family(current);
   }
 
-  Future<void> _run(Future<void> Function() action) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      await action();
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  void _select(SessionTeam state, String? member) => setState(() {
-    _member = member;
-    final role = state.members.where((m) => m['id'] == member).firstOrNull;
-    _familyKey = _familyOf(state.selection(role)['provider']);
-  });
-
   @override
   Widget build(BuildContext context) {
     if (_providers.isEmpty) {
       return EmptyState(message: context.tr('conversationNoModel'));
     }
-    final height = MediaQuery.sizeOf(context).height * .6;
-    final team = widget.team;
-    if (team == null) {
-      return SizedBox(
-        height: height,
-        child: _models(context, selection: widget.config),
-      );
-    }
-    return ListenableBuilder(
-      listenable: team.listenable,
-      builder: (context, _) {
-        final state = team.read();
-        final member = state.members
-            .where((m) => m['id'] == _member)
-            .firstOrNull;
-        final model = member == null ? null : state.model(member);
-        final role = text(member?['id']);
-        return SizedBox(
-          height: height,
-          child: AbsorbPointer(
-            absorbing: _busy,
-            child: _choosingTeam
-                ? TeamList(
-                    state: state,
-                    onBack: () => setState(() => _choosingTeam = false),
-                    onSelected: (selected) => _run(() async {
-                      await team.onTeam(selected);
-                      if (mounted) {
-                        setState(() {
-                          _choosingTeam = false;
-                          _member = null;
-                          _familyKey = _familyOf(
-                            team.read().config['provider'],
-                          );
-                        });
-                      }
-                    }),
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TeamBar(
-                        state: state,
-                        member: member?['id'] as String?,
-                        onTeam: () => setState(() => _choosingTeam = true),
-                        onMember: (id) => _select(state, id),
-                      ),
-                      _heading(
-                        context,
-                        member == null
-                            ? context.tr('teamLead')
-                            : text(member['name']),
-                        reset: member != null && state.overridden(role)
-                            ? () => _run(() => team.onMember(role, null))
-                            : null,
-                        resettable: member != null,
-                      ),
-                      Expanded(
-                        child: _models(
-                          context,
-                          selection: state.selection(member),
-                          hint: member != null && model == null,
-                          onChosen: member == null
-                              ? null
-                              : (choice) =>
-                                    _run(() => team.onMember(role, choice)),
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _heading(
-    BuildContext context,
-    String label, {
-    required VoidCallback? reset,
-    required bool resettable,
-  }) {
-    final colors = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 40,
-      child: Row(
-        children: [
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
-            ),
-          ),
-          if (resettable)
-            IconButton(
-              key: const ValueKey('member-reset'),
-              tooltip: context.tr('memberReset'),
-              onPressed: reset,
-              icon: const AppIcon('refresh', size: 16),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// [onChosen] receives a member's choice; without it the Lead's choice
-  /// closes the sheet with a configuration change.
-  Widget _models(
-    BuildContext context, {
-    required Map<String, dynamic> selection,
-    bool hint = false,
-    ValueChanged<Map<String, dynamic>>? onChosen,
-  }) {
-    final identity = (selection['provider'], selection['model']);
-    if (_selectedModel != identity) {
-      _selectedModel = identity;
-      _familyKey = _familyOf(selection['provider']);
-    }
+    final selection = widget.selection;
     final colors = Theme.of(context).colorScheme;
     final visible = _providers.where((p) => _family(p) == _familyKey).toList();
     final list = ListView(
@@ -405,35 +336,33 @@ class _ModelChoicesState extends State<ModelChoices> {
                       model['id'] == selection['model'];
                   return ChoiceRow(
                     label: _modelLabel(model),
-                    selected: selected && !hint,
-                    hint: selected && hint,
-                    onTap: onChosen == null
-                        ? () => Navigator.pop(context, {
-                            'provider': provider['id'],
-                            'credential': provider['credential'],
-                            'model': model['id'],
-                            'effort': model['default_effort'] ?? 'default',
-                          })
-                        : () => onChosen({
-                            'provider': provider['id'],
-                            'model': model['id'],
-                          }),
+                    selected: selected && !widget.hint,
+                    hint: selected && widget.hint,
+                    onTap: () => Navigator.pop(context, {
+                      'provider': provider['id'],
+                      'credential': provider['credential'],
+                      'model': model['id'],
+                      'effort': model['default_effort'] ?? 'default',
+                    }),
                   );
                 },
               ),
         ],
       ],
     );
-    return _families.length < 2
-        ? list
-        : Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            spacing: 12,
-            children: [
-              _rail(context, colors),
-              Expanded(child: list),
-            ],
-          );
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * .6,
+      child: _families.length < 2
+          ? list
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 12,
+              children: [
+                _rail(context, colors),
+                Expanded(child: list),
+              ],
+            ),
+    );
   }
 
   Widget _rail(BuildContext context, ColorScheme colors) => Container(
