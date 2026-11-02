@@ -1,8 +1,6 @@
 use super::*;
 use crate::theme::DialogStyle as _;
-use gpui_kit::component::{
-    checkbox::Checkbox, dialog::DialogFooter, form::Field, scroll::ScrollableElement,
-};
+use gpui_kit::component::{dialog::DialogFooter, form::Field, scroll::ScrollableElement};
 use sailry_protocol::plugin::Summary;
 use std::collections::BTreeSet;
 
