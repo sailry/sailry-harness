@@ -80,30 +80,39 @@ fn form_popup(
             div()
                 .v_flex()
                 .flex_1()
+                .min_h_0()
                 .overflow_hidden()
                 .gap_y_2()
                 .child(
                     DialogTitle::new()
+                        .flex_shrink_0()
                         .px_6()
                         .child(div().pr_6().pb_4().child(title)),
                 )
                 .child(
+                    // Kit 4424427's scroll wrapper carries its own flex bounds.
+                    // Keep it in the column so the body shrinks above the footer.
                     div()
                         .id("plugin-form-body")
+                        .v_flex()
+                        .w_full()
                         .flex_1()
-                        .overflow_hidden()
+                        .min_h_0()
+                        .overflow_y_scrollbar()
                         .child(
-                            div()
-                                .v_flex()
-                                .size_full()
-                                .overflow_y_scrollbar()
+                            DialogContent::new()
+                                .flex_none()
                                 .px_6()
-                                .child(DialogContent::new().pt_4().pb_1().gap_4().children(body)),
+                                .pt_4()
+                                .pb_1()
+                                .gap_4()
+                                .children(body),
                         ),
                 ),
         )
         .children(footer.map(|footer| {
             div()
+                .flex_shrink_0()
                 .px_6()
                 .child(DialogFooter::new().w_full().child(footer))
         }))
