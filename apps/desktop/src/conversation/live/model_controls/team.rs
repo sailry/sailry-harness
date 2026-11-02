@@ -262,25 +262,19 @@ impl Panel {
             .gap_2()
             .items_center()
             .child(
+                // Icon only; the name stays in the tooltip and accessible label.
                 Button::new("model-team-choose")
                     .text()
-                    .small()
-                    .h_8()
-                    .flex_shrink_0()
-                    .max_w(px(140.))
                     .rounded_full()
+                    .w(MEMBER)
+                    .h(MEMBER)
+                    .p_0()
+                    .flex_shrink_0()
+                    .tooltip(name(team))
                     .accessibility_label(name(team))
                     .debug_selector(|| "model-team-choose".into())
                     .disabled(locked)
-                    .child(
-                        h_flex()
-                            .min_w_0()
-                            .gap_1p5()
-                            .items_center()
-                            .child(avatar(icon(team, cx), false, cx))
-                            .child(div().min_w_0().truncate().text_sm().child(name(team)))
-                            .child(Icon::new(IconName::ChevronRight).size_3()),
-                    )
+                    .child(avatar(icon(team, cx), false, cx))
                     .on_click(cx.listener(|panel, _, _, cx| {
                         panel.layer = Layer::Teams;
                         cx.notify();
