@@ -406,6 +406,11 @@ Linux link inputs are checksum-pinned in
 [`linux-sysroot.lock.json`](scripts/package/linux-sysroot.lock.json); the build
 does not install cross-compilation packages into the host system.
 
+Desktop native recovery reuses preserved binaries for the exact product tag and
+builds only missing architectures. Each artifact retains its original workflow
+run, revision and checksum through formal signing. Symbol files are preserved
+before upload; an upload failure reports a warning without blocking packaging.
+
 For local verification, build native Desktop and Host, then package into a
 fresh `dist/` directory:
 

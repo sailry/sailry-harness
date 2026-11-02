@@ -169,6 +169,14 @@ class Cli(unittest.TestCase):
                 SYMBOLS.cli(self.cache)
         self.assertFalse((self.cache / self.name).exists())
 
+    def test_download_failure_redacts_details(self):
+        with patch.object(SYMBOLS.urllib.request, "urlopen", side_effect=OSError("synthetic-upload-token")):
+            with self.assertRaisesRegex(ValueError, "Sentry CLI download failed") as raised:
+                SYMBOLS.cli(self.cache)
+        self.assertNotIn("synthetic-upload-token", str(raised.exception))
+        self.assertTrue(raised.exception.__suppress_context__)
+        self.assertFalse((self.cache / self.name).exists())
+
     def test_rejects_unsupported_platform(self):
         with patch.object(SYMBOLS.platform, "machine", return_value="unsupported"), \
                 patch.object(SYMBOLS.urllib.request, "urlopen") as request:
@@ -224,6 +232,7 @@ class Upload(unittest.TestCase):
         self.assertNotIn(self.environment["SENTRY_AUTH_TOKEN"], output.getvalue())
         self.assertEqual(run.call_args.kwargs["env"]["SENTRY_AUTH_TOKEN"], "synthetic-upload-token")
         self.assertTrue(run.call_args.kwargs["capture_output"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 600)
         self.assertNotIn("--include-sources", command)
 
     def test_failure_keeps_symbols_and_redacts_output(self):
@@ -233,6 +242,36 @@ class Upload(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Sentry debug symbol upload failed") as raised:
                 SYMBOLS.upload(self.symbols, self.environment)
         self.assertNotIn("synthetic-upload-token", str(raised.exception))
+        self.assertEqual(self.payload.read_bytes(), b"retained native debug")
+
+    def test_timeout_preserves_symbols_and_redacts_details(self):
+        error = subprocess.TimeoutExpired(["synthetic-upload-token"], 600,
+                                          output=b"synthetic-upload-token", stderr=b"synthetic-upload-token")
+        with patch.object(SYMBOLS, "cli", return_value=Path("fixture-cli")), \
+                patch.object(SYMBOLS.subprocess, "run", side_effect=error):
+            with self.assertRaisesRegex(ValueError, "upload timed out after 600 seconds") as raised:
+                SYMBOLS.upload(self.symbols, self.environment)
+        self.assertNotIn("synthetic-upload-token", str(raised.exception))
+        self.assertTrue(raised.exception.__suppress_context__)
+        self.assertEqual(self.payload.read_bytes(), b"retained native debug")
+
+    def test_launch_failure_preserves_symbols(self):
+        with patch.object(SYMBOLS, "cli", return_value=Path("fixture-cli")), \
+                patch.object(SYMBOLS.subprocess, "run", side_effect=OSError("synthetic-upload-token")):
+            with self.assertRaisesRegex(ValueError, "Sentry CLI could not start") as raised:
+                SYMBOLS.upload(self.symbols, self.environment)
+        self.assertNotIn("synthetic-upload-token", str(raised.exception))
+        self.assertTrue(raised.exception.__suppress_context__)
+        self.assertEqual(self.payload.read_bytes(), b"retained native debug")
+
+    def test_preparation_failure_preserves_symbols(self):
+        with patch.object(SYMBOLS, "cli", side_effect=OSError("synthetic-upload-token")), \
+                patch.object(SYMBOLS.subprocess, "run") as run:
+            with self.assertRaisesRegex(ValueError, "Sentry CLI preparation failed") as raised:
+                SYMBOLS.upload(self.symbols, self.environment)
+        run.assert_not_called()
+        self.assertNotIn("synthetic-upload-token", str(raised.exception))
+        self.assertTrue(raised.exception.__suppress_context__)
         self.assertEqual(self.payload.read_bytes(), b"retained native debug")
 
     def test_accepts_native_files(self):
@@ -292,6 +331,10 @@ class Workflow(unittest.TestCase):
                 self.assertIn("SENTRY_ORG:", section)
                 self.assertIn("SENTRY_PROJECT:", section)
                 self.assertNotIn("--include-sources", section)
+                upload_step = section.rfind("      - name: Upload", artifact, upload)
+                self.assertIn("continue-on-error: true", section[upload_step:upload])
+                self.assertIn("if: steps.symbol-upload.outcome == 'failure'", section)
+                self.assertIn("::warning::", section)
                 self.assertNotIn("debug-symbols/", section.split("      - name: Build", 1)[0])
 
     def test_local_packages_collect_without_uploading(self):

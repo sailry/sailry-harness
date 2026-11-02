@@ -79,19 +79,24 @@ def producer(client, repository, expected, attempt):
             or run.get("event") != "workflow_dispatch" or run.get("path") != ".github/workflows/release.yml"
             or run.get("repository", {}).get("full_name") != repository
             or run.get("head_repository", {}).get("full_name") != repository
-            or not isinstance(attempt, int) or attempt < 1
-            or not isinstance(run.get("run_attempt"), int) or attempt > run["run_attempt"]):
+            or not isinstance(run.get("run_attempt"), int) or run["run_attempt"] < 1
+            or (attempt is not None and (not isinstance(attempt, int) or attempt < 1
+                                         or attempt > run["run_attempt"]))):
         raise ValueError("The native artifact workflow does not match its controller")
+    attempt = run["run_attempt"] if attempt is None else attempt
     jobs = client.api("GET", f"{endpoint}/attempts/{attempt}/jobs?per_page=100")["jobs"]
     selected = [job for job in jobs if job.get("name") == f"Build Desktop {expected['target']}"]
     if len(selected) != 1:
         raise ValueError("The native Desktop producer is missing or ambiguous")
     job = selected[0]
     steps = {step["name"]: step for step in job.get("steps", [])}
-    if (job.get("conclusion") != "success" or job.get("head_sha") != expected["workflow_revision"]
+    failed = {step["name"] for step in job.get("steps", []) if step.get("conclusion") == "failure"}
+    completed = job.get("conclusion") == "success" or (
+        job.get("conclusion") == "failure" and failed == {"Upload Desktop debug symbols"})
+    if (not completed or job.get("head_sha") != expected["workflow_revision"]
             or job.get("run_id") != expected["run_id"]
             or any(steps.get(name, {}).get("conclusion") != "success"
-                   for name in ("Build native Desktop", "Preserve native Desktop"))):
+                   for name in ("Build native Desktop", "Stage native Desktop", "Preserve native Desktop"))):
         raise ValueError("The native Desktop producer did not finish successfully")
     return job
 
@@ -130,8 +135,11 @@ def unpack(path, directory, expected):
 def artifact_specs(value):
     records = json.loads(value)
     if (not isinstance(records, list) or not records or len(records) > 2
-            or any(not isinstance(item, dict) or set(item) != {"target", "id", "digest"}
+            or any(not isinstance(item, dict) or set(item) != {"target", "run_id", "revision", "id", "digest"}
                    or item["target"] not in TARGETS or type(item["id"]) is not int or item["id"] < 1
+                   or type(item["run_id"]) is not int or item["run_id"] < 1
+                   or not isinstance(item["revision"], str)
+                   or re.fullmatch(r"[0-9a-f]{40}", item["revision"]) is None
                    or not isinstance(item["digest"], str)
                    or re.fullmatch(r"sha256:[0-9a-f]{64}", item["digest"]) is None for item in records)
             or len({item["target"] for item in records}) != len(records)):
@@ -139,10 +147,9 @@ def artifact_specs(value):
     return records
 
 
-def select(root, tag, run_id, revision, source, specifications, signed_arm):
+def select(root, tag, source, specifications, signed_arm):
     commit = publication.tagged_commit(tag, root)
-    if (source != commit or re.fullmatch(r"[0-9a-f]{40}", revision or "") is None
-            or not run_id or re.fullmatch(r"[1-9][0-9]*", run_id) is None):
+    if source != commit:
         raise ValueError("Formal publication must match the exact producer source")
     records = artifact_specs(specifications)
     expected = {"x86_64-apple-darwin"} if signed_arm else TARGETS
@@ -151,26 +158,14 @@ def select(root, tag, run_id, revision, source, specifications, signed_arm):
     client = publication.GitHub()
     repository = os.environ["GITHUB_REPOSITORY"]
     publication.release(client, repository, tag, commit, published=True)
-    endpoint = f"repos/{repository}/actions/runs/{run_id}"
-    run = client.api("GET", endpoint)
-    if (run.get("id") != int(run_id) or run.get("head_sha") != revision or run.get("head_branch") != "main"
-            or run.get("event") != "workflow_dispatch" or run.get("path") != ".github/workflows/release.yml"
-            or run.get("repository", {}).get("full_name") != repository
-            or run.get("head_repository", {}).get("full_name") != repository):
-        raise ValueError("Formal publication requires the original Desktop producer workflow")
-    jobs = client.api("GET", endpoint + "/jobs?filter=latest&per_page=100")["jobs"]
-    # Signing can recover successful native builds even if optional ad-hoc packaging failed.
-    # Restore still verifies each artifact's original attempt, checksums and build provenance.
-    for target in expected:
-        producers = [job for job in jobs if job.get("name") == f"Build Desktop {target}"]
-        if (len(producers) != 1 or producers[0].get("conclusion") != "success"
-                or any(not any(step.get("name") == name and step.get("conclusion") == "success"
-                               for step in producers[0].get("steps", []))
-                       for name in ("Build native Desktop", "Preserve native Desktop"))):
-            raise ValueError("Formal signing requires successful native Desktop producers")
-    actual = identities(client, repository, int(run_id), revision, expected)
-    if sorted(actual, key=lambda item: item["target"]) != sorted(records, key=lambda item: item["target"]):
-        raise ValueError("Formal publication artifact identities differ from the producer")
+    # Targets can retain different original producers while sharing one exact product tag.
+    # Restore still verifies each original attempt, checksums and build provenance.
+    for record in records:
+        producer(client, repository, {"run_id": record["run_id"], "workflow_revision": record["revision"],
+                                      "target": record["target"]}, None)
+        actual = identities(client, repository, record["run_id"], record["revision"], {record["target"]})
+        if actual != [record]:
+            raise ValueError("Formal publication artifact identities differ from the producer")
     return {"include": [{**item, "runner": "macos-15" if item["target"].startswith("aarch64")
                          else "macos-15-intel"} for item in records]}
 
@@ -190,8 +185,43 @@ def identities(client, repository, run_id, revision, targets):
                 or origin.get("id") != run_id or origin.get("head_sha") != revision
                 or origin.get("head_branch") != "main"):
             raise ValueError("The native artifact belongs to another producer")
-        result.append({"target": target, "id": item.get("id"), "digest": item.get("digest")})
+        result.append({"target": target, "run_id": run_id, "revision": revision,
+                       "id": item.get("id"), "digest": item.get("digest")})
     return artifact_specs(json.dumps(result))
+
+
+def resume(root, tag, run_id, client=None):
+    if re.fullmatch(r"[1-9][0-9]*", str(run_id)) is None:
+        raise ValueError("Native recovery requires a positive workflow run ID")
+    publication.tagged_commit(tag, root)
+    client = client or publication.GitHub()
+    repository = os.environ["GITHUB_REPOSITORY"]
+    endpoint = f"repos/{repository}/actions/runs/{run_id}"
+    run = client.api("GET", endpoint)
+    inventory = client.api("GET", endpoint + "/artifacts?per_page=100")
+    if inventory.get("total_count", 0) > 100:
+        raise ValueError("The native artifact inventory is ambiguous")
+    available = {target for target in TARGETS
+                 if any(item.get("name") == f"native-{target}" for item in inventory["artifacts"])}
+    if not available:
+        raise ValueError("The original workflow has no preserved native Desktop artifacts")
+    records = identities(client, repository, int(run_id), run.get("head_sha"), available)
+    for record in records:
+        producer(client, repository, {"run_id": record["run_id"], "workflow_revision": record["revision"],
+                                      "target": record["target"]}, None)
+    return records
+
+
+def inventory(root, tag, signed_arm, resume_run):
+    if signed_arm and resume_run:
+        raise ValueError("Select either signed ARM packages or native Desktop recovery")
+    client = publication.GitHub()
+    records = resume(root, tag, resume_run, client) if resume_run else []
+    targets = ({"x86_64-apple-darwin"} if signed_arm else TARGETS) - {item["target"] for item in records}
+    if targets:
+        records.extend(identities(client, os.environ["GITHUB_REPOSITORY"], int(os.environ["GITHUB_RUN_ID"]),
+                                  os.environ["WORKFLOW_REVISION"], targets))
+    return artifact_specs(json.dumps(records))
 
 
 def restore(root, tag, target, run_id=None, revision=None, identity=None, checksum=None, source=None):
@@ -201,7 +231,8 @@ def restore(root, tag, target, run_id=None, revision=None, identity=None, checks
                 or re.fullmatch(r"[0-9a-f]{40}", revision or "") is None
                 or source != expected["source_revision"]):
             raise ValueError("Native recovery requires the exact original producer and product")
-        artifact_specs(json.dumps([{"target": target, "id": identity, "digest": checksum}]))
+        artifact_specs(json.dumps([{"target": target, "run_id": int(run_id), "revision": revision,
+                                    "id": identity, "digest": checksum}]))
         expected.update(run_id=int(run_id), workflow_revision=revision)
     repository = os.environ["GITHUB_REPOSITORY"]
     client = publication.GitHub()
@@ -263,7 +294,7 @@ def restore(root, tag, target, run_id=None, revision=None, identity=None, checks
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("stage", "restore", "inventory", "select"))
+    parser.add_argument("mode", choices=("stage", "restore", "inventory", "select", "resume"))
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--target", choices=sorted(TARGETS))
@@ -275,6 +306,7 @@ def main():
     parser.add_argument("--artifact-digest")
     parser.add_argument("--artifacts")
     parser.add_argument("--signed-arm", action="store_true")
+    parser.add_argument("--resume-run")
     args = parser.parse_args()
     if args.mode == "stage":
         if args.output is None or args.target is None:
@@ -285,15 +317,14 @@ def main():
             parser.error("Native restoration requires a target")
         restore(args.source.resolve(), args.tag, args.target, args.run, args.revision,
                 args.artifact_id, args.artifact_digest, args.source_sha)
+    elif args.mode == "resume":
+        print(json.dumps(resume(args.source.resolve(), args.tag, args.run)))
     else:
         if args.mode == "select":
-            result = select(args.source.resolve(), args.tag, args.run, args.revision,
-                            args.source_sha, args.artifacts, args.signed_arm)
+            result = select(args.source.resolve(), args.tag, args.source_sha, args.artifacts, args.signed_arm)
             key = "matrix"
         else:
-            targets = {"x86_64-apple-darwin"} if args.signed_arm else TARGETS
-            result = identities(publication.GitHub(), os.environ["GITHUB_REPOSITORY"],
-                                int(os.environ["GITHUB_RUN_ID"]), os.environ["WORKFLOW_REVISION"], targets)
+            result = inventory(args.source.resolve(), args.tag, args.signed_arm, args.resume_run)
             key = "artifacts"
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
             output.write(key + "=" + json.dumps(result, separators=(",", ":")) + "\n")

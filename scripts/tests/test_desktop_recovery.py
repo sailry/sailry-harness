@@ -189,7 +189,8 @@ class Workflow(unittest.TestCase):
         code = block.split("          python3 - <<'PYTHON'\n", 1)[1].split("          PYTHON", 1)[0]
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "output"
-            environment = {"RESUME_INTEL_FROM": run_id, "GITHUB_WORKSPACE": "/product", "RELEASE_TAG": TAG,
+            environment = {"RESUME_INTEL_FROM": run_id, "RESUME_NATIVE_FROM": "",
+                           "GITHUB_WORKSPACE": "/product", "RELEASE_TAG": TAG,
                            "GITHUB_OUTPUT": str(output)}
             with patch.dict(os.environ, environment), patch.object(subprocess, "run", side_effect=RuntimeError("invalid source") if fail else None) as run:
                 if fail:

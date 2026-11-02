@@ -11,16 +11,8 @@ on:
         description: 'Exact product commit checked out by the producer'
         type: string
         required: true
-      producer_run:
-        description: 'Initial Desktop publication workflow run'
-        type: string
-        required: true
-      producer_revision:
-        description: 'Workflow revision used by that producer'
-        type: string
-        required: true
       artifacts:
-        description: 'Exact native target, artifact ID and digest records'
+        description: 'Exact native target, producer, artifact ID and digest records'
         type: string
         required: true
       signed_arm_from:
@@ -73,8 +65,6 @@ jobs:
         id: producer
         env:
           GH_TOKEN: ${{ github.token }}
-          PRODUCER_RUN: ${{ inputs.producer_run }}
-          PRODUCER_REVISION: ${{ inputs.producer_revision }}
           PRODUCT_SOURCE: ${{ inputs.source_sha }}
           NATIVE_ARTIFACTS: ${{ inputs.artifacts }}
           SIGNED_ARM_FROM: ${{ inputs.signed_arm_from }}
@@ -82,7 +72,7 @@ jobs:
           arguments=()
           if test -n "$SIGNED_ARM_FROM"; then arguments+=(--signed-arm); fi
           python3 .workflow-tools/scripts/desktop-build.py select --source "$GITHUB_WORKSPACE" \
-            --tag "$RELEASE_TAG" --run "$PRODUCER_RUN" --revision "$PRODUCER_REVISION" \
+            --tag "$RELEASE_TAG" \
             --source-sha "$PRODUCT_SOURCE" --artifacts "$NATIVE_ARTIFACTS" "${arguments[@]}"
 
   sign:
@@ -128,8 +118,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW_REVISION: ${{ github.workflow_sha }}
           PACKAGE_TARGET: ${{ matrix.target }}
-          PRODUCER_RUN: ${{ inputs.producer_run }}
-          PRODUCER_REVISION: ${{ inputs.producer_revision }}
+          PRODUCER_RUN: ${{ matrix.run_id }}
+          PRODUCER_REVISION: ${{ matrix.revision }}
           PRODUCT_SOURCE: ${{ inputs.source_sha }}
           NATIVE_ARTIFACT: ${{ matrix.id }}
           NATIVE_DIGEST: ${{ matrix.digest }}

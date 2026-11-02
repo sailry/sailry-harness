@@ -14,6 +14,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCK = ROOT / "scripts/package/sentry-cli.lock.json"
+UPLOAD_TIMEOUT = 600
 
 
 def collect(binary, target, output, optional=False):
@@ -96,8 +97,11 @@ def cli(cache):
     destination = cache / name
     if not destination.is_file() or hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
         url = f"https://github.com/getsentry/sentry-cli/releases/download/{lock['version']}/{name}"
-        with urllib.request.urlopen(url, timeout=60) as response:
-            data = response.read(64 * 1024 * 1024 + 1)
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                data = response.read(64 * 1024 * 1024 + 1)
+        except OSError:
+            raise ValueError("Sentry CLI download failed") from None
         if len(data) > 64 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != digest:
             raise ValueError("Sentry CLI checksum mismatch")
         with tempfile.NamedTemporaryFile(dir=cache, delete=False) as temporary:
@@ -116,13 +120,22 @@ def upload(symbols, environment):
         return False
     if not symbols.exists():
         raise ValueError("Native debug symbols are missing")
-    executable = cli(ROOT / "target/tooling/sentry-cli")
+    try:
+        executable = cli(ROOT / "target/tooling/sentry-cli")
+    except OSError:
+        raise ValueError("Sentry CLI preparation failed; native symbols are preserved") from None
     # The upload token stays in the environment, never argv or product metadata.
-    result = subprocess.run([
-        str(executable), "debug-files", "upload",
-        "--org", environment["SENTRY_ORG"], "--project", environment["SENTRY_PROJECT"],
-        "--no-sources", str(symbols),
-    ], env={**environment, "SENTRY_LOG_LEVEL": "error"}, capture_output=True, timeout=120)
+    try:
+        result = subprocess.run([
+            str(executable), "debug-files", "upload",
+            "--org", environment["SENTRY_ORG"], "--project", environment["SENTRY_PROJECT"],
+            "--no-sources", str(symbols),
+        ], env={**environment, "SENTRY_LOG_LEVEL": "error"}, capture_output=True, timeout=UPLOAD_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f"Sentry debug symbol upload timed out after {UPLOAD_TIMEOUT} seconds; "
+                         "native symbols are preserved") from None
+    except OSError:
+        raise ValueError("Sentry CLI could not start; native symbols are preserved") from None
     if result.returncode:
         raise ValueError("Sentry debug symbol upload failed")
     print("Native symbols uploaded")

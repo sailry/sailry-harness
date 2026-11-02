@@ -50,12 +50,14 @@ def payload(changes=None, extra=None, content=None):
 
 class GitHub:
     def __init__(self, packed):
+        self.attempts = []
         self.run = {"id": 7, "head_sha": CONTROLLER, "head_branch": "main", "event": "workflow_dispatch", "run_attempt": 2,
                     "path": ".github/workflows/release.yml", "repository": {"full_name": "example/product"},
                     "head_repository": {"full_name": "example/product"}}
         self.job = {"name": f"Build Desktop {TARGET}", "head_sha": CONTROLLER, "run_id": 7,
                     "conclusion": "success", "completed_at": "2026-10-17T01:03:00Z", "steps": [
                         {"name": "Build native Desktop", "conclusion": "success", "completed_at": "2026-10-17T01:00:00Z"},
+                        {"name": "Stage native Desktop", "conclusion": "success"},
                         {"name": "Preserve native Desktop", "conclusion": "success"}]}
         self.artifact = {"id": 9, "name": f"native-{TARGET}", "expired": False,
                          "size_in_bytes": len(packed), "digest": "sha256:" + hashlib.sha256(packed).hexdigest(),
@@ -66,8 +68,7 @@ class GitHub:
         if "/artifacts?" in endpoint:
             return {"total_count": 1, "artifacts": [self.artifact]}
         if "/attempts/" in endpoint:
-            if "/attempts/1/jobs?" not in endpoint:
-                raise AssertionError("Signing retries must use the original successful producer")
+            self.attempts.append(int(endpoint.split("/attempts/", 1)[1].split("/", 1)[0]))
             return {"jobs": [self.job]}
         if "/jobs?" in endpoint:
             return {"jobs": [self.job, {"name": "Publish Desktop and start follow-ups",
@@ -145,6 +146,15 @@ class Producer(unittest.TestCase):
         with patch.dict(os.environ, {"GITHUB_RUN_ATTEMPT": "2"}):
             self.assertEqual(build.producer(GitHub(b""), "example/product", EXPECTED, 1)["conclusion"], "success")
 
+    def test_accepts_saved_build_after_upload_failure(self):
+        client = GitHub(b"")
+        client.job["conclusion"] = "failure"
+        client.job["steps"].append({"name": "Upload Desktop debug symbols", "conclusion": "failure"})
+        self.assertEqual(build.producer(client, "example/product", EXPECTED, 1)["conclusion"], "failure")
+        client.job["steps"].append({"name": "Save native libraries", "conclusion": "failure"})
+        with self.assertRaisesRegex(ValueError, "native Desktop producer"):
+            build.producer(client, "example/product", EXPECTED, 1)
+
     def test_rejects_other_workflow_or_failed_producer(self):
         clients = []
         for key, value in (("head_sha", PRODUCT), ("head_branch", "feature"), ("event", "pull_request"),
@@ -154,7 +164,8 @@ class Producer(unittest.TestCase):
             clients.append(client)
         for change in (lambda job: job.update(conclusion="failure"),
                        lambda job: job["steps"][0].update(conclusion="failure"),
-                       lambda job: job["steps"][1].update(conclusion="failure")):
+                       lambda job: job["steps"][1].update(conclusion="failure"),
+                       lambda job: job["steps"][2].update(conclusion="failure")):
             client = GitHub(b"")
             change(client.job)
             clients.append(client)
@@ -189,12 +200,19 @@ class Restoration(unittest.TestCase):
             arguments = ("7", CONTROLLER, 9, client.artifact["digest"], PRODUCT) if separate else ()
             build.restore(root, EXPECTED["tag"], TARGET, *arguments)
             self.assertEqual({path.name for path in (root / "target/release").iterdir()}, build.FILES)
+            self.assertEqual(client.attempts, [1])
 
     def test_reuses_native_inputs_without_cargo(self):
         self.restore()
 
     def test_separate_formal_run_uses_explicit_original_artifact(self):
         self.restore(separate=True)
+
+    def test_reuses_saved_build_after_upload_failure(self):
+        def failed_upload(client):
+            client.job["conclusion"] = "failure"
+            client.job["steps"].append({"name": "Upload Desktop debug symbols", "conclusion": "failure"})
+        self.restore(failed_upload, separate=True)
 
     def test_requires_immutable_current_run_artifact(self):
         for key, value in (("expired", True), ("digest", "sha256:" + "f" * 64),
@@ -214,8 +232,10 @@ class Workflow(unittest.TestCase):
         compile_step = native.split("      - name: Build native Desktop\n", 1)[1].split("\n      - name:", 1)[0]
         self.assertEqual(set(re.findall(r"secrets\.([A-Za-z_][A-Za-z_0-9]*)", compile_step)),
                          {"SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY"})
+        restore_step = native.split("      - name: Restore preserved Desktop\n", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("GH_TOKEN: ${{ github.token }}", restore_step)
         before_preservation = native.split("      - name: Preserve native Desktop\n", 1)[0]
-        self.assertNotIn("secrets.", before_preservation.replace(compile_step, ""))
+        self.assertNotIn("secrets.", before_preservation.replace(compile_step, "").replace(restore_step, ""))
         self.assertLess(native.index("name: Preserve native Desktop"), native.index("name: Upload Desktop debug symbols"))
         self.assertLess(native.index("name: Build native Desktop"), native.index("name: Preserve native Desktop"))
         self.assertIn("retention-days: 14", native)
@@ -231,50 +251,105 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs: sign", formal.split("\n  publish:\n")[1])
         self.assertIn("desktop-formal-${{ inputs.tag }}", formal)
         self.assertIn("pattern: packages-*", workflow)
+        self.assertIn("if: matrix.native == null", compile_step)
+        self.assertIn("if: matrix.native != null", restore_step)
+        self.assertIn("PRODUCER_RUN: ${{ matrix.run_id }}", signing)
+        self.assertIn("PRODUCER_REVISION: ${{ matrix.revision }}", signing)
 
 
 class FormalSelection(unittest.TestCase):
     def test_selects_exact_published_version_and_producer(self):
         client = GitHub(b"fixture")
-        specs = [{"target": TARGET, "id": 9, "digest": client.artifact["digest"]}]
+        specs = [{"target": TARGET, "run_id": 7, "revision": CONTROLLER, "id": 9,
+                  "digest": client.artifact["digest"]}]
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/product"}), \
                 patch.object(build.publication, "GitHub", return_value=client), \
                 patch.object(build.publication, "tagged_commit", return_value=PRODUCT), \
                 patch.object(build.publication, "release") as release:
-            matrix = build.select(ROOT, EXPECTED["tag"], "7", CONTROLLER, PRODUCT, json.dumps(specs), True)
+            matrix = build.select(ROOT, EXPECTED["tag"], PRODUCT, json.dumps(specs), True)
             self.assertEqual(matrix["include"], [{**specs[0], "runner": "macos-15-intel"}])
             release.assert_called_once_with(client, "example/product", EXPECTED["tag"], PRODUCT, published=True)
-            for value in ("c" * 40, CONTROLLER):
+            for key, value in (("revision", "c" * 40), ("digest", "sha256:" + "f" * 64)):
                 wrong = copy.deepcopy(specs)
-                wrong[0]["digest"] = "sha256:" + "f" * 64
+                wrong[0][key] = value
                 with self.assertRaises(ValueError):
-                    build.select(ROOT, EXPECTED["tag"], "7", value, PRODUCT, json.dumps(wrong), True)
+                    build.select(ROOT, EXPECTED["tag"], PRODUCT, json.dumps(wrong), True)
             with self.assertRaises(ValueError):
-                build.select(ROOT, "v2.0.0", "7", CONTROLLER, "d" * 40, json.dumps(specs), True)
+                build.select(ROOT, "v2.0.0", "d" * 40, json.dumps(specs), True)
 
     def test_rejects_unfinished_native_builds(self):
         client = GitHub(b"fixture")
-        specs = [{"target": TARGET, "id": 9, "digest": client.artifact["digest"]}]
+        specs = [{"target": TARGET, "run_id": 7, "revision": CONTROLLER, "id": 9,
+                  "digest": client.artifact["digest"]}]
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/product"}), \
                 patch.object(build.publication, "GitHub", return_value=client), \
                 patch.object(build.publication, "tagged_commit", return_value=PRODUCT), \
                 patch.object(build.publication, "release"):
             for conclusion in (None, "cancelled", "failure"):
                 client.job["conclusion"] = conclusion
-                with self.subTest(conclusion=conclusion), self.assertRaisesRegex(ValueError, "native Desktop producers"):
-                    build.select(ROOT, EXPECTED["tag"], "7", CONTROLLER, PRODUCT, json.dumps(specs), True)
+                with self.subTest(conclusion=conclusion), self.assertRaisesRegex(ValueError, "native Desktop producer"):
+                    build.select(ROOT, EXPECTED["tag"], PRODUCT, json.dumps(specs), True)
             client.job["conclusion"] = "success"
             client.job["steps"][1]["conclusion"] = "failure"
-            with self.assertRaisesRegex(ValueError, "native Desktop producers"):
-                build.select(ROOT, EXPECTED["tag"], "7", CONTROLLER, PRODUCT, json.dumps(specs), True)
+            with self.assertRaisesRegex(ValueError, "native Desktop producer"):
+                build.select(ROOT, EXPECTED["tag"], PRODUCT, json.dumps(specs), True)
 
     def test_rejects_ambiguous_or_unsafe_artifact_inputs(self):
-        values = ([], [{"target": TARGET, "id": 0, "digest": "sha256:" + "a" * 64}],
-                  [{"target": TARGET, "id": 1, "digest": "wrong"}],
-                  [{"target": TARGET, "id": 1, "digest": "sha256:" + "a" * 64}] * 2)
+        valid = {"target": TARGET, "run_id": 7, "revision": CONTROLLER, "id": 1, "digest": "sha256:" + "a" * 64}
+        values = ([], [{**valid, "id": 0}], [{**valid, "run_id": 0}], [{**valid, "revision": "other"}],
+                  [{**valid, "digest": "wrong"}], [valid] * 2)
         for value in values:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 build.artifact_specs(json.dumps(value))
+
+
+class Recovery(unittest.TestCase):
+    def test_selects_preserved_targets_without_recompilation(self):
+        client = GitHub(b"fixture")
+        client.job["conclusion"] = "failure"
+        client.job["steps"].append({"name": "Upload Desktop debug symbols", "conclusion": "failure"})
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/product"}), \
+                patch.object(build.publication, "tagged_commit", return_value=PRODUCT):
+            records = build.resume(ROOT, EXPECTED["tag"], "7", client)
+            self.assertEqual(records, [{"target": TARGET, "run_id": 7, "revision": CONTROLLER,
+                                        "id": 9, "digest": client.artifact["digest"]}])
+            client.artifact["expired"] = True
+            with self.assertRaises(ValueError):
+                build.resume(ROOT, EXPECTED["tag"], "7", client)
+
+    def test_merges_targets_without_replacing_their_producers(self):
+        original = GitHub(b"original")
+        current = GitHub(b"current")
+        target = "aarch64-apple-darwin"
+        revision = "c" * 40
+        current.artifact.update(id=19, name=f"native-{target}")
+        current.artifact["workflow_run"].update(id=8, head_sha=revision)
+        request = original.api
+        def api(method, endpoint):
+            return current.api(method, endpoint) if re.search(r"/runs/8(?:/|$)", endpoint) else request(method, endpoint)
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/product", "GITHUB_RUN_ID": "8",
+                                     "WORKFLOW_REVISION": revision}), \
+                patch.object(build.publication, "tagged_commit", return_value=PRODUCT), \
+                patch.object(build.publication, "GitHub", return_value=original), \
+                patch.object(original, "api", side_effect=api):
+            records = build.inventory(ROOT, EXPECTED["tag"], False, "7")
+            self.assertEqual({item["target"]: (item["run_id"], item["revision"], item["id"]) for item in records},
+                             {TARGET: (7, CONTROLLER, 9), target: (8, revision, 19)})
+            with patch.object(build.publication, "release"):
+                current.run.update(id=8, head_sha=revision)
+                current.job.update(name=f"Build Desktop {target}", head_sha=revision, run_id=8)
+                matrix = build.select(ROOT, EXPECTED["tag"], PRODUCT, json.dumps(records), False)
+                self.assertEqual({item["target"] for item in matrix["include"]}, build.TARGETS)
+
+    def test_rejects_empty_and_conflicting_recovery(self):
+        client = GitHub(b"fixture")
+        client.artifact["name"] = "timings"
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/product"}), \
+                patch.object(build.publication, "tagged_commit", return_value=PRODUCT):
+            with self.assertRaisesRegex(ValueError, "no preserved native Desktop"):
+                build.resume(ROOT, EXPECTED["tag"], "7", client)
+            with self.assertRaisesRegex(ValueError, "either signed ARM"):
+                build.inventory(ROOT, EXPECTED["tag"], True, "7")
 
 
 if __name__ == "__main__":

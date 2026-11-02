@@ -228,7 +228,7 @@ class ReleaseWorkflows(unittest.TestCase):
         for name in ("release-host.yml", "release-mobile.yml", "changelog.yml"):
             self.assertNotIn(name, publish)
         self.assertNotIn("update-feed.yml", publish)
-        for field in ("source_sha", "producer_run", "producer_revision", "artifacts", "signed_arm_from"):
+        for field in ("source_sha", "artifacts", "signed_arm_from"):
             self.assertIn("'" + field + "'", publish)
         self.assertLess(publish.index("scripts/publish-packages.py"), publish.index("/dispatches"))
         self.assertNotIn("release-notes.py", publish)
@@ -239,9 +239,10 @@ class ReleaseWorkflows(unittest.TestCase):
     def test_formal_dispatch_preserves_producer_evidence(self):
         workflow = self.workflow("release").split("Dispatch exact-version formal signing\n", 1)[1]
         script = textwrap.dedent(workflow.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+        artifacts = json.dumps([{"target": "x86_64-apple-darwin", "run_id": 7, "revision": "b" * 40,
+                                 "id": 9, "digest": "sha256:" + "c" * 64}])
         environment = {"GITHUB_REPOSITORY": "fixture/product", "RELEASE_TAG": "v0.1.0-alpha.1",
-                       "GITHUB_RUN_ID": "7", "WORKFLOW_REVISION": "b" * 40,
-                       "NATIVE_ARTIFACTS": "[]", "RESUME_INTEL_FROM": "9"}
+                       "NATIVE_ARTIFACTS": artifacts, "RESUME_INTEL_FROM": "9"}
         with patch.dict(os.environ, environment), patch.object(subprocess, "check_output", return_value="a" * 40), \
                 patch.object(subprocess, "run") as run:
             exec(script, {})
@@ -249,8 +250,25 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][4], "repos/fixture/product/actions/workflows/release-desktop-formal.yml/dispatches")
         self.assertTrue(run.call_args.kwargs["check"])
         self.assertEqual(json.loads(run.call_args.kwargs["input"]), {"ref": "main", "inputs": {
-            "tag": "v0.1.0-alpha.1", "source_sha": "a" * 40, "producer_run": "7",
-            "producer_revision": "b" * 40, "artifacts": "[]", "signed_arm_from": "9"}})
+            "tag": "v0.1.0-alpha.1", "source_sha": "a" * 40, "artifacts": artifacts, "signed_arm_from": "9"}})
+
+    def test_native_recovery_preserves_target_origins(self):
+        workflow = self.workflow("release").split("Select native producers\n", 1)[1].split("\n  build:", 1)[0]
+        script = textwrap.dedent(workflow.split("python3 - <<'PYTHON'\n", 1)[1].split("\n          PYTHON", 1)[0])
+        native = {"target": "x86_64-apple-darwin", "run_id": 7, "revision": "b" * 40,
+                  "id": 9, "digest": "sha256:" + "c" * 64}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            environment = {"GITHUB_WORKSPACE": directory, "GITHUB_OUTPUT": str(output), "RELEASE_TAG": "v0.1.0",
+                           "RESUME_INTEL_FROM": "", "RESUME_NATIVE_FROM": "7"}
+            with patch.dict(os.environ, environment), \
+                    patch.object(subprocess, "check_output", return_value=json.dumps([native])) as restore:
+                exec(script, {})
+            matrix = json.loads(output.read_text().removeprefix("matrix="))
+            targets = {item["target"]: item for item in matrix["include"]}
+            self.assertEqual(targets[native["target"]]["native"], native)
+            self.assertNotIn("native", targets["aarch64-apple-darwin"])
+            self.assertIn("resume", restore.call_args.args[0])
 
     def test_host_appends_independently_on_four_targets(self):
         workflow = self.workflow("release-host")

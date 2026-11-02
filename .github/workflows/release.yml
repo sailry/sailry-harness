@@ -12,6 +12,11 @@ on:
         type: string
         required: false
         default: ''
+      resume_native_from:
+        description: 'Reuse preserved native Desktop builds from this run and build missing targets'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -62,6 +67,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
+          RESUME_NATIVE_FROM: ${{ inputs.resume_native_from }}
         run: |
           python3 - <<'PYTHON'
           import json, os, subprocess
@@ -69,11 +75,22 @@ jobs:
               {'runner': 'macos-15', 'target': 'aarch64-apple-darwin', 'jobs': 3},
               {'runner': 'macos-15-intel', 'target': 'x86_64-apple-darwin', 'jobs': 4},
           ]
+          if os.environ['RESUME_INTEL_FROM'] and os.environ['RESUME_NATIVE_FROM']:
+              raise SystemExit('Select either signed ARM recovery or native build recovery')
           if os.environ['RESUME_INTEL_FROM']:
               subprocess.run(['python3', '.workflow-tools/scripts/recover-desktop.py',
                               '--source', os.environ['GITHUB_WORKSPACE'], '--tag', os.environ['RELEASE_TAG'],
                               '--run', os.environ['RESUME_INTEL_FROM']], check=True)
               targets = targets[1:]
+          if os.environ['RESUME_NATIVE_FROM']:
+              recovered = json.loads(subprocess.check_output([
+                  'python3', '.workflow-tools/scripts/desktop-build.py', 'resume',
+                  '--source', os.environ['GITHUB_WORKSPACE'], '--tag', os.environ['RELEASE_TAG'],
+                  '--run', os.environ['RESUME_NATIVE_FROM']], text=True))
+              for target in targets:
+                  native = next((item for item in recovered if item['target'] == target['target']), None)
+                  if native is not None:
+                      target['native'] = native
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('matrix=' + json.dumps({'include': targets}) + '\n')
           PYTHON
@@ -109,6 +126,7 @@ jobs:
         with:
           python-version: '3.12'
       - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        if: matrix.native == null
         with:
           version: '0.16.0'
           use-cache: false
@@ -120,17 +138,37 @@ jobs:
           test "$(rustc -vV | awk '/^host: / {print $2}')" = "$PACKAGE_TARGET"
           python3 scripts/package/versions.py --tag "$RELEASE_TAG"
       - name: Rust dependency caches
+        if: matrix.native == null
         uses: ./.workflow-tools/.github/actions/rust-cache
       - name: Native library cache
+        if: matrix.native == null
         id: native-cache
         continue-on-error: true
         uses: ./.workflow-tools/.github/actions/native-cache
         with:
           target: ${{ matrix.target }}
       - name: Build prerequisites
+        if: matrix.native == null
         run: |
           brew install llvm@21 ripgrep
+      - name: Restore preserved Desktop
+        if: matrix.native != null
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_REVISION: ${{ github.workflow_sha }}
+          PACKAGE_TARGET: ${{ matrix.target }}
+          PRODUCER_RUN: ${{ matrix.native.run_id }}
+          PRODUCER_REVISION: ${{ matrix.native.revision }}
+          NATIVE_ARTIFACT: ${{ matrix.native.id }}
+          NATIVE_DIGEST: ${{ matrix.native.digest }}
+        run: |
+          product_source="$(git rev-parse HEAD)"
+          python3 .workflow-tools/scripts/desktop-build.py restore --source "$GITHUB_WORKSPACE" \
+            --tag "$RELEASE_TAG" --target "$PACKAGE_TARGET" \
+            --run "$PRODUCER_RUN" --revision "$PRODUCER_REVISION" --source-sha "$product_source" \
+            --artifact-id "$NATIVE_ARTIFACT" --artifact-digest "$NATIVE_DIGEST"
       - name: Build native Desktop
+        if: matrix.native == null
         env:
           # Preserve line tables for symbolication without changing development profiles.
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
@@ -140,6 +178,7 @@ jobs:
         run: |
           python3 .workflow-tools/scripts/ci-run.py --parsers -- cargo build --locked --release --timings -p sailry-desktop -p sailry-release
       - name: Collect Desktop debug symbols
+        if: matrix.native == null
         id: symbols
         env:
           PACKAGE_TARGET: ${{ matrix.target }}
@@ -156,6 +195,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Stage native Desktop
+        if: matrix.native == null
         env:
           WORKFLOW_REVISION: ${{ github.workflow_sha }}
           PACKAGE_TARGET: ${{ matrix.target }}
@@ -164,6 +204,7 @@ jobs:
             --tag "$RELEASE_TAG" --target "$PACKAGE_TARGET" \
             --output "$RUNNER_TEMP/native-$PACKAGE_TARGET.tar.gz"
       - name: Preserve native Desktop
+        if: matrix.native == null
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
@@ -171,6 +212,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Upload Desktop debug symbols
+        if: matrix.native == null
+        id: symbol-upload
+        continue-on-error: true
         env:
           PACKAGE_TARGET: ${{ matrix.target }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -179,8 +223,11 @@ jobs:
         run: |
           python3 .workflow-tools/scripts/package/debug-symbols.py upload \
             --symbols "target/debug-symbols/desktop/$PACKAGE_TARGET"
+      - name: Report symbol upload failure
+        if: steps.symbol-upload.outcome == 'failure'
+        run: echo '::warning::Desktop debug symbols were preserved, but Sentry upload failed'
       - name: Save native libraries
-        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
+        if: matrix.native == null && github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
         continue-on-error: true
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -189,7 +236,7 @@ jobs:
             target/llama-prebuilt
           key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
-        if: always()
+        if: always() && matrix.native == null
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -198,7 +245,7 @@ jobs:
           sccache --show-stats || true
           python3 .workflow-tools/scripts/ci.py cache-usage
       - name: Compilation timings
-        if: always()
+        if: always() && matrix.native == null
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: timings-${{ matrix.target }}
@@ -249,9 +296,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW_REVISION: ${{ github.workflow_sha }}
           PACKAGE_TARGET: ${{ matrix.target }}
+          PRODUCER_RUN: ${{ matrix.native.run_id }}
+          PRODUCER_REVISION: ${{ matrix.native.revision }}
+          NATIVE_ARTIFACT: ${{ matrix.native.id }}
+          NATIVE_DIGEST: ${{ matrix.native.digest }}
         run: |
+          arguments=()
+          if test -n "$PRODUCER_RUN"; then
+            arguments+=(--run "$PRODUCER_RUN" --revision "$PRODUCER_REVISION" \
+              --source-sha "$(git rev-parse HEAD)" --artifact-id "$NATIVE_ARTIFACT" --artifact-digest "$NATIVE_DIGEST")
+          fi
           python3 .workflow-tools/scripts/desktop-build.py restore --source "$GITHUB_WORKSPACE" \
-            --tag "$RELEASE_TAG" --target "$PACKAGE_TARGET"
+            --tag "$RELEASE_TAG" --target "$PACKAGE_TARGET" "${arguments[@]}"
       - name: Recover signed ARM packages
         if: inputs.resume_intel_from != ''
         env:
@@ -343,15 +399,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW_REVISION: ${{ github.workflow_sha }}
           RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
+          RESUME_NATIVE_FROM: ${{ inputs.resume_native_from }}
         run: |
           arguments=()
           if test -n "$RESUME_INTEL_FROM"; then arguments+=(--signed-arm); fi
+          if test -n "$RESUME_NATIVE_FROM"; then arguments+=(--resume-run "$RESUME_NATIVE_FROM"); fi
           python3 .workflow-tools/scripts/desktop-build.py inventory --source "$GITHUB_WORKSPACE" \
             --tag "$RELEASE_TAG" "${arguments[@]}"
       - name: Dispatch exact-version formal signing
         env:
           GH_TOKEN: ${{ github.token }}
-          WORKFLOW_REVISION: ${{ github.workflow_sha }}
           NATIVE_ARTIFACTS: ${{ steps.native.outputs.artifacts }}
           RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
         run: |
@@ -361,8 +418,7 @@ jobs:
           tag = os.environ['RELEASE_TAG']
           source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           inputs = {
-              'tag': tag, 'source_sha': source, 'producer_run': os.environ['GITHUB_RUN_ID'],
-              'producer_revision': os.environ['WORKFLOW_REVISION'], 'artifacts': os.environ['NATIVE_ARTIFACTS'],
+              'tag': tag, 'source_sha': source, 'artifacts': os.environ['NATIVE_ARTIFACTS'],
               'signed_arm_from': os.environ['RESUME_INTEL_FROM'],
           }
           subprocess.run(['gh', 'api', '--method', 'POST',

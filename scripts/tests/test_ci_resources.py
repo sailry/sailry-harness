@@ -441,11 +441,13 @@ class Workflow(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         build = job_section(workflow, "build")
         compilation = build.split("      - name: Build native Desktop\n", 1)[1].split("      - ", 1)[0]
-        self.assertNotIn("if:", compilation)
+        self.assertIn("if: matrix.native == null", compilation)
         self.assertIn("cargo build --locked --release --timings", compilation)
         for legacy in ("reuse_build_run", "reusable-build", "key: packages-", "target/release\n"):
             self.assertNotIn(legacy, workflow)
         self.assertIn("uses: ./.workflow-tools/.github/actions/rust-cache", build)
+        cache = build.split("      - name: Rust dependency caches\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("if: matrix.native == null", cache)
 
     def test_reuses_sources_without_extracted_duplicates(self):
         action = (ROOT / ".github/actions/rust-cache/action.yml").read_text()
