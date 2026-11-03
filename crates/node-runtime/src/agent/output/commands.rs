@@ -1,7 +1,8 @@
 use super::terminal::normalize;
 use super::*;
 
-const STREAM_EDGE: usize = 8 * 1024;
+const STREAM_BYTES: usize = 16 * 1024;
+const STREAM_LINES: usize = (MAX_LINES - 8) / 2;
 
 pub(super) use crate::process::output::command_id as id;
 
@@ -16,112 +17,68 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<Value> {
             &mut result
         };
         let preview = &original["sailry_command"][stream];
-        if let (Some(tail), Some(total), Some(tail_offset)) = (
-            preview["tail"].as_str(),
-            preview["total_bytes"].as_u64(),
-            preview["tail_offset"].as_u64(),
-        ) {
-            let captured = preview["head"]
-                .as_str()
-                .or_else(|| data[stream]["text"].as_str())
-                .unwrap_or("");
-            let invalid_head = if preview["head"].is_string() {
-                preview["head_invalid_utf8"] == true
-            } else {
-                data[stream]["invalid_utf8"] == true
-            };
-            let (head_bytes, _) =
-                crate::process::output::edges(captured.as_bytes(), STREAM_EDGE, 0);
-            let head = &captured[..head_bytes];
-            let omitted = tail_offset.saturating_sub(head_bytes as u64);
-            let retained = preview["retained_bytes"].as_u64().unwrap_or(0);
-            let retained_tail = preview["retained_tail_offset"].as_u64().unwrap_or(0);
-            let retained_end = preview["retained_end"].as_u64().unwrap_or(retained);
-            let hint = super::hint(
-                original,
-                Some(stream),
-                Some(if invalid_head || head_bytes as u64 >= retained_end {
-                    0
-                } else {
-                    head_bytes as u64
-                }),
-            );
-            let omission = if invalid_head {
-                format!("captured output omitted; {total} raw bytes total")
-            } else {
-                format!("{omitted} of {total} raw bytes omitted")
-            };
-            let readable_tail = tail_offset < retained_end;
-            let tail_location = if readable_tail {
-                format!("; preview tail starts at offset={tail_offset}")
-            } else {
-                String::new()
-            };
-            let retained_location = if retained_tail < retained_end {
-                format!("; retained tail starts at offset={retained_tail}")
-            } else {
-                String::new()
-            };
-            data[stream] = json!({
-                "text":format!("{}\n[... {omission}; {hint}{tail_location}{retained_location}; retained output ends at offset={retained_end} ...]\n{}", normalize(head), normalize(tail)),
-                "truncated":true,"invalid_utf8":invalid_head || preview["invalid_utf8"] == true,
-                "total_bytes":total,
-                "tail_offset":readable_tail.then_some(tail_offset),"retained_bytes":retained,"retained_tail_offset":retained_tail,"retained_end":retained_end,
-            });
-            if !invalid_head {
-                data[stream]["omitted_bytes"] = json!(omitted);
-                data[stream]["head_bytes"] = json!(head_bytes);
-            }
-            changed = true;
-            continue;
-        }
-        let Some(text) = data[stream]["text"].as_str() else {
+        let captured = preview["tail"]
+            .as_str()
+            .or_else(|| data[stream]["text"].as_str());
+        let Some(captured) = captured else {
             continue;
         };
-        let reduced = normalize(text);
-        let replacement = if reduced.len() > STREAM_EDGE * 2 {
-            // Measure offsets in the raw capture before terminal normalization.
-            let (head, tail) =
-                crate::process::output::edges(text.as_bytes(), STREAM_EDGE, STREAM_EDGE);
-            let omitted = tail - head;
-            let invalid_utf8 = data[stream]["invalid_utf8"] == true;
-            let hint = super::hint(
-                original,
-                Some(stream),
-                Some(if invalid_utf8 { 0 } else { head as u64 }),
-            );
-            let total = text.len();
-            let complete = data[stream]["truncated"] == false;
-            let omission = if invalid_utf8 {
-                format!("captured output omitted; {hint}")
-            } else {
-                format!(
-                    "{omitted} of {total} captured raw bytes omitted; {hint}; tail starts at offset={tail}"
-                )
-            };
-            let projected = format!(
-                "{}\n[... {omission} ...]\n{}",
-                normalize(&text[..head]),
-                normalize(&text[tail..])
-            );
-            data[stream]["truncated"] = Value::Bool(true);
-            if !invalid_utf8 {
-                data[stream]["omitted_bytes"] = json!(omitted);
-                data[stream]["captured_bytes"] = json!(total);
-                if complete {
-                    data[stream]["total_bytes"] = json!(total);
-                }
-                data[stream]["head_bytes"] = json!(head);
-                data[stream]["tail_offset"] = json!(tail);
+        let (start, rendered) = tail(captured);
+        let has_tail = preview["tail"].is_string();
+        if !has_tail && start == 0 {
+            if rendered != captured {
+                data[stream]["text"] = json!(rendered);
+                changed = true;
             }
-            Some(projected)
+            continue;
+        }
+        let invalid = if has_tail {
+            preview["invalid_utf8"] == true
         } else {
-            (reduced.len() < text.len()).then_some(reduced)
+            data[stream]["invalid_utf8"] == true
         };
-        if let Some(text) = replacement {
-            data[stream]["text"] = json!(text);
-            changed = true;
+        let captured_bytes = captured.len() - start;
+        let captured_lines = limit::count(&rendered);
+        let total = preview["total_bytes"]
+            .as_u64()
+            .or_else(|| data[stream]["total_bytes"].as_u64())
+            .or_else(|| (data[stream]["truncated"] == false).then_some(captured.len() as u64));
+        let total_label = total.map_or_else(
+            || "total bytes unavailable".to_owned(),
+            |bytes| format!("{bytes} raw bytes total"),
+        );
+        let offset = preview["tail_offset"]
+            .as_u64()
+            .unwrap_or(0)
+            .saturating_add(start as u64);
+        let retained = preview["retained_bytes"].as_u64();
+        let retained_end = preview["retained_end"].as_u64().or(retained);
+        let retained_tail = preview["retained_tail_offset"].as_u64();
+        let readable_tail = !invalid && retained_end.is_none_or(|end| offset < end);
+        let hint = super::hint(original, Some(stream), Some(0));
+        let location = if readable_tail {
+            format!("; preview tail starts at offset={offset}")
+        } else {
+            String::new()
+        };
+        let retention = retained_end.map_or(String::new(), |end| {
+            format!("; retained output ends at offset={end}")
+        });
+        data[stream] = json!({
+            "text":format!("[Showing last {captured_lines} captured lines ({captured_bytes} captured bytes); {total_label}; {hint}{location}{retention}]\n{rendered}"),
+            "truncated":true,
+            "invalid_utf8":invalid,
+            "captured_bytes":captured_bytes,
+            "total_bytes":total,
+            "tail_offset":readable_tail.then_some(offset),
+            "retained_bytes":retained,
+            "retained_tail_offset":retained_tail,
+            "retained_end":retained_end,
+        });
+        if !invalid {
+            data[stream]["omitted_bytes"] = json!(offset);
         }
+        changed = true;
     }
     if changed {
         if let Some(id) = id(original) {
@@ -130,4 +87,20 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<Value> {
         result["output"] = source.clone();
     }
     changed.then_some(result)
+}
+
+fn tail(text: &str) -> (usize, String) {
+    let mut bytes = STREAM_BYTES;
+    loop {
+        let start = limit::tail_start(text, bytes, STREAM_LINES);
+        let rendered = normalize(&text[start..]);
+        if serde_json::to_string(&rendered)
+            .expect("command text is JSON")
+            .len()
+            <= 20 * 1024
+        {
+            return (start, rendered);
+        }
+        bytes /= 2;
+    }
 }

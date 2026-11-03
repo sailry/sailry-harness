@@ -33,6 +33,16 @@ async fn database() -> (turso::Database, Connection) {
     (database, db)
 }
 
+fn without_output_notes(mut message: gdk::Message) -> gdk::Message {
+    if let Some(notes) = message.metadata.operations.as_mut() {
+        notes.remove("tool_output");
+        if notes.is_empty() {
+            message.metadata.operations = None;
+        }
+    }
+    message
+}
+
 #[tokio::test]
 async fn removes_synthetic_resend_instruction() {
     use goose_provider_types::errors::ProviderError;
@@ -203,7 +213,10 @@ async fn preserves_structured_output() {
             .to_string()
     );
     assert_eq!(blobs::hydrate(&db, &response.result).await.unwrap(), value);
-    assert_eq!(project(&db, &record).await.unwrap().unwrap(), message);
+    assert_eq!(
+        without_output_notes(project(&db, &record).await.unwrap().unwrap()),
+        message
+    );
 }
 
 #[tokio::test]
@@ -224,7 +237,10 @@ async fn preserves_mcp_blocks() {
     let Attachment::Inline { asset } = &response.attachments[0];
     assert_eq!(asset.digest, response.result.assets[0].asset.digest);
     assert_eq!(blobs::get(&db, &asset.digest).await.unwrap(), [1, 2, 3]);
-    assert_eq!(project(&db, &record).await.unwrap().unwrap(), message);
+    assert_eq!(
+        without_output_notes(project(&db, &record).await.unwrap().unwrap()),
+        message
+    );
 }
 
 #[tokio::test]
@@ -263,7 +279,10 @@ async fn preserves_result_flags() {
                 Some(serde_json::from_value(json!({"opaque":null})).unwrap())
             );
         }
-        assert_eq!(project(&db, &stored).await.unwrap().unwrap(), message);
+        assert_eq!(
+            without_output_notes(project(&db, &stored).await.unwrap().unwrap()),
+            message
+        );
     }
 }
 

@@ -104,7 +104,7 @@ fn pages_from_the_last_shown_row() {
         .map(|number| {
             row(
                 number,
-                format!("row-{number:04} {} 中文🙂  ", "\\\"".repeat(300)),
+                format!("row-{number:04} {} 中文🙂  ", "\\\"".repeat(200)),
             )
         })
         .collect();
@@ -225,4 +225,19 @@ fn sends_one_body_through_native_formats() {
         assert!(!encoded.contains("\\\"matches\\\":"));
         assert!(!encoded.contains("structuredContent"));
     }
+}
+
+#[test]
+fn preserves_five_hundred_unicode_characters() {
+    let line = "中🙂".repeat(300);
+    let value = original(SearchResults {
+        matches: vec![row(1, line.clone())],
+        ..Default::default()
+    });
+    let rendered = project(&value, &source(&value)).unwrap();
+    let expected = line.chars().take(500).collect::<String>();
+    assert!(rendered.contains(&format!("{expected} [preview shortened]")));
+    assert!(!rendered.contains(&line));
+    assert!(metadata(&rendered)["next_offset"].is_null());
+    assert_eq!(value["data"]["matches"][0]["line"], line);
 }

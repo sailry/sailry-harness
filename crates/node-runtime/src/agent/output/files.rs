@@ -14,7 +14,8 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<String> {
     } else {
         None
     };
-    for (index, line) in page.lines.iter().enumerate() {
+    // Rows stop at the shared line ceiling; the next file page continues there.
+    for (index, line) in page.lines.iter().enumerate().take(MAX_LINES) {
         line.number.checked_sub(1)?;
         let next = match page.lines.get(index + 1) {
             Some(line) => Some(line.number.checked_sub(1)?),
@@ -33,7 +34,7 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<String> {
         );
         // Native providers consume Text directly; plugin adapters may serialize
         // its string. Budget the escaped text too, including metadata and hints.
-        if serde_json::to_string(&text).ok()?.len() > LIMIT {
+        if serde_json::to_string(&text).ok()?.len() > LIMIT || limit::count(&text) > MAX_LINES {
             break;
         }
         body = candidate;

@@ -363,6 +363,13 @@ pub(crate) async fn project(
                 })
             }
             BlockKind::ToolResponse(response) => {
+                // A derived reference survives media hydration without hashing a
+                // modified payload. The canonical writer ignores this note.
+                output.metadata.set_operation_note(
+                    "tool_output",
+                    &response.id,
+                    json!(response.revision),
+                );
                 let id = &response.id;
                 let value = blobs::hydrate(db, &response.result).await?;
                 let tool_result = match response.format {

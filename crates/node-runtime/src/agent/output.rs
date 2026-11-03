@@ -1,80 +1,117 @@
 //! Tool previews restored from Sailry fb70fdc1, only in outgoing GDK messages.
 use goose_provider_types::conversation::message::{Message, MessageContentBlock};
-use rmcp::model::ContentBlock;
+use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::{Value, json};
 
 mod commands;
 mod files;
+mod limit;
+mod pages;
 mod search;
 mod terminal;
 
+/// Model-facing line ceiling for one tool result, as in OpenCode 3ba597f
+/// `tool-output.ts` and Pi 90b42bc `truncate.ts`. The canonical result keeps
+/// every line and stays readable through `read_tool_output`.
+pub(super) const MAX_LINES: usize = 2_000;
+/// Model-facing UTF-8 byte ceiling for one tool result; see [`MAX_LINES`].
+pub(super) const MAX_BYTES: usize = 50 * 1024;
+
 pub(in crate::agent) fn project(messages: &mut [Message]) {
-    for content in messages.iter_mut().flat_map(|message| &mut message.content) {
-        let MessageContentBlock::ToolResponse(response) = content else {
-            continue;
-        };
-        let Ok(result) = &mut response.tool_result else {
-            continue;
-        };
-        let Some(original) = &result.structured_content else {
-            continue;
-        };
-        if !matches!(
-            original["kind"].as_str(),
-            Some("command_result" | "command_output" | "file_lines" | "search_results")
-        ) || original["output"]["call"] == response.id
-        {
-            continue;
-        }
-        let encoded = original.to_string();
-        let source = json!({
-            "call":response.id,
-            "revision":blake3::hash(encoded.as_bytes()).to_hex().to_string(),
-        });
-        if matches!(
-            original["kind"].as_str(),
-            Some("file_lines" | "search_results")
-        ) {
-            let projected = if original["kind"] == "file_lines" {
-                files::project(original, &source)
-            } else {
-                search::project(original, &source)
-            };
-            let Some(projected) = projected else {
+    for message in messages {
+        for content in &mut message.content {
+            let MessageContentBlock::ToolResponse(response) = content else {
                 continue;
             };
-            let mut mirrored = false;
-            for content in &mut result.content {
-                if let ContentBlock::Text(text) = content
-                    && (text.text == encoded
-                        || serde_json::from_str::<Value>(&text.text)
-                            .is_ok_and(|value| &value == original))
-                {
-                    text.text.clone_from(&projected);
-                    mirrored = true;
+            let result = match &mut response.tool_result {
+                Ok(result) => result,
+                Err(error) => {
+                    limit::error(
+                        &response.id,
+                        error,
+                        message.metadata.operation_note("tool_output", &response.id),
+                    );
+                    continue;
                 }
-            }
-            if !mirrored {
-                result.content.push(ContentBlock::text(projected));
-            }
-            // Plugin adapters serialize the whole result. Keep its compact text
-            // once, with the exact original JSON available through the reference.
-            result.structured_content = None;
-            continue;
+            };
+            let source = limit::reference(
+                &response.id,
+                result,
+                message.metadata.operation_note("tool_output", &response.id),
+            );
+            let tail = result.structured_content.as_ref().is_some_and(|value| {
+                matches!(
+                    value["kind"].as_str(),
+                    Some("command_result" | "command_output")
+                )
+            });
+            preview(&response.id, result, &source);
+            limit::bound(result, &source, tail);
         }
-        let Some(projected) = commands::project(original, &source) else {
-            continue;
+    }
+}
+
+fn preview(call: &str, result: &mut CallToolResult, source: &Value) {
+    let Some(original) = &result.structured_content else {
+        return;
+    };
+    if original["output"]["call"] == call {
+        return;
+    }
+    let encoded = original.to_string();
+    let page = pages::project(original);
+    if page.is_some()
+        || matches!(
+            original["kind"].as_str(),
+            Some("file_lines" | "search_results")
+        )
+    {
+        let projected = if page.is_some() {
+            page
+        } else if original["kind"] == "file_lines" {
+            files::project(original, source)
+        } else {
+            search::project(original, source)
         };
-        let updated = projected.to_string();
+        let Some(projected) = projected else {
+            return;
+        };
+        let mut mirrored = false;
         for content in &mut result.content {
             if let ContentBlock::Text(text) = content
-                && text.text == encoded
+                && (text.text == encoded
+                    || serde_json::from_str::<Value>(&text.text)
+                        .is_ok_and(|value| &value == original))
             {
-                text.text.clone_from(&updated);
+                text.text.clone_from(&projected);
+                mirrored = true;
             }
         }
-        result.structured_content = Some(projected);
+        if !mirrored {
+            result.content.push(ContentBlock::text(projected));
+        }
+        result.structured_content = None;
+        return;
     }
+    if !matches!(
+        original["kind"].as_str(),
+        Some("command_result" | "command_output")
+    ) {
+        return;
+    }
+    let Some(projected) = commands::project(original, source) else {
+        return;
+    };
+    let updated = projected.to_string();
+    for content in &mut result.content {
+        if let ContentBlock::Text(text) = content
+            && (text.text == encoded
+                || serde_json::from_str::<Value>(&text.text).is_ok_and(|value| &value == original))
+        {
+            text.text.clone_from(&updated);
+        }
+    }
+    result.structured_content = Some(projected);
 }
 
 fn hint(value: &Value, stream: Option<&str>, offset: Option<u64>) -> String {

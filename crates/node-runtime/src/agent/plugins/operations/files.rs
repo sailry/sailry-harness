@@ -211,7 +211,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["globs"],
         ),
         Operation::SearchFiles => (
-            json!({"query":{"type":"string","minLength":1},"regex":{"type":"boolean","default":false},"case_sensitive":{"type":"boolean","default":false},"globs":{"type":"array","items":{"type":"string"},"default":[]},"path":{"type":"string","default":""},"mode":{"type":"string","enum":["content","files","count"],"default":"files"},"context":{"type":"integer","minimum":0,"default":0},"type":{"type":["string","null"]},"limit":{"type":"integer","minimum":1,"default":200},"offset":{"type":"integer","minimum":0,"default":0},"multiline":{"type":"boolean","default":false}}),
+            json!({"query":{"type":"string","minLength":1},"regex":{"type":"boolean","default":false},"case_sensitive":{"type":"boolean","default":false},"globs":{"type":"array","items":{"type":"string"},"default":[]},"path":{"type":"string","default":""},"mode":{"type":"string","enum":["content","files","count"],"default":"files"},"context":{"type":"integer","minimum":0,"default":0},"type":{"type":["string","null"]},"limit":{"type":"integer","minimum":1,"default":100},"offset":{"type":"integer","minimum":0,"default":0},"multiline":{"type":"boolean","default":false}}),
             vec!["query"],
         ),
         Operation::ReadNotebook => {
@@ -343,6 +343,7 @@ pub(super) fn command(
             let mut arguments = arguments;
             if let Some(arguments) = arguments.as_object_mut() {
                 arguments.entry("mode").or_insert_with(|| json!("files"));
+                arguments.entry("limit").or_insert_with(|| json!(100));
             }
             Command::SearchFiles {
                 worktree,
@@ -411,6 +412,8 @@ mod tests {
             assert_eq!(options.mode, expected);
             if arguments["offset"] == 7 {
                 assert_eq!((options.offset, options.limit), (7, 3));
+            } else {
+                assert_eq!(options.limit, 100);
             }
         }
         assert_eq!(

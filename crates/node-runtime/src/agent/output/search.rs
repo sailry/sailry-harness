@@ -3,7 +3,9 @@ use super::*;
 use sailry_protocol::{SearchMode, SearchResults};
 
 const LIMIT: usize = 32 * 1024;
-const LINE_LIMIT: usize = 2 * 1024;
+/// Characters kept from one match line or diagnostic, as in Pi 90b42bc
+/// `GREP_MAX_LINE_LENGTH`; `read_file` returns the whole source line.
+const LINE_LIMIT: usize = 500;
 
 pub(super) fn project(original: &Value, source: &Value) -> Option<String> {
     let page: SearchResults = serde_json::from_value(original.get("data")?.clone()).ok()?;
@@ -58,7 +60,7 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<String> {
             source,
             "",
         );
-        if serde_json::to_string(&text).ok()?.len() > LIMIT {
+        if serde_json::to_string(&text).ok()?.len() > LIMIT || limit::count(&text) > MAX_LINES {
             break;
         }
         body = candidate;
@@ -78,7 +80,7 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<String> {
         );
         let candidate = format!("{diagnostics}{row}");
         let text = render(&page, &body, shown, shortened || cut, source, &candidate);
-        if serde_json::to_string(&text).ok()?.len() > LIMIT {
+        if serde_json::to_string(&text).ok()?.len() > LIMIT || limit::count(&text) > MAX_LINES {
             shortened = true;
             break;
         }
@@ -98,8 +100,10 @@ fn label(path: &str) -> String {
 }
 
 fn preview(text: &str) -> (&str, bool) {
-    let (end, _) = crate::process::output::edges(text.as_bytes(), LINE_LIMIT, 0);
-    (&text[..end], end < text.len())
+    match text.char_indices().nth(LINE_LIMIT) {
+        Some((end, _)) => (&text[..end], true),
+        None => (text, false),
+    }
 }
 
 fn render(
@@ -138,7 +142,7 @@ fn render(
         text.push_str("Incomplete scan: narrow path before retrying; no continuation\n");
     } else if let Some(next) = next {
         text.push_str(&format!(
-            "Next search page: repeat search_files with the same options and offset={next}\n"
+            "Next search page: repeat search_files with the same options and offset={next}, or narrow the query\n"
         ));
     }
     text.push_str(

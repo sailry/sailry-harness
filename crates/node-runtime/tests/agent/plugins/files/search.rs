@@ -321,7 +321,10 @@ async fn pages_raw_results_across_reload_and_compaction() {
                 .collect();
             assert_eq!(numbers[0], offset + 1);
             for number in &numbers {
-                assert!(projected.contains(&rows[number - 1]));
+                assert!(
+                    projected.contains(&rows[number - 1].chars().take(500).collect::<String>())
+                );
+                assert!(projected.contains("[preview shortened]"));
             }
             offset += numbers.len();
             shown.extend(numbers);
@@ -379,6 +382,35 @@ async fn pages_raw_results_across_reload_and_compaction() {
             std::fs::read_to_string(fixture.root.join("source.txt")).unwrap(),
             complete
         );
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn defaults_to_one_hundred_results() {
+    for remote in [false, true] {
+        let server=Server::tools(vec![
+            (name("search_files"),json!({"query":"needle","path":"rows.txt","mode":"content"})),
+            (name("search_files"),json!({"query":"needle","path":"rows.txt","mode":"content","offset":100,"limit":200})),
+        ]).await;
+        let fixture = process::Fixture::files(remote, &server).await;
+        let text = (1..=150)
+            .map(|index| format!("needle {index}\n"))
+            .collect::<String>();
+        std::fs::write(fixture.root.join("rows.txt"), text).unwrap();
+        let turn = submit(&fixture).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        let outputs = results(&fixture.client, &page).await;
+        assert_eq!(outputs.len(), 2);
+        let first = &outputs[0]["data"];
+        assert_eq!(first["matches"].as_array().unwrap().len(), 100);
+        assert_eq!(first["next_offset"], 100);
+        let second = &outputs[1]["data"];
+        assert_eq!(second["matches"].as_array().unwrap().len(), 50);
+        assert_eq!(second["matches"][0]["line_number"], 101);
+        assert!(second["next_offset"].is_null());
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

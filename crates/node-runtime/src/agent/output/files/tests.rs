@@ -209,3 +209,14 @@ fn removes_only_the_raw_mirror() {
         1
     );
 }
+
+#[test]
+fn reserves_lines_for_continuation_metadata() {
+    let value = original(&"line\n".repeat(MAX_LINES), 0);
+    let rendered = project(&value, &source(&value)).unwrap();
+    assert!(limit::count(&rendered) <= MAX_LINES);
+    let next = metadata(&rendered)["next_offset"].as_u64().unwrap();
+    assert!(next > 0 && next < MAX_LINES as u64);
+    assert!(rendered.contains(&format!("Next file page: read_file with offset={next}")));
+    assert!(rendered.contains(&format!("\n{next}\tline\n")));
+}
