@@ -3,6 +3,12 @@
 Release entries supply the corresponding GitHub Release notes. When an entry is
 missing, publication generates it from the tagged Git history.
 
+## [0.1.2](https://github.com/sailry/sailry-harness/releases/tag/v0.1.2) — 2026-11-03
+
+- Fix image alignment and HTTP browsing for 0.1.2 ([134cae2](https://github.com/sailry/sailry-harness/commit/134cae25a82a64650ca3220c8a19792eed512c88))
+
+[Full changelog](https://github.com/sailry/sailry-harness/compare/v0.1.1...v0.1.2)
+
 ## [0.1.1](https://github.com/sailry/sailry-harness/releases/tag/v0.1.1) — 2026-11-03
 
 Upgrade Desktop, Mobile and Host together. Terminal input uses a new batch format
