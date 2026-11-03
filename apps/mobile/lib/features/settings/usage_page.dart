@@ -277,7 +277,7 @@ class _UsagePageState extends State<UsagePage> {
       loading: connected && report == null && _error == null,
       title: context.tr('usage'),
       failure: !connected
-          ? HostState(added: added)
+          ? HostState(added: added, failure: host?.error)
           : _error == null
           ? null
           : FailureState(icon: 'chart', message: _error!, onRetry: _load),

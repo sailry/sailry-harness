@@ -1838,6 +1838,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get hostDisconnected => '接続が途絶えました';
 
   @override
+  String get hostUpdateRequired => '接続するにはホストを更新してください';
+
+  @override
+  String get appUpdateRequired => '接続するにはこのアプリを更新してください';
+
+  @override
   String get language => '言語';
 
   @override

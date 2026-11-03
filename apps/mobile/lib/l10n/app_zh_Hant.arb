@@ -864,6 +864,8 @@
   "reviewVisualText": "參考圖 1 的會話層次、圖 2 的柔和深淺色卡片與懸浮導航、圖 3 的緊湊監控面板",
   "hostConnectPrompt": "請連線主機",
   "hostDisconnected": "連線已斷開",
+  "hostUpdateRequired": "請更新主機後再連線",
+  "appUpdateRequired": "請更新此應用程式後再連線",
   "language": "語言",
   "languageSystem": "跟隨系統",
   "languageChinese": "简体中文",

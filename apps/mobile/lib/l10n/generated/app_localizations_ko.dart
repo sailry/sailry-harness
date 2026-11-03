@@ -1840,6 +1840,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get hostDisconnected => '연결 끊김Comment';
 
   @override
+  String get hostUpdateRequired => '연결하려면 호스트를 업데이트하세요';
+
+  @override
+  String get appUpdateRequired => '연결하려면 이 앱을 업데이트하세요';
+
+  @override
   String get language => '언어';
 
   @override

@@ -87,6 +87,7 @@ struct CachedConnection {
     address: EndpointAddr,
     connection: Connection,
     software_version: Option<String>,
+    protocol: Option<u16>,
     zstd: bool,
     telemetry: watch::Receiver<crate::ConnectionInfo>,
     sampler: JoinHandle<()>,
@@ -108,16 +109,21 @@ pub struct PeerInfo {
     pub name: Option<String>,
     pub platform: String,
     pub software_version: Option<String>,
+    pub protocol: Option<u16>,
     pub latency: Duration,
     zstd: bool,
 }
 
 impl PeerInfo {
     pub fn compatibility(&self) -> Result<(), Fault> {
-        crate::compatibility::check(
-            Some(crate::PRODUCT_VERSION),
-            self.software_version.as_deref(),
-        )
+        crate::check_host(self.protocol, self.software_version.as_deref())
+    }
+
+    pub(crate) fn peer(&self) -> crate::compatibility::Peer<'_> {
+        crate::compatibility::Peer {
+            protocol: self.protocol,
+            version: self.software_version.as_deref(),
+        }
     }
 }
 
@@ -383,6 +389,7 @@ impl Core {
             send,
             &frame::Envelope {
                 software_version: self.handler.product_version().map(str::to_owned),
+                protocol: self.handler.protocol(),
                 zstd: true,
                 call,
             },
@@ -399,12 +406,14 @@ impl Core {
         match self.wait(frame::read::<frame::Reply>(&mut recv)).await?? {
             frame::Reply::Endpoint {
                 software_version,
+                protocol,
                 execution,
                 name,
                 platform,
                 zstd,
             } => Ok(PeerInfo {
                 software_version,
+                protocol,
                 execution,
                 name,
                 platform,

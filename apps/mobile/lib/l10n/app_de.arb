@@ -746,6 +746,8 @@
   "reviewVisualText": "Referenz 1: Chat-Hierarchie; Referenz 2: Softcards und Floating-Navigation; Referenz 3: Compact-Monitoring",
   "hostConnectPrompt": "Einen Host verbinden",
   "hostDisconnected": "Verbindung verloren",
+  "hostUpdateRequired": "Host aktualisieren, um zu verbinden",
+  "appUpdateRequired": "App aktualisieren, um zu verbinden",
   "language": "Sprache",
   "languageSystem": "System",
   "languageChinese": "简体中文",

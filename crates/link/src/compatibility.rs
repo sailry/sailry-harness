@@ -1,37 +1,56 @@
 use std::cmp::Ordering;
 
 use sailry_protocol::{ErrorCode, Fault, FaultDetails};
-use semver::Version;
 
 pub const PRODUCT_VERSION: &str = env!("SAILRY_PRODUCT_VERSION");
 
-pub fn check_host(version: Option<&str>) -> Result<(), Fault> {
-    check(Some(PRODUCT_VERSION), version)
+/// One peer's advertised build. Only the protocol number decides interoperability.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Peer<'a> {
+    pub protocol: Option<u16>,
+    pub version: Option<&'a str>,
 }
 
-pub(crate) fn check(controller: Option<&str>, host: Option<&str>) -> Result<(), Fault> {
-    let local = controller.and_then(|version| Version::parse(version).ok());
-    let remote = host.and_then(|version| Version::parse(version).ok());
-    let unverified = local.is_none() || remote.is_none();
-    let (update_host, message) = match (local, remote) {
-        (Some(local), Some(remote)) => match local.cmp_precedence(&remote) {
+impl Peer<'static> {
+    pub(crate) const LOCAL: Self = Self {
+        protocol: Some(sailry_protocol::VERSION),
+        version: Some(PRODUCT_VERSION),
+    };
+}
+
+impl<'a> Peer<'a> {
+    pub(crate) fn of(handler: &'a dyn crate::Handler) -> Self {
+        Self {
+            protocol: handler.protocol(),
+            version: handler.product_version(),
+        }
+    }
+}
+
+pub fn check_host(protocol: Option<u16>, version: Option<&str>) -> Result<(), Fault> {
+    check(Peer::LOCAL, Peer { protocol, version })
+}
+
+pub(crate) fn check(controller: Peer<'_>, host: Peer<'_>) -> Result<(), Fault> {
+    let unverified = controller.protocol.is_none() || host.protocol.is_none();
+    let (update_host, message) = match (controller.protocol, host.protocol) {
+        (Some(local), Some(remote)) => match local.cmp(&remote) {
             Ordering::Equal => return Ok(()),
-            Ordering::Greater => (true, "Host is older than this controller; update Host"),
-            Ordering::Less => (
-                false,
-                "Host is newer than this controller; update the controller",
-            ),
+            Ordering::Greater => (true, "Host protocol is older; update Host"),
+            Ordering::Less => (false, "Host protocol is newer; update the controller"),
         },
         (None, _) => (
             false,
-            "Controller version could not be verified; update the controller",
+            "Controller protocol could not be verified; update the controller",
         ),
-        (_, None) => (true, "Host version could not be verified; update Host"),
+        (_, None) => (true, "Host protocol could not be verified; update Host"),
     };
     let mut fault = Fault::new(ErrorCode::Conflict, message);
     fault.details = Some(FaultDetails::VersionMismatch {
-        controller: controller.map(str::to_owned),
-        host: host.map(str::to_owned),
+        controller: controller.version.map(str::to_owned),
+        host: host.version.map(str::to_owned),
+        controller_protocol: controller.protocol,
+        host_protocol: host.protocol,
         update_host,
         unverified,
     });
@@ -42,29 +61,43 @@ pub(crate) fn check(controller: Option<&str>, host: Option<&str>) -> Result<(), 
 mod tests {
     use super::*;
 
+    fn peer(protocol: Option<u16>, version: &str) -> Peer<'_> {
+        Peer {
+            protocol,
+            version: Some(version),
+        }
+    }
+
     #[test]
-    fn requires_matching_precedence() {
-        assert!(check(Some("0.1.0-alpha.1+first"), Some("0.1.0-alpha.1+second")).is_ok());
+    fn ignores_product_versions() {
+        assert!(check(peer(Some(1), "0.1.0"), peer(Some(1), "0.1.2")).is_ok());
+        assert!(check(peer(Some(1), "0.1.2"), peer(Some(1), "0.1.0")).is_ok());
+        let unknown = Peer {
+            protocol: Some(1),
+            version: None,
+        };
+        assert!(check(peer(Some(1), "invalid"), unknown).is_ok());
+    }
+
+    #[test]
+    fn names_the_older_side() {
         for (controller, host, update_host) in [
-            (Some("0.1.0-alpha.2"), Some("0.1.0-alpha.1"), true),
-            (Some("0.1.0-alpha.1"), Some("0.1.0-alpha.2"), false),
-            (Some("1.0.0"), Some("0.9.0"), true),
-            (Some("1.0.0"), Some("1.0.1"), false),
-            (Some("1.0.0"), None, true),
-            (Some("1.0.0"), Some("invalid"), true),
-            (None, Some("1.0.0"), false),
-            (Some("invalid"), Some("1.0.0"), false),
+            (Some(2), Some(1), true),
+            (Some(1), Some(2), false),
+            (Some(1), None, true),
+            (None, Some(1), false),
         ] {
-            let error = check(controller, host).unwrap_err();
+            let error = check(peer(controller, "0.1.2"), peer(host, "0.1.0")).unwrap_err();
             assert_eq!(error.code, ErrorCode::Conflict);
             assert_eq!(
                 error.details,
                 Some(FaultDetails::VersionMismatch {
-                    controller: controller.map(str::to_owned),
-                    host: host.map(str::to_owned),
+                    controller: Some("0.1.2".into()),
+                    host: Some("0.1.0".into()),
+                    controller_protocol: controller,
+                    host_protocol: host,
                     update_host,
-                    unverified: controller.is_none_or(|value| Version::parse(value).is_err())
-                        || host.is_none_or(|value| Version::parse(value).is_err()),
+                    unverified: controller.is_none() || host.is_none(),
                 })
             );
         }

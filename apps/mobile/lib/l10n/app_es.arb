@@ -746,6 +746,8 @@
   "reviewVisualText": "Referencia 1: jerarquía de chat; referencia 2: tarjetas flexibles y navegación flotante; referencia 3: monitoreo compacto",
   "hostConnectPrompt": "Conectar un host",
   "hostDisconnected": "Se perdió la conexión",
+  "hostUpdateRequired": "Actualiza el host para conectar",
+  "appUpdateRequired": "Actualiza esta app para conectar",
   "language": "Idioma",
   "languageSystem": "Sistema",
   "languageChinese": "简体中文",

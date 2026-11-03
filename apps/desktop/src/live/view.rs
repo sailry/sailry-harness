@@ -69,7 +69,9 @@ impl Shell {
                         let mismatch = live
                             .host_versions
                             .get(&node)
-                            .and_then(|version| sailry_link::check_host(version.as_deref()).err());
+                            .and_then(|(protocol, version)| {
+                                sailry_link::check_host(*protocol, version.as_deref()).err()
+                            });
                         let update_host = mismatch.as_ref().is_some_and(|error| {
                             matches!(
                                 error.details,
@@ -104,9 +106,12 @@ impl Shell {
                                 .child(Icon::new(IconName::Cpu))
                                 .child(div().flex_1().min_w_0().truncate().child(name))
                                 .when(
-                                    live.host_versions.get(&node).is_some_and(|version| {
-                                        sailry_link::check_host(version.as_deref()).is_err()
-                                    }),
+                                    live.host_versions.get(&node).is_some_and(
+                                        |(protocol, version)| {
+                                            sailry_link::check_host(*protocol, version.as_deref())
+                                                .is_err()
+                                        },
+                                    ),
                                     |row| {
                                         row.child(
                                             Button::new(SharedString::from(format!(
@@ -139,14 +144,14 @@ impl Shell {
 
     fn update_live_host(&mut self, node: NodeId, window: &mut Window, cx: &mut Context<Self>) {
         use crate::theme::DialogStyle as _;
-        let Some(version) = self
+        let Some((protocol, version)) = self
             .live
             .as_ref()
             .and_then(|live| live.host_versions.get(&node))
         else {
             return;
         };
-        let Err(error) = sailry_link::check_host(version.as_deref()) else {
+        let Err(error) = sailry_link::check_host(*protocol, version.as_deref()) else {
             return;
         };
         if matches!(

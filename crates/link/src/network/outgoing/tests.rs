@@ -34,6 +34,7 @@ async fn captures_negotiated_compression() {
                 &mut send,
                 &frame::Reply::Endpoint {
                     software_version: Some(crate::PRODUCT_VERSION.into()),
+                    protocol: Some(sailry_protocol::VERSION),
                     zstd: enabled,
                     execution: false,
                     name: None,
@@ -100,6 +101,7 @@ async fn retries_after_concurrent_address_refresh() {
             &mut send,
             &frame::Reply::Endpoint {
                 software_version: Some(crate::PRODUCT_VERSION.into()),
+                protocol: Some(sailry_protocol::VERSION),
                 zstd: false,
                 execution: true,
                 name: None,
@@ -206,6 +208,7 @@ async fn isolates_pending_inspection_and_revocation() {
         &mut send,
         &frame::Reply::Endpoint {
             software_version: Some(crate::PRODUCT_VERSION.into()),
+            protocol: Some(sailry_protocol::VERSION),
             zstd: false,
             execution: false,
             name: None,

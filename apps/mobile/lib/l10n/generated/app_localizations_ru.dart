@@ -1870,6 +1870,12 @@ class AppLocalizationsRu extends AppLocalizations {
   String get hostDisconnected => 'Соединение прервано';
 
   @override
+  String get hostUpdateRequired => 'Обновите узел для подключения';
+
+  @override
+  String get appUpdateRequired => 'Обновите приложение для подключения';
+
+  @override
   String get language => 'Язык';
 
   @override

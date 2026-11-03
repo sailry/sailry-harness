@@ -1885,6 +1885,12 @@ class AppLocalizationsFr extends AppLocalizations {
   String get hostDisconnected => 'Connexion perdue';
 
   @override
+  String get hostUpdateRequired => 'Mettez à jour l’hôte pour vous connecter';
+
+  @override
+  String get appUpdateRequired => 'Mettez à jour cette app pour vous connecter';
+
+  @override
   String get language => 'Langue';
 
   @override

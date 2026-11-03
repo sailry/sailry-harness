@@ -470,6 +470,7 @@ class HostConnection extends ChangeNotifier {
       throw CommandFailure(
         text(fault['code'], 'internal'),
         detail: text(fault['message']),
+        details: object(fault['details']),
         request: request,
       );
     }
@@ -507,10 +508,31 @@ class HostConnection extends ChangeNotifier {
   }
 }
 
+/// Localization key naming the side to update after a protocol mismatch.
+/// Accepts a [CommandFailure] or a serialized fault from a Client view.
+String? versionMismatchKey(Object? failure) {
+  final details = failure is CommandFailure
+      ? failure.details
+      : failure is Map
+      ? failure['details']
+      : null;
+  if (details is! Map || details['kind'] != 'version_mismatch') return null;
+  return details['update_host'] == true
+      ? 'hostUpdateRequired'
+      : 'appUpdateRequired';
+}
+
 class CommandFailure implements Exception {
-  const CommandFailure(this.code, {this.detail = '', this.request});
+  const CommandFailure(
+    this.code, {
+    this.detail = '',
+    this.details = const {},
+    this.request,
+  });
   final String code;
   final String detail;
+  // Structured fault details from the shared protocol, such as version_mismatch.
+  final Map<String, dynamic> details;
   // Retained only in memory, never logged, rendered or persisted in a UI cache.
   final String? request;
 

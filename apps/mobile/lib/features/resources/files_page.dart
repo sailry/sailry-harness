@@ -179,7 +179,7 @@ class _FilesPageState extends State<FilesPage> {
       loading: _busy,
       title: context.tr('files'),
       failure: target != null && !target.host.connected
-          ? const HostState(added: true)
+          ? HostState(added: true, failure: target.host.error)
           : null,
       empty: target == null
           ? EmptyState(message: context.tr('resourceNoWorkspace'))

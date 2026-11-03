@@ -746,6 +746,8 @@
   "reviewVisualText": "참조 1: 채팅 계층; 참조 2: 소프트 카드 및 플로팅 네비게이션; 참조 3: 컴팩트 모니터링",
   "hostConnectPrompt": "호스트 연결",
   "hostDisconnected": "연결 끊김Comment",
+  "hostUpdateRequired": "연결하려면 호스트를 업데이트하세요",
+  "appUpdateRequired": "연결하려면 이 앱을 업데이트하세요",
   "language": "언어",
   "languageSystem": "시스템",
   "languageChinese": "简体中文",

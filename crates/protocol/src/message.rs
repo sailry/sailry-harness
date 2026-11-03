@@ -60,9 +60,12 @@ pub enum FaultDetails {
     },
     SearchUnsupported,
     SystemDiagnostic(Box<crate::notification::SystemDiagnostic>),
+    /// Peers interoperate by protocol number; product versions are for display only.
     VersionMismatch {
         controller: Option<String>,
         host: Option<String>,
+        controller_protocol: Option<u16>,
+        host_protocol: Option<u16>,
         update_host: bool,
         unverified: bool,
     },

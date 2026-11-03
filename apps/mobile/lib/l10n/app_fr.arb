@@ -746,6 +746,8 @@
   "reviewVisualText": "Référence 1: hiérarchie du chat; référence 2: cartes souples et navigation flottante; référence 3: surveillance compacte",
   "hostConnectPrompt": "Connecter un hôte",
   "hostDisconnected": "Connexion perdue",
+  "hostUpdateRequired": "Mettez à jour l’hôte pour vous connecter",
+  "appUpdateRequired": "Mettez à jour cette app pour vous connecter",
   "language": "Langue",
   "languageSystem": "Système",
   "languageChinese": "简体中文",

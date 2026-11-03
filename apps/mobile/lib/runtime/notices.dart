@@ -4,6 +4,8 @@ import '../ui/toast.dart';
 import 'session.dart';
 
 String failureText(Object failure, {Translator translate = tr}) {
+  final version = versionMismatchKey(failure);
+  if (version != null) return translate(version);
   final code = failure is CommandFailure ? failure.code : '';
   return translate(switch (code) {
     'outcome_unknown' => 'failureUnknown',

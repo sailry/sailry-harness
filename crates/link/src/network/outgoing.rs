@@ -99,6 +99,7 @@ impl Core {
         address: EndpointAddr,
         connection: Connection,
         software_version: Option<String>,
+        protocol: Option<u16>,
         zstd: bool,
     ) -> Result<(), Fault> {
         let mut cached = slot.cached.lock().map_err(network)?;
@@ -119,6 +120,7 @@ impl Core {
             address,
             connection,
             software_version,
+            protocol,
             zstd,
             telemetry,
             sampler,
@@ -150,8 +152,11 @@ impl Core {
             }) {
                 if execution {
                     crate::compatibility::check(
-                        self.handler.product_version(),
-                        cached.software_version.as_deref(),
+                        crate::compatibility::Peer::of(&*self.handler),
+                        crate::compatibility::Peer {
+                            protocol: cached.protocol,
+                            version: cached.software_version.as_deref(),
+                        },
                     )?;
                 }
                 return Ok((cached.connection.clone(), cached.zstd));
@@ -168,8 +173,8 @@ impl Core {
             let info = slot.wait(self.inspect_connection(&connection)).await?;
             if execution {
                 crate::compatibility::check(
-                    self.handler.product_version(),
-                    info.software_version.as_deref(),
+                    crate::compatibility::Peer::of(&*self.handler),
+                    info.peer(),
                 )?;
             }
             let _update = self.trust_update.lock().await;
@@ -184,6 +189,7 @@ impl Core {
                 target,
                 connection.clone(),
                 info.software_version,
+                info.protocol,
                 info.zstd,
             )?;
             Ok(info.zstd)
@@ -220,8 +226,8 @@ impl Core {
         let result = async {
             let info = slot.wait(self.inspect_connection(&connection)).await?;
             crate::compatibility::check(
-                self.handler.product_version(),
-                info.software_version.as_deref(),
+                crate::compatibility::Peer::of(&*self.handler),
+                info.peer(),
             )?;
             let _update = self.trust_update.lock().await;
             self.registered(peer, &slot).await?;
@@ -238,6 +244,7 @@ impl Core {
                 address,
                 connection.clone(),
                 info.software_version,
+                info.protocol,
                 info.zstd,
             )
         }

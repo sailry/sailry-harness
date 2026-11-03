@@ -1831,6 +1831,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get hostDisconnected => '连接已断开';
 
   @override
+  String get hostUpdateRequired => '请更新主机后再连接';
+
+  @override
+  String get appUpdateRequired => '请更新此应用后再连接';
+
+  @override
   String get language => '语言';
 
   @override
@@ -4343,6 +4349,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get hostDisconnected => '連線已斷開';
+
+  @override
+  String get hostUpdateRequired => '請更新主機後再連線';
+
+  @override
+  String get appUpdateRequired => '請更新此應用程式後再連線';
 
   @override
   String get language => '語言';

@@ -15,6 +15,8 @@ pub(super) struct Envelope {
     #[serde(default)]
     pub software_version: Option<String>,
     #[serde(default)]
+    pub protocol: Option<u16>,
+    #[serde(default)]
     pub zstd: bool,
     #[serde(flatten)]
     pub call: Call,
@@ -35,6 +37,8 @@ pub(super) enum Reply {
     Endpoint {
         #[serde(default)]
         software_version: Option<String>,
+        #[serde(default)]
+        protocol: Option<u16>,
         #[serde(default)]
         zstd: bool,
         execution: bool,
@@ -231,19 +235,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn diagnoses_missing_software_version() {
+    fn diagnoses_missing_versions() {
         let envelope: Envelope =
             serde_json::from_value(serde_json::json!({"kind":"inspect"})).unwrap();
         assert!(envelope.software_version.is_none());
+        assert!(envelope.protocol.is_none());
         assert!(matches!(envelope.call, Call::Inspect));
         let wire = serde_json::to_value(Envelope {
             software_version: Some(crate::PRODUCT_VERSION.into()),
+            protocol: Some(sailry_protocol::VERSION),
             zstd: true,
             call: Call::Inspect,
         })
         .unwrap();
         assert_eq!(wire["kind"], "inspect");
         assert_eq!(wire["software_version"], crate::PRODUCT_VERSION);
+        assert_eq!(wire["protocol"], sailry_protocol::VERSION);
         assert_eq!(wire["zstd"], true);
         assert!(!envelope.zstd);
         let reply: Reply = serde_json::from_value(serde_json::json!({"kind":"endpoint", "data":{
@@ -254,6 +261,7 @@ mod tests {
             reply,
             Reply::Endpoint {
                 software_version: None,
+                protocol: None,
                 zstd: false,
                 ..
             }

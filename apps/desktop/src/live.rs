@@ -20,7 +20,8 @@ mod worktree_selection;
 
 pub(crate) struct State {
     pub hosts: BTreeMap<NodeId, EndpointAddr>,
-    pub host_versions: BTreeMap<NodeId, Option<String>>,
+    /// Peer protocol and product version; only the protocol decides compatibility.
+    pub host_versions: BTreeMap<NodeId, (Option<u16>, Option<String>)>,
     pub selected: NodeId,
     pub project: Option<ProjectId>,
     pub(crate) unassigned_worktree: Option<WorktreeId>,

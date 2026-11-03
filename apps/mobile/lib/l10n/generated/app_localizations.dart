@@ -3678,6 +3678,18 @@ abstract class AppLocalizations {
   /// **'Connection lost'**
   String get hostDisconnected;
 
+  /// No description provided for @hostUpdateRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Update the host to connect'**
+  String get hostUpdateRequired;
+
+  /// No description provided for @appUpdateRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Update this app to connect'**
+  String get appUpdateRequired;
+
   /// No description provided for @language.
   ///
   /// In en, this message translates to:

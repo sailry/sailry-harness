@@ -80,7 +80,7 @@ pub(super) fn observe(services: &Services, cx: &mut Context<Shell>) -> Task<()> 
                                 )
                                 .await
                                 {
-                                    version = Some(info.software_version);
+                                    version = Some((info.protocol, info.software_version));
                                     let known = device.get_or_insert(crate::preferences::Device {
                                         name: None,
                                         execution: info.execution,

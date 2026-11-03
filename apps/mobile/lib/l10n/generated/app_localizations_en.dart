@@ -1858,6 +1858,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get hostDisconnected => 'Connection lost';
 
   @override
+  String get hostUpdateRequired => 'Update the host to connect';
+
+  @override
+  String get appUpdateRequired => 'Update this app to connect';
+
+  @override
   String get language => 'Language';
 
   @override

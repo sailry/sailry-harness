@@ -1878,6 +1878,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get hostDisconnected => 'Verbindung verloren';
 
   @override
+  String get hostUpdateRequired => 'Host aktualisieren, um zu verbinden';
+
+  @override
+  String get appUpdateRequired => 'App aktualisieren, um zu verbinden';
+
+  @override
   String get language => 'Sprache';
 
   @override

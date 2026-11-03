@@ -440,7 +440,7 @@ class _GitPageState extends State<GitPage> {
       loading: _busy,
       title: context.tr('git'),
       failure: target != null && !target.host.connected
-          ? const HostState(added: true)
+          ? HostState(added: true, failure: target.host.error)
           : _error != null
           ? FailureState(
               icon: 'branch',

@@ -746,6 +746,8 @@
   "reviewVisualText": "Reference 1: chat hierarchy; reference 2: soft cards and floating navigation; reference 3: compact monitoring",
   "hostConnectPrompt": "Connect a host",
   "hostDisconnected": "Connection lost",
+  "hostUpdateRequired": "Update the host to connect",
+  "appUpdateRequired": "Update this app to connect",
   "language": "Language",
   "languageSystem": "System",
   "languageChinese": "简体中文",

@@ -200,7 +200,7 @@ class _HostsPageState extends State<HostsPage> {
           : !host.connected
           ? session.loading
                 ? const SizedBox.shrink()
-                : _blocked(host, const HostState(added: true))
+                : _blocked(host, HostState(added: true, failure: host.error))
           : _error != null
           ? _blocked(
               host,

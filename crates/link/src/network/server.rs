@@ -78,8 +78,11 @@ async fn request(
     }
     if !matches!(call.call, Call::Inspect)
         && let Err(error) = crate::compatibility::check(
-            call.software_version.as_deref(),
-            core.handler.product_version(),
+            crate::compatibility::Peer {
+                protocol: call.protocol,
+                version: call.software_version.as_deref(),
+            },
+            crate::compatibility::Peer::of(&*core.handler),
         )
     {
         core.wait(frame::write(&mut send, &Reply::Rejected(error)))
@@ -95,6 +98,7 @@ async fn request(
                 &Reply::Endpoint {
                     zstd: true,
                     software_version: core.handler.product_version().map(str::to_owned),
+                    protocol: core.handler.protocol(),
                     execution: core.handler.execution_available(),
                     name,
                     platform: std::env::consts::OS.to_owned(),

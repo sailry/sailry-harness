@@ -746,6 +746,8 @@
   "reviewVisualText": "リファレンス１：チャット階層，リファレンス２：ソフトカードと浮動ナビゲーション，リファレンス３：コンパクトモニタリング",
   "hostConnectPrompt": "ホストに接続",
   "hostDisconnected": "接続が途絶えました",
+  "hostUpdateRequired": "接続するにはホストを更新してください",
+  "appUpdateRequired": "接続するにはこのアプリを更新してください",
   "language": "言語",
   "languageSystem": "システム",
   "languageChinese": "简体中文",

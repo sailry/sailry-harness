@@ -56,7 +56,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 title: Text(host.label),
                 subtitle: host.connected
                     ? null
-                    : Text(context.tr('hostDisconnected')),
+                    : Text(
+                        context.tr(
+                          versionMismatchKey(host.error) ?? 'hostDisconnected',
+                        ),
+                      ),
                 onTap: () => Navigator.pop(context, host.id),
               ),
           ],
@@ -116,7 +120,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
     final pushed = ModalRoute.canPopOf(context) == true;
     return PageFrame(
       title: context.tr('resources'),
-      failure: host?.connected != true ? HostState(added: host != null) : null,
+      failure: host?.connected != true
+          ? HostState(added: host != null, failure: host?.error)
+          : null,
       empty: host?.connected == true && target == null
           ? EmptyState(message: context.tr('resourceNoWorkspace'))
           : null,

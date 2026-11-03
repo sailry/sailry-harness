@@ -60,7 +60,7 @@ pub(super) async fn execute(
                 if NodeId(*address.id.as_bytes()) == node
                     && let Ok(info) = link.inspect(&address).await
                     && info.execution
-                    && info.compatibility().is_ok()
+                    && current(info.software_version.as_deref(), version)
                 {
                     return Ok(Outcome::HostInstalled { node });
                 }
@@ -260,6 +260,15 @@ fn validate_update(identity: &Identity, node: NodeId, target: &str) -> Result<()
     Ok(())
 }
 
+/// An update targets this exact release; a shared protocol alone is not current.
+fn current(installed: Option<&str>, target: &str) -> bool {
+    let parse = |value: &str| semver::Version::parse(value).ok();
+    installed
+        .and_then(parse)
+        .zip(parse(target))
+        .is_some_and(|(installed, target)| installed.cmp_precedence(&target).is_eq())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,5 +353,15 @@ mod tests {
         );
         identity.version = "invalid".into();
         assert!(validate_update(&identity, node, "0.1.0-alpha.2").is_err());
+    }
+
+    #[test]
+    fn requires_exact_release() {
+        assert!(current(Some("0.1.2"), "0.1.2"));
+        assert!(current(Some("0.1.2+fixture"), "0.1.2"));
+        assert!(!current(Some("0.1.0"), "0.1.2"));
+        assert!(!current(Some("0.1.3"), "0.1.2"));
+        assert!(!current(Some("invalid"), "0.1.2"));
+        assert!(!current(None, "0.1.2"));
     }
 }

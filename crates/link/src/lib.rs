@@ -38,6 +38,10 @@ pub trait Handler: Send + Sync {
     fn product_version(&self) -> Option<&str> {
         Some(PRODUCT_VERSION)
     }
+    /// Peers interoperate only when this matches their protocol number.
+    fn protocol(&self) -> Option<u16> {
+        Some(sailry_protocol::VERSION)
+    }
     /// Whether this authenticated endpoint owns a Node execution service.
     fn execution_available(&self) -> bool {
         true
@@ -129,7 +133,7 @@ impl Transport for Local {
 
     fn open(&self, resource: sailry_protocol::StreamId) -> Pending<'_, Result<Stream, Fault>> {
         Box::pin(async move {
-            compatibility::check(Some(PRODUCT_VERSION), self.handler.product_version())?;
+            compatibility::check(compatibility::Peer::LOCAL, compatibility::Peer::of(&*self.handler))?;
             self.handler.open(self.caller, resource).await
         })
     }
@@ -138,13 +142,13 @@ impl Transport for Local {
     }
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
-            compatibility::check(Some(PRODUCT_VERSION), self.handler.product_version())?;
+            compatibility::check(compatibility::Peer::LOCAL, compatibility::Peer::of(&*self.handler))?;
             self.handler.dispatch(self.caller, request).await
         })
     }
     fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
         Box::pin(async move {
-            compatibility::check(Some(PRODUCT_VERSION), self.handler.product_version())?;
+            compatibility::check(compatibility::Peer::LOCAL, compatibility::Peer::of(&*self.handler))?;
             self.handler.subscribe(self.caller, topic).await
         })
     }

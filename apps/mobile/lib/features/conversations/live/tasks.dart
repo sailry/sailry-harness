@@ -239,7 +239,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         title: context.tr('brand'),
         titleSize: 28,
         failure: selected?.connected != true
-            ? HostState(added: selected != null)
+            ? HostState(added: selected != null, failure: selected?.error)
             : null,
         actions: [
           RoundButton(

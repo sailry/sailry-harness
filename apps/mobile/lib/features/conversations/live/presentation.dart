@@ -12,11 +12,12 @@ typedef ConversationCommand =
 String failureLabel(Object error, {Translator translate = tr}) =>
     error is CommandFailure
     ? translate(
-        error.code == 'outcome_unknown'
-            ? 'conversationUnknown'
-            : error.code == 'revision_conflict'
-            ? 'conversationConflict'
-            : 'conversationFailed',
+        versionMismatchKey(error) ??
+            (error.code == 'outcome_unknown'
+                ? 'conversationUnknown'
+                : error.code == 'revision_conflict'
+                ? 'conversationConflict'
+                : 'conversationFailed'),
       )
     : error is String
     ? error

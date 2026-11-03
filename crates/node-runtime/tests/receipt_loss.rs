@@ -39,12 +39,14 @@ async fn response_fault(reply: Option<serde_json::Value>, expected: ErrorCode) {
             recv.read_exact(&mut bytes).await.unwrap();
             let call: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(call["software_version"], sailry_link::PRODUCT_VERSION);
+            assert_eq!(call["protocol"], sailry_protocol::VERSION);
             let response = if inspect {
                 assert_eq!(call["kind"], "inspect");
                 Some(serde_json::json!({
                     "kind": "endpoint",
                     "data": {
                         "software_version": sailry_link::PRODUCT_VERSION,
+                        "protocol": sailry_protocol::VERSION,
                         "execution": true,
                         "name": null,
                         "platform": std::env::consts::OS,

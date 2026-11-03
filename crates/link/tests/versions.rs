@@ -6,24 +6,22 @@ use std::sync::{
 };
 
 struct Service {
-    versions: Vec<Option<String>>,
+    builds: Vec<(Option<u16>, Option<&'static str>)>,
     active: AtomicUsize,
     calls: AtomicUsize,
 }
 
 impl Service {
+    /// Builds 0 and 5 share this protocol; product versions never decide.
     fn new() -> Self {
-        let version = semver::Version::parse(PRODUCT_VERSION).unwrap();
-        let mut metadata = version.clone();
-        metadata.build = semver::BuildMetadata::new("fixture").unwrap();
         Self {
-            versions: vec![
-                Some(PRODUCT_VERSION.into()),
-                Some("0.0.0".into()),
-                Some("99.0.0".into()),
-                Some("invalid".into()),
-                None,
-                Some(metadata.to_string()),
+            builds: vec![
+                (Some(VERSION), Some(PRODUCT_VERSION)),
+                (Some(VERSION - 1), Some(PRODUCT_VERSION)),
+                (Some(VERSION + 1), Some("99.0.0")),
+                (None, Some(PRODUCT_VERSION)),
+                (None, None),
+                (Some(VERSION), Some("0.0.0")),
             ],
             active: AtomicUsize::new(0),
             calls: AtomicUsize::new(0),
@@ -38,7 +36,10 @@ impl Service {
 
 impl Handler for Service {
     fn product_version(&self) -> Option<&str> {
-        self.versions[self.active.load(Ordering::SeqCst)].as_deref()
+        self.builds[self.active.load(Ordering::SeqCst)].1
+    }
+    fn protocol(&self) -> Option<u16> {
+        self.builds[self.active.load(Ordering::SeqCst)].0
     }
     fn open(&self, _: NodeId, _: StreamId) -> Pending<'_, Result<Stream, Fault>> {
         Box::pin(async { self.reached() })

@@ -180,9 +180,13 @@ class _TerminalPageState extends State<TerminalPage>
         setState(() {
           _connected = view['connected'] == true;
           _snapshot = object(view['snapshot']);
-          _error = view['error'] == null
+          final fault = view['error'];
+          final version = versionMismatchKey(fault);
+          _error = fault == null
               ? null
-              : text(object(view['error'])['message']);
+              : version != null
+              ? context.tr(version)
+              : text(object(fault)['message']);
           if (!_connected ||
               _lease != null && number(_info['revision']) > _lease!) {
             _lease = null;

@@ -430,7 +430,9 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                 )
                 .firstOrNull ??
             faults.firstOrNull;
+        final version = faults.map(versionMismatchKey).nonNulls.firstOrNull;
         final reason =
+            (version == null ? null : context.tr(version)) ??
             displayed?['message'] as String? ??
             _error?.toString() ??
             hostFault['message'] as String? ??

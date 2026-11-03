@@ -746,6 +746,8 @@
   "reviewVisualText": "Referência 1: hierarquia de bate-papo; referência 2: cartões flexíveis e navegação flutuante; referência 3: monitoramento compacto",
   "hostConnectPrompt": "Conectar um host",
   "hostDisconnected": "Conexão perdida",
+  "hostUpdateRequired": "Atualize o host para conectar",
+  "appUpdateRequired": "Atualize este app para conectar",
   "language": "Idioma",
   "languageSystem": "Sistema",
   "languageChinese": "简体中文",
