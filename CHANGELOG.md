@@ -3,6 +3,18 @@
 Release entries supply the corresponding GitHub Release notes. When an entry is
 missing, publication generates it from the tagged Git history.
 
+## [0.1.1](https://github.com/sailry/sailry-harness/releases/tag/v0.1.1) — 2026-11-03
+
+Upgrade Desktop, Mobile and Host together. Terminal input uses a new batch format
+and is not compatible with version 0.1.0.
+
+- Batch terminal input across local and remote controllers and limit pointer backlogs
+- Restore notification history without replaying old alerts
+- Use Enter to guide an active task and Tab to queue input
+- Keep original tool history without separate summary requests for older tool calls
+- Show recent session activity and the latest lines of command output
+- Use fixed Mobile download filenames and recover Desktop packages after symbol upload failures
+
 ## [0.1.0](https://github.com/sailry/sailry-harness/releases/tag/v0.1.0) — 2026-11-02
 
 - Update statistics to 0.1.24 with first-step bars, speed fallback and grouped tool names ([7128834](https://github.com/sailry/sailry-harness/commit/71288348498a3cc298fada59418f3e8088a27261))
