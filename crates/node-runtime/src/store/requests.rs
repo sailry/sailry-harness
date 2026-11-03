@@ -85,12 +85,12 @@ impl Ingress {
                 sailry_protocol::Command::SaveSearchSettings(_)
             );
             let (reply, guidance_completion) = match &request.command {
-                Command::GuideTurn {
+                sailry_protocol::Command::GuideTurn {
                     recipient,
                     immediate,
                     ..
                 }
-                | Command::GuideQueuedTurn {
+                | sailry_protocol::Command::GuideQueuedTurn {
                     recipient,
                     immediate,
                     ..
