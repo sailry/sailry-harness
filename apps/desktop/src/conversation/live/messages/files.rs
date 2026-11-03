@@ -1,5 +1,6 @@
 use super::*;
-use sailry_protocol::tool::Block;
+use crate::content::images::{self, ImageSource};
+use sailry_protocol::tool::{Block, File};
 
 impl View {
     pub(super) fn published_files(&self, turn: TurnId, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -51,6 +52,16 @@ impl View {
                 }
                 let mut binding = self.binding.clone();
                 binding.worktree = self.turn_worktree(turn);
+                if let Some(image) = image_source(file, binding.worktree) {
+                    cards.push(super::super::attachments::source_links(
+                        vec![image],
+                        &binding,
+                        &self.images,
+                        MessageAlignment::Start,
+                        cx,
+                    ));
+                    continue;
+                }
                 cards.push(
                     crate::content::files::Card {
                         id: format!("published-{}-{}-{index}", turn, call.source.key()).into(),
@@ -120,5 +131,51 @@ impl View {
         }
         groups.reverse();
         groups
+    }
+}
+
+fn image_source(file: &File, worktree: Option<WorktreeId>) -> Option<ImageSource> {
+    let worktree = worktree?;
+    images::displayable(&file.path).then(|| ImageSource::File {
+        worktree,
+        path: file.path.clone(),
+        context: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    fn file(path: &str) -> File {
+        File {
+            path: path.into(),
+            name: None,
+            mime: crate::content::files::mime(path),
+            size: None,
+            revision: None,
+        }
+    }
+
+    #[test]
+    fn generated_images_use_turn_worktree() {
+        let worktree = WorktreeId::new();
+        let output = file("assets/generated/result.png");
+        let source = image_source(&output, Some(worktree)).unwrap();
+        assert!(matches!(
+            source,
+            ImageSource::File { worktree: captured, path, context: None }
+                if captured == worktree && path == output.path
+        ));
+    }
+
+    #[test]
+    fn unsupported_outputs_keep_file_actions() {
+        let worktree = Some(WorktreeId::new());
+        for path in ["report.pdf", "document.html", "assets/generated/result.mp4"] {
+            assert!(image_source(&file(path), worktree).is_none(), "{path}");
+        }
+        assert!(image_source(&file("assets/generated/result.png"), None).is_none());
     }
 }

@@ -153,3 +153,138 @@ async fn separates_manual_and_callback_access() {
         controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn downloads_session_images_with_scoped_access() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let root = directory.path().join("source");
+        let mut context = install_actions(
+            &client,
+            &root.join("package"),
+            worktree,
+            0,
+            &[Action::ReadFiles],
+        )
+        .await;
+        let config = serde_json::from_value(json!({
+            "provider":ProviderId::new(), "model":"fixture", "mode":"code",
+            "permission":"ask", "credential":null
+        }))
+        .unwrap();
+        let Output::Session(session) = execute(
+            &client,
+            Command::CreateSession {
+                project: None,
+                worktree: None,
+                config: Some(config),
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+            panic!("snapshot expected")
+        };
+        let workspace = Path::new(
+            &snapshot
+                .worktrees
+                .iter()
+                .find(|entry| entry.id == session.worktree)
+                .unwrap()
+                .path,
+        );
+        let bytes = super::super::media::server::image();
+        let path = "assets/generated/image.png";
+        fs::create_dir_all(workspace.join("assets/generated")).unwrap();
+        fs::write(workspace.join(path), &bytes).unwrap();
+        context.worktree = Some(session.worktree);
+        context.session = Some(session.id);
+        for scoped in [false, true] {
+            let request = client.prepare(Command::DownloadFile {
+                worktree: session.worktree,
+                path: path.into(),
+            });
+            let request = if scoped {
+                request.with_plugin(context.clone())
+            } else {
+                request
+            };
+            let Output::FileDownload(download) = client.execute(request).await.unwrap() else {
+                panic!("download expected")
+            };
+            assert_eq!(download.size, bytes.len() as u64);
+            assert_eq!(download.revision, blake3::hash(&bytes).to_hex().to_string());
+            let mut received = Vec::new();
+            client
+                .download(&download, &mut received, CancellationToken::new(), |_| {})
+                .await
+                .unwrap();
+            assert_eq!(received, bytes);
+        }
+        denied(
+            &client,
+            &context,
+            Command::DownloadFile {
+                worktree,
+                path: "plugin.json".into(),
+            },
+        )
+        .await;
+        assert!(
+            client
+                .execute(
+                    client
+                        .prepare(Command::DownloadFile {
+                            worktree: session.worktree,
+                            path: "../../../storage/sentinel".into(),
+                        })
+                        .with_plugin(context.clone())
+                )
+                .await
+                .is_err()
+        );
+
+        let Output::Project(project) = execute(
+            &client,
+            Command::RegisterProject {
+                name: "Profile parent".into(),
+                path: directory.path().to_str().unwrap().into(),
+            },
+        )
+        .await
+        else {
+            panic!("project expected")
+        };
+        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+            panic!("snapshot expected")
+        };
+        let parent = snapshot
+            .worktrees
+            .iter()
+            .find(|entry| entry.project == Some(project.id))
+            .unwrap()
+            .id;
+        let mut parent_context = context.clone();
+        parent_context.worktree = Some(parent);
+        parent_context.session = None;
+        fs::write(directory.path().join("node/storage/sentinel"), "protected").unwrap();
+        for path in [
+            "node/storage/sentinel".to_owned(),
+            format!("node/workspaces/sessions/{}/{path}", session.id),
+        ] {
+            denied(
+                &client,
+                &parent_context,
+                Command::DownloadFile {
+                    worktree: parent,
+                    path,
+                },
+            )
+            .await;
+        }
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

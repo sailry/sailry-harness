@@ -27,14 +27,17 @@ pub(super) fn prepare<'a>(
     let (name, parents) = parts.split_last().unwrap();
     let root_dir = path::root(root.path())?;
     let dir = path::descend(root_dir.try_clone().map_err(io_error)?, parents)?;
-    // Business file access cannot expose the execution Node's protected storage.
+    // Registered execution workspaces remain downloadable inside the profile;
+    // broader project roots cannot expose its protected storage or other sessions.
     if let Some(profile) = profile {
         let source = root
             .path()
             .join(relative)
             .canonicalize()
             .map_err(io_error)?;
-        if source.starts_with(profile) {
+        let workspace =
+            crate::workspaces::managed(root.path(), profile) && source.starts_with(root.path());
+        if source.starts_with(profile) && !workspace {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
                 "Node storage is not a downloadable file",

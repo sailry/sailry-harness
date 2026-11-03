@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 
 #[path = "../../agent/media/server.rs"]
-mod server;
+pub(super) mod server;
 
 async fn running(
     client: &Client,
