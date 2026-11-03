@@ -2030,7 +2030,7 @@ host_process_uncertain: "Résultat d'arrêt inconnu; vérifier l'état du proces
 host_process_stop_failed: "Impossible d'arrêter le processus ; il a peut-être quitté, l'accès peut être refusé ou cet hôte ne le prend pas en charge"
 usage_column_provider: "Fournisseur"
 usage_column_project: "Projet"
-usage_column_first_token: "Le premier jeton"
+usage_column_first_token: "TTFT"
 connections_hosts: "Hôtes"
 connections_mobile: "Mobile"
 connections_online: "En ligne"

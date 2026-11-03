@@ -8,7 +8,7 @@ fn attempt(index: u64, outcome: Outcome) -> Attempt {
         reused: Some(false),
         headers_us: Some(2),
         response_us: Some(2),
-        first_text_us: Some(4),
+        first_token_us: Some(4),
         elapsed_us: Some(10),
         status: Some(if outcome == Outcome::Failed { 503 } else { 200 }),
         outcome,
@@ -54,7 +54,7 @@ fn averages_valid_samples() {
             transport: "http".into(),
             headers_us: Some(999),
             response_us: Some(2),
-            first_text_us: Some(6),
+            first_token_us: Some(6),
             elapsed_us: Some(20),
             ..base.clone()
         },
@@ -62,36 +62,36 @@ fn averages_valid_samples() {
             transport: "http".into(),
             headers_us: Some(3),
             response_us: None,
-            first_text_us: Some(8),
+            first_token_us: Some(8),
             elapsed_us: Some(30),
             ..base.clone()
         },
         Attempt {
             response_us: Some(11),
-            first_text_us: Some(5),
+            first_token_us: Some(5),
             ..base.clone()
         },
         Attempt {
             response_us: Some(3),
-            first_text_us: Some(12),
+            first_token_us: Some(12),
             ..base.clone()
         },
         Attempt {
             headers_us: None,
             response_us: None,
-            first_text_us: None,
+            first_token_us: None,
             elapsed_us: None,
             ..base.clone()
         },
         Attempt {
             response_us: Some(8),
-            first_text_us: Some(6),
+            first_token_us: Some(6),
             ..base.clone()
         },
         Attempt {
             headers_us: Some(0),
             response_us: Some(0),
-            first_text_us: Some(0),
+            first_token_us: Some(0),
             elapsed_us: Some(0),
             ..base
         },
@@ -104,7 +104,7 @@ fn averages_valid_samples() {
         latency.finish(),
         Latency {
             response_us: Some(2),
-            first_text_us: Some(5),
+            first_token_us: Some(5),
             waiting_us: Some(4),
             elapsed_us: Some(12),
         }
@@ -115,7 +115,7 @@ fn averages_valid_samples() {
         delivered.finish(),
         Latency {
             response_us: Some(3),
-            first_text_us: Some(12),
+            first_token_us: Some(12),
             waiting_us: Some(9),
             elapsed_us: Some(10),
         }
@@ -129,7 +129,7 @@ fn averages_valid_samples() {
         invalid.finish(),
         Latency {
             response_us: None,
-            first_text_us: Some(5),
+            first_token_us: Some(5),
             waiting_us: None,
             elapsed_us: Some(10),
         }
@@ -154,7 +154,7 @@ async fn averages_history_before_limiting_requests() {
             let scale = if index == 0 { count * 100 } else { 0 };
             sample.headers_us = Some(scale);
             sample.response_us = Some(scale);
-            sample.first_text_us = Some(scale * 2);
+            sample.first_token_us = Some(scale * 2);
             sample.elapsed_us = Some(scale * 3);
             if index == 0 {
                 sample.outcome = Outcome::Failed;
@@ -189,7 +189,7 @@ async fn averages_history_before_limiting_requests() {
         summary.latency,
         Latency {
             response_us: Some(100),
-            first_text_us: Some(200),
+            first_token_us: Some(200),
             waiting_us: Some(100),
             elapsed_us: Some(300),
         }
@@ -310,13 +310,13 @@ async fn merges_recovered_attempts_across_rebuilds() {
     assert_eq!(summary.phases, phases);
     assert_eq!(summary.model_us, 30);
     assert_eq!(summary.output_us, 18);
-    assert_eq!(summary.output_tokens, 9);
+    assert_eq!(summary.output_tokens, 12);
     assert_eq!(summary.output_samples, 3);
     assert_eq!(
         summary.latency,
         Latency {
             response_us: Some(2),
-            first_text_us: Some(4),
+            first_token_us: Some(4),
             waiting_us: Some(2),
             elapsed_us: Some(10),
         }

@@ -16,7 +16,7 @@ fn preserves_change_shape() {
         responses: 3,
         observations: observation::Summary {
             latency: observation::Latency {
-                first_text_us: Some(0),
+                first_token_us: Some(0),
                 ..Default::default()
             },
             ..Default::default()

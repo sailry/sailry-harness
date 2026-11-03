@@ -2030,7 +2030,7 @@ host_process_uncertain: "停止結果不明;プロセスの状態をチェック
 host_process_stop_failed: "プロセスを停止できませんでした。終了したか、アクセスが拒否されたか、ホストがサポートしていないかもしれません"
 usage_column_provider: "プロバイダー"
 usage_column_project: "プロジェクト"
-usage_column_first_token: "ファースト・トークン"
+usage_column_first_token: "TTFT"
 connections_hosts: "ホスト"
 connections_mobile: "モバイル"
 connections_online: "オンライン"

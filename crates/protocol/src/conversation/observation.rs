@@ -39,7 +39,7 @@ pub struct Latency {
     #[serde(default)]
     pub response_us: Option<u64>,
     #[serde(default)]
-    pub first_text_us: Option<u64>,
+    pub first_token_us: Option<u64>,
     #[serde(default)]
     pub waiting_us: Option<u64>,
     #[serde(default)]
@@ -71,7 +71,8 @@ pub struct Attempt {
     /// The first HTTP response, regardless of its status.
     #[serde(default)]
     pub response_us: Option<u64>,
-    pub first_text_us: Option<u64>,
+    /// Time to the first streamed reasoning, text or tool-call delta.
+    pub first_token_us: Option<u64>,
     pub elapsed_us: Option<u64>,
     pub status: Option<u16>,
     pub outcome: Outcome,
@@ -135,7 +136,7 @@ mod tests {
         assert_eq!(summary.latency, Latency::default());
         let latency = Latency {
             response_us: Some(0),
-            first_text_us: Some(20),
+            first_token_us: Some(20),
             waiting_us: None,
             elapsed_us: Some(u64::MAX),
         };
@@ -168,7 +169,7 @@ mod tests {
     fn defaults_unrecorded_response_time() {
         let wire = serde_json::json!({
             "index": 1, "transport": "http", "reused": false,
-            "headers_us": null, "first_text_us": 40, "elapsed_us": 50,
+            "headers_us": null, "first_token_us": 40, "elapsed_us": 50,
             "status": null, "outcome": "succeeded", "categories": [],
             "complete_context": true, "usage": null,
             "cache_reported": false, "reasoning_reported": false

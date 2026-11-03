@@ -2030,7 +2030,7 @@ host_process_uncertain: "중지 결과 알 수 없음; 프로세스 상태 확�
 host_process_stop_failed: "프로세스를 중지할 수 없습니다. 프로세스가 종료되었거나, 접근이 거부되었거나, 이 호스트가 지원하지 않을 수 있습니다"
 usage_column_provider: "공급자"
 usage_column_project: "프로젝트"
-usage_column_first_token: "첫 번째 토큰"
+usage_column_first_token: "TTFT"
 connections_hosts: "호스트"
 connections_mobile: "모바일"
 connections_online: "온라인"

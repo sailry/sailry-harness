@@ -188,7 +188,7 @@ async fn finalizes_terminal_and_cancelled_streams() {
                 assert_eq!(attempt.status, None);
                 assert_eq!(attempt.response_us, None);
                 assert_eq!(attempt.headers_us, None);
-                assert!(attempt.first_text_us.is_some());
+                assert!(attempt.first_token_us.is_some());
             }
             assert_eq!(
                 call.boundary,

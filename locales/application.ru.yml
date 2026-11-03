@@ -2030,7 +2030,7 @@ host_process_uncertain: "Результат остановки неизвест�
 host_process_stop_failed: "Не удалось остановить процесс; возможно, процесс завершился, доступ запрещен или этот узел не поддерживает процесс"
 usage_column_provider: "Провайдер"
 usage_column_project: "Проект"
-usage_column_first_token: "Первый токен"
+usage_column_first_token: "TTFT"
 connections_hosts: "Хосты"
 connections_mobile: "Мобильный"
 connections_online: "В сети"

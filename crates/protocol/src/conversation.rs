@@ -477,8 +477,9 @@ pub struct Statistics {
     /// Latest canonical maintenance record, regardless of history pagination.
     #[serde(default)]
     pub last_compaction: Option<compaction::Record>,
-    /// Recorded first text latency of the latest visible normal model response.
-    /// Includes retries within that logical invocation; absent when unrecorded.
+    /// Recorded time to first token (first streamed reasoning, text or tool call)
+    /// of the latest visible normal model response. Includes retries within that
+    /// logical invocation; absent when unrecorded.
     #[serde(default)]
     pub first_token_us: Option<u64>,
     pub cost: Option<crate::usage::Cost>,

@@ -73,7 +73,7 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64) {
     );
     assert!(observations.latency.elapsed_us.is_some());
     assert_eq!(observations.latency.response_us, None);
-    assert!(observations.latency.first_text_us.is_some());
+    assert!(observations.latency.first_token_us.is_some());
 }
 
 async fn totals(view: &mut watch::Receiver<View>, turns: u64, responses: u64) {

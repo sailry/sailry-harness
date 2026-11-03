@@ -1085,7 +1085,7 @@ usage_read_failed: 无法读取用量，请重试
 usage_empty: 暂无用量记录
 usage_responses: 响应数
 usage_speed: 生成速度
-usage_speed_help: 按模型响应总耗时计算，包含等待首字，不含排队和工具执行
+usage_speed_help: 按模型响应总耗时计算，包含首 Token 延迟，不含排队和工具执行
 usage_speed_partial: 部分响应
 usage_cost: 估算费用（USD）
 usage_cost_help: 参考估算，不代表实际账单
@@ -2230,7 +2230,7 @@ host_process_uncertain: 结束结果未知，请检查进程状态
 host_process_stop_failed: 无法结束进程，可能已退出、权限不足或主机不支持此操作
 usage_column_provider: 供应商
 usage_column_project: 归属
-usage_column_first_token: 首字
+usage_column_first_token: 首 Token 延迟
 connections_hosts: 主机
 connections_mobile: 移动端
 connections_online: 在线

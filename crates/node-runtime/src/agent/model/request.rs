@@ -171,7 +171,7 @@ struct State {
     request: Request,
     purpose: Purpose,
     started: Instant,
-    first_text: Option<u64>,
+    first_token: Option<u64>,
     usage: Option<Usage>,
     tokens: crate::telemetry::metrics::Tokens,
     metric: Option<(crate::telemetry::Capture, crate::telemetry::metrics::Model)>,
@@ -238,7 +238,7 @@ impl Capture {
                 },
                 purpose: model.purpose,
                 started,
-                first_text: None,
+                first_token: None,
                 usage: None,
                 tokens: Default::default(),
                 metric: model.metric.clone().and_then(|metric| {
@@ -262,16 +262,14 @@ impl Capture {
     }
     fn receive(&mut self, message: Option<&Message>, usage: Option<&mut ProviderUsage>) {
         let state = self.state.as_mut().expect("active request");
-        if state.first_text.is_none() && message.is_some_and(|message| message.content.iter().any(|content| matches!(content, MessageContentBlock::Text(text) if !text.text.is_empty()))) {
-            state.first_text = Some(micros(state.started.elapsed()));
-        }
+        mark(&mut state.first_token, message, state.started);
         if let Some(usage) = usage {
             let stats = usage.stats.get_or_insert_with(Default::default);
             stats
                 .elapsed_ms
                 .get_or_insert_with(|| millis(state.started.elapsed()));
             if stats.time_to_first_token_ms.is_none() {
-                stats.time_to_first_token_ms = state.first_text.map(|value| value / 1000);
+                stats.time_to_first_token_ms = state.first_token.map(|value| value / 1000);
             }
             state.cache_reported = usage.usage.cache_read_input_tokens.is_some();
             if let Ok(usage) = crate::agent::engine::history::provider_usage(usage) {
@@ -338,7 +336,7 @@ impl State {
             reused: None,
             headers_us: http.map(|receipt| receipt.headers_us),
             response_us: http.map(|receipt| receipt.headers_us),
-            first_text_us: self.first_text,
+            first_token_us: self.first_token,
             elapsed_us: Some(micros(elapsed)),
             status: http.map(|receipt| receipt.status),
             outcome,
@@ -349,7 +347,9 @@ impl State {
             reasoning_reported: self.reasoning_reported,
         });
         if let Some(timeline) = self.ingress.agents.timeline(self.request.turn) {
-            let wait = self.first_text.unwrap_or_else(|| micros(elapsed));
+            // Waiting ends at the first token; streamed reasoning, text and
+            // tool calls all count as output.
+            let wait = self.first_token.unwrap_or_else(|| micros(elapsed));
             timeline.record(
                 self.started,
                 std::time::Duration::from_micros(wait),
@@ -364,7 +364,7 @@ impl State {
             }
         }
         self.span.entry.stage = Some("provider");
-        self.span.entry.first_token_us = self.first_text;
+        self.span.entry.first_token_us = self.first_token;
         let code = if outcome == Outcome::Cancelled {
             Some(ErrorCode::Cancelled)
         } else {
@@ -446,6 +446,32 @@ fn finish_span(
     }
 }
 
+/// Records the time to first token at the first streamed output delta.
+fn mark(first: &mut Option<u64>, message: Option<&Message>, started: Instant) {
+    if first.is_none() && message.is_some_and(|message| message.content.iter().any(output)) {
+        *first = Some(micros(started.elapsed()));
+    }
+}
+
+/// Streamed model output of any kind marks the time to first token.
+fn output(content: &MessageContentBlock) -> bool {
+    match content {
+        MessageContentBlock::Text(text) => !text.text.is_empty(),
+        MessageContentBlock::Thinking(thinking) => {
+            !thinking.thinking.is_empty() || !thinking.signature.is_empty()
+        }
+        MessageContentBlock::RedactedThinking(thinking) => !thinking.data.is_empty(),
+        MessageContentBlock::ToolRequest(_)
+        | MessageContentBlock::Image(_)
+        | MessageContentBlock::Document(_) => true,
+        MessageContentBlock::ToolResponse(_)
+        | MessageContentBlock::ToolConfirmationRequest(_)
+        | MessageContentBlock::ActionRequired(_)
+        | MessageContentBlock::SystemNotification(_)
+        | MessageContentBlock::Error(_) => false,
+    }
+}
+
 fn counts(usage: &canonical::Usage) -> Option<Usage> {
     Some(Usage {
         input: usage.input?,
@@ -481,6 +507,46 @@ mod tests {
             {
                 self.0.lock().unwrap().push(*event.metadata().level());
             }
+        }
+    }
+
+    mod first_token {
+        use super::*;
+
+        /// Feeds deltas in order and returns the TTFT after each one.
+        fn observe(deltas: &[Option<Message>]) -> Vec<Option<u64>> {
+            let started = Instant::now() - Duration::from_millis(5);
+            let mut first = None;
+            deltas
+                .iter()
+                .map(|delta| {
+                    mark(&mut first, delta.as_ref(), started);
+                    first
+                })
+                .collect()
+        }
+
+        #[test]
+        fn records_tool_call_only_response() {
+            let call = Message::assistant().with_tool_request(
+                "call",
+                Ok(rmcp::model::CallToolRequestParams::new("read_file")),
+            );
+            let marks = observe(&[None, Some(Message::assistant().with_text("")), Some(call)]);
+            assert_eq!(marks[..2], [None, None]);
+            assert!(marks[2].is_some_and(|value| value >= 5_000));
+        }
+
+        #[test]
+        fn records_reasoning_before_text() {
+            let marks = observe(&[
+                Some(Message::assistant().with_thinking("", "")),
+                Some(Message::assistant().with_thinking("Plan", "")),
+                Some(Message::assistant().with_text("Answer")),
+            ]);
+            assert_eq!(marks[0], None);
+            assert!(marks[1].is_some());
+            assert_eq!(marks[2], marks[1]);
         }
     }
 

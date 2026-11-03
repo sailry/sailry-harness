@@ -286,7 +286,7 @@ mod cache {
 }
 
 #[tokio::test]
-async fn follows_latest_recorded_first_text() {
+async fn follows_latest_recorded_first_token() {
     let mut fixture = Fixture::new().await;
     let read_time = async |fixture: &Fixture| {
         read(&fixture.database.connection, fixture.session)

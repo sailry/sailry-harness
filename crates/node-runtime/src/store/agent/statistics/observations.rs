@@ -44,9 +44,9 @@ impl Latencies {
         } else {
             None
         }));
-        // SDK receipt and end share a clock. Node may receive the first text
+        // SDK receipt and end share a clock. Node may receive the first token
         // after that semantic terminal, so delivery is not bounded by SDK end.
-        let first = attempt.first_text_us;
+        let first = attempt.first_token_us;
         self.response.observe(response);
         self.first.observe(first);
         self.waiting.observe(
@@ -60,7 +60,7 @@ impl Latencies {
     fn finish(self) -> Latency {
         Latency {
             response_us: self.response.finish(),
-            first_text_us: self.first.finish(),
+            first_token_us: self.first.finish(),
             waiting_us: self.waiting.finish(),
             elapsed_us: self.elapsed.finish(),
         }
@@ -333,13 +333,12 @@ pub(super) async fn advance(
                 .saturating_add(attempt.elapsed_us.unwrap_or_default());
             if attempt.reasoning_reported
                 && let Some(usage) = &attempt.usage
-                && let Some((elapsed, first)) = attempt.elapsed_us.zip(attempt.first_text_us)
+                && let Some((elapsed, first)) = attempt.elapsed_us.zip(attempt.first_token_us)
                 && elapsed > first
             {
+                // Streamed reasoning follows the first token, so it is output here.
                 result.output_us = result.output_us.saturating_add(elapsed - first);
-                result.output_tokens = result
-                    .output_tokens
-                    .saturating_add(usage.output.saturating_sub(usage.reasoning));
+                result.output_tokens = result.output_tokens.saturating_add(usage.output);
                 result.output_samples += 1;
             }
             for row in &attempt.categories {

@@ -2030,7 +2030,7 @@ host_process_uncertain: "Resultado de parada desconhecido; verifique o status do
 host_process_stop_failed: "Não foi possível parar o processo; ele pode ter saído, o acesso pode ter sido negado ou este host pode não suportá-lo"
 usage_column_provider: "Provedor"
 usage_column_project: "Projeto"
-usage_column_first_token: "Primeiro token"
+usage_column_first_token: "TTFT"
 connections_hosts: "Hosts"
 connections_mobile: "Móvel"
 connections_online: "On-line"

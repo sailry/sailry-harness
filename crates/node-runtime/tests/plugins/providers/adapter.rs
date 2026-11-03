@@ -185,7 +185,7 @@ async fn runs_captured_translations_without_manual_approval() {
         assert_eq!(observed.status, Some(200));
         assert!(observed.headers_us.is_some());
         assert_eq!(observed.response_us, observed.headers_us);
-        assert!(observed.headers_us.unwrap() <= observed.first_text_us.unwrap());
+        assert!(observed.headers_us.unwrap() <= observed.first_token_us.unwrap());
         let original = captured(&node, first.id).await;
         assert!(
             original
