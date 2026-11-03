@@ -193,7 +193,7 @@ impl View {
                             })
                             .collect();
                         let selector = format!("image-card-{}", source.id());
-                        return div()
+                        return h_flex()
                             .max_w_full()
                             .debug_selector(move || selector.clone())
                             .child(images::card(

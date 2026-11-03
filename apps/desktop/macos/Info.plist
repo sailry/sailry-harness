@@ -21,6 +21,11 @@
         </dict>
     </array>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
+    <!-- The embedded browser accepts user-selected HTTP sites. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoadsInWebContent</key><true/>
+    </dict>
     <key>NSMicrophoneUsageDescription</key><string>Use the microphone for voice input</string>
     <key>NSAppDataUsageDescription</key><string>Import Chrome website cookies into Sailry</string>
     <key>NSHighResolutionCapable</key><true/>
