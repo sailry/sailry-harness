@@ -3,6 +3,8 @@ use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::{Command, ErrorCode, NodeId, Output, network::Selection};
 
+#[path = "network/peers.rs"]
+mod peers;
 #[path = "network/presets.rs"]
 mod presets;
 

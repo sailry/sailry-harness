@@ -27,6 +27,7 @@ mod network;
 mod notifications;
 mod operations;
 mod outcomes;
+mod peers;
 mod plugins;
 mod ports;
 mod power;
@@ -379,6 +380,7 @@ pub(crate) struct Ingress {
     pub(crate) plugins: crate::plugins::Host,
     pub(crate) status: Arc<plugins::status::Service>,
     installations: Arc<installations::Registry>,
+    peers: Arc<peers::Registry>,
     pub(crate) login_service: crate::providers::login::Service,
     closed: CancellationToken,
 }
@@ -543,6 +545,7 @@ impl Store {
             plugins: crate::plugins::Host::new(profile.clone()).with_github(skills),
             status: Arc::default(),
             installations: Arc::default(),
+            peers: Arc::default(),
             closed,
             dispatch: Arc::new(crate::dispatch::Controls::default()),
         });
@@ -1447,6 +1450,7 @@ mapped }).await
         self.ingress.dispatch.stop.cancel();
         self.ingress.accepting.store(false, Ordering::Release);
         self.ingress.closed.cancel();
+        self.ingress.peers.close();
         self.ingress.model_clients.clear();
         self.ingress.external_browser.stop.cancel();
         self.ingress.watches.shutdown();
@@ -1508,6 +1512,12 @@ impl Drop for Store {
 impl Handler for Ingress {
     fn product_version(&self) -> Option<&str> {
         Some(env!("SAILRY_HOST_VERSION"))
+    }
+
+    fn connected_peers(
+        &self,
+    ) -> Option<tokio::sync::watch::Receiver<std::collections::BTreeSet<NodeId>>> {
+        Some(self.peers.subscribe())
     }
 
     fn open(
@@ -1651,6 +1661,7 @@ impl Handler for Ingress {
                 cursor,
                 through: cursor,
                 pending: Default::default(),
+                _peer: self.peers.enter(caller)?,
             }) as Box<dyn Subscription>)
         })
     }
@@ -1815,6 +1826,7 @@ struct Events {
     cursor: u64,
     through: u64,
     pending: std::collections::VecDeque<sailry_protocol::EventEnvelope>,
+    _peer: peers::Guard,
 }
 
 impl Events {

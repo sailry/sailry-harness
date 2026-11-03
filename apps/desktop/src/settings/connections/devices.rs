@@ -5,7 +5,10 @@ use gpui_kit::component::badge::Badge;
 use sailry_client::Client;
 use sailry_link::{ConnectionInfo, EndpointAddr, Route};
 use sailry_protocol::{Command, NodeId, Output};
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 #[cfg(test)]
 mod tests;
@@ -19,7 +22,7 @@ pub(super) struct Device {
     id: NodeId,
     local: bool,
     known: KnownDevice,
-    latency: Option<Duration>,
+    online: bool,
     address: Option<EndpointAddr>,
     connection: ConnectionInfo,
 }
@@ -27,9 +30,26 @@ pub(super) struct Device {
 enum DeviceUpdate {
     Inventory(Vec<Device>),
     Connection(EndpointAddr, ConnectionInfo),
+    Presence(BTreeSet<NodeId>),
 }
 
 impl Device {
+    fn observe(&mut self, peers: &BTreeSet<NodeId>) {
+        if !self.local && !self.known.execution {
+            self.online = peers.contains(&self.id);
+        }
+    }
+
+    fn status_key(&self) -> &'static str {
+        if self.local {
+            "composer_host_local"
+        } else if self.online {
+            "connections_online"
+        } else {
+            "connections_offline"
+        }
+    }
+
     fn latency_text(&self) -> Option<String> {
         if self.local {
             return None;
@@ -37,7 +57,7 @@ impl Device {
         Some(
             self.connection
                 .rtt_ms
-                .filter(|_| self.latency.is_some())
+                .filter(|_| self.online)
                 .map(|rtt| format!("{rtt} ms"))
                 .unwrap_or_else(|| "—".into()),
         )
@@ -47,13 +67,11 @@ impl Device {
         if self.local {
             return None;
         }
-        Some(
-            match self.connection.route.filter(|_| self.latency.is_some()) {
-                Some(Route::P2p) => "connection_route_p2p",
-                Some(Route::Relay) => "connection_route_relay",
-                _ => "connection_route_unknown",
-            },
-        )
+        Some(match self.connection.route.filter(|_| self.online) {
+            Some(Route::P2p) => "connection_route_p2p",
+            Some(Route::Relay) => "connection_route_relay",
+            _ => "connection_route_unknown",
+        })
     }
 }
 
@@ -71,6 +89,23 @@ impl Connections {
         let (sender, mut updates) = tokio::sync::mpsc::channel(1);
         let mut changed = services.link.peer_changes();
         services.runtime.clone().spawn(async move {
+            if let Some(mut peers) = services.link.connected_peers() {
+                let sender = sender.clone();
+                let token = stop.clone();
+                services.runtime.spawn(async move {
+                    loop {
+                        let connected = peers.borrow_and_update().clone();
+                        tokio::select! {
+                            _ = token.cancelled() => break,
+                            result = sender.send(DeviceUpdate::Presence(connected)) => if result.is_err() { break; },
+                        }
+                        tokio::select! {
+                            _ = token.cancelled() => break,
+                            result = peers.changed() => if result.is_err() { break; },
+                        }
+                    }
+                });
+            }
             let mut watchers: BTreeMap<NodeId, (EndpointAddr, CancellationToken)> = BTreeMap::new();
             loop {
                 let poll = async {
@@ -113,14 +148,14 @@ impl Connections {
                         async move {
                             let id = NodeId(*address.id.as_bytes());
                             let mut device = Device { id, local: false,
-                                known: known.get(&key(id)).cloned().unwrap_or(KnownDevice { name: None, execution: true, platform: None }), latency: None,
+                                known: known.get(&key(id)).cloned().unwrap_or(KnownDevice { name: None, execution: true, platform: None }), online: false,
                                 address: Some(address.clone()), connection: ConnectionInfo::default() };
                             if let Ok(Ok(info)) = tokio::time::timeout(Duration::from_secs(3), services.link.inspect(&address)).await {
+                                device.online = info.execution && info.compatibility().is_ok();
                                 device.known.execution = info.execution;
                                 device.known.platform = Some(info.platform);
-                                device.latency = Some(info.latency);
                                 if info.name.is_some() { device.known.name = info.name; }
-                                if info.execution {
+                                if device.online {
                                     let client = Client::new(services.link.remote(address));
                                     if let Ok(Ok(Output::HostInfo(info))) = tokio::time::timeout(Duration::from_secs(3), client.execute(client.prepare(Command::InspectHost))).await {
                                         device.known.name = info.name;
@@ -136,7 +171,7 @@ impl Connections {
                         _ => None,
                     };
                     devices.push(Device { id: services.local.target(), local: true,
-                        known: KnownDevice { name, execution: true, platform: Some(std::env::consts::OS.to_owned()) }, latency: Some(Duration::ZERO), address: None, connection: ConnectionInfo::default() });
+                        known: KnownDevice { name, execution: true, platform: Some(std::env::consts::OS.to_owned()) }, online: true, address: None, connection: ConnectionInfo::default() });
                     devices.sort_by_key(|device| (!device.local, device.id));
                     known = devices.iter().map(|device| (key(device.id), device.known.clone())).collect();
                     Some(devices)
@@ -154,10 +189,19 @@ impl Connections {
         });
         self.watcher = Some(cx.spawn(async move |this, cx| {
             let mut telemetry: BTreeMap<NodeId, (EndpointAddr, ConnectionInfo)> = BTreeMap::new();
+            let mut connected = BTreeSet::new();
             while let Some(update) = updates.recv().await {
                 if this
                     .update(cx, |this, cx| {
                         let mut devices = match update {
+                            DeviceUpdate::Presence(peers) => {
+                                connected = peers;
+                                for device in &mut this.devices {
+                                    device.observe(&connected);
+                                }
+                                cx.notify();
+                                return;
+                            }
                             DeviceUpdate::Connection(address, connection) => {
                                 telemetry.insert(
                                     NodeId(*address.id.as_bytes()),
@@ -176,6 +220,7 @@ impl Connections {
                             DeviceUpdate::Inventory(devices) => devices,
                         };
                         for device in &mut devices {
+                            device.observe(&connected);
                             if let Some((address, connection)) = telemetry.get(&device.id)
                                 && device.address.as_ref() == Some(address)
                             {
@@ -224,24 +269,20 @@ impl Connections {
                     .w(px(STATUS_WIDTH))
                     .flex_shrink_0()
                     .when(execution, |cell| cell.justify_end())
-                    .child(div().size_1p5().child(Badge::new().dot().color(
-                        if device.latency.is_some() {
-                            cx.theme().success
-                        } else {
-                            cx.theme().muted_foreground
-                        },
-                    )))
+                    .child(
+                        div()
+                            .size_1p5()
+                            .child(Badge::new().dot().color(if device.online {
+                                cx.theme().success
+                            } else {
+                                cx.theme().muted_foreground
+                            })),
+                    )
                     .child(
                         div()
                             .debug_selector(move || format!("connection-status-label-{id:?}"))
                             .text_color(cx.theme().muted_foreground)
-                            .child(tr(if device.local {
-                                "composer_host_local"
-                            } else if device.latency.is_some() {
-                                "connections_online"
-                            } else {
-                                "connections_offline"
-                            })),
+                            .child(tr(device.status_key())),
                     );
                 let route = h_flex()
                     .w(px(ROUTE_WIDTH))

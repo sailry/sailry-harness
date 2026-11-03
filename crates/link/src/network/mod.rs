@@ -272,6 +272,12 @@ impl LinkHandle {
     pub fn peer_changes(&self) -> watch::Receiver<()> {
         self.core.trust_changed.subscribe()
     }
+
+    /// Observe this endpoint's service subscriptions without dialing its paired peers.
+    pub fn connected_peers(&self) -> Option<watch::Receiver<BTreeSet<NodeId>>> {
+        self.core.handler.connected_peers()
+    }
+
     pub async fn peers(&self) -> Result<Vec<EndpointAddr>, Fault> {
         self.core.store.addresses().await
     }

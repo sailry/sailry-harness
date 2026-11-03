@@ -43,6 +43,13 @@ pub trait Handler: Send + Sync {
         true
     }
 
+    /// Local service presence follows accepted controller subscriptions, not endpoint probes.
+    fn connected_peers(
+        &self,
+    ) -> Option<tokio::sync::watch::Receiver<std::collections::BTreeSet<NodeId>>> {
+        None
+    }
+
     /// The owning service must authorize the caller and resource before returning a stream.
     fn open(
         &self,
