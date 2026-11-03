@@ -118,33 +118,32 @@ Future<void> main() async {
   await execute(connection, 'input_terminal', {
     'terminal': id,
     'revision': opened['revision'],
-    'input': {
-      'paste': {
-        'text': "printf x >> terminal-effects; printf '%s%s\\n' FFI _TERMINAL",
-      },
-    },
-  });
-  await execute(connection, 'input_terminal', {
-    'terminal': id,
-    'revision': opened['revision'],
-    'input': {
-      'key': {
-        'event': {
-          'key': 'enter',
-          'action': 'press',
-          'modifiers': {
-            'shift': false,
-            'control': false,
-            'alt': false,
-            'super_key': false,
-            'caps_lock': false,
-            'num_lock': false,
-          },
-          'utf8': null,
-          'unshifted_codepoint': null,
+    'inputs': [
+      {
+        'paste': {
+          'text':
+              "printf x >> terminal-effects; printf '%s%s\\n' FFI _TERMINAL",
         },
       },
-    },
+      {
+        'key': {
+          'event': {
+            'key': 'enter',
+            'action': 'press',
+            'modifiers': {
+              'shift': false,
+              'control': false,
+              'alt': false,
+              'super_key': false,
+              'caps_lock': false,
+              'num_lock': false,
+            },
+            'utf8': null,
+            'unshifted_codepoint': null,
+          },
+        },
+      },
+    ],
   });
   await terminal.until(
     terminalUpdates,

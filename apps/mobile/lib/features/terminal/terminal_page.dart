@@ -247,6 +247,16 @@ class _TerminalPageState extends State<TerminalPage>
     }
   }
 
+  /// Terminal input travels as an ordered batch; text is already merged here.
+  static Map<String, dynamic> _wire(String kind, Map<String, dynamic> payload) {
+    if (kind != 'input_terminal') return payload;
+    return {
+      for (final entry in payload.entries)
+        if (entry.key != 'input') entry.key: entry.value,
+      'inputs': [payload['input']],
+    };
+  }
+
   void _enqueue(String kind, Map<String, dynamic> data) {
     if (!_controlling) return;
     final host = _host!;
@@ -282,7 +292,7 @@ class _TerminalPageState extends State<TerminalPage>
               _terminal != terminal) {
             return;
           }
-          await host.command(kind, payload);
+          await host.command(kind, _wire(kind, payload));
         })
         .catchError((Object error) {
           // A failed input invalidates the queued tail. Terminal keystrokes are never replayed.

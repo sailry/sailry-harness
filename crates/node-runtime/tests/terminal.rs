@@ -80,7 +80,7 @@ fn launch(worktree: WorktreeId) -> Launch {
 
 async fn command(client: &Client, info: &Info, text: &str) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    for input in [
+    let inputs = vec![
         Input::Paste { text: text.into() },
         Input::Key {
             event: KeyEvent {
@@ -91,30 +91,29 @@ async fn command(client: &Client, info: &Info, text: &str) {
                 unshifted_codepoint: None,
             },
         },
-    ] {
-        let request = client.prepare(Command::InputTerminal {
-            terminal: info.id,
-            revision: info.revision,
-            input,
-        });
-        tokio::time::timeout_at(deadline, async {
-            loop {
-                match client.execute(request.clone()).await {
-                    Ok(_) => break,
-                    Err(error)
-                        if error.code == ErrorCode::Busy
-                            && error.message == "terminal command queue is full" =>
-                    {
-                        // Full rejects this input before it can enter the PTY owner.
-                        tokio::task::yield_now().await;
-                    }
-                    Err(error) => panic!("terminal input failed: {error:?}"),
+    ];
+    let request = client.prepare(Command::InputTerminal {
+        terminal: info.id,
+        revision: info.revision,
+        inputs,
+    });
+    tokio::time::timeout_at(deadline, async {
+        loop {
+            match client.execute(request.clone()).await {
+                Ok(_) => break,
+                Err(error)
+                    if error.code == ErrorCode::Busy
+                        && error.message == "terminal command queue is full" =>
+                {
+                    // Full rejects this input before it can enter the PTY owner.
+                    tokio::task::yield_now().await;
                 }
+                Err(error) => panic!("terminal input failed: {error:?}"),
             }
-        })
-        .await
-        .expect("terminal input deadline");
-    }
+        }
+    })
+    .await
+    .expect("terminal input deadline");
 }
 
 fn content(screen: &Screen) -> String {
@@ -243,6 +242,50 @@ async fn shares_process_and_input_ownership() {
         projection.apply(1, stream.next().await.unwrap()).unwrap();
         command(&client, &info, "printf '%s%s\\n' 'pty-' 'ready'").await;
         until(&mut *stream, &mut projection, "pty-ready").await;
+        let invalid = vec![
+            Input::Text {
+                text: "printf leaked > batch-rejected".into(),
+            },
+            Input::Key {
+                event: KeyEvent {
+                    key: Key::Enter,
+                    action: Action::Press,
+                    modifiers: Modifiers::default(),
+                    utf8: None,
+                    unshifted_codepoint: None,
+                },
+            },
+            Input::Text { text: "\n".into() },
+        ];
+        for inputs in [
+            Vec::new(),
+            vec![Input::Focus { focused: true }; MAX_INPUT_BATCH + 1],
+            vec![
+                Input::Paste {
+                    text: "a".repeat(MAX_INPUT_BYTES / 2),
+                },
+                Input::Text {
+                    text: "b".repeat(MAX_INPUT_BYTES / 2 + 1),
+                },
+            ],
+            invalid,
+        ] {
+            assert_eq!(
+                client
+                    .execute(client.prepare(Command::InputTerminal {
+                        terminal: info.id,
+                        revision: info.revision,
+                        inputs,
+                    }))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidRequest
+            );
+        }
+        command(&client, &info, "printf '%s%s\\n' 'batch-' 'accepted'").await;
+        until(&mut *stream, &mut projection, "batch-accepted").await;
+        assert!(!root.join("batch-rejected").exists());
         assert_eq!(
             count().await,
             before + 1,
@@ -252,9 +295,9 @@ async fn shares_process_and_input_ownership() {
             .execute(other.prepare(Command::InputTerminal {
                 terminal: info.id,
                 revision: info.revision,
-                input: Input::Text {
+                inputs: vec![Input::Text {
                     text: "blocked".into(),
-                },
+                }],
             }))
             .await
             .unwrap_err();
@@ -275,9 +318,9 @@ async fn shares_process_and_input_ownership() {
                 .execute(client.prepare(Command::InputTerminal {
                     terminal: info.id,
                     revision: info.revision,
-                    input: Input::Text {
+                    inputs: vec![Input::Text {
                         text: "stale".into()
-                    }
+                    }]
                 }))
                 .await
                 .unwrap_err()

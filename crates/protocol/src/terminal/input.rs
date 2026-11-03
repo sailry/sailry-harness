@@ -11,8 +11,44 @@ pub enum InputError {
         max: usize,
         actual: usize,
     },
+    #[error("{field} exceeds {max} items: {actual}")]
+    TooMany {
+        field: &'static str,
+        max: usize,
+        actual: usize,
+    },
     #[error("{field} is invalid")]
     Invalid { field: &'static str },
+}
+
+/// Inputs in one command. Clients batch queued input so each round trip
+/// carries everything typed or scrolled since the previous one.
+pub const MAX_INPUT_BATCH: usize = 256;
+
+/// Validates a whole batch before any byte reaches the PTY.
+pub fn validate_inputs(inputs: &[Input]) -> Result<(), InputError> {
+    if inputs.is_empty() {
+        return Err(InputError::Empty {
+            field: "terminal inputs",
+        });
+    }
+    if inputs.len() > MAX_INPUT_BATCH {
+        return Err(InputError::TooMany {
+            field: "terminal inputs",
+            max: MAX_INPUT_BATCH,
+            actual: inputs.len(),
+        });
+    }
+    inputs.iter().try_for_each(Input::validate)?;
+    let bytes: usize = inputs.iter().map(Input::text_bytes).sum();
+    if bytes > MAX_INPUT_BYTES {
+        return Err(InputError::TooLarge {
+            field: "terminal inputs",
+            max: MAX_INPUT_BYTES,
+            actual: bytes,
+        });
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -26,6 +62,14 @@ pub enum Input {
 }
 
 impl Input {
+    /// Text and paste bytes, which bound a batch's total size.
+    pub fn text_bytes(&self) -> usize {
+        match self {
+            Self::Text { text } | Self::Paste { text } => text.len(),
+            _ => 0,
+        }
+    }
+
     pub fn validate(&self) -> Result<(), InputError> {
         match self {
             Self::Focus { .. } => Ok(()),
@@ -261,3 +305,6 @@ pub enum NamedKey {
     NumpadComma,
     NumpadClear,
 }
+
+#[cfg(test)]
+mod tests;

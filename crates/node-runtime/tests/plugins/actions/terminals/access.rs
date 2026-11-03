@@ -75,9 +75,9 @@ async fn distinguishes_user_control_from_plugin_execution() {
                 Command::InputTerminal {
                     terminal: info.id,
                     revision: info.revision,
-                    input: Input::Paste {
+                    inputs: vec![Input::Paste {
                         text: "printf forbidden > plugin.txt".into(),
-                    },
+                    }],
                 },
             ] {
                 assert_eq!(
@@ -98,9 +98,9 @@ async fn distinguishes_user_control_from_plugin_execution() {
         let blocked = Command::InputTerminal {
             terminal: info.id,
             revision: info.revision,
-            input: Input::Paste {
+            inputs: vec![Input::Paste {
                 text: "printf forbidden > plugin.txt".into(),
-            },
+            }],
         };
         assert_eq!(
             client
@@ -128,7 +128,7 @@ async fn distinguishes_user_control_from_plugin_execution() {
                 .execute(client.prepare(Command::InputTerminal {
                     terminal: info.id,
                     revision: info.revision,
-                    input,
+                    inputs: vec![input],
                 }))
                 .await
                 .unwrap();

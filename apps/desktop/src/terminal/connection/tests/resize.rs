@@ -128,9 +128,9 @@ async fn resends_failed_and_coalesces_pending_geometry() {
                         assert!(connection.enqueue(Command::InputTerminal {
                             terminal: info.id,
                             revision,
-                            input: terminal::Input::Text {
+                            inputs: vec![terminal::Input::Text {
                                 text: "discarded".into()
-                            },
+                            }],
                         }));
                     }
                 }

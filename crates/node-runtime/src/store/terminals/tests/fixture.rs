@@ -99,7 +99,7 @@ impl Fixture {
         let request = self.client.prepare(Command::InputTerminal {
             terminal: info.id,
             revision: info.revision,
-            input,
+            inputs: vec![input],
         });
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {

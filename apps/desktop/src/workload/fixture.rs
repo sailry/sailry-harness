@@ -284,14 +284,14 @@ pub(super) async fn output(client: &Client, info: &Info) {
                 Command::InputTerminal {
                     terminal: info.id,
                     revision: info.revision,
-                    input: Input::Paste {
+                    inputs: vec![Input::Paste {
                         text: concat!(
                             "awk 'BEGIN { for (i=0;i<20000;i++) printf ",
                             "\"%06d continuous terminal output xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n\",i }'; ",
                             "printf '%s%s\\n' 'load-' 'complete'"
                         )
                         .into(),
-                    },
+                    }],
                 },
             )
             .await;
@@ -300,7 +300,7 @@ pub(super) async fn output(client: &Client, info: &Info) {
                 Command::InputTerminal {
                     terminal: info.id,
                     revision: info.revision,
-                    input: Input::Key {
+                    inputs: vec![Input::Key {
                         event: KeyEvent {
                             key: Key::Enter,
                             action: Action::Press,
@@ -308,7 +308,7 @@ pub(super) async fn output(client: &Client, info: &Info) {
                             utf8: None,
                             unshifted_codepoint: None,
                         },
-                    },
+                    }],
                 },
             )
             .await;

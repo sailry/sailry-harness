@@ -64,9 +64,9 @@ impl View {
             Command::InputTerminal {
                 terminal: self.binding.id,
                 revision,
-                input: protocol::Input::Focus {
+                inputs: vec![protocol::Input::Focus {
                     focused: focused && self.window_active,
-                },
+                }],
             },
             cx,
         );

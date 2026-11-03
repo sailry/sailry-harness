@@ -56,7 +56,7 @@ impl View {
             sailry_protocol::Command::InputTerminal {
                 terminal: self.binding.id,
                 revision: snapshot.info.revision,
-                input: protocol::Input::Mouse { event },
+                inputs: vec![protocol::Input::Mouse { event }],
             },
             cx,
         );
@@ -125,6 +125,11 @@ impl View {
         };
         let count = (*remainder / self.metrics.cell.height).trunc() as i32;
         *remainder -= self.metrics.cell.height * count as f32;
+        if self.connection.congested() {
+            // Scroll ticks are best-effort; drop them rather than delay typed input.
+            cx.stop_propagation();
+            return true;
+        }
         for _ in 0..count.unsigned_abs().min(20) {
             if self.tracking(event.modifiers) {
                 let button = match (horizontal, count > 0) {

@@ -1089,10 +1089,11 @@ pub enum Command {
         terminal: crate::TerminalId,
         expected_revision: u64,
     },
+    /// Ordered input written to the PTY as one batch; see `terminal::validate_inputs`.
     InputTerminal {
         terminal: crate::TerminalId,
         revision: u64,
-        input: crate::terminal::Input,
+        inputs: Vec<crate::terminal::Input>,
     },
     ResizeTerminal {
         terminal: crate::TerminalId,

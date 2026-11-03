@@ -440,7 +440,7 @@ impl View {
             Command::InputTerminal {
                 terminal: self.binding.id,
                 revision: snapshot.info.revision,
-                input,
+                inputs: vec![input],
             },
             cx,
         );

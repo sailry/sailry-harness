@@ -192,30 +192,28 @@ Future<void> enter(
   await execute(connection, 'input_terminal', {
     'terminal': id,
     'revision': revision,
-    'input': {
-      'paste': {'text': text},
-    },
-  });
-  await execute(connection, 'input_terminal', {
-    'terminal': id,
-    'revision': revision,
-    'input': {
-      'key': {
-        'event': {
-          'key': 'enter',
-          'action': 'press',
-          'modifiers': {
-            'shift': false,
-            'control': false,
-            'alt': false,
-            'super_key': false,
-            'caps_lock': false,
-            'num_lock': false,
+    'inputs': [
+      {
+        'paste': {'text': text},
+      },
+      {
+        'key': {
+          'event': {
+            'key': 'enter',
+            'action': 'press',
+            'modifiers': {
+              'shift': false,
+              'control': false,
+              'alt': false,
+              'super_key': false,
+              'caps_lock': false,
+              'num_lock': false,
+            },
+            'utf8': null,
+            'unshifted_codepoint': null,
           },
-          'utf8': null,
-          'unshifted_codepoint': null,
         },
       },
-    },
+    ],
   });
 }

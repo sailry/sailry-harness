@@ -105,9 +105,9 @@ async fn scopes_control_and_replays() {
                     .prepare(Command::InputTerminal {
                         terminal: terminal.id,
                         revision: owned.revision,
-                        input: Input::Paste {
+                        inputs: vec![Input::Paste {
                             text: "printf 'plugin-%s\\n' pty-check".into(),
-                        },
+                        }],
                     })
                     .with_plugin(context.clone()),
             )
@@ -119,7 +119,7 @@ async fn scopes_control_and_replays() {
                     .prepare(Command::InputTerminal {
                         terminal: terminal.id,
                         revision: owned.revision,
-                        input: Input::Key {
+                        inputs: vec![Input::Key {
                             event: terminal::KeyEvent {
                                 key: terminal::Key::Enter,
                                 action: terminal::Action::Press,
@@ -127,7 +127,7 @@ async fn scopes_control_and_replays() {
                                 utf8: None,
                                 unshifted_codepoint: None,
                             },
-                        },
+                        }],
                     })
                     .with_plugin(context.clone()),
             )

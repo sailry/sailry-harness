@@ -1,9 +1,16 @@
-use sailry_protocol::{Command, TerminalId, terminal::Viewport};
+use sailry_protocol::{
+    Command, TerminalId,
+    terminal::{MAX_INPUT_BATCH, MAX_INPUT_BYTES, Viewport},
+};
 use std::{collections::VecDeque, sync::Mutex};
 use tokio::sync::Notify;
 use tokio::time::{Duration, Instant};
 
-const CAPACITY: usize = 64;
+/// One round trip can drain the whole queue as a single input batch.
+const CAPACITY: usize = MAX_INPUT_BATCH;
+/// Pointer motion and wheel ticks are best-effort: behind this backlog they
+/// are dropped instead of failing input, keeping room for typed keys.
+pub(super) const POINTER_BACKLOG: usize = CAPACITY / 2;
 const RETRY_DELAY: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Eq, PartialEq)]
@@ -35,6 +42,50 @@ impl Resize {
     }
 }
 
+fn pointer(command: &Command) -> bool {
+    use sailry_protocol::terminal::{Input, MouseAction, MouseButton};
+    let Command::InputTerminal { inputs, .. } = command else {
+        return false;
+    };
+    inputs.iter().all(|input| {
+        matches!(input, Input::Mouse { event }
+        if event.action == MouseAction::Motion
+            || matches!(event.button, Some(MouseButton::WheelUp | MouseButton::WheelDown
+                | MouseButton::WheelLeft | MouseButton::WheelRight)))
+    })
+}
+
+/// Appends queued input for the same terminal revision to `batch`, preserving order.
+fn absorb(batch: &mut Command, next: &Command) -> bool {
+    let (
+        Command::InputTerminal {
+            terminal,
+            revision,
+            inputs,
+        },
+        Command::InputTerminal {
+            terminal: other,
+            revision: version,
+            inputs: tail,
+        },
+    ) = (batch, next)
+    else {
+        return false;
+    };
+    let bytes = |inputs: &[sailry_protocol::terminal::Input]| {
+        inputs.iter().map(|input| input.text_bytes()).sum::<usize>()
+    };
+    if terminal != other
+        || revision != version
+        || inputs.len() + tail.len() > MAX_INPUT_BATCH
+        || bytes(inputs) + bytes(tail) > MAX_INPUT_BYTES
+    {
+        return false;
+    }
+    inputs.extend(tail.iter().cloned());
+    true
+}
+
 #[derive(Default)]
 struct State {
     pending: VecDeque<Command>,
@@ -64,6 +115,9 @@ impl State {
                 return true;
             }
         }
+        if pointer(&command) && self.pending.len() >= POINTER_BACKLOG {
+            return true;
+        }
         if self.pending.len() == CAPACITY {
             return false;
         }
@@ -81,7 +135,12 @@ impl State {
         {
             return None;
         }
-        let command = self.pending.pop_front()?;
+        let mut command = self.pending.pop_front()?;
+        while let Some(next) = self.pending.front()
+            && absorb(&mut command, next)
+        {
+            self.pending.pop_front();
+        }
         self.in_flight = Resize::from(&command);
         Some(command)
     }
@@ -156,6 +215,10 @@ impl Queue {
                 notified.await;
             }
         }
+    }
+
+    pub fn backlog(&self) -> usize {
+        self.state.lock().unwrap().pending.len()
     }
 
     pub fn complete(&self, success: bool) {

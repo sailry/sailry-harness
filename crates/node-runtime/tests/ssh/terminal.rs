@@ -39,7 +39,7 @@ async fn input(client: &Client, info: &Info, text: &str) {
         Command::InputTerminal {
             terminal: info.id,
             revision: info.revision,
-            input: Input::Paste { text: text.into() },
+            inputs: vec![Input::Paste { text: text.into() }],
         },
     )
     .await;
@@ -48,7 +48,7 @@ async fn input(client: &Client, info: &Info, text: &str) {
         Command::InputTerminal {
             terminal: info.id,
             revision: info.revision,
-            input: Input::Key {
+            inputs: vec![Input::Key {
                 event: KeyEvent {
                     key: Key::Enter,
                     action: Action::Press,
@@ -56,7 +56,7 @@ async fn input(client: &Client, info: &Info, text: &str) {
                     utf8: None,
                     unshifted_codepoint: None,
                 },
-            },
+            }],
         },
     )
     .await;
@@ -168,9 +168,9 @@ async fn shares_shell_lifecycle() {
                 .execute(other.prepare(Command::InputTerminal {
                     terminal: info.id,
                     revision: info.revision,
-                    input: Input::Paste {
+                    inputs: vec![Input::Paste {
                         text: "blocked".into()
-                    }
+                    }]
                 }))
                 .await
                 .unwrap_err()
@@ -346,9 +346,9 @@ async fn retains_shell_after_profile_removal() {
                 .execute(other.prepare(Command::InputTerminal {
                     terminal: info.id,
                     revision: info.revision,
-                    input: Input::Paste {
+                    inputs: vec![Input::Paste {
                         text: "blocked".into()
-                    }
+                    }]
                 }))
                 .await
                 .unwrap_err()

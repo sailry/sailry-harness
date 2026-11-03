@@ -199,6 +199,11 @@ impl Connection {
         !self.closed() && !self.stopped() && self.input.enqueue(command)
     }
 
+    /// Whether best-effort scroll input should be skipped behind queued commands.
+    pub fn congested(&self) -> bool {
+        self.input.backlog() >= queue::POINTER_BACKLOG
+    }
+
     pub fn reset_resize(&self) {
         self.input.reset_resize();
     }

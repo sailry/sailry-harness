@@ -211,9 +211,9 @@ async fn respects_terminal_lifecycle() {
                 } else {
                     revision + 100
                 },
-                input: terminal::Input::Text {
+                inputs: vec![terminal::Input::Text {
                     text: "ignored".into()
-                }
+                }]
             }));
             tokio::time::timeout(Duration::from_secs(10), held.entered.cancelled())
                 .await

@@ -115,9 +115,9 @@ async fn restores_explicit_shells() {
             .execute(client.prepare(Command::InputTerminal {
                 terminal: info.id,
                 revision: original.revision,
-                input: Input::Text {
+                inputs: vec![Input::Text {
                     text: "stale".into(),
-                },
+                }],
             }))
             .await
             .unwrap_err();

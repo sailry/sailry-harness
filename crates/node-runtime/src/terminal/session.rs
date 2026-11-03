@@ -323,14 +323,18 @@ impl Owner {
             Command::InputTerminal {
                 terminal,
                 revision,
-                input,
+                inputs,
             } => {
                 self.check_owner(caller, revision)?;
-                input
-                    .validate()
-                    .map_err(|error| Fault::invalid(error.to_string()))?;
-                let bytes = self.vt.encode_input(&input)?;
-                self.process.write(bytes)?;
+                validate_inputs(&inputs).map_err(|error| Fault::invalid(error.to_string()))?;
+                // Encode the whole batch first so a rejected item writes nothing.
+                let mut bytes = Vec::new();
+                for input in &inputs {
+                    bytes.extend(self.vt.encode_input(input)?);
+                }
+                if !bytes.is_empty() {
+                    self.process.write(bytes)?;
+                }
                 Ok(Output::TerminalInput { terminal })
             }
             Command::ResizeTerminal {

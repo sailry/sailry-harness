@@ -233,9 +233,9 @@ async fn terminal(client: &Client, host: &mut Host, worktree: WorktreeId) {
         NodeCommand::InputTerminal {
             terminal: info.id,
             revision: info.revision,
-            input: Input::Paste {
+            inputs: vec![Input::Paste {
                 text: command.into(),
-            },
+            }],
         },
     )
     .await;
@@ -244,7 +244,7 @@ async fn terminal(client: &Client, host: &mut Host, worktree: WorktreeId) {
         NodeCommand::InputTerminal {
             terminal: info.id,
             revision: info.revision,
-            input: Input::Key {
+            inputs: vec![Input::Key {
                 event: KeyEvent {
                     key: Key::Enter,
                     action: Action::Press,
@@ -252,7 +252,7 @@ async fn terminal(client: &Client, host: &mut Host, worktree: WorktreeId) {
                     utf8: None,
                     unshifted_codepoint: None,
                 },
-            },
+            }],
         },
     )
     .await;

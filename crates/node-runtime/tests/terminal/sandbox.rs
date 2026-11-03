@@ -325,7 +325,7 @@ async fn controls_only_owned_foreground_group() {
             .execute(current.prepare(Command::InputTerminal {
                 terminal: info.id,
                 revision: info.revision,
-                input: Input::Key {
+                inputs: vec![Input::Key {
                     event: KeyEvent {
                         key: Key::Character {
                             codepoint: u32::from('c'),
@@ -338,7 +338,7 @@ async fn controls_only_owned_foreground_group() {
                         utf8: Some("c".into()),
                         unshifted_codepoint: Some(u32::from('c')),
                     },
-                },
+                }],
             }))
             .await
             .unwrap();
