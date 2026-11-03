@@ -303,6 +303,7 @@ impl Client {
                                                     projection.live_start(),
                                                 );
                                                 view.loading_older = load.is_some();
+                                                view.statistics_error = projection.statistics_error().cloned();
                                             });
                                         }
                                     }

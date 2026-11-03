@@ -20,6 +20,7 @@ pub struct Projection {
     session: SessionId,
     generation: u64,
     snapshot: Option<Snapshot>,
+    statistics_error: Option<Fault>,
     recovery: bool,
     artifact_cursor: u64,
     live_start: Option<u64>,
@@ -35,6 +36,7 @@ impl Projection {
             session,
             generation,
             snapshot: None,
+            statistics_error: None,
             recovery: true,
             artifact_cursor: 0,
             live_start: None,
@@ -45,6 +47,10 @@ impl Projection {
 
     pub fn snapshot(&self) -> Option<&Snapshot> {
         self.snapshot.as_ref()
+    }
+
+    pub fn statistics_error(&self) -> Option<&Fault> {
+        self.statistics_error.as_ref()
     }
 
     pub fn artifact_cursor(&self) -> u64 {
@@ -270,6 +276,7 @@ impl Projection {
                 self.hidden.clear();
                 self.revealed.clear();
                 self.snapshot = Some(*snapshot);
+                self.statistics_error = None;
                 self.recovery = false;
                 Ok(Apply::Applied)
             }
@@ -320,7 +327,14 @@ impl Projection {
                             .checked_add(1)
                             .ok_or_else(|| Fault::invalid("artifact cursor exhausted"))?;
                     }
-                    Change::Statistics(statistics) => snapshot.statistics = *statistics,
+                    Change::Statistics(statistics) => {
+                        snapshot.statistics = Some(*statistics);
+                        self.statistics_error = None;
+                    }
+                    Change::StatisticsFailed(error) => {
+                        snapshot.statistics = None;
+                        self.statistics_error = Some(error);
+                    }
                     Change::Entry(entry) => {
                         let turn = entry.turn;
                         let user = entry.author == "user";

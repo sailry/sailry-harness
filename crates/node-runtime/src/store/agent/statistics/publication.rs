@@ -28,6 +28,7 @@ impl Cache {
 struct Flight {
     cache: Arc<Cache>,
     feeds: Feeds,
+    node: NodeId,
     session: SessionId,
     finished: bool,
 }
@@ -35,14 +36,16 @@ struct Flight {
 impl Drop for Flight {
     fn drop(&mut self) {
         if !self.finished {
-            self.cache
-                .publication
-                .pending
-                .lock()
-                .unwrap()
-                .remove(&self.session);
-            // Admission failure or Node shutdown must not leave an apparently live reader.
-            self.feeds.reset(self.session);
+            let mut pending = self.cache.publication.pending.lock().unwrap();
+            pending.remove(&self.session);
+            self.feeds.publish(
+                self.node,
+                self.session,
+                Change::StatisticsFailed(Fault::new(
+                    ErrorCode::Unavailable,
+                    "statistics refresh did not complete",
+                )),
+            );
         }
     }
 }
@@ -50,7 +53,7 @@ impl Drop for Flight {
 /// Call after this commit's canonical frames, while its publication guard is held.
 pub(in crate::store) async fn publish(database: &Database, session: SessionId) {
     let cache = database.statistics.clone();
-    let Some(tasks) = cache.publication.tasks.get() else {
+    if cache.publication.tasks.get().is_none() {
         // Standalone storage unit fixtures have no Node supervisor.
         #[cfg(test)]
         match read(&database.handle, &cache, session).await {
@@ -62,16 +65,37 @@ pub(in crate::store) async fn publish(database: &Database, session: SessionId) {
                     Change::Statistics(Box::new(statistics)),
                 );
             }
-            Err(_) => database.feeds.reset(session),
+            Err(error) => {
+                database
+                    .feeds
+                    .publish(database.node, session, Change::StatisticsFailed(error))
+            }
         }
         #[cfg(not(test))]
-        database.feeds.reset(session);
+        unavailable(database, session);
         return;
-    };
+    }
     {
         let mut pending = cache.publication.pending.lock().unwrap();
         if let Some(dirty) = pending.get_mut(&session) {
             *dirty = true;
+            return;
+        }
+    }
+    request(database, session);
+}
+
+/// Ensure a supervised refresh after reserving a committed conversation snapshot.
+/// Call under the publication guard; an existing flight publishes after this reservation.
+pub(in crate::store) fn request(database: &Database, session: SessionId) {
+    let cache = database.statistics.clone();
+    let Some(tasks) = cache.publication.tasks.get() else {
+        unavailable(database, session);
+        return;
+    };
+    {
+        let mut pending = cache.publication.pending.lock().unwrap();
+        if pending.contains_key(&session) {
             return;
         }
         pending.insert(session, false);
@@ -79,6 +103,7 @@ pub(in crate::store) async fn publish(database: &Database, session: SessionId) {
     let flight = Flight {
         cache: cache.clone(),
         feeds: database.feeds.clone(),
+        node: database.node,
         session,
         finished: false,
     };
@@ -86,7 +111,6 @@ pub(in crate::store) async fn publish(database: &Database, session: SessionId) {
     let publication = database.publication.clone();
     let node = database.node;
     // The supervisor owns completion even when the command caller disconnects.
-    // A saturated/closing owner drops Flight and requests snapshot recovery.
     let _ = tasks.spawn(async move {
         let mut flight = flight;
         loop {
@@ -96,9 +120,11 @@ pub(in crate::store) async fn publish(database: &Database, session: SessionId) {
                 .publication
                 .reads
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            #[cfg(any(test, feature = "test-support"))]
+            fixture::wait(&flight.cache, session, true).await;
             let result = read(&handle, &flight.cache, session).await;
             #[cfg(any(test, feature = "test-support"))]
-            fixture::wait(&flight.cache, session).await;
+            fixture::wait(&flight.cache, session, false).await;
             let _publication = publication.clone().lock().await;
             if finish(&mut flight, node, result) {
                 return;
@@ -133,11 +159,24 @@ fn finish(
                 .feeds
                 .publish(node, session, Change::Statistics(Box::new(statistics)));
         }
-        Err(_) => flight.feeds.reset(session),
+        Err(error) => flight
+            .feeds
+            .publish(node, session, Change::StatisticsFailed(error)),
     }
     pending.remove(&session);
     flight.finished = true;
     true
+}
+
+fn unavailable(database: &Database, session: SessionId) {
+    database.feeds.publish(
+        database.node,
+        session,
+        Change::StatisticsFailed(Fault::new(
+            ErrorCode::Unavailable,
+            "statistics supervisor is unavailable",
+        )),
+    );
 }
 
 async fn read(

@@ -9,7 +9,7 @@ mod cache;
 mod compaction;
 mod observations;
 mod publication;
-pub(in crate::store) use publication::publish;
+pub(in crate::store) use publication::{publish, request};
 pub(in crate::store) mod report;
 pub(in crate::store) use cache::Cache;
 

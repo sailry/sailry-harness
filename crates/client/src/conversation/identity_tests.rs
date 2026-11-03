@@ -22,14 +22,14 @@ fn preserves_statistics_identity_across_drafts() {
         }),
         missing: Vec::new(),
         drafts: Vec::new(),
-        statistics: conversation::Statistics {
+        statistics: Some(conversation::Statistics {
             responses: 1,
             ..Default::default()
-        },
+        }),
         artifacts: Default::default(),
     };
     view.replace(Arc::new(snapshot.clone()), 0, 1, None);
-    let statistics = view.statistics.clone();
+    let statistics = view.statistics.clone().unwrap();
     snapshot.drafts.push(conversation::Draft {
         id: "draft".into(),
         turn: TurnId::new(),
@@ -39,9 +39,13 @@ fn preserves_statistics_identity_across_drafts() {
     });
     snapshot.sequence = 1;
     view.replace(Arc::new(snapshot.clone()), 0, 1, None);
-    assert!(Arc::ptr_eq(&statistics, &view.statistics));
-    snapshot.statistics.responses = 2;
+    assert!(Arc::ptr_eq(&statistics, view.statistics.as_ref().unwrap()));
+    snapshot.statistics.as_mut().unwrap().responses = 2;
     view.replace(Arc::new(snapshot), 0, 1, None);
-    assert!(!Arc::ptr_eq(&statistics, &view.statistics));
-    assert_eq!(view.statistics.responses, 2);
+    assert!(!Arc::ptr_eq(&statistics, view.statistics.as_ref().unwrap()));
+    assert_eq!(view.statistics.as_ref().unwrap().responses, 2);
+    let mut pending = view.snapshot.as_ref().unwrap().as_ref().clone();
+    pending.statistics = None;
+    view.replace(Arc::new(pending), 0, 2, None);
+    assert!(view.statistics.is_none());
 }

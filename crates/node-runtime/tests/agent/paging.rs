@@ -76,6 +76,28 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64) {
     assert!(observations.latency.first_text_us.is_some());
 }
 
+async fn totals(view: &mut watch::Receiver<View>, turns: u64, responses: u64) {
+    super::observed(view, |view| {
+        assert!(
+            view.statistics_error.is_none(),
+            "{:#?}",
+            view.statistics_error
+        );
+        view.statistics.as_ref().is_some_and(|statistics| {
+            statistics.turns == turns
+                && statistics.responses == responses
+                && statistics.observations.calls == responses
+                && statistics.observations.replies == turns
+        })
+    })
+    .await;
+    assert_totals(
+        view.borrow().statistics.as_deref().unwrap(),
+        turns,
+        responses,
+    );
+}
+
 async fn submit(client: &Client, session: SessionId) -> TurnId {
     let Output::QueuedTurn(turn) = client
         .execute(client.prepare(Command::SubmitTurn {
@@ -336,11 +358,7 @@ async fn restore_stream(remote: bool) {
         complete.page.entries
     );
     assert_eq!(initial.borrow().calls.len(), 51);
-    assert_totals(
-        &initial.borrow().snapshot.as_ref().unwrap().statistics,
-        1,
-        52,
-    );
+    totals(&mut initial, 1, 52).await;
     stop.cancel();
     worker.await.unwrap().unwrap();
     let mut turns = vec![first];
@@ -366,11 +384,12 @@ async fn restore_stream(remote: bool) {
         }
     });
     super::observed(&mut view, |view| view.connected).await;
+    totals(&mut view, 25, 76).await;
     let recent = view.borrow().snapshot.clone().unwrap();
     assert_eq!(recent.page.runs.len(), 20);
     assert_eq!(recent.page.next_before, Some(turns[5]));
     assert_eq!(recent.page.entries.len(), 40);
-    assert_totals(&recent.statistics, 25, 76);
+    assert_totals(recent.statistics.as_ref().unwrap(), 25, 76);
     older.send(HistoryRequest::Older).await.unwrap();
     super::observed(&mut view, |view| view.older_error.is_some()).await;
     assert!(view.borrow().connected);
@@ -396,7 +415,7 @@ async fn restore_stream(remote: bool) {
     .await;
     assert!(view.borrow().loading_older);
     assert_eq!(view.borrow().snapshot.as_ref().unwrap().page.runs.len(), 21);
-    assert_totals(&view.borrow().snapshot.as_ref().unwrap().statistics, 26, 77);
+    totals(&mut view, 26, 77).await;
     assert_eq!(observed.cancelled_reads(), 0);
     observed.release();
     super::observed(&mut view, |view| {
@@ -430,7 +449,7 @@ async fn restore_stream(remote: bool) {
             .count(),
         initial_entries + 25 * 2
     );
-    assert_totals(&all.statistics, 26, 77);
+    assert_totals(all.statistics.as_ref().unwrap(), 26, 77);
     assert_eq!(
         &all.page.entries[..complete.page.entries.len()],
         complete.page.entries.as_slice(),
@@ -458,6 +477,7 @@ async fn restore_stream(remote: bool) {
     })
     .await;
     assert!(view.borrow().error.is_none());
+    totals(&mut view, 27, 78).await;
     let all = view.borrow().snapshot.clone().unwrap();
     assert!(all.missing.is_empty());
     assert_eq!(all.page.next_before, None);
@@ -469,7 +489,7 @@ async fn restore_stream(remote: bool) {
             .count(),
         initial_entries + 26 * 2
     );
-    assert_totals(&all.statistics, 27, 78);
+    assert_totals(all.statistics.as_ref().unwrap(), 27, 78);
     assert_eq!(
         all.page.as_ref(),
         &client
@@ -519,14 +539,8 @@ async fn restore_stream(remote: bool) {
             .len(),
         51
     );
-    let statistics = {
-        let mut updates = client.subscribe_conversation(session.id).await.unwrap();
-        let Update::ConversationSnapshot(snapshot) = updates.next().await.unwrap() else {
-            panic!("snapshot expected");
-        };
-        assert_totals(&snapshot.statistics, 51, 102);
-        snapshot.statistics
-    };
+    let statistics = observations::statistics(&client, session.id).await;
+    assert_totals(&statistics, 51, 102);
     for format in [
         sailry_client::conversation::export::Format::Markdown,
         sailry_client::conversation::export::Format::Html,
@@ -592,13 +606,9 @@ async fn restore_stream(remote: bool) {
     node.shutdown().await.unwrap();
     let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
-    let mut subscription = client.subscribe_conversation(session.id).await.unwrap();
-    let Update::ConversationSnapshot(restored) = subscription.next().await.unwrap() else {
-        panic!("snapshot expected");
-    };
-    assert_totals(&restored.statistics, 51, 102);
-    assert_eq!(restored.statistics, statistics);
-    drop(subscription);
+    let restored = observations::statistics(&client, session.id).await;
+    assert_totals(&restored, 51, 102);
+    assert_eq!(restored, statistics);
     assert_eq!(
         client
             .read_conversation(session.id, None, 100)

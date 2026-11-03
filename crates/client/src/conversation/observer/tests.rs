@@ -1,6 +1,8 @@
 use super::*;
 use sailry_protocol::conversation::{Entry, Page, Part, Run, RunKind, Status};
 
+mod statistics;
+
 fn run(session: SessionId, sequence: u64) -> Run {
     Run {
         worktree: sailry_protocol::WorktreeId::new(),

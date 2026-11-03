@@ -31,6 +31,14 @@ fn preserves_change_shape() {
         serde_json::json!({ "kind": "statistics", "data": data })
     );
     assert_eq!(serde_json::from_value::<Change>(wire).unwrap(), change);
+    let error = Fault::new(crate::ErrorCode::Internal, "statistics read failed");
+    let failed = Change::StatisticsFailed(error.clone());
+    let wire = serde_json::to_value(&failed).unwrap();
+    assert_eq!(
+        wire,
+        serde_json::json!({"kind":"statistics_failed","data":error})
+    );
+    assert_eq!(serde_json::from_value::<Change>(wire).unwrap(), failed);
 }
 
 #[test]
@@ -52,12 +60,17 @@ fn preserves_update_shape() {
         }),
         missing: Vec::new(),
         drafts: Vec::new(),
-        statistics: Statistics {
+        statistics: Some(Statistics {
             responses: 3,
             ..Default::default()
-        },
+        }),
         artifacts: Default::default(),
     };
+    let mut pending = snapshot.clone();
+    pending.statistics = None;
+    let wire = serde_json::to_value(&pending).unwrap();
+    assert!(wire.get("statistics").unwrap().is_null());
+    assert_eq!(serde_json::from_value::<Snapshot>(wire).unwrap(), pending);
     let data = serde_json::to_value(&snapshot).unwrap();
     let update = crate::Update::ConversationSnapshot(Box::new(snapshot));
     let wire = serde_json::to_value(&update).unwrap();

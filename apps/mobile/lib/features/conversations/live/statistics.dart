@@ -5,12 +5,24 @@ import '../../../runtime/json.dart';
 
 /// Presentation of Node-owned totals, independent of loaded message pages.
 class ConversationStatistics extends StatelessWidget {
-  const ConversationStatistics({super.key, required this.data});
+  const ConversationStatistics({
+    super.key,
+    required this.data,
+    this.failed = false,
+  });
 
-  final Map<String, dynamic> data;
+  final Map<String, dynamic>? data;
+  final bool failed;
 
   @override
   Widget build(BuildContext context) {
+    final data = this.data;
+    if (data == null) {
+      if (failed) {
+        return const SizedBox.shrink();
+      }
+      return const Center(child: CircularProgressIndicator());
+    }
     final usage = object(data['usage']);
     final cost = object(data['cost']);
     final generation = object(data['generation']);

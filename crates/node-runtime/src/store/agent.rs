@@ -962,7 +962,6 @@ pub(super) fn execute<'a>(
         } => Box::pin(async move {
             let publication = database.publication.clone();
             let feeds = database.feeds.clone();
-            let cache = database.statistics.clone();
             let node = database.node;
             let result = async {
                 let publication = publication.lock().await;
@@ -982,8 +981,6 @@ pub(super) fn execute<'a>(
                 drop(publication);
                 let snapshot = async {
                     let history = read(&transaction, session, None, 20).await?;
-                    let (statistics, entry) =
-                        statistics::prepare(&cache, &transaction, session).await?;
                     let artifacts = super::artifacts::list(
                         &transaction,
                         session,
@@ -991,14 +988,16 @@ pub(super) fn execute<'a>(
                         sailry_protocol::artifact::MAX_PAGE_LIMIT,
                     )
                     .await?;
-                    Ok::<_, Fault>((history, statistics, artifacts, entry))
+                    Ok::<_, Fault>((history, artifacts))
                 }
                 .await;
                 match snapshot {
-                    Ok((history, statistics, artifacts, entry)) => {
+                    Ok((history, artifacts)) => {
                         crate::store::database::conflict::commit(transaction).await?;
-                        cache.retain(entry);
-                        reserved.subscribe(node, history, statistics, artifacts, closed)
+                        let stream = reserved.subscribe(node, history, None, artifacts, closed)?;
+                        let _publication = database.publication.clone().lock().await;
+                        statistics::request(database, session);
+                        Ok(stream)
                     }
                     Err(error) => {
                         transaction.rollback().await.map_err(storage_error)?;

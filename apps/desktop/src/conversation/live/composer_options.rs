@@ -35,10 +35,9 @@ impl View {
                     )
             })
         });
-        let statistics = self.history.snapshot.as_ref().map(|snapshot| {
+        let statistics = self.history.statistics.as_deref().map(|statistics| {
             crate::plugins::usage::exact(
-                serde_json::to_value(&snapshot.statistics)
-                    .expect("serializable conversation statistics"),
+                serde_json::to_value(statistics).expect("serializable conversation statistics"),
             )
         });
         let text = self.input.read(cx).value();

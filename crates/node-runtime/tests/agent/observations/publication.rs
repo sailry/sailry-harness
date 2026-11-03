@@ -66,8 +66,6 @@ async fn publishes_latest_usage_after_committed_entries() {
             completed.insert(turn.id);
             entries.extend(page.entries.iter().map(|entry| entry.id.clone()));
         }
-        let expected = statistics(&client, session.id).await;
-        assert_eq!(expected.responses, 2);
         tokio::time::timeout(Duration::from_secs(10), async {
             while !entries.is_empty() || !completed.is_empty() {
                 let Update::ConversationFrame(frame) = stream.next().await.unwrap() else {
@@ -101,6 +99,8 @@ async fn publishes_latest_usage_after_committed_entries() {
         })
         .await
         .unwrap();
+        assert_eq!(latest.responses, 2);
+        let expected = statistics(&client, session.id).await;
         assert_eq!(*latest, expected);
         drop(stream);
         controller.close().await.unwrap();

@@ -39,13 +39,14 @@ pub struct View {
     pub snapshot: Option<Arc<Snapshot>>,
     /// Stable identity for composer metadata while only transient drafts change.
     #[serde(skip)]
-    pub statistics: Arc<conversation::Statistics>,
+    pub statistics: Option<Arc<conversation::Statistics>>,
     pub calls: Arc<Vec<tools::Call>>,
     pub children: Arc<children::View>,
     /// True only after authoritative Node observation and confirmation agree.
     pub removed: bool,
     pub connected: bool,
     pub error: Option<Fault>,
+    pub statistics_error: Option<Fault>,
     pub loading_older: bool,
     pub older_error: Option<Fault>,
     /// Advances for artifact commits and snapshot recovery, never text deltas.
@@ -60,8 +61,8 @@ impl View {
         generation: u64,
         live_start: Option<u64>,
     ) {
-        if self.statistics.as_ref() != &snapshot.statistics {
-            self.statistics = Arc::new(snapshot.statistics.clone());
+        if self.statistics.as_deref() != snapshot.statistics.as_ref() {
+            self.statistics = snapshot.statistics.clone().map(Arc::new);
         }
         if self
             .snapshot
@@ -77,6 +78,7 @@ impl View {
         self.artifact_cursor = artifact_cursor;
         self.connected = true;
         self.error = None;
+        self.statistics_error = None;
     }
 }
 

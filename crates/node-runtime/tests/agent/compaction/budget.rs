@@ -55,15 +55,7 @@ async fn original_evidence(fixture: &Fixture, page: &Page) {
 }
 
 pub(super) async fn statistics(fixture: &Fixture) -> Statistics {
-    let mut updates = fixture
-        .client
-        .subscribe_conversation(fixture.session.id)
-        .await
-        .unwrap();
-    let Update::ConversationSnapshot(snapshot) = updates.next().await.unwrap() else {
-        panic!("conversation snapshot expected")
-    };
-    snapshot.statistics
+    crate::observations::statistics(&fixture.client, fixture.session.id).await
 }
 
 pub(super) async fn model(fixture: &Fixture, context: u32, output: u32, vision: bool) {

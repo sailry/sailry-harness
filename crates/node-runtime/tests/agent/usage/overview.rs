@@ -52,12 +52,9 @@ async fn turn(client: &Client, session: SessionId) {
         .iter()
         .find(|request| request.session == session)
         .unwrap();
-    let mut conversation = client.subscribe_conversation(session).await.unwrap();
-    let Update::ConversationSnapshot(snapshot) = conversation.next().await.unwrap() else {
-        panic!("conversation snapshot expected");
-    };
-    assert_eq!(snapshot.statistics.first_token_us, latest.first_token_us);
-    assert!(snapshot.statistics.first_token_us.is_some());
+    let statistics = crate::observations::statistics(client, session).await;
+    assert_eq!(statistics.first_token_us, latest.first_token_us);
+    assert!(statistics.first_token_us.is_some());
 }
 
 #[tokio::test]

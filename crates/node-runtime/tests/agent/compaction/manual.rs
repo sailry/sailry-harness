@@ -653,38 +653,16 @@ async fn restores_branch_history() {
         assert_eq!(references.len(), 1);
         let footer: Value = serde_json::from_str(references[0]).unwrap();
         assert_eq!(footer, json!({"output":reference,"next_offset":null}));
-        let mut stream = fixture
-            .client
-            .subscribe_conversation(fixture.session.id)
-            .await
-            .unwrap();
-        let Update::ConversationSnapshot(snapshot) = stream.next().await.unwrap() else {
-            panic!("snapshot expected")
-        };
-        assert_eq!(snapshot.statistics.turns, 1);
-        assert_eq!(snapshot.statistics.responses, 3);
-        assert_eq!(snapshot.statistics.context_tokens, None);
+        let statistics = super::budget::statistics(&fixture).await;
+        assert_eq!(statistics.turns, 1);
+        assert_eq!(statistics.responses, 3);
+        assert_eq!(statistics.context_tokens, None);
+        assert!(statistics.context_estimate.is_some_and(|tokens| tokens > 0));
+        assert!(statistics.context_limit.is_some_and(|limit| limit > 0));
+        assert!(statistics.usage.as_ref().unwrap().input >= measured.usage.as_ref().unwrap().input);
         assert!(
-            snapshot
-                .statistics
-                .context_estimate
-                .is_some_and(|tokens| tokens > 0)
+            statistics.usage.as_ref().unwrap().output >= measured.usage.as_ref().unwrap().output
         );
-        assert!(
-            snapshot
-                .statistics
-                .context_limit
-                .is_some_and(|limit| limit > 0)
-        );
-        assert!(
-            snapshot.statistics.usage.as_ref().unwrap().input
-                >= measured.usage.as_ref().unwrap().input
-        );
-        assert!(
-            snapshot.statistics.usage.as_ref().unwrap().output
-                >= measured.usage.as_ref().unwrap().output
-        );
-        drop(stream);
         assert_eq!(
             fixture.client.execute(request.clone()).await.unwrap(),
             Output::QueuedTurn(turn.clone())
@@ -725,15 +703,8 @@ async fn restores_branch_history() {
         );
         assert_eq!(server.requests.lock().unwrap().len(), 3);
         usage(&client, 3).await;
-        let mut updates = client
-            .subscribe_conversation(fixture.session.id)
-            .await
-            .unwrap();
-        let Update::ConversationSnapshot(reopened) = updates.next().await.unwrap() else {
-            panic!("snapshot expected")
-        };
-        assert_eq!(reopened.statistics, estimated);
-        drop(updates);
+        let reopened = crate::observations::statistics(&client, fixture.session.id).await;
+        assert_eq!(reopened, estimated);
         // A new summary on an early branch belongs to that branch's maintenance turn.
         let (_, branch_turn) = compact(&client, branches[0].id, 1).await;
         let branch_page = finished(&client, branches[0].id, branch_turn.id).await;

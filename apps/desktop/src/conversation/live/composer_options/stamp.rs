@@ -2,7 +2,7 @@ use super::*;
 
 pub(crate) struct Stamp {
     page: Option<Arc<sailry_protocol::conversation::Page>>,
-    statistics: Arc<sailry_protocol::conversation::Statistics>,
+    statistics: Option<Arc<sailry_protocol::conversation::Statistics>>,
     session: Option<(SessionId, u64)>,
     state: State,
 }
@@ -37,7 +37,11 @@ impl PartialEq for Stamp {
                 (None, None) => true,
                 _ => false,
             }
-            && Arc::ptr_eq(&self.statistics, &other.statistics)
+            && match (&self.statistics, &other.statistics) {
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+                (None, None) => true,
+                _ => false,
+            }
             && self.state == other.state
     }
 }
@@ -93,7 +97,7 @@ impl View {
 mod tests {
     use super::*;
 
-    fn stamp(statistics: Arc<sailry_protocol::conversation::Statistics>) -> Stamp {
+    fn stamp(statistics: Option<Arc<sailry_protocol::conversation::Statistics>>) -> Stamp {
         Stamp {
             page: None,
             statistics,
@@ -131,10 +135,18 @@ mod tests {
     }
 
     #[core::prelude::v1::test]
+    fn invalidates_when_statistics_arrive() {
+        let pending = stamp(None);
+        let ready = stamp(Some(Arc::default()));
+        assert!(pending != ready);
+        assert!(ready == stamp(ready.statistics.clone()));
+    }
+
+    #[core::prelude::v1::test]
     fn invalidates_unavailable_message_commands() {
         let statistics = Arc::default();
-        let before = stamp(Arc::clone(&statistics));
-        let mut after = stamp(statistics);
+        let before = stamp(Some(Arc::clone(&statistics)));
+        let mut after = stamp(Some(statistics));
         assert!(before == after);
         // A contribution can hide or disable a command without changing its package.
         after.state.command = None;

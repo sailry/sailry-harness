@@ -4,7 +4,7 @@ use sailry_protocol::conversation::{Statistics, Usage};
 #[test]
 fn recovers_totals_across_generations() {
     let (mut projection, mut snapshot, _, _) = fixture();
-    snapshot.statistics = Statistics {
+    let mut statistics = Statistics {
         turns: 25,
         responses: 30,
         context_tokens: Some(16),
@@ -18,11 +18,11 @@ fn recovers_totals_across_generations() {
         }),
         ..Default::default()
     };
-    snapshot.statistics.observations.calls = 7;
-    snapshot.statistics.observations.phases.active_us = Some(5_000);
-    snapshot.statistics.context_model = Some("observed-model".into());
-    snapshot.statistics.context_timestamp_ms = Some(1_000);
-    snapshot.statistics.budget = Some(conversation::compaction::Budget {
+    statistics.observations.calls = 7;
+    statistics.observations.phases.active_us = Some(5_000);
+    statistics.context_model = Some("observed-model".into());
+    statistics.context_timestamp_ms = Some(1_000);
+    statistics.budget = Some(conversation::compaction::Budget {
         model: "selected-model".into(),
         context_limit: 4096,
         trigger_tokens: 2048,
@@ -31,7 +31,7 @@ fn recovers_totals_across_generations() {
         summary_input: 3584,
         summary_output: 512,
     });
-    snapshot.statistics.last_compaction = Some(conversation::compaction::Record {
+    statistics.last_compaction = Some(conversation::compaction::Record {
         id: "summary-before-page".into(),
         sequence: 1,
         turn: TurnId::new(),
@@ -39,10 +39,11 @@ fn recovers_totals_across_generations() {
         timestamp_ms: 900,
         outcome: conversation::compaction::Outcome::Succeeded,
     });
+    snapshot.statistics = Some(statistics.clone());
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
-    let mut updated = snapshot.statistics.clone();
+    let mut updated = statistics;
     updated.responses += 1;
     updated.observations.calls += 1;
     updated.observations.phases.active_us = Some(6_000);
@@ -70,22 +71,114 @@ fn recovers_totals_across_generations() {
             },
         )
         .unwrap();
-    assert_eq!(projection.snapshot().unwrap().statistics, updated);
+    assert_eq!(projection.snapshot().unwrap().statistics, Some(updated));
     projection.reconnect(2).unwrap();
     snapshot.sequence = 0;
     snapshot.page = Arc::new(Page {
         revision: 2,
         ..(*snapshot.page).clone()
     });
-    snapshot.statistics = Statistics::default();
+    snapshot.statistics = None;
     projection
         .apply(2, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     assert_eq!(projection.apply(1, event).unwrap(), Apply::Ignored);
+    assert_eq!(projection.snapshot().unwrap().statistics, None);
+    let corrected = Statistics {
+        turns: 1,
+        responses: 2,
+        ..Default::default()
+    };
+    projection
+        .apply(
+            2,
+            frame(
+                &snapshot,
+                1,
+                Change::Statistics(Box::new(corrected.clone())),
+            ),
+        )
+        .unwrap();
+    assert_eq!(projection.snapshot().unwrap().statistics, Some(corrected));
+}
+
+#[test]
+fn reports_failure_without_resetting_history() {
+    let (mut projection, mut snapshot, _, _) = fixture();
+    snapshot.statistics = Some(Statistics::default());
+    projection
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+        .unwrap();
+    assert!(projection.snapshot().unwrap().statistics.is_some());
+    let error = Fault::new(ErrorCode::Internal, "statistics read failed");
+    let failure = frame(&snapshot, 11, Change::StatisticsFailed(error.clone()));
     assert_eq!(
-        projection.snapshot().unwrap().statistics,
-        Statistics::default()
+        projection.apply(1, failure.clone()).unwrap(),
+        Apply::Applied
     );
+    assert_eq!(projection.statistics_error(), Some(&error));
+    assert!(Arc::ptr_eq(
+        &projection.snapshot().unwrap().page,
+        &snapshot.page
+    ));
+    assert!(projection.snapshot().unwrap().statistics.is_none());
+    assert_eq!(projection.apply(1, failure).unwrap(), Apply::Ignored);
+    let statistics = Statistics {
+        turns: 25,
+        responses: 30,
+        ..Default::default()
+    };
+    let ready = frame(
+        &snapshot,
+        12,
+        Change::Statistics(Box::new(statistics.clone())),
+    );
+    projection.apply(1, ready).unwrap();
+    assert_eq!(projection.snapshot().unwrap().statistics, Some(statistics));
+    assert!(projection.statistics_error().is_none());
+    assert!(Arc::ptr_eq(
+        &projection.snapshot().unwrap().page,
+        &snapshot.page
+    ));
+}
+
+#[test]
+fn ignores_failures_from_previous_generations() {
+    let (mut projection, mut snapshot, _, _) = fixture();
+    projection
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+        .unwrap();
+    let failure = frame(
+        &snapshot,
+        11,
+        Change::StatisticsFailed(Fault::new(ErrorCode::Internal, "statistics read failed")),
+    );
+    projection.apply(1, failure.clone()).unwrap();
+    assert!(projection.statistics_error().is_some());
+    projection.reconnect(2).unwrap();
+    snapshot.sequence = 0;
+    projection
+        .apply(2, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+        .unwrap();
+    assert!(projection.statistics_error().is_none());
+    assert_eq!(projection.apply(1, failure).unwrap(), Apply::Ignored);
+    assert!(projection.statistics_error().is_none());
+    let statistics = Statistics::default();
+    projection
+        .apply(
+            2,
+            frame(
+                &snapshot,
+                1,
+                Change::Statistics(Box::new(statistics.clone())),
+            ),
+        )
+        .unwrap();
+    assert_eq!(projection.snapshot().unwrap().statistics, Some(statistics));
+    assert!(Arc::ptr_eq(
+        &projection.snapshot().unwrap().page,
+        &snapshot.page
+    ));
 }
 
 #[test]
@@ -118,13 +211,16 @@ fn leaves_old_context_limits_unknown() {
 #[test]
 fn replaces_estimates_only_with_node_observation() {
     let (mut projection, mut snapshot, _, _) = fixture();
-    snapshot.statistics.context_estimate = Some(300);
-    snapshot.statistics.context_limit = Some(1024);
-    snapshot.statistics.context_model = Some("summarized-model".into());
+    snapshot.statistics = Some(Statistics {
+        context_estimate: Some(300),
+        context_limit: Some(1024),
+        context_model: Some("summarized-model".into()),
+        ..Default::default()
+    });
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
-    let mut measured = snapshot.statistics.clone();
+    let mut measured = snapshot.statistics.clone().unwrap();
     measured.context_estimate = None;
     measured.context_tokens = Some(450);
     measured.context_limit = Some(4096);
@@ -135,6 +231,6 @@ fn replaces_estimates_only_with_node_observation() {
         Change::Statistics(Box::new(measured.clone())),
     );
     projection.apply(1, event.clone()).unwrap();
-    assert_eq!(projection.snapshot().unwrap().statistics, measured);
+    assert_eq!(projection.snapshot().unwrap().statistics, Some(measured));
     assert_eq!(projection.apply(1, event).unwrap(), Apply::Ignored);
 }

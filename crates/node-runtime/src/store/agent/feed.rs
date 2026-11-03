@@ -148,7 +148,8 @@ impl Feeds {
             | Change::Approval(_)
             | Change::Question(_)
             | Change::Child(_)
-            | Change::Statistics(_) => {}
+            | Change::Statistics(_)
+            | Change::StatisticsFailed(_) => {}
             Change::Background(task) => {
                 if feed.background.get(&task.id) == Some(task) {
                     return;
@@ -241,7 +242,7 @@ impl Feeds {
         &self,
         node: NodeId,
         history: History,
-        statistics: Statistics,
+        statistics: Option<Statistics>,
         artifacts: sailry_protocol::artifact::Page,
         closed: CancellationToken,
     ) -> Result<Box<dyn Subscription>, Fault> {
@@ -268,7 +269,7 @@ impl Reserved {
         self,
         node: NodeId,
         history: History,
-        statistics: Statistics,
+        statistics: Option<Statistics>,
         artifacts: sailry_protocol::artifact::Page,
         closed: CancellationToken,
     ) -> Result<Box<dyn Subscription>, Fault> {

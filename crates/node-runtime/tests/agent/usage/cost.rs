@@ -112,11 +112,8 @@ async fn restores_catalog_estimates() {
                         == catalog.then_some(request.tokens.input + request.tokens.output)
             }));
             assert_eq!(report.groups[0].metrics.cost, report.totals.cost);
-            let mut conversation = client.subscribe_conversation(session.id).await.unwrap();
-            let Update::ConversationSnapshot(snapshot) = conversation.next().await.unwrap() else {
-                panic!("conversation snapshot expected");
-            };
-            assert_eq!(snapshot.statistics.cost, report.totals.cost);
+            let statistics = crate::observations::statistics(&client, session.id).await;
+            assert_eq!(statistics.cost, report.totals.cost);
             if let Some(controller) = &controller {
                 controller.handle().disconnect(node.id()).await;
             }

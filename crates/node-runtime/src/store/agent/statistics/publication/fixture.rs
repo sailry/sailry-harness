@@ -5,9 +5,18 @@ use tokio::sync::{Notify, oneshot};
 pub(super) struct Gate {
     entered: Arc<Notify>,
     release: oneshot::Receiver<()>,
+    before_read: bool,
 }
 
 pub(super) fn hold(cache: &Cache, session: SessionId) -> (Arc<Notify>, oneshot::Sender<()>) {
+    hold_at(cache, session, false)
+}
+
+fn hold_at(
+    cache: &Cache,
+    session: SessionId,
+    before_read: bool,
+) -> (Arc<Notify>, oneshot::Sender<()>) {
     let entered = Arc::new(Notify::new());
     let (release, receiver) = oneshot::channel();
     assert!(
@@ -21,6 +30,7 @@ pub(super) fn hold(cache: &Cache, session: SessionId) -> (Arc<Notify>, oneshot::
                 Gate {
                     entered: entered.clone(),
                     release: receiver,
+                    before_read,
                 }
             )
             .is_none(),
@@ -29,8 +39,18 @@ pub(super) fn hold(cache: &Cache, session: SessionId) -> (Arc<Notify>, oneshot::
     (entered, release)
 }
 
-pub(super) async fn wait(cache: &Cache, session: SessionId) {
-    let gate = cache.publication.gates.lock().unwrap().remove(&session);
+pub(super) async fn wait(cache: &Cache, session: SessionId, before_read: bool) {
+    let gate = {
+        let mut gates = cache.publication.gates.lock().unwrap();
+        if gates
+            .get(&session)
+            .is_some_and(|gate| gate.before_read == before_read)
+        {
+            gates.remove(&session)
+        } else {
+            None
+        }
+    };
     if let Some(gate) = gate {
         gate.entered.notify_one();
         let _ = gate.release.await;
@@ -38,6 +58,19 @@ pub(super) async fn wait(cache: &Cache, session: SessionId) {
 }
 
 impl crate::Node {
+    /// Holds reconstruction before its SQL read in an isolated integration fixture.
+    pub fn hold_statistics_read_fixture(
+        &self,
+        session: SessionId,
+    ) -> Result<(Arc<Notify>, oneshot::Sender<()>), Fault> {
+        let storage = self
+            .ingress
+            .storage
+            .get()
+            .ok_or_else(crate::store::unavailable)?;
+        Ok(hold_at(&storage.statistics, session, true))
+    }
+
     /// Holds one committed statistics snapshot in an isolated integration fixture.
     pub fn hold_statistics_fixture(
         &self,

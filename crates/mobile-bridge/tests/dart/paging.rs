@@ -54,7 +54,10 @@ async fn submit_stage(
                 run.status,
                 snapshot.page.entries.len(),
                 snapshot.missing.len(),
-                snapshot.statistics.observations.calls,
+                snapshot
+                    .statistics
+                    .as_ref()
+                    .map(|statistics| statistics.observations.calls),
             ));
             if matches!(
                 run.status,

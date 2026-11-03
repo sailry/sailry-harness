@@ -597,7 +597,7 @@ impl View {
             .runs
             .iter()
             .all(|run| run.status == Status::Completed)
-            .then_some(snapshot.statistics.turns)
+            .then_some(snapshot.statistics.as_ref()?.turns)
     }
 
     pub(crate) fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {

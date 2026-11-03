@@ -18,10 +18,12 @@ async fn tracks_policy_observation_and_maintenance() {
         let Update::ConversationSnapshot(initial) = updates.next().await.unwrap() else {
             panic!("snapshot expected");
         };
-        assert_eq!(initial.statistics.context_tokens, None);
-        assert_eq!(initial.statistics.context_limit, None);
-        assert_eq!(initial.statistics.context_estimate, None);
-        assert!(initial.statistics.budget.is_some());
+        assert!(initial.statistics.is_none());
+        let initial = super::budget::statistics(&fixture).await;
+        assert_eq!(initial.context_tokens, None);
+        assert_eq!(initial.context_limit, None);
+        assert_eq!(initial.context_estimate, None);
+        assert!(initial.budget.is_some());
         submit(
             &fixture.client,
             fixture.session.id,

@@ -1,16 +1,8 @@
 use super::*;
-use crate::delegation::fixture::Fixture;
+use crate::{delegation::fixture::Fixture, observations::statistics};
 use sailry_client::conversation::Projection;
 use sailry_protocol::usage::Metrics;
 use serde_json::json;
-
-async fn statistics(client: &Client, session: SessionId) -> Statistics {
-    let mut updates = client.subscribe_conversation(session).await.unwrap();
-    let Update::ConversationSnapshot(snapshot) = updates.next().await.unwrap() else {
-        panic!("conversation snapshot expected")
-    };
-    snapshot.statistics
-}
 
 async fn settled(client: &Client, session: SessionId) -> Page {
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -100,9 +92,8 @@ async fn publishes_child_usage_to_parent() {
                     .snapshot()
                     .unwrap()
                     .statistics
-                    .delegated
-                    .responses
-                    == 1
+                    .as_ref()
+                    .is_some_and(|statistics| statistics.delegated.responses == 1)
                 {
                     break;
                 }
@@ -110,7 +101,7 @@ async fn publishes_child_usage_to_parent() {
         })
         .await
         .expect("parent delegated statistics deadline");
-        let live = projection.snapshot().unwrap().statistics.clone();
+        let live = projection.snapshot().unwrap().statistics.clone().unwrap();
         assert_eq!(live.responses, before.responses);
         assert_eq!(live.usage, before.usage);
         assert_eq!(live.context_tokens, before.context_tokens);

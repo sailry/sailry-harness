@@ -60,6 +60,12 @@ Future<Map<String, dynamic>> observe(
         }
         throw StateError('Conversation observer failed: ${jsonEncode(error)}');
       }
+      final statisticsError = view['statistics_error'];
+      if (statisticsError != null) {
+        throw StateError(
+          'Conversation statistics failed: ${jsonEncode(statisticsError)}',
+        );
+      }
       final snapshot = view['snapshot'] as Map<String, dynamic>?;
       last = snapshot;
       if (snapshot != null &&
@@ -84,8 +90,10 @@ Future<Map<String, dynamic>> statistics(
   required int responses,
 }) async {
   bool ready(Map<String, dynamic> snapshot) {
-    final value = snapshot['statistics'];
-    return value['turns'] == turns && value['responses'] == responses;
+    final value = snapshot['statistics'] as Map<String, dynamic>?;
+    return value != null &&
+        value['turns'] == turns &&
+        value['responses'] == responses;
   }
 
   // Run completion and derived usage arrive in separate conversation frames.
@@ -277,8 +285,9 @@ Future<Fixture> create(
   });
   fixture.session = created['data']['id'] as String;
   final updates = await connection.watchConversation(session: fixture.session);
-  final empty = await until(updates, (_) => true);
-  check(empty['removed'] == false, 'existing session remains available');
+  final opened = await until(updates, (_) => true);
+  check(opened['removed'] == false, 'existing session remains available');
+  final empty = await statistics(updates, opened, turns: 0, responses: 0);
   final emptyStatistics = empty['snapshot']['statistics'];
   check(
     emptyStatistics['turns'] == 0 &&
@@ -481,7 +490,8 @@ Future<void> restore(Connection connection, Fixture fixture) async {
     'reopened ordinary tools retain their bounded projection',
   );
   check(fixture.requests == 2, 'recovery does not call model or tool again');
-  checkStatistics(snapshot['snapshot']);
+  final usage = await statistics(updates, snapshot, turns: 1, responses: 1);
+  checkStatistics(usage['snapshot']);
   await updates.close();
   updates.dispose();
   await fixture.server.close(force: true);

@@ -130,6 +130,14 @@ impl View {
             },
         );
         crate::feedback::observe(window, cx, |view: &Self, _| {
+            view.history
+                .statistics_error
+                .as_ref()
+                .map(|_| "usage_read_failed")
+                .into_iter()
+                .collect()
+        });
+        crate::feedback::observe(window, cx, |view: &Self, _| {
             [
                 view.attachments.error,
                 view.questions.error,

@@ -5,16 +5,31 @@ use sailry_protocol::conversation::observation::Outcome;
 #[cfg(feature = "test-support")]
 #[path = "observations/publication.rs"]
 mod publication;
+#[cfg(feature = "test-support")]
+#[path = "observations/subscription.rs"]
+mod subscription;
 
 pub(super) async fn statistics(client: &Client, session: SessionId) -> Statistics {
-    let mut stream = client.subscribe_conversation(session).await.unwrap();
-    let mut projection = sailry_client::conversation::Projection::new(client.target(), session, 0);
-    loop {
-        projection.apply(0, stream.next().await.unwrap()).unwrap();
-        if let Some(snapshot) = projection.snapshot() {
-            return snapshot.statistics.clone();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut stream = client.subscribe_conversation(session).await.unwrap();
+        let mut projection =
+            sailry_client::conversation::Projection::new(client.target(), session, 0);
+        loop {
+            assert_ne!(
+                projection.apply(0, stream.next().await.unwrap()).unwrap(),
+                sailry_client::Apply::Recover,
+            );
+            assert_eq!(projection.statistics_error(), None);
+            if let Some(statistics) = projection
+                .snapshot()
+                .and_then(|snapshot| snapshot.statistics.as_ref())
+            {
+                return statistics.clone();
+            }
         }
-    }
+    })
+    .await
+    .expect("authoritative statistics deadline")
 }
 
 /// Turn context is canonical agent history, never public conversation content.
@@ -196,21 +211,31 @@ async fn finalizes_terminal_and_cancelled_streams() {
             let mut updates = client.subscribe_conversation(session.id).await.unwrap();
             let mut projection =
                 sailry_client::conversation::Projection::new(client.target(), session.id, 0);
-            loop {
-                projection.apply(0, updates.next().await.unwrap()).unwrap();
-                if let Some(snapshot) = projection.snapshot() {
-                    assert!(
-                        snapshot
-                            .page
-                            .entries
-                            .iter()
-                            .filter(|entry| !is_context(entry))
-                            .all(|entry| !entry.parts.is_empty())
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    assert_ne!(
+                        projection.apply(0, updates.next().await.unwrap()).unwrap(),
+                        sailry_client::Apply::Recover,
                     );
-                    assert_eq!(snapshot.statistics.observations, *observations);
-                    break;
+                    assert_eq!(projection.statistics_error(), None);
+                    if let Some(snapshot) = projection.snapshot()
+                        && let Some(statistics) = &snapshot.statistics
+                    {
+                        assert!(
+                            snapshot
+                                .page
+                                .entries
+                                .iter()
+                                .filter(|entry| !is_context(entry))
+                                .all(|entry| !entry.parts.is_empty())
+                        );
+                        assert_eq!(statistics.observations, *observations);
+                        break;
+                    }
                 }
-            }
+            })
+            .await
+            .expect("subscribed statistics deadline");
         }
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

@@ -183,7 +183,17 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
         final following =
             !_scroll.hasClients || _scroll.position.extentBefore < 60;
         _error = null;
+        final statisticsError = value['statistics_error'];
+        final previousStatisticsError = _view.value['statistics_error'];
         _view.value = mergeToolDetails(_view.value, value);
+        if (statisticsError != null &&
+            jsonEncode(statisticsError) !=
+                jsonEncode(previousStatisticsError)) {
+          showToast(
+            context,
+            '${context.tr('conversationStats')}: ${context.tr('settingsLoadFailed')}',
+          );
+        }
         for (final fault in objects(value['detail_errors'])) {
           showToast(
             context,
@@ -463,9 +473,17 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                       context.tr('conversationStats'),
                       child: ValueListenableBuilder(
                         valueListenable: _view,
-                        builder: (context, view, _) => ConversationStatistics(
-                          data: object(object(view['snapshot'])['statistics']),
-                        ),
+                        builder: (context, view, _) {
+                          final statistics = object(
+                            view['snapshot'],
+                          )['statistics'];
+                          return ConversationStatistics(
+                            failed: view['statistics_error'] != null,
+                            data: statistics == null
+                                ? null
+                                : object(statistics),
+                          );
+                        },
                       ),
                     ),
                   ),

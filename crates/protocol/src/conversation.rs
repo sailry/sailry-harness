@@ -568,7 +568,8 @@ pub struct Snapshot {
     pub page: std::sync::Arc<Page>,
     pub missing: Vec<TurnId>,
     pub drafts: Vec<Draft>,
-    pub statistics: Statistics,
+    /// Pending until an authoritative statistics frame arrives on this subscription.
+    pub statistics: Option<Statistics>,
     #[serde(default)]
     pub artifacts: crate::artifact::Page,
 }
@@ -588,6 +589,7 @@ pub enum Change {
         id: String,
     },
     Statistics(Box<Statistics>),
+    StatisticsFailed(Fault),
     Run(Run),
     Queue(Queue),
     Approval(Approval),
