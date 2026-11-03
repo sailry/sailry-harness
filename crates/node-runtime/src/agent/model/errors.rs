@@ -68,7 +68,7 @@ pub(super) fn redact(mut error: ProviderError, secrets: &[Secret]) -> ProviderEr
     error
 }
 
-pub(super) fn safe(value: &str, secrets: &[Secret]) -> String {
+pub(in crate::agent) fn safe(value: &str, secrets: &[Secret]) -> String {
     let mut values: Vec<_> = secrets
         .iter()
         .map(Secret::expose)

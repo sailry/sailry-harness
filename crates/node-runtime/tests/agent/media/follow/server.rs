@@ -20,6 +20,11 @@ pub const KEY: &str = "isolated-follow-image-key";
 #[derive(Clone, Copy, Debug)]
 pub enum Outcome {
     Completed,
+    Streamed,
+    MissingTerminal,
+    NonPng,
+    Multiple,
+    Oversized,
     Rejected(u16, &'static str),
     Disconnected,
     Invalid,
@@ -36,7 +41,10 @@ pub struct Request {
 
 impl Request {
     pub fn primary(&self) -> bool {
-        self.body["stream"] == true
+        (self.body["stream"] == true
+            && !self.body["tools"]
+                .as_array()
+                .is_some_and(|tools| tools.iter().any(|tool| tool["type"] == "image_generation")))
             || self.path.contains(":streamGenerateContent")
             || self.path.ends_with("/converse")
     }
@@ -215,10 +223,15 @@ async fn respond(
                 "details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":code,
                     "domain":"aiplatform.googleapis.com"}]}})
         } else {
-            json!({"error":{"code":code,"message":"Fixture generation rejected"}})
+            json!({"error":{"code":code,"type":"invalid_request_error","param":"tools",
+                "message":format!("Fixture generation rejected {KEY}")}})
         }
         .to_string();
-        stream.write_all(format!("HTTP/1.1 {status} Fixture Rejection\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
+        stream.write_all(format!("HTTP/1.1 {status} Fixture Rejection\r\nContent-Type: application/json\r\nX-Request-ID: req_image_fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
+        return stream.shutdown().await;
+    }
+    if matches!(outcome, Outcome::Oversized) {
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 134217729\r\nConnection: close\r\n\r\n").await?;
         return stream.shutdown().await;
     }
     let png = super::super::server::PNG;
@@ -236,6 +249,13 @@ async fn respond(
         panic!("unexpected image fixture route: {path}");
     };
     match outcome {
+        Outcome::NonPng => {
+            value["output"][0]["result"] = json!("AQID");
+        }
+        Outcome::Multiple => {
+            let additional = value["output"][0].clone();
+            value["output"].as_array_mut().unwrap().push(additional);
+        }
         Outcome::Invalid => {
             if path == "/v1/responses" {
                 value["output"][0]["result"] = json!("not-base64!");
@@ -265,6 +285,28 @@ async fn respond(
             }
         }
         _ => {}
+    }
+    if matches!(outcome, Outcome::Streamed | Outcome::MissingTerminal) {
+        let item = json!({"type":"response.output_item.done", "output_index":0, "item":value["output"][0]});
+        let terminal = json!({"type":"response.completed","response":value});
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            )
+            .await?;
+        stream
+            .write_all(format!("data: {item}\n\n").as_bytes())
+            .await?;
+        if matches!(outcome, Outcome::Streamed) {
+            stream
+                .write_all(format!("data: {terminal}\n\n").as_bytes())
+                .await?;
+            // An authoritative terminal event must finish even if the server keeps HTTP open.
+            let _ = stream.read(&mut [0]).await?;
+            return Ok(());
+        }
+        stream.write_all(b"data: [DONE]\n\n").await?;
+        return stream.shutdown().await;
     }
     let body = serde_json::to_vec(&value).unwrap();
     stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await?;

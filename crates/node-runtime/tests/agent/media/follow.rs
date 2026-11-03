@@ -317,7 +317,7 @@ fn assert_route(request: &wire::Request, api: ModelApi, model: &str) {
             format!("Bearer {}", wire::KEY)
         );
         assert_eq!(request.body["model"], model);
-        assert_eq!(request.body["stream"], false);
+        assert_eq!(request.body["stream"], true);
         assert_eq!(
             request.body["tools"],
             json!([{"type":"image_generation", "output_format":"png"}])
@@ -566,6 +566,10 @@ async fn failures_never_use_companion() {
                 wire::Outcome::Invalid,
                 wire::Outcome::Empty,
                 wire::Outcome::Incomplete,
+                wire::Outcome::MissingTerminal,
+                wire::Outcome::NonPng,
+                wire::Outcome::Multiple,
+                wire::Outcome::Oversized,
                 wire::Outcome::Rejected(401, "unsupported_capability"),
                 wire::Outcome::Rejected(403, "unsupported_capability"),
                 wire::Outcome::Rejected(429, "unsupported_capability"),
@@ -581,6 +585,11 @@ async fn failures_never_use_companion() {
                     ),
                     "{remote:?} {outcome:?}: {error:?}"
                 );
+                assert!(!error.message.contains(wire::KEY), "{error:?}");
+                if matches!(outcome, wire::Outcome::Rejected(400, "invalid_request")) {
+                    assert!(error.message.contains("param tools"), "{error:?}");
+                    assert!(error.message.contains("req_image_fixture"), "{error:?}");
+                }
                 assert!(!fixture.root.join(&path).exists(), "{outcome:?}");
                 assert!(companion.requests.lock().unwrap().is_empty(), "{outcome:?}");
                 let requests = fixture.server.requests.lock().unwrap();
@@ -759,6 +768,31 @@ async fn retains_frozen_companion_after_revisions() {
                 );
             }
         }
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn publishes_completed_stream_without_eof() {
+    for remote in [false, true] {
+        let fixture =
+            Fixture::with_outcome(remote, ModelApi::Responses, wire::Outcome::Streamed).await;
+        let turn = fixture.queue(&fixture.session).await;
+        fixture.begin(&turn).await;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            fixture.generated(&fixture.session, &turn, "assets/generated/streamed.png"),
+        )
+        .await
+        .expect("completed image waited for HTTP EOF");
+        fixture.stop(&turn).await;
+        let requests = fixture.server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        assert_route(
+            requests.iter().find(|request| !request.primary()).unwrap(),
+            ModelApi::Responses,
+            "follow-a",
+        );
         fixture.close().await;
     }
 }

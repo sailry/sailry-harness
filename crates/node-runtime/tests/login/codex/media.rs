@@ -5,16 +5,37 @@ use std::sync::Mutex;
 const PNG: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j3ioAAAAASUVORK5CYII=";
 
+#[derive(Clone, Copy, Debug)]
+enum Outcome {
+    Json,
+    Stream,
+    Rejected,
+    Invalid,
+    Interrupted,
+    Cancelled,
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn does_not_request_native_images() {
+async fn generates_through_captured_authorization() {
     for remote in [false, true] {
-        for companion in [false, true] {
+        for outcome in [
+            Outcome::Json,
+            Outcome::Stream,
+            Outcome::Rejected,
+            Outcome::Invalid,
+            Outcome::Interrupted,
+            Outcome::Cancelled,
+        ] {
+            let companion = !matches!(outcome, Outcome::Json);
+            let image_ready = Arc::new(tokio::sync::Notify::new());
+            let image_seen = image_ready.clone();
             let held = Arc::new(tokio::sync::Notify::new());
             let ready = held.clone();
             let session = Arc::new(Mutex::new(None::<SessionId>));
             let captured = session.clone();
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
                 if request.path == "/images/generations" {
+                    assert!(matches!(outcome, Outcome::Rejected));
                     assert_eq!(
                         request.headers["authorization"],
                         "Bearer isolated-codex-image-companion"
@@ -27,7 +48,8 @@ async fn does_not_request_native_images() {
                     return server::standard(request, 3600);
                 }
                 let options = Options::defaults(Authentication::ChatGptOAuth).unwrap();
-                let body = server::input(request, &options, ACCESS);
+                server::headers(request, &options, ACCESS);
+                let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
                 let id = captured.lock().unwrap().unwrap().to_string();
                 assert_eq!(body["model"], "fixture");
                 assert_eq!(body["stream"], true);
@@ -35,13 +57,30 @@ async fn does_not_request_native_images() {
                 assert_eq!(body["prompt_cache_key"], id);
                 assert_eq!(request.headers["session-id"], id);
                 assert_eq!(request.headers["x-codex-routing-hint"], "model=fixture");
-                assert!(
-                    !body["tools"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .any(|tool| tool["type"] == "image_generation")
-                );
+                if body["tools"].as_array().unwrap().iter()
+                    .any(|tool| tool["type"] == "image_generation") {
+                    assert_eq!(body["instructions"], "");
+                    assert_eq!(body["input"], json!([{"type":"message","role":"user",
+                        "content":[{"type":"input_text","text":"A pixel"}]}]));
+                    assert_eq!(body["tools"], json!([{"type":"image_generation","output_format":"png"}]));
+                    assert_eq!(body["tool_choice"], json!({"type":"image_generation"}));
+                    assert!(body.get("max_tool_calls").is_none());
+                    image_seen.notify_one();
+                    let image = json!({"type":"image_generation_call","status":"completed","result":PNG});
+                    return match outcome {
+                        Outcome::Json => Reply::Json(json!({"status":"completed","output":[image]})),
+                        Outcome::Stream => server::stream(vec![server::completed(json!([image]))], false),
+                        Outcome::Rejected | Outcome::Invalid => {
+                            let code = if matches!(outcome, Outcome::Rejected) { "unsupported_capability" } else { "invalid_request" };
+                            let error = json!({"error":{"code":code,"type":"invalid_request_error",
+                                "param":"tools", "message":format!("Fixture rejected {ACCESS} {REFRESH} {ACCOUNT}")}}).to_string();
+                            Reply::Raw(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nX-Request-ID: req_image\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{error}",error.len()))
+                        }
+                        Outcome::Interrupted => server::stream(vec![json!({"type":"response.output_item.done","output_index":0,"item":image})], true),
+                        Outcome::Cancelled => Reply::Hold,
+                    };
+                }
+                server::input(request, &options, ACCESS);
                 ready.notify_one();
                 Reply::Hold
             })
@@ -140,32 +179,44 @@ async fn does_not_request_native_images() {
                 .await
                 .expect("main model request did not reach the held response");
             let path = "assets/generated/codex.png";
-            let generated = fixture
+            let request = fixture
                 .client
-                .execute(
+                .prepare(Command::UseMedia {
+                    turn: turn.id,
+                    session: active.id,
+                    worktree: active.worktree,
+                    action: Action::Image {
+                        prompt: "A pixel".into(),
+                        path: path.into(),
+                    },
+                })
+                .with_plugin(plugin::Context {
+                    invocation: None,
+                    turn: Some(turn.id),
+                    surface: Default::default(),
+                    package: package.summary.reference(),
+                    worktree: Some(active.worktree),
+                    session: Some(active.id),
+                });
+            let generated = if matches!(outcome, Outcome::Cancelled) {
+                let generate = fixture.client.execute(request);
+                let cancel = async {
+                    tokio::time::timeout(Duration::from_secs(10), image_ready.notified())
+                        .await
+                        .expect("image request was not submitted");
                     fixture
                         .client
-                        .prepare(Command::UseMedia {
-                            turn: turn.id,
-                            session: active.id,
-                            worktree: active.worktree,
-                            action: Action::Image {
-                                prompt: "A pixel".into(),
-                                path: path.into(),
-                            },
-                        })
-                        .with_plugin(plugin::Context {
-                            invocation: None,
-                            turn: Some(turn.id),
-                            surface: Default::default(),
-                            package: package.summary.reference(),
-                            worktree: Some(active.worktree),
-                            session: Some(active.id),
-                        }),
-                )
-                .await;
+                        .execute(fixture.client.prepare(Command::StopTurn { turn: turn.id }))
+                        .await
+                        .unwrap();
+                };
+                let (result, ()) = tokio::join!(generate, cancel);
+                result
+            } else {
+                fixture.client.execute(request).await
+            };
 
-            if companion {
+            if matches!(outcome, Outcome::Json | Outcome::Stream | Outcome::Rejected) {
                 assert!(
                     matches!(generated.unwrap(), Output::Media(value) if value["path"] == path)
                 );
@@ -178,7 +229,19 @@ async fn does_not_request_native_images() {
             } else {
                 let error = generated.unwrap_err();
                 no_secrets(&error);
-                assert_eq!(error.code, ErrorCode::NotConfigured);
+                assert_eq!(
+                    error.code,
+                    match outcome {
+                        Outcome::Invalid => ErrorCode::Unavailable,
+                        Outcome::Interrupted => ErrorCode::OutcomeUnknown,
+                        Outcome::Cancelled => ErrorCode::Cancelled,
+                        _ => unreachable!(),
+                    }
+                );
+                if matches!(outcome, Outcome::Invalid) {
+                    assert!(error.message.contains("param tools"));
+                    assert!(error.message.contains("req_image"));
+                }
                 assert!(!root.join(path).exists());
             }
             {
@@ -188,23 +251,31 @@ async fn does_not_request_native_images() {
                         .iter()
                         .filter(|request| request.path == "/responses")
                         .count(),
-                    1
+                    2
                 );
                 assert_eq!(
                     requests
                         .iter()
                         .filter(|request| request.path == "/images/generations")
                         .count(),
-                    usize::from(companion)
+                    usize::from(matches!(outcome, Outcome::Rejected))
                 );
             }
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::StopTurn { turn: turn.id }))
-                .await
-                .unwrap();
+            if !matches!(outcome, Outcome::Cancelled) {
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::StopTurn { turn: turn.id }))
+                    .await
+                    .unwrap();
+            }
             super::super::execution::finished(&fixture.client, &turn, Status::Cancelled).await;
-            server.wait_closed(1).await;
+            server
+                .wait_closed(if matches!(outcome, Outcome::Cancelled) {
+                    2
+                } else {
+                    1
+                })
+                .await;
             fixture.close().await;
         }
     }

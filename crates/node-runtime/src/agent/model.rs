@@ -7,7 +7,7 @@ pub(in crate::agent) mod observation;
 pub(super) mod plugin;
 pub(crate) mod registry;
 mod request;
-pub(in crate::agent) use errors::fault as error;
+pub(in crate::agent) use errors::{fault as error, safe};
 use goose_provider_types::{base::Provider as GdkProvider, model::ModelConfig};
 use sailry_protocol::{
     Authentication, Effort, SessionConfig,
