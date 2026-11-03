@@ -163,7 +163,30 @@ pub(crate) fn bounded<'a>(
     }
     let scope = root.into();
     control.check()?;
-    let mut file = path::file(scope, relative)?;
+    checked(path::file(scope, relative)?, limit, control)
+}
+
+/// [`bounded`] below a root handle that was already opened and confined, so a
+/// caller reading many files does not reopen every root ancestor per file.
+pub(crate) fn bounded_at(
+    root: &cap_std::fs::Dir,
+    access: super::Access,
+    relative: &str,
+    limit: usize,
+    control: &Control,
+) -> Result<Option<String>, Fault> {
+    if limit == 0 || limit > MAX_EDIT_BYTES {
+        return Err(Fault::invalid("text inspection limit is invalid"));
+    }
+    control.check()?;
+    checked(path::file_at(root, access, relative)?, limit, control)
+}
+
+fn checked(
+    mut file: cap_std::fs::File,
+    limit: usize,
+    control: &Control,
+) -> Result<Option<String>, Fault> {
     let before = file.metadata().map_err(io_error)?;
     if before.len() > limit as u64 {
         return Ok(None);

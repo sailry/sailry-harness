@@ -141,3 +141,69 @@ async fn measures_repository_segments() {
         std::env::consts::ARCH
     );
 }
+
+#[tokio::test]
+#[ignore = "opt-in code index repeated query measurement"]
+async fn measures_repeated_queries() {
+    let fixture = Fixture::new();
+    let files = 3000;
+    let body = (0..40)
+        .map(|line| format!("    let value_{line} = {line};\n"))
+        .collect::<String>();
+    for directory in 0..30 {
+        std::fs::create_dir(fixture.root.join(format!("module_{directory}"))).unwrap();
+    }
+    for file in 0..files {
+        fixture.write(
+            &format!("module_{}/file_{file}.rs", file % 30),
+            &format!("pub struct Item{file};\npub fn item_{file}() {{\n{body}}}\n"),
+        );
+    }
+    // Real sources are older than the timestamp settling window.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let worktree = fixture
+        .service
+        .worktree(fixture.id, fixture.root.clone())
+        .unwrap();
+    let start = Instant::now();
+    for _ in 0..100 {
+        let page = fixture.search().await;
+        if worktree.sync.lock().await.remaining().is_none() && !page.truncated {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(120));
+    }
+    let first = start.elapsed();
+    let path = "module_0/file_0.rs".to_owned();
+    let query = Search {
+        query: "item_42".into(),
+        limit: 20,
+        ..Default::default()
+    };
+    let mut rows = [
+        ("unchanged", Vec::new()),
+        ("root_invalidated", Vec::new()),
+        ("path_invalidated", Vec::new()),
+    ];
+    for _ in 0..5 {
+        for (label, samples) in &mut rows {
+            match *label {
+                "root_invalidated" => fixture.service.changed(fixture.id, None),
+                "path_invalidated" => fixture.service.changed(fixture.id, Some(&path)),
+                _ => {}
+            }
+            let start = Instant::now();
+            let page = fixture
+                .service
+                .search(fixture.id, fixture.root.clone(), &query, &CancellationToken::new())
+                .await
+                .unwrap();
+            samples.push(start.elapsed());
+            assert!(page.symbols.iter().any(|symbol| symbol.name == "item_42"));
+        }
+    }
+    eprintln!("Code index {files} files: first complete index {first:?}");
+    for (label, samples) in rows {
+        eprintln!("Code index {label} search: {samples:?}");
+    }
+}

@@ -20,6 +20,8 @@ mod tests;
 
 const MAX_FILES: usize = 50_000;
 const BATCH: usize = 16;
+/// Shared blocking read and parse workers across all worktrees.
+const READERS: usize = 4;
 const MAX_ISSUES: usize = 5;
 
 pub(crate) struct Service {
@@ -91,7 +93,7 @@ impl Service {
             watches,
             closed,
             resources: OnceCell::new(),
-            parsing: Arc::new(Semaphore::new(4)),
+            parsing: Arc::new(Semaphore::new(READERS)),
             worktrees: Mutex::new(BTreeMap::new()),
         })
     }
@@ -236,26 +238,33 @@ impl Service {
         let operation = async {
             let _access = worktree.access.read().await;
             check(&worktree.stop)?;
-            let _sync = tokio::select! {biased; _=stop.cancelled()=>return Err(cancelled()),guard=worktree.sync.lock()=>guard};
+            let mut progress = tokio::select! {biased; _=stop.cancelled()=>return Err(cancelled()),guard=worktree.sync.lock()=>guard};
             worktree
                 .observe(self.watches.clone(), self.node, id, stop)
                 .await?;
             check(stop)?;
             let index = worktree.index().await?;
             let resources = self.resources().await?;
-            let cache = index.files().await?;
+            let directory = sync::open(&worktree).await?;
+            let prior = sync::prior(progress.cached(index, path).await?);
             let file = self
                 .read(
                     &worktree,
-                    path.to_owned(),
-                    cache.get(path),
+                    directory,
+                    vec![(path.to_owned(), prior)],
                     resources.clone(),
                     stop,
                     Instant::now() + Duration::from_secs(10),
                 )
-                .await?;
-            if let Some(file) = file {
-                index.replace(&[file], &resources.fingerprint, stop).await?;
+                .await?
+                .pop()
+                .expect("one file was read")?;
+            if let Some(file) = file
+                && let Some(revision) = index
+                    .replace(std::slice::from_ref(&file), &resources.fingerprint, stop)
+                    .await?
+            {
+                progress.replaced(&file, &resources.fingerprint, revision);
             }
             let mut outline = index.outline(path).await?;
             outline.partial |= worktree.dirty.lock().unwrap().watch_failed;

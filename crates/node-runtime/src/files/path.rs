@@ -111,6 +111,17 @@ pub(crate) fn file(scope: super::Scope<'_>, relative: &str) -> Result<File, Faul
     super::open_regular(&directory, name).map_err(missing)
 }
 
+/// [`file`] below an already opened [`root`] handle.
+pub(crate) fn file_at(base: &Dir, access: super::Access, relative: &str) -> Result<File, Fault> {
+    let parts = components_with(relative, false, access)?;
+    let (name, parents) = parts.split_last().unwrap();
+    if parents.is_empty() {
+        return super::open_regular(base, name).map_err(missing);
+    }
+    let directory = descend(base.try_clone().map_err(io_error)?, parents).map_err(missing)?;
+    super::open_regular(&directory, name).map_err(missing)
+}
+
 pub(super) fn missing(mut fault: Fault) -> Fault {
     if fault.code == ErrorCode::NotFound && fault.details.is_none() {
         fault.details = Some(FaultDetails::WorktreePathNotFound);

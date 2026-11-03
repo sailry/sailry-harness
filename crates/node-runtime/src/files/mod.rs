@@ -9,7 +9,7 @@ mod create;
 mod directory;
 pub(crate) mod edit;
 mod lines;
-pub(crate) use lines::bounded as index_text;
+pub(crate) use lines::bounded_at as index_text;
 pub(crate) mod media;
 pub(crate) mod mutations;
 pub(crate) mod notebook;

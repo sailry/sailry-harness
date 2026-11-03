@@ -8,7 +8,7 @@ use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, code_index::*};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     path::Path,
     sync::Arc,
 };
@@ -118,9 +118,16 @@ impl Index {
         (release, observed)
     }
 
+    #[cfg(test)]
     pub(super) async fn files(&self) -> Result<BTreeMap<String, Cached>, Fault> {
-        let lease = self.lease(true).await?;
-        let mut rows = lease
+        self.snapshot().await.map(|(_, files)| files)
+    }
+
+    /// Every file record with the index revision of the same read transaction.
+    pub(super) async fn snapshot(&self) -> Result<(u64, BTreeMap<String, Cached>), Fault> {
+        let mut lease = self.lease(true).await?;
+        let tx = lease.connection_mut().transaction().await.map_err(error)?;
+        let mut rows = tx
             .query("SELECT path,hash,fingerprint,state FROM files", ())
             .await
             .map_err(error)?;
@@ -138,17 +145,26 @@ impl Index {
                 },
             );
         }
-        Ok(files)
+        drop(rows);
+        let revision = revision(&tx).await?;
+        tx.commit().await.map_err(error)?;
+        Ok((revision, files))
     }
 
+    pub(super) async fn revision(&self) -> Result<u64, Fault> {
+        let lease = self.lease(true).await?;
+        revision(&lease).await
+    }
+
+    /// Returns the committed index revision, or `None` without a write.
     pub(super) async fn replace(
         &self,
         files: &[Parsed],
         fingerprint: &str,
         stop: &CancellationToken,
-    ) -> Result<(), Fault> {
+    ) -> Result<Option<u64>, Fault> {
         if files.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
         check(stop)?;
         let mut lease = self.lease(false).await?;
@@ -222,49 +238,45 @@ impl Index {
         )
         .await
         .map_err(error)?;
+        let revision = revision(&tx).await?;
         check(stop)?;
-        tx.commit().await.map_err(error)
+        tx.commit().await.map_err(error)?;
+        Ok(Some(revision))
     }
 
-    /// This is called only after a complete, successful directory traversal.
-    pub(super) async fn prune(
+    /// Removes records proven absent by a complete, successful directory
+    /// traversal in one transaction and returns the committed index revision.
+    pub(super) async fn remove(
         &self,
-        seen: &BTreeSet<String>,
+        paths: &[String],
         stop: &CancellationToken,
-    ) -> Result<(), Fault> {
-        let paths: Vec<_> = self
-            .files()
-            .await?
-            .into_keys()
-            .filter(|path| !seen.contains(path))
-            .collect();
-        for paths in paths.chunks(64) {
-            check(stop)?;
-            let mut lease = self.lease(false).await?;
-            let tx = lease
-                .connection_mut()
-                .transaction_with_behavior(TransactionBehavior::Concurrent)
-                .await
-                .map_err(error)?;
-            for path in paths {
-                // Delete explicitly so the native index sees every symbol removal.
-                tx.execute("DELETE FROM symbols WHERE path=?1", [path.as_str()])
-                    .await
-                    .map_err(error)?;
-                tx.execute("DELETE FROM files WHERE path=?1", [path.as_str()])
-                    .await
-                    .map_err(error)?;
-            }
-            tx.execute(
-                "UPDATE metadata SET revision=revision+1 WHERE singleton=1",
-                (),
-            )
+    ) -> Result<u64, Fault> {
+        check(stop)?;
+        let mut lease = self.lease(false).await?;
+        let tx = lease
+            .connection_mut()
+            .transaction_with_behavior(TransactionBehavior::Concurrent)
             .await
             .map_err(error)?;
-            check(stop)?;
-            tx.commit().await.map_err(error)?;
+        for path in paths {
+            // Delete explicitly so the native index sees every symbol removal.
+            tx.execute("DELETE FROM symbols WHERE path=?1", [path.as_str()])
+                .await
+                .map_err(error)?;
+            tx.execute("DELETE FROM files WHERE path=?1", [path.as_str()])
+                .await
+                .map_err(error)?;
         }
-        Ok(())
+        tx.execute(
+            "UPDATE metadata SET revision=revision+1 WHERE singleton=1",
+            (),
+        )
+        .await
+        .map_err(error)?;
+        let revision = revision(&tx).await?;
+        check(stop)?;
+        tx.commit().await.map_err(error)?;
+        Ok(revision)
     }
 
     pub(super) async fn outline(&self, path: &str) -> Result<Outline, Fault> {
