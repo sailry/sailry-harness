@@ -36,12 +36,29 @@
 | 自托管执行服务 | 🚧 | — | — | [◐](https://learn.chatgpt.com/docs/app-server) | [◐](https://code.claude.com/docs/en/desktop) | [◐](https://zcode.z.ai/en/docs/remote-development) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
 | 自带模型 | [✅](docs/models.md) | [✅](https://docs.trae.cn/ide_models) | [✅](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model) | [✅](https://learn.chatgpt.com/docs/config-file/config-advanced) | ✅ | [✅](https://zcode.z.ai/en/docs/configuration) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/providers) |
 | Git worktree | [✅](docs/projects.md) | [✅](https://docs.trae.cn/enterprise_feature-list?lang=zh) | ✅ | ✅ | ✅ | — | [◐](https://github.com/deepseek-ai/deepseek-harness/releases) |
+| 多模型子代理团队 | ✅ | — | — | ◐ | ◐ | — | ◐ |
+| P2P 端到端加密连接 | ✅ | — | — | ◐ | ◐ | — | ◐ |
+| 手机远程掌控会话 | ✅ | ◐ | — | — | — | — | — |
 
 ✅ 支持 · ◐ 部分支持 · 🚧 即将推出 · ❌ 不支持 · — 未确认。含官方扩展；DSH 指 DeepSeek Harness。
 
 - **工具集中使用。** 项目、终端、SSH 和数据库就在对话旁边。
 - **工作区可以扩展。** 插件通过 [Apache-2.0 SDK](sdk/plugins.md) 添加页面、面板、设置、工具和技能。
 - **模型与主机自己选。** 接入自己的模型服务，连接[执行主机](docs/hosts.md)。
+
+## 智能体团队，一个位置一个模型
+
+Sailry 的智能体像一支开发团队：DeepSeek 负责写代码，Claude 出方案，Codex 解决难题——
+一次会话里混用不同模型，无需胶水代码。子代理并行工作、结果回传给主代理，每一步都看得见。
+
+## 桌面、手机、你的服务器
+
+桌面端和移动端只是控制器。接上任意多个 Host——你的笔记本、实验室里的 Linux
+机器、租来的 GPU 机器——每个 Host 都在自己熟悉的代码和数据上执行任务。合上笔记本，
+手机上的会话照常继续；在手机上下发任务，回桌面端看它跑完。任务不被绑死在任何一台机器上。
+
+链路全程端到端加密。能直连就走 P2P，直连不通就走加密中继——全球任意主机
+都能连上，不必开放端口，也不必信任中间节点。
 
 ## 安装
 
@@ -51,7 +68,7 @@
 
 | 系统 | 架构 | 状态 | 下载 |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple 芯片 / Intel | 支持 | [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple 芯片 / Intel | 支持 | [Apple 芯片](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg) |
 | Windows | x64 / ARM64 | 计划中 | — |
 | Linux | x64 / ARM64 | 计划中 | — |
 
@@ -59,16 +76,16 @@
 
 | 系统 | 架构 | 状态 | 下载 |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple 芯片 / Intel | 待发布 | [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
-| Linux · glibc 2.34+ | x64 / ARM64 | 待发布 | [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple 芯片 / Intel | 支持 | [Apple 芯片](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-apple-darwin.tar.gz) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-apple-darwin.tar.gz) |
+| Linux · glibc 2.34+ | x64 / ARM64 | 支持 | [x64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-unknown-linux-gnu.tar.gz) · [ARM64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-unknown-linux-gnu.tar.gz) |
 | Windows | — | 计划中 | — |
 
 ### 移动端
 
 | 系统 | 架构 | 状态 | 下载 |
 | --- | --- | --- | --- |
-| Android 7.0+ | ARM64 | 未发布 | — |
-| iOS 15+ | ARM64 | 未发布 | — |
+| Android 7.0+ | ARM64 | 支持 | [APK](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-android-arm64.apk) |
+| iOS 15+ | ARM64 | 测试版 | [TestFlight](https://testflight.apple.com/join/qaTnVrmQ) |
 
 ## 开始使用
 

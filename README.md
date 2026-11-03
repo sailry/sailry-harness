@@ -36,12 +36,35 @@
 | Self-hosted execution | 🚧 | — | — | [◐](https://learn.chatgpt.com/docs/app-server) | [◐](https://code.claude.com/docs/en/desktop) | [◐](https://zcode.z.ai/en/docs/remote-development) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
 | Bring your own model | [✅](docs/models.md) | [✅](https://docs.trae.cn/ide_models) | [✅](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model) | [✅](https://learn.chatgpt.com/docs/config-file/config-advanced) | ✅ | [✅](https://zcode.z.ai/en/docs/configuration) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/providers) |
 | Git worktrees | [✅](docs/projects.md) | [✅](https://docs.trae.cn/enterprise_feature-list?lang=zh) | ✅ | ✅ | ✅ | — | [◐](https://github.com/deepseek-ai/deepseek-harness/releases) |
+| Multi-model subagent teams | ✅ | — | — | ◐ | ◐ | — | ◐ |
+| P2P end-to-end encrypted links | ✅ | — | — | ◐ | ◐ | — | ◐ |
+| Mobile controls any session | ✅ | ◐ | — | — | — | — | — |
 
 ✅ Supported · ◐ Partial · 🚧 Coming soon · ❌ Unavailable · — Unconfirmed. Includes official extensions; DSH = DeepSeek Harness.
 
 - **Keep tools together.** Projects, terminals, SSH and databases sit beside the conversation.
 - **Extend the workspace.** Plugins add pages, panels, settings, tools and skills via the [Apache-2.0 SDK](sdk/plugins.md).
 - **Choose models and hosts.** Use your own model services and connect [execution hosts](docs/hosts.md).
+
+## Agent teams, one model per seat
+
+Sailry agents delegate like a development team: DeepSeek writes the code, Claude
+plans the approach, Codex cracks the hard problems — different models in one
+session, no glue code. Subagents run in parallel, report back to the lead agent,
+and every step stays visible.
+
+## Your desk, your phone, your servers
+
+Desktop and mobile are just controllers. Connect any number of Hosts — a laptop, a
+Linux box in the lab, a rented GPU machine — and each one runs tasks on the code
+and data already there. Close the laptop and the phone keeps the session alive;
+start a task on the phone and watch it finish on the desktop. Nothing is trapped
+in one machine.
+
+Every link is end-to-end encrypted. Controllers and Hosts talk peer to peer over
+the network when a direct path exists, and fall back to an encrypted relay when it
+does not — so you can reach a machine anywhere in the world without opening a port
+or trusting a middlebox.
 
 ## Install
 
@@ -51,7 +74,7 @@
 
 | Platform | Architecture | Status | Download |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple silicon / Intel | Supported | [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple silicon / Intel | Supported | [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg) |
 | Windows | x64 / ARM64 | Planned | — |
 | Linux | x64 / ARM64 | Planned | — |
 
@@ -59,16 +82,16 @@
 
 | Platform | Architecture | Status | Download |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple silicon / Intel | Awaiting release | [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
-| Linux · glibc 2.34+ | x64 / ARM64 | Awaiting release | [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple silicon / Intel | Supported | [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-apple-darwin.tar.gz) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-apple-darwin.tar.gz) |
+| Linux · glibc 2.34+ | x64 / ARM64 | Supported | [x64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-unknown-linux-gnu.tar.gz) · [ARM64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-unknown-linux-gnu.tar.gz) |
 | Windows | — | Planned | — |
 
 ### Mobile
 
 | Platform | Architecture | Status | Download |
 | --- | --- | --- | --- |
-| Android 7.0+ | ARM64 | Not released | — |
-| iOS 15+ | ARM64 | Not released | — |
+| Android 7.0+ | ARM64 | Supported | [APK](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-android-arm64.apk) |
+| iOS 15+ | ARM64 | Beta | [TestFlight](https://testflight.apple.com/join/qaTnVrmQ) |
 
 ## Get started
 
