@@ -57,8 +57,10 @@ fn retains_canonical_failure_details() {
         input: None,
     });
     let mut feed = Feed::default();
+    let mut inbox = Inbox::default();
     feed.observe(&state);
     assert!(feed.notices.is_empty());
+    assert!(inbox.merge(state.node, &feed.notices).is_empty());
 
     let fault = Fault::new(ErrorCode::Unavailable, "context summary timed out");
     let run = state.sessions[0].activity.run.as_mut().unwrap();
@@ -98,7 +100,6 @@ fn retains_canonical_failure_details() {
     ));
     assert_eq!(notice.title, "Original conversation title");
 
-    let mut inbox = Inbox::default();
     assert_eq!(inbox.merge(state.node, &feed.notices).len(), 1);
     feed.observe(&state);
     assert!(inbox.merge(state.node, &feed.notices).is_empty());
@@ -143,7 +144,7 @@ fn snapshot_recovers_unread() {
     let mut feed = Feed::default();
     let mut inbox = Inbox::default();
     feed.observe(&snapshot);
-    assert_eq!(inbox.merge(snapshot.node, &feed.notices).len(), 1);
+    assert!(inbox.merge(snapshot.node, &feed.notices).is_empty());
     assert_eq!(inbox.notices().len(), 2);
     assert_eq!(inbox.unread(), 1);
     feed.observe(&snapshot);
@@ -159,6 +160,8 @@ fn read_and_dismiss_updates_reconcile_existing_entries() {
     let mut entry = notice(1, false);
     let mut feed = Feed::default();
     let mut inbox = Inbox::default();
+    feed.observe(projection.snapshot().unwrap());
+    assert!(inbox.merge(node, &feed.notices).is_empty());
     for (cursor, read) in [(1, false), (2, true)] {
         entry.read = read;
         projection

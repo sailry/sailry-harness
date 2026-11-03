@@ -90,6 +90,14 @@ async fn durable_delivery_read_and_clear() {
             notice.content.presentation
         );
         assert!(!view.notifications[0].read);
+        let mut inbox = sailry_client::activity::Inbox::default();
+        assert!(inbox.merge(client.target(), &view.notifications).is_empty());
+        assert_eq!(inbox.unread(), 1);
+        inbox.merge(client.target(), &[]);
+        assert!(inbox.notices().is_empty());
+        assert!(inbox.merge(client.target(), &view.notifications).is_empty());
+        assert_eq!(inbox.notices().len(), 1);
+        assert_eq!(inbox.unread(), 1);
         execute(
             &client,
             Command::MarkNotificationsRead {
@@ -105,6 +113,12 @@ async fn durable_delivery_read_and_clear() {
         .await
         .unwrap();
         assert!(notices(&client).await[0].read);
+        assert!(
+            inbox
+                .merge(client.target(), &receiver.borrow().notifications)
+                .is_empty()
+        );
+        assert_eq!(inbox.unread(), 0);
         execute(
             &client,
             Command::DismissReadNotifications {
@@ -120,6 +134,12 @@ async fn durable_delivery_read_and_clear() {
         .await
         .unwrap();
         assert!(notices(&client).await.is_empty());
+        assert!(
+            inbox
+                .merge(client.target(), &receiver.borrow().notifications)
+                .is_empty()
+        );
+        assert!(inbox.notices().is_empty());
         stop.cancel();
         watching.await.unwrap().unwrap();
         node.shutdown().await.unwrap();

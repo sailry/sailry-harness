@@ -31,11 +31,14 @@ impl Shell {
                             if cancellation.is_cancelled() {
                                 return;
                             }
-                            let notices = view.notifications.clone();
+                            let notices =
+                                view.snapshot.as_ref().map(|_| view.notifications.clone());
                             if let Some(observer) = shell.activity.observers.get_mut(&node) {
                                 observer.view = view;
                             }
-                            shell.receive_notices(node, &notices, window, cx);
+                            if let Some(notices) = notices {
+                                shell.receive_notices(node, &notices, window, cx);
+                            }
                             cx.notify();
                         })
                         .is_err()
