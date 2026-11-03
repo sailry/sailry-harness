@@ -52,16 +52,21 @@ Release? latestRelease(
     }
     // Android is the only mobile distribution target in this release workflow.
     if (target != 'android-arm64') continue;
-    final name = 'Sailry-${tag.substring(1)}-$target.apk';
-    final expected = Uri.https(
-      'github.com',
-      '/$releaseRepository/releases/download/$tag/$name',
-    );
+    // Current releases publish a fixed name; 0.1.0 published a versioned one.
+    final names = {
+      'Sailry-$target.apk',
+      'Sailry-${tag.substring(1)}-$target.apk',
+    };
     for (final asset in item['assets'] as List) {
       if (asset is! Map<String, dynamic>) {
         throw const FormatException('Invalid release asset');
       }
-      if (asset['name'] != name || asset['state'] != 'uploaded') continue;
+      final name = asset['name'];
+      if (!names.contains(name) || asset['state'] != 'uploaded') continue;
+      final expected = Uri.https(
+        'github.com',
+        '/$releaseRepository/releases/download/$tag/$name',
+      );
       if (asset['browser_download_url'] != expected.toString() ||
           asset['size'] is! num ||
           (asset['size'] as num) <= 0) {

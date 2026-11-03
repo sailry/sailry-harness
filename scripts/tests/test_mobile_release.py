@@ -482,7 +482,9 @@ class Publishing(unittest.TestCase):
         ios_names = {path.name for path in ios.parent.iterdir()}
         self.assertEqual(self.client.uploads[-1], (f"v{VERSION}", ios_names))
         self.assertFalse(android_names & ios_names)
-        self.assertEqual(len(android_names | ios_names), 6)
+        self.assertEqual(android_names, {"Sailry-android-arm64.apk", "Sailry-android-arm64.json",
+                                         "Sailry-android-arm64.sha256"})
+        self.assertEqual(ios_names, {"Sailry-ios.ipa", "Sailry-ios.json", "Sailry-ios.sha256"})
         self.assertNotIn("release.json", android_names | ios_names)
         self.assertNotIn("SHA256SUMS", android_names | ios_names)
 

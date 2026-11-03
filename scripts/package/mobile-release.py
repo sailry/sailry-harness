@@ -108,16 +108,20 @@ def install_android():
         raise
 
 
-def filenames(version, platform):
-    extension, target = {"android": ("apk", "android-arm64"), "ios": ("ipa", "ios")}[platform]
-    name = f"Sailry-{version}-{target}"
+TARGETS = {"android": ("apk", "android-arm64"), "ios": ("ipa", "ios")}
+
+
+def filenames(platform):
+    """Unversioned names let `releases/latest/download/<name>` serve as a fixed download link."""
+    extension, target = TARGETS[platform]
+    name = f"Sailry-{target}"
     return f"{name}.{extension}", f"{name}.json", f"{name}.sha256"
 
 
 def manifest(values, platform):
     return {"version": values["version"], "build_number": values["build_number"], "tag": values["tag"],
             "source_revision": values["revision"], "workflow_revision": values["workflow_revision"],
-            "platform": platform, "asset": filenames(values["version"], platform)[0]}
+            "platform": platform, "asset": filenames(platform)[0]}
 
 
 def checksums(paths):
@@ -130,7 +134,7 @@ def checksums(paths):
 
 def package(path, output, platform, source=None, tooling=None):
     values = candidate(source or versions.ROOT, tooling or versions.ROOT, os.environ)
-    archive, metadata_name, checksum_name = filenames(values["version"], platform)
+    archive, metadata_name, checksum_name = filenames(platform)
     extension = Path(archive).suffix
     if path.suffix != extension or not path.is_file() or not path.stat().st_size:
         raise ValueError("The signed Mobile package is missing or empty")
@@ -147,7 +151,7 @@ def package(path, output, platform, source=None, tooling=None):
 
 def verify_package(directory, platform, source, tooling):
     values = candidate(source, tooling, os.environ)
-    names = filenames(values["version"], platform)
+    names = filenames(platform)
     paths = [directory / name for name in names]
     if ({path.name for path in directory.iterdir()} != set(names)
             or any(not path.is_file() or path.is_symlink() or not path.stat().st_size for path in paths)):

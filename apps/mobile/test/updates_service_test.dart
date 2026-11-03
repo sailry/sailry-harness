@@ -61,6 +61,18 @@ void main() {
       expect(select([fixture.release('0.2.0')], target: 'ios'), isNull);
     });
 
+    test('accepts fixed and versioned package names', () {
+      final selected = select([
+        fixture.release('0.1.0', versioned: true),
+        fixture.release('0.2.0'),
+      ]);
+      expect('${selected!.version}', '0.2.0');
+      expect(
+        '${select([fixture.release('0.1.0', versioned: true)])!.download}',
+        endsWith('/v0.1.0/Sailry-0.1.0-android-arm64.apk'),
+      );
+    });
+
     test('ignores build metadata for precedence', () {
       expect(precedence('0.1.0-alpha.1+1'), precedence('0.1.0-alpha.1+2'));
     });

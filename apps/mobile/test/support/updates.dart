@@ -10,9 +10,10 @@ Map<String, dynamic> release(
   String version, {
   bool draft = false,
   String target = 'android-arm64',
+  bool versioned = false,
 }) {
   final tag = 'v$version';
-  final name = 'Sailry-$version-$target.apk';
+  final name = versioned ? 'Sailry-$version-$target.apk' : 'Sailry-$target.apk';
   return {
     'tag_name': tag,
     'draft': draft,
