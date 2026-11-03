@@ -326,9 +326,9 @@ fn age(elapsed_ms: i64, timestamp_ms: i64) -> SharedString {
         return tr("notifications_time_now");
     }
     let (key, count) = match seconds {
-        ..3600 => ("notifications_time_minutes", seconds / 60),
-        ..86_400 => ("notifications_time_hours", seconds / 3600),
-        ..604_800 => ("notifications_time_days", seconds / 86_400),
+        60..3600 => ("notifications_time_minutes", seconds / 60),
+        3600..86_400 => ("notifications_time_hours", seconds / 3600),
+        86_400..604_800 => ("notifications_time_days", seconds / 86_400),
         _ => {
             use chrono::{Datelike, TimeZone};
             let Some(date) = chrono::Local.timestamp_millis_opt(timestamp_ms).single() else {
@@ -347,6 +347,38 @@ fn age(elapsed_ms: i64, timestamp_ms: i64) -> SharedString {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn formats_unit_boundaries() {
+        let now = chrono::Utc::now().timestamp_millis();
+        for elapsed_ms in [-1000, 0, 59_999] {
+            assert_eq!(
+                super::age(elapsed_ms, now).as_ref(),
+                crate::tr("notifications_time_now").as_ref()
+            );
+        }
+        for (elapsed_ms, key, count) in [
+            (60_000, "notifications_time_minutes", 1u64),
+            (3_599_999, "notifications_time_minutes", 59),
+            (3_600_000, "notifications_time_hours", 1),
+            (86_399_999, "notifications_time_hours", 23),
+            (86_400_000, "notifications_time_days", 1),
+            (604_799_999, "notifications_time_days", 6),
+        ] {
+            assert_eq!(
+                super::age(elapsed_ms, now).as_ref(),
+                rust_i18n::t!(key, count = count).as_ref(),
+                "elapsed_ms={elapsed_ms}"
+            );
+        }
+        let date = super::age(604_800_000, now - 604_800_000);
+        assert!(!date.is_empty());
+        assert!(
+            date.chars()
+                .all(|char| char.is_ascii_digit() || char == '-'),
+            "{date}"
+        );
+    }
+
     #[test]
     fn formats_recent_age() {
         let now = chrono::Utc::now().timestamp_millis();
