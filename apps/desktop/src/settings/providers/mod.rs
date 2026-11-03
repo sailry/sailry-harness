@@ -1,5 +1,6 @@
 mod brands;
 mod catalog;
+pub(super) mod compaction;
 pub(super) mod contributions;
 mod data;
 mod directory;
@@ -145,7 +146,7 @@ impl Workspace {
             );
         v_flex()
             .gap_6()
-            .child(self.model_catalog(cx))
+            .child(self.model_catalog(window, cx))
             .child(v_flex().gap_3().child(header).child(rows))
             .into_any_element()
     }

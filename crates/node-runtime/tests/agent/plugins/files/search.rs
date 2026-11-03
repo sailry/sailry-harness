@@ -374,9 +374,11 @@ async fn pages_raw_results_across_reload_and_compaction() {
                 .find(|request| crate::agent_support::compaction::is_summary(request))
                 .unwrap();
             let prompt = summary["messages"][0]["content"].as_str().unwrap();
-            assert!(prompt.contains("Search content;"));
+            assert!(prompt.contains("source.txt"));
             assert!(prompt.contains("needle-0001"));
-            assert!(!prompt.contains("\"matches\":["));
+            assert!(prompt.contains("needle-0060"));
+            assert!(prompt.contains("characters omitted"));
+            assert!(prompt.contains("\"matches\":["));
         }
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("source.txt")).unwrap(),

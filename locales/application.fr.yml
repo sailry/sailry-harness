@@ -2697,3 +2697,9 @@ appearance_up_to_date: "Les thèmes sont à jour"
 appearance_updates_available: "Mises à jour disponibles"
 
 tool_raw_result: "Voir le résultat brut"
+
+provider_compaction_threshold: "Seuil de compression"
+compaction_settings_load_failed: "Impossible de charger les paramètres de compression"
+compaction_settings_conflict: "Paramètres de compression modifiés. Réessayez"
+compaction_settings_failed: "Impossible d’enregistrer les paramètres de compression"
+compaction_settings_unknown: "Enregistrement non confirmé. Réessayez"

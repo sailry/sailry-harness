@@ -510,7 +510,7 @@ async fn accepts_a_short_two_turn_handoff() {
                 .as_u64()
                 .or_else(|| summary["max_tokens"].as_u64())
                 .unwrap();
-            assert_eq!(output, 128_000);
+            assert_eq!(output, 8_000);
         }
         fixture.client.execute(request).await.unwrap();
         assert_eq!(server.requests.lock().unwrap().len(), count + 1);

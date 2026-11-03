@@ -132,7 +132,12 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn model_catalog(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn model_catalog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let compaction = self.compaction_settings(window, cx);
         let live = self.provider_link.as_ref();
         let loading = live.is_some_and(|live| live.catalog.refresh.is_some());
         let preview = self.providers.catalog_revision > 0;
@@ -198,6 +203,7 @@ impl Workspace {
                     })),
             ))
             .child(Row::new("provider_catalog_last_update", updated_at))
+            .child(compaction)
     }
 }
 

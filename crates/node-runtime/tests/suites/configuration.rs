@@ -28,6 +28,8 @@ mod web_fixture;
 
 #[path = "../catalog.rs"]
 mod catalog;
+#[path = "../compaction_settings.rs"]
+mod compaction_settings;
 #[path = "../credentials.rs"]
 mod credentials;
 #[path = "../discovery.rs"]

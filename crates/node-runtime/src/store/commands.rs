@@ -561,6 +561,15 @@ pub(super) fn execute<'a>(
                 Some(Event::TeamRemoved { id: *team }),
             ))
         }),
+        Command::ReadCompactionSettings => defer(move || async move {
+            Ok((
+                Output::CompactionSettings(super::compaction::read(db).await?),
+                None,
+            ))
+        }),
+        Command::SaveCompactionSettings(settings) => {
+            defer(move || async move { super::compaction::save(db, settings).await })
+        }
         Command::ReadTeamSettings => defer(move || async move {
             Ok((
                 Output::TeamSettings(super::teams::settings::read(db).await?),
@@ -1676,6 +1685,7 @@ async fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         roles: super::roles::list(db).await?,
         teams: super::teams::list(db).await?,
         team_settings_revision: super::teams::settings::read(db).await?.revision,
+        compaction_settings_revision: super::compaction::read(db).await?.revision,
         ssh: super::ssh::list(db).await?,
         databases: super::databases::list(db).await?,
         plugins: super::plugins::list(db).await?,

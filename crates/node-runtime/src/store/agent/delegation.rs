@@ -395,6 +395,8 @@ pub(super) async fn admit(
         // start execution; root workers can be waiting for these children.
         super::super::attachments::turns::bind(&tx, turn.id, &message.attachments).await?;
         runs::record(&tx, &turn, Status::Queued, true).await?;
+        let compaction_percent = crate::store::compaction::captured(&tx, run.turn).await?;
+        tx.execute("UPDATE agent_runs SET compaction_percent=?2 WHERE turn=?1", params![turn.id.to_string(), i64::from(compaction_percent)]).await.map_err(storage_error)?;
         runs::capture(&tx, &turn, false, &message).await?;
         let provider: Option<Vec<u8>> = {
             let mut statement = tx
@@ -449,6 +451,7 @@ pub(super) async fn admit(
         }
         drop(publication);
         Ok(Invocation {
+            compaction_percent,
             input_turn: None,
             instructions: super::super::captures::instructions(&database.connection, turn.id).await?,
             hooks: super::super::hooks::frozen(&database.connection, turn.id).await?,

@@ -243,6 +243,7 @@ fn read(command: &Command) -> bool {
             | Command::ResolvePluginModel { .. }
             | Command::ListRoles
             | Command::ListTeams
+            | Command::ReadCompactionSettings
             | Command::ReadTeamSettings
             | Command::ListProviders
             | Command::ListCredentials
@@ -423,6 +424,7 @@ pub(super) fn launches(command: &Command) -> bool {
             | Command::GuideTurn { .. }
             | Command::SetQueuePaused { .. }
             | Command::SavePluginSettings { .. }
+            | Command::SaveCompactionSettings(_)
             | Command::SaveTeamSettings(_)
     )
 }

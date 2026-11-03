@@ -50,6 +50,17 @@ async fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
     if db.prepare("SELECT EXISTS(SELECT 1 FROM pragma_table_info('database_profiles') WHERE name='password_target')").await?.query_row(()).await?.get::<bool>(0)? {
         crate::store::databases::credentials::validate(db).await.map_err(|error|Error::Worker(error.message))?;
     }
+    if db
+        .prepare("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='compaction_settings')")
+        .await?
+        .query_row(())
+        .await?
+        .get::<bool>(0)?
+    {
+        crate::store::compaction::read(db)
+            .await
+            .map_err(|error| Error::Worker(error.message))?;
+    }
     let live = if archives {
         String::new()
     } else {

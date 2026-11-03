@@ -7,6 +7,7 @@ mod backup;
 mod captures;
 mod code_index;
 mod commands;
+mod compaction;
 mod connections;
 pub(crate) mod database;
 mod databases;

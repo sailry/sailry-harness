@@ -2697,3 +2697,9 @@ appearance_up_to_date: "佈景主題已是最新"
 appearance_updates_available: "有可用更新"
 
 tool_raw_result: "檢視原始結果"
+
+provider_compaction_threshold: "壓縮閾值"
+compaction_settings_load_failed: "無法讀取壓縮設定"
+compaction_settings_conflict: "壓縮設定已變更，請重試"
+compaction_settings_failed: "無法儲存壓縮設定"
+compaction_settings_unknown: "儲存結果未確認，請重試"

@@ -327,7 +327,10 @@ fn answer(body: &serde_json::Value) -> String {
         .to_string()
         .contains("Please summarize the conversation history provided in the system prompt.")
     {
-        crate::agent_support::compaction::handoff(ANSWER)
+        format!(
+            "```json\n{}\n```",
+            json!({"user_intent":[ANSWER],"next_step":"Continue the current request"})
+        )
     } else {
         ANSWER.into()
     }

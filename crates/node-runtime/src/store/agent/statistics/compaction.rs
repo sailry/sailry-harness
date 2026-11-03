@@ -3,8 +3,8 @@ use super::*;
 use sailry_protocol::conversation::compaction::{Budget, Outcome, Record};
 
 pub(super) async fn budget(db: &Connection, session: SessionId) -> Result<Option<Budget>, Fault> {
-    let captured: Option<(Option<Vec<u8>>, Vec<u8>)> = {
-        let mut statement = db.prepare("SELECT r.provider,revision.config FROM agent_runs r JOIN turns t ON t.id=r.turn
+    let captured: Option<(Option<Vec<u8>>, Vec<u8>, u8)> = {
+        let mut statement = db.prepare("SELECT r.provider,revision.config,r.compaction_percent FROM agent_runs r JOIN turns t ON t.id=r.turn
          JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
          LEFT JOIN agent_pending pending ON pending.turn=r.turn
          WHERE t.session=?1 AND json_extract(r.body,'$.status') IN ('running','stopping','queued')
@@ -14,26 +14,31 @@ pub(super) async fn budget(db: &Connection, session: SessionId) -> Result<Option
             Ok(row) => Some((
                 row.get(0).map_err(storage_error)?,
                 row.get(1).map_err(storage_error)?,
+                u8::try_from(row.get::<i64>(2).map_err(storage_error)?).map_err(storage_error)?,
             )),
             Err(turso::Error::QueryReturnedNoRows) => None,
             Err(error) => return Err(storage_error(error)),
         }
     };
-    let (provider, config) = if let Some((provider, config)) = captured {
+    let (provider, config, percent) = if let Some((provider, config, percent)) = captured {
         let provider: Option<Provider> = provider
             .as_deref()
             .map(serde_json::from_slice)
             .transpose()
             .map_err(storage_error)?;
         let config: SessionConfig = serde_json::from_slice(&config).map_err(storage_error)?;
-        (provider, config)
+        (provider, config, percent)
     } else {
         let current = crate::store::commands::session(db, session).await?;
         let provider = match current.profile {
             Some(profile) => Some(profile.provider),
             None => providers::get(db, current.config.provider).await?,
         };
-        (provider, current.config)
+        (
+            provider,
+            current.config,
+            crate::store::compaction::read(db).await?.percent,
+        )
     };
     Ok(provider.and_then(|provider| {
         provider
@@ -46,6 +51,7 @@ pub(super) async fn budget(db: &Connection, session: SessionId) -> Result<Option
                     model.context,
                     model.output,
                     model.compaction_tokens,
+                    percent,
                 )
             })
     }))

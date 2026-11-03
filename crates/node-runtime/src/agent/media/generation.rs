@@ -445,14 +445,14 @@ mod tests {
             (Authentication::ChatGptOAuth, ImageRoute::Authorized),
         ] {
             let mut provider = fixture::provider(authentication, ModelApi::Responses);
-            provider.binding = Some(Binding {
+            provider.binding = Some(Box::new(Binding {
                 policies: vec![RequestPolicy {
                     models: vec!["fixture-model".into()],
                     reasoning_replay: None,
                     body: serde_json::from_value(json!({"service_tier":"priority"})).unwrap(),
                 }],
                 ..Default::default()
-            });
+            }));
             let prepared = authorization::prepare(
                 &provider,
                 &fixture::credentials(authentication),

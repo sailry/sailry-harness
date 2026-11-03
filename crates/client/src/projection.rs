@@ -230,6 +230,9 @@ impl Projection {
                     }
                     Event::TeamChanged(team) => replace_team(&mut snapshot.teams, team),
                     Event::TeamRemoved { id } => snapshot.teams.retain(|item| item.id != id),
+                    Event::CompactionSettingsChanged { revision } => {
+                        snapshot.compaction_settings_revision = revision;
+                    }
                     Event::TeamSettingsChanged { revision } => {
                         snapshot.team_settings_revision = revision;
                     }

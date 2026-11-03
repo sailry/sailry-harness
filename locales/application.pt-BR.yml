@@ -2697,3 +2697,9 @@ appearance_up_to_date: "Os temas estão atualizados"
 appearance_updates_available: "Atualizações disponíveis"
 
 tool_raw_result: "Ver resultado original"
+
+provider_compaction_threshold: "Limite de compactação"
+compaction_settings_load_failed: "Não foi possível carregar as configurações de compactação"
+compaction_settings_conflict: "As configurações de compactação mudaram. Tente novamente"
+compaction_settings_failed: "Não foi possível salvar as configurações de compactação"
+compaction_settings_unknown: "Salvamento não confirmado. Tente novamente"

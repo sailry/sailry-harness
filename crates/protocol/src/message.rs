@@ -649,6 +649,8 @@ pub enum Command {
         team: crate::TeamId,
         expected_revision: u64,
     },
+    ReadCompactionSettings,
+    SaveCompactionSettings(crate::conversation::compaction::Settings),
     ReadTeamSettings,
     SaveTeamSettings(crate::team::Settings),
     ListProviders,
@@ -1692,6 +1694,7 @@ impl Command {
                 | Self::ReadPluginView { .. }
                 | Self::ListRoles
                 | Self::ListTeams
+                | Self::ReadCompactionSettings
                 | Self::ReadTeamSettings
                 | Self::ListProviders
                 | Self::ReadProviderKey { .. }
@@ -1864,6 +1867,8 @@ pub struct Snapshot {
     pub teams: Vec<crate::team::Profile>,
     #[serde(default)]
     pub team_settings_revision: u64,
+    #[serde(default)]
+    pub compaction_settings_revision: u64,
     pub ssh: Vec<crate::ssh::Profile>,
     pub databases: Vec<crate::database::Profile>,
     pub plugins: Vec<crate::plugin::Summary>,
@@ -2008,6 +2013,7 @@ pub enum Output {
     Roles(Vec<crate::role::Profile>),
     Team(crate::team::Profile),
     Teams(Vec<crate::team::Profile>),
+    CompactionSettings(crate::conversation::compaction::Settings),
     TeamSettings(crate::team::Settings),
     CommandResult(crate::process::Completion),
     CommandStarted(crate::process::Info),
@@ -2277,6 +2283,9 @@ pub enum Event {
     TeamChanged(crate::team::Profile),
     TeamRemoved {
         id: crate::TeamId,
+    },
+    CompactionSettingsChanged {
+        revision: u64,
     },
     TeamSettingsChanged {
         revision: u64,

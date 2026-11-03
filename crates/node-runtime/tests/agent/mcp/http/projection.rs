@@ -88,7 +88,10 @@ async fn pages_bounded_results_without_losing_history() {
             "bounded output",
         );
         install(&fixture, 0).await;
-        let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+        let mut provider = crate::configuration::snapshot(&fixture.client)
+            .await
+            .providers[0]
+            .clone();
         provider.models[0].context = 1_000_000;
         provider.models[0].compaction_tokens = Some(800_000);
         execute(

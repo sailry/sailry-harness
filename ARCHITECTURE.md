@@ -392,16 +392,27 @@ Streaming drafts and canonical entries retain ordinary text, thinking and tool
 parts. Interruption preserves those parts without a separate commentary phase.
 Context observations pair provider-reported input and output tokens with the
 admitted model's frozen context limit; a later model change does not relabel an
-old observation. Unknown counts remain unknown. Automatic compaction follows
-Goose's threshold: the lower of 80% of the context window and 225,000 tokens.
+old observation. Unknown counts remain unknown. Automatic compaction defaults to
+80% of the captured context window, without a fixed token ceiling. The model-data
+settings slider changes this Node-owned default from 1% to 99% and saves on release.
+Each admitted turn captures the percentage; later settings changes affect only new
+admissions, while delegated work and joined guidance retain the captured policy.
 An explicitly configured model threshold overrides that default and is frozen
-with the admitted turn.
+with the admitted turn. Trigger estimates for pending tool results use the same
+bounded previews as normal inference, so undispatched raw output does not force
+an unnecessary summary.
 
 Automatic and explicit compaction call `goose_context_management::compact` with
-its default template and structured-summary renderer. The result is user-role
+Sailry's concise handoff templates and GDK's structured-summary renderer. The
+handoff preserves current goals, constraints, verified progress, decisions, next
+steps and essential references while removing stale and recoverable detail.
+The result is user-role
 summary text; the parsed file ledger is retained on the canonical compaction
-record. Summary requests have no tools. There is no background preparation,
-model-callable compaction tool, input preflight, custom old-output masking, prefix
+record. Summary requests have no tools and retain their captured model and account,
+with a separate low supported reasoning effort and an output limit of at most
+8,000 tokens, including reasoning where the provider counts it. There is no total
+compaction deadline; transport stall timeouts and user cancellation still apply.
+There is no background preparation, model-callable compaction tool, prefix
 checkpoint, mandatory-heading check or minimum-reduction gate.
 Individual tool pairs do not trigger separate model summary requests.
 Original records and raw tool output remain intact. The request loader uses the
@@ -419,13 +430,20 @@ caches cover the history. Retained owner parts and the parts a package returns f
 package instructions stay in the stable system prompt. Adapted payload estimates
 attribute sources only for a newly appended context within the verified terminal
 text and captured ranges.
-Compaction still reads full canonical tool results. These sources are not copied
-into or validated against summary text. Selected capabilities retain their input
-ownership rather than becoming policy for a later task.
+Compaction prepares a separate input projection from canonical history. It omits
+reasoning and bounds older tool results to their first and last 1,000 characters.
+The latest user turn keeps its non-reasoning transcript unshortened. If the rendered
+summary request still exceeds its input budget, older turns progressively lose
+tool output, then non-user content, and finally the turn itself. The latest turn
+is never shortened; an oversized latest turn fails compaction without replacing
+history. Selected capabilities retain their input ownership rather than becoming
+policy for a later task.
 
 Context-length errors can trigger at most two reactive compactions under Goose's
-operation ordering. Compaction requests buffer their output while GDK recovers
-transient provider failures; failed attempts do not become summaries. A terminal
+operation ordering. Compaction requests buffer their output and allow at most
+one transient retry; failed, truncated or unparseable attempts do not become
+summaries. Automatic compaction publishes transient progress through the existing
+conversation feed, so controllers distinguish it from completed tools. A terminal
 compaction error reaches `ExitOnError` and ends the turn as a failure. The Node's
 existing queue and explicit retry actions retain unconsumed input. Model and tool
 execution remains in GDK, with no summary-quality gate or Agent-wide retry loop.
@@ -567,7 +585,14 @@ collapsible. Individual calls expand only for Client-projected details; canonica
 raw results remain captured without a separate debug modal. Actual failed-call
 facts share the existing turn observation and canonical history owner, preserving
 error inspection without classifying arbitrary business fields as failures.
-Model results and durable tool output remain unchanged.
+Presentation does not change model results or durable tool output. Separately,
+outgoing model text previews are bounded to 2,000 lines or 50 KiB, whichever is
+reached first. Command previews retain the tail; file and search previews retain
+the beginning. Search defaults to 100 matches with 500-character line previews.
+Truncation identifies the retained range and how to continue reading. The existing
+`read_tool_output` tool pages immutable canonical result JSON with byte offsets and
+revision checks; command streams also retain their existing output-page service.
+These previews do not replace canonical results or create another output store.
 
 Client owns one 64 MiB detail cache and per-view trackers for loading, retries,
 revision invalidation and selected values. A new selection can release an older
@@ -1102,7 +1127,13 @@ retains its Node owner. Provider capabilities follow the pinned GDK implementati
 provider-hosted web search is not enabled, while declared ordinary search tools
 remain available. The pinned Google adapter does not decode generated inline image
 parts. Canonical image assets and configured media tools retain their supported
-Node service routes. HTTP clients use the shared ring TLS provider.
+Node service routes. Responses image generation uses the Node's captured request
+authorization and policy for API-key and supported account-authorized routes.
+A bounded JSON/SSE media adapter requires a completed image result before publishing
+the validated PNG through the existing file service. Only a definite initial
+capability rejection permits the captured fallback; an uncertain submitted request
+is not replayed. Provider diagnostics are bounded and credential-redacted.
+HTTP clients use the shared ring TLS provider.
 
 The `sailry` management command controls the installed service. Sharing uses a
 profile-private Unix socket to request an invitation from the running Host; the

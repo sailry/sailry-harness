@@ -1,5 +1,7 @@
 //! Safe context-maintenance diagnostics carried by canonical conversation entries.
 use serde::{Deserialize, Serialize};
+mod settings;
+pub use settings::Settings;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

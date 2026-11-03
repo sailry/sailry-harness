@@ -48,7 +48,8 @@ async fn record_with(
         providers::selection(provider, &turn.config)?;
     }
     let provider = provider.as_ref().map(encode).transpose()?;
-    insert(db, turn, status, ready, provider, None).await
+    let percent = crate::store::compaction::read(db).await?.percent;
+    insert(db, turn, status, ready, provider, None, percent).await
 }
 
 pub(super) async fn inherit(
@@ -77,6 +78,7 @@ pub(super) async fn inherit(
         ready,
         provider,
         Some(super::super::hooks::frozen(db, source).await?),
+        crate::store::compaction::captured(db, source).await?,
     )
     .await
 }
@@ -88,6 +90,7 @@ async fn insert(
     ready: bool,
     provider: Option<Vec<u8>>,
     hooks: Option<sailry_protocol::hooks::Settings>,
+    compaction_percent: u8,
 ) -> Result<(), Fault> {
     let worktree: String = {
         let mut statement = db
@@ -135,13 +138,14 @@ async fn insert(
         input: None,
     };
     db.execute(
-        "INSERT INTO agent_runs(turn,ready,body,provider,hooks) VALUES(?1,?2,?3,?4,?5)",
+        "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent) VALUES(?1,?2,?3,?4,?5,?6)",
         params![
             turn.id.to_string(),
             ready,
             encode(&run)?,
             provider,
-            encode(&hooks)?
+            encode(&hooks)?,
+            i64::from(compaction_percent)
         ],
     )
     .await
@@ -452,6 +456,7 @@ async fn claim_with(
     );
     let background = super::background::bind(&transaction, &mut run).await?;
     let invocation = Invocation {
+        compaction_percent: crate::store::compaction::captured(&transaction, run.turn).await?,
         instructions: super::super::captures::instructions(&transaction, run.turn).await?,
         notice_input: super::background::render(&transaction, &run.notices).await?,
         notices: run.notices.clone(),

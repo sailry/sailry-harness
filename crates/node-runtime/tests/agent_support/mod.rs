@@ -933,6 +933,9 @@ async fn respond(
             && completed == 0
             && spawn_available);
     let delta = match (&reply, batch, call) {
+        (Reply::ScriptedTools(_), _, _) if compaction::is_summary(&body) => {
+            json!({"role":"assistant", "content":compaction::handoff("Retained tool evidence")})
+        }
         (Reply::ReasoningAfterAnswer, _, _) if !records.lock().unwrap().is_empty() => {
             json!({"role":"assistant","reasoning_content":"Retained reasoning without a final answer"})
         }

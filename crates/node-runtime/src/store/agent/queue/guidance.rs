@@ -59,6 +59,11 @@ async fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<boo
     {
         return Ok(false);
     }
+    if crate::store::compaction::captured(db, source.turn).await?
+        != crate::store::compaction::captured(db, target.turn).await?
+    {
+        return Ok(false);
+    }
     let config = super::super::permissions::config(db, source.turn).await?;
     if config != super::super::permissions::config(db, target.turn).await? {
         return Ok(false);

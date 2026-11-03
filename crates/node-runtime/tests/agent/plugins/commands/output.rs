@@ -278,7 +278,9 @@ async fn retains_foreground_streams_and_canonical_results() {
         let turn = turn.id;
         let (projected, reference) = projected(&server).await;
         let preview = projected["data"]["stdout"]["text"].as_str().unwrap();
-        assert!(preview.starts_with("head\n") && preview.ends_with("last failure\n"));
+        assert!(preview.starts_with("[Showing last "));
+        assert!(!preview.contains("head\n"));
+        assert!(preview.ends_with("last failure\n"));
         assert!(!preview.contains('\u{1b}'));
         assert!(projected.to_string().len() < 36 * 1024);
         let mut text = String::new();

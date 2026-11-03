@@ -110,20 +110,20 @@ mod trigger {
             (1_050_000, 840_000),
             (4_097, 3_277),
         ] {
-            assert_eq!(trigger(context, None), expected);
+            assert_eq!(trigger(context, None, 80), expected);
         }
     }
 
     #[test]
     fn keeps_explicit_tokens() {
-        assert_eq!(trigger(1_050_000, Some(200_000)), 200_000);
+        assert_eq!(trigger(1_050_000, Some(200_000), 65), 200_000);
     }
 
     #[test]
     fn budget_matches_execution() {
         for (context, configured) in [(1_050_000u32, None), (200_000, Some(120_000))] {
-            let reported = budget("fixture", context, 8_000, configured).unwrap();
-            let threshold = trigger(u64::from(context), configured) as f64 / f64::from(context);
+            let reported = budget("fixture", context, 8_000, configured, 80).unwrap();
+            let threshold = trigger(u64::from(context), configured, 80) as f64 / f64::from(context);
             assert_eq!(
                 (threshold * f64::from(context)).round() as u64,
                 reported.trigger_tokens

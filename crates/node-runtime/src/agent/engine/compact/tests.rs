@@ -157,7 +157,7 @@ fn model(provider: Arc<dyn Provider>) -> Model {
 }
 
 async fn summarize(model: &Model, messages: Vec<Message>) -> anyhow::Result<String> {
-    let mut output = Output::default();
+    let mut output = super::Output::default();
     let messages = super::input::prepare(&messages, 64_000, 8_000)?;
     goose_context_management::compact(model, Some(&Estimator), &Input(messages), &mut output)
         .await?;
@@ -166,6 +166,7 @@ async fn summarize(model: &Model, messages: Vec<Message>) -> anyhow::Result<Stri
 
 fn invocation(node: &crate::Node) -> Arc<Invocation> {
     Arc::new(Invocation {
+        compaction_percent: 80,
         instructions: vec![],
         hooks: Default::default(),
         automatic: false,

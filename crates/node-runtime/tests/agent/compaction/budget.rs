@@ -208,11 +208,12 @@ async fn uses_reported_tokens() {
 #[tokio::test]
 async fn earlier_token_boundary() {
     for remote in [false, true] {
-        for (context, output, configured, boundary) in [
-            (1_050_000, 128_000, None, 840_000),
-            (500_000, 64_000, None, 400_000),
-            (200_000, 64_000, None, 160_000),
-            (1_050_000, 128_000, Some(200_000), 200_000),
+        for (context, output, configured, percent, boundary) in [
+            (1_050_000, 128_000, None, 80, 840_000),
+            (500_000, 64_000, None, 80, 400_000),
+            (200_000, 64_000, None, 80, 160_000),
+            (200_000, 64_000, None, 65, 130_000),
+            (1_050_000, 128_000, Some(200_000), 65, 200_000),
         ] {
             let server = Server::loop_usage(
                 vec![
@@ -227,6 +228,16 @@ async fn earlier_token_boundary() {
             .await;
             let fixture = fixture(remote, &server).await;
             model(&fixture, context, output, false).await;
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::SaveCompactionSettings(
+                    sailry_protocol::conversation::compaction::Settings {
+                        revision: 0,
+                        percent,
+                    },
+                )))
+                .await
+                .unwrap();
             if let Some(tokens) = configured {
                 let mut provider =
                     configuration::snapshot(&fixture.client).await.providers[0].clone();
@@ -287,11 +298,115 @@ async fn earlier_token_boundary() {
 }
 
 #[tokio::test]
+async fn retains_admitted_percentage() {
+    for remote in [false, true] {
+        let server = Server::summary(100).await;
+        let fixture = fixture(remote, &server).await;
+        model(&fixture, 200_000, 8_000, false).await;
+        for (revision, previous, percent) in [(0, 80, 65), (1, 65, 90)] {
+            let Output::QueuedTurn(turn) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::QueueTurn {
+                    session: fixture.session.id,
+                    expected_revision: 1,
+                    message: "Keep this admitted threshold".into(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("queued turn expected")
+            };
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::SaveCompactionSettings(
+                    sailry_protocol::conversation::compaction::Settings { revision, percent },
+                )))
+                .await
+                .unwrap();
+            assert_eq!(
+                statistics(&fixture).await.budget.unwrap().trigger_tokens,
+                2_000 * previous
+            );
+            fixture
+                .client
+                .execute(
+                    fixture
+                        .client
+                        .prepare(Command::StartQueuedTurn { turn: turn.id }),
+                )
+                .await
+                .unwrap();
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(
+                page.runs
+                    .iter()
+                    .find(|run| run.turn == turn.id)
+                    .unwrap()
+                    .status,
+                Status::Completed
+            );
+            assert_eq!(
+                statistics(&fixture).await.budget.unwrap().trigger_tokens,
+                2_000 * u64::from(percent)
+            );
+        }
+        let mut updates = fixture
+            .client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        assert!(matches!(
+            updates.next().await.unwrap(),
+            Update::ConversationSnapshot(_)
+        ));
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::SaveCompactionSettings(
+                sailry_protocol::conversation::compaction::Settings {
+                    revision: 2,
+                    percent: 25,
+                },
+            )))
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if let Update::ConversationFrame(frame) = updates.next().await.unwrap()
+                    && let sailry_protocol::conversation::Change::Statistics(statistics) =
+                        frame.change
+                    && statistics.budget.unwrap().trigger_tokens == 50_000
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn pending_tool_growth() {
     for remote in [false, true] {
-        for large in [false, true] {
+        for (large, threshold, compacted) in [
+            (false, 24_000, false),
+            (true, 24_000, false),
+            (true, 8_000, true),
+        ] {
             let server = Server::loop_usage(vec![Some(100)], 100).await;
             let fixture = fixture(remote, &server).await;
+            let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+            provider.models[0].compaction_tokens = Some(threshold);
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                }))
+                .await
+                .unwrap();
             for index in 1..=6 {
                 let text = if large && index == 3 {
                     format!(
@@ -320,10 +435,10 @@ async fn pending_tool_growth() {
                 "Preserve all evidence while reading six files".into(),
             )
             .await;
-            assert_eq!(summaries(&page), usize::from(large));
+            assert_eq!(summaries(&page), usize::from(compacted));
             let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 7 + usize::from(large));
-            if large {
+            assert_eq!(requests.len(), 7 + usize::from(compacted));
+            if compacted {
                 let summary = requests
                     .iter()
                     .position(agent_support::compaction::is_summary)

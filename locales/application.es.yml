@@ -2697,3 +2697,9 @@ appearance_up_to_date: "Los temas están actualizados"
 appearance_updates_available: "Actualizaciones disponibles"
 
 tool_raw_result: "Ver resultado original"
+
+provider_compaction_threshold: "Umbral de compresión"
+compaction_settings_load_failed: "No se pudieron cargar los ajustes de compresión"
+compaction_settings_conflict: "Los ajustes de compresión cambiaron. Reintenta"
+compaction_settings_failed: "No se pudieron guardar los ajustes de compresión"
+compaction_settings_unknown: "Guardado sin confirmar. Reintenta"

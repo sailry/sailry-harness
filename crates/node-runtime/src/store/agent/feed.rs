@@ -450,7 +450,7 @@ pub(in crate::store) async fn command(database: &mut Database, output: &Output) 
     if let Output::Session(session) = output {
         super::statistics::publish(database, session.id).await;
     }
-    if matches!(output, Output::Provider(_)) {
+    if matches!(output, Output::Provider(_) | Output::CompactionSettings(_)) {
         let sessions = database
             .feeds
             .0

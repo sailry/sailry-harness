@@ -167,6 +167,8 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
                     }
                 } else if sailry_protocol::conversation::compaction::Failure::from_resource(value)
                     .is_none()
+                    && sailry_protocol::conversation::compaction::Progress::from_resource(value)
+                        .is_none()
                 {
                     continue;
                 }

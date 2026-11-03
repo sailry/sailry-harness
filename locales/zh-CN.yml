@@ -2690,3 +2690,9 @@ appearance_up_to_date: "主题已是最新"
 appearance_updates_available: "有可用更新"
 
 tool_raw_result: "查看原始结果"
+
+provider_compaction_threshold: "压缩阈值"
+compaction_settings_load_failed: "无法读取压缩设置"
+compaction_settings_conflict: "压缩设置已更改，请重试"
+compaction_settings_failed: "无法保存压缩设置"
+compaction_settings_unknown: "保存结果未确认，请重试"

@@ -162,10 +162,11 @@ async fn pages_after_reload_and_formats_compaction() {
                 .find(|request| crate::agent_support::compaction::is_summary(request))
                 .unwrap();
             let prompt = summary["messages"][0]["content"].as_str().unwrap();
-            assert!(prompt.contains("Lines 1–"));
+            assert!(prompt.contains("source.txt"));
             assert!(prompt.contains("row-0001"));
-            assert!(prompt.contains("[no trailing newline]"));
-            assert!(!prompt.contains("\"lines\":["));
+            assert!(prompt.contains("row-0160"));
+            assert!(prompt.contains("characters omitted"));
+            assert!(prompt.contains("\"lines\":["));
         }
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("source.txt")).unwrap(),

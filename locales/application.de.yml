@@ -2697,3 +2697,9 @@ appearance_up_to_date: "Themes sind aktuell"
 appearance_updates_available: "Updates verfügbar"
 
 tool_raw_result: "Rohes Ergebnis anzeigen"
+
+provider_compaction_threshold: "Komprimierungsschwelle"
+compaction_settings_load_failed: "Komprimierungseinstellungen konnten nicht geladen werden"
+compaction_settings_conflict: "Komprimierungseinstellungen geändert. Erneut versuchen"
+compaction_settings_failed: "Komprimierungseinstellungen konnten nicht gespeichert werden"
+compaction_settings_unknown: "Speicherergebnis unbestätigt. Erneut versuchen"

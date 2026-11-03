@@ -2374,3 +2374,9 @@ permission_failed: "Permission check failed"
 
 appearance_up_to_date: "Themes are up to date"
 appearance_updates_available: "Updates available"
+
+provider_compaction_threshold: "Compaction threshold"
+compaction_settings_load_failed: "Could not load compaction settings"
+compaction_settings_conflict: "Compaction settings changed. Retry"
+compaction_settings_failed: "Could not save compaction settings"
+compaction_settings_unknown: "Save result unconfirmed. Retry"

@@ -2697,3 +2697,9 @@ appearance_up_to_date: "テーマは最新です"
 appearance_updates_available: "更新があります"
 
 tool_raw_result: "元の結果を表示"
+
+provider_compaction_threshold: "圧縮しきい値"
+compaction_settings_load_failed: "圧縮設定を読み込めませんでした"
+compaction_settings_conflict: "圧縮設定が変更されました。再試行してください"
+compaction_settings_failed: "圧縮設定を保存できませんでした"
+compaction_settings_unknown: "保存結果を確認できません。再試行してください"

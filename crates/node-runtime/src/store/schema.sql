@@ -260,7 +260,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     body BLOB NOT NULL,
     provider BLOB,
     input BLOB DEFAULT NULL,
-    hooks BLOB NOT NULL
+    hooks BLOB NOT NULL,
+    compaction_percent INTEGER NOT NULL DEFAULT 80 CHECK(compaction_percent BETWEEN 1 AND 99)
 );
 CREATE TABLE IF NOT EXISTS agent_events (
     sequence INTEGER PRIMARY KEY,
@@ -507,3 +508,5 @@ CREATE TABLE local_model_settings (
 );
 
 CREATE TABLE IF NOT EXISTS power_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body BLOB NOT NULL);
+
+CREATE TABLE compaction_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body BLOB NOT NULL);

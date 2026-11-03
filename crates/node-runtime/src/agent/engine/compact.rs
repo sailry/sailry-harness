@@ -67,16 +67,17 @@ impl CompactionModel for Model {
         messages: &[Message],
     ) -> Result<(Message, ProviderUsage), ProviderError> {
         use futures::StreamExt;
-        let limited = std::sync::atomic::AtomicBool::new(false);
+        let limited = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed = limited.clone();
         let stream = self
             .provider
             .stream(&self.config, system, messages, &[])
             .await?
-            .inspect(|chunk| {
+            .inspect(move |chunk| {
                 if let Ok((Some(message), _)) = chunk
                     && message.metadata.output_token_limit_reached
                 {
-                    limited.store(true, std::sync::atomic::Ordering::Relaxed);
+                    observed.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
             });
         let (message, usage) = collect_stream(Box::pin(stream)).await?;
@@ -236,19 +237,26 @@ impl Compaction {
             if !usage.is_compaction
                 && let Some(tokens) = usage.total_tokens.filter(|value| *value >= 0)
             {
-                return tokens as usize
-                    + messages[index + 1..]
-                        .iter()
-                        .map(|message| tokens::chat("", std::slice::from_ref(message)))
-                        .sum::<usize>();
+                return tokens as usize + pending_tokens(&messages[index + 1..]);
             }
         }
-        messages
-            .iter()
-            .filter(|message| message.is_agent_visible())
-            .map(|message| tokens::chat("", std::slice::from_ref(message)))
-            .sum()
+        pending_tokens(messages)
     }
+}
+
+fn pending_tokens(messages: &[Message]) -> usize {
+    let mut projected: Vec<_> = messages
+        .iter()
+        .filter(|message| message.is_agent_visible())
+        .cloned()
+        .collect();
+    // Count the bounded payload that ordinary inference will send, rather than
+    // triggering compaction for full canonical output the model will not receive.
+    crate::agent::output::project(&mut projected);
+    projected
+        .iter()
+        .map(|message| tokens::chat("", std::slice::from_ref(message)))
+        .sum()
 }
 #[async_trait]
 impl Operation<Session, Effect> for Compaction {

@@ -923,3 +923,37 @@ async fn retains_tool_batches() {
         .unwrap();
     assert_eq!(fixture.read(None, 100).await.page, full);
 }
+
+#[tokio::test]
+async fn freezes_default_for_admitted_turns() {
+    let mut fixture = fixture::Fixture::new().await;
+    let first = fixture.queued().await;
+    assert_eq!(
+        crate::store::compaction::captured(&fixture.database.connection, first)
+            .await
+            .unwrap(),
+        80
+    );
+    command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SaveCompactionSettings(sailry_protocol::conversation::compaction::Settings {
+            revision: 0,
+            percent: 65,
+        }),
+    )
+    .await;
+    let second = fixture.queued().await;
+    assert_eq!(
+        crate::store::compaction::captured(&fixture.database.connection, first)
+            .await
+            .unwrap(),
+        80
+    );
+    assert_eq!(
+        crate::store::compaction::captured(&fixture.database.connection, second)
+            .await
+            .unwrap(),
+        65
+    );
+}

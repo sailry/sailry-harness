@@ -2697,3 +2697,9 @@ appearance_up_to_date: "Темы обновлены"
 appearance_updates_available: "Доступны обновления"
 
 tool_raw_result: "Показать исходный результат"
+
+provider_compaction_threshold: "Порог сжатия"
+compaction_settings_load_failed: "Не удалось загрузить настройки сжатия"
+compaction_settings_conflict: "Настройки сжатия изменились. Повторите попытку"
+compaction_settings_failed: "Не удалось сохранить настройки сжатия"
+compaction_settings_unknown: "Сохранение не подтверждено. Повторите попытку"
