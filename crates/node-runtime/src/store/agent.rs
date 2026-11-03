@@ -232,6 +232,7 @@ pub(super) enum Operation {
     Subscribe {
         session: SessionId,
         closed: sailry_link::CancellationToken,
+        queued: std::time::Instant,
         reply: oneshot::Sender<Result<Box<dyn sailry_link::Subscription>, Fault>>,
     },
     Get {
@@ -377,6 +378,7 @@ impl Ingress {
         self.submit(Job::Agent(Box::new(Operation::Subscribe {
             session,
             closed: self.closed.clone(),
+            queued: std::time::Instant::now(),
             reply,
         })))
         .await
@@ -958,13 +960,17 @@ pub(super) fn execute<'a>(
         Operation::Subscribe {
             session,
             closed,
+            queued,
             reply,
         } => Box::pin(async move {
             let publication = database.publication.clone();
             let feeds = database.feeds.clone();
             let node = database.node;
+            let started = std::time::Instant::now();
+            let mut locked = started;
             let result = async {
                 let publication = publication.lock().await;
+                locked = std::time::Instant::now();
                 let transaction = database
                     .connection
                     .transaction_with_behavior(turso::transaction::TransactionBehavior::Deferred)
@@ -1006,6 +1012,7 @@ pub(super) fn execute<'a>(
                 }
             }
             .await;
+            snapshot_timing(node, session, queued, started, locked, &result);
             let _ = reply.send(result);
         }),
         Operation::Get {
@@ -1163,4 +1170,36 @@ async fn check_session(db: &Connection, session: SessionId) -> Result<(), Fault>
             "session does not exist on this Node",
         ))
     }
+}
+
+/// Content-free timing for the conversation subscription snapshot.
+fn snapshot_timing<T>(
+    node: NodeId,
+    session: SessionId,
+    queued: std::time::Instant,
+    started: std::time::Instant,
+    locked: std::time::Instant,
+    result: &Result<T, Fault>,
+) {
+    use crate::logging::{Area, Entry, Phase};
+    let micros =
+        |duration: std::time::Duration| u64::try_from(duration.as_micros()).unwrap_or(u64::MAX);
+    let now = std::time::Instant::now();
+    let mut entry = Entry::new(
+        Area::Node,
+        if result.is_ok() {
+            Phase::Completed
+        } else {
+            Phase::Failed
+        },
+    );
+    entry.context.node = Some(node);
+    entry.context.session = Some(session);
+    entry.operation = Some("conversation_snapshot");
+    entry.code = result.as_ref().err().map(|error| error.code);
+    // Queue wait precedes the worker; lock wait precedes the snapshot transaction.
+    entry.end_to_end_us = Some(micros(now.duration_since(queued)));
+    entry.wait_ms = Some(locked.saturating_duration_since(started).as_millis() as u64);
+    entry.duration_us = Some(micros(now.duration_since(started)));
+    entry.emit();
 }

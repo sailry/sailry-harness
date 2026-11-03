@@ -39,7 +39,7 @@ use crate::{
     store::{Ingress, agent::Invocation},
     tasks::Tasks,
 };
-use diagnostics::{Diagnostics, Phase};
+use diagnostics::{Diagnostics, Phase, Startup};
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, SessionId, TurnId, conversation::Status};
 use std::{sync::Arc, time::Duration};
@@ -300,7 +300,9 @@ async fn execute(
         *completion_review = outcome.review;
         outcome.output
     });
-    let reusable = result.is_ok() && !stop.is_cancelled();
+    // A user Stop keeps healthy idle connections; an abandoned call poisons the set.
+    // Errors and Node shutdown still close them.
+    let reusable = result.is_ok() && !ingress.agents.stopped.is_cancelled();
     let cleanup = if reusable && connections.reusable() {
         let settled = {
             let _settlement = diagnostics.span(Phase::McpSettle, None);
@@ -368,8 +370,16 @@ async fn execute_with(
     } else {
         model::Purpose::Main
     };
-    let model = model::provider(ingress, invocation, &stop, purpose).await?;
-    let prompt_session = prompt::Session::load(ingress, invocation).await?;
+    let startup = Startup::new(ingress.node, invocation, &stop);
+    let model = startup
+        .measure(
+            "provider",
+            model::provider(ingress, invocation, &stop, purpose),
+        )
+        .await?;
+    let prompt_session = startup
+        .measure("session_load", prompt::Session::load(ingress, invocation))
+        .await?;
     let resources = Arc::new(crate::plugins::resources::Resources::new(
         ingress.plugins.clone(),
         invocation
@@ -417,7 +427,12 @@ async fn execute_with(
             invocation.child.is_some(),
         )
     );
-    let personal = prompt::personal(ingress, invocation.worktree, &stop).await?;
+    let personal = startup
+        .measure(
+            "personal_instructions",
+            prompt::personal(ingress, invocation.worktree, &stop),
+        )
+        .await?;
     if let Some(role) = invocation
         .child
         .as_ref()
@@ -439,16 +454,20 @@ async fn execute_with(
         policy.push_str("\n\nTeam instructions\n");
         policy.push_str(lead);
     }
-    let mut extensions = plugins::bind(
-        ingress,
-        tasks,
-        invocation,
-        prompt_session.loaded(),
-        &stop,
-        resources.clone(),
-        connections,
-    )
-    .await?;
+    let mut extensions = startup
+        .measure(
+            "plugin_bind",
+            plugins::bind(
+                ingress,
+                tasks,
+                invocation,
+                prompt_session.loaded(),
+                &stop,
+                resources.clone(),
+                connections,
+            ),
+        )
+        .await?;
     if tool_capable && invocation.child.is_none() {
         extensions.tools.push(title::bind(
             invocation.turn.session.to_string(),
@@ -477,7 +496,11 @@ async fn execute_with(
                 |name| names.name(name).to_owned(),
             ));
     }
-    let environment = prompt::environment(ingress, invocation, &stop).await;
+    let environment = startup
+        .measure("environment", async {
+            Ok(prompt::environment(ingress, invocation, &stop).await)
+        })
+        .await?;
     for captured in &invocation.instructions {
         if tool_capable
             && captured
@@ -507,28 +530,40 @@ async fn execute_with(
     .join("\n\n");
     let capability_tools = references::capabilities::tools(&extensions.tools);
     if invocation.turn.kind != sailry_protocol::conversation::RunKind::Compaction {
-        let mut inputs = inputs::Batch::capture(ingress, invocation).await?;
-        inputs
-            .select(invocation, &resources, &capability_tools)
+        let inputs = startup
+            .measure("input_capture", async {
+                let mut inputs = inputs::Batch::capture(ingress, invocation).await?;
+                inputs
+                    .select(invocation, &resources, &capability_tools)
+                    .await?;
+                Ok(inputs)
+            })
             .await?;
-        prompt_session
-            .append(ingress, invocation, policy, environment, personal, &stop)
+        startup
+            .measure(
+                "prompt_append",
+                prompt_session.append(ingress, invocation, policy, environment, personal, &stop),
+            )
             .await?;
-        inputs
-            .append(
-                ingress,
-                invocation.turn.session,
-                invocation.turn.id,
-                if invocation.child.is_some() {
-                    "parent"
-                } else if invocation.notice {
-                    "notice"
-                } else if invocation.automatic {
-                    "plugin"
-                } else {
-                    "user"
-                },
-                false,
+        let source = if invocation.child.is_some() {
+            "parent"
+        } else if invocation.notice {
+            "notice"
+        } else if invocation.automatic {
+            "plugin"
+        } else {
+            "user"
+        };
+        startup
+            .measure(
+                "input_append",
+                inputs.append(
+                    ingress,
+                    invocation.turn.session,
+                    invocation.turn.id,
+                    source,
+                    false,
+                ),
             )
             .await?;
     }
@@ -573,7 +608,12 @@ async fn execute_with(
                 >
         })
         .collect();
-    let summary = model::provider(ingress, invocation, &stop, model::Purpose::Compaction).await?;
+    let summary = startup
+        .measure(
+            "compaction_provider",
+            model::provider(ingress, invocation, &stop, model::Purpose::Compaction),
+        )
+        .await?;
     let _runner = diagnostics.span(Phase::Runner, None);
     let output = engine::run(engine::Run {
         ingress,

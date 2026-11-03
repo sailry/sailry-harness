@@ -106,6 +106,112 @@ async fn replaces_changed_connections() {
 }
 
 #[tokio::test]
+async fn orders_concurrent_servers() {
+    let model = Server::tools(vec![(
+        "tool_search".into(),
+        json!({"query":"alpha zeta","limit":8}),
+    )])
+    .await;
+    let fixture = process::Fixture::packages(false, &model, &[]).await;
+    // The failing server sits between the healthy ones in configuration order.
+    package(
+        &fixture.root,
+        json!({
+            "alpha": peer::config("mcp::peer::stdio_peer", "normal"),
+            "broken": peer::config("mcp::peer::stdio_peer", "bad_handshake"),
+            "zeta": peer::config("mcp::peer::stdio_peer", "normal"),
+        }),
+        "concurrent",
+    );
+    install(&fixture, 0).await;
+
+    let (_, turn) = submit(&fixture, false).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(
+        page.runs.last().unwrap().status,
+        Status::Completed,
+        "{:?}",
+        page.runs
+    );
+    let requests = model.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2);
+    let loaded: Vec<_> = requests[1]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["function"]["name"].as_str())
+        .filter(|name| name.starts_with("mcp_"))
+        .map(str::to_owned)
+        .collect();
+    // The catalog presents tools by name, independent of connection completion.
+    let mut expected: Vec<_> = ["alpha", "zeta"]
+        .into_iter()
+        .flat_map(|server| ["read", "write", "hold", "fail"].map(|tool| alias(server, tool)))
+        .collect();
+    expected.sort();
+    assert_eq!(loaded, expected);
+    let system = requests[0]["messages"][0].to_string();
+    assert!(system.contains("MCP server example/broken is unavailable"));
+    assert!(!system.contains("MCP server example/alpha is unavailable"));
+    assert!(!system.contains("MCP server example/zeta is unavailable"));
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn keeps_idle_connections_after_stop() {
+    let release = std::sync::Arc::new(tokio::sync::Notify::new());
+    let model = Server::held_after_tool(vec![(alias("native", "read"), json!({}))], release).await;
+    let fixture = process::Fixture::packages(false, &model, &[]).await;
+    package(
+        &fixture.root,
+        json!({"native":peer::config("mcp::peer::stdio_peer", "normal")}),
+        "stopped",
+    );
+    install(&fixture, 0).await;
+
+    let (_, turn) = submit(&fixture, false).await;
+    // The read result is complete; only the next model response is pending.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while model.requests.lock().unwrap().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("model request deadline");
+    execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(page.runs[0].status, Status::Cancelled, "{:?}", page.runs);
+    let data = fixture.node.profile().join("plugins/data/example");
+    // SAFETY: signal 0 only probes the recorded fixture PID and passes no pointers.
+    assert_eq!(unsafe { libc::kill(pid(&data), 0) }, 0);
+    fixture.node.shutdown().await.unwrap();
+    reaped(&data);
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn closes_failed_turn_connections() {
+    // A rejected model request fails the turn after its servers were bound.
+    let model = Server::http(usize::MAX, 400).await;
+    let fixture = process::Fixture::packages(false, &model, &[]).await;
+    package(
+        &fixture.root,
+        json!({"native":peer::config("mcp::peer::stdio_peer", "normal")}),
+        "failed",
+    );
+    install(&fixture, 0).await;
+
+    let (_, turn) = submit(&fixture, false).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(page.runs[0].status, Status::Failed, "{:?}", page.runs);
+    let data = fixture.node.profile().join("plugins/data/example");
+    reaped(&data);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn closes_idle_children() {
     let model = Server::tools(vec![(alias("native", "read"), json!({}))]).await;
     let mut fixture = process::Fixture::packages(false, &model, &[]).await;

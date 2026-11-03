@@ -134,7 +134,12 @@ pub(super) async fn bind(
                 .tools
                 .extend(super::roles::bind(ingress, invocation, stop));
         }
-        let scripts = scripts::bind(ingress, tasks, invocation, stop).await?;
+        let scripts = super::diagnostics::Startup::new(ingress.node, invocation, stop)
+            .measure(
+                "scripts_bind",
+                scripts::bind(ingress, tasks, invocation, stop),
+            )
+            .await?;
         bound.completion = scripts.completion;
         bound.tools.extend(scripts.tools);
         bound.callbacks.extend(scripts.callbacks);

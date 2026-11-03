@@ -76,105 +76,157 @@ impl Connections {
         stop: &CancellationToken,
         assistant: Option<(&Reference, &Declaration)>,
     ) -> (Vec<Registration>, String) {
+        let startup = super::diagnostics::Startup::new(ingress.node, invocation, stop);
+        let started = std::time::Instant::now();
         self.images.clear();
         let mut tools: Vec<Registration> = Vec::new();
         let mut diagnostics = String::new();
         let mut previous = std::mem::take(&mut self.active);
         let configurations = resources.mcp(&ingress.environment).await;
-        let selected = configurations.into_iter().filter(|config| {
+        let mut selected: Vec<_> = configurations.into_iter().filter(|config| {
             assistant.is_none_or(|(package, declaration)| {
                 config.reference == *package
                     && declaration.tools.iter().any(|tool| {
                         matches!(tool, SelectedTool::Plugin { server: Some(server), .. } if server == &config.name)
                     })
             })
-        });
-        for (index, config) in selected.enumerate() {
-            if stop.is_cancelled() {
-                break;
-            }
-            let result = async {
-                if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
-                let mut launch = config.launch?;
-                let context=sailry_protocol::plugin::Context{package:config.reference.clone(),worktree:Some(invocation.worktree),session:Some(invocation.turn.session),turn:Some(invocation.turn.id),invocation:None,surface:Default::default()};
-                let reuse = config.options.reuse;
-                let exclusive = config.options.exclusive.then(|| ingress.agents.mcp.service(&config.plugin, &config.name));
-                let python = match &launch { crate::plugins::resources::mcp::Launch::Stdio {python,..} => python.clone(), _ => None };
-                let connector = tokio::select! {
-                    _ = stop.cancelled() => return Err(unavailable()),
-                    result = tokio::time::timeout(Duration::from_secs(10), resources.mcp_authorization(ingress, context, &config.name, &mut launch)) => result.map_err(|_| unavailable())??,
-                };
-                let cached = previous.iter().position(|connection| connection.reference == config.reference && connection.name == config.name)
+        }).collect();
+        if stop.is_cancelled() {
+            selected.clear();
+        }
+        // Each attempt owns its launch and cached connection, so servers connect
+        // independently while registration below keeps configuration order.
+        let claims: Vec<_> = selected
+            .iter_mut()
+            .map(|config| {
+                let launch = std::mem::replace(&mut config.launch, Err(unavailable()));
+                let cached = previous
+                    .iter()
+                    .position(|connection| {
+                        connection.reference == config.reference && connection.name == config.name
+                    })
                     .map(|index| previous.remove(index));
-                let cached = match cached {
-                    Some(connection) if connection.toolset.is_closed() || connection.connector.as_ref().map(|value|value.key()) != connector.as_ref().map(|value|value.key()) => {
-                        connection.close().await?;
-                        None
-                    }
-                    connection => connection,
+                (launch, cached)
+            })
+            .collect();
+        let attempts = futures::future::join_all(selected.iter().zip(claims).enumerate().map(
+            |(index, (config, (launch, cached)))| {
+                let target = Target {
+                    resources,
+                    ingress,
+                    invocation,
+                    stop,
                 };
-                let connection = if let Some(connection) = cached {
-                    connection
-                } else {
-                    let handler = Arc::new(input::Handler::new());
-                    let (mut transport, service) = transport::Connection::open(launch, connector.clone(), stop, handler.clone(), !reuse, &ingress.environment).await?;
-                    let peer = service.peer().clone();
-                    let toolset = remote::Remote::new(service);
-                    transport.track_tasks(toolset.clone());
-                    Connected { reference: config.reference, name: config.name.clone(), transport: Arc::new(tokio::sync::Mutex::new(transport)), peer, toolset, handler, connector, python, reuse }
-                };
-                let listed = tokio::select! {
-                    _ = stop.cancelled() => Err(unavailable()),
-                    result = tokio::time::timeout(Duration::from_secs(10), list(&connection.peer)) => result.unwrap_or_else(|_| Err(unavailable())),
-                };
-                match listed {
-                    Ok(descriptors) if tools.len() + descriptors.len() <= MAX_TOOLS => {
-                        let closed = connection.transport.lock().await.stopped();
-                        if let Some(keep) = config.options.keep_images {
-                            self.images.push((descriptors.iter().map(|descriptor| alias(&config.plugin, &config.name, &descriptor.name)).collect(), keep));
-                        }
-                        for descriptor in descriptors {
-                            let presentation = resources.tool_presentation(&config.plugin, &config.name, &descriptor.name);
-                            let grouping = resources.tool_grouping(&config.plugin, &config.name, &descriptor.name);
-                            let display = resources.tool_display(&config.plugin, &config.name, &descriptor.name).or_else(|| {
-                                resources.tool_declaration(&config.plugin, &config.name, &descriptor.name).is_none().then(|| {
-                                    let mut navigation = sailry_protocol::plugin::desktop::Navigation {
-                                        label: descriptor.name.to_string(), icon: None, locales: Default::default(),
-                                    };
-                                    if !navigation.valid() {
-                                        navigation.label = alias(&config.plugin, &config.name, &descriptor.name);
-                                    }
-                                    let mut display = sailry_protocol::tool::Display::from(navigation);
-                                    display.raw_result = true;
-                                    display
+                target.connect(index, config, launch, cached)
+            },
+        ))
+        .await;
+        for (config, attempt) in selected.iter().zip(attempts) {
+            let result = match attempt.result {
+                Ok((connection, descriptors)) if tools.len() + descriptors.len() <= MAX_TOOLS => {
+                    let exclusive = config
+                        .options
+                        .exclusive
+                        .then(|| ingress.agents.mcp.service(&config.plugin, &config.name));
+                    let closed = connection.transport.lock().await.stopped();
+                    if let Some(keep) = config.options.keep_images {
+                        self.images.push((
+                            descriptors
+                                .iter()
+                                .map(|descriptor| {
+                                    alias(&config.plugin, &config.name, &descriptor.name)
                                 })
-                            });
-                            let bound = Arc::new(Bound {
-                                name: alias(&config.plugin, &config.name, &descriptor.name),
-                                description: format!("MCP {}/{}/{}\n{}", config.plugin, config.name, descriptor.name, descriptor.description.as_deref().unwrap_or("")),
-                                descriptor, package: connection.reference.clone(), toolset: connection.toolset.clone(), ingress: ingress.clone(), handler: connection.handler.clone(), poisoned: self.poisoned.clone(),
-                                turn: invocation.turn.id, session: invocation.turn.session.to_string(), stop: stop.clone(),
-                                connector: connection.connector.clone(),
-                                python: connection.python.clone(),
-                                exclusive: exclusive.clone(),
-                                transport: connection.transport.clone(),
-                                closed: closed.clone(),
-                            });
-                            let mut registration = Registration::new(bound.declaration(), bound.clone(), presentation);
-                            registration.grouping = grouping;
-                            registration.display = display.map(|display| (registration.tool.name.to_string(), display));
-                            registration.plugin = Some(config.plugin.clone());
-                            tools.push(registration);
-                        }
-                        self.active.push(connection);
-                        Ok(())
+                                .collect(),
+                            keep,
+                        ));
                     }
-                    _ => {
-                        connection.close().await?;
-                        Err(unavailable())
+                    for descriptor in descriptors {
+                        let presentation = resources.tool_presentation(
+                            &config.plugin,
+                            &config.name,
+                            &descriptor.name,
+                        );
+                        let grouping =
+                            resources.tool_grouping(&config.plugin, &config.name, &descriptor.name);
+                        let display = resources
+                            .tool_display(&config.plugin, &config.name, &descriptor.name)
+                            .or_else(|| {
+                                resources
+                                    .tool_declaration(
+                                        &config.plugin,
+                                        &config.name,
+                                        &descriptor.name,
+                                    )
+                                    .is_none()
+                                    .then(|| {
+                                        let mut navigation =
+                                            sailry_protocol::plugin::desktop::Navigation {
+                                                label: descriptor.name.to_string(),
+                                                icon: None,
+                                                locales: Default::default(),
+                                            };
+                                        if !navigation.valid() {
+                                            navigation.label = alias(
+                                                &config.plugin,
+                                                &config.name,
+                                                &descriptor.name,
+                                            );
+                                        }
+                                        let mut display =
+                                            sailry_protocol::tool::Display::from(navigation);
+                                        display.raw_result = true;
+                                        display
+                                    })
+                            });
+                        let bound = Arc::new(Bound {
+                            name: alias(&config.plugin, &config.name, &descriptor.name),
+                            description: format!(
+                                "MCP {}/{}/{}\n{}",
+                                config.plugin,
+                                config.name,
+                                descriptor.name,
+                                descriptor.description.as_deref().unwrap_or("")
+                            ),
+                            descriptor,
+                            package: connection.reference.clone(),
+                            toolset: connection.toolset.clone(),
+                            ingress: ingress.clone(),
+                            handler: connection.handler.clone(),
+                            poisoned: self.poisoned.clone(),
+                            turn: invocation.turn.id,
+                            session: invocation.turn.session.to_string(),
+                            stop: stop.clone(),
+                            connector: connection.connector.clone(),
+                            python: connection.python.clone(),
+                            exclusive: exclusive.clone(),
+                            transport: connection.transport.clone(),
+                            closed: closed.clone(),
+                        });
+                        let mut registration =
+                            Registration::new(bound.declaration(), bound.clone(), presentation);
+                        registration.grouping = grouping;
+                        registration.display =
+                            display.map(|display| (registration.tool.name.to_string(), display));
+                        registration.plugin = Some(config.plugin.clone());
+                        tools.push(registration);
                     }
+                    self.active.push(connection);
+                    Ok(())
                 }
-            }.await;
+                Ok((connection, _)) => connection.close().await.and(Err(unavailable())),
+                Err(error) => Err(error),
+            };
+            let mut entry = startup.entry(
+                "mcp_server",
+                started,
+                result.as_ref().err().map(|error| error.code),
+            );
+            entry.context.package = Some(config.reference.clone());
+            entry.context.handler = Some(config.name.clone());
+            entry.connection_reused = Some(attempt.reused);
+            entry.duration_us =
+                Some(u64::try_from(attempt.elapsed.as_micros()).unwrap_or(u64::MAX));
+            startup.record(entry);
             if let Err(error) = result {
                 if error.code == ErrorCode::OutcomeUnknown {
                     self.failure = Some(error);
@@ -193,6 +245,9 @@ impl Connections {
                 self.failure = Some(error);
             }
         }
+        let mut entry = startup.entry("mcp_bind", started, None);
+        entry.count = Some(selected.len() as u64);
+        startup.record(entry);
         (tools, diagnostics)
     }
 
@@ -229,6 +284,89 @@ impl Connections {
         let failure = self.failure.take();
         let released = self.release().await;
         failure.map_or(released, Err)
+    }
+}
+
+struct Attempt {
+    reused: bool,
+    elapsed: Duration,
+    result: Result<(Connected, Vec<Descriptor>), Fault>,
+}
+
+/// Turn inputs shared by the concurrent server attempts of one bind.
+#[derive(Clone, Copy)]
+struct Target<'a> {
+    resources: &'a crate::plugins::resources::Resources,
+    ingress: &'a Arc<Ingress>,
+    invocation: &'a Invocation,
+    stop: &'a CancellationToken,
+}
+
+impl Target<'_> {
+    /// Authorize, reuse or open, then list one server within its own step bounds.
+    async fn connect(
+        self,
+        index: usize,
+        config: &crate::plugins::resources::mcp::Configured,
+        launch: Result<crate::plugins::resources::mcp::Launch, Fault>,
+        mut cached: Option<Connected>,
+    ) -> Attempt {
+        let Self {
+            resources,
+            ingress,
+            invocation,
+            stop,
+        } = self;
+        let started = std::time::Instant::now();
+        let mut reused = false;
+        let mut result = async {
+            if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
+            let mut launch = launch?;
+            let context=sailry_protocol::plugin::Context{package:config.reference.clone(),worktree:Some(invocation.worktree),session:Some(invocation.turn.session),turn:Some(invocation.turn.id),invocation:None,surface:Default::default()};
+            let reuse = config.options.reuse;
+            let python = match &launch { crate::plugins::resources::mcp::Launch::Stdio {python,..} => python.clone(), _ => None };
+            let connector = tokio::select! {
+                _ = stop.cancelled() => return Err(unavailable()),
+                result = tokio::time::timeout(Duration::from_secs(10), resources.mcp_authorization(ingress, context, &config.name, &mut launch)) => result.map_err(|_| unavailable())??,
+            };
+            let connection = match cached.take() {
+                Some(connection) if connection.toolset.is_closed() || connection.connector.as_ref().map(|value|value.key()) != connector.as_ref().map(|value|value.key()) => {
+                    connection.close().await?;
+                    None
+                }
+                connection => connection,
+            };
+            reused = connection.is_some();
+            let connection = if let Some(connection) = connection {
+                connection
+            } else {
+                let handler = Arc::new(input::Handler::new());
+                let (mut transport, service) = transport::Connection::open(launch, connector.clone(), stop, handler.clone(), !reuse, &ingress.environment).await?;
+                let peer = service.peer().clone();
+                let toolset = remote::Remote::new(service);
+                transport.track_tasks(toolset.clone());
+                Connected { reference: config.reference.clone(), name: config.name.clone(), transport: Arc::new(tokio::sync::Mutex::new(transport)), peer, toolset, handler, connector, python, reuse }
+            };
+            let listed = tokio::select! {
+                _ = stop.cancelled() => Err(unavailable()),
+                result = tokio::time::timeout(Duration::from_secs(10), list(&connection.peer)) => result.unwrap_or_else(|_| Err(unavailable())),
+            };
+            match listed {
+                Ok(descriptors) => Ok((connection, descriptors)),
+                Err(_) => connection.close().await.and(Err(unavailable())),
+            }
+        }.await;
+        // A cached connection the failed attempt never claimed is closed, as before.
+        if let Some(connection) = cached
+            && let Err(error) = connection.close().await
+        {
+            result = Err(error);
+        }
+        Attempt {
+            reused,
+            elapsed: started.elapsed(),
+            result,
+        }
     }
 }
 
@@ -498,10 +636,12 @@ impl Bound {
                 self.poisoned.clone(),
             )
         });
+        let pending = Pending(Some(&*self.poisoned));
         let result = tokio::select! {
             biased;
             _ = self.stop.cancelled() => Err(Fault::invalid("MCP invocation was cancelled; remote effects may be uncertain")),
             result = active.run(self.toolset.call(&self.descriptor.name, args.clone())) => {
+                pending.answered();
                 if matches!(&result, Ok(Ok(_))) {
                     if let Some(call) = &mut call { call.confirmed(); }
                 } else { self.poisoned.store(true, Ordering::Relaxed); }
@@ -532,6 +672,24 @@ impl Bound {
             self.stop.is_cancelled(),
         );
         result
+    }
+}
+
+/// A remote call abandoned before its answer may still run on the server, so its
+/// connection set is not reused, including after a cancelled turn.
+struct Pending<'a>(Option<&'a AtomicBool>);
+
+impl Pending<'_> {
+    fn answered(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for Pending<'_> {
+    fn drop(&mut self) {
+        if let Some(poisoned) = self.0 {
+            poisoned.store(true, Ordering::Relaxed);
+        }
     }
 }
 

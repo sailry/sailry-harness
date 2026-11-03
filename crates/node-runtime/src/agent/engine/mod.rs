@@ -106,10 +106,13 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         capabilities,
         children,
     } = run;
+    let startup = crate::agent::diagnostics::Startup::new(ingress.node, invocation, &stop);
+    let setup = std::time::Instant::now();
     let context = binding
         .provider
         .get_context_limit(&binding.config.model_name, binding.config.context_limit)
         .await;
+    startup.record(startup.entry("context_limit", setup, None));
     let configured = invocation
         .provider
         .as_ref()
@@ -200,10 +203,18 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         steps
     };
     let machine = StateMachine::new(steps, stop.clone());
+    let mut first = true;
     let result = {
         let execution = async {
             loop {
-                let session = sessions.load(&id).await?;
+                let loading = std::time::Instant::now();
+                let session = sessions.load(&id).await;
+                if std::mem::take(&mut first) {
+                    let code = session.as_ref().err().map(|_| ErrorCode::Unavailable);
+                    startup.record(startup.entry("engine_session_load", loading, code));
+                    startup.record(startup.entry("engine_setup", setup, code));
+                }
+                let session = session?;
                 let mut result = machine.step(&session, &emit).await?;
                 machine
                     .apply(&sessions, &session, &mut result.effects, &emit)

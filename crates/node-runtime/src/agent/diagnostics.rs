@@ -1,7 +1,75 @@
 //! Opt-in turn timing with an explicit, content-free field allowlist.
+//! Startup stages before the first inference are always timed.
 
-use sailry_protocol::TurnId;
-use std::time::Instant;
+use crate::store::agent::Invocation;
+use sailry_link::CancellationToken;
+use sailry_protocol::{ErrorCode, Fault, NodeId, TurnId};
+use std::{future::Future, time::Instant};
+
+/// One content-free INFO line per run startup stage.
+pub(super) struct Startup {
+    context: crate::logging::Context,
+    stop: CancellationToken,
+}
+
+impl Startup {
+    pub fn new(node: NodeId, invocation: &Invocation, stop: &CancellationToken) -> Self {
+        Self {
+            context: crate::logging::Context {
+                node: Some(node),
+                session: Some(invocation.turn.session),
+                turn: Some(invocation.turn.id),
+                worktree: Some(invocation.worktree),
+                ..Default::default()
+            },
+            stop: stop.clone(),
+        }
+    }
+
+    pub async fn measure<T>(
+        &self,
+        stage: &'static str,
+        future: impl Future<Output = Result<T, Fault>>,
+    ) -> Result<T, Fault> {
+        let started = Instant::now();
+        let result = future.await;
+        self.record(self.entry(
+            stage,
+            started,
+            result.as_ref().err().map(|error| error.code),
+        ));
+        result
+    }
+
+    pub fn entry(
+        &self,
+        stage: &'static str,
+        started: Instant,
+        code: Option<ErrorCode>,
+    ) -> crate::logging::Entry {
+        use crate::logging::Phase;
+        let phase = match code {
+            None => Phase::Completed,
+            Some(_) if self.stop.is_cancelled() => Phase::Cancelled,
+            Some(_) => Phase::Failed,
+        };
+        let mut entry = crate::logging::Entry::new(crate::logging::Area::Run, phase);
+        entry.context = self.context.clone();
+        entry.stage = Some(stage);
+        entry.code = code;
+        entry.duration_us = Some(u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX));
+        entry
+    }
+
+    pub fn record(&self, entry: crate::logging::Entry) {
+        // The owner reports the causing error; a failed stage is only a warning here.
+        if matches!(entry.phase, crate::logging::Phase::Failed) {
+            entry.emit_warn();
+        } else {
+            entry.emit();
+        }
+    }
+}
 
 pub(super) struct Diagnostics {
     turn: TurnId,
