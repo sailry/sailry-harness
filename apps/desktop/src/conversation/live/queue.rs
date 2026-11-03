@@ -7,6 +7,7 @@ use sailry_protocol::{
 };
 
 mod actions;
+mod keyboard;
 mod render;
 
 pub(super) struct Panel {
@@ -46,6 +47,24 @@ impl Drop for Panel {
     fn drop(&mut self) {
         self.guidance_pending.set(false);
         self.edit_pending.set(false);
+    }
+}
+
+impl View {
+    pub(super) fn promote_queued(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.readonly() || self.busy() || !self.connected() {
+            return;
+        }
+        let command = self.queue.update(cx, |panel, cx| {
+            panel.sync(self, cx);
+            keyboard::next(&panel.queue, panel.recipient)
+        });
+        if let Some(command) = command {
+            let queue = self.queue.clone();
+            window.defer(cx, move |window, cx| {
+                queue.update(cx, |panel, cx| panel.execute(command, window, cx));
+            });
+        }
     }
 }
 

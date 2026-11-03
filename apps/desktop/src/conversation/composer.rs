@@ -149,6 +149,25 @@ impl Shell {
                             cx.propagate();
                         }
                     })
+                    .on_action(cx.listener(move |shell, _: &IndentInline, window, cx| {
+                        let conversation = &shell.conversations[&key];
+                        if conversation.input.update(cx, |input, cx| {
+                            input.marked_text_range(window, cx).is_some()
+                        }) || (conversation.input.read(cx).value().trim().is_empty()
+                            && !conversation.options.attachment
+                            && super::references::active(
+                                &conversation.input.read(cx).content(),
+                                &conversation.options.references,
+                            )
+                            .is_empty())
+                        {
+                            cx.propagate();
+                            return;
+                        }
+                        shell.queue_preview(key, window, cx);
+                        cx.stop_propagation();
+                        window.prevent_default();
+                    }))
                     .child(
                         gpui_kit::component::input::Textarea::new(&input)
                             .appearance(false)

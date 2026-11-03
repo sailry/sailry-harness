@@ -78,7 +78,10 @@ Future<void> verifyRoles(
     selected['key'] == 'target-review',
     'Mobile create captures target roles',
   );
-  check(selected['read_only'] == true, 'new sessions capture the execution constraint');
+  check(
+    selected['read_only'] == true,
+    'new sessions capture the execution constraint',
+  );
   final queued = (await execute(connection, 'queue_turn', {
     'session': session['id'],
     'expected_revision': 1,

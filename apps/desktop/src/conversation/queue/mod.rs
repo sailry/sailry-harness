@@ -34,7 +34,7 @@ impl Entry {
         }
     }
 
-    fn target(&self, session: (usize, usize)) -> Target {
+    pub(super) fn target(&self, session: (usize, usize)) -> Target {
         Target {
             session,
             id: self.id,

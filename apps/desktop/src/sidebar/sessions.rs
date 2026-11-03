@@ -132,6 +132,18 @@ impl Shell {
         let activity = self.session_lane(node, &session);
         let running = indicators && activity == sailry_client::activity::Lane::Running;
         let waiting = indicators && activity == sailry_client::activity::Lane::Waiting;
+        // Idle rows show when they last ran; hover swaps in the branch, activity its status.
+        let busy = matches!(
+            activity,
+            sailry_client::activity::Lane::Running | sailry_client::activity::Lane::Waiting
+        );
+        let age = session
+            .activity
+            .run
+            .as_ref()
+            .filter(|_| !busy && !hovered)
+            .and_then(|run| run.finished_ms.or(run.started_ms))
+            .map(|timestamp| age(chrono::Utc::now().timestamp_millis() - timestamp, timestamp));
         let worktree = indicators
             && session.project.is_some()
             && live.view.snapshot.as_ref().is_some_and(|snapshot| {
@@ -274,6 +286,16 @@ impl Shell {
                                         .text_color(cx.theme().muted_foreground),
                                 ),
                         )
+                    })
+                    .when_some(age, |row, age| {
+                        row.child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .debug_selector(move || format!("{prefix}-{id}-age"))
+                                .child(age),
+                        )
                     }),
             );
         let row = if let Some(entry) = entry {
@@ -294,5 +316,52 @@ impl Shell {
             }
         }))
         .into_any_element()
+    }
+}
+
+/// Relative age within a week, then the local date of the last run.
+fn age(elapsed_ms: i64, timestamp_ms: i64) -> SharedString {
+    let seconds = (elapsed_ms.max(0) / 1000) as u64;
+    if seconds < 60 {
+        return tr("notifications_time_now");
+    }
+    let (key, count) = match seconds {
+        ..3600 => ("notifications_time_minutes", seconds / 60),
+        ..86_400 => ("notifications_time_hours", seconds / 3600),
+        ..604_800 => ("notifications_time_days", seconds / 86_400),
+        _ => {
+            use chrono::{Datelike, TimeZone};
+            let Some(date) = chrono::Local.timestamp_millis_opt(timestamp_ms).single() else {
+                return SharedString::default();
+            };
+            let format = if date.year() == chrono::Local::now().year() {
+                "%m-%d"
+            } else {
+                "%Y-%m-%d"
+            };
+            return date.format(format).to_string().into();
+        }
+    };
+    rust_i18n::t!(key, count = count).to_string().into()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn formats_recent_age() {
+        let now = chrono::Utc::now().timestamp_millis();
+        assert_eq!(
+            super::age(30_000, now).as_ref(),
+            crate::tr("notifications_time_now").as_ref()
+        );
+        assert_eq!(
+            super::age(5 * 60_000, now).as_ref(),
+            rust_i18n::t!("notifications_time_minutes", count = 5u64).as_ref()
+        );
+        let old = super::age(30 * 86_400_000, now - 30 * 86_400_000);
+        assert!(
+            old.chars().all(|char| char.is_ascii_digit() || char == '-'),
+            "{old}"
+        );
     }
 }

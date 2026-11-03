@@ -1,4 +1,5 @@
 use super::*;
+use composer::Delivery;
 use sailry_protocol::conversation::Input;
 use sailry_protocol::{ErrorCode, Fault};
 
@@ -54,23 +55,44 @@ impl Attempt {
 }
 
 impl View {
-    /// Sends input; while a task runs it queues until the user guides it in.
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.input.update(cx, |input, cx| {
             input.marked_text_range(window, cx).is_some()
         }) {
             return;
         }
-        if let Some((mode, _)) = references::commands::leading_mode(&self.input.read(cx).value())
-            && mode != self.current_mode()
-        {
-            self.select_mode(mode, window, cx);
+        if !self.has_input(cx) {
+            self.promote_queued(window, cx);
             return;
         }
-        let text = self.input.read(cx).value().to_string();
-        if references::commands::leading(&text).is_some_and(|(name, _, _)| name == "compact") {
-            self.compact_context(compaction::focus(&text), window, cx);
+        let delivery = Delivery::enter(self.recipient().map(|run| (run.turn, run.revision)));
+        self.send_draft(delivery, window, cx);
+    }
+
+    pub(super) fn send_draft(
+        &mut self,
+        delivery: Delivery,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.input.update(cx, |input, cx| {
+            input.marked_text_range(window, cx).is_some()
+        }) {
             return;
+        }
+        if delivery != Delivery::Queue {
+            if let Some((mode, _)) =
+                references::commands::leading_mode(&self.input.read(cx).value())
+                && mode != self.current_mode()
+            {
+                self.select_mode(mode, window, cx);
+                return;
+            }
+            let text = self.input.read(cx).value().to_string();
+            if references::commands::leading(&text).is_some_and(|(name, _, _)| name == "compact") {
+                self.compact_context(compaction::focus(&text), window, cx);
+                return;
+            }
         }
         if self.readonly()
             || self.busy()
@@ -97,7 +119,13 @@ impl View {
         }
         self.references.dismiss();
         self.show_outgoing(message.clone(), cx);
-        self.capture_submission(window, cx);
+        if delivery == Delivery::Queue {
+            if let Some(outgoing) = &mut self.outgoing {
+                outgoing.queued = true;
+            }
+            self.sync_rows(cx);
+        }
+        self.capture_submission(delivery, window, cx);
         if (self.session.is_none() && self.binding.worktree.is_none())
             || !self.prepare_attachments(message.clone(), window, cx)
         {
@@ -107,12 +135,18 @@ impl View {
 
     pub(super) fn submit(&mut self, message: Input, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(session) = &self.session {
+            let delivery = self
+                .submissions
+                .active
+                .as_ref()
+                .map(|draft| draft.delivery)
+                .unwrap_or_default();
             self.execute(
-                Command::SubmitTurn {
-                    session: session.id,
-                    expected_revision: session.revision,
-                    message: self.normalized_input(message.clone()),
-                },
+                delivery.command(
+                    session.id,
+                    session.revision,
+                    self.normalized_input(message.clone()),
+                ),
                 Action::Send(message),
                 window,
                 cx,
@@ -232,16 +266,7 @@ impl View {
         if self.prepare_attachments(message.clone(), window, cx) {
             return;
         }
-        self.execute(
-            Command::SubmitTurn {
-                session: session.id,
-                expected_revision: session.revision,
-                message: self.normalized_input(message.clone()),
-            },
-            Action::Send(message),
-            window,
-            cx,
-        );
+        self.submit(message, window, cx);
     }
 
     pub(super) fn stop(&mut self, window: &mut Window, cx: &mut Context<Self>) {

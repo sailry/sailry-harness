@@ -16,6 +16,7 @@ pub(super) struct State {
 
 pub(super) struct Draft {
     pub(super) id: RequestId,
+    pub(super) delivery: composer::Delivery,
     identity: recovery::Identity,
     content: InputContent,
     selection: Range<usize>,
@@ -36,10 +37,16 @@ impl State {
 struct RecoveryToast;
 
 impl View {
-    pub(super) fn capture_submission(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn capture_submission(
+        &mut self,
+        delivery: composer::Delivery,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let input = self.input.read(cx);
         self.submissions.active = Some(Draft {
             id: RequestId::new(),
+            delivery,
             identity: self.recovery_identity(),
             content: input.content(),
             selection: input.selected_range(),

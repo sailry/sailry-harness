@@ -108,6 +108,25 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.submit_preview(key, false, window, cx);
+    }
+
+    pub(super) fn queue_preview(
+        &mut self,
+        key: (usize, usize),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.submit_preview(key, true, window, cx);
+    }
+
+    fn submit_preview(
+        &mut self,
+        key: (usize, usize),
+        queue_only: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(conversation) = self.conversations.get_mut(&key) else {
             return;
         };
@@ -126,13 +145,22 @@ impl Shell {
             )
             .is_empty()
         {
+            if !queue_only
+                && let Some(target) = conversation
+                    .queue
+                    .entries
+                    .first()
+                    .map(|entry| entry.target(key))
+            {
+                self.send_queued(target, window, cx);
+            }
             return;
         }
         if !self.validate_references(key, window, cx) {
             return;
         }
         let project = self.workspace.sessions[&key].owner.project;
-        if !self.workspace.projects[&project].trusted {
+        if !queue_only && !self.workspace.projects[&project].trusted {
             self.project_trust(
                 project,
                 Some(crate::workspace::Pending::Send(key)),
@@ -144,15 +172,24 @@ impl Shell {
         let options = self.queued_options(key, cx);
         let owner = self.workspace.sessions[&key].owner;
         let conversation = self.conversations.get_mut(&key).unwrap();
+        let active = conversation
+            .turns
+            .last()
+            .is_some_and(|turn| turn.status.active());
         conversation.queue.push(value, options, owner);
+        let target = conversation.queue.entries.last().unwrap().target(key);
         conversation.options.attachment = false;
         conversation.options.references.clear();
         conversation.references.dismiss();
         conversation
             .input
             .update(cx, |input, cx| input.set_value("", window, cx));
-        if self.begin_queued_preview(key, cx) {
-            self.animate_preview(key, window, cx);
+        if !queue_only {
+            if active {
+                self.send_queued(target, window, cx);
+            } else if self.begin_queued_preview(key, cx) {
+                self.animate_preview(key, window, cx);
+            }
         }
         cx.notify();
     }

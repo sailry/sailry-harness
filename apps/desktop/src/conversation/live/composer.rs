@@ -8,7 +8,9 @@ use gpui_kit::prelude::FluentBuilder as _;
 use sailry_protocol::plugin::ui::{Align, Slot};
 
 pub(super) mod compact;
+mod delivery;
 pub(super) use compact::Panel;
+pub(super) use delivery::Delivery;
 
 impl View {
     pub(super) fn composer(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -16,7 +18,7 @@ impl View {
         let stopping = self
             .active_run()
             .is_some_and(|run| run.status == Status::Stopping);
-        let text = !self.input.read(cx).value().trim().is_empty() || self.has_attachments();
+        let text = self.has_input(cx);
         let busy = self.busy();
         let dictating = self.dictation.phase != super::dictation::Phase::Idle;
         let send_blocked = !self.connected()
@@ -212,6 +214,20 @@ impl View {
                     cx.propagate();
                 }
             })
+            .on_action(cx.listener(|view, _: &IndentInline, window, cx| {
+                if view.readonly()
+                    || !view.has_input(cx)
+                    || view.input.update(cx, |input, cx| {
+                        input.marked_text_range(window, cx).is_some()
+                    })
+                {
+                    cx.propagate();
+                    return;
+                }
+                view.send_draft(Delivery::Queue, window, cx);
+                cx.stop_propagation();
+                window.prevent_default();
+            }))
             .child(
                 gpui_kit::component::input::Textarea::new(&self.input)
                     .appearance(false)
@@ -219,6 +235,12 @@ impl View {
                     .aria_label(tr("composer"))
                     .on_token_click(cx.listener(View::activate_reference)),
             )
+    }
+
+    pub(super) fn has_input(&self, cx: &App) -> bool {
+        !self.input.read(cx).value().trim().is_empty()
+            || self.has_attachments()
+            || !self.active_references(cx).is_empty()
     }
 
     pub(super) fn notices(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
