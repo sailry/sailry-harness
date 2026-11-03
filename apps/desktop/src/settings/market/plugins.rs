@@ -171,11 +171,45 @@ impl Market {
         let stop = self.begin(Loading::Repository(entry.id.clone()));
         let cancelled = stop.clone();
         let binding = self.binding.clone();
+        let id = entry.id.clone();
+        // Resolve and inspect the catalog source here so installation runs
+        // in the shared installer instead of the manual source form.
         let job = binding.runtime.spawn(async move {
+            let inspect = async {
+                let Output::PluginRepository(source) = binding
+                    .client
+                    .execute(
+                        binding
+                            .client
+                            .prepare(Command::ReadCatalogPlugin { source, id }),
+                    )
+                    .await?
+                else {
+                    return Err(sailry_protocol::Fault::new(
+                        sailry_protocol::ErrorCode::Internal,
+                        "plugin repository response expected",
+                    ));
+                };
+                match binding
+                    .client
+                    .execute(
+                        binding
+                            .client
+                            .prepare(Command::InspectPluginSource { source }),
+                    )
+                    .await?
+                {
+                    Output::PluginSource(selection) => Ok(selection),
+                    _ => Err(sailry_protocol::Fault::new(
+                        sailry_protocol::ErrorCode::Internal,
+                        "plugin inspection response expected",
+                    )),
+                }
+            };
             tokio::select! {
                 biased;
                 _ = cancelled.cancelled() => None,
-                result = binding.client.execute(binding.client.prepare(Command::ReadCatalogPlugin { source, id: entry.id })) => Some(result),
+                result = inspect => Some(result),
             }
         });
         self.task = Some(cx.spawn_in(window, async move |state, cx| {
@@ -192,9 +226,10 @@ impl Market {
                     return;
                 }
                 match result {
-                    Ok(Some(Ok(Output::PluginRepository(source)))) => {
-                        download::install(owner, source, entry.name.clone(), window, cx)
+                    Ok(Some(Ok(selection))) if selection.info.summary.name == entry.name => {
+                        owner.update(cx, |owner, cx| owner.install_source(selection, window, cx))
                     }
+                    Ok(Some(Ok(_))) => state.error = Some("plugins_package_mismatch"),
                     _ => state.error = Some("plugins_market_failed"),
                 }
                 cx.notify();

@@ -129,6 +129,35 @@ impl Workspace {
         self.send_plugin_action(name, window, cx);
     }
 
+    /// Installs an inspected catalog source through the shared installer, without a form.
+    pub(in crate::settings) fn install_source(
+        &mut self,
+        selection: sailry_protocol::plugin::catalog::Selection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(live) = &self.provider_link else {
+            return;
+        };
+        let name = selection.info.summary.name;
+        if !live.connected || self.plugin_catalog.busy(cx) {
+            return;
+        }
+        let command = Command::InstallPluginSource {
+            source: selection.source,
+            path: selection.path,
+            name: name.clone(),
+            expected_revision: 0,
+        };
+        if !self
+            .plugin_catalog
+            .admit(name.clone(), live.binding.clone(), command)
+        {
+            return;
+        }
+        self.send_plugin_action(&name, window, cx);
+    }
+
     pub(in crate::settings) fn toggle_plugin(
         &mut self,
         plugin: &Summary,

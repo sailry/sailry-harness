@@ -274,7 +274,7 @@ impl Details {
         };
         let entry = entry.as_ref().clone();
         let source = *source;
-        // Dismiss Details before acquisition opens its own dialog.
+        // Dismiss Details; plugins install in the background, skill collections open discovery.
         self.stop.cancel();
         dismiss(window, cx);
         market.update(cx, |market, cx| market.install(source, entry, window, cx));

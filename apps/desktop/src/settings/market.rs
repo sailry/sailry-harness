@@ -1,5 +1,5 @@
 //! One marketplace presents execution-Node packages and controller-local themes.
-use super::plugins::{details as plugin_details, download, metadata};
+use super::plugins::{details as plugin_details, metadata};
 use super::{Workspace, group::Group};
 use crate::tr;
 use gpui_kit::{

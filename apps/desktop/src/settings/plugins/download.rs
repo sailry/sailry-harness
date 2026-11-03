@@ -11,7 +11,6 @@ use sailry_protocol::{Command, Output, Request, plugin::skills::Source};
 struct Download {
     binding: Binding,
     known: Vec<sailry_protocol::plugin::Summary>,
-    expected_name: Option<String>,
     fields: [Entity<InputState>; 3],
     request: Option<Request>,
     pending: bool,
@@ -22,29 +21,9 @@ struct Download {
     task: Option<Task<()>>,
 }
 
-pub(in crate::settings) fn install(
-    owner: Entity<Workspace>,
-    source: Source,
-    name: String,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    mount(owner, Some(source), Some(name), window, cx);
-}
-
 pub(super) fn open(
     owner: Entity<Workspace>,
     source: Option<Source>,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    mount(owner, source, None, window, cx);
-}
-
-fn mount(
-    owner: Entity<Workspace>,
-    source: Option<Source>,
-    expected_name: Option<String>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -56,7 +35,6 @@ fn mount(
     }
     let binding = live.binding.clone();
     let known = owner.read(cx).plugin_catalog.packages.clone();
-    let start = expected_name.is_some();
     let editor = cx.new(|cx| {
         let fields = [
             "skills_repository_hint",
@@ -89,7 +67,6 @@ fn mount(
         Download {
             binding,
             known,
-            expected_name,
             fields,
             request: None,
             pending: false,
@@ -100,11 +77,7 @@ fn mount(
             task: None,
         }
     });
-    let active = editor.clone();
     present(editor, window, cx);
-    if start {
-        active.update(cx, |state, cx| state.submit(window, cx));
-    }
 }
 
 fn present(editor: Entity<Download>, window: &mut Window, cx: &mut App) {
@@ -275,24 +248,11 @@ impl Download {
                             if state.closed {
                                 return;
                             }
-                            if state
-                                .expected_name
-                                .as_ref()
-                                .is_some_and(|name| *name != selection.info.summary.name)
-                            {
-                                state.error = Some("plugins_package_mismatch");
-                                cx.notify();
-                                return;
-                            }
-                            let expected_revision = if state.expected_name.is_some() {
-                                0
-                            } else {
-                                state
-                                    .known
-                                    .iter()
-                                    .find(|plugin| plugin.name == selection.info.summary.name)
-                                    .map_or(0, |plugin| plugin.revision)
-                            };
+                            let expected_revision = state
+                                .known
+                                .iter()
+                                .find(|plugin| plugin.name == selection.info.summary.name)
+                                .map_or(0, |plugin| plugin.revision);
                             state.request =
                                 Some(state.binding.client.prepare(Command::InstallPluginSource {
                                     source: selection.source.clone(),
