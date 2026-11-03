@@ -1,5 +1,11 @@
 {
   "@@locale": "pt",
+  "guidancePending": "Pendente",
+  "guidanceDelivered": "Entregue",
+  "guidanceNextTurn": "Próximo turno",
+  "guidanceSendNow": "Enviar agora",
+  "guidanceGuide": "Orientar",
+  "guidanceWithdraw": "Retirar orientação",
   "updatesVersion": "Versão",
   "updatesCheck": "Verifique se há atualizações",
   "updatesChecking": "Verificando",

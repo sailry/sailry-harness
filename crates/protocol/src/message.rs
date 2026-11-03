@@ -822,6 +822,8 @@ pub enum Command {
         recipient: crate::TurnId,
         expected_revision: u64,
         message: crate::conversation::Input,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        immediate: bool,
     },
     /// Node-internal admission of completed background work.
     DeliverBackground {
@@ -930,6 +932,8 @@ pub enum Command {
         turn: crate::TurnId,
         recipient: crate::TurnId,
         expected_revision: u64,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        immediate: bool,
     },
     /// Keeps the queued input while withdrawing its pending guidance intent.
     WithdrawGuidance {

@@ -14,6 +14,7 @@ fn run() -> Run {
         error: None,
         origin: None,
         continuation: None,
+        guidance: None,
         joined: None,
         notice: false,
         notices: Vec::new(),

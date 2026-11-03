@@ -162,6 +162,9 @@ only until canonical user history exists, with attachment metadata but no bytes,
 role instructions or execution configuration.
 Activity summaries remain metadata-only. Logical history pages preserve full
 inputs using turn cursors rather than truncation or synthetic history events.
+Conversation subscriptions publish recent messages before derived statistics.
+Statistics remain pending until the supervised reader publishes authoritative values;
+statistics failures stay separate from message connection failures.
 
 Core Agent tools discover and read conversations on their execution Node without
 requiring an explicit mention. Directory, history, search and explicit conversation
@@ -837,19 +840,26 @@ model result collection consumes the exact source execution; controller polling
 does not. Command summaries and bounded output tails survive restart, while
 complete output remains available only while its process cache entry is retained.
 
-Guidance is durably admitted before execution. The current model response finishes
-normally, and guidance waits for its complete tool batch before the next model
-request. The steer Operation appends selected user inputs in FIFO order through
-the same EffectHandler; it retains the task and Stop owner and uses the current
-captured prompt and tool owners for the next inference. Each guidance input keeps
+Guidance is durably admitted before execution. By default the current model response
+and tool batch finish before the next model request. Foreground child observation
+wakes for guidance without cancelling the child. Explicit immediate delivery cancels
+the current tool batch using its own cancellation token; the parent task, future
+operations and running children keep their owners. Interrupted calls retain their
+identities and report uncertain side effects without automatic replay. The steer
+Operation appends selected user inputs in FIFO order through the same EffectHandler;
+it retains the task and Stop owner and uses the current captured prompt and tool
+owners for the next inference. Each guidance input keeps
 its own sent-turn identity and becomes consumed only when its canonical user entry commits, while model and
 tool output retain the original task owner and one public completion. If a queued
 input has a different capture, explicit guidance admits a replacement using the
 recipient's capture without modifying the original sent-turn record. A controller
 may also guide the running main-session task through the same boundary.
-Natural completion advances the queue automatically. Stop, failed preparation
-and restart preserve unconsumed inputs, references and attachments in a paused
-queue without automatic replay.
+Natural completion advances the queue automatically. Undelivered guidance and the
+contiguous compatible queue suffix become one successor with distinct input owners.
+Stopping a main task with pending guidance permits that successor; stopping without
+guidance, explicit queue pause, failed preparation and restart retain a paused queue.
+Client derives pending, delivered and next-turn guidance states from canonical input
+and queue records for both Desktop and Mobile.
 
 Successful main-session planning completion ends execution and retains a pending
 review in the same durable history, even after a plain answer; a new user input

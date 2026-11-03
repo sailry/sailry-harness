@@ -132,6 +132,7 @@ async fn insert(
         finished_ms: None,
         origin: None,
         continuation: None,
+        guidance: None,
         joined: None,
         notice: false,
         notices: Vec::new(),
@@ -325,7 +326,6 @@ pub(in crate::store) async fn stop(db: &Connection, turn: TurnId) -> Result<Run,
         }
     } else if matches!(run.status, Status::Running | Status::Stopping) {
         super::queue::pause(db, run.session, true).await?;
-        super::queue::guidance::clear(db, run.session, Some(turn)).await?;
     }
     run.status = match run.status {
         Status::Queued => Status::Cancelled,
@@ -629,11 +629,8 @@ pub(super) async fn finish_with(
             "turn execution has already ended",
         ));
     }
-    let stopped = run.status == Status::Cancelled
-        || (run.status == Status::Stopping
-            && super::queue::read(&database.connection, run.session)
-                .await?
-                .paused);
+    let stopped = matches!(run.status, Status::Cancelled | Status::Stopping);
+    let stopping = run.status == Status::Stopping;
     run.status = if stopped && status != Status::Interrupted {
         Status::Cancelled
     } else {
@@ -649,20 +646,33 @@ pub(super) async fn finish_with(
         .map_err(storage_error)?;
     run.error = error;
     run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
-    let restored = guidance::restore(&transaction, turn).await?;
-    if matches!(
+    let successor = stopping
+        && run.status != Status::Interrupted
+        && guidance::pending(&transaction, turn).await?
+        && super::delegation::origin(&transaction, turn)
+            .await?
+            .is_none();
+    let incomplete = matches!(
         run.status,
         Status::Failed | Status::Cancelled | Status::Interrupted
-    ) {
-        let retained = transaction.execute("UPDATE agent_runs SET ready=0 WHERE turn=?1 AND EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=?1)", [turn.to_string()]).await.map_err(storage_error)? > 0;
+    );
+    let mut halted = run.status == Status::Interrupted;
+    if incomplete {
         let mut query = transaction.prepare("SELECT EXISTS(SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.metadata.compaction.failure') IS NOT NULL AND json_extract(body,'$.metadata.compaction.failure.continued')=0)").await.map_err(storage_error)?;
-        let halted: bool = query
+        halted |= query
             .query_row([turn.to_string()])
             .await
             .map_err(storage_error)?
-            .get(0)
+            .get::<bool>(0)
             .map_err(storage_error)?;
-        drop(query);
+    }
+    let ready = !halted
+        && (successor
+            || (run.status == Status::Completed
+                && !super::queue::read(&transaction, run.session).await?.paused));
+    let restored = guidance::restore(&transaction, turn, ready).await?;
+    if incomplete {
+        let retained = transaction.execute("UPDATE agent_runs SET ready=0 WHERE turn=?1 AND EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=?1)", [turn.to_string()]).await.map_err(storage_error)? > 0;
         if retained || halted {
             transaction
                 .execute(
@@ -674,6 +684,12 @@ pub(super) async fn finish_with(
             super::queue::pause(&transaction, run.session, true).await?;
             super::queue::guidance::clear(&transaction, run.session, Some(turn)).await?;
         }
+    }
+    if successor && !halted {
+        super::queue::guidance::clear(&transaction, run.session, Some(turn)).await?;
+        super::queue::pause(&transaction, run.session, false).await?;
+    } else if stopped {
+        super::queue::guidance::clear(&transaction, run.session, Some(turn)).await?;
     }
     if queued_child {
         super::queue::remove(&transaction, turn, run.session).await?;
@@ -866,7 +882,7 @@ pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
         )
         .await
         .map_err(storage_error)?;
-        let _ = guidance::restore(db, run.turn).await?;
+        let _ = guidance::restore(db, run.turn, false).await?;
         super::approvals::close(db, run.turn, ApprovalState::Interrupted).await?;
         super::questions::close(db, run.turn, question::State::Interrupted).await?;
         super::queue::pause(db, run.session, true).await?;

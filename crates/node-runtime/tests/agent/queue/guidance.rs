@@ -2,6 +2,9 @@ use super::*;
 use sailry_link::CancellationToken;
 use serde_json::json;
 
+mod steering;
+mod timing;
+
 async fn held(fixture: &Fixture, message: Input) -> QueuedTurn {
     let Output::QueuedTurn(turn) = fixture
         .client
@@ -58,6 +61,7 @@ async fn attachment(fixture: &Fixture, bytes: &[u8]) -> attachment::Attachment {
 
 fn guide(fixture: &Fixture, turn: TurnId, recipient: TurnId, revision: u64) -> Request {
     fixture.client.prepare(Command::GuideQueuedTurn {
+        immediate: false,
         turn,
         recipient,
         expected_revision: revision,
@@ -1126,6 +1130,7 @@ async fn configure(fixture: &mut Fixture, model: &str, effort: Effort) {
 
 async fn fresh(fixture: &Fixture, active: &QueuedTurn, text: &str) -> QueuedTurn {
     let request = fixture.client.prepare(Command::GuideTurn {
+        immediate: false,
         recipient: active.id,
         expected_revision: active.revision,
         message: text.into(),

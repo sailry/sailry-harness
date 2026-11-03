@@ -1,5 +1,11 @@
 {
   "@@locale": "ja",
+  "guidancePending": "送信待ち",
+  "guidanceDelivered": "送信済み",
+  "guidanceNextTurn": "次のターンへ",
+  "guidanceSendNow": "今すぐ送信",
+  "guidanceGuide": "指示",
+  "guidanceWithdraw": "指示を取り消す",
   "updatesVersion": "バージョン",
   "updatesCheck": "更新をチェック",
   "updatesChecking": "確認中",

@@ -4,6 +4,8 @@ use crate::agent::canonical::{self, BlockKind};
 use crate::store::agent::tests::fixture::{self, Fixture};
 use sailry_link::CancellationToken;
 
+mod successors;
+
 async fn admitted(fixture: &mut Fixture) -> (TurnId, TurnId) {
     let active = fixture.queued().await;
     runs::start(&fixture.database.connection, active)
@@ -308,9 +310,10 @@ async fn stop_prevents_claimed_input_from_being_consumed() {
     let queue = read(&fixture.database.connection, fixture.session)
         .await
         .unwrap();
-    assert!(queue.paused);
+    assert!(!queue.paused);
     assert_eq!(queue.items.len(), 1);
     assert_eq!(queue.items[0].turn, source);
+    assert!(queue.items[0].ready);
     assert_eq!(
         runs::get(&fixture.database.connection, source)
             .await
@@ -431,7 +434,7 @@ async fn retains_preparation_failure_for_explicit_retry() {
 }
 
 #[tokio::test]
-async fn stop_wins_before_the_boundary() {
+async fn stop_defers_input_until_settlement() {
     let mut fixture = Fixture::new().await;
     let (active, source) = admitted(&mut fixture).await;
     let controls = registered(&mut fixture, active).await;
@@ -457,8 +460,14 @@ async fn stop_wins_before_the_boundary() {
         .unwrap();
     assert!(queue.paused);
     assert_eq!(queue.items[0].turn, source);
-    assert_eq!(queue.items[0].guidance, None);
+    assert_eq!(queue.items[0].guidance, Some(active));
     assert!(take(&mut fixture, active, &controls).await.is_none());
+    assert!(
+        runs::claim(&mut fixture.database, &fixture.events)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         finish(
             &mut fixture,
@@ -471,12 +480,12 @@ async fn stop_wins_before_the_boundary() {
         .await,
         Status::Cancelled
     );
-    assert!(
-        runs::claim(&mut fixture.database, &fixture.events)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    let successor = runs::claim(&mut fixture.database, &fixture.events)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(successor.turn.id, source);
+    assert_eq!(successor.message.text, "History fixture");
     assert!(
         runs::claim_guidance(&mut fixture.database, active, &fixture.events)
             .await
@@ -484,19 +493,18 @@ async fn stop_wins_before_the_boundary() {
             .is_none()
     );
     assert_eq!(
-        message(&fixture.database.connection, source)
+        runs::get(&fixture.database.connection, source)
             .await
             .unwrap()
-            .message
-            .text,
-        "History fixture"
+            .guidance,
+        Some(active)
     );
     assert_eq!(
         runs::get(&fixture.database.connection, source)
             .await
             .unwrap()
             .status,
-        Status::Queued
+        Status::Running
     );
 }
 
@@ -965,7 +973,7 @@ mod provider_capture {
 mod controller {
     use super::*;
 
-    async fn guide(fixture: &mut Fixture, active: TurnId, text: &str) -> TurnId {
+    pub(super) async fn guide(fixture: &mut Fixture, active: TurnId, text: &str) -> TurnId {
         let revision = runs::get(&fixture.database.connection, active)
             .await
             .unwrap()
@@ -977,6 +985,7 @@ mod controller {
                 recipient: active,
                 expected_revision: revision,
                 message: text.into(),
+                immediate: false,
             },
         )
         .await
@@ -1107,12 +1116,14 @@ mod controller {
         let (active, first) = admitted(&mut fixture).await;
         let waiting = fixture.queued().await;
         let second = guide(&mut fixture, active, "Keep the tests").await;
+        let third = guide(&mut fixture, active, "Preserve the input order").await;
         let controls = registered(&mut fixture, active).await;
         let inputs = take(&mut fixture, active, &controls).await.unwrap();
         assert_eq!(
             inputs.iter().map(|input| input.turn.id).collect::<Vec<_>>(),
-            [first, second]
+            [first, second, third]
         );
+        assert!(take(&mut fixture, active, &controls).await.is_none());
         for input in inputs {
             let run = runs::get(&fixture.database.connection, input.turn.id)
                 .await

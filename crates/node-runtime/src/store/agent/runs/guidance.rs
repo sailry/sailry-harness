@@ -7,21 +7,45 @@ pub(super) async fn claim(
     primary: &Run,
     recipient: Option<TurnId>,
 ) -> Result<(Vec<QueuedMessage>, Vec<Run>), Fault> {
-    let Some(recipient) = recipient else {
+    let boundary = recipient == Some(primary.turn);
+    if !boundary && recipient.or(primary.guidance).is_none() {
         return Ok((Vec::new(), Vec::new()));
+    }
+    let items = super::super::queue::read(db, primary.session).await?.items;
+    let start = if boundary {
+        0
+    } else {
+        let Some(index) = items.iter().position(|item| item.turn == primary.turn) else {
+            return Err(storage_error("guidance successor is no longer queued"));
+        };
+        index + 1
     };
-    let turns: Vec<_> = super::super::queue::read(db, primary.session)
-        .await?
-        .items
-        .into_iter()
-        .filter(|item| item.guidance == Some(recipient) && item.turn != primary.turn)
-        .map(|item| item.turn)
-        .collect();
-    let mut inputs = Vec::with_capacity(turns.len());
-    let mut joined = Vec::with_capacity(turns.len());
-    for turn in turns {
-        let mut run = get(db, turn).await?;
-        super::super::queue::guidance::compatible(db, &run, primary).await?;
+    let mut inputs = Vec::new();
+    let mut joined = Vec::new();
+    for item in &items[start..] {
+        if item.turn == primary.turn {
+            continue;
+        }
+        if boundary && item.guidance != recipient {
+            continue;
+        }
+        if !boundary && item.guidance.is_some() && item.guidance != recipient.or(primary.guidance) {
+            break;
+        }
+        let mut run = get(db, item.turn).await?;
+        if !boundary
+            && (run.kind != RunKind::Task
+                || run.notice
+                || run.continuation.is_some()
+                || run.status != Status::Queued
+                || !super::super::queue::guidance::same_capture(db, &run, primary).await?)
+        {
+            break;
+        }
+        if boundary {
+            super::super::queue::guidance::compatible(db, &run, primary).await?;
+        }
+        let turn = item.turn;
         let input = super::super::queue::message(db, turn).await?;
         capture(db, &input.turn, false, &input.message).await?;
         run.joined = Some(primary.turn);
@@ -109,8 +133,21 @@ pub(in crate::store::agent) async fn take(
     result
 }
 
-pub(super) async fn restore(db: &Connection, owner: TurnId) -> Result<Vec<Run>, Fault> {
-    let mut query = db.prepare("SELECT a.body FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE json_extract(a.body,'$.joined')=?1").await.map_err(storage_error)?;
+pub(super) async fn pending(db: &Connection, owner: TurnId) -> Result<bool, Fault> {
+    let mut query = db.prepare("SELECT EXISTS(SELECT 1 FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.recipient=?1 AND (json_extract(a.body,'$.status')='queued' OR json_extract(a.body,'$.joined')=?1))").await.map_err(storage_error)?;
+    let row = query
+        .query_row([owner.to_string()])
+        .await
+        .map_err(storage_error)?;
+    row.get(0).map_err(storage_error)
+}
+
+pub(super) async fn restore(
+    db: &Connection,
+    owner: TurnId,
+    ready: bool,
+) -> Result<Vec<Run>, Fault> {
+    let mut query = db.prepare("SELECT a.body FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn JOIN turns t ON t.id=p.turn WHERE json_extract(a.body,'$.joined')=?1 ORDER BY p.position,t.rowid").await.map_err(storage_error)?;
     let mut rows = query
         .query([owner.to_string()])
         .await
@@ -128,8 +165,8 @@ pub(super) async fn restore(db: &Connection, owner: TurnId) -> Result<Vec<Run>, 
         run.finished_ms = None;
         put(db, run).await?;
         db.execute(
-            "UPDATE agent_runs SET ready=0 WHERE turn=?1",
-            [run.turn.to_string()],
+            "UPDATE agent_runs SET ready=?2 WHERE turn=?1",
+            params![run.turn.to_string(), ready],
         )
         .await
         .map_err(storage_error)?;
@@ -139,6 +176,8 @@ pub(super) async fn restore(db: &Connection, owner: TurnId) -> Result<Vec<Run>, 
         )
         .await
         .map_err(storage_error)?;
+    }
+    if !ready && let Some(run) = restored.first() {
         super::super::queue::pause(db, run.session, true).await?;
     }
     Ok(restored)

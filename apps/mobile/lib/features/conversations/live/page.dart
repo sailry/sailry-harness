@@ -21,6 +21,7 @@ import 'connection_status.dart';
 import 'draft_attachments.dart';
 import 'turn_draft.dart';
 import 'queue.dart';
+import 'guidance.dart';
 import 'children.dart';
 import 'presentation.dart';
 import 'tool_output.dart';
@@ -302,10 +303,22 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
     showToast(context, failureLabel(error, translate: context.tr));
   }
 
-  Future<void> _send() async {
+  Future<void> _send({bool immediate = false, bool queue = false}) async {
     if (_historyBusy || _historyPending != null) return;
+    final recipient = runningRecipient(_page);
+    if (immediate && recipient == null) return;
     try {
-      await _submission.send(_session['revision'] as int);
+      await _submission.send(
+        _session['revision'] as int,
+        recipient: recipient == null
+            ? null
+            : (
+                turn: recipient['turn'] as String,
+                revision: recipient['revision'] as int,
+              ),
+        immediate: immediate,
+        queue: queue,
+      );
     } catch (error) {
       _failure(error);
     }
@@ -404,6 +417,8 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
             view['connected'] == true &&
             _error == null;
         final queue = object(_page['queue']);
+        final recipient = runningRecipient(_page);
+        final outgoing = _submission.guidance;
         final delegated = _session['delegation'] != null;
         final fault = object(view['error']);
         final hostFault = object(widget.host.error);
@@ -718,6 +733,12 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                   updates: _view,
                   onOpenChild: _openChild,
                 ),
+                if (outgoing != null &&
+                    !object(view['guidance']).containsKey(outgoing.turn))
+                  PendingGuidance(
+                    preview: outgoing.text,
+                    attachments: outgoing.attachments.length,
+                  ),
                 if (delegated && objects(queue['items']).isNotEmpty)
                   QueueSummary(queue: queue, onOpen: _queue),
                 if (!delegated)
@@ -743,6 +764,12 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                     onVoice: _voice,
                     onStop: _stop,
                     onSend: _send,
+                    onSendNow: recipient == null
+                        ? null
+                        : () => _send(immediate: true),
+                    onQueue: recipient == null
+                        ? null
+                        : () => _send(queue: true),
                     priority: objects(queue['items']).isEmpty
                         ? null
                         : QueueSummary(queue: queue, onOpen: _queue),

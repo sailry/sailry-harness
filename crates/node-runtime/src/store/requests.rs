@@ -84,6 +84,25 @@ impl Ingress {
                 request.command,
                 sailry_protocol::Command::SaveSearchSettings(_)
             );
+            let (reply, guidance_completion) = match &request.command {
+                Command::GuideTurn {
+                    recipient,
+                    immediate,
+                    ..
+                }
+                | Command::GuideQueuedTurn {
+                    recipient,
+                    immediate,
+                    ..
+                } => {
+                    let (sender, response) = oneshot::channel();
+                    (
+                        sender,
+                        Some((reply, response, *recipient, *immediate, request.id)),
+                    )
+                }
+                _ => (reply, None),
+            };
             let launch = super::routing::launches(&request.command);
             let sending = match request.command {
                 sailry_protocol::Command::SendQueuedTurn { turn, .. } => Some(turn),
@@ -119,6 +138,42 @@ impl Ingress {
                 work = database
                     .dispatch_with(caller, *request, reply, events, access)
                     .await;
+            }
+            if let Some((reply, response, recipient, immediate, id)) = guidance_completion {
+                match response.await {
+                    Ok(Ok(admission)) => {
+                        let (sender, completion) = oneshot::channel();
+                        let _ = reply.send(Ok(Admission {
+                            receipt: admission.receipt,
+                            completion,
+                        }));
+                        let result = admission
+                            .completion
+                            .await
+                            .unwrap_or_else(|_| Err(unavailable()));
+                        if let Ok(output) = &result
+                            && let Err(error) = agent::queue::interrupt::deliver(
+                                &mut database,
+                                agents,
+                                output,
+                                recipient,
+                                id,
+                                immediate,
+                                events,
+                            )
+                            .await
+                        {
+                            tracing::error!(turn = %recipient, code = ?error.code, "committed guidance notification failed");
+                        }
+                        let _ = sender.send(result);
+                    }
+                    Ok(Err(error)) => {
+                        let _ = reply.send(Err(error));
+                    }
+                    Err(_) => {
+                        let _ = reply.send(Err(unavailable()));
+                    }
+                }
             }
             if let Some(cleanup) = artifact_cleanup {
                 let _ = cleanup.send(artifacts::cleanup(&database.connection).await);

@@ -71,6 +71,7 @@ async fn follows_visible_delegations_without_duplication() {
     let request = Request::new(
         fixture.database.node,
         Command::GuideTurn {
+            immediate: false,
             recipient: child.turn.id,
             expected_revision: child.turn.revision,
             message: "Continue with guidance".into(),

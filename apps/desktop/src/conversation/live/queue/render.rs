@@ -22,6 +22,16 @@ impl View {
 }
 
 impl Panel {
+    fn guidance_state(&self, turn: TurnId) -> Option<sailry_client::conversation::guidance::State> {
+        let submitting = self.deferred_guide.is_some_and(|(selected, _, _)| selected == turn)
+            || self.retry.as_ref().is_some_and(|attempt| {
+                matches!(attempt.request.command, Command::GuideQueuedTurn { turn: selected, .. } if selected == turn)
+            });
+        submitting
+            .then_some(sailry_client::conversation::guidance::State::Pending)
+            .or_else(|| self.guidance.get(&turn).copied())
+    }
+
     fn items(&self) -> impl Iterator<Item = &Pending> {
         self.queue
             .items
@@ -63,34 +73,51 @@ impl Panel {
                 cx.stop_propagation();
                 panel.edit(turn, revision, window, cx);
             }));
+        let recipient = self.recipient.filter(|_| {
+            !self.child && !item.notice && item.kind == sailry_protocol::conversation::RunKind::Task
+        });
         let send = Button::new(format!("live-queue-send-{turn}"))
             .rounded_full()
             .ghost()
             .small()
             .icon(IconName::ArrowUp)
-            .disabled(self.blocked() || item.guidance.is_some())
+            .disabled(
+                self.blocked()
+                    || item
+                        .guidance
+                        .is_some_and(|target| Some(target) != recipient),
+            )
             .debug_selector(move || format!("queue-send-{turn}"))
-            .tooltip(tr("queue_send_now"))
-            .accessibility_label(tr("queue_send_now"))
+            .tooltip(tr(if recipient.is_some() {
+                "guidance_send_now"
+            } else {
+                "queue_send_now"
+            }))
+            .accessibility_label(tr(if recipient.is_some() {
+                "guidance_send_now"
+            } else {
+                "queue_send_now"
+            }))
             .on_click(cx.listener(move |panel, _, window, cx| {
                 cx.stop_propagation();
                 panel.execute(
-                    Command::SendQueuedTurn {
-                        turn,
-                        expected_revision: revision,
+                    match recipient {
+                        Some(recipient) => Command::GuideQueuedTurn {
+                            turn,
+                            recipient,
+                            expected_revision: revision,
+                            immediate: true,
+                        },
+                        None => Command::SendQueuedTurn {
+                            turn,
+                            expected_revision: revision,
+                        },
                     },
                     window,
                     cx,
                 );
             }));
-        let guide = self
-            .recipient
-            .filter(|_| {
-                !self.child
-                    && !item.notice
-                    && item.kind == sailry_protocol::conversation::RunKind::Task
-            })
-            .map(|recipient| {
+        let guide = recipient.map(|recipient| {
                 Button::new(format!("live-queue-guide-{turn}"))
                     .rounded_full()
                     .ghost()
@@ -104,7 +131,7 @@ impl Panel {
                     .accessibility_label(tr("chat_queue_guide"))
                     .loading(
                         self.deferred_guide
-                            .is_some_and(|(selected, _)| selected == turn)
+                            .is_some_and(|(selected, _, _)| selected == turn)
                             || self.retry.as_ref().is_some_and(|attempt| {
                                 matches!(attempt.request.command, Command::GuideQueuedTurn { turn: selected, .. } if selected == turn)
                             }),
@@ -118,6 +145,7 @@ impl Panel {
                                 turn,
                                 recipient,
                                 expected_revision: revision,
+                                immediate: false,
                             },
                             window,
                             cx,
@@ -157,9 +185,18 @@ impl Panel {
             label(item),
             !item.attachments.is_empty(),
             !self.child && !item.notice,
-            (!item.notice && item.kind == sailry_protocol::conversation::RunKind::Task)
-                .then_some(edit.into_any_element())
+            self.guidance_state(turn)
+                .map(|state| {
+                    gpui_kit::component::label::Label::new(guidance::label(state))
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .into_any_element()
+                })
                 .into_iter()
+                .chain(
+                    (!item.notice && item.kind == sailry_protocol::conversation::RunKind::Task)
+                        .then_some(edit.into_any_element()),
+                )
                 .chain(guide)
                 .chain(withdraw)
                 .chain((!self.child && !item.notice).then_some(send.into_any_element()))
@@ -366,7 +403,17 @@ impl Render for Panel {
                                 "outgoing".into(),
                                 text,
                                 self.outgoing_attached,
-                                actions,
+                                self.outgoing_guidance
+                                    .then(|| {
+                                        gpui_kit::component::label::Label::new(guidance::label(
+                                            sailry_client::conversation::guidance::State::Pending,
+                                        ))
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .into_any_element()
+                                    })
+                                    .into_iter()
+                                    .chain(actions),
                                 cx,
                             )
                             .debug_selector(|| "queue-outgoing".into())

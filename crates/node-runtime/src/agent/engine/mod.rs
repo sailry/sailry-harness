@@ -2,6 +2,7 @@
 mod children;
 mod compact;
 mod effects;
+mod foreground;
 pub(crate) mod history;
 mod operations;
 pub(crate) mod prompt;
@@ -9,6 +10,7 @@ mod steer;
 #[cfg(test)]
 mod tests;
 pub(crate) mod tokens;
+mod tools;
 use crate::{
     agent::{catalog, model},
     store::{
@@ -159,11 +161,17 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
                 context: turn_context,
                 parts,
             })),
-            Step::Operation(Arc::new(
-                ToolOperation::new().with_provider(Arc::new(catalog)),
-            )),
+            Step::Operation(Arc::new(tools::Tools {
+                inner: ToolOperation::new().with_provider(Arc::new(catalog)),
+                controls: ingress.agents.clone(),
+                turn: invocation.turn.id,
+            })),
             Step::Operation(Arc::new(operations::Remaining)),
-            Step::Operation(Arc::new(SubagentOperation::new(Arc::new(children.clone())))),
+            Step::Operation(Arc::new(foreground::Foreground {
+                inner: SubagentOperation::new(Arc::new(children.clone())),
+                ingress: ingress.clone(),
+                turn: invocation.turn.id,
+            })),
             Step::Operation(Arc::new(steer::Steer {
                 ingress: ingress.clone(),
                 invocation: invocation.clone(),

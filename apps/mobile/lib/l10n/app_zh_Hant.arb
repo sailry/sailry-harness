@@ -1,5 +1,11 @@
 {
   "@@locale": "zh_Hant",
+  "guidancePending": "待送達",
+  "guidanceDelivered": "已送達",
+  "guidanceNextTurn": "轉為下一回合",
+  "guidanceSendNow": "立即傳送",
+  "guidanceGuide": "引導",
+  "guidanceWithdraw": "撤回引導",
   "updatesVersion": "版本",
   "updatesCheck": "檢查更新",
   "updatesChecking": "檢查中",

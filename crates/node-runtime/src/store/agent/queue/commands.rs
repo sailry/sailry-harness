@@ -119,6 +119,7 @@ pub(in crate::store) async fn execute(
             turn,
             recipient,
             expected_revision,
+            ..
         } => {
             let (session, runs) =
                 guidance::select(db, *turn, *recipient, *expected_revision).await?;

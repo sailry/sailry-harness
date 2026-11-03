@@ -41,6 +41,7 @@ async fn direction(fixture: &Fixture, active: &QueuedTurn) -> QueuedTurn {
         panic!("queued turn expected")
     };
     let request = fixture.client.prepare(Command::GuideQueuedTurn {
+        immediate: false,
         turn: queued.id,
         recipient: active.id,
         expected_revision: 1,

@@ -118,62 +118,64 @@ impl SubagentRunner<RuntimeSession> for Children {
     ) -> OperationStream<'static, SubagentUpdate> {
         let this = self.clone();
         let id = id.to_owned();
-        let owner = cancel.child_token();
-        let observer = owner.clone().drop_guard();
-        let execute_owner = owner.clone();
-        let task = this
-            .tasks
-            .clone()
-            .spawn_child(&this.ingress.agents.stopped.clone(), async move {
-                let invocation = this.pending.lock().unwrap().remove(&id);
-                let Some(invocation) = invocation else {
-                    return SubagentOutcome::Failed(
-                        "child invocation is unavailable; execution was not replayed".into(),
-                    );
-                };
-                let owner = execute_owner;
-                this.ingress.agents.register_child(
-                    this.parent,
-                    invocation.turn.session,
-                    invocation.turn.id,
-                    owner.clone(),
-                );
-                let _owner = Owner {
-                    ingress: this.ingress.clone(),
-                    parent: this.parent,
-                    child: invocation.turn.session,
-                    turn: invocation.turn.id,
-                };
-                let (_, result) = delegation::scheduler::resume(
-                    &this.ingress,
-                    &this.tasks,
-                    invocation,
-                    owner.child_token(),
-                    owner.clone(),
-                )
-                .await;
-                let outcome = match result {
-                    Ok((Status::Completed, output)) => {
-                        SubagentOutcome::Completed(output.unwrap_or_default())
-                    }
-                    Ok((Status::Cancelled | Status::Interrupted, _)) => SubagentOutcome::Cancelled,
-                    Ok((status, _)) => {
-                        SubagentOutcome::Failed(format!("child ended with {status:?}"))
-                    }
-                    Err(error) => SubagentOutcome::Failed(error.message),
-                };
-                if let Ok(session) = id.parse()
-                    && let Ok(state) = this.ingress.child_state(this.turn, session).await
-                {
-                    let _ = this
-                        .ingress
-                        .collect_child(this.turn, session, state.run.turn)
-                        .await;
-                }
-                outcome
-            })
-            .await;
         Box::pin(stream::once(async move {
+            let owner = cancel.child_token();
+            let observer = owner.clone().drop_guard();
+            let execute_owner = owner.clone();
+            let task = this
+                .tasks
+                .clone()
+                .spawn_child(&this.ingress.agents.stopped.clone(), async move {
+                    let invocation = this.pending.lock().unwrap().remove(&id);
+                    let Some(invocation) = invocation else {
+                        return SubagentOutcome::Failed(
+                            "child invocation is unavailable; execution was not replayed".into(),
+                        );
+                    };
+                    let owner = execute_owner;
+                    this.ingress.agents.register_child(
+                        this.parent,
+                        invocation.turn.session,
+                        invocation.turn.id,
+                        owner.clone(),
+                    );
+                    let _owner = Owner {
+                        ingress: this.ingress.clone(),
+                        parent: this.parent,
+                        child: invocation.turn.session,
+                        turn: invocation.turn.id,
+                    };
+                    let (_, result) = delegation::scheduler::resume(
+                        &this.ingress,
+                        &this.tasks,
+                        invocation,
+                        owner.child_token(),
+                        owner.clone(),
+                    )
+                    .await;
+                    let outcome = match result {
+                        Ok((Status::Completed, output)) => {
+                            SubagentOutcome::Completed(output.unwrap_or_default())
+                        }
+                        Ok((Status::Cancelled | Status::Interrupted, _)) => {
+                            SubagentOutcome::Cancelled
+                        }
+                        Ok((status, _)) => {
+                            SubagentOutcome::Failed(format!("child ended with {status:?}"))
+                        }
+                        Err(error) => SubagentOutcome::Failed(error.message),
+                    };
+                    if let Ok(session) = id.parse()
+                        && let Ok(state) = this.ingress.child_state(this.turn, session).await
+                    {
+                        let _ = this
+                            .ingress
+                            .collect_child(this.turn, session, state.run.turn)
+                            .await;
+                    }
+                    outcome
+                })
+                .await;
             let _observer = observer;
             SubagentUpdate::Finished(match task {
                 Ok(task) => task.await.unwrap_or_else(|_| {

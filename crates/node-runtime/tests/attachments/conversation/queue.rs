@@ -29,6 +29,7 @@ async fn preserves_images_after_guidance() {
         let selected = queue(&client, &session, "Continue with the same image".into()).await;
         client
             .execute(client.prepare(Command::GuideQueuedTurn {
+                immediate: false,
                 turn: selected.id,
                 recipient: active.id,
                 expected_revision: 1,

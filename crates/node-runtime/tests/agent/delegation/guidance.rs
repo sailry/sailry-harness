@@ -1,6 +1,8 @@
 use super::fixture::Fixture;
 use super::*;
 
+mod steering;
+
 fn status(page: &Page, turn: TurnId) -> Status {
     page.runs
         .iter()
@@ -330,6 +332,7 @@ async fn input(fixture: &Fixture, child: &Session) -> Input {
 
 fn prepare(fixture: &Fixture, recipient: &Run, message: Input) -> Request {
     fixture.client.prepare(Command::GuideTurn {
+        immediate: false,
         recipient: recipient.turn,
         expected_revision: recipient.revision,
         message,

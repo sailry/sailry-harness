@@ -204,6 +204,7 @@ async fn joins_ordered_guidance_during_tools() {
             let Output::QueuedTurn(guide) = fixture
                 .client
                 .execute(fixture.client.prepare(Command::GuideTurn {
+                    immediate: false,
                     recipient: turn.id,
                     expected_revision: running.revision,
                     message: message.into(),

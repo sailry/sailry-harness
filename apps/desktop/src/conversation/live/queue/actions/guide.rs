@@ -11,7 +11,7 @@ pub(super) fn separate(command: &Command, queue: &Queue) -> bool {
 }
 
 fn take(
-    intent: &mut Option<(TurnId, u64)>,
+    intent: &mut Option<(TurnId, u64, bool)>,
     queue: &Queue,
     recipient: Option<TurnId>,
     blocked: bool,
@@ -19,21 +19,22 @@ fn take(
     if blocked {
         return Ok(None);
     }
-    let Some((turn, revision)) = intent.take() else {
+    let Some((turn, revision, immediate)) = intent.take() else {
         return Ok(None);
     };
     let recipient = recipient.ok_or("queue_changed")?;
-    if !queue
-        .items
-        .iter()
-        .any(|item| item.turn == turn && item.revision == revision && item.guidance.is_none())
-    {
+    if !queue.items.iter().any(|item| {
+        item.turn == turn
+            && item.revision == revision
+            && (item.guidance.is_none() || immediate && item.guidance == Some(recipient))
+    }) {
         return Err("queue_changed");
     }
     Ok(Some(Command::GuideQueuedTurn {
         turn,
         recipient,
         expected_revision: revision,
+        immediate,
     }))
 }
 
@@ -88,7 +89,7 @@ mod tests {
     fn drains_once_after_pending_clears() {
         let queue = queue();
         let item = &queue.items[0];
-        let mut intent = Some((item.turn, item.revision));
+        let mut intent = Some((item.turn, item.revision, false));
         let recipient = Some(TurnId::new());
         assert!(
             take(&mut intent, &queue, recipient, true)
@@ -112,7 +113,7 @@ mod tests {
     fn rejects_changed_or_missing_items() {
         for change in ["revision", "removed", "guided", "recipient"] {
             let mut queue = queue();
-            let mut intent = Some((queue.items[0].turn, queue.items[0].revision));
+            let mut intent = Some((queue.items[0].turn, queue.items[0].revision, false));
             let mut recipient = Some(TurnId::new());
             match change {
                 "revision" => queue.items[0].revision += 1,
@@ -135,20 +136,36 @@ mod tests {
         let mut second = queue.items[0].clone();
         second.turn = TurnId::new();
         queue.items.push(second.clone());
-        let mut intent = Some((queue.items[0].turn, queue.items[0].revision));
+        let mut intent = Some((queue.items[0].turn, queue.items[0].revision, false));
         let recipient = Some(TurnId::new());
         assert!(
             take(&mut intent, &queue, recipient, true)
                 .unwrap()
                 .is_none()
         );
-        intent = Some((second.turn, second.revision));
+        intent = Some((second.turn, second.revision, true));
         assert!(
             matches!(take(&mut intent, &queue, recipient, false), Ok(Some(
-            Command::GuideQueuedTurn { turn, .. }
+            Command::GuideQueuedTurn { turn, immediate: true, .. }
         )) if turn == second.turn)
         );
         assert!(intent.is_none());
+    }
+
+    #[test]
+    fn immediate_selection_keeps_pending_recipient() {
+        let mut queue = queue();
+        let recipient = TurnId::new();
+        queue.items[0].guidance = Some(recipient);
+        let item = &queue.items[0];
+        let mut intent = Some((item.turn, item.revision, true));
+        assert!(matches!(
+            take(&mut intent, &queue, Some(recipient), false),
+            Ok(Some(Command::GuideQueuedTurn {
+                immediate: true,
+                ..
+            }))
+        ));
     }
 
     #[test]
@@ -158,6 +175,7 @@ mod tests {
             turn: queue.items[0].turn,
             recipient: TurnId::new(),
             expected_revision: queue.items[0].revision,
+            immediate: false,
         };
         // Captured capabilities can differ even with the same session revision.
         for revision in [1, 2] {
@@ -175,6 +193,7 @@ mod tests {
             turn,
             recipient,
             expected_revision: queue.items[0].revision,
+            immediate: false,
         };
         for change in [
             "guided",

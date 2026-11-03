@@ -3,6 +3,7 @@ use super::*;
 
 #[cfg(test)]
 mod tests;
+pub(in crate::store::agent) mod timing;
 
 pub(in crate::store) async fn recipient(
     db: &Connection,
@@ -52,7 +53,20 @@ fn same_provider(source: Option<Provider>, target: Option<Provider>, model: &str
     source.map(execution) == target.map(execution)
 }
 
-async fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<bool, Fault> {
+pub(in crate::store::agent) async fn same_capture(
+    db: &Connection,
+    source: &Run,
+    target: &Run,
+) -> Result<bool, Fault> {
+    same_with(db, source, target, None).await
+}
+
+async fn same_with(
+    db: &Connection,
+    source: &Run,
+    target: &Run,
+    admitted: Option<&QueuedTurn>,
+) -> Result<bool, Fault> {
     if source.kind != RunKind::Task
         || source.session != target.session
         || source.worktree != target.worktree
@@ -64,7 +78,10 @@ async fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<boo
     {
         return Ok(false);
     }
-    let config = super::super::permissions::config(db, source.turn).await?;
+    let config = match admitted {
+        Some(turn) => turn.config.clone(),
+        None => super::super::permissions::config(db, source.turn).await?,
+    };
     if config != super::super::permissions::config(db, target.turn).await? {
         return Ok(false);
     }
@@ -82,11 +99,17 @@ async fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<boo
         body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
             .transpose()
     };
+    let roles = match admitted {
+        Some(turn) => turn.roles.clone(),
+        None => super::super::super::sessions::roles::for_turn(db, source.turn).await?,
+    };
+    let plugins = match admitted {
+        Some(turn) => turn.plugins.clone(),
+        None => super::super::plugins::read(db, source.turn).await?,
+    };
     Ok(
-        super::super::super::sessions::roles::for_turn(db, source.turn).await?
-            == super::super::super::sessions::roles::for_turn(db, target.turn).await?
-            && super::super::plugins::read(db, source.turn).await?
-                == super::super::plugins::read(db, target.turn).await?
+        roles == super::super::super::sessions::roles::for_turn(db, target.turn).await?
+            && plugins == super::super::plugins::read(db, target.turn).await?
             && super::super::super::hooks::frozen(db, source.turn).await?
                 == super::super::super::hooks::frozen(db, target.turn).await?
             && same_provider(
@@ -154,7 +177,11 @@ async fn attach(
     )
     .await
     .map_err(storage_error)?;
-    runs::start(db, source.turn).await?;
+    let mut run = runs::start(db, source.turn).await?;
+    if run.guidance.is_none() {
+        run.guidance = Some(target.turn);
+        runs::put(db, &run).await?;
+    }
     reorder_items(db, source.session, source.turn, before, items.to_vec()).await?;
     pause(db, source.session, false).await
 }
@@ -165,7 +192,7 @@ pub(super) async fn select(
     target: TurnId,
     expected_revision: u64,
 ) -> Result<(SessionId, Vec<Run>), Fault> {
-    let source = check_item(db, source, expected_revision).await?;
+    let mut source = check_item(db, source, expected_revision).await?;
     let session = super::super::super::commands::session(db, source.session).await?;
     super::super::super::sessions::writable(&session)?;
     let target = recipient(db, target, None).await?;
@@ -177,6 +204,10 @@ pub(super) async fn select(
             ErrorCode::Conflict,
             "guidance belongs to another execution scope",
         ));
+    }
+    if source.guidance.is_none() {
+        source.guidance = Some(target.turn);
+        runs::put(db, &source).await?;
     }
     let mut items = read(db, source.session).await?.items;
     let recipients: std::collections::BTreeSet<_> =
@@ -260,17 +291,50 @@ pub(in crate::store) async fn guide(
             "guidance requires a delegated child",
         ));
     }
-    let session = super::super::super::commands::session(db, target.session).await?;
-    let turn = create(db, caller, request, session, message, true).await?;
-    let source = runs::get(db, turn.id).await?;
-    if same_capture(db, &source, &target).await? {
-        let items = read(db, source.session).await?.items;
-        attach(db, &source, &target, &items).await?;
+    let session = timing::measure(
+        request,
+        target.session,
+        "session",
+        super::super::super::commands::session(db, target.session),
+    )
+    .await?;
+    let turn = timing::measure(
+        request,
+        target.session,
+        "capture",
+        create(db, caller, request, session, message, true),
+    )
+    .await?;
+    let mut source = runs::get(db, turn.id).await?;
+    source.guidance = Some(target.turn);
+    runs::put(db, &source).await?;
+    if timing::measure(
+        request,
+        source.session,
+        "compatibility",
+        same_with(db, &source, &target, Some(&turn)),
+    )
+    .await?
+    {
+        let items = timing::measure(request, source.session, "queue", read(db, source.session))
+            .await?
+            .items;
+        timing::measure(
+            request,
+            source.session,
+            "attach",
+            attach(db, &source, &target, &items),
+        )
+        .await?;
     }
-    Ok((
-        Output::QueuedTurn(turn.clone()),
-        Some(super::super::activity::queued(db, turn).await?),
-    ))
+    let event = timing::measure(
+        request,
+        source.session,
+        "activity",
+        super::super::activity::queued(db, turn.clone()),
+    )
+    .await?;
+    Ok((Output::QueuedTurn(turn), Some(event)))
 }
 
 pub(in crate::store) async fn clear(

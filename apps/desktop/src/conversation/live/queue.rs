@@ -18,9 +18,10 @@ pub(super) struct Panel {
     recipient: Option<TurnId>,
     child: bool,
     queue: Queue,
+    guidance: Arc<BTreeMap<TurnId, sailry_client::conversation::guidance::State>>,
     connected: bool,
     guidance_blocked: bool,
-    deferred_guide: Option<(TurnId, u64)>,
+    deferred_guide: Option<(TurnId, u64, bool)>,
     guidance_pending: Rc<Cell<bool>>,
     edit_pending: Rc<Cell<bool>>,
     editing: Option<Editing>,
@@ -31,6 +32,7 @@ pub(super) struct Panel {
     /// Input sent while a turn runs, shown here until the Node admits it.
     outgoing: Option<SharedString>,
     outgoing_attached: bool,
+    outgoing_guidance: bool,
     /// Derived from the owning view's existing outgoing command identity.
     represented: Option<TurnId>,
 }
@@ -172,6 +174,7 @@ impl Panel {
             recipient: None,
             child: false,
             queue: Queue::default(),
+            guidance: Arc::default(),
             connected: false,
             guidance_blocked: false,
             deferred_guide: None,
@@ -184,6 +187,7 @@ impl Panel {
             action: None,
             outgoing: None,
             outgoing_attached: false,
+            outgoing_guidance: false,
             represented: None,
         }
     }
@@ -199,6 +203,11 @@ impl Panel {
         let recipient = view.recipient().map(|run| run.turn);
         let outgoing = view.queued_outgoing();
         let represented = view.transcript_pending().map(|item| item.turn);
+        let outgoing_guidance = view
+            .submissions
+            .active
+            .as_ref()
+            .is_some_and(|draft| matches!(draft.delivery, composer::Delivery::Guide { .. }));
         let outgoing_attached = outgoing.is_some()
             && view
                 .outgoing
@@ -217,11 +226,15 @@ impl Panel {
             || self.outgoing != outgoing
             || self.represented != represented
             || self.outgoing_attached != outgoing_attached
+            || self.outgoing_guidance != outgoing_guidance
+            || !Arc::ptr_eq(&self.guidance, &view.history.guidance)
             || queue.is_some_and(|queue| *queue != self.queue)
         {
             self.outgoing = outgoing;
             self.represented = represented;
             self.outgoing_attached = outgoing_attached;
+            self.outgoing_guidance = outgoing_guidance;
+            self.guidance = view.history.guidance.clone();
             self.session = view.session();
             self.recipient = recipient;
             self.child = view.readonly();

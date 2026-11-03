@@ -71,10 +71,11 @@ impl Panel {
         if let Command::GuideQueuedTurn {
             turn,
             expected_revision,
+            immediate,
             ..
         } = &command
         {
-            self.deferred_guide = Some((*turn, *expected_revision));
+            self.deferred_guide = Some((*turn, *expected_revision, *immediate));
             self.flush_guide(window, cx);
             cx.notify();
             return;

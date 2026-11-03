@@ -14,6 +14,24 @@ pub(super) struct Question {
     pub planning: bool,
 }
 
+struct Waiting {
+    ingress: Arc<Ingress>,
+    turn: TurnId,
+    call: Option<String>,
+}
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        if let Some(call) = self.call.take() {
+            let ingress = self.ingress.clone();
+            let turn = self.turn;
+            tokio::spawn(async move {
+                ingress.cancel_input(turn, call).await;
+            });
+        }
+    }
+}
+
 impl Question {
     pub(super) fn registration(self) -> super::catalog::Registration {
         let provider = Arc::new(self);
@@ -76,6 +94,11 @@ impl Question {
                 .lock()
                 .unwrap()
                 .unwrap_or(timeout);
+            let mut owner = Waiting {
+                ingress: self.ingress.clone(),
+                turn: self.turn,
+                call: Some(context.function_call_id().into()),
+            };
             let waiting = self.ingress.ask(self.turn, context.request());
             tokio::pin!(waiting);
             let response = if matches!(spec.input, Input::Plan) {
@@ -104,6 +127,7 @@ impl Question {
                 }
                 }
             };
+            owner.call = None;
             Ok::<_, Fault>(match response {
                 Response::Decline => unreachable!("decline requires an MCP request"),
                 Response::Answer(Answer::Form(_) | Answer::Opened) => {

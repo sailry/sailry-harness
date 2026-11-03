@@ -153,11 +153,17 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
             .entries
             .get(call.name.as_ref())
             .ok_or_else(|| ErrorData::invalid_params("tool is not registered", None))?;
+        if emit.cancel_token().is_cancelled() {
+            return Err(fault(Fault::new(
+                sailry_protocol::ErrorCode::Cancelled,
+                "tool call was cancelled before dispatch",
+            )));
+        }
         let mut context = CallContext::new(
             self.session.clone(),
             id,
             &call,
-            self.stop.clone(),
+            emit.cancel_token().clone(),
             session.context().clone(),
         )?;
         context.children = self.children.clone();
@@ -190,10 +196,20 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
             }
             return Err(fault(error));
         }
-        let work = entry.provider.call(&context, id, call, emit);
-        let result = match &self.timeline {
-            Some(timeline) => timeline.tool(entry.delegation, work).await,
-            None => work.await,
+        let work = async {
+            let call = entry.provider.call(&context, id, call, emit);
+            match &self.timeline {
+                Some(timeline) => timeline.tool(entry.delegation, call).await,
+                None => call.await,
+            }
+        };
+        let result = tokio::select! {
+            biased;
+            _ = emit.cancelled() => Err(fault(Fault::new(
+                sailry_protocol::ErrorCode::Cancelled,
+                "tool call was interrupted; its outcome may be unknown; do not replay it automatically",
+            ))),
+            result = work => result,
         };
         if let Err(error) = &result
             && let Some(timeline) = &self.timeline

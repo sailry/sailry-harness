@@ -147,6 +147,7 @@ impl Control {
                         recipient: state.run.turn,
                         expected_revision: state.run.revision,
                         message: message.into(),
+                        immediate: false,
                     },
                 );
                 if let Some(context) = &self.context {

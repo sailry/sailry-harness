@@ -2,6 +2,7 @@ mod assets;
 pub mod children;
 pub mod details;
 pub mod export;
+pub mod guidance;
 mod history;
 #[cfg(test)]
 mod identity_tests;
@@ -42,6 +43,7 @@ pub struct View {
     pub statistics: Option<Arc<conversation::Statistics>>,
     pub calls: Arc<Vec<tools::Call>>,
     pub children: Arc<children::View>,
+    pub guidance: Arc<std::collections::BTreeMap<TurnId, guidance::State>>,
     /// True only after authoritative Node observation and confirmation agree.
     pub removed: bool,
     pub connected: bool,
@@ -71,6 +73,7 @@ impl View {
         {
             self.calls = Arc::new(tools::collect(&snapshot.page));
             self.children = Arc::new(children::project(&snapshot.page));
+            self.guidance = Arc::new(guidance::project(&snapshot.page));
         }
         self.snapshot = Some(snapshot);
         self.generation = generation;

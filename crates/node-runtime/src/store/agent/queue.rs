@@ -3,6 +3,7 @@ use super::*;
 
 mod commands;
 pub(in crate::store) mod guidance;
+pub(in crate::store) mod interrupt;
 #[cfg(test)]
 mod tests;
 pub(in crate::store) use commands::execute;
@@ -18,10 +19,19 @@ pub(in crate::store) async fn create(
     message: &Input,
     ready: bool,
 ) -> Result<QueuedTurn, Fault> {
-    validate(message)?;
-    super::references::validate(db, &session, message, None).await?;
+    guidance::timing::measure(request, session.id, "references", async {
+        validate(message)?;
+        super::references::validate(db, &session, message, None).await
+    })
+    .await?;
     let turn = capture(db, caller, request, session, RunKind::Task, ready).await?;
-    super::super::attachments::turns::bind(db, turn.id, &message.attachments).await?;
+    guidance::timing::measure(
+        request,
+        turn.session,
+        "attachments",
+        super::super::attachments::turns::bind(db, turn.id, &message.attachments),
+    )
+    .await?;
     Ok(turn)
 }
 
@@ -52,13 +62,28 @@ async fn capture(
     kind: RunKind,
     ready: bool,
 ) -> Result<QueuedTurn, Fault> {
-    super::super::sessions::writable(&session)?;
-    super::super::worktrees::present(db, session.worktree).await?;
-    super::super::commands::validate_config(db, request.target, &session.config).await?;
-    let plugins = super::plugins::configuration(db, &session.config).await?;
+    guidance::timing::measure(request, session.id, "validation", async {
+        super::super::sessions::writable(&session)?;
+        super::super::worktrees::present(db, session.worktree).await?;
+        super::super::commands::validate_config(db, request.target, &session.config).await
+    })
+    .await?;
+    let plugins = guidance::timing::measure(
+        request,
+        session.id,
+        "plugins",
+        super::plugins::configuration(db, &session.config),
+    )
+    .await?;
     let mut roles = session.roles;
     if session.profile.is_none() {
-        super::super::sessions::roles::refresh(db, &mut roles).await?;
+        guidance::timing::measure(
+            request,
+            session.id,
+            "roles",
+            super::super::sessions::roles::refresh(db, &mut roles),
+        )
+        .await?;
     }
     let turn = QueuedTurn {
         id: TurnId::new(),
@@ -87,8 +112,20 @@ async fn capture(
             encode(&turn.roles)?, crate::store::database::counters::next(db, crate::store::database::counters::Namespace::Turns).await? as i64],
     ).await
     .map_err(storage_error)?;
-    super::super::plugins::connectors::capture(db, turn.id, &turn.plugins).await?;
-    super::admit(db, &turn, ready).await?;
+    guidance::timing::measure(
+        request,
+        turn.session,
+        "connectors",
+        super::super::plugins::connectors::capture(db, turn.id, &turn.plugins),
+    )
+    .await?;
+    guidance::timing::measure(
+        request,
+        turn.session,
+        "record",
+        super::admit(db, &turn, ready),
+    )
+    .await?;
     Ok(turn)
 }
 

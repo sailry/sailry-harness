@@ -9,6 +9,24 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get guidancePending => 'Ausstehend';
+
+  @override
+  String get guidanceDelivered => 'Zugestellt';
+
+  @override
+  String get guidanceNextTurn => 'Nächste Runde';
+
+  @override
+  String get guidanceSendNow => 'Jetzt senden';
+
+  @override
+  String get guidanceGuide => 'Anweisen';
+
+  @override
+  String get guidanceWithdraw => 'Anweisung zurückziehen';
+
+  @override
   String get updatesVersion => 'Version';
 
   @override

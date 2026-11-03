@@ -4,6 +4,7 @@ import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import 'presentation.dart' show ConversationCommand, failureLabel;
+import 'guidance.dart';
 
 class QueueSummary extends StatelessWidget {
   const QueueSummary({super.key, required this.queue, required this.onOpen});
@@ -35,6 +36,43 @@ class QueueSummary extends StatelessWidget {
   );
 }
 
+class PendingGuidance extends StatelessWidget {
+  const PendingGuidance({
+    super.key,
+    required this.preview,
+    required this.attachments,
+  });
+
+  final String preview;
+  final int attachments;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    child: Surface(
+      radius: 18,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              preview.trim().isEmpty ? context.tr('attachment') : preview,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (attachments > 0) ...[
+            const AppIcon('file', size: 14),
+            Text('$attachments'),
+          ],
+          const SizedBox(width: 8),
+          const GuidanceStatus(state: 'pending'),
+        ],
+      ),
+    ),
+  );
+}
+
 class LiveQueue extends StatefulWidget {
   const LiveQueue({
     super.key,
@@ -59,6 +97,7 @@ class LiveQueue extends StatefulWidget {
 
 class _LiveQueueState extends State<LiveQueue> {
   bool _busy = false;
+  String? _guiding;
 
   bool get _pending => widget.isPending?.call() == true;
 
@@ -70,7 +109,10 @@ class _LiveQueueState extends State<LiveQueue> {
 
   Future<void> _run(String kind, Map<String, dynamic> data) async {
     if (_busy) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _guiding = kind == 'guide_queued_turn' ? data['turn'] as String? : null;
+    });
     try {
       await _mutate(kind, data);
     } catch (error) {
@@ -182,7 +224,10 @@ class _LiveQueueState extends State<LiveQueue> {
   Widget build(BuildContext context) => ValueListenableBuilder(
     valueListenable: widget.view,
     builder: (context, view, _) {
-      final queue = object(object(object(view['snapshot'])['page'])['queue']);
+      final page = object(object(view['snapshot'])['page']);
+      final queue = object(page['queue']);
+      final recipient = runningRecipient(page);
+      final guidance = object(view['guidance']);
       final items = objects(queue['items']);
       final enabled = !_busy && !_pending && view['connected'] == true;
       return Column(
@@ -206,7 +251,10 @@ class _LiveQueueState extends State<LiveQueue> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     InkWell(
-                      onTap: enabled && item['notice'] != true
+                      onTap:
+                          enabled &&
+                              item['notice'] != true &&
+                              item['guidance'] == null
                           ? () => _open(item)
                           : null,
                       child: Text(
@@ -216,26 +264,64 @@ class _LiveQueueState extends State<LiveQueue> {
                         style: const TextStyle(height: 1.5),
                       ),
                     ),
+                    if (guidance[item['turn']] != null ||
+                        (_busy || _pending) && _guiding == item['turn'])
+                      GuidanceStatus(
+                        state: (_busy || _pending) && _guiding == item['turn']
+                            ? 'pending'
+                            : guidance[item['turn']],
+                      ),
                     Wrap(
                       children: [
-                        if (!widget.delegated && item['notice'] != true)
+                        if (!widget.delegated &&
+                            item['notice'] != true &&
+                            item['guidance'] == null)
                           TextButton(
                             onPressed: enabled ? () => _open(item) : null,
                             child: Text(context.tr('edit')),
                           ),
                         TextButton(
                           onPressed: enabled
-                              ? () => _run('remove_queued_turn', {
-                                  'turn': item['turn'],
-                                  'expected_revision': item['revision'],
-                                })
+                              ? () => _run(
+                                  item['guidance'] == null
+                                      ? 'remove_queued_turn'
+                                      : 'withdraw_guidance',
+                                  {
+                                    'turn': item['turn'],
+                                    'expected_revision': item['revision'],
+                                  },
+                                )
                               : null,
-                          child: Text(context.tr('delete')),
+                          child: Text(
+                            context.tr(
+                              item['guidance'] == null
+                                  ? 'delete'
+                                  : 'guidanceWithdraw',
+                            ),
+                          ),
                         ),
+                        if (!widget.delegated &&
+                            recipient != null &&
+                            item['notice'] != true &&
+                            item['kind'] == 'task' &&
+                            item['guidance'] == null)
+                          TextButton(
+                            onPressed: enabled
+                                ? () => _run('guide_queued_turn', {
+                                    'turn': item['turn'],
+                                    'recipient': recipient['turn'],
+                                    'expected_revision': item['revision'],
+                                    'immediate': false,
+                                  })
+                                : null,
+                            child: Text(context.tr('guidanceGuide')),
+                          ),
                         if (!widget.delegated &&
                             index > 0 &&
                             item['notice'] != true &&
-                            items[index - 1]['notice'] != true)
+                            item['guidance'] == null &&
+                            items[index - 1]['notice'] != true &&
+                            items[index - 1]['guidance'] == null)
                           TextButton(
                             onPressed: enabled
                                 ? () => _run('move_queued_turn', {
@@ -249,13 +335,27 @@ class _LiveQueueState extends State<LiveQueue> {
                           ),
                         if (!widget.delegated && item['notice'] != true)
                           TextButton(
-                            onPressed: enabled
-                                ? () => _run('send_queued_turn', {
-                                    'turn': item['turn'],
-                                    'expected_revision': item['revision'],
-                                  })
+                            onPressed:
+                                enabled &&
+                                    (item['guidance'] == null ||
+                                        item['guidance'] == recipient?['turn'])
+                                ? () => _run(
+                                    recipient != null && item['kind'] == 'task'
+                                        ? 'guide_queued_turn'
+                                        : 'send_queued_turn',
+                                    {
+                                      'turn': item['turn'],
+                                      if (recipient != null &&
+                                          item['kind'] == 'task')
+                                        'recipient': recipient['turn'],
+                                      'expected_revision': item['revision'],
+                                      if (recipient != null &&
+                                          item['kind'] == 'task')
+                                        'immediate': true,
+                                    },
+                                  )
                                 : null,
-                            child: Text(context.tr('send')),
+                            child: Text(context.tr('guidanceSendNow')),
                           ),
                       ],
                     ),

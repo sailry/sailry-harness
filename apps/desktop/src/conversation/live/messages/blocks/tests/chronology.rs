@@ -87,6 +87,7 @@ fn history() -> (TurnId, View) {
                     finished_ms: Some(2),
                     origin: None,
                     continuation: None,
+                    guidance: None,
                     joined: None,
                     notice: false,
                     notices: Vec::new(),

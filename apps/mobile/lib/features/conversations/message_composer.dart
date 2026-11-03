@@ -13,6 +13,8 @@ class MessageComposer extends StatelessWidget {
     required this.onVoice,
     required this.onStop,
     required this.onSend,
+    this.onSendNow,
+    this.onQueue,
     this.focusNode,
     this.priority,
     this.attachments,
@@ -31,6 +33,8 @@ class MessageComposer extends StatelessWidget {
   final VoidCallback onVoice;
   final VoidCallback onStop;
   final VoidCallback onSend;
+  final VoidCallback? onSendNow;
+  final VoidCallback? onQueue;
   final Widget? priority;
   final Widget? attachments;
   final String? attachmentLabel;
@@ -119,8 +123,7 @@ class MessageComposer extends StatelessWidget {
                       'voice',
                       enabled && voiceEnabled ? onVoice : null,
                     ),
-                    // One action: stop while running with nothing typed,
-                    // otherwise send, or queue behind the running turn.
+                    // Empty input keeps Stop available during execution.
                     SizedBox.square(
                       dimension: 40,
                       child: Center(
@@ -134,13 +137,15 @@ class MessageComposer extends StatelessWidget {
                             return RoundButton(
                               icon: stop
                                   ? 'stop'
-                                  : busy
+                                  : busy && onSendNow == null
                                   ? 'clock'
                                   : 'send',
                               primary: true,
                               tooltip: context.tr(
                                 stop
                                     ? 'stop'
+                                    : onSendNow != null
+                                    ? 'guidanceGuide'
                                     : busy
                                     ? 'enqueue'
                                     : 'send',
@@ -157,6 +162,35 @@ class MessageComposer extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (busy && onSendNow != null)
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: controller,
+                    builder: (context, value, _) {
+                      final hasInput =
+                          value.text.trim().isNotEmpty ||
+                          attached ||
+                          attachments != null;
+                      if (!hasInput) return const SizedBox.shrink();
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          if (onQueue != null)
+                            TextButton(
+                              onPressed: enabled && sendEnabled
+                                  ? onQueue
+                                  : null,
+                              child: Text(context.tr('enqueue')),
+                            ),
+                          TextButton(
+                            onPressed: enabled && sendEnabled
+                                ? onSendNow
+                                : null,
+                            child: Text(context.tr('guidanceSendNow')),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
               ],
             ),
           ),

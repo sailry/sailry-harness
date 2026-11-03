@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../../../runtime/session.dart';
+import '../../../runtime/json.dart';
 import 'attachments.dart';
 
 typedef PendingMessage = ({
@@ -8,6 +9,12 @@ typedef PendingMessage = ({
   String text,
   List<PickedAttachment> attachments,
   bool composer,
+});
+
+typedef GuidancePreview = ({
+  String? turn,
+  String text,
+  List<PickedAttachment> attachments,
 });
 
 /// Owns the composer's captured input while a durable command is unresolved.
@@ -25,30 +32,55 @@ class TurnDraft extends ChangeNotifier {
   final TextEditingController input;
   final List<PickedAttachment> attachments;
   PendingMessage? _pending;
+  GuidancePreview? _guidance;
   bool _sending = false;
   bool _disposed = false;
 
   PendingMessage? get pending => _pending;
   bool get sending => _sending;
+  GuidancePreview? get guidance => _guidance;
 
-  Future<void> send(int revision, {String? message}) async {
+  Future<void> send(
+    int revision, {
+    String? message,
+    ({String turn, int revision})? recipient,
+    bool immediate = false,
+    bool queue = false,
+  }) async {
     final composer = message == null;
     final text = message ?? input.text;
     final files = composer ? List.of(attachments) : <PickedAttachment>[];
     if (sending || pending != null || !host.connected) return;
     if (composer && text.trim().isEmpty && files.isEmpty) return;
     _sending = true;
+    _guidance = recipient == null || queue
+        ? null
+        : (turn: null, text: text, attachments: files);
     notifyListeners();
     try {
-      await host.command('submit_turn', {
-        'session': session,
-        'expected_revision': revision,
-        'message': {
-          'text': text,
-          'attachments': files.map((item) => item.attachment['id']).toList(),
+      final output = await host.command(
+        queue
+            ? 'queue_turn'
+            : recipient == null
+            ? 'submit_turn'
+            : 'guide_turn',
+        {
+          if (recipient == null || queue) 'session': session,
+          if (recipient != null && !queue) 'recipient': recipient.turn,
+          'expected_revision': !queue && recipient != null
+              ? recipient.revision
+              : revision,
+          if (recipient != null && !queue) 'immediate': immediate,
+          'message': {
+            'text': text,
+            'attachments': files.map((item) => item.attachment['id']).toList(),
+          },
         },
-      });
-      if (!_disposed && composer) _clear(text, files);
+      );
+      if (!_disposed) {
+        _admitted(output);
+        if (composer) _clear(text, files);
+      }
     } catch (error) {
       if (!_disposed &&
           error is CommandFailure &&
@@ -60,6 +92,8 @@ class TurnDraft extends ChangeNotifier {
           attachments: files,
           composer: composer,
         );
+      } else if (!_disposed) {
+        _guidance = null;
       }
       rethrow;
     } finally {
@@ -77,14 +111,16 @@ class TurnDraft extends ChangeNotifier {
     notifyListeners();
     try {
       // Reconciliation queries the original request; it never resubmits input.
-      await host.execute(captured.request);
+      final output = await host.execute(captured.request);
       if (_disposed) return false;
+      _admitted(output);
       if (captured.composer) _clear(captured.text, captured.attachments);
       _pending = null;
       return true;
     } catch (error) {
       if (!_disposed && error is CommandFailure && error.rejected) {
         _pending = null;
+        _guidance = null;
       }
       rethrow;
     } finally {
@@ -93,6 +129,16 @@ class TurnDraft extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  void _admitted(Map<String, dynamic> output) {
+    final captured = _guidance;
+    if (captured == null) return;
+    _guidance = (
+      turn: object(output['data'])['id'] as String?,
+      text: captured.text,
+      attachments: captured.attachments,
+    );
   }
 
   void _clear(String text, List<PickedAttachment> files) {

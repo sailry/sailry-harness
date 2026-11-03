@@ -213,11 +213,11 @@ impl Delegate {
                     .clone(),
             )
         };
-        let parent_stop = self
-            .ingress
+        self.ingress
             .agents
             .begin_operation(self.turn)
             .ok_or_else(|| Fault::invalid("parent execution has ended"))?;
+        let parent_stop = self.stop.clone();
         let active = Active {
             ingress: self.ingress.clone(),
             turn: self.turn,

@@ -96,6 +96,7 @@ async fn retains_guidance_capture() {
             &mut fixture.database,
             &fixture.events,
             Command::GuideQueuedTurn {
+                immediate: false,
                 turn: source,
                 recipient: active,
                 expected_revision: 2,

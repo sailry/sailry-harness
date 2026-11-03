@@ -12,6 +12,7 @@ pub(in crate::store) async fn guide(
         recipient,
         expected_revision,
         message,
+        ..
     } = &request.command
     else {
         unreachable!()

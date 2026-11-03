@@ -9,6 +9,24 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get guidancePending => '待送达';
+
+  @override
+  String get guidanceDelivered => '已送达';
+
+  @override
+  String get guidanceNextTurn => '转为下一回合';
+
+  @override
+  String get guidanceSendNow => '立即发送';
+
+  @override
+  String get guidanceGuide => '引导';
+
+  @override
+  String get guidanceWithdraw => '撤回引导';
+
+  @override
   String get updatesVersion => '版本';
 
   @override
@@ -2503,6 +2521,24 @@ class AppLocalizationsZh extends AppLocalizations {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get guidancePending => '待送達';
+
+  @override
+  String get guidanceDelivered => '已送達';
+
+  @override
+  String get guidanceNextTurn => '轉為下一回合';
+
+  @override
+  String get guidanceSendNow => '立即傳送';
+
+  @override
+  String get guidanceGuide => '引導';
+
+  @override
+  String get guidanceWithdraw => '撤回引導';
 
   @override
   String get updatesVersion => '版本';

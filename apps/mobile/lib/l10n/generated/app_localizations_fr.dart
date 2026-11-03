@@ -9,6 +9,24 @@ class AppLocalizationsFr extends AppLocalizations {
   AppLocalizationsFr([String locale = 'fr']) : super(locale);
 
   @override
+  String get guidancePending => 'En attente';
+
+  @override
+  String get guidanceDelivered => 'Transmis';
+
+  @override
+  String get guidanceNextTurn => 'Tour suivant';
+
+  @override
+  String get guidanceSendNow => 'Envoyer maintenant';
+
+  @override
+  String get guidanceGuide => 'Guider';
+
+  @override
+  String get guidanceWithdraw => 'Retirer la consigne';
+
+  @override
   String get updatesVersion => 'Version';
 
   @override

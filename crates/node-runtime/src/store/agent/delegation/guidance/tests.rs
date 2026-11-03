@@ -42,6 +42,7 @@ fn prepare(fixture: &Fixture, child: &Invocation, message: Input) -> Request {
     Request::new(
         fixture.database.node,
         Command::GuideTurn {
+            immediate: false,
             recipient: child.turn.id,
             expected_revision: child.turn.revision,
             message,
@@ -458,6 +459,7 @@ async fn validates_recipient_and_parent() {
         let request = Request::new(
             fixture.database.node,
             Command::GuideTurn {
+                immediate: false,
                 recipient,
                 expected_revision: revision,
                 message: message.clone(),

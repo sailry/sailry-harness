@@ -232,6 +232,13 @@ impl View {
                     .group(format!("user-footer-{turn}"))
                     .gap_2()
                     .debug_selector(move || format!("live-user-footer-{turn}"))
+                    .when_some(self.history.guidance.get(&turn).copied(), |row, state| {
+                        row.child(
+                            gpui_kit::component::label::Label::new(guidance::label(state))
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                    })
                     .when_some(sent_ms.and_then(frame::at), |row, time| {
                         let full = sent_ms
                             .and_then(frame::full_at)

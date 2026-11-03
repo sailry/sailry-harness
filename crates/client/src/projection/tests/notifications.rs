@@ -51,6 +51,7 @@ fn retains_canonical_failure_details() {
         finished_ms: None,
         origin: None,
         continuation: None,
+        guidance: None,
         joined: None,
         notice: false,
         notices: Vec::new(),

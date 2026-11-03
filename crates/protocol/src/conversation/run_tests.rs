@@ -35,15 +35,23 @@ fn preserves_explicit_kind() {
             finished_ms: None,
             origin: None,
             continuation: None,
+            guidance: None,
             joined: None,
             notice: false,
             notices: Vec::new(),
             input: None,
         };
         let body = serde_json::to_value(&run).unwrap();
+        assert!(body.get("guidance").is_none());
         assert!(body.get("joined").is_none());
         assert_eq!(body["kind"], name);
         assert_eq!(serde_json::from_value::<Run>(body).unwrap(), run);
+        let mut guided = run;
+        guided.guidance = Some(TurnId::new());
+        guided.joined = Some(TurnId::new());
+        let body = serde_json::to_value(&guided).unwrap();
+        assert_ne!(body["guidance"], body["joined"]);
+        assert_eq!(serde_json::from_value::<Run>(body).unwrap(), guided);
     }
 }
 

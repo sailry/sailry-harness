@@ -13,12 +13,14 @@ class UserBubble extends StatelessWidget {
     required this.text,
     this.attachment,
     this.time,
+    this.status,
     this.onEdit,
   });
 
   final String text;
   final Widget? attachment;
   final String? time;
+  final Widget? status;
   final VoidCallback? onEdit;
 
   Future<void> _copy(BuildContext context) async {
@@ -66,6 +68,7 @@ class UserBubble extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (status != null) ...[status!, const SizedBox(width: 5)],
             if (time != null) ...[
               Text(
                 time!,

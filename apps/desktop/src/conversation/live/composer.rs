@@ -121,6 +121,19 @@ impl View {
                     .when(!self.compact_composer, |bar| bar.child(self.model_menu(cx)))
                     .when(self.sidebar, |bar| bar.child(self.model_spacer(cx)))
                     .child(self.dictation_controls(cx))
+                    .when(self.recipient().is_some() && text, |bar| {
+                        bar.child(
+                            Button::new("live-send-now")
+                                .ghost()
+                                .small()
+                                .rounded_full()
+                                .label(tr("guidance_send_now"))
+                                .disabled(busy || !self.connected() || !self.attachments.sendable())
+                                .on_click(
+                                    cx.listener(|view, _, window, cx| view.send_now(window, cx)),
+                                ),
+                        )
+                    })
                     // An executing turn keeps its Stop action during dictation.
                     .when(active || !dictating, |bar| {
                         bar.child(

@@ -8,6 +8,7 @@ pub(in crate::conversation::live) enum Delivery {
     Guide {
         recipient: TurnId,
         revision: u64,
+        immediate: bool,
     },
 }
 
@@ -16,6 +17,7 @@ impl Delivery {
         recipient.map_or(Self::Submit, |(recipient, revision)| Self::Guide {
             recipient,
             revision,
+            immediate: false,
         })
     }
 
@@ -39,10 +41,12 @@ impl Delivery {
             Self::Guide {
                 recipient,
                 revision,
+                immediate,
             } => Command::GuideTurn {
                 recipient,
                 expected_revision: revision,
                 message,
+                immediate,
             },
         }
     }
@@ -72,8 +76,24 @@ mod tests {
         };
         assert!(matches!(
             delivery.command(SessionId::new(), 9, message.clone()),
-            Command::GuideTurn { recipient: actual, expected_revision: 4, message: input }
+            Command::GuideTurn { recipient: actual, expected_revision: 4, message: input, immediate: false }
                 if actual == recipient && input == message
+        ));
+    }
+
+    #[test]
+    fn explicit_send_requests_interruption() {
+        let recipient = TurnId::new();
+        let command = Delivery::Guide {
+            recipient,
+            revision: 4,
+            immediate: true,
+        }
+        .command(SessionId::new(), 9, "Focus here".into());
+        assert!(matches!(
+            command,
+            Command::GuideTurn { recipient: actual, expected_revision: 4, immediate: true, .. }
+                if actual == recipient
         ));
     }
 

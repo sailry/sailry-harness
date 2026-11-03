@@ -3,6 +3,12 @@
 import 'app_localizations.dart';
 
 String? lookupString(AppLocalizations strings, String key) => switch (key) {
+  'guidancePending' => strings.guidancePending,
+  'guidanceDelivered' => strings.guidanceDelivered,
+  'guidanceNextTurn' => strings.guidanceNextTurn,
+  'guidanceSendNow' => strings.guidanceSendNow,
+  'guidanceGuide' => strings.guidanceGuide,
+  'guidanceWithdraw' => strings.guidanceWithdraw,
   'updatesVersion' => strings.updatesVersion,
   'updatesCheck' => strings.updatesCheck,
   'updatesChecking' => strings.updatesChecking,

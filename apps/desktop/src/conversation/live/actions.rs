@@ -69,6 +69,16 @@ impl View {
         self.send_draft(delivery, window, cx);
     }
 
+    pub(super) fn send_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(run) = self.recipient() else { return };
+        let delivery = Delivery::Guide {
+            recipient: run.turn,
+            revision: run.revision,
+            immediate: true,
+        };
+        self.send_draft(delivery, window, cx);
+    }
+
     pub(super) fn send_draft(
         &mut self,
         delivery: Delivery,

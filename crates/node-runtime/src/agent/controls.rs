@@ -11,6 +11,9 @@ struct Active {
     session: SessionId,
     stop: CancellationToken,
     runner: CancellationToken,
+    tools: CancellationToken,
+    guidance: Arc<Notify>,
+    guided: std::collections::BTreeSet<sailry_protocol::RequestId>,
     operations: usize,
     media: Option<super::media::Binding>,
     scratch: Option<Arc<tempfile::TempDir>>,
@@ -52,6 +55,9 @@ impl Controls {
             Active {
                 session,
                 runner: stop.child_token(),
+                tools: stop.child_token(),
+                guidance: Arc::default(),
+                guided: Default::default(),
                 stop,
                 operations: 0,
                 media: None,
@@ -194,6 +200,42 @@ impl Controls {
         }
     }
 
+    pub(crate) fn guidance_notice(&self, turn: TurnId) -> Option<Arc<Notify>> {
+        self.active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .map(|active| active.guidance.clone())
+    }
+
+    pub(crate) fn tool_token(&self, turn: TurnId) -> Option<CancellationToken> {
+        self.active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .map(|active| active.tools.clone())
+    }
+
+    pub(crate) fn guidance(
+        &self,
+        turn: TurnId,
+        request: sailry_protocol::RequestId,
+        immediate: bool,
+    ) -> bool {
+        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
+            if !active.guided.insert(request) {
+                return false;
+            }
+            if immediate {
+                let previous = std::mem::replace(&mut active.tools, active.stop.child_token());
+                previous.cancel();
+            }
+            active.guidance.notify_waiters();
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn runner(&self, turn: TurnId) -> Option<CancellationToken> {
         self.active
             .lock()
@@ -276,7 +318,7 @@ impl Controls {
             return None;
         }
         active.operations += 1;
-        Some(active.stop.clone())
+        Some(active.tools.clone())
     }
 
     pub fn finish_operation(&self, turn: TurnId) {
@@ -319,6 +361,10 @@ impl Controls {
         self.active.lock().unwrap().remove(&turn);
     }
 }
+
+#[cfg(test)]
+#[path = "controls/guidance_tests.rs"]
+mod guidance_tests;
 
 #[cfg(test)]
 mod tests {
