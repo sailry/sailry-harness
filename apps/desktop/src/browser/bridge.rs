@@ -13,6 +13,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Owner {
     Session(NodeId, SessionId),
@@ -20,9 +23,14 @@ enum Owner {
     Preview(Key),
 }
 
+struct Entry {
+    view: Option<Entity<Browser>>,
+    serial: usize,
+}
+
 #[derive(Default)]
 pub(crate) struct State {
-    views: BTreeMap<Owner, Entity<Browser>>,
+    views: BTreeMap<Owner, Entry>,
     connections: BTreeMap<NodeId, Connection>,
 }
 impl State {
@@ -46,18 +54,34 @@ impl State {
             }
             _ => return false,
         };
-        self.views.get(&owner) == Some(browser)
+        self.views.get(&owner).and_then(|entry| entry.view.as_ref()) == Some(browser)
     }
 
     pub(crate) fn owns_session(&self, key: Key, browser: &Entity<Browser>) -> bool {
         let Key::Session(node, session) = key else {
             return false;
         };
-        self.views.get(&Owner::Session(node, session)) == Some(browser)
+        self.views
+            .get(&Owner::Session(node, session))
+            .and_then(|entry| entry.view.as_ref())
+            == Some(browser)
     }
+
+    pub(crate) fn release(&mut self, browser: &Entity<Browser>, cx: &App) {
+        for entry in self.views.values_mut() {
+            if entry.view.as_ref() == Some(browser) {
+                entry.serial = browser.read(cx).serial;
+                entry.view = None;
+            }
+        }
+    }
+
     pub(crate) fn close(&mut self) -> Vec<Entity<Browser>> {
         self.connections.clear();
-        std::mem::take(&mut self.views).into_values().collect()
+        std::mem::take(&mut self.views)
+            .into_values()
+            .filter_map(|entry| entry.view)
+            .collect()
     }
 }
 struct Connection {
@@ -190,7 +214,7 @@ impl Shell {
         worktree: Option<WorktreeId>,
         session: SessionId,
     ) {
-        if let Some(browser) = self
+        if let Some(entry) = self
             .browsers
             .views
             .remove(&Owner::Draft(node, worktree))
@@ -199,7 +223,7 @@ impl Shell {
             self.browsers
                 .views
                 .entry(Owner::Session(node, session))
-                .or_insert(browser);
+                .or_insert(entry);
         }
     }
 
@@ -220,13 +244,23 @@ impl Shell {
                 .unwrap_or(Owner::Preview(key)),
             _ => Owner::Preview(key),
         };
-        if let Some(browser) = self.browsers.views.get(&owner) {
+        if let Some(browser) = self
+            .browsers
+            .views
+            .get(&owner)
+            .and_then(|entry| entry.view.as_ref())
+        {
             if browser.read(cx).tabs.is_empty() {
                 browser.update(cx, |browser, cx| browser.add(window, cx));
             }
             return browser.clone();
         }
-        let browser = cx.new(|cx| Browser::new(self.live.is_none(), window, cx));
+        let serial = self
+            .browsers
+            .views
+            .get(&owner)
+            .map_or(0, |entry| entry.serial);
+        let browser = cx.new(|cx| Browser::new(self.live.is_none(), serial, window, cx));
         browser.update(cx, |browser, cx| browser.visibility(false, window, cx));
         cx.subscribe_in(
             &browser,
@@ -273,7 +307,13 @@ impl Shell {
             },
         )
         .detach();
-        self.browsers.views.insert(owner, browser.clone());
+        self.browsers.views.insert(
+            owner,
+            Entry {
+                view: Some(browser.clone()),
+                serial,
+            },
+        );
         browser
     }
 }

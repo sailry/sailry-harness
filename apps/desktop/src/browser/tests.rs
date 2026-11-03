@@ -1,6 +1,62 @@
 use super::*;
 use core::prelude::v1::test;
 
+pub(super) fn fixture() -> Browser {
+    Browser {
+        tabs: vec![Tab::empty(0)],
+        #[cfg(target_os = "macos")]
+        store: None,
+        persistent: false,
+        reload: false,
+        selected: 0,
+        serial: 1,
+        changes: tokio::sync::watch::channel(serde_json::Value::Null).0,
+        cursor: 0,
+        lease: 0,
+        mounted: Rc::new(Cell::new(true)),
+        stop: sailry_link::CancellationToken::new(),
+        preview: false,
+        annotation: annotation::State::default(),
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        events: tokio::sync::mpsc::unbounded_channel().0,
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        _events: Task::ready(()),
+    }
+}
+
+mod lifecycle {
+    use super::*;
+
+    #[test]
+    fn closure_cancels_work_and_clears_tabs() {
+        let mut browser = fixture();
+        browser.tabs.push(Tab::empty(1));
+        browser.selected = 1;
+        browser.reload = true;
+        let stop = browser.stop.clone();
+        let lease = browser.lease;
+        browser.close_all();
+        assert!(stop.is_cancelled());
+        assert!(browser.tabs.is_empty());
+        assert!(!browser.mounted.get());
+        assert!(!browser.reload);
+        assert_eq!(browser.selected, 0);
+        assert!(browser.lease > lease);
+        browser.close_all();
+        assert!(browser.tabs.is_empty());
+        assert!(stop.is_cancelled());
+    }
+
+    #[test]
+    fn dropping_cancels_work() {
+        let browser = fixture();
+        let stop = browser.stop.clone();
+        assert!(!stop.is_cancelled());
+        drop(browser);
+        assert!(stop.is_cancelled());
+    }
+}
+
 #[test]
 fn destinations() {
     assert_eq!(

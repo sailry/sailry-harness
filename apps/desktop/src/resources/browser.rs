@@ -55,6 +55,8 @@ impl Shell {
         if let Some(SideResource::Plugin(panel)) = &self.side_resource
             && panel.read(cx).browser_view().as_ref() == Some(&browser)
             && panel.read(cx).resource_active()
+            && panel.read(cx).source.as_ref() == Some(&source)
+            && panel.read(cx).matches_source(cx)
         {
             if let Some(url) = url {
                 browser.update(cx, |browser, cx| browser.open(&url, window, cx));
@@ -63,7 +65,19 @@ impl Shell {
             cx.notify();
             return;
         }
-        let panel = cx.new(|cx| Panel::browser(source, browser.clone(), cx));
+        let owner = cx.weak_entity();
+        let released = browser.downgrade();
+        let panel = cx.new(|cx| {
+            cx.on_release(move |_, cx| {
+                cx.defer(move |cx| {
+                    if let Some(browser) = released.upgrade() {
+                        let _ = owner.update(cx, |shell, cx| shell.release_browser(&browser, cx));
+                    }
+                });
+            })
+            .detach();
+            Panel::browser(source, browser.clone(), cx)
+        });
         Self::observe_plugin_conversations(&panel, window, cx);
         cx.observe_in(&panel, window, move |shell, panel, window, cx| {
             if let Some((_, package)) = panel.read(cx).renderer_entry(ResourceKind::Browser, cx)

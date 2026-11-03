@@ -3,6 +3,38 @@ use super::*;
 use crate::{panes::Target, shell::shortcuts::CloseFocused};
 
 impl Shell {
+    pub(crate) fn close_resource_panel(&mut self, cx: &mut Context<Self>) {
+        let resource = self.side_resource.take();
+        if let Some(browser) = resource.as_ref().and_then(|resource| resource.browser(cx)) {
+            if let Some(SideResource::Plugin(panel)) = &resource {
+                panel.update(cx, |panel, cx| panel.close(cx));
+            }
+            self.release_browser(&browser, cx);
+        }
+        self.layout.panel_open[0] = false;
+        cx.notify();
+    }
+
+    pub(crate) fn release_browser(
+        &mut self,
+        browser: &Entity<crate::browser::Browser>,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .side_resource
+            .iter()
+            .chain(self.retained_panels())
+            .any(|resource| resource.browser(cx).as_ref() == Some(browser))
+        {
+            return;
+        }
+        self.browsers.release(browser, cx);
+        browser.update(cx, |browser, cx| {
+            browser.close_all();
+            cx.notify();
+        });
+    }
+
     pub(crate) fn close_pane(
         &mut self,
         target: Target,

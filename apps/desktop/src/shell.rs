@@ -563,12 +563,6 @@ impl Shell {
             }
         }
     }
-
-    pub(crate) fn close_resource_panel(&mut self, cx: &mut Context<Self>) {
-        self.side_resource = None;
-        self.layout.panel_open[0] = false;
-        cx.notify();
-    }
 }
 
 impl Render for Shell {

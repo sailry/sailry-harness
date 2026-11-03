@@ -158,9 +158,10 @@ impl Shell {
                             .browsers
                             .owns_session(self.session_scope.active, browser)
                 });
-            self.close_resource_panel(cx);
             if let Some(browser) = promoted {
                 self.reveal_browser(browser, window, cx);
+            } else {
+                self.close_resource_panel(cx);
             }
         }
     }

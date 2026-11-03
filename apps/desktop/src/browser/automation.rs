@@ -15,6 +15,9 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Task<browser::Result> {
+        if self.stop.is_cancelled() {
+            return Task::ready(Err(closed()));
+        }
         if self.preview {
             return Task::ready(Err(unavailable()));
         }
@@ -112,85 +115,97 @@ impl Browser {
         if matches!(action, Action::Screenshot { .. }) {
             return self.screenshot(tab, window, cx);
         }
+        let stop = self.stop.clone();
         cx.spawn_in(window, async move |browser, cx| {
-            let deadline = Instant::now()
-                + match &action {
-                    Action::Wait { timeout_ms, .. } => {
-                        Duration::from_millis(u64::from(*timeout_ms))
-                    }
-                    _ => Duration::from_secs(20),
-                };
-            if !matches!(
-                action,
-                Action::Navigate { .. }
-                    | Action::Read { .. }
-                    | Action::Focus { .. }
-                    | Action::Wait { .. }
-            ) {
-                let script = script(serde_json::to_value(&action).unwrap());
-                let receive = browser
-                    .update_in(cx, |browser, _, cx| browser.evaluate(tab, &script, cx))
-                    .map_err(|_| unavailable())??;
-                response(receive, cx).await?;
-                // Let WebKit publish navigation started by click/back before inspecting the document.
-                cx.background_executor()
-                    .timer(Duration::from_millis(100))
-                    .await;
-            }
-            loop {
-                let loading = browser
-                    .update_in(cx, |browser, _, _| {
-                        let tab = browser
-                            .tabs
-                            .iter()
-                            .find(|value| value.id as u64 == tab)
-                            .ok_or_else(unavailable)?;
-                        if tab.error.is_some() {
-                            return Err(Fault::new(
-                                ErrorCode::Unavailable,
-                                "browser page failed to load",
-                            ));
+            let work = async {
+                let deadline = Instant::now()
+                    + match &action {
+                        Action::Wait { timeout_ms, .. } => {
+                            Duration::from_millis(u64::from(*timeout_ms))
                         }
-                        Ok(tab.loading)
-                    })
-                    .map_err(|_| unavailable())??;
-                if !loading {
-                    break;
-                }
-                if Instant::now() >= deadline {
-                    return Err(Fault::new(
-                        ErrorCode::Unavailable,
-                        "browser page is still loading; read it again",
-                    ));
-                }
-                cx.background_executor()
-                    .timer(Duration::from_millis(50))
-                    .await;
-            }
-            if matches!(action, Action::Wait { .. }) {
-                loop {
+                        _ => Duration::from_secs(20),
+                    };
+                if !matches!(
+                    action,
+                    Action::Navigate { .. }
+                        | Action::Read { .. }
+                        | Action::Focus { .. }
+                        | Action::Wait { .. }
+                ) {
                     let script = script(serde_json::to_value(&action).unwrap());
                     let receive = browser
                         .update_in(cx, |browser, _, cx| browser.evaluate(tab, &script, cx))
                         .map_err(|_| unavailable())??;
-                    if response(receive, cx).await?["ready"] == true {
-                        break;
-                    }
-                    if Instant::now() >= deadline {
-                        return Err(Fault::new(ErrorCode::Unavailable, "browser wait timed out"));
-                    }
+                    response(receive, cx).await?;
+                    // Let WebKit publish navigation started by click/back before inspecting the document.
                     cx.background_executor()
                         .timer(Duration::from_millis(100))
                         .await;
                 }
+                loop {
+                    let loading = browser
+                        .update_in(cx, |browser, _, _| {
+                            let tab = browser
+                                .tabs
+                                .iter()
+                                .find(|value| value.id as u64 == tab)
+                                .ok_or_else(unavailable)?;
+                            if tab.error.is_some() {
+                                return Err(Fault::new(
+                                    ErrorCode::Unavailable,
+                                    "browser page failed to load",
+                                ));
+                            }
+                            Ok(tab.loading)
+                        })
+                        .map_err(|_| unavailable())??;
+                    if !loading {
+                        break;
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(Fault::new(
+                            ErrorCode::Unavailable,
+                            "browser page is still loading; read it again",
+                        ));
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                }
+                if matches!(action, Action::Wait { .. }) {
+                    loop {
+                        let script = script(serde_json::to_value(&action).unwrap());
+                        let receive = browser
+                            .update_in(cx, |browser, _, cx| browser.evaluate(tab, &script, cx))
+                            .map_err(|_| unavailable())??;
+                        if response(receive, cx).await?["ready"] == true {
+                            break;
+                        }
+                        if Instant::now() >= deadline {
+                            return Err(Fault::new(
+                                ErrorCode::Unavailable,
+                                "browser wait timed out",
+                            ));
+                        }
+                        cx.background_executor()
+                            .timer(Duration::from_millis(100))
+                            .await;
+                    }
+                }
+                let script =
+                    script(json!({"action":"read","snapshot":RequestId::new().to_string()}));
+                let receive = browser
+                    .update_in(cx, |browser, _, cx| browser.evaluate(tab, &script, cx))
+                    .map_err(|_| unavailable())??;
+                let mut value = response(receive, cx).await?;
+                value["tab"] = tab.into();
+                Ok(value)
+            };
+            tokio::select! {
+                biased;
+                _ = stop.cancelled() => Err(closed()),
+                result = work => result,
             }
-            let script = script(json!({"action":"read","snapshot":RequestId::new().to_string()}));
-            let receive = browser
-                .update_in(cx, |browser, _, cx| browser.evaluate(tab, &script, cx))
-                .map_err(|_| unavailable())??;
-            let mut value = response(receive, cx).await?;
-            value["tab"] = tab.into();
-            Ok(value)
         })
     }
     fn evaluate(
@@ -220,6 +235,9 @@ impl Browser {
 }
 fn script(request: Value) -> String {
     format!("({})({request})", include_str!("automation.js"))
+}
+pub(super) fn closed() -> Fault {
+    Fault::new(ErrorCode::Cancelled, "browser is closed")
 }
 fn unavailable() -> Fault {
     Fault::new(ErrorCode::Unavailable, "browser page is unavailable")

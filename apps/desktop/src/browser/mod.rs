@@ -55,6 +55,7 @@ pub(crate) struct Browser {
     cursor: u64,
     pub(crate) lease: u64,
     mounted: Rc<Cell<bool>>,
+    stop: sailry_link::CancellationToken,
     preview: bool,
     annotation: annotation::State,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -65,6 +66,12 @@ pub(crate) struct Browser {
 impl EventEmitter<DismissEvent> for Browser {}
 impl EventEmitter<annotation::Transfer> for Browser {}
 
+impl Drop for Browser {
+    fn drop(&mut self) {
+        self.close_all();
+    }
+}
+
 impl Browser {
     pub(crate) fn acquire_lease(&mut self, cx: &mut Context<Self>) -> u64 {
         self.lease += 1;
@@ -74,18 +81,32 @@ impl Browser {
     }
 
     pub(crate) fn close_all(&mut self) {
+        self.stop.cancel();
         self.annotation.clear();
+        self.mounted.set(false);
+        self.lease += 1;
+        self.reload = false;
+        self.selected = 0;
         self.tabs.clear();
+        #[cfg(target_os = "macos")]
+        {
+            self.store = None;
+        }
     }
 
-    pub(crate) fn new(preview: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        preview: bool,
+        serial: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         shortcuts::init(cx);
         cx.subscribe_in(
             &cx.entity(),
             window,
             |this, _, request: &state::Request, window, cx| {
-                let result = if request.stop.is_cancelled() {
+                let result = if this.stop.is_cancelled() || request.stop.is_cancelled() {
                     Err("plugin view is closed".to_string())
                 } else {
                     this.control(request.action.clone(), window, cx)
@@ -101,11 +122,22 @@ impl Browser {
             this.submit_annotation(request, cx);
         })
         .detach();
+        let stop = sailry_link::CancellationToken::new();
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let cancellation = stop.clone();
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         let task = cx.spawn_in(window, async move |this, cx| {
-            while let Some((id, event)) = receiver.recv().await {
+            loop {
+                let event = tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => break,
+                    event = receiver.recv() => event,
+                };
+                let Some((id, event)) = event else {
+                    break;
+                };
                 if this
                     .update_in(cx, |this, window, cx| this.accept(id, event, window, cx))
                     .is_err()
@@ -146,15 +178,16 @@ impl Browser {
             persistent: crate::preferences::data(cx)
                 .browser_persistent
                 .unwrap_or(true),
-            tabs: vec![Tab::empty(0)],
+            tabs: vec![Tab::empty(serial)],
             #[cfg(target_os = "macos")]
             store: None,
             selected: 0,
-            serial: 1,
+            serial: serial + 1,
             changes: tokio::sync::watch::channel(serde_json::Value::Null).0,
             cursor: 0,
             lease: 0,
             mounted: Rc::new(Cell::new(true)),
+            stop,
             preview,
             annotation: annotation::State::default(),
             #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -165,6 +198,9 @@ impl Browser {
     }
 
     pub(crate) fn open(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.stop.is_cancelled() {
+            return;
+        }
         if let Some(index) = self.tabs.iter().position(|tab| tab.url == url) {
             self.select(index, window, cx);
             return;
@@ -241,6 +277,7 @@ impl Browser {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let mounted = mounted && !self.stop.is_cancelled();
         if !mounted && self.mounted.get() {
             self.cancel_annotation(cx);
         }

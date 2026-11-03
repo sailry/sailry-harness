@@ -20,17 +20,25 @@ impl Browser {
         else {
             return Task::ready(Err(failed()));
         };
+        let stop = self.stop.clone();
         cx.spawn_in(window, async move |_, cx| {
             let timer = cx
                 .background_executor()
                 .timer(std::time::Duration::from_secs(5));
             let buffer = tokio::select! {
+                biased;
+                _ = stop.cancelled() => return Err(super::automation::closed()),
                 result = receive => result.map_err(|_| failed())?.map_err(|_| failed())?,
                 _ = timer => return Err(failed()),
             };
-            cx.background_executor()
-                .spawn(async move { encode(tab, &buffer.bytes, buffer.format) })
-                .await
+            let encoding = cx
+                .background_executor()
+                .spawn(async move { encode(tab, &buffer.bytes, buffer.format) });
+            tokio::select! {
+                biased;
+                _ = stop.cancelled() => Err(super::automation::closed()),
+                result = encoding => result,
+            }
         })
     }
 }
