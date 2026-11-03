@@ -6,9 +6,9 @@
 
 <p align="center"><a href="README.md">English</a> · 简体中文</p>
 
-<p align="center"><strong>你掌舵，AI 远航</strong></p>
+<p align="center"><strong>一切皆插件。你掌舵，AI 远航</strong></p>
 
-<p align="center">Rust + GPUI 原生打造，启动快、占用低。智能体用你自己的模型和机器，直接操作文件、终端、Git、SSH 和数据库。</p>
+<p align="center">Rust + GPUI 原生工作区，模型和机器你自己选。智能体团队直接操作文件、终端、Git、SSH 和数据库；链路端到端加密，手机随时接上任意主机。</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License"></a>
@@ -32,13 +32,12 @@
 | 插件界面与设置 | [✅](sdk/plugins.md) | [◐](https://docs.trae.cn/ide_manage-extensions) | [◐](https://www.codebuddy.cn/docs/workbuddy/Changelog) | [◐](https://learn.chatgpt.com/docs/plugins) | [◐](https://code.claude.com/docs/en/plugins/mods/overview) | [◐](https://zcode.z.ai/en/docs/plugin) | [✅](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/README.md) |
 | 完整开源 | [✅](LICENSE) | — | — | [◐](https://learn.chatgpt.com/docs/open-source) | [❌](https://github.com/anthropics/claude-code/blob/main/LICENSE.md) | — | [✅](https://github.com/deepseek-ai/deepseek-harness) |
 | 远程主机任务 | ✅ | [✅](https://docs.trae.cn/ide_ssh-remote) | [◐](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅](https://learn.chatgpt.com/docs/remote-connections) | [✅](https://code.claude.com/docs/en/desktop) | [✅](https://zcode.z.ai/en/docs/remote-development) | [◐](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
-| 手机控制 | 🚧 | [✅](https://forum.trae.cn/t/topic/15182) | [✅](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅](https://learn.chatgpt.com/docs/remote-connections) | [✅](https://code.claude.com/docs/en/remote-control) | [✅](https://zcode.z.ai/en/docs/welcome) | [◐](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
-| 自托管执行服务 | 🚧 | — | — | [◐](https://learn.chatgpt.com/docs/app-server) | [◐](https://code.claude.com/docs/en/desktop) | [◐](https://zcode.z.ai/en/docs/remote-development) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| 手机控制 | ✅ | [✅](https://forum.trae.cn/t/topic/15182) | [✅](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅](https://learn.chatgpt.com/docs/remote-connections) | [✅](https://code.claude.com/docs/en/remote-control) | [✅](https://zcode.z.ai/en/docs/welcome) | [◐](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| 自托管执行服务 | ✅ | — | — | [◐](https://learn.chatgpt.com/docs/app-server) | [◐](https://code.claude.com/docs/en/desktop) | [◐](https://zcode.z.ai/en/docs/remote-development) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
 | 自带模型 | [✅](docs/models.md) | [✅](https://docs.trae.cn/ide_models) | [✅](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model) | [✅](https://learn.chatgpt.com/docs/config-file/config-advanced) | ✅ | [✅](https://zcode.z.ai/en/docs/configuration) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/providers) |
 | Git worktree | [✅](docs/projects.md) | [✅](https://docs.trae.cn/enterprise_feature-list?lang=zh) | ✅ | ✅ | ✅ | — | [◐](https://github.com/deepseek-ai/deepseek-harness/releases) |
 | 多模型子代理团队 | ✅ | — | — | ◐ | ◐ | — | ◐ |
 | P2P 端到端加密连接 | ✅ | — | — | ◐ | ◐ | — | ◐ |
-| 手机远程掌控会话 | ✅ | ◐ | — | — | — | — | — |
 
 ✅ 支持 · ◐ 部分支持 · 🚧 即将推出 · ❌ 不支持 · — 未确认。含官方扩展；DSH 指 DeepSeek Harness。
 
@@ -60,6 +59,25 @@ Sailry 的智能体像一支开发团队：DeepSeek 负责写代码，Claude 出
 链路全程端到端加密。能直连就走 P2P，直连不通就走加密中继——全球任意主机
 都能连上，不必开放端口，也不必信任中间节点。
 
+```mermaid
+flowchart LR
+  subgraph 控制端
+    D[桌面端<br/>Rust + GPUI]
+    M[移动端<br/>Android / iOS]
+  end
+  subgraph Hosts[你的机器]
+    L[本机 Node]
+    H1[Host · macOS]
+    H2[Host · Linux 服务器]
+  end
+  D <-->|P2P · 端到端加密| L
+  D <-->|P2P 或加密中继| H1
+  M <-->|P2P 或加密中继| H2
+  M <-.-> H1
+  H2 --> T[智能体 + 插件<br/>文件 · 终端 · Git · SSH · 数据库]
+  T --> P[你的模型服务]
+```
+
 ## 安装
 
 [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/sailry/sailry-harness/issues)
@@ -73,6 +91,12 @@ Sailry 的智能体像一支开发团队：DeepSeek 负责写代码，Claude 出
 | Linux | x64 / ARM64 | 计划中 | — |
 
 ### Host
+
+在 macOS 或 Linux 机器上安装：
+
+```sh
+curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/install-host.sh | bash
+```
 
 | 系统 | 架构 | 状态 | 下载 |
 | --- | --- | --- | --- |

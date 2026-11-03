@@ -6,9 +6,9 @@
 
 <p align="center">English · <a href="README.zh-CN.md">Chinese (Simplified)</a></p>
 
-<p align="center"><strong>You steer. Agents sail</strong></p>
+<p align="center"><strong>Everything is a plugin. You steer. Agents sail</strong></p>
 
-<p align="center">A native workspace built with Rust and GPUI: fast to start, light on memory. Agents work with your files, terminals, Git, SSH and databases, on your own models and machines.</p>
+<p align="center">A native Rust + GPUI workspace on your own models and machines. Agent teams work with files, terminals, Git, SSH and databases; every link is end-to-end encrypted, so your phone can drive any Host.</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License"></a>
@@ -32,13 +32,12 @@
 | Plugin UI & settings | [✅](sdk/plugins.md) | [◐](https://docs.trae.cn/ide_manage-extensions) | [◐](https://www.codebuddy.cn/docs/workbuddy/Changelog) | [◐](https://learn.chatgpt.com/docs/plugins) | [◐](https://code.claude.com/docs/en/plugins/mods/overview) | [◐](https://zcode.z.ai/en/docs/plugin) | [✅](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/README.md) |
 | Fully open source | [✅](LICENSE) | — | — | [◐](https://learn.chatgpt.com/docs/open-source) | [❌](https://github.com/anthropics/claude-code/blob/main/LICENSE.md) | — | [✅](https://github.com/deepseek-ai/deepseek-harness) |
 | Remote host tasks | ✅ | [✅](https://docs.trae.cn/ide_ssh-remote) | [◐](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅](https://learn.chatgpt.com/docs/remote-connections) | [✅](https://code.claude.com/docs/en/desktop) | [✅](https://zcode.z.ai/en/docs/remote-development) | [◐](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
-| Phone control | 🚧 | [✅](https://forum.trae.cn/t/topic/15182) | [✅](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅](https://learn.chatgpt.com/docs/remote-connections) | [✅](https://code.claude.com/docs/en/remote-control) | [✅](https://zcode.z.ai/en/docs/welcome) | [◐](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
-| Self-hosted execution | 🚧 | — | — | [◐](https://learn.chatgpt.com/docs/app-server) | [◐](https://code.claude.com/docs/en/desktop) | [◐](https://zcode.z.ai/en/docs/remote-development) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| Phone control | ✅ | [✅](https://forum.trae.cn/t/topic/15182) | [✅](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅](https://learn.chatgpt.com/docs/remote-connections) | [✅](https://code.claude.com/docs/en/remote-control) | [✅](https://zcode.z.ai/en/docs/welcome) | [◐](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| Self-hosted execution | ✅ | — | — | [◐](https://learn.chatgpt.com/docs/app-server) | [◐](https://code.claude.com/docs/en/desktop) | [◐](https://zcode.z.ai/en/docs/remote-development) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
 | Bring your own model | [✅](docs/models.md) | [✅](https://docs.trae.cn/ide_models) | [✅](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model) | [✅](https://learn.chatgpt.com/docs/config-file/config-advanced) | ✅ | [✅](https://zcode.z.ai/en/docs/configuration) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/providers) |
 | Git worktrees | [✅](docs/projects.md) | [✅](https://docs.trae.cn/enterprise_feature-list?lang=zh) | ✅ | ✅ | ✅ | — | [◐](https://github.com/deepseek-ai/deepseek-harness/releases) |
 | Multi-model subagent teams | ✅ | — | — | ◐ | ◐ | — | ◐ |
 | P2P end-to-end encrypted links | ✅ | — | — | ◐ | ◐ | — | ◐ |
-| Mobile controls any session | ✅ | ◐ | — | — | — | — | — |
 
 ✅ Supported · ◐ Partial · 🚧 Coming soon · ❌ Unavailable · — Unconfirmed. Includes official extensions; DSH = DeepSeek Harness.
 
@@ -66,6 +65,25 @@ the network when a direct path exists, and fall back to an encrypted relay when 
 does not — so you can reach a machine anywhere in the world without opening a port
 or trusting a middlebox.
 
+```mermaid
+flowchart LR
+  subgraph Controllers
+    D[Desktop<br/>Rust + GPUI]
+    M[Mobile<br/>Android / iOS]
+  end
+  subgraph Hosts[Your machines]
+    L[Local Node]
+    H1[Host · macOS]
+    H2[Host · Linux server]
+  end
+  D <-->|P2P · E2E encrypted| L
+  D <-->|P2P or encrypted relay| H1
+  M <-->|P2P or encrypted relay| H2
+  M <-.-> H1
+  H2 --> T[Agents + plugins<br/>files · terminal · Git · SSH · databases]
+  T --> P[Your model providers]
+```
+
 ## Install
 
 [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/sailry/sailry-harness/issues)
@@ -79,6 +97,12 @@ or trusting a middlebox.
 | Linux | x64 / ARM64 | Planned | — |
 
 ### Host
+
+Install on a macOS or Linux machine:
+
+```sh
+curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/install-host.sh | bash
+```
 
 | Platform | Architecture | Status | Download |
 | --- | --- | --- | --- |
