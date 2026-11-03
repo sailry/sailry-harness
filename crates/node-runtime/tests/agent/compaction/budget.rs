@@ -209,7 +209,8 @@ async fn uses_reported_tokens() {
 async fn earlier_token_boundary() {
     for remote in [false, true] {
         for (context, output, configured, boundary) in [
-            (1_050_000, 128_000, None, 225_000),
+            (1_050_000, 128_000, None, 840_000),
+            (500_000, 64_000, None, 400_000),
             (200_000, 64_000, None, 160_000),
             (1_050_000, 128_000, Some(200_000), 200_000),
         ] {
@@ -264,6 +265,19 @@ async fn earlier_token_boundary() {
                 .find(|request| agent_support::compaction::is_summary(request))
                 .unwrap();
             assert!(summary["tools"].as_array().is_none_or(Vec::is_empty));
+            // The summary has its own output cap; the main task keeps the model limit.
+            let cap = |request: &serde_json::Value| {
+                request["max_completion_tokens"]
+                    .as_i64()
+                    .or(request["max_tokens"].as_i64())
+            };
+            assert!(cap(summary).is_some_and(|tokens| tokens <= 8_000));
+            assert!(
+                requests
+                    .iter()
+                    .filter(|request| !agent_support::compaction::is_summary(request))
+                    .all(|request| cap(request).is_none_or(|tokens| tokens > 8_000))
+            );
             assert!(messages(summary).contains("Evidence 1"));
             original_evidence(&fixture, &page).await;
             fixture.node.shutdown().await.unwrap();
@@ -284,7 +298,7 @@ async fn pending_tool_growth() {
                         "Evidence {index} original token evidence near the context boundary {}\n",
                         "a1 b2 c3 d4 e5 f6 g7 h8 ".repeat(2)
                     )
-                    .repeat(1000)
+                    .repeat(600)
                 } else {
                     format!("Evidence {index} {}\n", "x".repeat(16 * 1024))
                 };

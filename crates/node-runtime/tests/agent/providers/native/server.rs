@@ -153,7 +153,7 @@ async fn respond(
     }
     let body: serde_json::Value = serde_json::from_slice(&bytes[end..end + length]).unwrap();
     let tool = matches!(reply, Reply::Tool) && !body.to_string().contains("工具内容 🙂");
-    let answer = ANSWER;
+    let answer = answer(&body);
     let index = {
         let mut records = records.lock().unwrap();
         let index = records.len();
@@ -217,7 +217,7 @@ async fn respond(
                 reply,
                 Reply::Text | Reply::Tool | Reply::Recover(_)
             ));
-            for event in response_events(tool, false, index) {
+            for event in text_events(tool, false, index, &answer) {
                 event_bytes(&mut stream, format!("data: {event}\n\n")).await?;
             }
         }
@@ -228,7 +228,7 @@ async fn respond(
             let delta = if tool {
                 json!({"reasoning_content":"Inspect the file 🙂", "tool_calls":[{"index":0, "id":"native-call", "type":"function", "function":{"name":"read_file", "arguments":"{\"path\":\"native.txt\"}"}}]})
             } else {
-                json!({"content":ANSWER})
+                json!({"content":answer})
             };
             let usage = if matches!(reply, Reply::Usage) {
                 json!({"prompt_tokens":16,"completion_tokens":4,"total_tokens":20,"prompt_cache_hit_tokens":6,"prompt_cache_miss_tokens":10,"prompt_tokens_details":{"cached_tokens":6},"completion_tokens_details":{"reasoning_tokens":1}})
@@ -321,21 +321,37 @@ async fn wait_closed(stream: &mut TcpStream, closed: &tokio::sync::Notify) -> st
     Ok(())
 }
 
+/// Summary requests receive the structured handoff contract around the answer.
+fn answer(body: &serde_json::Value) -> String {
+    if body
+        .to_string()
+        .contains("Please summarize the conversation history provided in the system prompt.")
+    {
+        crate::agent_support::compaction::handoff(ANSWER)
+    } else {
+        ANSWER.into()
+    }
+}
+
 pub(super) fn response_events(tool: bool, streaming: bool, index: usize) -> Vec<serde_json::Value> {
+    text_events(tool, streaming, index, ANSWER)
+}
+
+fn text_events(tool: bool, streaming: bool, index: usize, answer: &str) -> Vec<serde_json::Value> {
     let output = if tool {
         json!([
             {"type":"reasoning", "id":"reasoning", "summary":[{"type":"summary_text","text":"Read the file"}],"encrypted_content":"fixture-encrypted-reasoning"},
             {"type":"function_call", "id":"read-item", "call_id":"native-call", "name":"read_file", "arguments":"{\"path\":\"native.txt\"}", "status":"completed"}
         ])
     } else {
-        json!([{"type":"message", "id":format!("native-answer-{index}"), "role":"assistant","status":"completed", "content":[{"type":"output_text","text":ANSWER, "annotations":[]}]}])
+        json!([{"type":"message", "id":format!("native-answer-{index}"), "role":"assistant","status":"completed", "content":[{"type":"output_text","text":answer, "annotations":[]}]}])
     };
     let id = format!("native-response-{index}");
     let mut events = vec![
         json!({"type":"response.created", "sequence_number":0, "response":{"id":id, "object":"response", "created_at":0,"model":"fixture-a", "status":"in_progress", "output":[]}}),
     ];
     if streaming {
-        events.push(text_delta(ANSWER, index));
+        events.push(text_delta(answer, index));
     }
     events.push(json!({"type":"response.completed", "sequence_number":2,"response":{"id":id, "object":"response", "created_at":0,"model":"fixture-a", "status":"completed", "output":output}}));
     events

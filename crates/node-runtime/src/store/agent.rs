@@ -422,6 +422,36 @@ impl Ingress {
             )
         })
     }
+    /// Announces automatic compaction as a transient draft keyed by the summary
+    /// record id. The committed summary, or the run ending, supersedes it.
+    pub(crate) fn compacting(
+        &self,
+        session: SessionId,
+        turn: TurnId,
+        id: &str,
+    ) -> Result<(), Fault> {
+        if self.closed.is_cancelled() {
+            return Err(super::unavailable());
+        }
+        self.agents.stream(turn, session, || {
+            self.feeds.delta(
+                self.node,
+                session,
+                Draft {
+                    id: id.into(),
+                    turn,
+                    author: "sailry".into(),
+                    branch: String::new(),
+                    parts: vec![Part::Resource(
+                        sailry_protocol::conversation::compaction::Progress {
+                            started_ms: chrono::Utc::now().timestamp_millis(),
+                        }
+                        .resource(),
+                    )],
+                },
+            )
+        })
+    }
     pub(crate) fn sessions(self: &Arc<Self>, turn: TurnId) -> Arc<Sessions> {
         Arc::new(Sessions::new(self.clone(), turn))
     }

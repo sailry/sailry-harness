@@ -5,6 +5,7 @@ mod approvals;
 mod artifacts;
 mod background;
 mod children;
+mod compacting;
 mod forks;
 mod history;
 mod input;

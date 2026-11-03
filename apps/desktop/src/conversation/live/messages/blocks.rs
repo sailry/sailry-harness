@@ -12,6 +12,8 @@ pub(super) enum Block<'a> {
     Thinking(String, Cow<'a, str>),
     Compaction(String, &'a str),
     CompactionFailure(String, sailry_protocol::conversation::compaction::Failure),
+    /// Automatic compaction in progress since this Node timestamp.
+    Compacting(i64),
     Tools(Vec<&'a Call>),
     Question(&'a Call),
     Children(Vec<&'a Child>),
@@ -106,6 +108,13 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                     sailry_protocol::conversation::compaction::Failure::from_resource(value)
                 {
                     blocks.push(Block::CompactionFailure(key, failure));
+                }
+            }
+            Part::Resource(value) if value["type"] == "compacting" => {
+                if let Some(progress) =
+                    sailry_protocol::conversation::compaction::Progress::from_resource(value)
+                {
+                    blocks.push(Block::Compacting(progress.started_ms));
                 }
             }
             Part::Resource(value) if value["type"] == "model_retry" => {

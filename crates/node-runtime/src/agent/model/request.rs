@@ -113,10 +113,14 @@ impl GdkProvider for Model {
         let messages = exposure.messages(messages);
         let tools = exposure.tools(tools);
         let capture = Capture::new(self, config, system)?;
-        let mut policy = StreamRetry::fixed(5, Duration::from_secs(60));
-        if matches!(self.purpose, Purpose::Compaction) {
-            policy = policy.buffered();
-        }
+        let policy = match self.purpose {
+            // Summary output stays buffered until an attempt succeeds and is
+            // retried at most once; dropping the stream cancels the request.
+            Purpose::Compaction => {
+                StreamRetry::fixed(super::summary::RETRIES, super::summary::RETRY_DELAY).buffered()
+            }
+            Purpose::Main => StreamRetry::fixed(5, Duration::from_secs(60)),
+        };
         let responses = stream_with_retry(
             self.inner.clone(),
             config.clone(),

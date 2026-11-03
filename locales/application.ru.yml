@@ -1056,6 +1056,7 @@ chat_sync_failed: "Синхронизация разговора не удала
 chat_sync_retry: "Переподключение"
 turn_tools_running: "Выполняется"
 turn_generating: "Реагирование"
+turn_compacting: "Сжатие"
 turn_reasoning: "Обоснование"
 chat_context_summary: "Контекстное резюме"
 chat_compact_queued: "Ожидание уплотнения"

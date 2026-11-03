@@ -354,11 +354,14 @@ impl View {
             .flatten();
         let continuing_tools =
             self.history.connected && frame::continuing_tools(run, &snapshot.page, &blocks);
-        let blocks = if self.message_display == crate::preferences::MessageDisplay::Compact {
+        let compacting = frame::compacting(&blocks);
+        let mut blocks = if self.message_display == crate::preferences::MessageDisplay::Compact {
             blocks::compact(blocks)
         } else {
             blocks
         };
+        // The phase row presents compaction; it is not a content row.
+        blocks.retain(|block| !matches!(block, Block::Compacting(_)));
         let copy = blocks
             .iter()
             .filter_map(|block| match block {
@@ -440,6 +443,7 @@ impl View {
                 Block::Question(call) => {
                     self.question_history(call, &self.history.snapshot.as_ref().unwrap().page, cx)
                 }
+                Block::Compacting(_) => unreachable!("compaction progress is a phase"),
                 Block::Resource => div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
@@ -468,6 +472,21 @@ impl View {
             ));
         let content = content
             .when_some(phase, |content, phase| {
+                let label = match compacting {
+                    Some(started_ms) => format!(
+                        "{} {}",
+                        tr(phase),
+                        frame::duration(
+                            chrono::Utc::now()
+                                .timestamp_millis()
+                                .saturating_sub(started_ms)
+                                .max(0) as u64
+                                / 1000
+                        )
+                    )
+                    .into(),
+                    None => tr(phase),
+                };
                 content.child(
                     h_flex()
                         .id(format!("{turn}-phase"))
@@ -475,7 +494,7 @@ impl View {
                         .gap_2()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .aria_label(tr(phase))
+                        .aria_label(label.clone())
                         .child(crate::ui::thinking::render(
                             format!("live-turn-avatar-{turn}"),
                             phase,
@@ -483,7 +502,7 @@ impl View {
                                 .to_pixels(cx.theme().font_size),
                         ))
                         .child(
-                            ShimmerText::new(tr(phase))
+                            ShimmerText::new(label)
                                 .id(format!("{turn}-thinking"))
                                 .into_any_element(),
                         ),

@@ -26,8 +26,12 @@ pub fn is_summary(body: &Value) -> bool {
     })
 }
 
+/// Wraps fixture text in GDK's structured summary contract; raw prose is rejected.
 pub fn handoff(text: &str) -> String {
-    text.into()
+    format!(
+        "<analysis>Fixture handoff</analysis>\n```json\n{}\n```",
+        json!({"user_intent": [text], "next_step": "Continue the current request"})
+    )
 }
 
 pub async fn respond(

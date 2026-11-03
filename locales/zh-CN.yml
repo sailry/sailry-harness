@@ -1179,6 +1179,7 @@ chat_sync_failed: 会话同步失败
 chat_sync_retry: 重新连接
 turn_tools_running: 正在执行
 turn_generating: 正在回复
+turn_compacting: 正在压缩
 turn_reasoning: 思考过程
 chat_context_summary: 上下文摘要
 chat_compact: 压缩上下文

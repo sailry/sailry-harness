@@ -81,8 +81,8 @@ async fn tracks_policy_observation_and_maintenance() {
         assert_eq!(policy.context_limit, 128_000);
         assert_eq!(policy.output_reserve, 16_384);
         assert_eq!(policy.trigger_tokens, 24_000);
-        assert_eq!(policy.summary_output, 16_384);
-        assert_eq!(policy.summary_input, 128_000);
+        assert_eq!(policy.summary_output, 8_000);
+        assert_eq!(policy.summary_input, 120_000);
         drop(updates);
         let Output::QueuedTurn(turn) = fixture
             .client

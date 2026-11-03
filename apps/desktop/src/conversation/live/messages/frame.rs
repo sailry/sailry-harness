@@ -51,6 +51,10 @@ pub(super) fn phase(run: &Run, page: &Page, blocks: &[Block<'_>]) -> Option<&'st
     if run.status != Status::Running {
         return Some(super::super::subagents::status_key(run.status));
     }
+    if compacting(blocks).is_some() {
+        // Finished tools stop here; compaction is not shown as their activity.
+        return Some("turn_compacting");
+    }
     if page.approvals.iter().any(|item| {
         item.turn == run.turn && item.state == sailry_protocol::conversation::ApprovalState::Pending
     }) || page.questions.iter().any(|item| {
@@ -80,6 +84,14 @@ pub(super) fn phase(run: &Run, page: &Page, blocks: &[Block<'_>]) -> Option<&'st
         Some(Block::Thinking(..)) => "turn_thinking",
         _ => "turn_awaiting_response",
     })
+}
+
+/// Start of the automatic compaction that currently ends the turn.
+pub(super) fn compacting(blocks: &[Block<'_>]) -> Option<i64> {
+    match blocks.last() {
+        Some(Block::Compacting(started_ms)) => Some(*started_ms),
+        _ => None,
+    }
 }
 
 /// Keep the presentation on the last activity until new content takes over.

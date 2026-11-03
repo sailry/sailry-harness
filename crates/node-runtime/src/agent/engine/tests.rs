@@ -98,3 +98,36 @@ fn returns_only_current_error() {
     assert!(last_error(&session, turn).is_some());
     assert!(last_error(&session, TurnId::new()).is_none());
 }
+
+mod trigger {
+    use super::super::{budget, trigger};
+
+    #[test]
+    fn defaults_to_four_fifths() {
+        for (context, expected) in [
+            (200_000, 160_000),
+            (500_000, 400_000),
+            (1_050_000, 840_000),
+            (4_097, 3_277),
+        ] {
+            assert_eq!(trigger(context, None), expected);
+        }
+    }
+
+    #[test]
+    fn keeps_explicit_tokens() {
+        assert_eq!(trigger(1_050_000, Some(200_000)), 200_000);
+    }
+
+    #[test]
+    fn budget_matches_execution() {
+        for (context, configured) in [(1_050_000u32, None), (200_000, Some(120_000))] {
+            let reported = budget("fixture", context, 8_000, configured).unwrap();
+            let threshold = trigger(u64::from(context), configured) as f64 / f64::from(context);
+            assert_eq!(
+                (threshold * f64::from(context)).round() as u64,
+                reported.trigger_tokens
+            );
+        }
+    }
+}

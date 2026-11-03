@@ -66,6 +66,27 @@ impl Failure {
     }
 }
 
+/// In-progress automatic compaction, carried only by a transient draft whose id
+/// is the summary record that will replace it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Progress {
+    pub started_ms: i64,
+}
+
+impl Progress {
+    pub fn resource(&self) -> serde_json::Value {
+        serde_json::json!({"type":"compacting", "started_ms":self.started_ms})
+    }
+
+    pub fn from_resource(value: &serde_json::Value) -> Option<Self> {
+        (value["type"] == "compacting")
+            .then(|| value["started_ms"].as_i64())
+            .flatten()
+            .map(|started_ms| Self { started_ms })
+    }
+}
+
 /// Effective execution policy for the current or captured next model invocation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Budget {
@@ -112,5 +133,18 @@ mod tests {
         let failure = Failure::from_resource(&value).unwrap();
         assert_eq!(failure.cause.as_deref(), Some("Request rate exceeded"));
         assert_eq!(failure.resource(), value);
+    }
+
+    #[test]
+    fn round_trips_progress() {
+        let progress = Progress { started_ms: 1_700 };
+        assert_eq!(
+            Progress::from_resource(&progress.resource()),
+            Some(progress)
+        );
+        assert_eq!(
+            Progress::from_resource(&serde_json::json!({"type":"compaction_failure"})),
+            None
+        );
     }
 }

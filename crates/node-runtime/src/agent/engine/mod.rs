@@ -35,6 +35,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+/// Automatic compaction starts once context use exceeds this share of the
+/// model context, unless the model configures `compaction_tokens`.
+const TRIGGER_NUMERATOR: u64 = 4;
+const TRIGGER_DENOMINATOR: u64 = 5;
+
+/// One trigger for the reported budget and the execution threshold.
+pub(crate) fn trigger(context: u64, configured: Option<u32>) -> u64 {
+    configured
+        .map(u64::from)
+        .unwrap_or(context * TRIGGER_NUMERATOR / TRIGGER_DENOMINATOR)
+}
+
 pub(crate) fn budget(
     model: &str,
     context: u32,
@@ -44,17 +56,14 @@ pub(crate) fn budget(
     if context == 0 {
         return None;
     }
-    let trigger = configured
-        .map(u64::from)
-        .unwrap_or_else(|| (u64::from(context) * 8 / 10).min(225_000));
     Some(Budget {
         model: model.into(),
         context_limit: context,
-        trigger_tokens: trigger,
+        trigger_tokens: trigger(u64::from(context), configured),
         output_reserve: output,
         recent_tokens: 0,
-        summary_input: u64::from(context),
-        summary_output: output,
+        summary_input: u64::from(context.saturating_sub(model::summary::output_limit(output))),
+        summary_output: model::summary::output_limit(output),
     })
 }
 
@@ -113,9 +122,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
                 .find(|model| model.id == invocation.turn.config.model)
         })
         .and_then(|model| model.compaction_tokens);
-    let threshold = configured
-        .map(|value| value as f64 / context as f64)
-        .unwrap_or_else(|| 0.8f64.min(225_000.0 / context as f64));
+    let threshold = trigger(context as u64, configured) as f64 / context as f64;
     let preparer = Arc::new(prompt::Preparer {
         ingress: ingress.clone(),
         invocation: invocation.clone(),

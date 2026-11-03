@@ -43,6 +43,82 @@ fn prompt(request: &Value) -> &str {
 }
 
 #[tokio::test]
+async fn rejects_oversized_latest_turn() {
+    for remote in [false, true] {
+        let server = Server::summary(100).await;
+        let fixture = fixture(remote, &server).await;
+        super::budget::model(&fixture, 128_000, 2_048, false).await;
+        let (_, _, before) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Latest evidence must remain complete. ".repeat(12_000),
+        )
+        .await;
+        let calls = server.requests.lock().unwrap().len();
+        super::budget::model(&fixture, 32_000, 2_048, false).await;
+        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(after.runs.last().unwrap().status, Status::Failed);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
+        assert_eq!(summaries(&after), 0);
+        assert_eq!(server.requests.lock().unwrap().len(), calls);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn previews_old_tools_and_retains_latest() {
+    for remote in [false, true] {
+        let server = Server::context_overflow().await;
+        let fixture = fixture(remote, &server).await;
+        let old = format!(
+            "Old start {} OLD_MIDDLE {} Old end",
+            "A".repeat(3_000),
+            "B".repeat(3_000)
+        );
+        let latest = format!(
+            "Latest start {} LATEST_MIDDLE {} Latest end",
+            "C".repeat(3_000),
+            "D".repeat(3_000)
+        );
+        std::fs::write(fixture.root.join("source.txt"), &old).unwrap();
+        std::fs::write(fixture.root.join("middle.txt"), "Middle result").unwrap();
+        std::fs::write(fixture.root.join("recent.txt"), &latest).unwrap();
+        for task in [
+            "Read source.txt",
+            "Read a middle result before overflow",
+            "Read a recent result before overflow",
+        ] {
+            submit(&fixture.client, fixture.session.id, task.into()).await;
+        }
+        let before = history(&fixture.client, fixture.session.id).await;
+        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(after.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
+        let requests = server.requests.lock().unwrap().clone();
+        let source = prompt(requests.last().unwrap());
+        assert!(source.contains("Old start"));
+        assert!(source.contains("Old end"));
+        assert!(!source.contains("OLD_MIDDLE"));
+        assert!(source.contains("LATEST_MIDDLE"));
+        assert!(!source.contains("Inspect the next evidence source"));
+        let full = serde_json::to_string(&tool_details(&fixture.client, &after).await).unwrap();
+        assert!(full.contains("OLD_MIDDLE"));
+        assert!(full.contains("LATEST_MIDDLE"));
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn loads_captured_plugin_context() {
     for remote in [false, true] {
         let server = Server::summary(100).await;
@@ -120,7 +196,7 @@ async fn formats_materialized_attachments() {
                 "evidence.txt",
                 "text/plain",
                 512_000,
-                32_000,
+                128_000,
                 2_048,
                 text.as_bytes(),
             ),
@@ -1003,9 +1079,9 @@ async fn preserves_cancelled_configuration() {
 }
 
 #[tokio::test]
-async fn accepts_larger_raw_handoffs() {
+async fn accepts_larger_handoffs() {
     for remote in [false, true] {
-        let handoff = "Verified complete handoff. ".repeat(2_000);
+        let handoff = "Verified complete handoff. ".repeat(1_000);
         let server = Server::compaction_text(false, handoff.clone()).await;
         let fixture = fixture(remote, &server).await;
         std::fs::write(
@@ -1036,7 +1112,7 @@ async fn accepts_larger_raw_handoffs() {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(summary, &handoff);
+        assert!(summary.contains(&handoff));
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 3);

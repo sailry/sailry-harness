@@ -7,6 +7,7 @@ pub(in crate::agent) mod observation;
 pub(super) mod plugin;
 pub(crate) mod registry;
 mod request;
+pub(in crate::agent) mod summary;
 pub(in crate::agent) use errors::{fault as error, safe};
 use goose_provider_types::{base::Provider as GdkProvider, model::ModelConfig};
 use sailry_protocol::{
@@ -39,18 +40,39 @@ pub(super) async fn provider(
             "provider was not configured when this turn was queued",
         )
     })?;
+    let compaction = matches!(purpose, Purpose::Compaction);
+    // An absent supported effort must not resolve back to the main model's
+    // default. This request-local copy preserves captured identity and policy.
+    let summary_provider = compaction.then(|| {
+        let mut provider = provider.clone();
+        if let Some(model) = provider
+            .models
+            .iter_mut()
+            .find(|model| model.id == invocation.turn.config.model)
+        {
+            model.default_effort = sailry_protocol::Effort::Default;
+        }
+        provider
+    });
+    let provider = summary_provider.as_ref().unwrap_or(provider);
+    let config = if compaction {
+        summary::config(provider, &invocation.turn.config)
+    } else {
+        invocation.turn.config.clone()
+    };
     let mut binding = binding(
         ingress,
         provider,
-        &invocation.turn.config,
+        &config,
         invocation.turn.session,
         invocation.child.is_some(),
         stop,
     )
     .await?;
-    if matches!(purpose, Purpose::Compaction) {
+    if compaction {
         // Both GDK summary paths use fixed prompts without Node owner parts.
         binding.sources.replace(Vec::new());
+        binding.config.max_tokens = Some(summary::max_tokens(provider, &config));
     }
     binding.provider = request::Model::wrap(
         binding.provider,

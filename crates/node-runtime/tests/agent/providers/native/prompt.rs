@@ -412,7 +412,7 @@ async fn persists_native_summary() {
             let blocks = handoff["content"].as_array().unwrap();
             assert_eq!(blocks.len(), 1);
             let generated = blocks[0]["text"].as_str().unwrap();
-            assert_eq!(generated, server::ANSWER);
+            assert!(generated.contains(server::ANSWER));
             {
                 let requests = server.requests.lock().unwrap();
                 assert_eq!(requests.len(), 2);

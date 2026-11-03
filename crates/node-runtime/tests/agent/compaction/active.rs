@@ -87,6 +87,15 @@ async fn cancels_before_next_model_call() {
     for remote in [false, true] {
         let server = Server::pending_loop_compaction().await;
         let fixture = fixture(remote, &server).await;
+        let mut updates = fixture
+            .client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        assert!(matches!(
+            updates.next().await.unwrap(),
+            Update::ConversationSnapshot(_)
+        ));
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -110,6 +119,38 @@ async fn cancels_before_next_model_call() {
         assert!(agent_support::compaction::is_summary(
             server.requests.lock().unwrap().last().unwrap()
         ));
+        let progress = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Update::ConversationFrame(frame) = updates.next().await.unwrap()
+                    && let sailry_protocol::conversation::Change::Delta(draft) = frame.change
+                    && let Some(progress) = draft.parts.iter().find_map(|part| match part {
+                        Part::Resource(value) => {
+                            sailry_protocol::conversation::compaction::Progress::from_resource(
+                                value,
+                            )
+                        }
+                        _ => None,
+                    })
+                {
+                    break progress;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(progress.started_ms > 0);
+        let mut reopened = fixture
+            .client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        let Update::ConversationSnapshot(snapshot) = reopened.next().await.unwrap() else {
+            panic!("snapshot expected")
+        };
+        assert!(snapshot.drafts.iter().any(|draft| draft.turn == turn.id
+            && draft.parts.iter().any(
+                |part| matches!(part, Part::Resource(value) if value["type"] == "compacting")
+            )));
         let before = history(&fixture.client, fixture.session.id).await;
         fixture
             .client
@@ -128,6 +169,16 @@ async fn cancels_before_next_model_call() {
         );
         assert_eq!(after.entries, before.entries);
         assert_eq!(server.requests.lock().unwrap().len(), 2);
+        let mut completed = fixture
+            .client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        let Update::ConversationSnapshot(snapshot) = completed.next().await.unwrap() else {
+            panic!("snapshot expected")
+        };
+        assert!(snapshot.drafts.is_empty());
+        drop((updates, reopened, completed));
         assert!(
             !after
                 .entries

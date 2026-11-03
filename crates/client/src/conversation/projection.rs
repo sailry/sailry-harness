@@ -661,10 +661,14 @@ fn validate_queue(queue: &conversation::Queue) -> Result<(), Fault> {
 
 fn validate_draft(page: &Page, draft: &Draft) -> Result<(), Fault> {
     if draft.id.is_empty()
-        || draft
-            .parts
-            .iter()
-            .any(|part| !matches!(part, Part::Text(_) | Part::Thinking(_)))
+        || draft.parts.iter().any(|part| match part {
+            Part::Text(_) | Part::Thinking(_) => false,
+            // Automatic compaction in progress, superseded by its summary entry.
+            Part::Resource(value) => {
+                sailry_protocol::conversation::compaction::Progress::from_resource(value).is_none()
+            }
+            _ => true,
+        })
         || !page.runs.iter().any(|run| {
             run.turn == draft.turn && matches!(run.status, Status::Running | Status::Stopping)
         })

@@ -104,6 +104,7 @@ impl InferenceRequestPreparer<Session> for Preparer {
     async fn prepare_session(&self, session: &Session) -> anyhow::Result<Option<Session>> {
         let mut session = session.clone();
         self.hydrate(&mut session.conversation).await?;
+        crate::agent::output::project(session.conversation.messages_mut());
         // Compaction hydrates without these owner prompt parts, so it retains
         // full skill results. Only ordinary inference receives the receipts.
         owners::collect(&session.records).project(session.conversation.messages_mut());
@@ -204,7 +205,6 @@ impl Preparer {
         )
         .await?;
         crate::agent::media::screenshots::omit(conversation.messages_mut(), &self.images);
-        crate::agent::output::project(conversation.messages_mut());
         Ok(())
     }
 }

@@ -111,6 +111,11 @@ fn active_phase_lifecycle() {
     ];
     assert!(!continuing_tools(&run, &page, &retry));
     assert_eq!(phase(&run, &page, &retry), None);
+    // Finished tools hand the phase to automatic compaction.
+    let compacting = [Block::Tools(vec![]), Block::Compacting(1_500)];
+    assert!(!continuing_tools(&run, &page, &compacting));
+    assert_eq!(super::compacting(&compacting), Some(1_500));
+    assert_eq!(phase(&run, &page, &compacting), Some("turn_compacting"));
     page.questions
         .push(sailry_protocol::conversation::question::Question {
             id: sailry_protocol::QuestionId::new(),

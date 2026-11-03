@@ -71,10 +71,8 @@ async fn retries_transient_summary_without_replaying_tools() {
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            summaries,
-            ["Verified tool evidence; continue remaining work"]
-        );
+        assert_eq!(summaries.len(), 1);
+        assert!(summaries[0].contains("Verified tool evidence; continue remaining work"));
         assert!(
             !serde_json::to_string(&after)
                 .unwrap()
