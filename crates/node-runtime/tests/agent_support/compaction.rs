@@ -2,7 +2,6 @@ use super::*;
 
 pub const PRIVATE_SENTINEL: &str = "PRIVATE_SUMMARY_PROVIDER_BODY_SENTINEL";
 pub const PARTIAL_SUMMARY: &str = "Discarded partial summary";
-const PAIR_SUMMARY: &str = "The tool request and response completed.";
 
 pub fn is_tool_pair(body: &Value) -> bool {
     body["messages"].as_array().is_some_and(|messages| {
@@ -15,30 +14,6 @@ pub fn is_tool_pair(body: &Value) -> bool {
                 })
         })
     })
-}
-
-pub(super) fn summarized_pairs(body: &Value) -> usize {
-    body["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|message| message["role"] == "user")
-        .filter_map(|message| message["content"].as_str())
-        .map(|text| text.matches(PAIR_SUMMARY).count())
-        .sum()
-}
-
-pub(super) async fn respond_pair(stream: TcpStream, body: &Value) -> std::io::Result<()> {
-    assert!(body["tools"].as_array().is_none_or(Vec::is_empty));
-    assert!(body["tool_choice"].is_null());
-    reply_usage(
-        stream,
-        body,
-        json!({"role":"assistant","content":PAIR_SUMMARY}),
-        false,
-        Some(12),
-    )
-    .await
 }
 
 pub fn is_summary(body: &Value) -> bool {

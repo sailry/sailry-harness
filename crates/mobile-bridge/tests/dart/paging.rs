@@ -143,7 +143,7 @@ fn loads_during_streaming() {
     ));
     let client = Client::new(node.local());
     let (first, slow_config) = runtime.block_on(async {
-        // Keep full context compaction separate from old tool-pair summaries.
+        // Keep all original tool output within the fixture context budget.
         let Output::Providers(mut providers) = client
             .execute(client.prepare(Command::ListProviders))
             .await
@@ -206,7 +206,7 @@ fn loads_during_streaming() {
                 .iter()
                 .filter(|request| support::compaction::is_tool_pair(request))
                 .count(),
-            30
+            0
         );
         requests.len()
     };

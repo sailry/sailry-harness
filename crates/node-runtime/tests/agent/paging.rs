@@ -12,17 +12,13 @@ mod entries;
 mod removal;
 #[path = "paging/seek.rs"]
 mod seek;
-#[cfg(unix)]
-#[path = "paging/summaries.rs"]
-mod summaries;
 #[path = "paging/transport.rs"]
 pub(super) mod transport;
 use transport::Observed;
 
-fn assert_totals(statistics: &Statistics, turns: u64, responses: u64, summaries: u64) {
-    let requests = responses + summaries;
+fn assert_totals(statistics: &Statistics, turns: u64, responses: u64) {
     assert_eq!(statistics.turns, turns);
-    assert_eq!(statistics.responses, requests);
+    assert_eq!(statistics.responses, responses);
     assert_eq!(statistics.context_tokens, Some(16));
     assert_eq!(statistics.context_estimate, None);
     assert_eq!(statistics.context_limit, Some(128_000));
@@ -31,8 +27,8 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64, summaries:
     assert_eq!(
         statistics.usage,
         Some(Usage {
-            input: requests * 12,
-            output: responses * 4 + summaries * 10,
+            input: responses * 12,
+            output: responses * 4,
             cached_input: 0,
             reasoning: 0,
         })
@@ -45,13 +41,13 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64, summaries:
     );
     assert_eq!(statistics.last_compaction, None);
     let generation = statistics.generation.as_ref().unwrap();
-    assert_eq!(generation.responses, requests);
-    assert_eq!(generation.output_tokens, responses * 4 + summaries * 10);
+    assert_eq!(generation.responses, responses);
+    assert_eq!(generation.output_tokens, responses * 4);
     let budget = statistics.budget.as_ref().unwrap();
     assert_eq!(budget.model, "fixture-a");
     assert_eq!(budget.context_limit, 128_000);
     let observations = &statistics.observations;
-    assert_eq!(observations.calls, requests);
+    assert_eq!(observations.calls, responses);
     assert_eq!(observations.replies, turns);
     assert_eq!(observations.compactions, 0);
     // Published snapshots keep one latest request per round.
@@ -204,7 +200,7 @@ async fn restore_stream(remote: bool) {
     let initial_entries = 2 * calls.len() + 2;
     let server = Server::tools(calls).await;
     let session = approvals::prepare_files(&client, &server, &root).await;
-    // Keep full context compaction separate from old tool-pair summaries.
+    // Keep all original tool output within the fixture context budget.
     let Output::Providers(mut providers) = client
         .execute(client.prepare(Command::ListProviders))
         .await
@@ -344,7 +340,6 @@ async fn restore_stream(remote: bool) {
         &initial.borrow().snapshot.as_ref().unwrap().statistics,
         1,
         52,
-        0,
     );
     stop.cancel();
     worker.await.unwrap().unwrap();
@@ -375,7 +370,7 @@ async fn restore_stream(remote: bool) {
     assert_eq!(recent.page.runs.len(), 20);
     assert_eq!(recent.page.next_before, Some(turns[5]));
     assert_eq!(recent.page.entries.len(), 40);
-    assert_totals(&recent.statistics, 25, 76, 30);
+    assert_totals(&recent.statistics, 25, 76);
     older.send(HistoryRequest::Older).await.unwrap();
     super::observed(&mut view, |view| view.older_error.is_some()).await;
     assert!(view.borrow().connected);
@@ -401,12 +396,7 @@ async fn restore_stream(remote: bool) {
     .await;
     assert!(view.borrow().loading_older);
     assert_eq!(view.borrow().snapshot.as_ref().unwrap().page.runs.len(), 21);
-    assert_totals(
-        &view.borrow().snapshot.as_ref().unwrap().statistics,
-        26,
-        77,
-        30,
-    );
+    assert_totals(&view.borrow().snapshot.as_ref().unwrap().statistics, 26, 77);
     assert_eq!(observed.cancelled_reads(), 0);
     observed.release();
     super::observed(&mut view, |view| {
@@ -440,11 +430,11 @@ async fn restore_stream(remote: bool) {
             .count(),
         initial_entries + 25 * 2
     );
-    assert_totals(&all.statistics, 26, 77, 30);
+    assert_totals(&all.statistics, 26, 77);
     assert_eq!(
         &all.page.entries[..complete.page.entries.len()],
         complete.page.entries.as_slice(),
-        "tool-pair summaries preserve every original public entry"
+        "streamed history preserves every original public entry"
     );
     assert_eq!(all.page.questions, complete.page.questions);
     assert_eq!(view.borrow().calls.len(), 51);
@@ -479,7 +469,7 @@ async fn restore_stream(remote: bool) {
             .count(),
         initial_entries + 26 * 2
     );
-    assert_totals(&all.statistics, 27, 78, 30);
+    assert_totals(&all.statistics, 27, 78);
     assert_eq!(
         all.page.as_ref(),
         &client
@@ -534,7 +524,7 @@ async fn restore_stream(remote: bool) {
         let Update::ConversationSnapshot(snapshot) = updates.next().await.unwrap() else {
             panic!("snapshot expected");
         };
-        assert_totals(&snapshot.statistics, 51, 102, 30);
+        assert_totals(&snapshot.statistics, 51, 102);
         snapshot.statistics
     };
     for format in [
@@ -590,7 +580,7 @@ async fn restore_stream(remote: bool) {
                 .iter()
                 .filter(|request| agent_support::compaction::is_tool_pair(request))
                 .count(),
-            30
+            0
         );
         requests.len()
     };
@@ -606,7 +596,7 @@ async fn restore_stream(remote: bool) {
     let Update::ConversationSnapshot(restored) = subscription.next().await.unwrap() else {
         panic!("snapshot expected");
     };
-    assert_totals(&restored.statistics, 51, 102, 30);
+    assert_totals(&restored.statistics, 51, 102);
     assert_eq!(restored.statistics, statistics);
     drop(subscription);
     assert_eq!(

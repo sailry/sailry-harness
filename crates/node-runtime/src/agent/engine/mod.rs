@@ -9,7 +9,6 @@ mod steer;
 #[cfg(test)]
 mod tests;
 pub(crate) mod tokens;
-mod tool_pairs;
 use crate::{
     agent::{catalog, model},
     store::{
@@ -126,13 +125,6 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         parts: parts.clone(),
         sources: binding.sources.clone(),
     });
-    let tool_pairs = Arc::new(tool_pairs::ToolPairs::new(
-        summary.provider.clone(),
-        summary.config.clone(),
-        invocation.turn.id,
-        context,
-        threshold,
-    ));
     let manual = invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction;
     let compact = Arc::new(compact::Compaction {
         provider: summary.provider,
@@ -176,7 +168,6 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
                 drained: Mutex::default(),
             })),
             Step::Operation(compact),
-            Step::Operation(tool_pairs),
             Step::Operation(Arc::new(operations::EmptyResponse)),
             Step::Operation(Arc::new(operations::ExitOnError)),
         ];

@@ -177,22 +177,42 @@ mod selection {
 }
 
 #[test]
-fn preserves_group_outcome_priority() {
+fn follows_last_tool_outcome() {
     let page = page();
     let unknown = call(State::Returned, Some(ErrorCode::OutcomeUnknown));
     let success = call(State::Returned, None);
     let error = call(State::Returned, Some(ErrorCode::Internal));
     let running = call(State::Running, None);
-    let warning = group_summary(&[&unknown, &success], &page);
+    let recovered = group_summary(&[&unknown, &error, &success], &page);
+    assert!(!recovered.detail.warning);
+    assert!(!recovered.detail.failed);
+    let warning = group_summary(&[&error, &unknown], &page);
     assert!(warning.detail.warning);
     assert!(!warning.detail.failed);
-    let failure = group_summary(&[&unknown, &error, &success], &page);
+    assert_eq!(warning.detail.state, Some(tr("tool_interrupted")));
+    let failure = group_summary(&[&success, &unknown, &error], &page);
     assert!(!failure.detail.warning);
     assert!(failure.detail.failed);
+    assert_eq!(failure.detail.state, Some(tr("tool_failed")));
     let active = group_summary(&[&unknown, &error, &running], &page);
     assert!(active.detail.running);
     assert!(!active.detail.warning);
     assert!(!active.detail.failed);
+}
+
+#[test]
+fn preserves_non_execution_states() {
+    let page = page();
+    for (state, key) in [
+        (State::Cancelled, "turn_cancelled"),
+        (State::Interrupted, "tool_interrupted"),
+        (State::NotExecuted, "tool_not_executed"),
+    ] {
+        let row = summary(&call(state, None), &page);
+        assert_eq!(row.detail.state, Some(tr(key)));
+        assert!(row.detail.warning);
+        assert!(!row.detail.failed);
+    }
 }
 
 #[test]

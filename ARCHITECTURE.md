@@ -403,9 +403,7 @@ summary text; the parsed file ledger is retained on the canonical compaction
 record. Summary requests have no tools. There is no background preparation,
 model-callable compaction tool, input preflight, custom old-output masking, prefix
 checkpoint, mandatory-heading check or minimum-reduction gate.
-Old tool pairs are summarized synchronously in batches of ten using Goose's
-cutoff and current-turn protection, with visibility and summary effects preserving
-the original raw history through the existing effect owner.
+Individual tool pairs do not trigger separate model summary requests.
 Original records and raw tool output remain intact. The request loader uses the
 latest summary and subsequent continuation, with older originals hidden from the
 agent. Goose's continuation and retained current input remain available after

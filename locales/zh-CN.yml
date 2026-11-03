@@ -973,6 +973,7 @@ tool_browser_load_failed: 网页加载失败
 tool_not_executed: 审批已中断，未执行
 chat_execution_unknown: 部分执行结果未确认
 tool_partial: 仅显示部分结果
+tool_output_earlier: 已省略前 %{count} 行
 tool_binary: 二进制文件
 tool_empty: 无输出
 tool_not_found: 未找到目标

@@ -571,10 +571,6 @@ async fn respond(
         return stream.shutdown().await;
     }
     let model = body["model"].as_str().unwrap().to_owned();
-    if compaction::is_tool_pair(&body) {
-        records.lock().unwrap().push(raw_body.clone());
-        return compaction::respond_pair(stream, &body).await;
-    }
     if let Reply::Http { failures, status } = reply {
         let count = records.lock().unwrap().len();
         if count < failures {
@@ -846,19 +842,7 @@ async fn respond(
                 && (!matches!(reply, Reply::Parallel(_) | Reply::TurnParallel(_))
                     || message["tool_call_id"] != "discovery-fixture")
         })
-        .count()
-        + if matches!(
-            reply,
-            Reply::Tools(_)
-                | Reply::HeldCompletion {
-                    per_turn: false,
-                    ..
-                }
-        ) {
-            compaction::summarized_pairs(&body)
-        } else {
-            0
-        };
+        .count();
     let browser_call = if let Reply::Browser(url, capture) = &reply {
         browser::next(&body, url, *capture)
     } else {

@@ -551,24 +551,19 @@ fn outcome_tone(call: &Call, result: &serde_json::Value, cx: &App) -> Option<Hsl
     })
 }
 
-/// Keep the last tool's title while aggregating the group's outcome.
+/// The header shows the last tool, so its outcome tone is that tool's own;
+/// earlier failures stay on their rows. Activity still reflects the whole group.
 fn group_summary(calls: &[&Call], page: &Page) -> Summary {
     let mut summaries: Vec<_> = calls.iter().map(|call| summary(call, page)).collect();
     let pending = summaries.iter().any(|item| item.detail.pending);
     let running = summaries.iter().any(|item| item.detail.running);
-    let failed = !pending && !running && summaries.iter().any(|item| item.detail.failed);
-    let warning =
-        !pending && !running && !failed && summaries.iter().any(|item| item.detail.warning);
     let mut latest = summaries.pop().unwrap();
+    let active = pending || running;
     latest.detail.pending = pending;
     latest.detail.running = running;
-    let latest_failed = latest.detail.failed;
-    latest.detail.failed = failed;
-    latest.detail.warning = warning;
+    latest.detail.failed &= !active;
+    latest.detail.warning &= !active && !latest.detail.failed;
     latest.detail.hide_caret = false;
-    if failed && !latest_failed {
-        latest.detail.state = Some(tr("tool_failed"));
-    }
     latest
 }
 
