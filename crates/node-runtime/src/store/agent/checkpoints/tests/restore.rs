@@ -168,6 +168,7 @@ async fn validates_status_outcome_and_scope() {
         path: "file.txt".into(),
         revision: version("after").revision,
         size: 5,
+        excerpt: None,
     };
     finish(
         &mut fixture,
@@ -241,6 +242,7 @@ async fn rechecks_queued_membership() {
             path: "file.txt".into(),
             revision: version("after").revision,
             size: 5,
+            excerpt: None,
         })),
     )
     .await;
@@ -323,6 +325,7 @@ async fn rechecks_after_rewind() {
             path: "file.txt".into(),
             revision: version("after").revision,
             size: 5,
+            excerpt: None,
         })),
     )
     .await;

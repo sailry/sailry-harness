@@ -1,12 +1,43 @@
 //! Numbered file text adapted from Sailry fb70fdc1 model/history/output/files.rs.
 use super::*;
 use sailry_protocol::FileLines;
+use std::collections::BTreeMap;
 
 const LIMIT: usize = 32 * 1024;
 const LINE_LIMIT: usize = 2 * 1024;
 
-pub(super) fn project(original: &Value, source: &Value) -> Option<String> {
+/// Complete line ranges already shown to the model, keyed by path and full
+/// file revision. A revision is a content hash, so equal revisions mean equal text.
+#[derive(Default)]
+pub(super) struct Reads(BTreeMap<(String, String), Vec<(usize, usize)>>);
+
+impl Reads {
+    fn covers(&self, page: &FileLines, first: usize, last: usize) -> bool {
+        self.0
+            .get(&(page.path.clone(), page.revision.clone()))
+            .is_some_and(|ranges| {
+                ranges
+                    .iter()
+                    .any(|(start, end)| *start <= first && last <= *end)
+            })
+    }
+}
+
+/// `reads` is present only for model-visible results; it stubs a page whose
+/// exact lines an earlier visible result already showed in full.
+pub(super) fn project(
+    original: &Value,
+    source: &Value,
+    reads: Option<&mut Reads>,
+) -> Option<String> {
     let page: FileLines = serde_json::from_value(original.get("data")?.clone()).ok()?;
+    let range = page.lines.first().zip(page.lines.last());
+    if let (Some(reads), Some((first, last))) = (reads.as_deref(), range)
+        && reads.covers(&page, first.number, last.number)
+    {
+        return Some(unchanged(&page, (first.number, last.number), source));
+    }
+    let mut covered = None;
     let mut body = String::new();
     let mut shortened = false;
     let mut projected = if page.lines.is_empty() {
@@ -39,9 +70,33 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<String> {
         }
         body = candidate;
         shortened |= omitted;
+        covered = (!shortened).then_some((page.lines[0].number, line.number));
         projected = Some(text);
     }
-    projected.filter(|text| serde_json::to_string(text).is_ok_and(|encoded| encoded.len() <= LIMIT))
+    let projected = projected
+        .filter(|text| serde_json::to_string(text).is_ok_and(|encoded| encoded.len() <= LIMIT));
+    if let (Some(reads), Some(range), Some(_)) = (reads, covered, &projected) {
+        reads
+            .0
+            .entry((page.path.clone(), page.revision.clone()))
+            .or_default()
+            .push(range);
+    }
+    projected
+}
+
+fn unchanged(page: &FileLines, (first, last): (usize, usize), source: &Value) -> String {
+    let mut text = format!(
+        "{}
+Lines {first}–{last} are unchanged since an earlier read_file result in this conversation; revision {}
+",
+        page.path, page.revision
+    );
+    if let Some(next) = page.next_offset {
+        text.push_str(&format!("Next file page: read_file with offset={next}\n"));
+    }
+    text.push_str(&json!({"output":source,"next_offset":page.next_offset}).to_string());
+    text
 }
 
 fn row(line: &sailry_protocol::FileLine) -> (String, bool) {

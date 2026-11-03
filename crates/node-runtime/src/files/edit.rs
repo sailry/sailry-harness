@@ -1,7 +1,8 @@
 use super::{Control, lines, save::Target};
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, FileEdit, FileWritten, MAX_EDIT_BYTES};
-use std::{borrow::Cow, cmp::Reverse, collections::BinaryHeap};
+use std::{borrow::Cow, cmp::Reverse, collections::BinaryHeap, ops::Range};
+mod excerpt;
 mod text;
 
 pub(crate) fn changes<'a>(
@@ -50,7 +51,7 @@ pub(crate) fn edit<'a>(
     let root = root.into();
     let control = Control::new(CancellationToken::new());
     let before = lines::complete(root, path, &control)?;
-    let text = prepare(&before, edits, expected)?;
+    let (text, changes) = apply(&before, edits, expected)?;
     control.check()?;
     let target = Target::prepare(
         root,
@@ -61,16 +62,27 @@ pub(crate) fn edit<'a>(
     )?;
     control.check()?;
     let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
-    target.write(
+    let mut written = target.write(
         text.as_bytes(),
         text.len() as u64,
         &revision,
         #[cfg(test)]
         &|_| {},
-    )
+    )?;
+    written.excerpt = Some(excerpt::collect(&text, &changes));
+    Ok(written)
 }
 
 pub(crate) fn prepare(before: &str, edits: &[FileEdit], expected: &str) -> Result<String, Fault> {
+    apply(before, edits, expected).map(|(after, _)| after)
+}
+
+/// Returns the edited text and the byte ranges of each replacement within it.
+fn apply(
+    before: &str,
+    edits: &[FileEdit],
+    expected: &str,
+) -> Result<(String, Vec<Range<usize>>), Fault> {
     changes(None, None, false, Some(edits))?;
     if before.len() > MAX_EDIT_BYTES
         || before.contains('\0')
@@ -109,6 +121,7 @@ pub(crate) fn prepare(before: &str, edits: &[FileEdit], expected: &str) -> Resul
         matches.push(Reverse((range.start, range.end, index, start)));
     }
     let mut after = String::with_capacity(before.len());
+    let mut changes = Vec::new();
     let mut offset = 0;
     while let Some(Reverse((start, end, index, position))) = matches.pop() {
         control.check()?;
@@ -117,10 +130,12 @@ pub(crate) fn prepare(before: &str, edits: &[FileEdit], expected: &str) -> Resul
         }
         let edit = &edits[index];
         append(&mut after, &before[offset..start])?;
+        let from = after.len();
         append(
             &mut after,
             &patterns[index].replacement(before, start..end, &edit.new_text),
         )?;
+        changes.push(from..after.len());
         offset = end;
         if edit.replace_all {
             // Advance one character so overlapping occurrences are rejected instead of silently skipped.
@@ -132,7 +147,7 @@ pub(crate) fn prepare(before: &str, edits: &[FileEdit], expected: &str) -> Resul
         }
     }
     append(&mut after, &before[offset..])?;
-    Ok(after)
+    Ok((after, changes))
 }
 
 fn append(after: &mut String, text: &str) -> Result<(), Fault> {

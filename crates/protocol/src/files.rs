@@ -244,6 +244,26 @@ pub struct FileWritten {
     pub path: String,
     pub revision: String,
     pub size: u64,
+    /// Bounded numbered regions around applied edits; absent for whole-file writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<FileExcerpt>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileExcerpt {
+    pub hunks: Vec<FileHunk>,
+    /// Edited regions left out by the excerpt budget.
+    #[serde(default)]
+    pub omitted: usize,
+}
+
+/// Consecutive lines of the edited file, with a few lines of context.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileHunk {
+    pub lines: Vec<FileLine>,
+    /// Lines past the hunk budget or long line text were left out.
+    #[serde(default)]
+    pub shortened: bool,
 }
 
 /// Replacements match the original file, before any edit in the batch is applied.

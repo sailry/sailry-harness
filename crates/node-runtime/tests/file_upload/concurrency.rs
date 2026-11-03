@@ -58,6 +58,7 @@ async fn admits_mixed_streams() {
                         path: upload.spec.path.clone(),
                         size: data.len() as u64,
                         revision: upload.spec.revision.clone(),
+                        excerpt: None,
                     })
                 );
                 assert_eq!(std::fs::read(root.join(&upload.spec.path)).unwrap(), data);

@@ -5,6 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Model-facing guidance when an HTML page yields almost no text.
+pub(super) const SPARSE: &str = "This page has little or no readable text; it appears to be rendered by JavaScript or embedded in a frame. Use a browser tool to read it";
+
 type Slot = Arc<tokio::sync::Mutex<Option<Document>>>;
 
 #[derive(Default)]
@@ -94,6 +97,7 @@ impl Document {
             next_offset: truncated.then_some(offset + web::PAGE_CHARS),
             truncated,
             untrusted: true,
+            notice: (offset == 0 && super::render::needed(self)).then(|| SPARSE.into()),
         })
     }
 }

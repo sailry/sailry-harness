@@ -182,6 +182,7 @@ async fn bounds_reads_without_blocking_restore() {
         path: "file.txt".into(),
         revision: content.file.after.revision.clone(),
         size: content.file.after.size,
+        excerpt: None,
     };
     fixture
         .database

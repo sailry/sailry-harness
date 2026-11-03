@@ -70,3 +70,15 @@ fn admits_active_urls_beyond_cache_retention() {
     cache.trim();
     assert_eq!(cache.entries.len(), web::CACHE_ENTRIES);
 }
+
+#[test]
+fn notes_sparse_html_on_the_first_page() {
+    let mut sparse = document("Loading".into());
+    sparse.content_type = "text/html".into();
+    assert_eq!(sparse.page(0).unwrap().notice.as_deref(), Some(SPARSE));
+    assert!(sparse.page(1).unwrap().notice.is_none());
+    let mut full = document("Readable text ".repeat(40));
+    full.content_type = "text/html".into();
+    assert!(full.page(0).unwrap().notice.is_none());
+    assert!(document("Short".into()).page(0).unwrap().notice.is_none());
+}

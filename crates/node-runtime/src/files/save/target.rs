@@ -131,6 +131,7 @@ impl Target {
             path: self.relative,
             revision: revision.into(),
             size,
+            excerpt: None,
         })
     }
 

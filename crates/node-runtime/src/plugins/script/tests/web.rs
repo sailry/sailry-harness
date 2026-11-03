@@ -36,6 +36,7 @@ fn preserves_pages_and_captured_scope() {
                     next_offset: (input.offset == 0).then_some(2),
                     truncated: false,
                     untrusted: true,
+                    notice: None,
                 })),
                 Command::CancelWebFetch { request } => Ok(Output::WebFetchCancelled { request }),
                 _ => panic!("web command expected"),

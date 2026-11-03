@@ -203,6 +203,7 @@ async fn waits_for_publication() {
                     path: destination.clone(),
                     size: bytes.len() as u64,
                     revision: download.revision,
+                    excerpt: None,
                 })
             );
             assert_eq!(fixture.source.count().await, counts.0);

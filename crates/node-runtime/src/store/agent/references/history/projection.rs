@@ -3,9 +3,11 @@ use super::*;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
-const MAX_BYTES: usize = 128 * 1024;
-const PART_BYTES: usize = 8 * 1024;
-const ENTRY_BYTES: usize = 16 * 1024;
+/// Stays below the shared 50 KiB model-facing tool ceiling, so a page is never
+/// cut mid-JSON; older content moves to `missing` or `next_before` instead.
+pub(super) const MAX_BYTES: usize = 40 * 1024;
+const PART_BYTES: usize = 4 * 1024;
+const ENTRY_BYTES: usize = 8 * 1024;
 const INPUT_BYTES: usize = 8 * 1024;
 
 #[derive(Serialize)]

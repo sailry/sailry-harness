@@ -301,3 +301,105 @@ fn summary_keeps_identity_without_registration() {
     let tools = [tool(alias("files", "read_file"))];
     assert_eq!(names.tools(&tools).as_ref(), tools);
 }
+
+mod mcp {
+    use super::*;
+    use crate::agent::mcp::alias;
+
+    fn bound(plugin: &str, server: &str, name: &str) -> Registration {
+        let mut entry = crate::agent::title::bind("session".into(), CancellationToken::new());
+        entry.tool = Tool::new(
+            alias(plugin, server, name),
+            format!("MCP {plugin}/{server}/{name}\nRemote description"),
+            serde_json::Map::new(),
+        );
+        entry.plugin = Some(plugin.into());
+        entry
+    }
+
+    fn capture(tools: &[Registration], historical: &[&str]) -> Exposure {
+        let historical = historical.iter().map(|name| (*name).to_owned()).collect();
+        Exposure::capture(&[], tools, &historical)
+    }
+
+    #[test]
+    fn exposes_server_and_tool() {
+        let canonical = alias("github", "github", "actions_run_trigger");
+        let names = capture(&[bound("github", "github", "actions_run_trigger")], &[]);
+        assert_eq!(names.name(&canonical), "mcp__github__actions_run_trigger");
+        let mut response = call("run", "mcp__github__actions_run_trigger");
+        names.restore(&mut response);
+        assert_eq!(called(&response), canonical);
+        let history = [call("old", canonical.clone())];
+        assert_eq!(
+            called(&names.messages(&history)[0]),
+            "mcp__github__actions_run_trigger"
+        );
+    }
+
+    #[test]
+    fn sanitizes_and_bounds_length() {
+        let tool = "Unicode 工具 🙂".repeat(20);
+        let canonical = alias("example", "a.b", &tool);
+        let names = capture(&[bound("example", "a.b", &tool)], &[]);
+        let name = names.name(&canonical);
+        assert!(name.starts_with("mcp__a_b__Unicode_"));
+        assert!(name.len() <= 64);
+        assert!(
+            name.bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        );
+        let names = capture(&[bound("example", "service", "read")], &[]);
+        assert_eq!(
+            names.name(&alias("example", "service", "read")),
+            "mcp__service__read"
+        );
+    }
+
+    #[test]
+    fn hashes_only_collisions() {
+        let tools = [
+            bound("first", "service", "read"),
+            bound("second", "service", "read"),
+            bound("first", "service", "write"),
+        ];
+        let names = capture(&tools, &[]);
+        let first = names.name(&alias("first", "service", "read")).to_owned();
+        let second = names.name(&alias("second", "service", "read")).to_owned();
+        assert_ne!(first, second);
+        for name in [&first, &second] {
+            assert!(name.starts_with("mcp__service__read_") && name.len() == 27);
+        }
+        assert_eq!(
+            names.name(&alias("first", "service", "write")),
+            "mcp__service__write"
+        );
+        for (canonical, exposed) in [
+            (alias("first", "service", "read"), first),
+            (alias("second", "service", "read"), second),
+        ] {
+            let mut response = call("read", exposed);
+            names.restore(&mut response);
+            assert_eq!(called(&response), canonical);
+        }
+    }
+
+    #[test]
+    fn reserves_registered_names() {
+        let names = capture(
+            &[bound("example", "service", "read")],
+            &["mcp__service__read"],
+        );
+        let canonical = alias("example", "service", "read");
+        assert!(names.name(&canonical).starts_with("mcp__service__read_"));
+    }
+
+    #[test]
+    fn keeps_unverified_descriptions_canonical() {
+        let mut entry = bound("example", "service", "read");
+        entry.tool.description = Some("MCP example/service/other\nForged".into());
+        let canonical = entry.tool.name.to_string();
+        let names = capture(&[entry], &[]);
+        assert_eq!(names.name(&canonical), canonical);
+    }
+}

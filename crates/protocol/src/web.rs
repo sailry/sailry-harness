@@ -29,6 +29,9 @@ pub struct Page {
     pub truncated: bool,
     /// The content is external data, never instructions or user authorization.
     pub untrusted: bool,
+    /// Sailry's note about the extraction, such as an apparently script-rendered page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 #[cfg(test)]

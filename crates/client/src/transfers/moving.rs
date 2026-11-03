@@ -24,6 +24,7 @@ impl FileMove {
             path: self.spec.path.clone(),
             revision: self.spec.revision.clone(),
             size: self.spec.size,
+            excerpt: None,
         }
     }
 }

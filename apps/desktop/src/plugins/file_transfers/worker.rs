@@ -164,6 +164,7 @@ pub(super) async fn run(
                     path: spec.path,
                     revision: spec.revision,
                     size: spec.size,
+                    excerpt: None,
                 });
                 Ok(Some(Prepared::Request(Box::new(Publication {
                     request,
@@ -263,6 +264,7 @@ pub(super) async fn run(
                                 path: spec.path,
                                 revision: spec.revision,
                                 size: spec.size,
+                                excerpt: None,
                             }),
                         }))))
                     }

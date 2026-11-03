@@ -348,6 +348,7 @@ fn shows_file_write_body() {
         path: "资料.txt".into(),
         revision: "opaque-revision".into(),
         size: 3,
+        excerpt: None,
     }))
     .unwrap();
     let projection = file_projection("write_file");

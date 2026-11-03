@@ -114,6 +114,7 @@ mod tests {
             next_offset: None,
             truncated: false,
             untrusted: true,
+            notice: None,
         }
     }
 

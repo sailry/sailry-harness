@@ -342,6 +342,7 @@ async fn preserves_literal_references_without_indexing_writes() {
                 path: path.into(),
                 revision: "written".into(),
                 size: 7,
+                excerpt: None,
             }))
             .unwrap(),
             serde_json::json!({"error":"failed","path":"missing.txt"}),
@@ -375,6 +376,7 @@ async fn project_writes_are_not_outputs() {
                     path: format!("src/module_{index}.rs"),
                     revision: "written".into(),
                     size: 7,
+                    excerpt: None,
                 }))
                 .unwrap()
             })
@@ -426,6 +428,7 @@ async fn ignores_document_write_receipts() {
         path: "report.docx".into(),
         revision: "written".into(),
         size: 1024,
+        excerpt: None,
     };
     {
         let (name, output) = (

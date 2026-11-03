@@ -184,6 +184,41 @@ fn preserves_large_files_and_crlf() {
     );
     assert_eq!(written.revision, revision(&expected));
     assert_eq!(written.size, expected.len() as u64);
+    let excerpt = written.excerpt.unwrap();
+    assert_eq!(excerpt.hunks.len(), 1);
+    let lines = &excerpt.hunks[0].lines;
+    assert_eq!(
+        lines.iter().map(|line| line.number).collect::<Vec<_>>(),
+        (19_998..=20_002).collect::<Vec<_>>()
+    );
+    assert_eq!(lines[3].text, "new target\r\n");
+}
+
+#[test]
+fn returns_each_edited_region() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().canonicalize().unwrap();
+    let before: String = (1..=40).map(|line| format!("item {line}\n")).collect();
+    std::fs::write(root.path().join("file"), &before).unwrap();
+    let written = edit(
+        &path,
+        "file",
+        &[
+            change("item 30\n", "item thirty\nitem extra\n", false),
+            change("item 5\n", "", false),
+        ],
+        &revision(&before),
+    )
+    .unwrap();
+    let excerpt = written.excerpt.unwrap();
+    let ranges: Vec<_> = excerpt
+        .hunks
+        .iter()
+        .map(|hunk| (hunk.lines[0].number, hunk.lines.last().unwrap().number))
+        .collect();
+    assert_eq!(ranges, [(2, 8), (26, 33)]);
+    assert_eq!(excerpt.hunks[1].lines[3].text, "item thirty\n");
+    assert_eq!(excerpt.omitted, 0);
 }
 
 #[test]

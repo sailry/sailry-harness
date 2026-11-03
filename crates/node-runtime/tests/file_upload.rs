@@ -191,7 +191,8 @@ async fn publishes_verified_staging() {
                 Output::FileWritten(FileWritten {
                     path: path.clone(),
                     revision: upload.spec.revision.clone(),
-                    size: data.len() as u64
+                    size: data.len() as u64,
+                    excerpt: None,
                 })
             );
             assert_eq!(std::fs::read(fixture.root.join(&path)).unwrap(), data);

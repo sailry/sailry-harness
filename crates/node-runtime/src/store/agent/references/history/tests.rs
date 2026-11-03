@@ -476,7 +476,10 @@ async fn bounds_public_content_without_claiming_completeness() {
     let page = execute(&fixture.database, source, read_query(source.session))
         .await
         .unwrap();
-    assert!(serde_json::to_vec(&page).unwrap().len() <= 128 * 1024);
+    assert!(serde_json::to_vec(&page).unwrap().len() <= super::projection::MAX_BYTES);
+    for entry in page["page"]["entries"].as_array().unwrap() {
+        assert!(serde_json::to_vec(entry).unwrap().len() <= 12 * 1024);
+    }
     assert_eq!(page["truncated"], true);
     assert!(!page["truncated_entries"].as_array().unwrap().is_empty());
     assert!(page["missing"].as_array().unwrap().contains(&json!(turn)));

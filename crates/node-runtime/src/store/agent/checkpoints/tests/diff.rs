@@ -15,6 +15,7 @@ async fn write(fixture: &mut Fixture, turn: TurnId, path: &str, before: Option<&
         path: path.into(),
         revision: version(after).revision,
         size: after.len() as u64,
+        excerpt: None,
     }));
     assert_eq!(
         fixture

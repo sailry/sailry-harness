@@ -4,6 +4,7 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::{Value, json};
 
 mod commands;
+mod edits;
 mod files;
 mod limit;
 mod pages;
@@ -18,7 +19,11 @@ pub(super) const MAX_LINES: usize = 2_000;
 pub(super) const MAX_BYTES: usize = 50 * 1024;
 
 pub(in crate::agent) fn project(messages: &mut [Message]) {
+    // Only results still visible to the model, such as those after the latest
+    // compaction boundary, can stand in for a later unchanged read.
+    let mut reads = files::Reads::default();
     for message in messages {
+        let visible = message.is_agent_visible();
         for content in &mut message.content {
             let MessageContentBlock::ToolResponse(response) = content else {
                 continue;
@@ -45,13 +50,18 @@ pub(in crate::agent) fn project(messages: &mut [Message]) {
                     Some("command_result" | "command_output")
                 )
             });
-            preview(&response.id, result, &source);
+            preview(&response.id, result, &source, visible.then_some(&mut reads));
             limit::bound(result, &source, tail);
         }
     }
 }
 
-fn preview(call: &str, result: &mut CallToolResult, source: &Value) {
+fn preview(
+    call: &str,
+    result: &mut CallToolResult,
+    source: &Value,
+    reads: Option<&mut files::Reads>,
+) {
     let Some(original) = &result.structured_content else {
         return;
     };
@@ -60,7 +70,9 @@ fn preview(call: &str, result: &mut CallToolResult, source: &Value) {
     }
     let encoded = original.to_string();
     let page = pages::project(original);
+    let edited = original["kind"] == "file_written" && !original["data"]["excerpt"].is_null();
     if page.is_some()
+        || edited
         || matches!(
             original["kind"].as_str(),
             Some("file_lines" | "search_results")
@@ -68,8 +80,10 @@ fn preview(call: &str, result: &mut CallToolResult, source: &Value) {
     {
         let projected = if page.is_some() {
             page
+        } else if edited {
+            edits::project(original)
         } else if original["kind"] == "file_lines" {
-            files::project(original, source)
+            files::project(original, source, reads)
         } else {
             search::project(original, source)
         };
