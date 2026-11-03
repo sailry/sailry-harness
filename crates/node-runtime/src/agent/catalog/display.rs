@@ -14,9 +14,6 @@ pub(in crate::agent) enum Label {
     Skills,
     Mcp,
     Title,
-    Install,
-    Update,
-    Uninstall,
     ListAgents,
     AddAgent,
     EditAgent,
@@ -44,9 +41,6 @@ impl Label {
             Self::Skills => "settings_skills",
             Self::Mcp => "settings_mcp",
             Self::Title => "tool_session_title",
-            Self::Install => "plugins_install",
-            Self::Update => "settings_update",
-            Self::Uninstall => "plugins_uninstall",
             Self::ListAgents => "tool_list_agents",
             Self::AddAgent => "tool_add_agent",
             Self::EditAgent => "tool_edit_agent",
@@ -166,24 +160,8 @@ pub(in crate::agent) fn management(label: Label, version: Option<&str>) -> Displ
     parts.push(json!({"rows":{"value":{"source":"result","path":"/failures"},"separator":"\n","text":{
         "separator":": ","parts":[{"value":{"source":"item","path":"/name"}},{"value":{"source":"item","path":"/error/code"}},{"value":{"source":"item","path":"/error/message"}}]
     }}}));
-    let notices: Vec<_> = [
-        ("install", Label::Install),
-        ("update", Label::Update),
-        ("uninstall", Label::Uninstall),
-    ]
-    .into_iter()
-    .map(|(action, label)| {
-        json!({"message":name(label),"when":{"all":[{
-            "value":{"source":"arguments","path":"/action"},"equals":action
-        }]}})
-    })
-    .collect();
-    display.output = Some(
-        serde_json::from_value(
-            json!({"preview":{"separator":" ","parts":parts},"notices":notices}),
-        )
-        .unwrap(),
-    );
+    display.output =
+        Some(serde_json::from_value(json!({"preview":{"separator":" ","parts":parts}})).unwrap());
     display
 }
 
@@ -254,7 +232,8 @@ mod tests {
             for action in ["install", "update", "uninstall"] {
                 let args = json!({"action":action,"name":"fixture"});
                 assert_eq!(preview.render(&args, &result), expected);
-                assert_eq!(output.notices(&args, &result, "en").len(), 1);
+                assert!(output.notices(&args, &result, "en").is_empty());
+                assert!(output.notices(&args, &result, "zh-CN").is_empty());
             }
             let faults = json!({"failures":[{"name":"fixture","error":{"code":"revision_conflict","message":"Package changed"}}]});
             assert_eq!(
