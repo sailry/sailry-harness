@@ -2228,7 +2228,7 @@ host_process_uncertain: 结束结果未知，请检查进程状态
 host_process_stop_failed: 无法结束进程，可能已退出、权限不足或主机不支持此操作
 usage_column_provider: 供应商
 usage_column_project: 归属
-usage_column_first_token: 首 Token 延迟
+usage_column_first_token: TTFT
 connections_hosts: 主机
 connections_mobile: 移动端
 connections_online: 在线

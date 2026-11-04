@@ -30,11 +30,13 @@ pub(super) struct SetTitle {
 pub(super) fn bind(session: String, stop: CancellationToken) -> super::catalog::Registration {
     let tool = Arc::new(SetTitle { session, stop });
     let mut registration = super::catalog::Registration::managed(tool.descriptor(), tool);
-    registration.presentation = sailry_protocol::tool::Presentation::Hidden;
-    registration.display = Some((
-        registration.tool.name.to_string(),
-        super::catalog::display::new(super::catalog::display::Label::Title),
-    ));
+    // Shown as an ordinary row; hiding it on return made the running row flash.
+    let mut display = super::catalog::display::new(super::catalog::display::Label::Title);
+    display.input = Some(
+        serde_json::from_value(json!({"summary":{"path":"/title"}}))
+            .expect("title display is valid"),
+    );
+    registration.display = Some((registration.tool.name.to_string(), display));
     registration
 }
 
