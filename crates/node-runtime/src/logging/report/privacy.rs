@@ -374,93 +374,110 @@ mod tests {
     }
 
     #[test]
-    fn distinguishes_native_instruction_offsets() {
-        let metadata = Control::fixture(true, true).metadata();
-        for known_image in [true, false] {
-            let first =
-                super::event(unresolved(0x1000, 0x10, known_image), &metadata, false).unwrap();
-            let second =
-                super::event(unresolved(0x1000, 0x20, known_image), &metadata, false).unwrap();
-            assert_ne!(first.fingerprint, second.fingerprint);
-        }
-    }
-
-    #[test]
-    fn preserves_grouping_after_image_relocation() {
-        let metadata = Control::fixture(true, true).metadata();
-        for known_image in [true, false] {
-            let first =
-                super::event(unresolved(0x1000, 0x10, known_image), &metadata, false).unwrap();
-            let relocated =
-                super::event(unresolved(0x80000000, 0x10, known_image), &metadata, false).unwrap();
-            assert_eq!(first.fingerprint, relocated.fingerprint);
-        }
-    }
-
-    #[test]
-    fn distinguishes_outer_native_callers() {
-        let metadata = Control::fixture(true, true).metadata();
-        for placeholder in [None, Some("<unknown>")] {
-            let mut first = unresolved(0x1000, 0x10, false);
-            let mut second = unresolved(0x1000, 0x20, false);
-            for event in [&mut first, &mut second] {
-                let frames = &mut event.exception[0].stacktrace.as_mut().unwrap().frames;
-                frames[0].function = placeholder.map(str::to_owned);
-                frames.extend(vec![
-                    Frame {
-                        function: placeholder.map(str::to_owned),
-                        instruction_addr: Some(0x1180_u64.into()),
+    fn retains_public_native_frame_identity() {
+        for (case_name, run) in [
+            (
+                "distinguishes_native_instruction_offsets",
+                (|case_name| {
+                    let metadata = Control::fixture(true, true).metadata();
+                    for known_image in [true, false] {
+                        let first =
+                            super::event(unresolved(0x1000, 0x10, known_image), &metadata, false)
+                                .unwrap();
+                        let second =
+                            super::event(unresolved(0x1000, 0x20, known_image), &metadata, false)
+                                .unwrap();
+                        assert_ne!(first.fingerprint, second.fingerprint, "{case_name}");
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "preserves_grouping_after_image_relocation",
+                (|case_name| {
+                    let metadata = Control::fixture(true, true).metadata();
+                    for known_image in [true, false] {
+                        let first =
+                            super::event(unresolved(0x1000, 0x10, known_image), &metadata, false)
+                                .unwrap();
+                        let relocated = super::event(
+                            unresolved(0x80000000, 0x10, known_image),
+                            &metadata,
+                            false,
+                        )
+                        .unwrap();
+                        assert_eq!(first.fingerprint, relocated.fingerprint, "{case_name}");
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "distinguishes_outer_native_callers",
+                (|case_name| {
+                    let metadata = Control::fixture(true, true).metadata();
+                    for placeholder in [None, Some("<unknown>")] {
+                        let mut first = unresolved(0x1000, 0x10, false);
+                        let mut second = unresolved(0x1000, 0x20, false);
+                        for event in [&mut first, &mut second] {
+                            let frames =
+                                &mut event.exception[0].stacktrace.as_mut().unwrap().frames;
+                            frames[0].function = placeholder.map(str::to_owned);
+                            frames.extend(vec![
+                                Frame {
+                                    function: placeholder.map(str::to_owned),
+                                    instruction_addr: Some(0x1180_u64.into()),
+                                    ..Default::default()
+                                };
+                                12
+                            ]);
+                        }
+                        let first = super::event(first, &metadata, false).unwrap();
+                        let second = super::event(second, &metadata, false).unwrap();
+                        assert_ne!(first.fingerprint, second.fingerprint, "{case_name}");
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "keeps_newest_frames_without_private_fields",
+                (|case_name| {
+                    let trace = Stacktrace {
+                        frames: (0..140)
+                            .map(|line| Frame {
+                                function: Some(format!("sailry_node_runtime::frame_{line}")),
+                                filename: Some("src/worker.rs".into()),
+                                lineno: Some(line),
+                                instruction_addr: Some((0x1000 + line).into()),
+                                abs_path: Some("/Users/PRIVATE_USER/project/src/worker.rs".into()),
+                                context_line: Some("PRIVATE_SOURCE".into()),
+                                package: Some("C:\\Users\\PRIVATE_USER\\project.exe".into()),
+                                vars: [("PRIVATE_VARIABLE".into(), json!("PRIVATE_VALUE"))]
+                                    .into_iter()
+                                    .collect(),
+                                ..Default::default()
+                            })
+                            .collect(),
                         ..Default::default()
                     };
-                    12
-                ]);
-            }
-            let first = super::event(first, &metadata, false).unwrap();
-            let second = super::event(second, &metadata, false).unwrap();
-            assert_ne!(first.fingerprint, second.fingerprint);
-        }
-    }
-
-    #[test]
-    fn keeps_newest_frames_without_private_fields() {
-        let trace = Stacktrace {
-            frames: (0..140)
-                .map(|line| Frame {
-                    function: Some(format!("sailry_node_runtime::frame_{line}")),
-                    filename: Some("src/worker.rs".into()),
-                    lineno: Some(line),
-                    instruction_addr: Some((0x1000 + line).into()),
-                    abs_path: Some("/Users/PRIVATE_USER/project/src/worker.rs".into()),
-                    context_line: Some("PRIVATE_SOURCE".into()),
-                    package: Some("C:\\Users\\PRIVATE_USER\\project.exe".into()),
-                    vars: [("PRIVATE_VARIABLE".into(), json!("PRIVATE_VALUE"))]
-                        .into_iter()
-                        .collect(),
-                    ..Default::default()
-                })
-                .collect(),
-            ..Default::default()
-        };
-        let safe = stack(&trace);
-        assert_eq!(safe.frames.len(), 128);
-        assert_eq!(safe.frames[0].lineno, Some(12));
-        assert_eq!(safe.frames[127].lineno, Some(139));
-        assert_eq!(
-            safe.frames[127].function.as_deref(),
-            Some("sailry_node_runtime::frame_139")
-        );
-        let serialized = serde_json::to_string(&safe).unwrap();
-        assert!(!serialized.contains("PRIVATE_"));
-        assert!(!serialized.contains("/Users/"));
-        assert!(!serialized.contains("C:\\"));
-    }
-
-    #[test]
-    fn retains_native_identifiers_without_paths() {
-        let id = "4c181d40-80d9-489d-a61b-c8770a510cc1-3";
-        let uuid = "8b9964e7-9eaf-4aac-8bca-3b656a4bd355";
-        let code = "b81f58452fc52cf6fb163353f727c31b5de732d4";
-        let event: Event<'static> = serde_json::from_value(json!({
+                    let safe = stack(&trace);
+                    assert_eq!(safe.frames.len(), 128, "{case_name}");
+                    assert_eq!(safe.frames[0].lineno, Some(12), "{case_name}");
+                    assert_eq!(safe.frames[127].lineno, Some(139), "{case_name}");
+                    assert_eq!(
+                        safe.frames[127].function.as_deref(),
+                        Some("sailry_node_runtime::frame_139"),
+                        "{case_name}"
+                    );
+                    let serialized = serde_json::to_string(&safe).unwrap();
+                    assert!(!serialized.contains("PRIVATE_"), "{case_name}");
+                    assert!(!serialized.contains("/Users/"), "{case_name}");
+                    assert!(!serialized.contains("C:\\"), "{case_name}");
+                }) as fn(&str),
+            ),
+            (
+                "retains_native_identifiers_without_paths",
+                (|case_name| {
+                    let id = "4c181d40-80d9-489d-a61b-c8770a510cc1-3";
+                    let uuid = "8b9964e7-9eaf-4aac-8bca-3b656a4bd355";
+                    let code = "b81f58452fc52cf6fb163353f727c31b5de732d4";
+                    let event: Event<'static> = serde_json::from_value(json!({
             "platform": "PRIVATE_PLATFORM",
             "message": "PRIVATE_MESSAGE",
             "exception": {"values":[{
@@ -489,40 +506,69 @@ mod tests {
                 ]
             }
         })).unwrap();
-        let safe = serde_json::to_value(
-            super::event(event, &Control::fixture(true, true).metadata(), false).unwrap(),
-        )
-        .unwrap();
-        let serialized = safe.to_string();
-        for forbidden in [
-            "PRIVATE_",
-            "C:\\",
-            "/Users/",
-            "https://",
-            "debug_file",
-            "sdk_info",
+                    let safe = serde_json::to_value(
+                        super::event(event, &Control::fixture(true, true).metadata(), false)
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    let serialized = safe.to_string();
+                    for forbidden in [
+                        "PRIVATE_",
+                        "C:\\",
+                        "/Users/",
+                        "https://",
+                        "debug_file",
+                        "sdk_info",
+                    ] {
+                        assert!(
+                            !serialized.contains(forbidden),
+                            "{case_name}: {}",
+                            format_args!("{serialized}")
+                        );
+                    }
+                    assert_eq!(safe["platform"], "native", "{case_name}");
+                    assert_eq!(
+                        safe["exception"]["values"][0]["stacktrace"]["frames"][0],
+                        json!({"instruction_addr":"0x1010", "image_addr":"0x1000"}),
+                        "{case_name}"
+                    );
+                    let images = safe["debug_meta"]["images"].as_array().unwrap();
+                    assert_eq!(images.len(), 2, "{case_name}");
+                    assert_eq!(images[0]["name"], "native", "{case_name}");
+                    assert_eq!(images[0]["id"], id, "{case_name}");
+                    assert_eq!(images[0]["code_id"], code, "{case_name}");
+                    assert_eq!(images[0]["image_addr"], "0x1000", "{case_name}");
+                    assert_eq!(images[0]["image_size"], 4096, "{case_name}");
+                    assert_eq!(images[0]["image_vmaddr"], "0x100000000", "{case_name}");
+                    assert!(images[0]["arch"].is_null(), "{case_name}");
+                    assert_eq!(images[1]["name"], "native", "{case_name}");
+                    assert_eq!(images[1]["uuid"], uuid, "{case_name}");
+                    assert_eq!(images[1]["image_addr"], "0x2000", "{case_name}");
+                    assert!(images[1]["cpu_type"].is_null(), "{case_name}");
+                    assert!(images[1]["cpu_subtype"].is_null(), "{case_name}");
+                }) as fn(&str),
+            ),
+            (
+                "keeps_crate_relative_locations",
+                (|case_name| {
+                    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/logging.rs");
+                    assert_eq!(
+                        filename(path.to_str().unwrap()).as_deref(),
+                        Some("src/logging.rs"),
+                        "{case_name}"
+                    );
+                    for path in [
+                        "/Users/private/src/main.rs",
+                        "../private.rs",
+                        "C:\\Users\\private.rs",
+                    ] {
+                        assert!(filename(path).is_none(), "{case_name}");
+                    }
+                }) as fn(&str),
+            ),
         ] {
-            assert!(!serialized.contains(forbidden), "{serialized}");
+            run(case_name);
         }
-        assert_eq!(safe["platform"], "native");
-        assert_eq!(
-            safe["exception"]["values"][0]["stacktrace"]["frames"][0],
-            json!({"instruction_addr":"0x1010", "image_addr":"0x1000"})
-        );
-        let images = safe["debug_meta"]["images"].as_array().unwrap();
-        assert_eq!(images.len(), 2);
-        assert_eq!(images[0]["name"], "native");
-        assert_eq!(images[0]["id"], id);
-        assert_eq!(images[0]["code_id"], code);
-        assert_eq!(images[0]["image_addr"], "0x1000");
-        assert_eq!(images[0]["image_size"], 4096);
-        assert_eq!(images[0]["image_vmaddr"], "0x100000000");
-        assert!(images[0]["arch"].is_null());
-        assert_eq!(images[1]["name"], "native");
-        assert_eq!(images[1]["uuid"], uuid);
-        assert_eq!(images[1]["image_addr"], "0x2000");
-        assert!(images[1]["cpu_type"].is_null());
-        assert!(images[1]["cpu_subtype"].is_null());
     }
 
     #[test]
@@ -538,21 +584,5 @@ mod tests {
         }
         assert!(!limiter.at(&event, started + Duration::from_secs(3599)));
         assert!(limiter.at(&event, started + Duration::from_secs(3600)));
-    }
-
-    #[test]
-    fn keeps_crate_relative_locations() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/logging.rs");
-        assert_eq!(
-            filename(path.to_str().unwrap()).as_deref(),
-            Some("src/logging.rs")
-        );
-        for path in [
-            "/Users/private/src/main.rs",
-            "../private.rs",
-            "C:\\Users\\private.rs",
-        ] {
-            assert!(filename(path).is_none());
-        }
     }
 }

@@ -173,16 +173,36 @@ async fn limits_retries_and_exit_deadline() {
 }
 
 #[test]
-fn rejects_invalid_auth_without_details() {
-    assert!(Transport::at("synthetic\nkey", "http://127.0.0.1:1/log").is_none());
-    assert_eq!(backoff(0), Duration::from_millis(250));
-    assert_eq!(backoff(2), Duration::from_secs(1));
-}
-
-#[test]
-fn initializes_tls_independently() {
-    assert!(Transport::at("synthetic-key", ENDPOINT).is_some());
-    assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+fn preserves_observation_contracts() {
+    for (scenario, check) in [
+        (
+            "rejects_invalid_auth_without_details",
+            (|scenario: &'static str| {
+                assert!(
+                    Transport::at("synthetic\nkey", "http://127.0.0.1:1/log").is_none(),
+                    "{scenario}"
+                );
+                assert_eq!(backoff(0), Duration::from_millis(250), "{scenario}");
+                assert_eq!(backoff(2), Duration::from_secs(1), "{scenario}");
+            }) as fn(&'static str),
+        ),
+        (
+            "initializes_tls_independently",
+            (|scenario: &'static str| {
+                assert!(
+                    Transport::at("synthetic-key", ENDPOINT).is_some(),
+                    "{scenario}"
+                );
+                assert!(
+                    rustls::crypto::CryptoProvider::get_default().is_some(),
+                    "{scenario}"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }
 
 async fn observed(server: &Server, count: usize) {

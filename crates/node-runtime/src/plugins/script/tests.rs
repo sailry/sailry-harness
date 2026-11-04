@@ -59,92 +59,110 @@ fn execute(
 }
 
 #[test]
-fn supports_modules_promises_and_isolated_globals() {
-    for _ in 0..2 {
-        let mut code = bundle(
-            "import { add } from './math.js'; export async function run(input) { globalThis.count = (globalThis.count ?? 0) + 1; return {value: await Promise.resolve(add(input.value)), count: globalThis.count}; }",
-        );
-        code.files.insert(
-            "dev.sailry.platform/host/math.js".into(),
-            "export const add = value => value + 1;".into(),
-        );
-        assert_eq!(
-            run(
-                code,
-                "run",
-                json!({"value":7}),
-                context(),
-                NodeId([1; 32]),
-                CancellationToken::new(),
-                |_| panic!()
-            ),
-            Ok(json!({"value":8,"count":1}))
-        );
-    }
-}
-
-#[test]
-fn bounds_scripts_and_unresolved_promises() {
-    let timeout = Duration::from_millis(30);
-    for source in [
-        "export function run() { while (true) {} }",
-        "export async function run() { while (true) await Promise.resolve(); }",
-    ] {
-        assert_eq!(
-            execute(source, CancellationToken::new(), timeout)
-                .unwrap_err()
-                .code,
-            ErrorCode::Expired
-        );
-    }
-    assert!(
-        execute(
-            "export function run() { return new Promise(() => {}); }",
-            CancellationToken::new(),
-            timeout
-        )
-        .is_err()
-    );
-    let stop = CancellationToken::new();
-    stop.cancel();
-    assert_eq!(
-        execute("export function run() { return null; }", stop, timeout)
-            .unwrap_err()
-            .code,
-        ErrorCode::Cancelled
-    );
-}
-
-#[test]
-fn restricts_ambient_access_and_results() {
-    let result = execute("export function run() { return [typeof process, typeof fetch, typeof require, typeof document]; }", CancellationToken::new(), Duration::from_secs(2)).unwrap();
-    assert_eq!(
-        result,
-        json!(["undefined", "undefined", "undefined", "undefined"])
-    );
-    let oversized = format!(
-        "export function run() {{ return 'a'.repeat({}); }}",
-        plugin::host::MAX_DATA_BYTES
-    );
-    assert!(execute(&oversized, CancellationToken::new(), Duration::from_secs(2)).is_err());
-    for source in [
-        "import 'std'; export function run() {}",
-        "import '/etc/passwd'; export function run() {}",
-        "export function run() { const a = {}; a.self = a; return a; }",
-        "export function run() { const a = []; while (true) a.push(new Array(100000).fill('memory')); }",
-    ] {
-        assert!(execute(source, CancellationToken::new(), Duration::from_secs(2)).is_err());
-    }
-}
-
-#[test]
-fn keeps_revision_precision_and_original_requests() {
-    let captured = Arc::new(Mutex::new(Vec::<Request>::new()));
-    let requests = captured.clone();
-    let scope = context();
-    let result = run(
-        bundle(
-            r#"
+fn preserves_script_contracts() {
+    for (scenario, check) in [
+        (
+            "supports_modules_promises_and_isolated_globals",
+            (|scenario: &'static str| {
+                for _ in 0..2 {
+                    let mut code = bundle(
+                        "import { add } from './math.js'; export async function run(input) { globalThis.count = (globalThis.count ?? 0) + 1; return {value: await Promise.resolve(add(input.value)), count: globalThis.count}; }",
+                    );
+                    code.files.insert(
+                        "dev.sailry.platform/host/math.js".into(),
+                        "export const add = value => value + 1;".into(),
+                    );
+                    assert_eq!(
+                        run(
+                            code,
+                            "run",
+                            json!({"value":7}),
+                            context(),
+                            NodeId([1; 32]),
+                            CancellationToken::new(),
+                            move |_| panic!("{scenario}")
+                        ),
+                        Ok(json!({"value":8,"count":1})),
+                        "{scenario}"
+                    );
+                }
+            }) as fn(&'static str),
+        ),
+        (
+            "bounds_scripts_and_unresolved_promises",
+            (|scenario: &'static str| {
+                let timeout = Duration::from_millis(30);
+                for source in [
+                    "export function run() { while (true) {} }",
+                    "export async function run() { while (true) await Promise.resolve(); }",
+                ] {
+                    assert_eq!(
+                        execute(source, CancellationToken::new(), timeout)
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::Expired,
+                        "{scenario}"
+                    );
+                }
+                assert!(
+                    execute(
+                        "export function run() { return new Promise(() => {}); }",
+                        CancellationToken::new(),
+                        timeout
+                    )
+                    .is_err(),
+                    "{scenario}"
+                );
+                let stop = CancellationToken::new();
+                stop.cancel();
+                assert_eq!(
+                    execute("export function run() { return null; }", stop, timeout)
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::Cancelled,
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "restricts_ambient_access_and_results",
+            (|scenario: &'static str| {
+                let result = execute("export function run() { return [typeof process, typeof fetch, typeof require, typeof document]; }", CancellationToken::new(), Duration::from_secs(2)).unwrap();
+                assert_eq!(
+                    result,
+                    json!(["undefined", "undefined", "undefined", "undefined"]),
+                    "{scenario}"
+                );
+                let oversized = format!(
+                    "export function run() {{ return 'a'.repeat({}); }}",
+                    plugin::host::MAX_DATA_BYTES
+                );
+                assert!(
+                    execute(&oversized, CancellationToken::new(), Duration::from_secs(2)).is_err(),
+                    "{scenario}"
+                );
+                for source in [
+                    "import 'std'; export function run() {}",
+                    "import '/etc/passwd'; export function run() {}",
+                    "export function run() { const a = {}; a.self = a; return a; }",
+                    "export function run() { const a = []; while (true) a.push(new Array(100000).fill('memory')); }",
+                ] {
+                    assert!(
+                        execute(source, CancellationToken::new(), Duration::from_secs(2)).is_err(),
+                        "{scenario}"
+                    );
+                }
+            }),
+        ),
+        (
+            "keeps_revision_precision_and_original_requests",
+            (|scenario: &'static str| {
+                let captured = Arc::new(Mutex::new(Vec::<Request>::new()));
+                let requests = captured.clone();
+                let scope = context();
+                let result = run(
+                    bundle(
+                        r#"
         import {getValue, setValue, completeRequest, forgetRequest} from 'sailry/sdk';
         export async function run() {
             const old = await getValue('counter');
@@ -155,47 +173,56 @@ fn keeps_revision_precision_and_original_requests() {
             return {revision: old.revision, same: JSON.stringify(first) === JSON.stringify(second)};
         }
     "#,
+                    ),
+                    "run",
+                    json!(null),
+                    scope.clone(),
+                    NodeId([1; 32]),
+                    CancellationToken::new(),
+                    move |request| {
+                        requests.lock().unwrap().push(request);
+                        Ok(Output::PluginValue(plugin::storage::Entry {
+                            key: "counter".into(),
+                            revision: 9007199254740993,
+                            present: true,
+                            value: json!(1),
+                        }))
+                    },
+                )
+                .unwrap();
+                assert_eq!(
+                    result,
+                    json!({"revision":"9007199254740993", "same":true}),
+                    "{scenario}"
+                );
+                let requests = captured.lock().unwrap();
+                assert_eq!(requests.len(), 3, "{scenario}");
+                assert_eq!(requests[1], requests[2], "{scenario}");
+                assert!(
+                    requests
+                        .iter()
+                        .all(|request| request.plugin.as_ref() == Some(&scope)),
+                    "{scenario}"
+                );
+                assert!(
+                    matches!(
+                        requests[1].command,
+                        sailry_protocol::Command::WritePluginValue {
+                            expected_revision: 9007199254740993,
+                            ..
+                        }
+                    ),
+                    "{scenario}"
+                );
+            }),
         ),
-        "run",
-        json!(null),
-        scope.clone(),
-        NodeId([1; 32]),
-        CancellationToken::new(),
-        move |request| {
-            requests.lock().unwrap().push(request);
-            Ok(Output::PluginValue(plugin::storage::Entry {
-                key: "counter".into(),
-                revision: 9007199254740993,
-                present: true,
-                value: json!(1),
-            }))
-        },
-    )
-    .unwrap();
-    assert_eq!(result, json!({"revision":"9007199254740993", "same":true}));
-    let requests = captured.lock().unwrap();
-    assert_eq!(requests.len(), 3);
-    assert_eq!(requests[1], requests[2]);
-    assert!(
-        requests
-            .iter()
-            .all(|request| request.plugin.as_ref() == Some(&scope))
-    );
-    assert!(matches!(
-        requests[1].command,
-        sailry_protocol::Command::WritePluginValue {
-            expected_revision: 9007199254740993,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn uses_frozen_settings() {
-    let mut scope = context();
-    scope.package.settings_revision = 9007199254740993;
-    let captured = scope.clone();
-    let result = run(bundle(r#"
+        (
+            "uses_frozen_settings",
+            (|scenario: &'static str| {
+                let mut scope = context();
+                scope.package.settings_revision = 9007199254740993;
+                let captured = scope.clone();
+                let result = run(bundle(r#"
         import {context,readSettings} from 'sailry/sdk';
         export async function run() {
             const settings = await readSettings();
@@ -203,22 +230,23 @@ fn uses_frozen_settings() {
                 revision:settings.package.settings_revision};
         }
     "#), "run", json!(null), scope, NodeId([1;32]), CancellationToken::new(), move |request| {
-        assert_eq!(request.plugin.as_ref(), Some(&captured));
-        assert!(matches!(&request.command, sailry_protocol::Command::ReadPluginSettings {package} if *package == captured.package));
-        Ok(Output::PluginSettings(plugin::settings::State {
-            package: captured.package.clone(), values: Default::default(), configured: vec![], keepable: vec![], ready: true,
-        }))
-    }).unwrap();
-    assert_eq!(result["scope"], "9007199254740993");
-    assert_eq!(result["revision"], "9007199254740993");
-}
-
-#[test]
-fn indexed_storage_preserves_exact_revisions_and_scope() {
-    let captured = Arc::new(Mutex::new(Vec::<Request>::new()));
-    let requests = captured.clone();
-    let scope = context();
-    let result=run(bundle(r#"
+                assert_eq!(request.plugin.as_ref(), Some(&captured), "{scenario}");
+                assert!(matches!(&request.command, sailry_protocol::Command::ReadPluginSettings {package} if *package == captured.package), "{scenario}");
+                Ok(Output::PluginSettings(plugin::settings::State {
+                    package: captured.package.clone(), values: Default::default(), configured: vec![], keepable: vec![], ready: true,
+                }))
+            }).unwrap();
+                assert_eq!(result["scope"], "9007199254740993", "{scenario}");
+                assert_eq!(result["revision"], "9007199254740993", "{scenario}");
+            }),
+        ),
+        (
+            "indexed_storage_preserves_exact_revisions_and_scope",
+            (|scenario: &'static str| {
+                let captured = Arc::new(Mutex::new(Vec::<Request>::new()));
+                let requests = captured.clone();
+                let scope = context();
+                let result=run(bundle(r#"
         import {searchValues,indexedValue,completeRequest} from 'sailry/sdk';
         export async function run() {
             const page=await searchValues({terms:['literal'],weights:[3,1],all:['opaque'],limit:1});
@@ -227,35 +255,39 @@ fn indexed_storage_preserves_exact_revisions_and_scope() {
             return {previous:page.entries[0].revision,next:result.Ok.data.revision};
         }
     "#),"run",json!(null),scope.clone(),NodeId([1;32]),CancellationToken::new(),move |request| {
-        let search=matches!(request.command,sailry_protocol::Command::SearchPluginValues(_));
-        requests.lock().unwrap().push(request);
-        let entry=plugin::storage::Entry { key:"item".into(),revision:9007199254740993,present:true,value:json!({}) };
-        if search { Ok(Output::PluginSearch(plugin::storage::SearchPage { entries:vec![entry],next:None,now_ms:100,mode:plugin::storage::Mode::Keyword,indexing:false })) }
-        else { Ok(Output::PluginValue(plugin::storage::Entry { revision:9007199254740994,..entry })) }
-    }).unwrap();
-    assert_eq!(
-        result,
-        json!({"previous":"9007199254740993","next":"9007199254740994"})
-    );
-    let requests = captured.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    assert!(
-        requests
-            .iter()
-            .all(|request| request.plugin.as_ref() == Some(&scope))
-    );
-    assert!(
-        matches!(&requests[1].command,sailry_protocol::Command::WriteIndexedPluginValue { expected_revision:9007199254740993,index,.. } if index.order==100)
-    );
-}
-
-#[test]
-fn preserves_original_search_query() {
-    let captured = Arc::new(Mutex::new(Vec::new()));
-    let queries = captured.clone();
-    let result = run(
-        bundle(
-            r#"
+                let search=matches!(request.command,sailry_protocol::Command::SearchPluginValues(_));
+                requests.lock().unwrap().push(request);
+                let entry=plugin::storage::Entry { key:"item".into(),revision:9007199254740993,present:true,value:json!({}) };
+                if search { Ok(Output::PluginSearch(plugin::storage::SearchPage { entries:vec![entry],next:None,now_ms:100,mode:plugin::storage::Mode::Keyword,indexing:false })) }
+                else { Ok(Output::PluginValue(plugin::storage::Entry { revision:9007199254740994,..entry })) }
+            }).unwrap();
+                assert_eq!(
+                    result,
+                    json!({"previous":"9007199254740993","next":"9007199254740994"}),
+                    "{scenario}"
+                );
+                let requests = captured.lock().unwrap();
+                assert_eq!(requests.len(), 2, "{scenario}");
+                assert!(
+                    requests
+                        .iter()
+                        .all(|request| request.plugin.as_ref() == Some(&scope)),
+                    "{scenario}"
+                );
+                assert!(
+                    matches!(&requests[1].command,sailry_protocol::Command::WriteIndexedPluginValue { expected_revision:9007199254740993,index,.. } if index.order==100),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "preserves_original_search_query",
+            (|scenario: &'static str| {
+                let captured = Arc::new(Mutex::new(Vec::new()));
+                let queries = captured.clone();
+                let result = run(
+                    bundle(
+                        r#"
         import {searchValues} from 'sailry/sdk';
         export async function run() {
             const input={query:'  Original order! 東京  ',terms:['order','original']};
@@ -265,187 +297,219 @@ fn preserves_original_search_query() {
             return {modes:[first.mode,explicit.mode,plain.mode],mutated:input.mode !== undefined};
         }
     "#,
+                    ),
+                    "run",
+                    json!(null),
+                    context(),
+                    NodeId([1; 32]),
+                    CancellationToken::new(),
+                    move |request| {
+                        let sailry_protocol::Command::SearchPluginValues(query) = request.command
+                        else {
+                            panic!("{scenario}: storage search expected");
+                        };
+                        let mode = query.mode;
+                        queries.lock().unwrap().push(query);
+                        Ok(Output::PluginSearch(plugin::storage::SearchPage {
+                            entries: vec![],
+                            next: None,
+                            now_ms: 1,
+                            mode,
+                            indexing: false,
+                        }))
+                    },
+                )
+                .unwrap();
+                assert_eq!(
+                    result,
+                    json!({"modes":["hybrid","keyword","keyword"],"mutated":false}),
+                    "{scenario}"
+                );
+                let queries = captured.lock().unwrap();
+                assert_eq!(queries.len(), 3, "{scenario}");
+                assert_eq!(
+                    queries[0].query.as_deref(),
+                    Some("  Original order! 東京  "),
+                    "{scenario}"
+                );
+                assert_eq!(queries[0].terms, ["order", "original"], "{scenario}");
+                assert_eq!(queries[1].query, queries[0].query, "{scenario}");
+                assert!(queries[2].query.is_none(), "{scenario}");
+            }),
         ),
-        "run",
-        json!(null),
-        context(),
-        NodeId([1; 32]),
-        CancellationToken::new(),
-        move |request| {
-            let sailry_protocol::Command::SearchPluginValues(query) = request.command else {
-                panic!("storage search expected");
-            };
-            let mode = query.mode;
-            queries.lock().unwrap().push(query);
-            Ok(Output::PluginSearch(plugin::storage::SearchPage {
-                entries: vec![],
-                next: None,
-                now_ms: 1,
-                mode,
-                indexing: false,
-            }))
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        result,
-        json!({"modes":["hybrid","keyword","keyword"],"mutated":false})
-    );
-    let queries = captured.lock().unwrap();
-    assert_eq!(queries.len(), 3);
-    assert_eq!(
-        queries[0].query.as_deref(),
-        Some("  Original order! 東京  ")
-    );
-    assert_eq!(queries[0].terms, ["order", "original"]);
-    assert_eq!(queries[1].query, queries[0].query);
-    assert!(queries[2].query.is_none());
-}
-
-#[test]
-fn refuses_recursive_calls_and_write_reads() {
-    for source in [
-        "import {prepareRequest} from 'sailry/sdk'; export function run() { return prepareRequest({kind:'call_plugin',data:{handler:'run',input:null}}); }",
-        "const bridge = globalThis.__sailry; export function run() { return JSON.parse(bridge('read', JSON.stringify({kind:'write_plugin_value',data:{key:'x',value:1,expected_revision:0}}))); }",
-    ] {
-        let result = execute(source, CancellationToken::new(), Duration::from_secs(2));
-        assert!(result.is_err() || result.unwrap().get("Err").is_some());
-    }
-}
-
-#[test]
-fn restricts_execution_capabilities_and_commands() {
-    for source in [
-        "import {readTurnState} from 'sailry/sdk'; export function run() { return readTurnState(); }",
-        "import {setValue} from 'sailry/sdk'; export function run() { return setValue('x',1,'0'); }",
-        "import {prepareRequest} from 'sailry/sdk'; export function run() { return prepareRequest({kind:'call_plugin',data:{handler:'run',input:null}}); }",
-    ] {
-        let state = Arc::new(Mutex::new(execution::State {
-            call_id: None,
-            mode: sailry_protocol::WorkMode::Code,
-            read_only: false,
-            turn: None,
-            staged_turn: None,
-        }));
-        assert!(
-            run_tool(
-                bundle(source),
-                "run",
-                json!({}),
-                Environment {
-                    context: context(),
-                    target: NodeId([1; 32]),
-                    stop: CancellationToken::new(),
-                    deadline: Instant::now() + CALL_TIMEOUT,
-                },
-                |_| panic!("forbidden dispatch"),
-                state
-            )
-            .is_err()
-        );
-    }
-    assert!(execute("import {readTurnState} from 'sailry/sdk'; export function run() {return readTurnState();}",
-        CancellationToken::new(), Duration::from_secs(1)).is_err());
-}
-
-#[test]
-fn private_tool_writes_reuse_the_captured_call() {
-    let call = sailry_protocol::RequestId::new();
-    let source = "import {setValue,completeRequest} from 'sailry/sdk'; export async function run() {return completeRequest(setValue('x',1,'0'));}";
-    let mut ids = Vec::new();
-    for _ in 0..2 {
-        let state = Arc::new(Mutex::new(execution::State {
-            call_id: Some(call),
-            mode: sailry_protocol::WorkMode::Code,
-            read_only: false,
-            turn: None,
-            staged_turn: None,
-        }));
-        let captured = Arc::new(Mutex::new(None));
-        let result = run_tool(
-            bundle(source),
-            "run",
-            json!({}),
-            Environment {
-                context: context(),
-                target: NodeId([1; 32]),
-                stop: CancellationToken::new(),
-                deadline: Instant::now() + CALL_TIMEOUT,
-            },
-            {
-                let captured = captured.clone();
-                move |request| {
-                    assert!(matches!(
-                        request.command,
-                        sailry_protocol::Command::WritePluginValue { .. }
-                    ));
-                    assert_eq!(request.plugin.as_ref().unwrap().package.name, "example");
-                    *captured.lock().unwrap() = Some(request.id);
-                    Ok(sailry_protocol::Output::PluginValue(
-                        plugin::storage::Entry {
-                            key: "x".into(),
-                            revision: 1,
-                            value: json!(1),
-                            present: true,
-                        },
-                    ))
+        (
+            "refuses_recursive_calls_and_write_reads",
+            (|scenario: &'static str| {
+                for source in [
+                    "import {prepareRequest} from 'sailry/sdk'; export function run() { return prepareRequest({kind:'call_plugin',data:{handler:'run',input:null}}); }",
+                    "const bridge = globalThis.__sailry; export function run() { return JSON.parse(bridge('read', JSON.stringify({kind:'write_plugin_value',data:{key:'x',value:1,expected_revision:0}}))); }",
+                ] {
+                    let result = execute(source, CancellationToken::new(), Duration::from_secs(2));
+                    assert!(
+                        result.is_err() || result.unwrap().get("Err").is_some(),
+                        "{scenario}"
+                    );
                 }
-            },
-            state,
-        )
-        .unwrap();
-        assert_eq!(result["Ok"]["data"]["revision"], "1");
-        ids.push(captured.lock().unwrap().unwrap());
+            }),
+        ),
+        (
+            "restricts_execution_capabilities_and_commands",
+            (|scenario: &'static str| {
+                for source in [
+                    "import {readTurnState} from 'sailry/sdk'; export function run() { return readTurnState(); }",
+                    "import {setValue} from 'sailry/sdk'; export function run() { return setValue('x',1,'0'); }",
+                    "import {prepareRequest} from 'sailry/sdk'; export function run() { return prepareRequest({kind:'call_plugin',data:{handler:'run',input:null}}); }",
+                ] {
+                    let state = Arc::new(Mutex::new(execution::State {
+                        call_id: None,
+                        mode: sailry_protocol::WorkMode::Code,
+                        read_only: false,
+                        turn: None,
+                        staged_turn: None,
+                    }));
+                    assert!(
+                        run_tool(
+                            bundle(source),
+                            "run",
+                            json!({}),
+                            Environment {
+                                context: context(),
+                                target: NodeId([1; 32]),
+                                stop: CancellationToken::new(),
+                                deadline: Instant::now() + CALL_TIMEOUT,
+                            },
+                            move |_| panic!("{scenario}: forbidden dispatch"),
+                            state
+                        )
+                        .is_err(),
+                        "{scenario}"
+                    );
+                }
+                assert!(execute("import {readTurnState} from 'sailry/sdk'; export function run() {return readTurnState();}",
+                CancellationToken::new(), Duration::from_secs(1)).is_err(), "{scenario}");
+            }),
+        ),
+        (
+            "private_tool_writes_reuse_the_captured_call",
+            (|scenario: &'static str| {
+                let call = sailry_protocol::RequestId::new();
+                let source = "import {setValue,completeRequest} from 'sailry/sdk'; export async function run() {return completeRequest(setValue('x',1,'0'));}";
+                let mut ids = Vec::new();
+                for _ in 0..2 {
+                    let state = Arc::new(Mutex::new(execution::State {
+                        call_id: Some(call),
+                        mode: sailry_protocol::WorkMode::Code,
+                        read_only: false,
+                        turn: None,
+                        staged_turn: None,
+                    }));
+                    let captured = Arc::new(Mutex::new(None));
+                    let result = run_tool(
+                        bundle(source),
+                        "run",
+                        json!({}),
+                        Environment {
+                            context: context(),
+                            target: NodeId([1; 32]),
+                            stop: CancellationToken::new(),
+                            deadline: Instant::now() + CALL_TIMEOUT,
+                        },
+                        {
+                            let captured = captured.clone();
+                            move |request| {
+                                assert!(
+                                    matches!(
+                                        request.command,
+                                        sailry_protocol::Command::WritePluginValue { .. }
+                                    ),
+                                    "{scenario}"
+                                );
+                                assert_eq!(
+                                    request.plugin.as_ref().unwrap().package.name,
+                                    "example",
+                                    "{scenario}"
+                                );
+                                *captured.lock().unwrap() = Some(request.id);
+                                Ok(sailry_protocol::Output::PluginValue(
+                                    plugin::storage::Entry {
+                                        key: "x".into(),
+                                        revision: 1,
+                                        value: json!(1),
+                                        present: true,
+                                    },
+                                ))
+                            }
+                        },
+                        state,
+                    )
+                    .unwrap();
+                    assert_eq!(result["Ok"]["data"]["revision"], "1", "{scenario}");
+                    ids.push(captured.lock().unwrap().unwrap());
+                }
+                assert_eq!(ids[0], ids[1], "{scenario}");
+                assert_ne!(ids[0], call, "{scenario}");
+            }),
+        ),
+        (
+            "scopes_call_identity_to_tool_execution",
+            (|scenario: &'static str| {
+                let id = sailry_protocol::RequestId::new();
+                let source = "import {callId,context} from 'sailry/sdk'; export function run() {return {ids:[callId(),callId()], invocation:context().invocation};}";
+                let state = Arc::new(Mutex::new(execution::State {
+                    call_id: Some(id),
+                    mode: sailry_protocol::WorkMode::Code,
+                    read_only: false,
+                    turn: None,
+                    staged_turn: None,
+                }));
+                let scope = context();
+                for _ in 0..2 {
+                    let result = run_tool(
+                        bundle(source),
+                        "run",
+                        json!({}),
+                        Environment {
+                            context: scope.clone(),
+                            target: NodeId([1; 32]),
+                            stop: CancellationToken::new(),
+                            deadline: Instant::now() + CALL_TIMEOUT,
+                        },
+                        move |_| panic!("{scenario}: identity must not dispatch"),
+                        state.clone(),
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        result,
+                        json!({"ids":[id,id],"invocation":scope.invocation}),
+                        "{scenario}"
+                    );
+                }
+                assert!(
+                    execute(source, CancellationToken::new(), Duration::from_secs(1)).is_err(),
+                    "{scenario}"
+                );
+                state.lock().unwrap().call_id = None;
+                assert!(
+                    run_tool(
+                        bundle(source),
+                        "run",
+                        json!({}),
+                        Environment {
+                            context: scope,
+                            target: NodeId([1; 32]),
+                            stop: CancellationToken::new(),
+                            deadline: Instant::now() + CALL_TIMEOUT,
+                        },
+                        move |_| panic!("{scenario}: identity must not dispatch"),
+                        state,
+                    )
+                    .is_err(),
+                    "{scenario}"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    assert_eq!(ids[0], ids[1]);
-    assert_ne!(ids[0], call);
-}
-
-#[test]
-fn scopes_call_identity_to_tool_execution() {
-    let id = sailry_protocol::RequestId::new();
-    let source = "import {callId,context} from 'sailry/sdk'; export function run() {return {ids:[callId(),callId()], invocation:context().invocation};}";
-    let state = Arc::new(Mutex::new(execution::State {
-        call_id: Some(id),
-        mode: sailry_protocol::WorkMode::Code,
-        read_only: false,
-        turn: None,
-        staged_turn: None,
-    }));
-    let scope = context();
-    for _ in 0..2 {
-        let result = run_tool(
-            bundle(source),
-            "run",
-            json!({}),
-            Environment {
-                context: scope.clone(),
-                target: NodeId([1; 32]),
-                stop: CancellationToken::new(),
-                deadline: Instant::now() + CALL_TIMEOUT,
-            },
-            |_| panic!("identity must not dispatch"),
-            state.clone(),
-        )
-        .unwrap();
-        assert_eq!(result, json!({"ids":[id,id],"invocation":scope.invocation}));
-    }
-    assert!(execute(source, CancellationToken::new(), Duration::from_secs(1)).is_err());
-    state.lock().unwrap().call_id = None;
-    assert!(
-        run_tool(
-            bundle(source),
-            "run",
-            json!({}),
-            Environment {
-                context: scope,
-                target: NodeId([1; 32]),
-                stop: CancellationToken::new(),
-                deadline: Instant::now() + CALL_TIMEOUT,
-            },
-            |_| panic!("identity must not dispatch"),
-            state,
-        )
-        .is_err()
-    );
 }

@@ -20,25 +20,67 @@ fn previous(definition: &Definition) -> String {
 }
 
 #[test]
-fn normalizes_existing_validation_markers() {
-    for id in ["granite-multi", "model-imported"] {
-        let (_profile, definition, path) = seed(id);
-        let files = assets(&definition);
-        if id.starts_with("model-") {
-            let marker = previous(&definition);
-            assert_ne!(marker, catalog::id(&definition));
-            verified::write_marker(&crate::files::path::root(&path).unwrap(), &marker).unwrap();
-        }
-        let before = verified::candidate(&path, &files).unwrap();
-        assert_eq!(stamp(&path, id, &definition, None), Some(before.clone()));
-        assert_eq!(
-            std::fs::read_to_string(path.join("validated")).unwrap(),
-            catalog::id(&definition)
-        );
-        assert_eq!(
-            verified::verified(&path, &files, Some(&catalog::id(&definition))),
-            Some(before)
-        );
+fn preserves_model_contracts() {
+    for (scenario, check) in [
+        (
+            "normalizes_existing_validation_markers",
+            (|scenario: &'static str| {
+                for id in ["granite-multi", "model-imported"] {
+                    let (_profile, definition, path) = seed(id);
+                    let files = assets(&definition);
+                    if id.starts_with("model-") {
+                        let marker = previous(&definition);
+                        assert_ne!(marker, catalog::id(&definition), "{scenario}");
+                        verified::write_marker(&crate::files::path::root(&path).unwrap(), &marker)
+                            .unwrap();
+                    }
+                    let before = verified::candidate(&path, &files).unwrap();
+                    assert_eq!(
+                        stamp(&path, id, &definition, None),
+                        Some(before.clone()),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        std::fs::read_to_string(path.join("validated")).unwrap(),
+                        catalog::id(&definition),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        verified::verified(&path, &files, Some(&catalog::id(&definition))),
+                        Some(before),
+                        "{scenario}"
+                    );
+                }
+            }) as fn(&'static str),
+        ),
+        (
+            "refuses_unverified_imported_assets",
+            (|scenario: &'static str| {
+                let (_profile, definition, path) = seed("model-imported");
+                verified::write_marker(
+                    &crate::files::path::root(&path).unwrap(),
+                    &previous(&definition),
+                )
+                .unwrap();
+                let file = path.join("model.safetensors");
+                let mut body = std::fs::read(&file).unwrap();
+                let last = body.last_mut().unwrap();
+                *last ^= 1;
+                std::fs::write(file, body).unwrap();
+                assert!(
+                    stamp(&path, "model-imported", &definition, None).is_none(),
+                    "{scenario}"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(path.join("validated")).unwrap(),
+                    previous(&definition),
+                    "{scenario}"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }
 
@@ -60,24 +102,4 @@ fn preserves_read_only_installed_models() {
     if unsafe { libc::geteuid() } != 0 {
         assert_eq!(stored, marker);
     }
-}
-
-#[test]
-fn refuses_unverified_imported_assets() {
-    let (_profile, definition, path) = seed("model-imported");
-    verified::write_marker(
-        &crate::files::path::root(&path).unwrap(),
-        &previous(&definition),
-    )
-    .unwrap();
-    let file = path.join("model.safetensors");
-    let mut body = std::fs::read(&file).unwrap();
-    let last = body.last_mut().unwrap();
-    *last ^= 1;
-    std::fs::write(file, body).unwrap();
-    assert!(stamp(&path, "model-imported", &definition, None).is_none());
-    assert_eq!(
-        std::fs::read_to_string(path.join("validated")).unwrap(),
-        previous(&definition)
-    );
 }

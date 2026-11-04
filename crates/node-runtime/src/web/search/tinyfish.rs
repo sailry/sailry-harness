@@ -43,35 +43,58 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn retains_missing_publication() {
-        let results = parse(&json!({"query":"example","page":0,"results":[
-            {"title":"Public source","url":"https://example.com/source","snippet":"Untrusted content","date":"2026-10-30T11:30:00Z"},
-            {"title":"Undated source","url":"https://docs.example.com/","snippet":"Source excerpt"}
-        ]})).unwrap();
-        assert_eq!(results.len(), 2);
-        assert_eq!(
-            results[0].published.as_deref(),
-            Some("2026-10-30T11:30:00Z")
-        );
-        assert_eq!(results[1].published, None);
-    }
-
-    #[test]
-    fn omits_unsupported_result_count() {
-        let input = serde_json::from_value(json!({
-            "query":"official release", "limit":20, "freshness":"hour",
-            "include_domains":["example.com","docs.example.org"],
-            "exclude_domains":["private.example.com"]
-        }))
-        .unwrap();
-        let parameters = parameters(&input);
-        assert!(parameters.contains(&("recency_minutes", "60".into())));
-        assert!(parameters.contains(&("include_domains", "example.com,docs.example.org".into())));
-        assert!(parameters.contains(&("exclude_domains", "private.example.com".into())));
-        assert!(
-            !parameters
-                .iter()
-                .any(|(name, _)| matches!(*name, "count" | "num_results" | "limit"))
-        );
+    fn preserves_search_contracts() {
+        for (scenario, check) in [
+            (
+                "retains_missing_publication",
+                (|scenario: &'static str| {
+                    let results = parse(&json!({"query":"example","page":0,"results":[
+                    {"title":"Public source","url":"https://example.com/source","snippet":"Untrusted content","date":"2026-10-30T11:30:00Z"},
+                    {"title":"Undated source","url":"https://docs.example.com/","snippet":"Source excerpt"}
+                ]})).unwrap();
+                    assert_eq!(results.len(), 2, "{scenario}");
+                    assert_eq!(
+                        results[0].published.as_deref(),
+                        Some("2026-10-30T11:30:00Z"),
+                        "{scenario}"
+                    );
+                    assert_eq!(results[1].published, None, "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "omits_unsupported_result_count",
+                (|scenario: &'static str| {
+                    let input = serde_json::from_value(json!({
+                    "query":"official release", "limit":20, "freshness":"hour",
+                    "include_domains":["example.com","docs.example.org"],
+                    "exclude_domains":["private.example.com"]
+                        }))
+                    .unwrap();
+                    let parameters = parameters(&input);
+                    assert!(
+                        parameters.contains(&("recency_minutes", "60".into())),
+                        "{scenario}"
+                    );
+                    assert!(
+                        parameters
+                            .contains(&("include_domains", "example.com,docs.example.org".into())),
+                        "{scenario}"
+                    );
+                    assert!(
+                        parameters.contains(&("exclude_domains", "private.example.com".into())),
+                        "{scenario}"
+                    );
+                    assert!(
+                        !parameters
+                            .iter()
+                            .any(|(name, _)| matches!(*name, "count" | "num_results" | "limit")),
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

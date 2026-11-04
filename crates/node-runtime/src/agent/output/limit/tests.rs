@@ -71,101 +71,314 @@ fn pages(canonical: &str, mut offset: usize) -> String {
 }
 
 #[test]
-fn leaves_small_results_unchanged() {
-    for original in [
-        message(CallToolResult::success(vec![ContentBlock::text(
-            "line\n".repeat(MAX_LINES),
-        )])),
-        message(CallToolResult::structured(json!({"text":"中文🙂"}))),
-        message(CallToolResult::success(vec![ContentBlock::text(
-            "x".repeat(MAX_BYTES),
-        )])),
+fn preserves_result_projection() {
+    for (scenario, check) in [
+        (
+            "leaves_small_results_unchanged",
+            (|scenario: &'static str| {
+                for original in [
+                    message(CallToolResult::success(vec![ContentBlock::text(
+                        "line\n".repeat(MAX_LINES),
+                    )])),
+                    message(CallToolResult::structured(json!({"text":"中文🙂"}))),
+                    message(CallToolResult::success(vec![ContentBlock::text(
+                        "x".repeat(MAX_BYTES),
+                    )])),
+                ] {
+                    assert_eq!(projected(&original), original, "{scenario}");
+                }
+            }) as fn(&'static str),
+        ),
+        (
+            "bounds_bytes_before_lines",
+            (|scenario: &'static str| {
+                let raw = "x".repeat(200 * 1024);
+                let original = message(CallToolResult::success(vec![ContentBlock::text(&raw)]));
+                let outgoing = projected(&original);
+                let shown = texts(result(&outgoing));
+                assert_eq!(shown.len(), 2, "{scenario}");
+                assert!(shown[0].len() > MAX_BYTES - 1024, "{scenario}");
+                assert!(raw.starts_with(shown[0]), "{scenario}");
+                assert!(
+                    shown.iter().map(|text| text.len()).sum::<usize>() <= MAX_BYTES,
+                    "{scenario}"
+                );
+                assert!(
+                    shown[1].contains(&format!(
+                        "showing the first 1 of 1 lines ({} of {} bytes)",
+                        shown[0].len(),
+                        raw.len()
+                    )),
+                    "{scenario}"
+                );
+                // Plain MCP text pages the whole serialized result from its start.
+                assert_eq!(reference_of(shown[1]).1, 0, "{scenario}");
+                assert_eq!(
+                    result(&original).content[0],
+                    ContentBlock::text(&raw),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "bounds_lines_before_bytes",
+            (|scenario: &'static str| {
+                let raw: String = (0..5_000).map(|number| format!("{number}\n")).collect();
+                assert!(raw.len() < MAX_BYTES, "{scenario}");
+                let original = message(CallToolResult::success(vec![ContentBlock::text(&raw)]));
+                let outgoing = projected(&original);
+                let shown = texts(result(&outgoing));
+                assert_eq!(count(shown[0]), MAX_LINES - 1, "{scenario}");
+                assert!(
+                    shown[0].ends_with(&format!("{}\n", MAX_LINES - 1 - 1)),
+                    "{scenario}"
+                );
+                assert!(
+                    shown[1].contains(&format!(
+                        "showing the first {} of 5000 lines",
+                        MAX_LINES - 1
+                    )),
+                    "{scenario}"
+                );
+                assert!(
+                    shown.iter().map(|text| count(text)).sum::<usize>() <= MAX_LINES,
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "keeps_whole_lines_and_utf8_characters",
+            (|scenario: &'static str| {
+                let line = format!("{}\n", "中文🙂".repeat(100));
+                let raw = line.repeat(200);
+                let outgoing =
+                    projected(&message(CallToolResult::success(vec![ContentBlock::text(
+                        &raw,
+                    )])));
+                let shown = texts(result(&outgoing))[0];
+                assert!(raw.starts_with(shown), "{scenario}");
+                assert!(shown.ends_with('\n'), "{scenario}");
+                assert_eq!(shown.len() % line.len(), 0, "{scenario}");
+
+                let raw = "中文🙂".repeat(20 * 1024);
+                let outgoing =
+                    projected(&message(CallToolResult::success(vec![ContentBlock::text(
+                        &raw,
+                    )])));
+                let shown = texts(result(&outgoing))[0];
+                assert!(raw.starts_with(shown), "{scenario}");
+                assert!(shown.len() <= MAX_BYTES, "{scenario}");
+                assert!(shown.len() > MAX_BYTES - 1024, "{scenario}");
+            }),
+        ),
+        (
+            "keeps_media_and_hides_later_text",
+            (|scenario: &'static str| {
+                let image = ContentBlock::image("AQID", "image/png");
+                let original = message(CallToolResult::success(vec![
+                    ContentBlock::text("a".repeat(60 * 1024)),
+                    image.clone(),
+                    ContentBlock::text("later"),
+                ]));
+                let outgoing = projected(&original);
+                let content = &result(&outgoing).content;
+                assert_eq!(content.len(), 3, "{scenario}");
+                assert!(
+                    matches!(&content[0], ContentBlock::Text(text) if text.text.len() < MAX_BYTES),
+                    "{scenario}"
+                );
+                assert_eq!(content[1], image, "{scenario}");
+                assert!(
+                    texts(result(&outgoing))[1].starts_with("[Tool result truncated"),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "repeats_without_change",
+            (|scenario: &'static str| {
+                let original = message(CallToolResult::structured(
+                    json!({"rows":vec!["中文🙂 row"; 20_000]}),
+                ));
+                let once = projected(&original);
+                assert_eq!(projected(&once), once, "{scenario}");
+            }),
+        ),
+        (
+            "bounds_structured_only_and_extra_blocks",
+            (|scenario: &'static str| {
+                let value = json!({"text":"x".repeat(MAX_BYTES * 3)});
+                let mut structured = CallToolResult::success(Vec::new());
+                structured.structured_content = Some(value);
+                let mut file = CallToolResult::structured(json!({"kind":"file_lines","data":{
+                "path":"file.txt","lines":[{"number":1,"text":"content\n"}],
+                "size":8,"revision":"a".repeat(64),"offset":0,"next_offset":null,
+                    }}));
+                file.content
+                    .push(ContentBlock::text("extra\n".repeat(MAX_LINES * 3)));
+                let resource = CallToolResult::success(vec![ContentBlock::resource(
+                    ResourceContents::text("resource\n".repeat(MAX_LINES * 3), "fixture://source"),
+                )]);
+                for source in [structured, file, resource] {
+                    let original = message(source);
+                    let outgoing = projected(&original);
+                    let (bytes, lines) = size(result(&outgoing));
+                    assert!(bytes <= MAX_BYTES && lines <= MAX_LINES, "{scenario}");
+                    assert!(result(&outgoing).structured_content.is_none(), "{scenario}");
+                    assert_eq!(projected(&outgoing), outgoing, "{scenario}");
+                    let text = texts(result(&outgoing));
+                    assert!(
+                        text.last().unwrap().contains("read_tool_output"),
+                        "{scenario}"
+                    );
+                    assert_eq!(reference_of(text.last().unwrap()).1, 0, "{scenario}");
+                }
+            }),
+        ),
+        (
+            "budgets_long_call_references",
+            (|scenario: &'static str| {
+                let mut original = message(CallToolResult::success(vec![ContentBlock::text(
+                    "x".repeat(MAX_BYTES * 2),
+                )]));
+                let MessageContentBlock::ToolResponse(response) = &mut original.content[0] else {
+                    unreachable!()
+                };
+                response.id = "call".repeat(1024);
+                let outgoing = projected(&original);
+                assert!(size(result(&outgoing)).0 <= MAX_BYTES, "{scenario}");
+                assert_eq!(projected(&outgoing), outgoing, "{scenario}");
+            }),
+        ),
+        (
+            "bounds_blank_line_tails",
+            (|scenario: &'static str| {
+                for text in [
+                    "\n".repeat(5000),
+                    format!("first\n{}last\n", "x\n".repeat(5000)),
+                ] {
+                    let start = tail_start(&text, MAX_BYTES, 100);
+                    assert_eq!(count(&text[start..]), 100, "{scenario}");
+                    assert!(text.ends_with(&text[start..]), "{scenario}");
+                }
+            }),
+        ),
+        (
+            "renders_raw_pages_without_nested_escaping",
+            (|scenario: &'static str| {
+                let raw = "\\\"".repeat(10000);
+                let page = sailry_protocol::tool::OutputPage {
+                    turn: sailry_protocol::TurnId::new(),
+                    output: sailry_protocol::tool::OutputReference {
+                        call: "source".into(),
+                        revision: "a".repeat(64),
+                    },
+                    offset: 42,
+                    total_bytes: 100000,
+                    next_offset: Some(42 + raw.len()),
+                    text: raw.clone(),
+                };
+                let original = message(CallToolResult::structured(
+                    serde_json::to_value(&page).unwrap(),
+                ));
+                let outgoing = projected(&original);
+                let contents = texts(result(&outgoing));
+                assert_eq!(contents.len(), 1, "{scenario}");
+                assert!(contents[0].contains(&raw), "{scenario}");
+                assert!(!contents[0].contains("Tool result truncated"), "{scenario}");
+                let metadata: Value =
+                    serde_json::from_str(contents[0].lines().last().unwrap()).unwrap();
+                assert_eq!(
+                    metadata["output"],
+                    serde_json::to_value(&page.output).unwrap(),
+                    "{scenario}"
+                );
+                assert_eq!(metadata["next_offset"], 42 + raw.len(), "{scenario}");
+                assert!(size(result(&outgoing)).0 <= MAX_BYTES, "{scenario}");
+            }),
+        ),
+        (
+            "bounds_error_data_without_changing_status",
+            (|scenario: &'static str| {
+                let error = rmcp::model::ErrorData::internal_error(
+                    "Failure headline",
+                    Some(json!({"detail":"中文🙂".repeat(MAX_BYTES)})),
+                );
+                let original = Message::user().with_tool_response("failure", Err(error.clone()));
+                let outgoing = projected(&original);
+                let failure = outgoing.content[0]
+                    .as_tool_response()
+                    .unwrap()
+                    .tool_result
+                    .as_ref()
+                    .unwrap_err();
+                assert_eq!(failure.code, error.code, "{scenario}");
+                assert!(
+                    failure.message.starts_with("Failure headline"),
+                    "{scenario}"
+                );
+                assert!(failure.message.len() <= MAX_BYTES, "{scenario}");
+                assert!(failure.data.is_none(), "{scenario}");
+                let (reference, offset) = reference_of(&failure.message);
+                assert_eq!(offset, 0, "{scenario}");
+                assert_eq!(
+                    reference["revision"],
+                    blake3::hash(serde_json::to_value(&error).unwrap().to_string().as_bytes())
+                        .to_hex()
+                        .to_string(),
+                    "{scenario}"
+                );
+                assert_eq!(projected(&outgoing), outgoing, "{scenario}");
+                assert_eq!(
+                    original.content[0]
+                        .as_tool_response()
+                        .unwrap()
+                        .tool_result
+                        .as_ref()
+                        .unwrap_err(),
+                    &error,
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "excludes_private_reference_notes_from_requests",
+            (|scenario: &'static str| {
+                use goose_provider_types::{
+                    formats::openai, images::ImageFormat, model::ModelConfig,
+                };
+                let mut original = message(CallToolResult::success(vec![ContentBlock::text(
+                    "x".repeat(MAX_BYTES * 2),
+                )]));
+                original
+                    .metadata
+                    .set_operation_note("tool_output", "call", json!("a".repeat(64)));
+                let messages = [
+                    Message::assistant().with_tool_request(
+                        "call",
+                        Ok(rmcp::model::CallToolRequestParams::new("report")),
+                    ),
+                    projected(&original),
+                ];
+                let request = openai::create_request(
+                    &ModelConfig::new("fixture"),
+                    "",
+                    &messages,
+                    &[],
+                    &ImageFormat::OpenAi,
+                    true,
+                )
+                .unwrap();
+                let encoded = request.to_string();
+                assert!(!encoded.contains("operations"), "{scenario}");
+                assert!(!encoded.contains("tool_output\":{\"call"), "{scenario}");
+                assert!(encoded.contains(&"a".repeat(64)), "{scenario}");
+            }),
+        ),
     ] {
-        assert_eq!(projected(&original), original);
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-}
-
-#[test]
-fn bounds_bytes_before_lines() {
-    let raw = "x".repeat(200 * 1024);
-    let original = message(CallToolResult::success(vec![ContentBlock::text(&raw)]));
-    let outgoing = projected(&original);
-    let shown = texts(result(&outgoing));
-    assert_eq!(shown.len(), 2);
-    assert!(shown[0].len() > MAX_BYTES - 1024);
-    assert!(raw.starts_with(shown[0]));
-    assert!(shown.iter().map(|text| text.len()).sum::<usize>() <= MAX_BYTES);
-    assert!(shown[1].contains(&format!(
-        "showing the first 1 of 1 lines ({} of {} bytes)",
-        shown[0].len(),
-        raw.len()
-    )));
-    // Plain MCP text pages the whole serialized result from its start.
-    assert_eq!(reference_of(shown[1]).1, 0);
-    assert_eq!(result(&original).content[0], ContentBlock::text(&raw));
-}
-
-#[test]
-fn bounds_lines_before_bytes() {
-    let raw: String = (0..5_000).map(|number| format!("{number}\n")).collect();
-    assert!(raw.len() < MAX_BYTES);
-    let original = message(CallToolResult::success(vec![ContentBlock::text(&raw)]));
-    let outgoing = projected(&original);
-    let shown = texts(result(&outgoing));
-    assert_eq!(count(shown[0]), MAX_LINES - 1);
-    assert!(shown[0].ends_with(&format!("{}\n", MAX_LINES - 1 - 1)));
-    assert!(shown[1].contains(&format!(
-        "showing the first {} of 5000 lines",
-        MAX_LINES - 1
-    )));
-    assert!(shown.iter().map(|text| count(text)).sum::<usize>() <= MAX_LINES);
-}
-
-#[test]
-fn keeps_whole_lines_and_utf8_characters() {
-    let line = format!("{}\n", "中文🙂".repeat(100));
-    let raw = line.repeat(200);
-    let outgoing = projected(&message(CallToolResult::success(vec![ContentBlock::text(
-        &raw,
-    )])));
-    let shown = texts(result(&outgoing))[0];
-    assert!(raw.starts_with(shown));
-    assert!(shown.ends_with('\n'));
-    assert_eq!(shown.len() % line.len(), 0);
-
-    let raw = "中文🙂".repeat(20 * 1024);
-    let outgoing = projected(&message(CallToolResult::success(vec![ContentBlock::text(
-        &raw,
-    )])));
-    let shown = texts(result(&outgoing))[0];
-    assert!(raw.starts_with(shown));
-    assert!(shown.len() <= MAX_BYTES);
-    assert!(shown.len() > MAX_BYTES - 1024);
-}
-
-#[test]
-fn keeps_media_and_hides_later_text() {
-    let image = ContentBlock::image("AQID", "image/png");
-    let original = message(CallToolResult::success(vec![
-        ContentBlock::text("a".repeat(60 * 1024)),
-        image.clone(),
-        ContentBlock::text("later"),
-    ]));
-    let outgoing = projected(&original);
-    let content = &result(&outgoing).content;
-    assert_eq!(content.len(), 3);
-    assert!(matches!(&content[0], ContentBlock::Text(text) if text.text.len() < MAX_BYTES));
-    assert_eq!(content[1], image);
-    assert!(texts(result(&outgoing))[1].starts_with("[Tool result truncated"));
-}
-
-#[test]
-fn repeats_without_change() {
-    let original = message(CallToolResult::structured(
-        json!({"rows":vec!["中文🙂 row"; 20_000]}),
-    ));
-    let once = projected(&original);
-    assert_eq!(projected(&once), once);
 }
 
 mod canonical {
@@ -240,91 +453,6 @@ mod canonical {
     }
 }
 
-#[test]
-fn bounds_structured_only_and_extra_blocks() {
-    let value = json!({"text":"x".repeat(MAX_BYTES * 3)});
-    let mut structured = CallToolResult::success(Vec::new());
-    structured.structured_content = Some(value);
-    let mut file = CallToolResult::structured(json!({"kind":"file_lines","data":{
-        "path":"file.txt","lines":[{"number":1,"text":"content\n"}],
-        "size":8,"revision":"a".repeat(64),"offset":0,"next_offset":null,
-    }}));
-    file.content
-        .push(ContentBlock::text("extra\n".repeat(MAX_LINES * 3)));
-    let resource = CallToolResult::success(vec![ContentBlock::resource(ResourceContents::text(
-        "resource\n".repeat(MAX_LINES * 3),
-        "fixture://source",
-    ))]);
-    for source in [structured, file, resource] {
-        let original = message(source);
-        let outgoing = projected(&original);
-        let (bytes, lines) = size(result(&outgoing));
-        assert!(bytes <= MAX_BYTES && lines <= MAX_LINES);
-        assert!(result(&outgoing).structured_content.is_none());
-        assert_eq!(projected(&outgoing), outgoing);
-        let text = texts(result(&outgoing));
-        assert!(text.last().unwrap().contains("read_tool_output"));
-        assert_eq!(reference_of(text.last().unwrap()).1, 0);
-    }
-}
-
-#[test]
-fn budgets_long_call_references() {
-    let mut original = message(CallToolResult::success(vec![ContentBlock::text(
-        "x".repeat(MAX_BYTES * 2),
-    )]));
-    let MessageContentBlock::ToolResponse(response) = &mut original.content[0] else {
-        unreachable!()
-    };
-    response.id = "call".repeat(1024);
-    let outgoing = projected(&original);
-    assert!(size(result(&outgoing)).0 <= MAX_BYTES);
-    assert_eq!(projected(&outgoing), outgoing);
-}
-
-#[test]
-fn bounds_blank_line_tails() {
-    for text in [
-        "\n".repeat(5000),
-        format!("first\n{}last\n", "x\n".repeat(5000)),
-    ] {
-        let start = tail_start(&text, MAX_BYTES, 100);
-        assert_eq!(count(&text[start..]), 100);
-        assert!(text.ends_with(&text[start..]));
-    }
-}
-
-#[test]
-fn renders_raw_pages_without_nested_escaping() {
-    let raw = "\\\"".repeat(10000);
-    let page = sailry_protocol::tool::OutputPage {
-        turn: sailry_protocol::TurnId::new(),
-        output: sailry_protocol::tool::OutputReference {
-            call: "source".into(),
-            revision: "a".repeat(64),
-        },
-        offset: 42,
-        total_bytes: 100000,
-        next_offset: Some(42 + raw.len()),
-        text: raw.clone(),
-    };
-    let original = message(CallToolResult::structured(
-        serde_json::to_value(&page).unwrap(),
-    ));
-    let outgoing = projected(&original);
-    let contents = texts(result(&outgoing));
-    assert_eq!(contents.len(), 1);
-    assert!(contents[0].contains(&raw));
-    assert!(!contents[0].contains("Tool result truncated"));
-    let metadata: Value = serde_json::from_str(contents[0].lines().last().unwrap()).unwrap();
-    assert_eq!(
-        metadata["output"],
-        serde_json::to_value(&page.output).unwrap()
-    );
-    assert_eq!(metadata["next_offset"], 42 + raw.len());
-    assert!(size(result(&outgoing)).0 <= MAX_BYTES);
-}
-
 #[tokio::test]
 async fn references_canonical_data_after_media_projection() {
     use crate::agent::canonical::Kind;
@@ -376,73 +504,4 @@ async fn references_canonical_data_after_media_projection() {
         .unwrap();
     assert!(captured.metadata.runtime.as_ref().unwrap().notes.is_none());
     assert!(matches!(captured.kind, Kind::Message(_)));
-}
-
-#[test]
-fn bounds_error_data_without_changing_status() {
-    let error = rmcp::model::ErrorData::internal_error(
-        "Failure headline",
-        Some(json!({"detail":"中文🙂".repeat(MAX_BYTES)})),
-    );
-    let original = Message::user().with_tool_response("failure", Err(error.clone()));
-    let outgoing = projected(&original);
-    let failure = outgoing.content[0]
-        .as_tool_response()
-        .unwrap()
-        .tool_result
-        .as_ref()
-        .unwrap_err();
-    assert_eq!(failure.code, error.code);
-    assert!(failure.message.starts_with("Failure headline"));
-    assert!(failure.message.len() <= MAX_BYTES);
-    assert!(failure.data.is_none());
-    let (reference, offset) = reference_of(&failure.message);
-    assert_eq!(offset, 0);
-    assert_eq!(
-        reference["revision"],
-        blake3::hash(serde_json::to_value(&error).unwrap().to_string().as_bytes())
-            .to_hex()
-            .to_string()
-    );
-    assert_eq!(projected(&outgoing), outgoing);
-    assert_eq!(
-        original.content[0]
-            .as_tool_response()
-            .unwrap()
-            .tool_result
-            .as_ref()
-            .unwrap_err(),
-        &error
-    );
-}
-
-#[test]
-fn excludes_private_reference_notes_from_requests() {
-    use goose_provider_types::{formats::openai, images::ImageFormat, model::ModelConfig};
-    let mut original = message(CallToolResult::success(vec![ContentBlock::text(
-        "x".repeat(MAX_BYTES * 2),
-    )]));
-    original
-        .metadata
-        .set_operation_note("tool_output", "call", json!("a".repeat(64)));
-    let messages = [
-        Message::assistant().with_tool_request(
-            "call",
-            Ok(rmcp::model::CallToolRequestParams::new("report")),
-        ),
-        projected(&original),
-    ];
-    let request = openai::create_request(
-        &ModelConfig::new("fixture"),
-        "",
-        &messages,
-        &[],
-        &ImageFormat::OpenAi,
-        true,
-    )
-    .unwrap();
-    let encoded = request.to_string();
-    assert!(!encoded.contains("operations"));
-    assert!(!encoded.contains("tool_output\":{\"call"));
-    assert!(encoded.contains(&"a".repeat(64)));
 }

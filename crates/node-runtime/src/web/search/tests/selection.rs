@@ -15,68 +15,95 @@ fn configured() -> Plan {
 }
 
 #[test]
-fn follows_saved_order_in_auto() {
-    let mut plan = configured();
-    assert_eq!(candidates(&plan.settings), Driver::ALL);
-    plan.settings.order.reverse();
-    assert_eq!(candidates(&plan.settings), plan.settings.order);
-    plan.settings
-        .providers
-        .get_mut(&Driver::Tinyfish)
-        .unwrap()
-        .enabled = false;
-    plan.settings
-        .providers
-        .get_mut(&Driver::Brave)
-        .unwrap()
-        .key_configured = false;
-    plan.settings
-        .providers
-        .get_mut(&Driver::Model)
-        .unwrap()
-        .model = None;
-    assert_eq!(
-        candidates(&plan.settings),
-        [
-            Driver::Deepseek,
-            Driver::Volcengine,
-            Driver::Bocha,
-            Driver::Searxng,
-            Driver::Tavily,
-            Driver::Exa
-        ]
-    );
-}
-
-#[test]
-fn preserves_manual_selection() {
-    let mut plan = configured();
-    plan.settings.order.reverse();
-    plan.settings.driver = Some(Selection::Driver(Driver::Exa));
-    let drivers = candidates(&plan.settings);
-    assert_eq!(drivers[0], Driver::Exa);
-    assert_eq!(drivers[1], Driver::Deepseek);
-    assert!(!drivers.contains(&Driver::Model));
-    plan.settings.driver = Some(Selection::Driver(Driver::Model));
-    assert_eq!(candidates(&plan.settings), [Driver::Model]);
-    plan.settings.driver = Some(Selection::Driver(Driver::Tavily));
-    plan.settings.fallback = false;
-    assert_eq!(candidates(&plan.settings), [Driver::Tavily]);
-}
-
-#[test]
-fn automatic_advances_past_failures() {
-    let unsupported = model::failure(Fault::invalid("no web search metadata"));
-    assert!(unsupported.recoverable(true));
-    assert!(!unsupported.recoverable(false));
-    assert!(Failure::unauthorized().recoverable(true));
-    assert!(Failure::unavailable("service unavailable").recoverable(false));
-    assert!(!Failure::cancelled().recoverable(true));
-    assert!(!Failure::cleanup_uncertain().recoverable(true));
-    assert!(!Failure::deadline_with_cleanup(false).recoverable(true));
-    assert!(
-        !Failure::unauthorized()
-            .with_cleanup_uncertain()
-            .recoverable(true)
-    );
+fn preserves_search_contracts() {
+    for (scenario, check) in [
+        (
+            "follows_saved_order_in_auto",
+            (|scenario: &'static str| {
+                let mut plan = configured();
+                assert_eq!(candidates(&plan.settings), Driver::ALL, "{scenario}");
+                plan.settings.order.reverse();
+                assert_eq!(
+                    candidates(&plan.settings),
+                    plan.settings.order,
+                    "{scenario}"
+                );
+                plan.settings
+                    .providers
+                    .get_mut(&Driver::Tinyfish)
+                    .unwrap()
+                    .enabled = false;
+                plan.settings
+                    .providers
+                    .get_mut(&Driver::Brave)
+                    .unwrap()
+                    .key_configured = false;
+                plan.settings
+                    .providers
+                    .get_mut(&Driver::Model)
+                    .unwrap()
+                    .model = None;
+                assert_eq!(
+                    candidates(&plan.settings),
+                    [
+                        Driver::Deepseek,
+                        Driver::Volcengine,
+                        Driver::Bocha,
+                        Driver::Searxng,
+                        Driver::Tavily,
+                        Driver::Exa
+                    ],
+                    "{scenario}"
+                );
+            }) as fn(&'static str),
+        ),
+        (
+            "preserves_manual_selection",
+            (|scenario: &'static str| {
+                let mut plan = configured();
+                plan.settings.order.reverse();
+                plan.settings.driver = Some(Selection::Driver(Driver::Exa));
+                let drivers = candidates(&plan.settings);
+                assert_eq!(drivers[0], Driver::Exa, "{scenario}");
+                assert_eq!(drivers[1], Driver::Deepseek, "{scenario}");
+                assert!(!drivers.contains(&Driver::Model), "{scenario}");
+                plan.settings.driver = Some(Selection::Driver(Driver::Model));
+                assert_eq!(candidates(&plan.settings), [Driver::Model], "{scenario}");
+                plan.settings.driver = Some(Selection::Driver(Driver::Tavily));
+                plan.settings.fallback = false;
+                assert_eq!(candidates(&plan.settings), [Driver::Tavily], "{scenario}");
+            }),
+        ),
+        (
+            "automatic_advances_past_failures",
+            (|scenario: &'static str| {
+                let unsupported = model::failure(Fault::invalid("no web search metadata"));
+                assert!(unsupported.recoverable(true), "{scenario}");
+                assert!(!unsupported.recoverable(false), "{scenario}");
+                assert!(Failure::unauthorized().recoverable(true), "{scenario}");
+                assert!(
+                    Failure::unavailable("service unavailable").recoverable(false),
+                    "{scenario}"
+                );
+                assert!(!Failure::cancelled().recoverable(true), "{scenario}");
+                assert!(
+                    !Failure::cleanup_uncertain().recoverable(true),
+                    "{scenario}"
+                );
+                assert!(
+                    !Failure::deadline_with_cleanup(false).recoverable(true),
+                    "{scenario}"
+                );
+                assert!(
+                    !Failure::unauthorized()
+                        .with_cleanup_uncertain()
+                        .recoverable(true),
+                    "{scenario}"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }

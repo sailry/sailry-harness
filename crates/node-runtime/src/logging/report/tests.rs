@@ -213,46 +213,244 @@ async fn captures_errors_and_thread_panics() {
 }
 
 #[test]
-fn titles_use_only_public_fields() {
-    for (fields, title) in [
+fn accepts_only_public_metadata() {
+    for (case_name, run) in [
         (
-            json!({"area":"model", "operation":"conversation", "code":"unavailable"}),
-            "model.conversation:unavailable",
+            "titles_use_only_public_fields",
+            (|case_name| {
+                for (fields, title) in [
+                    (
+                        json!({"area":"model", "operation":"conversation", "code":"unavailable"}),
+                        "model.conversation:unavailable",
+                    ),
+                    (json!({}), "runtime.operation:internal"),
+                    (
+                        json!({"area":"/Users/PRIVATE_USER", "operation":"PRIVATE_OPERATION", "code":"https://private.invalid/?token=PRIVATE_KEY"}),
+                        "runtime.operation:internal",
+                    ),
+                ] {
+                    let mut fields = fields.as_object().unwrap().clone();
+                    fields.insert("phase".into(), "failed".into());
+                    let event = Event {
+                        logger: Some("sailry".into()),
+                        level: sentry::protocol::Level::Error,
+                        message: Some("PRIVATE_MESSAGE".into()),
+                        exception: vec![Exception {
+                            ty: "PRIVATE_TYPE".into(),
+                            value: Some(
+                                "PRIVATE_ERROR /Users/PRIVATE_USER token=PRIVATE_KEY".into(),
+                            ),
+                            ..Default::default()
+                        }]
+                        .into(),
+                        contexts: [(
+                            "Rust Tracing Fields".into(),
+                            Context::Other(fields.into_iter().collect()),
+                        )]
+                        .into_iter()
+                        .collect(),
+                        ..Default::default()
+                    };
+                    let safe =
+                        privacy::event(event, &Control::fixture(true, true).metadata(), false)
+                            .unwrap();
+                    assert_eq!(safe.message.as_deref(), Some(title), "{case_name}");
+                    assert_eq!(safe.exception[0].ty, "SailryError", "{case_name}");
+                    assert_eq!(
+                        safe.exception[0].value.as_deref(),
+                        Some(title),
+                        "{case_name}"
+                    );
+                    let serialized = serde_json::to_string(&safe).unwrap();
+                    for forbidden in ["PRIVATE_", "/Users/", "https://", "token="] {
+                        assert!(
+                            !serialized.contains(forbidden),
+                            "{case_name}: {}",
+                            format_args!("{serialized}")
+                        );
+                    }
+                }
+            }) as fn(&str),
         ),
-        (json!({}), "runtime.operation:internal"),
         (
-            json!({"area":"/Users/PRIVATE_USER", "operation":"PRIVATE_OPERATION", "code":"https://private.invalid/?token=PRIVATE_KEY"}),
-            "runtime.operation:internal",
+            "reconstructs_only_public_metadata",
+            (|case_name| {
+                let control = Control::fixture(true, true);
+                let mut event = Event {
+                    message: Some("PRIVATE_MESSAGE".into()),
+                    server_name: Some("PRIVATE_MACHINE".into()),
+                    request: Some(Default::default()),
+                    logentry: Some(Default::default()),
+                    extra: [("PRIVATE_EXTRA".into(), json!("PRIVATE_EXTRA_VALUE"))]
+                        .into_iter()
+                        .collect(),
+                    exception: vec![Exception {
+                        ty: "panic".into(),
+                        value: Some("PRIVATE_PANIC".into()),
+                        mechanism: Some(Mechanism {
+                            ty: "panic".into(),
+                            ..Default::default()
+                        }),
+                        stacktrace: Some(Stacktrace {
+                            frames: vec![Frame {
+                                function: Some("sailry_node_runtime::worker::run".into()),
+                                module: Some("sailry_node_runtime".into()),
+                                filename: Some("src/worker.rs".into()),
+                                lineno: Some(42),
+                                colno: Some(9),
+                                abs_path: Some("/Users/PRIVATE_USER/project/src/worker.rs".into()),
+                                package: Some("/Users/PRIVATE_USER/bin".into()),
+                                context_line: Some("PRIVATE_SOURCE".into()),
+                                vars: [("PRIVATE_VARIABLE".into(), json!("PRIVATE_VALUE"))]
+                                    .into_iter()
+                                    .collect(),
+                                instruction_addr: Some(123_u64.into()),
+                                ..Default::default()
+                            }],
+                            registers: [("PRIVATE_REGISTER".into(), 123_u64.into())]
+                                .into_iter()
+                                .collect(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }]
+                    .into(),
+                    ..Default::default()
+                };
+                event
+                    .contexts
+                    .insert("PRIVATE_CONTEXT".into(), Context::Other(Default::default()));
+                let safe = serde_json::to_value(
+                    privacy::event(event, &control.metadata(), false).unwrap(),
+                )
+                .unwrap();
+                assert!(!safe.to_string().contains("PRIVATE_"), "{case_name}");
+                assert_eq!(
+                    safe["environment"],
+                    control.metadata().channel,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    safe["exception"]["values"][0]["stacktrace"]["frames"][0],
+                    json!({
+                        "function": "sailry_node_runtime::worker::run",
+                        "module": "sailry_node_runtime",
+                        "filename": "src/worker.rs",
+                        "lineno": 42,
+                        "instruction_addr": "0x7b",
+                    }),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "restricts_shared_business_fields",
+            (|case_name| {
+                let version = crate::plugins::Host::bundled_version("web-search")
+                    .unwrap()
+                    .unwrap();
+                let digest = crate::plugins::Host::bundled_digest("web-search").unwrap();
+                let fields = serde_json::from_value(json!({
+        "area":"plugin", "phase":"failed", "operation":"callback", "code":"internal",
+        "cause_code":"cancelled", "package":"web-search", "plugin_version":version,
+        "app_version":"0.1.0", "duration_us":12, "elapsed_us":13, "count":2,
+        "settings_revision":3, "revision":4, "generation":5, "sequence":6,
+        "transport":"remote", "parse_field":"private_field", "parse_event":"private_event",
+        "bytes":7, "upstream_status":401, "status":"failed", "attempt":8,
+        "stage":"private_stage", "source_kind":"private_source", "platform":"private_platform",
+        "wait_ms":9, "end_to_end_us":10, "rtt_ms":11, "first_token_us":14,
+        "last_content_us":15, "provider_name":"private_provider", "model":"private_model",
+        "handler":"private_handler", "invocation":"private_invocation", "digest":digest,
+    }))
+    .unwrap();
+                let safe = super::super::format::remote(&fields);
+                let keys: std::collections::BTreeSet<_> = safe.keys().map(String::as_str).collect();
+                assert_eq!(
+                    keys,
+                    std::collections::BTreeSet::from([
+                        "area",
+                        "phase",
+                        "operation",
+                        "code",
+                        "cause_code",
+                        "package",
+                        "plugin_version",
+                        "app_version",
+                        "duration_us",
+                        "elapsed_us",
+                        "count",
+                    ]),
+                    "{case_name}"
+                );
+                assert_eq!(safe["package"], "web-search", "{case_name}");
+                assert_eq!(safe["plugin_version"], version, "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "requires_exact_public_package_identity",
+            (|case_name| {
+                let version = crate::plugins::Host::bundled_version("web-search")
+                    .unwrap()
+                    .unwrap();
+                let digest = crate::plugins::Host::bundled_digest("web-search").unwrap();
+                let fields = json!({
+                    "package":"web-search", "plugin_version":version, "digest":digest,
+                });
+                assert_eq!(
+                    super::super::format::remote(fields.as_object().unwrap()),
+                    json!({"package":"web-search", "plugin_version":version})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    "{case_name}"
+                );
+                for (key, value) in [
+                    ("package", "private-project-tools"),
+                    ("plugin_version", "0.1.0+PRIVATE_VERSION"),
+                    ("digest", "PRIVATE_DIGEST"),
+                ] {
+                    let mut fields = fields.clone();
+                    fields[key] = value.into();
+                    let safe = super::super::format::remote(fields.as_object().unwrap());
+                    assert_eq!(safe["package"], "third_party", "{case_name}");
+                    assert!(!safe.contains_key("plugin_version"), "{case_name}");
+                    assert!(!safe.contains_key("digest"), "{case_name}");
+                    assert!(
+                        !serde_json::to_string(&safe).unwrap().contains(value),
+                        "{case_name}"
+                    );
+                }
+                let newer = super::super::format::remote(
+                    json!({"package":"web-search", "plugin_version":"99.0.0", "digest":"unknown"})
+                        .as_object()
+                        .unwrap(),
+                );
+                assert_eq!(newer["package"], "third_party", "{case_name}");
+                assert!(!newer.contains_key("plugin_version"), "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "filters_malformed_diagnostic_lines",
+            (|case_name| {
+                let file = tempfile::NamedTempFile::new().unwrap();
+                std::fs::write(file.path(), "PRIVATE_RAW_MESSAGE\n2026-10-30T00:00:00Z ERROR host reason=\"unterminated\n2026-10-30T00:00:00Z ERROR host reason=safe count=7 path=/Users/PRIVATE_USER\n").unwrap();
+                let attachment = diagnostics::attachment(Some(file.path().to_owned())).unwrap();
+                let text = String::from_utf8(attachment.buffer).unwrap();
+                assert_eq!(text.lines().count(), 1, "{case_name}");
+                assert!(!text.contains("PRIVATE_"), "{case_name}");
+                assert_eq!(
+                    serde_json::from_str::<Value>(text.trim()).unwrap()["count"],
+                    7,
+                    "{case_name}"
+                );
+                assert!(
+                    diagnostics::attachment(Some(PathBuf::from("/PRIVATE_MISSING_FILE"))).is_err(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
         ),
     ] {
-        let mut fields = fields.as_object().unwrap().clone();
-        fields.insert("phase".into(), "failed".into());
-        let event = Event {
-            logger: Some("sailry".into()),
-            level: sentry::protocol::Level::Error,
-            message: Some("PRIVATE_MESSAGE".into()),
-            exception: vec![Exception {
-                ty: "PRIVATE_TYPE".into(),
-                value: Some("PRIVATE_ERROR /Users/PRIVATE_USER token=PRIVATE_KEY".into()),
-                ..Default::default()
-            }]
-            .into(),
-            contexts: [(
-                "Rust Tracing Fields".into(),
-                Context::Other(fields.into_iter().collect()),
-            )]
-            .into_iter()
-            .collect(),
-            ..Default::default()
-        };
-        let safe = privacy::event(event, &Control::fixture(true, true).metadata(), false).unwrap();
-        assert_eq!(safe.message.as_deref(), Some(title));
-        assert_eq!(safe.exception[0].ty, "SailryError");
-        assert_eq!(safe.exception[0].value.as_deref(), Some(title));
-        let serialized = serde_json::to_string(&safe).unwrap();
-        for forbidden in ["PRIVATE_", "/Users/", "https://", "token="] {
-            assert!(!serialized.contains(forbidden), "{serialized}");
-        }
+        run(case_name);
     }
 }
 
@@ -297,69 +495,6 @@ async fn keeps_request_rejections_as_breadcrumbs() {
     assert!(!envelope.to_string().contains("PRIVATE_"));
     assert!(report.close(Duration::from_secs(1)));
     assert!(server.empty());
-}
-
-#[test]
-fn reconstructs_only_public_metadata() {
-    let control = Control::fixture(true, true);
-    let mut event = Event {
-        message: Some("PRIVATE_MESSAGE".into()),
-        server_name: Some("PRIVATE_MACHINE".into()),
-        request: Some(Default::default()),
-        logentry: Some(Default::default()),
-        extra: [("PRIVATE_EXTRA".into(), json!("PRIVATE_EXTRA_VALUE"))]
-            .into_iter()
-            .collect(),
-        exception: vec![Exception {
-            ty: "panic".into(),
-            value: Some("PRIVATE_PANIC".into()),
-            mechanism: Some(Mechanism {
-                ty: "panic".into(),
-                ..Default::default()
-            }),
-            stacktrace: Some(Stacktrace {
-                frames: vec![Frame {
-                    function: Some("sailry_node_runtime::worker::run".into()),
-                    module: Some("sailry_node_runtime".into()),
-                    filename: Some("src/worker.rs".into()),
-                    lineno: Some(42),
-                    colno: Some(9),
-                    abs_path: Some("/Users/PRIVATE_USER/project/src/worker.rs".into()),
-                    package: Some("/Users/PRIVATE_USER/bin".into()),
-                    context_line: Some("PRIVATE_SOURCE".into()),
-                    vars: [("PRIVATE_VARIABLE".into(), json!("PRIVATE_VALUE"))]
-                        .into_iter()
-                        .collect(),
-                    instruction_addr: Some(123_u64.into()),
-                    ..Default::default()
-                }],
-                registers: [("PRIVATE_REGISTER".into(), 123_u64.into())]
-                    .into_iter()
-                    .collect(),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }]
-        .into(),
-        ..Default::default()
-    };
-    event
-        .contexts
-        .insert("PRIVATE_CONTEXT".into(), Context::Other(Default::default()));
-    let safe =
-        serde_json::to_value(privacy::event(event, &control.metadata(), false).unwrap()).unwrap();
-    assert!(!safe.to_string().contains("PRIVATE_"));
-    assert_eq!(safe["environment"], control.metadata().channel);
-    assert_eq!(
-        safe["exception"]["values"][0]["stacktrace"]["frames"][0],
-        json!({
-            "function": "sailry_node_runtime::worker::run",
-            "module": "sailry_node_runtime",
-            "filename": "src/worker.rs",
-            "lineno": 42,
-            "instruction_addr": "0x7b",
-        })
-    );
 }
 
 #[tokio::test]
@@ -437,85 +572,6 @@ async fn retains_verified_plugin_metadata() {
             .unwrap()
             .clone()
     );
-}
-
-#[test]
-fn restricts_shared_business_fields() {
-    let version = crate::plugins::Host::bundled_version("web-search")
-        .unwrap()
-        .unwrap();
-    let digest = crate::plugins::Host::bundled_digest("web-search").unwrap();
-    let fields = serde_json::from_value(json!({
-        "area":"plugin", "phase":"failed", "operation":"callback", "code":"internal",
-        "cause_code":"cancelled", "package":"web-search", "plugin_version":version,
-        "app_version":"0.1.0", "duration_us":12, "elapsed_us":13, "count":2,
-        "settings_revision":3, "revision":4, "generation":5, "sequence":6,
-        "transport":"remote", "parse_field":"private_field", "parse_event":"private_event",
-        "bytes":7, "upstream_status":401, "status":"failed", "attempt":8,
-        "stage":"private_stage", "source_kind":"private_source", "platform":"private_platform",
-        "wait_ms":9, "end_to_end_us":10, "rtt_ms":11, "first_token_us":14,
-        "last_content_us":15, "provider_name":"private_provider", "model":"private_model",
-        "handler":"private_handler", "invocation":"private_invocation", "digest":digest,
-    }))
-    .unwrap();
-    let safe = super::super::format::remote(&fields);
-    let keys: std::collections::BTreeSet<_> = safe.keys().map(String::as_str).collect();
-    assert_eq!(
-        keys,
-        std::collections::BTreeSet::from([
-            "area",
-            "phase",
-            "operation",
-            "code",
-            "cause_code",
-            "package",
-            "plugin_version",
-            "app_version",
-            "duration_us",
-            "elapsed_us",
-            "count",
-        ])
-    );
-    assert_eq!(safe["package"], "web-search");
-    assert_eq!(safe["plugin_version"], version);
-}
-
-#[test]
-fn requires_exact_public_package_identity() {
-    let version = crate::plugins::Host::bundled_version("web-search")
-        .unwrap()
-        .unwrap();
-    let digest = crate::plugins::Host::bundled_digest("web-search").unwrap();
-    let fields = json!({
-        "package":"web-search", "plugin_version":version, "digest":digest,
-    });
-    assert_eq!(
-        super::super::format::remote(fields.as_object().unwrap()),
-        json!({"package":"web-search", "plugin_version":version})
-            .as_object()
-            .unwrap()
-            .clone()
-    );
-    for (key, value) in [
-        ("package", "private-project-tools"),
-        ("plugin_version", "0.1.0+PRIVATE_VERSION"),
-        ("digest", "PRIVATE_DIGEST"),
-    ] {
-        let mut fields = fields.clone();
-        fields[key] = value.into();
-        let safe = super::super::format::remote(fields.as_object().unwrap());
-        assert_eq!(safe["package"], "third_party");
-        assert!(!safe.contains_key("plugin_version"));
-        assert!(!safe.contains_key("digest"));
-        assert!(!serde_json::to_string(&safe).unwrap().contains(value));
-    }
-    let newer = super::super::format::remote(
-        json!({"package":"web-search", "plugin_version":"99.0.0", "digest":"unknown"})
-            .as_object()
-            .unwrap(),
-    );
-    assert_eq!(newer["package"], "third_party");
-    assert!(!newer.contains_key("plugin_version"));
 }
 
 #[tokio::test]
@@ -626,21 +682,6 @@ async fn rejects_http_without_leaks() {
         "runtime.diagnostics:requested"
     );
     assert!(report.close(Duration::from_secs(1)));
-}
-
-#[test]
-fn filters_malformed_diagnostic_lines() {
-    let file = tempfile::NamedTempFile::new().unwrap();
-    std::fs::write(file.path(), "PRIVATE_RAW_MESSAGE\n2026-10-30T00:00:00Z ERROR host reason=\"unterminated\n2026-10-30T00:00:00Z ERROR host reason=safe count=7 path=/Users/PRIVATE_USER\n").unwrap();
-    let attachment = diagnostics::attachment(Some(file.path().to_owned())).unwrap();
-    let text = String::from_utf8(attachment.buffer).unwrap();
-    assert_eq!(text.lines().count(), 1);
-    assert!(!text.contains("PRIVATE_"));
-    assert_eq!(
-        serde_json::from_str::<Value>(text.trim()).unwrap()["count"],
-        7
-    );
-    assert!(diagnostics::attachment(Some(PathBuf::from("/PRIVATE_MISSING_FILE"))).is_err());
 }
 
 #[test]

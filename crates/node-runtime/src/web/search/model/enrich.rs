@@ -119,71 +119,85 @@ mod tests {
     }
 
     #[test]
-    fn filters_known_hosts_before_reading_sources() {
-        let input = search::Request {
-            include_domains: vec!["allowed.example".into()],
-            exclude_domains: vec!["private.allowed.example".into()],
-            limit: 2,
-            ..Default::default()
-        };
-        let mut results = [
-            "https://other.example/source",
-            "https://private.allowed.example/source",
-            "https://allowed.example/first",
-            "https://vertexaisearch.cloud.google.com/grounding-api-redirect/opaque",
-            "https://allowed.example/last",
-        ]
-        .into_iter()
-        .map(|url| search::Result {
-            url: url.into(),
-            ..result()
-        })
-        .collect();
-        select(&mut results, &input);
-        assert_eq!(
-            results
-                .iter()
-                .map(|result| result.url.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "https://allowed.example/first",
-                "https://vertexaisearch.cloud.google.com/grounding-api-redirect/opaque",
-            ]
-        );
-    }
-
-    #[test]
-    fn uses_actual_content_and_final_url() {
-        let mut result = result();
-        apply(&mut result, page());
-        assert_eq!(result.title, "Citation title");
-        assert_eq!(result.url, "https://official.example/final");
-        assert_eq!(result.snippet, "Actual source excerpt");
-    }
-
-    #[test]
-    fn preserves_empty_excerpt_on_failed_reads() {
-        for (status, url) in [
-            (404, "https://official.example/final"),
-            (200, "file:///private/source"),
-            (200, "https://name:private@official.example/final"),
+    fn preserves_search_contracts() {
+        for (scenario, check) in [
+            (
+                "filters_known_hosts_before_reading_sources",
+                (|scenario: &'static str| {
+                    let input = search::Request {
+                        include_domains: vec!["allowed.example".into()],
+                        exclude_domains: vec!["private.allowed.example".into()],
+                        limit: 2,
+                        ..Default::default()
+                    };
+                    let mut results = [
+                        "https://other.example/source",
+                        "https://private.allowed.example/source",
+                        "https://allowed.example/first",
+                        "https://vertexaisearch.cloud.google.com/grounding-api-redirect/opaque",
+                        "https://allowed.example/last",
+                    ]
+                    .into_iter()
+                    .map(|url| search::Result {
+                        url: url.into(),
+                        ..result()
+                    })
+                    .collect();
+                    select(&mut results, &input);
+                    assert_eq!(
+                        results
+                            .iter()
+                            .map(|result| result.url.as_str())
+                            .collect::<Vec<_>>(),
+                        [
+                            "https://allowed.example/first",
+                            "https://vertexaisearch.cloud.google.com/grounding-api-redirect/opaque",
+                        ],
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "uses_actual_content_and_final_url",
+                (|scenario: &'static str| {
+                    let mut result = result();
+                    apply(&mut result, page());
+                    assert_eq!(result.title, "Citation title", "{scenario}");
+                    assert_eq!(result.url, "https://official.example/final", "{scenario}");
+                    assert_eq!(result.snippet, "Actual source excerpt", "{scenario}");
+                }),
+            ),
+            (
+                "preserves_empty_excerpt_on_failed_reads",
+                (|scenario: &'static str| {
+                    for (status, url) in [
+                        (404, "https://official.example/final"),
+                        (200, "file:///private/source"),
+                        (200, "https://name:private@official.example/final"),
+                    ] {
+                        let mut result = result();
+                        let mut page = page();
+                        page.status = status;
+                        page.url = url.into();
+                        apply(&mut result, page);
+                        assert_eq!(result.url, "https://redirect.example/source", "{scenario}");
+                        assert!(result.snippet.is_empty(), "{scenario}");
+                    }
+                }),
+            ),
+            (
+                "bounds_excerpts_at_unicode_characters",
+                (|scenario: &'static str| {
+                    let mut result = result();
+                    let mut page = page();
+                    page.content = "界".repeat(4001);
+                    apply(&mut result, page);
+                    assert_eq!(result.snippet.chars().count(), 4000, "{scenario}");
+                }),
+            ),
         ] {
-            let mut result = result();
-            let mut page = page();
-            page.status = status;
-            page.url = url.into();
-            apply(&mut result, page);
-            assert_eq!(result.url, "https://redirect.example/source");
-            assert!(result.snippet.is_empty());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn bounds_excerpts_at_unicode_characters() {
-        let mut result = result();
-        let mut page = page();
-        page.content = "界".repeat(4001);
-        apply(&mut result, page);
-        assert_eq!(result.snippet.chars().count(), 4000);
     }
 }

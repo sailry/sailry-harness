@@ -1,34 +1,45 @@
 use super::*;
 
 #[test]
-fn normalizes_windows_names() {
-    for (key, expected) in [
-        ("Path", "PATH"),
-        ("home", "HOME"),
-        ("UserProfile", "USERPROFILE"),
-        ("ComSpec", "COMSPEC"),
-        ("pathext", "PATHEXT"),
-        ("SystemRoot", "SystemRoot"),
+fn canonicalizes_platform_names() {
+    for (windows, cases) in [
+        (
+            true,
+            &[
+                ("Path", Some("PATH")),
+                ("home", Some("HOME")),
+                ("UserProfile", Some("USERPROFILE")),
+                ("ComSpec", Some("COMSPEC")),
+                ("pathext", Some("PATHEXT")),
+                ("SystemRoot", Some("SystemRoot")),
+                ("OPENAI_API_KEY", None),
+                ("openai_api_key", None),
+                ("SAILRY_FIXTURE_SECRET", None),
+                ("node_options", None),
+            ][..],
+        ),
+        (
+            false,
+            &[
+                ("PATH", Some("PATH")),
+                ("COMSPEC", Some("COMSPEC")),
+                ("PATHEXT", Some("PATHEXT")),
+                ("SystemRoot", Some("SystemRoot")),
+                ("Path", None),
+                ("ComSpec", None),
+                ("pathext", None),
+                ("systemroot", None),
+                ("OPENAI_API_KEY", None),
+            ][..],
+        ),
     ] {
-        assert_eq!(canonical(OsStr::new(key), true), Some(expected));
-    }
-    for key in [
-        "OPENAI_API_KEY",
-        "openai_api_key",
-        "SAILRY_FIXTURE_SECRET",
-        "node_options",
-    ] {
-        assert_eq!(canonical(OsStr::new(key), true), None);
-    }
-}
-
-#[test]
-fn preserves_unix_name_case() {
-    for key in ["PATH", "COMSPEC", "PATHEXT", "SystemRoot"] {
-        assert_eq!(canonical(OsStr::new(key), false), Some(key));
-    }
-    for key in ["Path", "ComSpec", "pathext", "systemroot", "OPENAI_API_KEY"] {
-        assert_eq!(canonical(OsStr::new(key), false), None);
+        for &(key, expected) in cases {
+            assert_eq!(
+                canonical(OsStr::new(key), windows),
+                expected,
+                "{key}, windows={windows}"
+            );
+        }
     }
 }
 
@@ -46,24 +57,30 @@ fn binds_filtered_launch_values() {
 }
 
 #[test]
-fn prefers_home_over_profile() {
-    let environment = Environment::filtered([
-        ("HOME".into(), "/fixture/home".into()),
-        ("USERPROFILE".into(), "/fixture/profile".into()),
-    ]);
-    assert_eq!(environment.home(), Some(Path::new("/fixture/home")));
-}
-
-#[test]
-fn falls_back_to_user_profile() {
-    let environment = Environment::filtered([("USERPROFILE".into(), "/fixture/profile".into())]);
-    assert_eq!(environment.home(), Some(Path::new("/fixture/profile")));
-}
-
-#[test]
-fn preserves_missing_home() {
-    let environment = Environment::filtered([("PATH".into(), "/fixture/bin".into())]);
-    assert!(environment.home().is_none());
+fn resolves_home_precedence() {
+    for (case, values, expected) in [
+        (
+            "home before profile",
+            vec![
+                ("HOME", "/fixture/home"),
+                ("USERPROFILE", "/fixture/profile"),
+            ],
+            Some(Path::new("/fixture/home")),
+        ),
+        (
+            "profile fallback",
+            vec![("USERPROFILE", "/fixture/profile")],
+            Some(Path::new("/fixture/profile")),
+        ),
+        ("missing home", vec![("PATH", "/fixture/bin")], None),
+    ] {
+        let environment = Environment::filtered(
+            values
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.into())),
+        );
+        assert_eq!(environment.home(), expected, "{case}");
+    }
 }
 
 #[test]

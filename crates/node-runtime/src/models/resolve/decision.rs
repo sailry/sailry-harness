@@ -84,30 +84,45 @@ mod tests {
     }
 
     #[test]
-    fn prefers_fixed_quantizations_and_ordinary_files() {
-        let files = files(&[
-            "model-Q4_K_M.gguf",
-            "model-Q8_0.gguf",
-            "subdir/other-Q8_0.gguf",
-            "model-Q8_0-00001-of-00002.gguf",
-        ]);
-        assert_eq!(select(&files).unwrap().path, "model-Q8_0.gguf");
-        let files = self::files(&["model-F16.gguf"]);
-        assert_eq!(select(&files).unwrap().path, "model-F16.gguf");
-    }
-
-    #[test]
-    fn rejects_ambiguous_or_unsupported_exports() {
-        for names in [
-            &["first-Q8_0.gguf", "second-Q8_0.gguf"][..],
-            &["first.gguf", "second.gguf"][..],
-            &["subdir/model.gguf"][..],
-            &["model-00001-of-00002.gguf"][..],
+    fn preserves_model_contracts() {
+        for (scenario, check) in [
+            (
+                "prefers_fixed_quantizations_and_ordinary_files",
+                (|scenario: &'static str| {
+                    let files = files(&[
+                        "model-Q4_K_M.gguf",
+                        "model-Q8_0.gguf",
+                        "subdir/other-Q8_0.gguf",
+                        "model-Q8_0-00001-of-00002.gguf",
+                    ]);
+                    assert_eq!(
+                        select(&files).unwrap().path,
+                        "model-Q8_0.gguf",
+                        "{scenario}"
+                    );
+                    let files = self::files(&["model-F16.gguf"]);
+                    assert_eq!(select(&files).unwrap().path, "model-F16.gguf", "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "rejects_ambiguous_or_unsupported_exports",
+                (|scenario: &'static str| {
+                    for names in [
+                        &["first-Q8_0.gguf", "second-Q8_0.gguf"][..],
+                        &["first.gguf", "second.gguf"][..],
+                        &["subdir/model.gguf"][..],
+                        &["model-00001-of-00002.gguf"][..],
+                    ] {
+                        assert!(select(&files(names)).is_err(), "{scenario}");
+                    }
+                    let mut files = files(&["model.gguf"]);
+                    files.get_mut("model.gguf").unwrap().bytes = MAX_ASSET_BYTES + 1;
+                    assert!(select(&files).is_err(), "{scenario}");
+                }),
+            ),
         ] {
-            assert!(select(&files(names)).is_err());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let mut files = files(&["model.gguf"]);
-        files.get_mut("model.gguf").unwrap().bytes = MAX_ASSET_BYTES + 1;
-        assert!(select(&files).is_err());
     }
 }

@@ -591,27 +591,46 @@ mod tests {
     }
 
     #[test]
-    fn rejects_rewritten_context() {
-        let context = Context::new(vec![Source {
+    fn rejects_invalid_context_provenance() {
+        let current = Context::new(vec![Source {
             kind: Kind::Skills,
             text: "Full skill".into(),
         }])
         .unwrap();
-        for body in [
+        let rewritten = vec![
             json!({"system":"base","messages":[{"role":"user","content":"rewritten"}]}),
-            json!({"system":"base","messages":[{"role":"user","content":context.text()},{"role":"user","content":"later input"}]}),
-            json!({"system":"base","messages":[{"role":"user","content":format!("{} altered",context.text())}]}),
-            json!({"system":"base","messages":[{"role":"user","content":[{"type":"text","text":context.text()},{"type":"image","data":"opaque"}]}]}),
-            json!({"system":"base","messages":[],"input":[{"role":"user","content":context.text()}]}),
-            json!({"input":{"opaque":context.text()}}),
+            json!({"system":"base","messages":[{"role":"user","content":current.text()},{"role":"user","content":"later input"}]}),
+            json!({"system":"base","messages":[{"role":"user","content":format!("{} altered",current.text())}]}),
+            json!({"system":"base","messages":[{"role":"user","content":[{"type":"text","text":current.text()},{"type":"image","data":"opaque"}]}]}),
+            json!({"system":"base","messages":[],"input":[{"role":"user","content":current.text()}]}),
+            json!({"input":{"opaque":current.text()}}),
+        ];
+        let skill = "Captured skill".to_owned();
+        let persisted = Context::new(vec![Source {
+            kind: Kind::Skills,
+            text: skill.clone(),
+        }])
+        .unwrap();
+        let persisted = Context::persisted(persisted.text().to_owned(), &[skill]);
+        let ambiguous = vec![
+            json!({"messages":[{"role":"user","content":persisted.text()},{"role":"user","content":persisted.text()}]}),
+            json!({"messages":[{"role":"user","content":format!("{}\n{}", persisted.text(), persisted.text())}]}),
+            json!({"messages":[{"role":"user","content":"rewritten"}]}),
+            json!({"messages":[{"role":"user","content":format!("quoted {}", persisted.text())}]}),
+        ];
+        for (scenario, context, bodies) in [
+            ("rewritten", current, rewritten),
+            ("ambiguous", persisted, ambiguous),
         ] {
-            let rows = estimate(&body, Some(&[]), std::slice::from_ref(&context));
-            for kind in [Kind::Skills, Kind::Injected] {
-                assert_eq!(
-                    rows.iter().find(|row| row.kind == kind).unwrap().tokens,
-                    None,
-                    "{body}"
-                );
+            for body in bodies {
+                let rows = estimate(&body, Some(&[]), std::slice::from_ref(&context));
+                for kind in [Kind::Skills, Kind::Injected] {
+                    assert_eq!(
+                        rows.iter().find(|row| row.kind == kind).unwrap().tokens,
+                        None,
+                        "{scenario}: {body}"
+                    );
+                }
             }
         }
     }
@@ -673,31 +692,6 @@ mod tests {
                 )
             );
             assert!(tokens(Kind::User).unwrap() >= (quoted.chars().count() as u64).div_ceil(4));
-        }
-    }
-
-    #[test]
-    fn rejects_ambiguous_persisted_context() {
-        let skill = "Captured skill".to_owned();
-        let context = Context::new(vec![Source {
-            kind: Kind::Skills,
-            text: skill.clone(),
-        }])
-        .unwrap();
-        let context = Context::persisted(context.text().to_owned(), &[skill]);
-        for body in [
-            json!({"messages":[{"role":"user","content":context.text()},{"role":"user","content":context.text()}]}),
-            json!({"messages":[{"role":"user","content":format!("{}\n{}", context.text(), context.text())}]}),
-            json!({"messages":[{"role":"user","content":"rewritten"}]}),
-            json!({"messages":[{"role":"user","content":format!("quoted {}", context.text())}]}),
-        ] {
-            let rows = estimate(&body, Some(&[]), std::slice::from_ref(&context));
-            for kind in [Kind::Skills, Kind::Injected] {
-                assert_eq!(
-                    rows.iter().find(|row| row.kind == kind).unwrap().tokens,
-                    None
-                );
-            }
         }
     }
 }

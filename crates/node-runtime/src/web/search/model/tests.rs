@@ -69,234 +69,275 @@ fn parse(api: ModelApi, value: &Value) -> Result<Parsed, Failure> {
 }
 
 #[test]
-fn preserves_quotes_and_reported_usage() {
-    for api in [ModelApi::Responses, ModelApi::Anthropic, ModelApi::Gemini] {
-        let parsed = parse(api, &response(api)).unwrap();
-        assert_eq!(parsed.summary.as_deref(), Some("Generated answer"));
-        assert_eq!(parsed.results.len(), 1);
-        assert_eq!(parsed.results[0].title, "Public source");
-        assert_eq!(parsed.results[0].url, "https://example.com/source");
-        assert_eq!(parsed.results[0].published, None);
-        assert_eq!(
-            parsed.results[0].snippet,
-            if api == ModelApi::Anthropic {
-                "Original source excerpt"
-            } else {
-                ""
-            }
-        );
-        let mut expected = json!({"input":100,"output":40,"cache_read":20,
+fn preserves_search_contracts() {
+    for (scenario, check) in [
+        (
+            "preserves_quotes_and_reported_usage",
+            (|scenario: &'static str| {
+                for api in [ModelApi::Responses, ModelApi::Anthropic, ModelApi::Gemini] {
+                    let parsed = parse(api, &response(api)).unwrap();
+                    assert_eq!(
+                        parsed.summary.as_deref(),
+                        Some("Generated answer"),
+                        "{scenario}"
+                    );
+                    assert_eq!(parsed.results.len(), 1, "{scenario}");
+                    assert_eq!(parsed.results[0].title, "Public source", "{scenario}");
+                    assert_eq!(
+                        parsed.results[0].url, "https://example.com/source",
+                        "{scenario}"
+                    );
+                    assert_eq!(parsed.results[0].published, None, "{scenario}");
+                    assert_eq!(
+                        parsed.results[0].snippet,
+                        if api == ModelApi::Anthropic {
+                            "Original source excerpt"
+                        } else {
+                            ""
+                        },
+                        "{scenario}"
+                    );
+                    let mut expected = json!({"input":100,"output":40,"cache_read":20,
             "reasoning":if api == ModelApi::Anthropic { 0 } else { 5 }});
-        if api == ModelApi::Anthropic {
-            expected["cache_write"] = json!(50);
-        }
-        assert_eq!(
-            serde_json::to_value(parsed.usage.unwrap()).unwrap(),
-            expected
-        );
-    }
-}
-
-#[test]
-fn retains_results_after_search_budget_exhaustion() {
-    let mut value = response(ModelApi::Anthropic);
-    value["content"].as_array_mut().unwrap().push(json!({
-        "type":"web_search_tool_result", "tool_use_id":"search4",
-        "content":{"type":"web_search_tool_result_error","error_code":"max_uses_exceeded"}
-    }));
-    let result = anthropic::parse(&value).unwrap();
-    assert_eq!(result.results.len(), 1);
-    assert_eq!(result.results[0].snippet, "Original source excerpt");
-    value["content"] = json!([value["content"].as_array().unwrap().last().unwrap()]);
-    assert!(anthropic::parse(&value).is_err());
-}
-
-#[test]
-fn distinguishes_agent_and_explicit_searches() {
-    let provider = auth::provider(Authentication::Copilot, ModelApi::Responses);
-    for (user, initiator) in [(false, "agent"), (true, "user")] {
-        let prepared = prepare(
-            &provider,
-            &auth::credentials(Authentication::Copilot),
-            "fixture-model",
-            auth::SESSION.parse().unwrap(),
-            auth::REQUEST.parse().unwrap(),
-            &input(),
-            user,
-        )
-        .unwrap();
-        assert_eq!(prepared.authorization.headers["x-initiator"], initiator);
-    }
-}
-
-#[test]
-fn extracts_usage_without_search_content() {
-    for (usage, expected) in [
-        (
-            responses::usage(&json!({"usage":{
-                "input_tokens":12,"output_tokens":4,
-                "input_tokens_details":{"cached_tokens":2},
-                "output_tokens_details":{"reasoning_tokens":1}
-            }})),
-            json!({"input":12,"output":4,"cache_read":2,"reasoning":1}),
+                    if api == ModelApi::Anthropic {
+                        expected["cache_write"] = json!(50);
+                    }
+                    assert_eq!(
+                        serde_json::to_value(parsed.usage.unwrap()).unwrap(),
+                        expected,
+                        "{scenario}"
+                    );
+                }
+            }) as fn(&'static str),
         ),
         (
-            anthropic::usage(&json!({"usage":{
-                "input_tokens":10,"output_tokens":4,
-                "cache_read_input_tokens":2,"cache_creation_input_tokens":3
-            }})),
-            json!({"input":15,"output":4,"cache_read":2,"cache_write":3,"reasoning":0}),
+            "retains_results_after_search_budget_exhaustion",
+            (|scenario: &'static str| {
+                let mut value = response(ModelApi::Anthropic);
+                value["content"].as_array_mut().unwrap().push(json!({
+                "type":"web_search_tool_result", "tool_use_id":"search4",
+                "content":{"type":"web_search_tool_result_error","error_code":"max_uses_exceeded"}
+                    }));
+                let result = anthropic::parse(&value).unwrap();
+                assert_eq!(result.results.len(), 1, "{scenario}");
+                assert_eq!(
+                    result.results[0].snippet, "Original source excerpt",
+                    "{scenario}"
+                );
+                value["content"] = json!([value["content"].as_array().unwrap().last().unwrap()]);
+                assert!(anthropic::parse(&value).is_err(), "{scenario}");
+            }),
         ),
         (
-            gemini::usage(&json!({"usageMetadata":{
-                "promptTokenCount":15,"candidatesTokenCount":3,
-                "cachedContentTokenCount":2,"thoughtsTokenCount":1
-            }})),
-            json!({"input":15,"output":4,"cache_read":2,"reasoning":1}),
+            "distinguishes_agent_and_explicit_searches",
+            (|scenario: &'static str| {
+                let provider = auth::provider(Authentication::Copilot, ModelApi::Responses);
+                for (user, initiator) in [(false, "agent"), (true, "user")] {
+                    let prepared = prepare(
+                        &provider,
+                        &auth::credentials(Authentication::Copilot),
+                        "fixture-model",
+                        auth::SESSION.parse().unwrap(),
+                        auth::REQUEST.parse().unwrap(),
+                        &input(),
+                        user,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        prepared.authorization.headers["x-initiator"], initiator,
+                        "{scenario}"
+                    );
+                }
+            }),
+        ),
+        (
+            "extracts_usage_without_search_content",
+            (|scenario: &'static str| {
+                for (usage, expected) in [
+                    (
+                        responses::usage(&json!({"usage":{
+                        "input_tokens":12,"output_tokens":4,
+                        "input_tokens_details":{"cached_tokens":2},
+                        "output_tokens_details":{"reasoning_tokens":1}
+                            }})),
+                        json!({"input":12,"output":4,"cache_read":2,"reasoning":1}),
+                    ),
+                    (
+                        anthropic::usage(&json!({"usage":{
+                        "input_tokens":10,"output_tokens":4,
+                        "cache_read_input_tokens":2,"cache_creation_input_tokens":3
+                            }})),
+                        json!({"input":15,"output":4,"cache_read":2,"cache_write":3,"reasoning":0}),
+                    ),
+                    (
+                        gemini::usage(&json!({"usageMetadata":{
+                        "promptTokenCount":15,"candidatesTokenCount":3,
+                        "cachedContentTokenCount":2,"thoughtsTokenCount":1
+                            }})),
+                        json!({"input":15,"output":4,"cache_read":2,"reasoning":1}),
+                    ),
+                ] {
+                    assert_eq!(
+                        serde_json::to_value(usage.unwrap()).unwrap(),
+                        expected,
+                        "{scenario}"
+                    );
+                }
+                for value in [
+                    Value::Null,
+                    json!({}),
+                    json!({"usage":null,"usageMetadata":null}),
+                ] {
+                    assert!(responses::usage(&value).is_none(), "{scenario}");
+                    assert!(anthropic::usage(&value).is_none(), "{scenario}");
+                    assert!(gemini::usage(&value).is_none(), "{scenario}");
+                }
+            }),
+        ),
+        (
+            "rejects_plain_answers_without_search_metadata",
+            (|scenario: &'static str| {
+                for (api, value) in [
+                    (
+                        ModelApi::Responses,
+                        json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Answer"}]}]}),
+                    ),
+                    (
+                        ModelApi::Anthropic,
+                        json!({"content":[{"type":"text","text":"Answer"}],"stop_reason":"end_turn"}),
+                    ),
+                    (
+                        ModelApi::Gemini,
+                        json!({"candidates":[{"content":{"parts":[{"text":"Answer"}]},"finishReason":"STOP"}]}),
+                    ),
+                ] {
+                    let error = parse(api, &value).unwrap_err();
+                    assert_eq!(
+                        error.fault.details,
+                        Some(FaultDetails::ModelRequest {
+                            reason: ModelFailure::InvalidResponse
+                        }),
+                        "{scenario}"
+                    );
+                }
+            }),
+        ),
+        (
+            "accepts_empty_search_results",
+            (|scenario: &'static str| {
+                let values = [
+                    (
+                        ModelApi::Responses,
+                        json!({"status":"completed","output":[{"type":"web_search_call","status":"completed","action":{"type":"search","sources":[]}}]}),
+                    ),
+                    (
+                        ModelApi::Anthropic,
+                        json!({"content":[{"type":"web_search_tool_result","content":[]}],"stop_reason":"end_turn"}),
+                    ),
+                    (
+                        ModelApi::Gemini,
+                        json!({"candidates":[{"finishReason":"STOP","groundingMetadata":{"webSearchQueries":["empty query"],"groundingChunks":[]}}]}),
+                    ),
+                ];
+                for (api, value) in values {
+                    let parsed = parse(api, &value).unwrap();
+                    assert!(parsed.results.is_empty(), "{scenario}");
+                    assert!(parsed.usage.is_none(), "{scenario}");
+                }
+            }),
+        ),
+        (
+            "rejects_unsafe_source_urls",
+            (|scenario: &'static str| {
+                for url in [
+                    "file:///private/source",
+                    "javascript:alert(1)",
+                    "https://name:password@example.com/",
+                ] {
+                    let mut results = Vec::new();
+                    let error = push(&mut results, url, None, None).unwrap_err();
+                    assert!(!error.fault.message.contains(url), "{scenario}");
+                    assert!(results.is_empty(), "{scenario}");
+                }
+            }),
+        ),
+        (
+            "rejects_missing_citation_urls",
+            (|scenario: &'static str| {
+                for api in [ModelApi::Responses, ModelApi::Anthropic, ModelApi::Gemini] {
+                    let mut value = response(api);
+                    match api {
+                        ModelApi::Responses => {
+                            value["output"][2]["content"][0]["annotations"][0]["url"] = Value::Null
+                        }
+                        ModelApi::Anthropic => {
+                            value["content"][2]["citations"][0]["url"] = Value::Null
+                        }
+                        ModelApi::Gemini => {
+                            value["candidates"][0]["groundingMetadata"]["groundingChunks"][0]["web"]
+                                ["uri"] = Value::Null
+                        }
+                        _ => unreachable!(),
+                    }
+                    assert_eq!(
+                        parse(api, &value).unwrap_err().fault.code,
+                        ErrorCode::InvalidRequest,
+                        "{scenario}"
+                    );
+                }
+            }),
+        ),
+        (
+            "rejects_credential_echoes",
+            (|scenario: &'static str| {
+                for authentication in [
+                    Authentication::ApiKey,
+                    Authentication::ChatGpt,
+                    Authentication::ChatGptOAuth,
+                    Authentication::ClaudeOAuth,
+                    Authentication::Plugin,
+                ] {
+                    let provider = auth::provider(authentication, ModelApi::Responses);
+                    let prepared = prepare(
+                        &provider,
+                        &auth::credentials(authentication),
+                        "fixture-model",
+                        auth::SESSION.parse().unwrap(),
+                        auth::REQUEST.parse().unwrap(),
+                        &input(),
+                        true,
+                    )
+                    .unwrap();
+                    for text in [
+                        "fixed-access",
+                        "Bearer fixed-access",
+                        "fixed-refresh",
+                        "private-account",
+                    ] {
+                        if !prepared
+                            .authorization
+                            .secrets
+                            .iter()
+                            .any(|secret| secret.expose() == text || text.contains(secret.expose()))
+                        {
+                            continue;
+                        }
+                        let parsed = Parsed {
+                            results: vec![],
+                            summary: Some(format!("Echo: {text}")),
+                            usage: None,
+                        };
+                        let error = protect(parsed, &prepared.authorization.secrets).unwrap_err();
+                        let serialized = serde_json::to_string(&error.fault).unwrap();
+                        assert!(!serialized.contains(text), "{scenario}");
+                        assert!(!format!("{error:?}").contains(text), "{scenario}");
+                    }
+                }
+            }),
         ),
     ] {
-        assert_eq!(serde_json::to_value(usage.unwrap()).unwrap(), expected);
-    }
-    for value in [
-        Value::Null,
-        json!({}),
-        json!({"usage":null,"usageMetadata":null}),
-    ] {
-        assert!(responses::usage(&value).is_none());
-        assert!(anthropic::usage(&value).is_none());
-        assert!(gemini::usage(&value).is_none());
-    }
-}
-
-#[test]
-fn rejects_plain_answers_without_search_metadata() {
-    for (api, value) in [
-        (
-            ModelApi::Responses,
-            json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Answer"}]}]}),
-        ),
-        (
-            ModelApi::Anthropic,
-            json!({"content":[{"type":"text","text":"Answer"}],"stop_reason":"end_turn"}),
-        ),
-        (
-            ModelApi::Gemini,
-            json!({"candidates":[{"content":{"parts":[{"text":"Answer"}]},"finishReason":"STOP"}]}),
-        ),
-    ] {
-        let error = parse(api, &value).unwrap_err();
-        assert_eq!(
-            error.fault.details,
-            Some(FaultDetails::ModelRequest {
-                reason: ModelFailure::InvalidResponse
-            })
-        );
-    }
-}
-
-#[test]
-fn accepts_empty_search_results() {
-    let values = [
-        (
-            ModelApi::Responses,
-            json!({"status":"completed","output":[{"type":"web_search_call","status":"completed","action":{"type":"search","sources":[]}}]}),
-        ),
-        (
-            ModelApi::Anthropic,
-            json!({"content":[{"type":"web_search_tool_result","content":[]}],"stop_reason":"end_turn"}),
-        ),
-        (
-            ModelApi::Gemini,
-            json!({"candidates":[{"finishReason":"STOP","groundingMetadata":{"webSearchQueries":["empty query"],"groundingChunks":[]}}]}),
-        ),
-    ];
-    for (api, value) in values {
-        let parsed = parse(api, &value).unwrap();
-        assert!(parsed.results.is_empty());
-        assert!(parsed.usage.is_none());
-    }
-}
-
-#[test]
-fn rejects_unsafe_source_urls() {
-    for url in [
-        "file:///private/source",
-        "javascript:alert(1)",
-        "https://name:password@example.com/",
-    ] {
-        let mut results = Vec::new();
-        let error = push(&mut results, url, None, None).unwrap_err();
-        assert!(!error.fault.message.contains(url));
-        assert!(results.is_empty());
-    }
-}
-
-#[test]
-fn rejects_missing_citation_urls() {
-    for api in [ModelApi::Responses, ModelApi::Anthropic, ModelApi::Gemini] {
-        let mut value = response(api);
-        match api {
-            ModelApi::Responses => {
-                value["output"][2]["content"][0]["annotations"][0]["url"] = Value::Null
-            }
-            ModelApi::Anthropic => value["content"][2]["citations"][0]["url"] = Value::Null,
-            ModelApi::Gemini => {
-                value["candidates"][0]["groundingMetadata"]["groundingChunks"][0]["web"]["uri"] =
-                    Value::Null
-            }
-            _ => unreachable!(),
-        }
-        assert_eq!(
-            parse(api, &value).unwrap_err().fault.code,
-            ErrorCode::InvalidRequest
-        );
-    }
-}
-
-#[test]
-fn rejects_credential_echoes() {
-    for authentication in [
-        Authentication::ApiKey,
-        Authentication::ChatGpt,
-        Authentication::ChatGptOAuth,
-        Authentication::ClaudeOAuth,
-        Authentication::Plugin,
-    ] {
-        let provider = auth::provider(authentication, ModelApi::Responses);
-        let prepared = prepare(
-            &provider,
-            &auth::credentials(authentication),
-            "fixture-model",
-            auth::SESSION.parse().unwrap(),
-            auth::REQUEST.parse().unwrap(),
-            &input(),
-            true,
-        )
-        .unwrap();
-        for text in [
-            "fixed-access",
-            "Bearer fixed-access",
-            "fixed-refresh",
-            "private-account",
-        ] {
-            if !prepared
-                .authorization
-                .secrets
-                .iter()
-                .any(|secret| secret.expose() == text || text.contains(secret.expose()))
-            {
-                continue;
-            }
-            let parsed = Parsed {
-                results: vec![],
-                summary: Some(format!("Echo: {text}")),
-                usage: None,
-            };
-            let error = protect(parsed, &prepared.authorization.secrets).unwrap_err();
-            let serialized = serde_json::to_string(&error.fault).unwrap();
-            assert!(!serialized.contains(text));
-            assert!(!format!("{error:?}").contains(text));
-        }
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }
 

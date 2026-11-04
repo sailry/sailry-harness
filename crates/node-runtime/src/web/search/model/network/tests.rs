@@ -90,48 +90,68 @@ async fn bounds_stream_body() {
 }
 
 #[test]
-fn sanitizes_server_tool_errors() {
-    for (code, reason) in [
-        ("too_many_requests", ModelFailure::RateLimited),
-        ("unavailable", ModelFailure::Request),
-        ("invalid_tool_input", ModelFailure::Request),
-        ("max_uses_exceeded", ModelFailure::Request),
-    ] {
-        let error = upstream(
-            &json!({"type":"web_search_tool_result_error", "error_code":code, "message":"private-access"}),
-        );
-        assert_eq!(
-            error.fault.details,
-            Some(FaultDetails::ModelRequest { reason })
-        );
-        assert!(!format!("{error:?}").contains("private-access"));
-        assert_eq!(error.retry_at.is_some(), code == "too_many_requests");
-    }
-}
-
-#[test]
-fn distinguishes_tools_from_parameter_constraints() {
-    for (message, unsupported) in [
-        ("This model does not support web_search", true),
-        ("web_search is not enabled for this plan", true),
-        ("web_search_20250305 is not supported", true),
-        ("Google Search tool is not supported for this model", true),
-        ("Search Grounding is not supported for this model", true),
-        ("Unsupported value: 'web_search'", true),
-        ("Unknown name \"googleSearch\" at tools[0]", true),
+fn preserves_search_contracts() {
+    for (scenario, check) in [
         (
-            "Unable to submit request because controlled generation is not supported with google_search tool",
-            false,
+            "sanitizes_server_tool_errors",
+            (|scenario: &'static str| {
+                for (code, reason) in [
+                    ("too_many_requests", ModelFailure::RateLimited),
+                    ("unavailable", ModelFailure::Request),
+                    ("invalid_tool_input", ModelFailure::Request),
+                    ("max_uses_exceeded", ModelFailure::Request),
+                ] {
+                    let error = upstream(
+                        &json!({"type":"web_search_tool_result_error", "error_code":code, "message":"private-access"}),
+                    );
+                    assert_eq!(
+                        error.fault.details,
+                        Some(FaultDetails::ModelRequest { reason }),
+                        "{scenario}"
+                    );
+                    assert!(
+                        !format!("{error:?}").contains("private-access"),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        error.retry_at.is_some(),
+                        code == "too_many_requests",
+                        "{scenario}"
+                    );
+                }
+            }) as fn(&'static str),
         ),
-        ("max_tokens is not supported while using web_search", false),
+        (
+            "distinguishes_tools_from_parameter_constraints",
+            (|scenario: &'static str| {
+                for (message, unsupported) in [
+                    ("This model does not support web_search", true),
+                    ("web_search is not enabled for this plan", true),
+                    ("web_search_20250305 is not supported", true),
+                    ("Google Search tool is not supported for this model", true),
+                    ("Search Grounding is not supported for this model", true),
+                    ("Unsupported value: 'web_search'", true),
+                    ("Unknown name \"googleSearch\" at tools[0]", true),
+                    (
+                        "Unable to submit request because controlled generation is not supported with google_search tool",
+                        false,
+                    ),
+                    ("max_tokens is not supported while using web_search", false),
+                ] {
+                    let value =
+                        json!({"error":{"code":400,"status":"INVALID_ARGUMENT","message":message}});
+                    let error = rejected(StatusCode::BAD_REQUEST, Some(&value), SystemTime::now());
+                    assert_eq!(
+                        error.fault.details == Some(FaultDetails::SearchUnsupported),
+                        unsupported,
+                        "{scenario}: {message}"
+                    );
+                    assert!(!error.fault.message.contains(message), "{scenario}");
+                }
+            }),
+        ),
     ] {
-        let value = json!({"error":{"code":400,"status":"INVALID_ARGUMENT","message":message}});
-        let error = rejected(StatusCode::BAD_REQUEST, Some(&value), SystemTime::now());
-        assert_eq!(
-            error.fault.details == Some(FaultDetails::SearchUnsupported),
-            unsupported,
-            "{message}"
-        );
-        assert!(!error.fault.message.contains(message));
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }

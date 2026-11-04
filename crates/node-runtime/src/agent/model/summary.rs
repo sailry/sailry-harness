@@ -107,40 +107,43 @@ mod tests {
     }
 
     #[test]
-    fn selects_lowest_choice() {
-        for (efforts, expected) in [
-            (vec![Effort::High, Effort::Low, Effort::Max], Effort::Low),
+    fn selects_lowest_or_default_choice() {
+        for (efforts, reasoning, selected, expected) in [
+            (
+                vec![Effort::High, Effort::Low, Effort::Max],
+                true,
+                Effort::Max,
+                Effort::Low,
+            ),
             (
                 vec![Effort::Max, Effort::Disabled, Effort::Medium],
+                true,
+                Effort::Max,
                 Effort::Disabled,
             ),
             (
                 vec![Effort::Budget(16_000), Effort::Budget(2_048)],
+                true,
+                Effort::Max,
                 Effort::Budget(2_048),
             ),
             (
                 vec![Effort::Budget(4_096), Effort::Minimal],
+                true,
+                Effort::Max,
                 Effort::Minimal,
             ),
-            (vec![], Effort::Default),
+            (vec![], true, Effort::Max, Effort::Default),
+            (vec![Effort::Low], false, Effort::High, Effort::Default),
         ] {
-            let provider = provider(&efforts, 128_000, true);
-            let main = session(Effort::Max);
+            let provider = provider(&efforts, 128_000, reasoning);
+            let main = session(selected);
             let summary = config(&provider, &main);
             assert_eq!(summary.effort, expected, "{efforts:?}");
-            assert_eq!(main.effort, Effort::Max);
-            assert_eq!(summary.model, main.model);
-            assert_eq!(summary.provider, main.provider);
+            assert_eq!(main.effort, selected, "{efforts:?}");
+            assert_eq!(summary.model, main.model, "{efforts:?}");
+            assert_eq!(summary.provider, main.provider, "{efforts:?}");
         }
-    }
-
-    #[test]
-    fn omits_unsupported_effort() {
-        let provider = provider(&[Effort::Low], 128_000, false);
-        assert_eq!(
-            config(&provider, &session(Effort::High)).effort,
-            Effort::Default
-        );
     }
 
     #[test]

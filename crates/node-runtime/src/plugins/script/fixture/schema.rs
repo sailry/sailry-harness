@@ -47,41 +47,54 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn distinguishes_invalid_values_from_schemas() {
-        let report = validate(Input {
-            schema: json!({"type":"integer"}),
-            values: vec![json!(1), json!("secret fixture")],
-        })
-        .unwrap();
-        assert_eq!(report.valid, [true, false]);
-        let error = validate(Input {
-            schema: json!({"type":"secret invalid type"}),
-            values: vec![],
-        })
-        .err()
-        .unwrap();
-        assert!(!error.message.contains("secret"));
-    }
-
-    #[test]
-    fn rejects_external_references() {
-        for reference in ["https://example.invalid/schema", "file:///private/schema"] {
-            assert!(
-                validate(Input {
-                    schema: json!({"$ref":reference}),
-                    values: vec![],
-                })
-                .is_err()
-            );
+    fn preserves_script_contracts() {
+        for (scenario, check) in [
+            (
+                "distinguishes_invalid_values_from_schemas",
+                (|scenario: &'static str| {
+                    let report = validate(Input {
+                        schema: json!({"type":"integer"}),
+                        values: vec![json!(1), json!("secret fixture")],
+                    })
+                    .unwrap();
+                    assert_eq!(report.valid, [true, false], "{scenario}");
+                    let error = validate(Input {
+                        schema: json!({"type":"secret invalid type"}),
+                        values: vec![],
+                    })
+                    .err()
+                    .unwrap();
+                    assert!(!error.message.contains("secret"), "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "rejects_external_references",
+                (|scenario: &'static str| {
+                    for reference in ["https://example.invalid/schema", "file:///private/schema"] {
+                        assert!(
+                            validate(Input {
+                                schema: json!({"$ref":reference}),
+                                values: vec![],
+                            })
+                            .is_err(),
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "resolves_local_references_and_conditions",
+                (|scenario: &'static str| {
+                    let report = validate(Input {
+                    schema: json!({"$defs":{"value":{"type":"integer"}},"type":"object","properties":{"action":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"allOf":[{"if":{"properties":{"action":{"const":"write"}},"required":["action"]},"then":{"required":["value"]}}]}),
+                    values: vec![json!({"action":"read"}),json!({"action":"write"}),json!({"action":"write","value":1})],
+                }).unwrap();
+                    assert_eq!(report.valid, [true, false, true], "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn resolves_local_references_and_conditions() {
-        let report = validate(Input {
-            schema: json!({"$defs":{"value":{"type":"integer"}},"type":"object","properties":{"action":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"allOf":[{"if":{"properties":{"action":{"const":"write"}},"required":["action"]},"then":{"required":["value"]}}]}),
-            values: vec![json!({"action":"read"}),json!({"action":"write"}),json!({"action":"write","value":1})],
-        }).unwrap();
-        assert_eq!(report.valid, [true, false, true]);
     }
 }

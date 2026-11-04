@@ -32,34 +32,47 @@ impl Fixture {
 }
 
 #[test]
-fn orders_and_deduplicates_ancestors() {
-    assert_eq!(candidates(&[]).unwrap(), [""]);
-    assert_eq!(
-        candidates(&[
-            Scope::File("src/nested/first.rs".into()),
-            Scope::Directory("src".into()),
-            Scope::File("src/nested/second.rs".into()),
-            Scope::Directory("tests".into()),
-            Scope::Directory(String::new()),
-        ])
-        .unwrap(),
-        ["", "src", "src/nested", "tests",]
-    );
-}
-
-#[test]
-fn rejects_unsafe_scopes() {
-    for scope in [
-        Scope::File(String::new()),
-        Scope::File("../outside/secret.rs".into()),
-        Scope::Directory("/outside".into()),
-        Scope::Directory("src/../outside".into()),
-        Scope::File(r"C:\outside\secret.rs".into()),
+fn preserves_captured_instructions() {
+    for (scenario, check) in [
+        (
+            "orders_and_deduplicates_ancestors",
+            (|scenario: &'static str| {
+                assert_eq!(candidates(&[]).unwrap(), [""], "{scenario}");
+                assert_eq!(
+                    candidates(&[
+                        Scope::File("src/nested/first.rs".into()),
+                        Scope::Directory("src".into()),
+                        Scope::File("src/nested/second.rs".into()),
+                        Scope::Directory("tests".into()),
+                        Scope::Directory(String::new()),
+                    ])
+                    .unwrap(),
+                    ["", "src", "src/nested", "tests",],
+                    "{scenario}"
+                );
+            }) as fn(&'static str),
+        ),
+        (
+            "rejects_unsafe_scopes",
+            (|scenario: &'static str| {
+                for scope in [
+                    Scope::File(String::new()),
+                    Scope::File("../outside/secret.rs".into()),
+                    Scope::Directory("/outside".into()),
+                    Scope::Directory("src/../outside".into()),
+                    Scope::File(r"C:\outside\secret.rs".into()),
+                ] {
+                    assert_eq!(
+                        candidates(&[scope]).unwrap_err().code,
+                        ErrorCode::InvalidRequest,
+                        "{scenario}"
+                    );
+                }
+            }),
+        ),
     ] {
-        assert_eq!(
-            candidates(&[scope]).unwrap_err().code,
-            ErrorCode::InvalidRequest
-        );
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }
 

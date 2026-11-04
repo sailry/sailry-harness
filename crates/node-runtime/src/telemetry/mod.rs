@@ -398,50 +398,65 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_configuration_disables_both_sinks() {
-        let config = Configuration::resolve(|_| None, None, None);
-        let control = Control::new(crate::logging::Application::Desktop, &config);
-        control.configure(&Settings::default());
-        assert!(control.permitted());
-        assert!(!control.errors());
-        assert!(!control.metrics());
-    }
-
-    #[test]
-    fn replay_preserves_the_current_window() {
-        let control = Control::fixture(true, true);
-        let settings = Settings {
-            installation_id: uuid::Uuid::from_u128(1),
-            ..Settings::default()
-        };
-        let epoch = control.epoch();
-        assert!(!control.configure(&settings));
-        assert_eq!(control.epoch(), epoch);
-    }
-
-    #[test]
-    fn resolves_runtime_overrides_and_opt_outs() {
-        for opt_out in ["SAILRY_TELEMETRY", "DO_NOT_TRACK"] {
-            let config = Configuration::resolve(
-                |key| match key {
-                    "SAILRY_SENTRY_DSN" => Some("runtime-dsn".into()),
-                    "SAILRY_TELEMETRY_KEY" => Some("runtime-key".into()),
-                    key if key == opt_out => {
-                        Some(if key == "DO_NOT_TRACK" { "1" } else { "off" }.into())
+    fn preserves_observation_contracts() {
+        for (scenario, check) in [
+            (
+                "missing_configuration_disables_both_sinks",
+                (|scenario: &'static str| {
+                    let config = Configuration::resolve(|_| None, None, None);
+                    let control = Control::new(crate::logging::Application::Desktop, &config);
+                    control.configure(&Settings::default());
+                    assert!(control.permitted(), "{scenario}");
+                    assert!(!control.errors(), "{scenario}");
+                    assert!(!control.metrics(), "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "replay_preserves_the_current_window",
+                (|scenario: &'static str| {
+                    let control = Control::fixture(true, true);
+                    let settings = Settings {
+                        installation_id: uuid::Uuid::from_u128(1),
+                        ..Settings::default()
+                    };
+                    let epoch = control.epoch();
+                    assert!(!control.configure(&settings), "{scenario}");
+                    assert_eq!(control.epoch(), epoch, "{scenario}");
+                }),
+            ),
+            (
+                "resolves_runtime_overrides_and_opt_outs",
+                (|scenario: &'static str| {
+                    for opt_out in ["SAILRY_TELEMETRY", "DO_NOT_TRACK"] {
+                        let config = Configuration::resolve(
+                            |key| match key {
+                                "SAILRY_SENTRY_DSN" => Some("runtime-dsn".into()),
+                                "SAILRY_TELEMETRY_KEY" => Some("runtime-key".into()),
+                                key if key == opt_out => {
+                                    Some(if key == "DO_NOT_TRACK" { "1" } else { "off" }.into())
+                                }
+                                _ => None,
+                            },
+                            Some("compiled-dsn"),
+                            Some("compiled-key"),
+                        );
+                        assert!(!config.allowed, "{scenario}");
+                        assert_eq!(config.dsn.as_deref(), Some("runtime-dsn"), "{scenario}");
+                        assert_eq!(config.key.as_deref(), Some("runtime-key"), "{scenario}");
                     }
-                    _ => None,
-                },
-                Some("compiled-dsn"),
-                Some("compiled-key"),
-            );
-            assert!(!config.allowed);
-            assert_eq!(config.dsn.as_deref(), Some("runtime-dsn"));
-            assert_eq!(config.key.as_deref(), Some("runtime-key"));
+                    let empty = Configuration::resolve(
+                        |_| Some(String::new()),
+                        Some("compiled"),
+                        Some("compiled"),
+                    );
+                    assert!(empty.dsn.is_none(), "{scenario}");
+                    assert!(empty.key.is_none(), "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let empty =
-            Configuration::resolve(|_| Some(String::new()), Some("compiled"), Some("compiled"));
-        assert!(empty.dsn.is_none());
-        assert!(empty.key.is_none());
     }
 
     #[tokio::test]

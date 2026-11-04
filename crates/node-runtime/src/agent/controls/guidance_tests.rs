@@ -2,7 +2,7 @@ use super::*;
 use sailry_protocol::RequestId;
 
 #[test]
-fn guidance_never_cancels_work() {
+fn never_cancels_work() {
     let controls = Controls::default();
     let turn = TurnId::new();
     let session = SessionId::new();

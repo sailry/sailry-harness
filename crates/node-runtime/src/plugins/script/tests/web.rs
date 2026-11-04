@@ -2,12 +2,16 @@ use super::*;
 use sailry_protocol::{Command, web};
 
 #[test]
-fn preserves_pages_and_captured_scope() {
-    let captured = Arc::new(Mutex::new(Vec::new()));
-    let requests = captured.clone();
-    let scope = context();
-    let result = run(
-        bundle(
+fn preserves_script_contracts() {
+    for (scenario, check) in [
+        (
+            "preserves_pages_and_captured_scope",
+            (|scenario: &'static str| {
+                let captured = Arc::new(Mutex::new(Vec::new()));
+                let requests = captured.clone();
+                let scope = context();
+                let result = run(
+                bundle(
             r#"
             import {fetchWeb,prepareRequest,completeRequest} from 'sailry/sdk';
             export async function run(input) {
@@ -18,53 +22,64 @@ fn preserves_pages_and_captured_scope() {
                     untrusted:first.untrusted&&last.untrusted,cancelled};
             }
             "#,
-        ),
+                ),
         "run",
-        json!({"url":"https://example.com/notes","request":sailry_protocol::RequestId::new()}),
-        scope.clone(),
-        NodeId([1; 32]),
-        CancellationToken::new(),
-        move |request| {
-            requests.lock().unwrap().push(request.clone());
-            match request.command {
-                Command::FetchWeb(input) => Ok(Output::WebPage(web::Page {
-                    url: input.url,
-                    status: 200,
-                    content_type: "text/plain".into(),
-                    content: if input.offset == 0 { "中文" } else { "🙂" }.into(),
-                    title: None,
-                    next_offset: (input.offset == 0).then_some(2),
-                    truncated: false,
-                    untrusted: true,
-                    notice: None,
-                })),
-                Command::CancelWebFetch { request } => Ok(Output::WebFetchCancelled { request }),
-                _ => panic!("web command expected"),
-            }
-        },
-    )
-    .unwrap();
-    assert_eq!(result["content"], "中文🙂");
-    assert!(result["last"].is_null());
-    assert_eq!(result["untrusted"], true);
-    assert_eq!(result["cancelled"]["Ok"]["kind"], "web_fetch_cancelled");
-    let requests = captured.lock().unwrap();
-    assert_eq!(requests.len(), 3);
-    assert!(
-        requests
-            .iter()
-            .all(|request| request.plugin.as_ref() == Some(&scope))
-    );
-    assert!(matches!(&requests[0].command, Command::FetchWeb(input) if input.offset == 0));
-    assert!(matches!(&requests[1].command, Command::FetchWeb(input) if input.offset == 2));
-    assert_ne!(requests[0].id, requests[1].id);
-}
-
-#[test]
-fn rejects_credential_and_scope_injection() {
-    let result = run(
-        bundle(
-            r#"
+                json!({"url":"https://example.com/notes","request":sailry_protocol::RequestId::new()}),
+                scope.clone(),
+                NodeId([1; 32]),
+                CancellationToken::new(),
+                move |request| {
+                    requests.lock().unwrap().push(request.clone());
+                    match request.command {
+                        Command::FetchWeb(input) => Ok(Output::WebPage(web::Page {
+                            url: input.url,
+                            status: 200,
+                            content_type: "text/plain".into(),
+                            content: if input.offset == 0 { "中文" } else { "🙂" }.into(),
+                            title: None,
+                            next_offset: (input.offset == 0).then_some(2),
+                            truncated: false,
+                            untrusted: true,
+                            notice: None,
+                        })),
+                        Command::CancelWebFetch { request } => Ok(Output::WebFetchCancelled { request }),
+                        _ => panic!("{scenario}: web command expected"),
+                    }
+                },
+            )
+            .unwrap();
+                assert_eq!(result["content"], "中文🙂", "{scenario}");
+                assert!(result["last"].is_null(), "{scenario}");
+                assert_eq!(result["untrusted"], true, "{scenario}");
+                assert_eq!(
+                    result["cancelled"]["Ok"]["kind"], "web_fetch_cancelled",
+                    "{scenario}"
+                );
+                let requests = captured.lock().unwrap();
+                assert_eq!(requests.len(), 3, "{scenario}");
+                assert!(
+                    requests
+                        .iter()
+                        .all(|request| request.plugin.as_ref() == Some(&scope)),
+                    "{scenario}"
+                );
+                assert!(
+                    matches!(&requests[0].command, Command::FetchWeb(input) if input.offset == 0),
+                    "{scenario}"
+                );
+                assert!(
+                    matches!(&requests[1].command, Command::FetchWeb(input) if input.offset == 2),
+                    "{scenario}"
+                );
+                assert_ne!(requests[0].id, requests[1].id, "{scenario}");
+            }) as fn(&'static str),
+        ),
+        (
+            "rejects_credential_and_scope_injection",
+            (|scenario: &'static str| {
+                let result = run(
+                    bundle(
+                        r#"
             import {fetchWeb} from 'sailry/sdk';
             export async function run() {
                 const errors=[];
@@ -75,14 +90,20 @@ fn rejects_credential_and_scope_injection() {
                 return errors;
             }
             "#,
+                    ),
+                    "run",
+                    json!(null),
+                    context(),
+                    NodeId([1; 32]),
+                    CancellationToken::new(),
+                    move |_| panic!("{scenario}: invalid web requests must not dispatch"),
+                )
+                .unwrap();
+                assert_eq!(result, json!(vec!["invalid_request"; 5]), "{scenario}");
+            }),
         ),
-        "run",
-        json!(null),
-        context(),
-        NodeId([1; 32]),
-        CancellationToken::new(),
-        |_| panic!("invalid web requests must not dispatch"),
-    )
-    .unwrap();
-    assert_eq!(result, json!(vec!["invalid_request"; 5]));
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }

@@ -155,159 +155,206 @@ mod tests {
     }
 
     #[test]
-    fn unrelated_paths_need_no_shield_or_pin() {
-        let paths = [
-            entry("/usr/lib", RO),
-            entry("/tmp/work", RW),
-            entry("/opt", RO),
-        ];
-        let layering = Layering::new(&paths);
+    fn pins_only_writable_ancestors() {
+        for (case_name, run) in [
+            (
+                "unrelated_paths_need_no_shield_or_pin",
+                (|case_name| {
+                    let paths = [
+                        entry("/usr/lib", RO),
+                        entry("/tmp/work", RW),
+                        entry("/opt", RO),
+                    ];
+                    let layering = Layering::new(&paths);
 
-        assert_eq!(
-            layering,
-            Layering {
-                layers: vec![
-                    layer("/opt", RO, false),
-                    layer("/usr/lib", RO, false),
-                    layer("/tmp/work", RW, false),
-                ],
-                pinned: vec![],
-            }
-        );
+                    assert_eq!(
+                        layering,
+                        Layering {
+                            layers: vec![
+                                layer("/opt", RO, false),
+                                layer("/usr/lib", RO, false),
+                                layer("/tmp/work", RW, false),
+                            ],
+                            pinned: vec![],
+                        },
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "shields_child_and_pins_writable_root",
+                (|case_name| {
+                    // Listed child first: the order in the policy does not matter.
+                    let paths = [
+                        entry("/ws/.git", RO),
+                        entry("/ws/AGENTS.md", RO),
+                        entry("/ws", RW),
+                    ];
+                    let layering = Layering::new(&paths);
+
+                    assert_eq!(
+                        layering,
+                        Layering {
+                            layers: vec![
+                                layer("/ws", RW, false),
+                                layer("/ws/.git", RO, true),
+                                layer("/ws/AGENTS.md", RO, true),
+                            ],
+                            pinned: vec![PathBuf::from("/ws")],
+                        },
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        layering.mounts(),
+                        [
+                            (Path::new("/ws"), RW),
+                            (Path::new("/ws/.git"), RO),
+                            (Path::new("/ws/AGENTS.md"), RO),
+                        ],
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "pins_all_writable_ancestors",
+                (|case_name| {
+                    let paths = [
+                        entry("/home", RW),
+                        entry("/home/ws", RW),
+                        entry("/home/ws/a/b/.git", RO),
+                    ];
+                    let layering = Layering::new(&paths);
+
+                    assert_eq!(
+                        layering.pinned,
+                        ["/home", "/home/ws", "/home/ws/a", "/home/ws/a/b"].map(PathBuf::from),
+                        "{case_name}"
+                    );
+                    // `/home` and `/home/ws` are entries and already mount points.
+                    assert_eq!(
+                        layering.mounts(),
+                        [
+                            (Path::new("/home"), RW),
+                            (Path::new("/home/ws"), RW),
+                            (Path::new("/home/ws/a"), RW),
+                            (Path::new("/home/ws/a/b"), RW),
+                            (Path::new("/home/ws/a/b/.git"), RO),
+                        ],
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "pinning_stops_at_read_only_space",
+                (|case_name| {
+                    let paths = [entry("/r", RO), entry("/r/w", RW), entry("/r/w/x/.git", RO)];
+                    let layering = Layering::new(&paths);
+
+                    // `/r/w` is pinned twice over: as a writable ancestor of `.git`, and as a writable
+                    // entry inside read-only `/r`. `/r` itself cannot be written.
+                    assert_eq!(
+                        layering.pinned,
+                        ["/r/w", "/r/w/x"].map(PathBuf::from),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "pins_writable_exception_in_read_only_parent",
+                (|case_name| {
+                    let paths = [
+                        entry("/ws", RW),
+                        entry("/ws/.git", RO),
+                        entry("/ws/.git/tmp", RW),
+                    ];
+                    let layering = Layering::new(&paths);
+
+                    assert_eq!(
+                        layering.layers,
+                        [
+                            layer("/ws", RW, false),
+                            layer("/ws/.git", RO, true),
+                            layer("/ws/.git/tmp", RW, false),
+                        ],
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        layering.pinned,
+                        ["/ws", "/ws/.git/tmp"].map(PathBuf::from),
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        effective_mode(&paths, Path::new("/ws/.git/tmp/x")),
+                        Some(RW),
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        effective_mode(&paths, Path::new("/ws/.git/config")),
+                        Some(RO),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
+        }
     }
 
     #[test]
-    fn shields_child_and_pins_writable_root() {
-        // Listed child first: the order in the policy does not matter.
-        let paths = [
-            entry("/ws/.git", RO),
-            entry("/ws/AGENTS.md", RO),
-            entry("/ws", RW),
-        ];
-        let layering = Layering::new(&paths);
+    fn resolves_most_specific_access() {
+        for (case_name, run) in [
+            (
+                "read_write_wins_for_the_same_path",
+                (|case_name| {
+                    let paths = [entry("/ws", RW), entry("/ws/out", RW), entry("/ws/out", RO)];
+                    let layering = Layering::new(&paths);
 
-        assert_eq!(
-            layering,
-            Layering {
-                layers: vec![
-                    layer("/ws", RW, false),
-                    layer("/ws/.git", RO, true),
-                    layer("/ws/AGENTS.md", RO, true),
-                ],
-                pinned: vec![PathBuf::from("/ws")],
-            }
-        );
-        assert_eq!(
-            layering.mounts(),
-            [
-                (Path::new("/ws"), RW),
-                (Path::new("/ws/.git"), RO),
-                (Path::new("/ws/AGENTS.md"), RO),
-            ]
-        );
-    }
+                    assert_eq!(
+                        layering.layers,
+                        [
+                            layer("/ws", RW, false),
+                            layer("/ws/out", RO, false),
+                            layer("/ws/out", RW, false),
+                        ],
+                        "{case_name}"
+                    );
+                    assert!(
+                        layering.pinned.is_empty(),
+                        "{case_name}: {}",
+                        format_args!("{layering:?}")
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "preserves_nested_writable_entries",
+                (|case_name| {
+                    let paths = [entry("/ws/target", RW), entry("/ws", RW)];
+                    let layering = Layering::new(&paths);
 
-    #[test]
-    fn pins_all_writable_ancestors() {
-        let paths = [
-            entry("/home", RW),
-            entry("/home/ws", RW),
-            entry("/home/ws/a/b/.git", RO),
-        ];
-        let layering = Layering::new(&paths);
+                    assert_eq!(
+                        layering.layers,
+                        [layer("/ws", RW, false), layer("/ws/target", RW, false)],
+                        "{case_name}"
+                    );
+                    assert!(layering.pinned.is_empty(), "{case_name}");
+                }) as fn(&str),
+            ),
+            (
+                "path_prefixes_are_compared_by_component",
+                (|case_name| {
+                    let paths = [entry("/ws", RW), entry("/wsx", RO)];
+                    let layering = Layering::new(&paths);
 
-        assert_eq!(
-            layering.pinned,
-            ["/home", "/home/ws", "/home/ws/a", "/home/ws/a/b"].map(PathBuf::from)
-        );
-        // `/home` and `/home/ws` are entries and already mount points.
-        assert_eq!(
-            layering.mounts(),
-            [
-                (Path::new("/home"), RW),
-                (Path::new("/home/ws"), RW),
-                (Path::new("/home/ws/a"), RW),
-                (Path::new("/home/ws/a/b"), RW),
-                (Path::new("/home/ws/a/b/.git"), RO),
-            ]
-        );
-    }
-
-    #[test]
-    fn pinning_stops_at_read_only_space() {
-        let paths = [entry("/r", RO), entry("/r/w", RW), entry("/r/w/x/.git", RO)];
-        let layering = Layering::new(&paths);
-
-        // `/r/w` is pinned twice over: as a writable ancestor of `.git`, and as a writable
-        // entry inside read-only `/r`. `/r` itself cannot be written.
-        assert_eq!(layering.pinned, ["/r/w", "/r/w/x"].map(PathBuf::from));
-    }
-
-    #[test]
-    fn pins_writable_exception_in_read_only_parent() {
-        let paths = [
-            entry("/ws", RW),
-            entry("/ws/.git", RO),
-            entry("/ws/.git/tmp", RW),
-        ];
-        let layering = Layering::new(&paths);
-
-        assert_eq!(
-            layering.layers,
-            [
-                layer("/ws", RW, false),
-                layer("/ws/.git", RO, true),
-                layer("/ws/.git/tmp", RW, false),
-            ]
-        );
-        assert_eq!(layering.pinned, ["/ws", "/ws/.git/tmp"].map(PathBuf::from));
-        assert_eq!(
-            effective_mode(&paths, Path::new("/ws/.git/tmp/x")),
-            Some(RW)
-        );
-        assert_eq!(
-            effective_mode(&paths, Path::new("/ws/.git/config")),
-            Some(RO)
-        );
-    }
-
-    #[test]
-    fn read_write_wins_for_the_same_path() {
-        let paths = [entry("/ws", RW), entry("/ws/out", RW), entry("/ws/out", RO)];
-        let layering = Layering::new(&paths);
-
-        assert_eq!(
-            layering.layers,
-            [
-                layer("/ws", RW, false),
-                layer("/ws/out", RO, false),
-                layer("/ws/out", RW, false),
-            ]
-        );
-        assert!(layering.pinned.is_empty(), "{layering:?}");
-    }
-
-    #[test]
-    fn preserves_nested_writable_entries() {
-        let paths = [entry("/ws/target", RW), entry("/ws", RW)];
-        let layering = Layering::new(&paths);
-
-        assert_eq!(
-            layering.layers,
-            [layer("/ws", RW, false), layer("/ws/target", RW, false)]
-        );
-        assert!(layering.pinned.is_empty());
-    }
-
-    #[test]
-    fn path_prefixes_are_compared_by_component() {
-        let paths = [entry("/ws", RW), entry("/wsx", RO)];
-        let layering = Layering::new(&paths);
-
-        assert!(
-            layering.layers.iter().all(|layer| !layer.shielded),
-            "{layering:?}"
-        );
+                    assert!(
+                        layering.layers.iter().all(|layer| !layer.shielded),
+                        "{case_name}: {}",
+                        format_args!("{layering:?}")
+                    );
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
+        }
     }
 
     /// The decision an enforcer reaches for `probe`: the last layer that covers it.

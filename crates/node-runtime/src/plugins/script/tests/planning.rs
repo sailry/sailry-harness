@@ -1,20 +1,24 @@
 use super::*;
 
 #[test]
-fn denies_private_mutations_before_dispatch() {
-    for (mode, read_only) in [
-        (sailry_protocol::WorkMode::Plan, false),
-        (sailry_protocol::WorkMode::Code, true),
-    ] {
-        let state = Arc::new(Mutex::new(execution::State {
-            call_id: Some(sailry_protocol::RequestId::new()),
-            mode,
-            read_only,
-            turn: None,
-            staged_turn: None,
-        }));
-        let result = run_tool(
-        bundle(
+fn preserves_script_contracts() {
+    for (scenario, check) in [
+        (
+            "denies_private_mutations_before_dispatch",
+            (|scenario: &'static str| {
+                for (mode, read_only) in [
+                    (sailry_protocol::WorkMode::Plan, false),
+                    (sailry_protocol::WorkMode::Code, true),
+                ] {
+                    let state = Arc::new(Mutex::new(execution::State {
+                        call_id: Some(sailry_protocol::RequestId::new()),
+                        mode,
+                        read_only,
+                        turn: None,
+                        staged_turn: None,
+                    }));
+                    let result = run_tool(
+                bundle(
             r#"
 import {getValue,setValue,deleteValue,setConversationValue,deleteConversationValue,indexedValue,prepareTransaction,completeRequest} from 'sailry/sdk';
 export async function run() {
@@ -38,45 +42,50 @@ export async function run() {
   return {read,errors};
 }
 "#,
-        ),
+                ),
         "run",
-        json!({}),
-        Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new(),
- deadline: Instant::now() + CALL_TIMEOUT,
-},
-        |request| {
-            assert!(matches!(
-                request.command,
-                sailry_protocol::Command::ReadPluginValue { .. }
-            ));
-            Ok(Output::PluginValue(plugin::storage::Entry {
-                key: "seed".into(),
-                revision: 1,
-                present: true,
-                value: json!("original"),
-            }))
-        },
-        state,
-    )
-    .unwrap();
-        assert_eq!(result["read"]["value"], "original");
-        assert_eq!(result["errors"], json!(vec!["permission_denied"; 9]));
-    }
-}
-
-#[test]
-fn admits_scoped_control_transactions_with_stable_identity() {
-    let captured = Arc::new(Mutex::new(Vec::<Request>::new()));
-    let requests = captured.clone();
-    let state = Arc::new(Mutex::new(execution::State {
-        call_id: Some(sailry_protocol::RequestId::new()),
-        mode: sailry_protocol::WorkMode::Code,
-        read_only: false,
-        turn: None,
-        staged_turn: None,
-    }));
-    run_tool(
-        bundle(r#"
+                json!({}),
+                Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new(),
+             deadline: Instant::now() + CALL_TIMEOUT,
+            },
+                move |request| {
+                    assert!(matches!(
+                        request.command,
+                        sailry_protocol::Command::ReadPluginValue { .. }
+                    ), "{scenario}");
+                    Ok(Output::PluginValue(plugin::storage::Entry {
+                        key: "seed".into(),
+                        revision: 1,
+                        present: true,
+                        value: json!("original"),
+                    }))
+                },
+                state,
+            )
+            .unwrap();
+                    assert_eq!(result["read"]["value"], "original", "{scenario}");
+                    assert_eq!(
+                        result["errors"],
+                        json!(vec!["permission_denied"; 9]),
+                        "{scenario}"
+                    );
+                }
+            }) as fn(&'static str),
+        ),
+        (
+            "admits_scoped_control_transactions_with_stable_identity",
+            (|scenario: &'static str| {
+                let captured = Arc::new(Mutex::new(Vec::<Request>::new()));
+                let requests = captured.clone();
+                let state = Arc::new(Mutex::new(execution::State {
+                    call_id: Some(sailry_protocol::RequestId::new()),
+                    mode: sailry_protocol::WorkMode::Code,
+                    read_only: false,
+                    turn: None,
+                    staged_turn: None,
+                }));
+                run_tool(
+                bundle(r#"
 import {prepareTransaction,completeRequest} from 'sailry/sdk';
 export async function run() {
   const id = prepareTransaction([
@@ -92,38 +101,40 @@ export async function run() {
 }
 "#),
         "run", json!({}),
-        Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new(),
- deadline: Instant::now() + CALL_TIMEOUT,
-},
-        move |request| {
-            requests.lock().unwrap().push(request);
-            Ok(Output::PluginTransaction(vec![]))
-        }, state,
-    ).unwrap();
-    let requests = captured.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(requests[0], requests[1]);
-    assert!(
-        matches!(&requests[0].command, sailry_protocol::Command::PluginTransaction { operations } if operations.len() == 7)
-    );
-}
-
-#[test]
-fn denies_mixed_transactions_before_dispatch() {
-    for (mode, read_only) in [
-        (sailry_protocol::WorkMode::Plan, false),
-        (sailry_protocol::WorkMode::Code, true),
-        (sailry_protocol::WorkMode::Code, false),
-    ] {
-        let state = Arc::new(Mutex::new(execution::State {
-            call_id: Some(sailry_protocol::RequestId::new()),
-            mode,
-            read_only,
-            turn: None,
-            staged_turn: None,
-        }));
-        let result = run_tool(
-            bundle(r#"
+                Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new(),
+             deadline: Instant::now() + CALL_TIMEOUT,
+            },
+                move |request| {
+                    requests.lock().unwrap().push(request);
+                    Ok(Output::PluginTransaction(vec![]))
+                }, state,
+            ).unwrap();
+                let requests = captured.lock().unwrap();
+                assert_eq!(requests.len(), 2, "{scenario}");
+                assert_eq!(requests[0], requests[1], "{scenario}");
+                assert!(
+                    matches!(&requests[0].command, sailry_protocol::Command::PluginTransaction { operations } if operations.len() == 7),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "denies_mixed_transactions_before_dispatch",
+            (|scenario: &'static str| {
+                for (mode, read_only) in [
+                    (sailry_protocol::WorkMode::Plan, false),
+                    (sailry_protocol::WorkMode::Code, true),
+                    (sailry_protocol::WorkMode::Code, false),
+                ] {
+                    let state = Arc::new(Mutex::new(execution::State {
+                        call_id: Some(sailry_protocol::RequestId::new()),
+                        mode,
+                        read_only,
+                        turn: None,
+                        staged_turn: None,
+                    }));
+                    let result = run_tool(
+                    bundle(r#"
 import {prepareTransaction} from 'sailry/sdk';
 export function run() {
   const errors=[];
@@ -140,11 +151,17 @@ export function run() {
 }
 "#),
             "run", json!({}),
-            Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new(),
- deadline: Instant::now() + CALL_TIMEOUT,
-},
-            |_| panic!("denied mixed transactions must not dispatch or partially write"), state,
-        ).unwrap();
-        assert_eq!(result, json!(vec!["permission_denied"; 4]));
+                    Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new(),
+             deadline: Instant::now() + CALL_TIMEOUT,
+            },
+                    move |_| panic!("{scenario}: denied mixed transactions must not dispatch or partially write"), state,
+                ).unwrap();
+                    assert_eq!(result, json!(vec!["permission_denied"; 4]), "{scenario}");
+                }
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }

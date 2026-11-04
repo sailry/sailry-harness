@@ -428,78 +428,144 @@ mod tests {
     }
 
     #[test]
-    fn deny_all() {
-        let policy = Builder::new().build();
-        let profile = Seatbelt::profile(&policy);
+    fn preserves_default_denials() {
+        for (case_name, run) in [
+            (
+                "deny_all",
+                (|case_name| {
+                    let policy = Builder::new().build();
+                    let profile = Seatbelt::profile(&policy);
 
-        assert!(profile.contains("(version 1)"));
-        assert!(profile.contains("(deny default)"));
-        assert!(
-            !profile.contains("(allow default)"),
-            "an allow-default rule overrides the deny-default base:\n{profile}"
-        );
-        assert!(!profile.contains("(allow network*)"));
-        assert!(!profile.contains("(allow process-fork)"));
-        assert!(
-            !profile.contains("file-write*"),
-            "nothing is writable:\n{profile}"
-        );
-        assert!(profile.contains("(allow process-exec)"));
-    }
+                    assert!(profile.contains("(version 1)"), "{case_name}");
+                    assert!(profile.contains("(deny default)"), "{case_name}");
+                    assert!(
+                        !profile.contains("(allow default)"),
+                        "{case_name}: {}",
+                        format_args!(
+                            "an allow-default rule overrides the deny-default base:\n{profile}"
+                        )
+                    );
+                    assert!(!profile.contains("(allow network*)"), "{case_name}");
+                    assert!(!profile.contains("(allow process-fork)"), "{case_name}");
+                    assert!(
+                        !profile.contains("file-write*"),
+                        "{case_name}: {}",
+                        format_args!("nothing is writable:\n{profile}")
+                    );
+                    assert!(profile.contains("(allow process-exec)"), "{case_name}");
+                }) as fn(&str),
+            ),
+            (
+                "never_grants_blanket_reads",
+                (|case_name| {
+                    let policy = Builder::new().allow_network().allow_process_spawn().build();
+                    let profile = Seatbelt::profile(&policy);
 
-    #[test]
-    fn never_grants_blanket_reads() {
-        let policy = Builder::new().allow_network().allow_process_spawn().build();
-        let profile = Seatbelt::profile(&policy);
+                    assert!(
+                        !profile.contains("(allow file-read*)\n"),
+                        "{case_name}: {}",
+                        format_args!("blanket read grant:\n{profile}")
+                    );
+                    for line in profile.lines() {
+                        assert!(
+                            !line.contains("(subpath \"/Users\")")
+                                && !line.contains("(subpath \"/private/var\")"),
+                            "{case_name}: {}",
+                            format_args!(
+                                "home directories and temp space must not be granted by default: {line}"
+                            )
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "denies_credential_stores_before_policy_paths",
+                (|case_name| {
+                    let policy = Builder::new().allow_read("/opt/data").build();
+                    let profile = Seatbelt::profile(&policy);
 
-        assert!(
-            !profile.contains("(allow file-read*)\n"),
-            "blanket read grant:\n{profile}"
-        );
-        for line in profile.lines() {
-            assert!(
-                !line.contains("(subpath \"/Users\")")
-                    && !line.contains("(subpath \"/private/var\")"),
-                "home directories and temp space must not be granted by default: {line}"
-            );
+                    let system = profile
+                        .find("(subpath \"/private/etc\")")
+                        .expect("system grant");
+                    let denial = profile.find("(deny file-read*").expect("credential denial");
+                    let policy_path = profile
+                        .find("(subpath \"/opt/data\")")
+                        .expect("policy grant");
+                    assert!(
+                        system < denial && denial < policy_path,
+                        "{case_name}: {}",
+                        format_args!("rule order is wrong:\n{profile}")
+                    );
+                    assert!(
+                        profile.contains("(subpath \"/private/etc/master.passwd\")"),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
         }
     }
 
     #[test]
-    fn denies_credential_stores_before_policy_paths() {
-        let policy = Builder::new().allow_read("/opt/data").build();
-        let profile = Seatbelt::profile(&policy);
+    fn grants_scoped_path_access() {
+        for (case_name, run) in [
+            (
+                "read_only_path",
+                (|case_name| {
+                    let policy = Builder::new().allow_read("/usr/lib").build();
+                    let profile = Seatbelt::profile(&policy);
 
-        let system = profile
-            .find("(subpath \"/private/etc\")")
-            .expect("system grant");
-        let denial = profile.find("(deny file-read*").expect("credential denial");
-        let policy_path = profile
-            .find("(subpath \"/opt/data\")")
-            .expect("policy grant");
-        assert!(
-            system < denial && denial < policy_path,
-            "rule order is wrong:\n{profile}"
-        );
-        assert!(profile.contains("(subpath \"/private/etc/master.passwd\")"));
-    }
+                    assert!(
+                        profile.contains("(allow file-read* (subpath \"/usr/lib\"))"),
+                        "{case_name}"
+                    );
+                    // Should not have file-write for this path
+                    assert!(
+                        !profile.contains("file-write* (subpath \"/usr/lib\")"),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "read_write_path",
+                (|case_name| {
+                    let policy = Builder::new().allow_read_write("/tmp/work").build();
+                    let profile = Seatbelt::profile(&policy);
 
-    #[test]
-    fn read_only_path() {
-        let policy = Builder::new().allow_read("/usr/lib").build();
-        let profile = Seatbelt::profile(&policy);
+                    assert!(
+                        profile.contains("(allow file-read* file-write* (subpath \"/tmp/work\"))"),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "multiple_paths",
+                (|case_name| {
+                    let policy = Builder::new()
+                        .allow_read("/usr/lib")
+                        .allow_read_write("/tmp/work")
+                        .allow_read("/etc")
+                        .build();
+                    let profile = Seatbelt::profile(&policy);
 
-        assert!(profile.contains("(allow file-read* (subpath \"/usr/lib\"))"));
-        // Should not have file-write for this path
-        assert!(!profile.contains("file-write* (subpath \"/usr/lib\")"));
-    }
-
-    #[test]
-    fn read_write_path() {
-        let policy = Builder::new().allow_read_write("/tmp/work").build();
-        let profile = Seatbelt::profile(&policy);
-
-        assert!(profile.contains("(allow file-read* file-write* (subpath \"/tmp/work\"))"));
+                    assert!(
+                        profile.contains("(allow file-read* (subpath \"/usr/lib\"))"),
+                        "{case_name}"
+                    );
+                    assert!(
+                        profile.contains("(allow file-read* file-write* (subpath \"/tmp/work\"))"),
+                        "{case_name}"
+                    );
+                    assert!(
+                        profile.contains("(allow file-read* (subpath \"/etc\"))"),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
+        }
     }
 
     #[test]
@@ -540,155 +606,214 @@ mod tests {
     }
 
     #[test]
-    fn multiple_paths() {
-        let policy = Builder::new()
-            .allow_read("/usr/lib")
-            .allow_read_write("/tmp/work")
-            .allow_read("/etc")
-            .build();
-        let profile = Seatbelt::profile(&policy);
+    fn keeps_profile_structure_literal() {
+        for (case_name, run) in [
+            (
+                "balanced_parentheses",
+                (|case_name| {
+                    let policy = Builder::new()
+                        .allow_read("/usr/lib")
+                        .allow_read_write("/tmp")
+                        .allow_network()
+                        .allow_process_spawn()
+                        .build();
+                    let profile = Seatbelt::profile(&policy);
 
-        assert!(profile.contains("(allow file-read* (subpath \"/usr/lib\"))"));
-        assert!(profile.contains("(allow file-read* file-write* (subpath \"/tmp/work\"))"));
-        assert!(profile.contains("(allow file-read* (subpath \"/etc\"))"));
-    }
+                    let open = profile.chars().filter(|c| *c == '(').count();
+                    let close = profile.chars().filter(|c| *c == ')').count();
+                    assert_eq!(
+                        open,
+                        close,
+                        "{case_name}: {}",
+                        format_args!("parentheses are not balanced in profile:\n{profile}")
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "escapes_sbpl_special_characters",
+                (|case_name| {
+                    assert_eq!(sbpl_string("/plain/path"), "\"/plain/path\"", "{case_name}");
+                    assert_eq!(
+                        sbpl_string("/it's \"quoted\""),
+                        "\"/it's \\\"quoted\\\"\"",
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        sbpl_string("/back\\slash"),
+                        "\"/back\\\\slash\"",
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        sbpl_string("/a\nb\tc\u{7f}"),
+                        "\"/a\\x0ab\\x09c\\x7f\"",
+                        "{case_name}"
+                    );
+                    assert_eq!(sbpl_string("/ünïcode"), "\"/ünïcode\"", "{case_name}");
+                }) as fn(&str),
+            ),
+            (
+                "rejects_directory_directive_injection",
+                (|case_name| {
+                    let hostile = "/tmp/w\"))(allow network*)(allow file-write* (subpath \"/";
+                    let policy = Builder::new().allow_read_write(hostile).build();
+                    let profile = Seatbelt::profile(&policy);
 
-    #[test]
-    fn balanced_parentheses() {
-        let policy = Builder::new()
-            .allow_read("/usr/lib")
-            .allow_read_write("/tmp")
-            .allow_network()
-            .allow_process_spawn()
-            .build();
-        let profile = Seatbelt::profile(&policy);
+                    let structure = strip_string_literals(&profile);
+                    assert!(
+                        !structure.contains("(allow network*)"),
+                        "{case_name}: {}",
+                        format_args!("the path injected a network grant:\n{profile}")
+                    );
+                    assert_eq!(
+                        structure.matches("file-write*").count(),
+                        1,
+                        "{case_name}: {}",
+                        format_args!("the path injected a write grant:\n{profile}")
+                    );
+                    assert!(
+                        profile.contains(
+                            "(allow file-read* file-write* (subpath \
+             \"/tmp/w\\\"))(allow network*)(allow file-write* (subpath \\\"/\"))"
+                        ),
+                        "{case_name}"
+                    );
+                    let open = structure.matches('(').count();
+                    let close = structure.matches(')').count();
+                    assert_eq!(
+                        open,
+                        close,
+                        "{case_name}: {}",
+                        format_args!("unbalanced structure:\n{structure}")
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "rejects_newline_directive_injection",
+                (|case_name| {
+                    let policy = Builder::new()
+                        .allow_read("/tmp/x\")\n(allow network*)\n(\"")
+                        .build();
+                    let profile = Seatbelt::profile(&policy);
 
-        let open = profile.chars().filter(|c| *c == '(').count();
-        let close = profile.chars().filter(|c| *c == ')').count();
-        assert_eq!(
-            open, close,
-            "parentheses are not balanced in profile:\n{profile}"
-        );
-    }
-
-    #[test]
-    fn escapes_sbpl_special_characters() {
-        assert_eq!(sbpl_string("/plain/path"), "\"/plain/path\"");
-        assert_eq!(sbpl_string("/it's \"quoted\""), "\"/it's \\\"quoted\\\"\"");
-        assert_eq!(sbpl_string("/back\\slash"), "\"/back\\\\slash\"");
-        assert_eq!(sbpl_string("/a\nb\tc\u{7f}"), "\"/a\\x0ab\\x09c\\x7f\"");
-        assert_eq!(sbpl_string("/ünïcode"), "\"/ünïcode\"");
+                    assert!(
+                        !strip_string_literals(&profile).contains("(allow network*)"),
+                        "{case_name}: {}",
+                        format_args!("{profile}")
+                    );
+                    assert!(
+                        !profile.contains("\n(allow network*)"),
+                        "{case_name}: {}",
+                        format_args!("{profile}")
+                    );
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
+        }
     }
 
     /// The directory name from the finding: unescaped, it closes the subpath literal and
     /// appends `(allow network*)` and a write grant on `/`.
-    #[test]
-    fn rejects_directory_directive_injection() {
-        let hostile = "/tmp/w\"))(allow network*)(allow file-write* (subpath \"/";
-        let policy = Builder::new().allow_read_write(hostile).build();
-        let profile = Seatbelt::profile(&policy);
-
-        let structure = strip_string_literals(&profile);
-        assert!(
-            !structure.contains("(allow network*)"),
-            "the path injected a network grant:\n{profile}"
-        );
-        assert_eq!(
-            structure.matches("file-write*").count(),
-            1,
-            "the path injected a write grant:\n{profile}"
-        );
-        assert!(profile.contains(
-            "(allow file-read* file-write* (subpath \
-             \"/tmp/w\\\"))(allow network*)(allow file-write* (subpath \\\"/\"))"
-        ));
-        let open = structure.matches('(').count();
-        let close = structure.matches(')').count();
-        assert_eq!(open, close, "unbalanced structure:\n{structure}");
-    }
 
     #[test]
-    fn rejects_newline_directive_injection() {
-        let policy = Builder::new()
-            .allow_read("/tmp/x\")\n(allow network*)\n(\"")
-            .build();
-        let profile = Seatbelt::profile(&policy);
+    fn wraps_only_resolvable_paths() {
+        for (case_name, run) in [
+            (
+                "wraps_real_paths",
+                (|case_name| {
+                    let enforcer = Seatbelt::new();
+                    let policy = Builder::new().allow_read("/tmp").build();
 
-        assert!(
-            !strip_string_literals(&profile).contains("(allow network*)"),
-            "{profile}"
-        );
-        assert!(!profile.contains("\n(allow network*)"), "{profile}");
-    }
+                    let result = enforcer.wrap_command(
+                        OsStr::new("echo"),
+                        &[OsString::from("hello")],
+                        &policy,
+                    );
 
-    #[test]
-    fn wraps_real_paths() {
-        let enforcer = Seatbelt::new();
-        let policy = Builder::new().allow_read("/tmp").build();
+                    // /tmp is a symlink to /private/tmp on macOS
+                    let wrapped = result.expect("wrap_command should succeed for /tmp");
+                    assert_eq!(
+                        wrapped.program,
+                        OsString::from("sandbox-exec"),
+                        "{case_name}"
+                    );
+                    assert_eq!(wrapped.args[0], OsString::from("-p"), "{case_name}");
+                    assert!(
+                        wrapped.args[1]
+                            .to_string_lossy()
+                            .contains("(allow file-read* (subpath \"/private/tmp\"))"),
+                        "{case_name}: {}",
+                        format_args!("the canonical path must be granted")
+                    );
+                    assert_eq!(wrapped.args[2], OsString::from("echo"), "{case_name}");
+                    assert_eq!(wrapped.args[3], OsString::from("hello"), "{case_name}");
+                }) as fn(&str),
+            ),
+            (
+                "rejects_missing_paths",
+                (|case_name| {
+                    let enforcer = Seatbelt::new();
+                    let policy = Builder::new()
+                        .allow_read("/nonexistent/path/that/does/not/exist")
+                        .build();
 
-        let result = enforcer.wrap_command(OsStr::new("echo"), &[OsString::from("hello")], &policy);
+                    let result = enforcer.wrap_command(OsStr::new("echo"), &[], &policy);
 
-        // /tmp is a symlink to /private/tmp on macOS
-        let wrapped = result.expect("wrap_command should succeed for /tmp");
-        assert_eq!(wrapped.program, OsString::from("sandbox-exec"));
-        assert_eq!(wrapped.args[0], OsString::from("-p"));
-        assert!(
-            wrapped.args[1]
-                .to_string_lossy()
-                .contains("(allow file-read* (subpath \"/private/tmp\"))"),
-            "the canonical path must be granted"
-        );
-        assert_eq!(wrapped.args[2], OsString::from("echo"));
-        assert_eq!(wrapped.args[3], OsString::from("hello"));
-    }
-
-    #[test]
-    fn rejects_missing_paths() {
-        let enforcer = Seatbelt::new();
-        let policy = Builder::new()
-            .allow_read("/nonexistent/path/that/does/not/exist")
-            .build();
-
-        let result = enforcer.wrap_command(OsStr::new("echo"), &[], &policy);
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            err.code == sailry_protocol::ErrorCode::Unavailable
-                && err.message.contains("policy violation:"),
-            "expected a policy failure, got: {err:?}"
-        );
+                    assert!(result.is_err(), "{case_name}");
+                    let err = result.unwrap_err();
+                    assert!(
+                        err.code == sailry_protocol::ErrorCode::Unavailable
+                            && err.message.contains("policy violation:"),
+                        "{case_name}: {}",
+                        format_args!("expected a policy failure, got: {err:?}")
+                    );
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
+        }
     }
 
     /// Seatbelt rejects hostnames in network filters (`host must be * or localhost`), so the
     /// rules previously produced a profile `sandbox-exec` refused to parse. They now fail
     /// closed to no network at all.
     #[test]
-    fn domain_rules_fail_closed() {
-        let policy = Builder::new()
-            .allow_domain("api.openai.com", &[443])
-            .allow_domain("huggingface.co", &[443, 80])
-            .allow_domain("example.com", &[])
-            .build();
-        let profile = Seatbelt::profile(&policy);
+    fn bounds_network_rules() {
+        for (case_name, run) in [
+            (
+                "domain_rules_fail_closed",
+                (|case_name| {
+                    let policy = Builder::new()
+                        .allow_domain("api.openai.com", &[443])
+                        .allow_domain("huggingface.co", &[443, 80])
+                        .allow_domain("example.com", &[])
+                        .build();
+                    let profile = Seatbelt::profile(&policy);
 
-        assert!(
-            !profile.contains("network"),
-            "domain rules must not grant network:\n{profile}"
-        );
-        assert!(!profile.contains("api.openai.com"));
-        assert!(!profile.contains("example"));
-    }
+                    assert!(
+                        !profile.contains("network"),
+                        "{case_name}: {}",
+                        format_args!("domain rules must not grant network:\n{profile}")
+                    );
+                    assert!(!profile.contains("api.openai.com"), "{case_name}");
+                    assert!(!profile.contains("example"), "{case_name}");
+                }) as fn(&str),
+            ),
+            (
+                "full_network_overrides_rules",
+                (|case_name| {
+                    let policy = Builder::new()
+                        .allow_network()
+                        .allow_domain("api.openai.com", &[443])
+                        .build();
+                    let profile = Seatbelt::profile(&policy);
 
-    #[test]
-    fn full_network_overrides_rules() {
-        let policy = Builder::new()
-            .allow_network()
-            .allow_domain("api.openai.com", &[443])
-            .build();
-        let profile = Seatbelt::profile(&policy);
-
-        assert!(profile.contains("(allow network*)"));
-        assert!(!profile.contains("api.openai.com"));
+                    assert!(profile.contains("(allow network*)"), "{case_name}");
+                    assert!(!profile.contains("api.openai.com"), "{case_name}");
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
+        }
     }
 }

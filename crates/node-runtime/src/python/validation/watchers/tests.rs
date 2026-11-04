@@ -56,23 +56,27 @@ fn releases_dropped_entries() {
 }
 
 #[test]
-fn rejects_oversized_trees() {
-    let root = fixture(2);
-    let watch = Watch::isolated(2, 1);
-    watch.watch(root.path(), |_| {});
-    assert!(!watch.active());
-    assert!(watch.state.lock().unwrap().coverage.is_empty());
-}
-
-#[test]
-fn counts_bytecode_directories() {
-    let root = fixture(0);
-    std::fs::create_dir_all(root.path().join("__pycache__/nested")).unwrap();
-    let watch = Watch::isolated(3, 1);
-    watch.watch(root.path(), |_| {});
-    assert!(watch.active());
-    assert_eq!(watch.state.lock().unwrap().coverage.len(), 3);
-    assert!(watch.covers(root.path()));
+fn bounds_directory_coverage() {
+    for (scenario, children, bytecode, capacity, active, count) in [
+        ("oversized tree", 2, false, 2, false, 0),
+        ("bytecode directories", 0, true, 3, true, 3),
+    ] {
+        let root = fixture(children);
+        if bytecode {
+            std::fs::create_dir_all(root.path().join("__pycache__/nested")).unwrap();
+        }
+        let watch = Watch::isolated(capacity, 1);
+        watch.watch(root.path(), |_| {});
+        assert_eq!(watch.active(), active, "{scenario}");
+        assert_eq!(
+            watch.state.lock().unwrap().coverage.len(),
+            count,
+            "{scenario}"
+        );
+        if active {
+            assert!(watch.covers(root.path()), "{scenario}");
+        }
+    }
 }
 
 #[test]

@@ -44,44 +44,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn retains_nullable_publication() {
-        let results = parse(&json!({"results":[
-            {"title":"Public source","url":"https://example.com/source","snippet":"Untrusted content","summary":"Relevant excerpt","content":"","date":"2026-10-30T11:30:00Z","authority":3,"site_name":null,"site_icon":null,"rerank_score":2.4},
-            {"title":"Undated source","url":"https://docs.example.com/","snippet":"Undated excerpt","summary":"","content":"","date":null,"authority":-1,"site_name":null,"site_icon":null,"rerank_score":1.0}
-        ]})).unwrap();
-        assert_eq!(results.len(), 2);
-        assert_eq!(
-            results[0].published.as_deref(),
-            Some("2026-10-30T11:30:00Z")
-        );
-        assert!(results[1].published.is_none());
-    }
-
-    #[test]
-    fn maps_query_operators() {
-        let input = serde_json::from_value(json!({
-            "query":"official release","freshness":"week","include_domains":["example.com"],
-            "exclude_domains":["private.example.com"],"limit":50
-        }))
-        .unwrap();
-        let body = body(&input).unwrap();
-        let query = body["query"].as_str().unwrap();
-        assert!(
-            query.starts_with("official release site:example.com -site:private.example.com after:")
-        );
-        assert_eq!(body["count"], 50);
-        assert_eq!(body["need_content"], false);
-    }
-
-    #[test]
-    fn preserves_long_queries_without_native_filters() {
-        let mut input: search::Request =
-            serde_json::from_value(json!({"query":"a".repeat(128)})).unwrap();
-        assert!(body(&input).is_ok());
-        input.include_domains = vec!["example.com".into()];
-        input.freshness = Some(search::Freshness::Week);
-        assert_eq!(body(&input).unwrap()["query"], input.query);
-        input.query.push('a');
-        assert!(body(&input).is_err());
+    fn preserves_search_contracts() {
+        for (scenario, check) in [
+            (
+                "retains_nullable_publication",
+                (|scenario: &'static str| {
+                    let results = parse(&json!({"results":[
+                    {"title":"Public source","url":"https://example.com/source","snippet":"Untrusted content","summary":"Relevant excerpt","content":"","date":"2026-10-30T11:30:00Z","authority":3,"site_name":null,"site_icon":null,"rerank_score":2.4},
+                    {"title":"Undated source","url":"https://docs.example.com/","snippet":"Undated excerpt","summary":"","content":"","date":null,"authority":-1,"site_name":null,"site_icon":null,"rerank_score":1.0}
+                ]})).unwrap();
+                    assert_eq!(results.len(), 2, "{scenario}");
+                    assert_eq!(
+                        results[0].published.as_deref(),
+                        Some("2026-10-30T11:30:00Z"),
+                        "{scenario}"
+                    );
+                    assert!(results[1].published.is_none(), "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "maps_query_operators",
+                (|scenario: &'static str| {
+                    let input = serde_json::from_value(json!({
+                    "query":"official release","freshness":"week","include_domains":["example.com"],
+                    "exclude_domains":["private.example.com"],"limit":50
+                        }))
+                    .unwrap();
+                    let body = body(&input).unwrap();
+                    let query = body["query"].as_str().unwrap();
+                    assert!(
+                        query.starts_with(
+                            "official release site:example.com -site:private.example.com after:"
+                        ),
+                        "{scenario}"
+                    );
+                    assert_eq!(body["count"], 50, "{scenario}");
+                    assert_eq!(body["need_content"], false, "{scenario}");
+                }),
+            ),
+            (
+                "preserves_long_queries_without_native_filters",
+                (|scenario: &'static str| {
+                    let mut input: search::Request =
+                        serde_json::from_value(json!({"query":"a".repeat(128)})).unwrap();
+                    assert!(body(&input).is_ok(), "{scenario}");
+                    input.include_domains = vec!["example.com".into()];
+                    input.freshness = Some(search::Freshness::Week);
+                    assert_eq!(body(&input).unwrap()["query"], input.query, "{scenario}");
+                    input.query.push('a');
+                    assert!(body(&input).is_err(), "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

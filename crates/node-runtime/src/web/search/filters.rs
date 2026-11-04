@@ -86,52 +86,76 @@ mod tests {
     }
 
     #[test]
-    fn narrows_domains_and_known_dates() {
-        let now = DateTime::parse_from_rfc3339("2026-10-30T12:00:00Z")
-            .unwrap()
-            .to_utc();
-        let mut results = vec![
-            result("https://example.com/current", Some("2026-10-30T11:10:00Z")),
-            result("https://docs.example.com/undated", None),
-            result("https://example.com/date", Some("2026-10-30")),
-            result("https://example.com/unparsed", Some("unknown")),
-            result("https://example.com/old", Some("2026-10-30T10:59:59Z")),
-            result("https://example.com/previous", Some("2026-10-29")),
-            result("https://private.example.com/", None),
-            result("https://sub.private.example.com/", None),
-            result("https://anotherexample.com/", None),
-            result("https://example.com.evil.test/", None),
-        ];
-        apply(&mut results, &input(), now);
-        assert_eq!(results.len(), 4);
-        assert_eq!(results[1].url, "https://docs.example.com/undated");
-    }
-
-    #[test]
-    fn joins_allowed_sites_with_or() {
-        let mut input = input();
-        input.include_domains.push("other.example".into());
-        assert_eq!(
-            query(&input),
-            "official release (site:example.com OR site:other.example) -site:private.example.com"
-        );
-        input.include_domains.clear();
-        assert_eq!(query(&input), "official release -site:private.example.com");
-    }
-
-    #[test]
-    fn maps_all_ranges() {
-        let now = DateTime::parse_from_rfc3339("2026-10-30T12:00:00Z")
-            .unwrap()
-            .to_utc();
-        for (freshness, hours) in [
-            (Freshness::Hour, 1),
-            (Freshness::Day, 24),
-            (Freshness::Week, 168),
-            (Freshness::Month, 744),
-            (Freshness::Year, 8760),
+    fn preserves_search_contracts() {
+        for (scenario, check) in [
+            (
+                "narrows_domains_and_known_dates",
+                (|scenario: &'static str| {
+                    let now = DateTime::parse_from_rfc3339("2026-10-30T12:00:00Z")
+                        .unwrap()
+                        .to_utc();
+                    let mut results = vec![
+                        result("https://example.com/current", Some("2026-10-30T11:10:00Z")),
+                        result("https://docs.example.com/undated", None),
+                        result("https://example.com/date", Some("2026-10-30")),
+                        result("https://example.com/unparsed", Some("unknown")),
+                        result("https://example.com/old", Some("2026-10-30T10:59:59Z")),
+                        result("https://example.com/previous", Some("2026-10-29")),
+                        result("https://private.example.com/", None),
+                        result("https://sub.private.example.com/", None),
+                        result("https://anotherexample.com/", None),
+                        result("https://example.com.evil.test/", None),
+                    ];
+                    apply(&mut results, &input(), now);
+                    assert_eq!(results.len(), 4, "{scenario}");
+                    assert_eq!(
+                        results[1].url, "https://docs.example.com/undated",
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "joins_allowed_sites_with_or",
+                (|scenario: &'static str| {
+                    let mut input = input();
+                    input.include_domains.push("other.example".into());
+                    assert_eq!(
+                        query(&input),
+                        "official release (site:example.com OR site:other.example) -site:private.example.com",
+                        "{scenario}"
+                    );
+                    input.include_domains.clear();
+                    assert_eq!(
+                        query(&input),
+                        "official release -site:private.example.com",
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "maps_all_ranges",
+                (|scenario: &'static str| {
+                    let now = DateTime::parse_from_rfc3339("2026-10-30T12:00:00Z")
+                        .unwrap()
+                        .to_utc();
+                    for (freshness, hours) in [
+                        (Freshness::Hour, 1),
+                        (Freshness::Day, 24),
+                        (Freshness::Week, 168),
+                        (Freshness::Month, 744),
+                        (Freshness::Year, 8760),
+                    ] {
+                        assert_eq!(
+                            (now - since(freshness, now)).num_hours(),
+                            hours,
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
         ] {
-            assert_eq!((now - since(freshness, now)).num_hours(), hours);
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

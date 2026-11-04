@@ -102,56 +102,78 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prefers_relevant_source_excerpt() {
-        let results = parse(&json!({"ResponseMetadata":{"RequestId":"fixture"},"Result":{"ResultCount":1,"WebResults":[{
+    fn preserves_search_contracts() {
+        for (scenario, check) in [
+            (
+                "prefers_relevant_source_excerpt",
+                (|scenario: &'static str| {
+                    let results = parse(&json!({"ResponseMetadata":{"RequestId":"fixture"},"Result":{"ResultCount":1,"WebResults":[{
             "Url":"https://example.com/source","Title":"Public source","Snippet":"Short excerpt",
             "Summary":"Relevant source excerpt","PublishTime":"2026-10-30T19:30:00+08:00"
-        }]}})).unwrap();
-        assert_eq!(results[0].title, "Public source");
-        assert_eq!(results[0].snippet, "Relevant source excerpt");
-        assert_eq!(
-            results[0].published.as_deref(),
-            Some("2026-10-30T19:30:00+08:00")
-        );
-    }
-
-    #[test]
-    fn separates_provider_errors() {
-        for code in [10401, 10403, 10406, 10412, 10500, 700429] {
-            let error = parse(&json!({"ResponseMetadata":{"Error":{"CodeN":code,"Code":code.to_string(),"Message":"fixture-key"}},"Result":null})).unwrap_err();
-            assert!(!error.fault.message.contains("fixture-key"));
-            assert_eq!(error.retry_at.is_some(), code == 700429);
-            assert_eq!(error.temporary, matches!(code, 10500 | 700429));
-            if matches!(code, 10401 | 10403) {
-                assert_eq!(error.fault.code, ErrorCode::PermissionDenied);
-            }
-        }
-    }
-
-    #[test]
-    fn accepts_empty_web_results() {
-        assert!(
-            parse(&json!({"ResponseMetadata":{},"Result":{"ResultCount":0,"WebResults":null}}))
-                .unwrap()
-                .is_empty()
-        );
-        assert!(parse(&json!({"ResponseMetadata":{},"Result":null})).is_err());
-    }
-
-    #[test]
-    fn bounds_native_exclusions() {
-        let input = serde_json::from_value(json!({
+                }]}})).unwrap();
+                    assert_eq!(results[0].title, "Public source", "{scenario}");
+                    assert_eq!(results[0].snippet, "Relevant source excerpt", "{scenario}");
+                    assert_eq!(
+                        results[0].published.as_deref(),
+                        Some("2026-10-30T19:30:00+08:00"),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "separates_provider_errors",
+                (|scenario: &'static str| {
+                    for code in [10401, 10403, 10406, 10412, 10500, 700429] {
+                        let error = parse(&json!({"ResponseMetadata":{"Error":{"CodeN":code,"Code":code.to_string(),"Message":"fixture-key"}},"Result":null})).unwrap_err();
+                        assert!(!error.fault.message.contains("fixture-key"), "{scenario}");
+                        assert_eq!(error.retry_at.is_some(), code == 700429, "{scenario}");
+                        assert_eq!(
+                            error.temporary,
+                            matches!(code, 10500 | 700429),
+                            "{scenario}"
+                        );
+                        if matches!(code, 10401 | 10403) {
+                            assert_eq!(error.fault.code, ErrorCode::PermissionDenied, "{scenario}");
+                        }
+                    }
+                }),
+            ),
+            (
+                "accepts_empty_web_results",
+                (|scenario: &'static str| {
+                    assert!(
+                    parse(&json!({"ResponseMetadata":{},"Result":{"ResultCount":0,"WebResults":null}}))
+                        .unwrap()
+                        .is_empty()
+                , "{scenario}");
+                    assert!(
+                        parse(&json!({"ResponseMetadata":{},"Result":null})).is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "bounds_native_exclusions",
+                (|scenario: &'static str| {
+                    let input = serde_json::from_value(json!({
             "query":"official release","freshness":"hour","include_domains":["example.com"],
             "exclude_domains":["one.example","two.example","three.example","four.example","five.example","six.example"]
-        })).unwrap();
-        let body = body(&input);
-        assert_eq!(body["TimeRange"], "OneDay");
-        assert_eq!(body["Filter"]["NeedUrl"], true);
-        assert_eq!(body["Filter"]["Sites"], "example.com");
-        assert_eq!(
-            body["Filter"]["BlockHosts"],
-            "one.example|two.example|three.example|four.example|five.example"
-        );
-        assert_eq!(input.exclude_domains.len(), 6);
+                })).unwrap();
+                    let body = body(&input);
+                    assert_eq!(body["TimeRange"], "OneDay", "{scenario}");
+                    assert_eq!(body["Filter"]["NeedUrl"], true, "{scenario}");
+                    assert_eq!(body["Filter"]["Sites"], "example.com", "{scenario}");
+                    assert_eq!(
+                        body["Filter"]["BlockHosts"],
+                        "one.example|two.example|three.example|four.example|five.example",
+                        "{scenario}"
+                    );
+                    assert_eq!(input.exclude_domains.len(), 6, "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }
