@@ -50,6 +50,20 @@ pub(super) async fn message(
     input: &Input,
     notice: Option<&str>,
 ) -> Result<Record, Fault> {
+    let mut attachments = Vec::with_capacity(input.attachments.len());
+    for id in &input.attachments {
+        attachments.push(ingress.attachment(turn, *id).await?);
+    }
+    render(turn, input, notice, &attachments)
+}
+
+/// Builds the canonical user message from already resolved attachments.
+pub(crate) fn render(
+    turn: TurnId,
+    input: &Input,
+    notice: Option<&str>,
+    attachments: &[Attachment],
+) -> Result<Record, Fault> {
     let mut blocks = Vec::new();
     if let Some(text) = notice {
         blocks.push(BlockKind::Text { text: text.into() });
@@ -63,11 +77,14 @@ pub(super) async fn message(
         });
     }
     for id in &input.attachments {
-        let attachment = ingress.attachment(turn, *id).await?;
+        let attachment = attachments
+            .iter()
+            .find(|attachment| attachment.id == *id)
+            .ok_or_else(|| Fault::invalid("attachment is not bound to this turn"))?;
         blocks.push(BlockKind::File {
             file: FileRef {
                 uri: format!("{PREFIX}{id}"),
-                mime: Some(attachment.spec.media_type),
+                mime: Some(attachment.spec.media_type.clone()),
             },
         });
     }

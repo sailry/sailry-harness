@@ -14,6 +14,24 @@ struct Entry {
     record: Record,
     capability: Option<usize>,
 }
+/// The admitted input of a turn stopped before inference, in the same shape
+/// the engine writes when it starts.
+pub(crate) fn stopped(
+    turn: TurnId,
+    message: &sailry_protocol::conversation::Input,
+    attachments: &[sailry_protocol::attachment::Attachment],
+) -> Result<Record, Fault> {
+    let batch = Batch {
+        entries: vec![Entry {
+            turn,
+            references: message.references.clone(),
+            record: attachments::render(turn, message, None, attachments)?,
+            capability: None,
+        }],
+    };
+    Ok(batch.records("user", false).remove(0))
+}
+
 impl Batch {
     pub async fn select(
         &mut self,

@@ -44,6 +44,8 @@ pub struct View {
     pub calls: Arc<Vec<tools::Call>>,
     pub children: Arc<children::View>,
     pub guidance: Arc<std::collections::BTreeMap<TurnId, guidance::State>>,
+    /// Shared transcript order for every controller; see `turns::timeline`.
+    pub timeline: Arc<Vec<TurnId>>,
     /// True only after authoritative Node observation and confirmation agree.
     pub removed: bool,
     pub connected: bool,
@@ -74,6 +76,7 @@ impl View {
             self.calls = Arc::new(tools::collect(&snapshot.page));
             self.children = Arc::new(children::project(&snapshot.page));
             self.guidance = Arc::new(guidance::project(&snapshot.page));
+            self.timeline = Arc::new(turns::timeline(&snapshot.page));
         }
         self.snapshot = Some(snapshot);
         self.generation = generation;

@@ -10,7 +10,7 @@ pub(crate) mod completion;
 mod controls;
 pub(crate) mod delegation;
 mod diagnostics;
-mod inputs;
+pub(crate) mod inputs;
 mod mcp;
 pub(crate) use mcp::check::run as check_mcp;
 pub(crate) mod media;

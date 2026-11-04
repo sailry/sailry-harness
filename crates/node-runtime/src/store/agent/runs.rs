@@ -636,6 +636,22 @@ pub(super) async fn finish_with(
     } else {
         status
     };
+    // Guidance can attach before the task's own input reaches history; that
+    // input must stay ahead of it in a paused queue instead of being skipped.
+    // Read before a stop writes the input into history.
+    let consumed = !database
+        .connection
+        .prepare("SELECT EXISTS(SELECT 1 FROM agent_pending WHERE turn=?1)")
+        .await
+        .map_err(storage_error)?
+        .query_row([turn.to_string()])
+        .await
+        .map_err(storage_error)?
+        .get::<bool>(0)
+        .map_err(storage_error)?;
+    if stopped && run.status == Status::Cancelled {
+        super::history::stopped_input(database, &run, events).await?;
+    }
     if run.status != Status::Completed {
         super::history::retain(database, &run, events).await?;
     }
@@ -646,17 +662,6 @@ pub(super) async fn finish_with(
         .map_err(storage_error)?;
     run.error = error;
     run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
-    // Guidance can attach before the task's own input reaches history; that
-    // input must stay ahead of it in a paused queue instead of being skipped.
-    let consumed = !transaction
-        .prepare("SELECT EXISTS(SELECT 1 FROM agent_pending WHERE turn=?1)")
-        .await
-        .map_err(storage_error)?
-        .query_row([turn.to_string()])
-        .await
-        .map_err(storage_error)?
-        .get::<bool>(0)
-        .map_err(storage_error)?;
     let successor = stopping
         && consumed
         && run.status != Status::Interrupted

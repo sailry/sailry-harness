@@ -152,10 +152,16 @@ impl View {
                     &snapshot.page,
                     &snapshot.drafts,
                 );
-                snapshot
+                let runs: std::collections::BTreeMap<_, _> = snapshot
                     .page
                     .runs
                     .iter()
+                    .map(|run| (run.turn, run))
+                    .collect();
+                self.history
+                    .timeline
+                    .iter()
+                    .filter_map(|turn| runs.get(turn).copied())
                     .filter(|run| visible.contains(&run.turn))
                     .filter(|run| {
                         (run.status != Status::Queued || child && !guidance.contains(&run.turn))

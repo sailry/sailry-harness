@@ -14,6 +14,13 @@ class TranscriptIndex {
       _inputs = object(view['inputs']) {
     page = object(snapshot['page']);
     runs = objects(page['runs']);
+    // Client's shared execution order; admission order is only a fallback.
+    final byTurn = {for (final run in runs) run['turn']: run};
+    timeline = [
+      for (final turn in (view['timeline'] as List? ?? const []))
+        if (byTurn[turn] case final Map<String, dynamic> run) run,
+    ];
+    if (timeline.length != runs.length) timeline = runs;
     childRecords = objects(page['children']);
     latest = runs.where((run) => run['kind'] != 'compaction').lastOrNull;
     for (final run in runs) {
@@ -46,6 +53,9 @@ class TranscriptIndex {
   final Map<String, dynamic> snapshot;
   late final Map<String, dynamic> page;
   late final List<Map<String, dynamic>> runs;
+
+  /// Runs in transcript order.
+  late List<Map<String, dynamic>> timeline;
   final List<Map<String, dynamic>> calls;
 
   /// Child session references keyed by session, as delivered by Client.

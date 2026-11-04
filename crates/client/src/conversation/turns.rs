@@ -158,6 +158,18 @@ pub fn visible(run: &Run, page: &Page, drafts: &[Draft]) -> bool {
 }
 
 /// Computes visibility once for a complete history projection.
+/// Transcript order follows execution: a turn takes its place when it starts
+/// (or leaves the queue unstarted), so a reordered or stopped turn keeps the
+/// position at which it ran. Waiting turns follow in admission order.
+pub fn timeline(page: &Page) -> Vec<TurnId> {
+    let mut runs: Vec<_> = page.runs.iter().collect();
+    runs.sort_by_key(|run| {
+        let at = run.started_ms.or(run.finished_ms);
+        (at.is_none(), at, run.sequence)
+    });
+    runs.into_iter().map(|run| run.turn).collect()
+}
+
 pub fn visible_turns(page: &Page, drafts: &[Draft]) -> std::collections::BTreeSet<TurnId> {
     use std::collections::BTreeSet;
     let turns: BTreeSet<_> = page.runs.iter().map(|run| run.turn).collect();

@@ -12,6 +12,7 @@ mod input;
 mod questions;
 mod queue;
 mod statistics;
+mod timeline;
 mod visibility;
 
 fn fixture() -> (Projection, Snapshot, Run, Draft) {

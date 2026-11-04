@@ -8,7 +8,7 @@ mod citations;
 mod credentials;
 mod interrupted;
 mod settled;
-pub(super) use interrupted::retain;
+pub(super) use interrupted::{input as stopped_input, retain};
 pub(in crate::store) mod output;
 pub(super) mod pages;
 pub(in crate::store) mod tools;

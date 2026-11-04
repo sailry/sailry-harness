@@ -1181,6 +1181,19 @@ async fn position(db: &Connection, turn: TurnId) -> i64 {
         .unwrap()
 }
 
+async fn inputs(db: &Connection, turn: TurnId) -> i64 {
+    db.prepare(
+        "SELECT COUNT(*) FROM agent_events WHERE turn=?1 AND json_extract(body,'$.provenance.author')='user'",
+    )
+    .await
+    .unwrap()
+    .query_row([turn.to_string()])
+    .await
+    .unwrap()
+    .get::<i64>(0)
+    .unwrap()
+}
+
 #[tokio::test]
 async fn stop_dismisses_unconsumed_input() {
     let mut fixture = Fixture::new().await;
@@ -1241,6 +1254,32 @@ async fn stop_dismisses_unconsumed_input() {
         .await
         .unwrap();
     assert!(run.input.is_some());
+    // The stopped input stays in history at its own position, written once.
+    assert_eq!(inputs(db, active).await, 1);
+}
+
+#[tokio::test]
+async fn stop_keeps_consumed_input_once() {
+    let mut fixture = Fixture::new().await;
+    let (active, _) = admitted(&mut fixture).await;
+    let controls = registered(&mut fixture, active).await;
+    runs::stop(&fixture.database.connection, active)
+        .await
+        .unwrap();
+    controls.cancel(active);
+    assert_eq!(
+        finish(
+            &mut fixture,
+            &controls,
+            active,
+            Status::Completed,
+            None,
+            None
+        )
+        .await,
+        Status::Cancelled
+    );
+    assert_eq!(inputs(&fixture.database.connection, active).await, 1);
 }
 
 #[tokio::test]

@@ -108,7 +108,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final canChangeHistory = widget.canChangeHistory;
     final page = transcript.page;
     final children = transcript.children;
-    final runs = transcript.runs;
+    final runs = transcript.timeline;
     final colors = Theme.of(context).colorScheme;
     final connected = host.connected && view['connected'] == true;
     Widget part(
@@ -369,7 +369,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
           !noticeTurn(run) &&
           inputs.any((input) => input.canonical);
       final canRewind =
-          canChangeHistory && !noticeTurn(run) && run != runs.last;
+          canChangeHistory && !noticeTurn(run) && run != transcript.runs.last;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

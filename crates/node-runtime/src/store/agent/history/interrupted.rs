@@ -52,3 +52,42 @@ pub(in crate::store::agent) async fn retain(
     }
     Ok(())
 }
+
+/// A user-stopped turn keeps its admitted input in history at its own
+/// position, even when inference never consumed it. Repeated settlement finds
+/// the committed user entry and writes nothing.
+pub(in crate::store::agent) async fn input(
+    database: &mut Database,
+    run: &Run,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<(), Fault> {
+    if run.kind != RunKind::Task || run.continuation.is_some() || run.started_ms.is_none() {
+        return Ok(());
+    }
+    let body: Option<Vec<u8>> = {
+        let mut statement = database
+            .connection
+            .prepare("SELECT input FROM agent_runs WHERE turn=?1 AND input IS NOT NULL AND NOT EXISTS(SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.provenance.author')='user')")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([run.turn.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = row.get(0);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error)),
+        }
+    };
+    let Some(body) = body else {
+        return Ok(());
+    };
+    let message: sailry_protocol::conversation::Input =
+        serde_json::from_slice(&body).map_err(storage_error)?;
+    let attachments =
+        crate::store::attachments::turns::list(&database.connection, run.turn).await?;
+    let record = crate::agent::inputs::stopped(run.turn, &message, &attachments)?;
+    append(database, run.session, run.turn, record, events)
+        .await
+        .map(|_| ())
+}
