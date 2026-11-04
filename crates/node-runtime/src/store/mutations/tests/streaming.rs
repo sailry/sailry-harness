@@ -241,11 +241,18 @@ async fn bypasses_blocked_storage_and_file_workers() {
                 .code,
             ErrorCode::PermissionDenied
         );
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), other.next())
-                .await
-                .is_err()
-        );
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
+        loop {
+            match tokio::time::timeout_at(deadline, other.next()).await {
+                Err(_) => break,
+                Ok(Ok(Update::ConversationFrame(frame)))
+                    if matches!(
+                        frame.change,
+                        Change::Statistics(_) | Change::StatisticsFailed(_)
+                    ) => {}
+                update => panic!("unrelated conversation received content: {update:?}"),
+            }
+        }
         storage_gate.release.send(()).unwrap();
         pending.await.unwrap().unwrap();
         append(

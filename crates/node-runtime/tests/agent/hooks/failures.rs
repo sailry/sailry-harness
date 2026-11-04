@@ -215,7 +215,7 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
 }
 
 #[tokio::test]
-async fn retains_hidden_tool_failures() {
+async fn shows_failed_title_tool() {
     for remote in [false, true] {
         let server = Server::tools(vec![(
             "set_session_title".into(),
@@ -251,7 +251,7 @@ async fn retains_hidden_tool_failures() {
         );
         assert_eq!(
             call.presentation,
-            sailry_protocol::tool::Presentation::Hidden
+            sailry_protocol::tool::Presentation::Summary
         );
         assert!(!call.hidden(&page));
         assert!(call.diagnostics(&page));

@@ -119,7 +119,7 @@ async fn capture(fixture: &process::Fixture, turn: &QueuedTurn) {
         panic!("captured package expected");
     };
     assert_eq!(info.summary.digest, reference.digest);
-    assert_eq!(info.summary.version.as_deref(), Some("0.1.11"));
+    assert_eq!(info.summary.version.as_deref(), Some("0.1.12"));
     assert_eq!(
         info.extension
             .unwrap()

@@ -127,6 +127,14 @@ fn generation_for(
         assert!(request.headers["x-request-id"].parse::<RequestId>().is_ok());
     }
     let call = tools && !continuation;
+    let text = if request
+        .body
+        .contains("Please summarize the conversation history provided in the system prompt.")
+    {
+        crate::agent_support::compaction::handoff("Authorized response")
+    } else {
+        "Authorized response".into()
+    };
     let digest = blake3::hash(b"files").to_hex();
     let tool = format!("plugin_{}_read_file", &digest[..16]);
     let response = RequestId::new().to_string();
@@ -135,20 +143,20 @@ fn generation_for(
         let output = if call {
             json!([{"type":"function_call","id":"item-fixture","call_id":"call-fixture","namespace":"sailry","name":tool,"arguments":"{\"path\":\"fixture.txt\"}","status":"completed"}])
         } else {
-            json!([{"type":"message","id":"message-fixture","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Authorized response","annotations":[]}]}])
+            json!([{"type":"message","id":"message-fixture","role":"assistant","status":"completed","content":[{"type":"output_text","text":text,"annotations":[]}]}])
         };
         let completed = json!({"type":"response.completed","sequence_number":2,"response":{"id":response,"object":"response","created_at":1,"status":"completed","model":model,"output":output}});
         if call {
             format!("data: {created}\n\ndata: {completed}\n\n")
         } else {
-            let delta = json!({"type":"response.output_text.delta","sequence_number":1,"item_id":"message-fixture","output_index":0,"content_index":0,"delta":"Authorized response","logprobs":[]});
+            let delta = json!({"type":"response.output_text.delta","sequence_number":1,"item_id":"message-fixture","output_index":0,"content_index":0,"delta":text,"logprobs":[]});
             format!("data: {created}\n\ndata: {delta}\n\ndata: {completed}\n\n")
         }
     } else {
         let delta = if call {
             json!({"role":"assistant","tool_calls":[{"index":0,"id":"call-fixture","type":"function","function":{"name":tool,"arguments":"{\"path\":\"fixture.txt\"}"}}]})
         } else {
-            json!({"role":"assistant","content":"Authorized response"})
+            json!({"role":"assistant","content":text})
         };
         let first = json!({"id":response,"object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
         let last = json!({"id":response,"object":"chat.completion.chunk","created":1,"model":model,"choices":[{"index":0,"delta":{},"finish_reason":if call {"tool_calls"} else {"stop"}}]});
