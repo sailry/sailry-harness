@@ -24,7 +24,7 @@ fn distinguishes_errors_uncertainty_and_expected_absence() {
     for (code, expected, failed, warning, state) in [
         (ErrorCode::Internal, None, true, false, RowState::Failed),
         (ErrorCode::Unavailable, None, true, false, RowState::Failed),
-        (ErrorCode::Cancelled, None, false, true, RowState::Cancelled),
+        (ErrorCode::Cancelled, None, false, false, RowState::Failed),
         (
             ErrorCode::OutcomeUnknown,
             None,
@@ -80,10 +80,10 @@ fn preserves_terminal_and_active_states() {
             true,
             false,
         ),
-        (State::Returned, Some(ErrorCode::Cancelled), true, false),
+        (State::Returned, Some(ErrorCode::Cancelled), false, false),
         (State::Interrupted, None, true, false),
         (State::NotExecuted, None, true, false),
-        (State::Cancelled, None, true, false),
+        (State::Cancelled, None, false, false),
         (State::Returned, Some(ErrorCode::Internal), false, true),
         (State::Returned, Some(ErrorCode::Unavailable), false, true),
         (State::Returned, None, false, false),

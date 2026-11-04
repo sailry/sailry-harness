@@ -12,7 +12,6 @@ use serde::Serialize;
 #[serde(rename_all = "snake_case")]
 pub enum RowState {
     Denied,
-    Cancelled,
     Interrupted,
     Failed,
     Pending,
@@ -47,20 +46,18 @@ impl Call {
             && !matches!(code, Some(ErrorCode::Cancelled | ErrorCode::OutcomeUnknown));
         let state = if denied {
             Some(RowState::Denied)
-        } else if matches!(code, Some(ErrorCode::Cancelled | ErrorCode::OutcomeUnknown)) {
-            Some(if code == Some(ErrorCode::Cancelled) {
-                RowState::Cancelled
-            } else {
-                RowState::Interrupted
-            })
+        } else if code == Some(ErrorCode::Cancelled) {
+            // A user stop is an ordinary ending; the row keeps its normal style.
+            None
+        } else if code == Some(ErrorCode::OutcomeUnknown) {
+            Some(RowState::Interrupted)
         } else if failed {
             Some(RowState::Failed)
         } else if pending {
             Some(RowState::Pending)
         } else {
             match self.state {
-                State::Waiting | State::Running | State::Returned => None,
-                State::Cancelled => Some(RowState::Cancelled),
+                State::Waiting | State::Running | State::Returned | State::Cancelled => None,
                 State::NotExecuted => Some(RowState::NotExecuted),
                 State::Interrupted => Some(RowState::Interrupted),
             }
@@ -91,12 +88,7 @@ impl Call {
             warning: !failed
                 && matches!(
                     state,
-                    Some(
-                        RowState::Denied
-                            | RowState::Cancelled
-                            | RowState::Interrupted
-                            | RowState::NotExecuted
-                    )
+                    Some(RowState::Denied | RowState::Interrupted | RowState::NotExecuted)
                 ),
             pending,
             running,

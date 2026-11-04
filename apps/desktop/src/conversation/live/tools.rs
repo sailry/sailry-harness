@@ -493,7 +493,6 @@ fn summary(call: &Call, page: &Page) -> Summary {
     detail.state = row.state.map(|state| {
         tr(match state {
             RowState::Denied => "approval_rejected",
-            RowState::Cancelled => "turn_cancelled",
             RowState::Interrupted => "tool_interrupted",
             RowState::Failed => "tool_failed",
             RowState::Pending => "approval_pending",

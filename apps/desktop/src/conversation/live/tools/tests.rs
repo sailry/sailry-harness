@@ -203,8 +203,10 @@ fn follows_last_tool_outcome() {
 #[test]
 fn preserves_non_execution_states() {
     let page = page();
+    let stopped = summary(&call(State::Cancelled, None), &page);
+    assert_eq!(stopped.detail.state, None);
+    assert!(!stopped.detail.warning);
     for (state, key) in [
-        (State::Cancelled, "turn_cancelled"),
         (State::Interrupted, "tool_interrupted"),
         (State::NotExecuted, "tool_not_executed"),
     ] {
