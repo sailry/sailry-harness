@@ -204,19 +204,31 @@ async fn bypasses_blocked_storage_and_file_workers() {
             .await
             .expect("partial publication must bypass the blocked storage worker")
             .unwrap();
-            let Update::ConversationFrame(frame) =
-                tokio::time::timeout(Duration::from_millis(500), stream.next())
-                    .await
-                    .expect("subscribers must receive output while storage is blocked")
-                    .unwrap()
-            else {
-                panic!("frame expected")
+            // Statistics refresh asynchronously after earlier commits and may
+            // interleave with output; every other frame must be the delta.
+            let frame = loop {
+                let Update::ConversationFrame(frame) =
+                    tokio::time::timeout(Duration::from_millis(500), stream.next())
+                        .await
+                        .expect("subscribers must receive output while storage is blocked")
+                        .unwrap()
+                else {
+                    panic!("frame expected")
+                };
+                if !matches!(
+                    frame.change,
+                    Change::Statistics(_) | Change::StatisticsFailed(_)
+                ) {
+                    break frame;
+                }
             };
             assert!(frame.sequence > sequence);
             sequence = frame.sequence;
             assert_eq!(frame.session, session.id);
             assert!(
-                matches!(frame.change, Change::Delta(draft) if draft.turn == turn.id && draft.parts == vec![Part::Text(text.into())])
+                matches!(&frame.change, Change::Delta(draft) if draft.turn == turn.id && draft.parts == vec![Part::Text(text.into())]),
+                "unexpected change: {:?}",
+                frame.change
             );
         }
         assert_eq!(

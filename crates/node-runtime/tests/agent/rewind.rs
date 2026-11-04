@@ -152,7 +152,22 @@ async fn recovers_subscribers_after_rewind() {
                 through: head
             })
         );
-        assert_eq!(direct.next().await.unwrap(), Update::ResetRequired);
+        // Statistics refresh asynchronously after earlier commits; the next
+        // conversation change after them must be the reset.
+        let reset = loop {
+            let update = direct.next().await.unwrap();
+            if !matches!(
+                &update,
+                Update::ConversationFrame(frame) if matches!(
+                    frame.change,
+                    sailry_protocol::conversation::Change::Statistics(_)
+                        | sailry_protocol::conversation::Change::StatisticsFailed(_)
+                )
+            ) {
+                break update;
+            }
+        };
+        assert_eq!(reset, Update::ResetRequired);
         observed(&mut view, |view| {
             view.connected
                 && view

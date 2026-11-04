@@ -69,7 +69,8 @@ async fn uses_captured_policy_until_queued_work_ends() {
     assert_eq!(current.context_limit, 200_000);
     assert_eq!(current.trigger_tokens, 160_000);
     assert_eq!(current.output_reserve, 64_000);
-    assert_eq!(current.summary_output, 64_000);
+    // Compaction handoffs stay bounded below the model's full output limit.
+    assert_eq!(current.summary_output, 8_000);
 }
 
 #[tokio::test]

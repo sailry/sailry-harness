@@ -287,9 +287,21 @@ async fn preserves_captured_reads() {
         conversion::project(&db, &stored).await.unwrap().unwrap(),
         source
     );
+    // Projection notes the canonical revision so model-facing previews can
+    // reference the full output; the content itself is unchanged.
+    let mut projected_result = result_source.clone();
+    projected_result.metadata.set_operation_note(
+        "tool_output",
+        "saved-call",
+        serde_json::json!(
+            blake3::hash(encoded.to_string().as_bytes())
+                .to_hex()
+                .to_string()
+        ),
+    );
     assert_eq!(
         conversion::project(&db, &result).await.unwrap().unwrap(),
-        result_source
+        projected_result
     );
     drop(db);
     let sessions = fixture.store.ingress.sessions(turn);

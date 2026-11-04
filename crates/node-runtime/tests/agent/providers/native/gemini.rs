@@ -150,8 +150,25 @@ async fn idless_mcp_results_keep_execution_facts() {
                     .iter()
                     .find(|response| response["id"].as_str() == call.id.as_deref())
                     .unwrap();
+                let sent = response["response"]["content"]["text"].as_str().unwrap();
+                if content.len() > 50 * 1024 || content.lines().count() > 2_000 {
+                    // Model input is bounded; the original stays readable by
+                    // paging, which the follow-up turn below verifies in full.
+                    let revision = blake3::hash(original.to_string().as_bytes())
+                        .to_hex()
+                        .to_string();
+                    let (preview, notice) = sent
+                        .rsplit_once("\n[Tool result truncated: ")
+                        .expect("bounded preview notice");
+                    assert!(!preview.is_empty() && preview.len() <= 50 * 1024);
+                    assert!(content.starts_with(preview));
+                    assert!(notice.contains("read_tool_output"));
+                    assert!(notice.contains(call.id.as_deref().unwrap()));
+                    assert!(notice.contains(&revision));
+                    continue;
+                }
                 assert_eq!(
-                    response["response"]["content"]["text"],
+                    sent,
                     if content.is_empty() {
                         // Conversation repair adds the SDK placeholder before Google formatting;
                         // structured-only MCP content remains preserved in canonical history.
