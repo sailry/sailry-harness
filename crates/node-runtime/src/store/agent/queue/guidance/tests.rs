@@ -1253,7 +1253,8 @@ async fn stop_dismisses_unconsumed_input() {
     let run = runs::hydrate(db, runs::get(db, active).await.unwrap())
         .await
         .unwrap();
-    assert!(run.input.is_some());
+    // History now owns the input, so the run no longer projects a second copy.
+    assert!(run.input.is_none());
     // The stopped input stays in history at its own position, written once.
     assert_eq!(inputs(db, active).await, 1);
 }
