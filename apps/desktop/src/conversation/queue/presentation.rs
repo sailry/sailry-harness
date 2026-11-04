@@ -45,6 +45,7 @@ pub(in crate::conversation) fn row(
     label: SharedString,
     attached: bool,
     draggable: bool,
+    joining: bool,
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
@@ -56,6 +57,7 @@ pub(in crate::conversation) fn row(
             attached,
             draggable,
             drag_enabled: true,
+            joining,
         },
         actions,
         cx,
@@ -67,6 +69,7 @@ pub(in crate::conversation) fn pending(
     key: SharedString,
     label: SharedString,
     attached: bool,
+    joining: bool,
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
@@ -78,6 +81,7 @@ pub(in crate::conversation) fn pending(
             attached,
             draggable: true,
             drag_enabled: false,
+            joining,
         },
         actions,
         cx,
@@ -88,6 +92,8 @@ struct FrameOptions {
     attached: bool,
     draggable: bool,
     drag_enabled: bool,
+    /// Input joining the running turn shows the loader in the leading slot.
+    joining: bool,
 }
 
 fn frame(
@@ -110,7 +116,18 @@ fn frame(
                 .w_full()
                 .min_w_0()
                 .gap_2()
-                .when(options.draggable, |row| {
+                .when(options.joining, |row| {
+                    row.child(
+                        div()
+                            .size_6()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .debug_selector(move || "queue-joining".into())
+                            .child(crate::ui::loading::mini()),
+                    )
+                })
+                .when(options.draggable && !options.joining, |row| {
                     row.child(
                         div()
                             .id(SharedString::from(format!("queue-drag-{key}")))

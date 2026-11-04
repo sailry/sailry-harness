@@ -138,14 +138,11 @@ impl Panel {
             label(item),
             !item.attachments.is_empty(),
             !self.child && !item.notice,
-            // Input joining the running turn is marked by color, not copy.
-            self.guided(turn)
-                .then(|| guided_icon(cx))
+            // Input joining the running turn shows the loader, not copy.
+            self.guided(turn),
+            (!item.notice && item.kind == sailry_protocol::conversation::RunKind::Task)
+                .then_some(edit.into_any_element())
                 .into_iter()
-                .chain(
-                    (!item.notice && item.kind == sailry_protocol::conversation::RunKind::Task)
-                        .then_some(edit.into_any_element()),
-                )
                 .chain(withdraw)
                 .chain((!self.child && !item.notice).then_some(send.into_any_element()))
                 .chain([remove.into_any_element()]),
@@ -349,10 +346,8 @@ impl Render for Panel {
                                 "outgoing".into(),
                                 text,
                                 self.outgoing_attached,
-                                self.outgoing_guidance
-                                    .then(|| guided_icon(cx))
-                                    .into_iter()
-                                    .chain(actions),
+                                self.outgoing_guidance,
+                                actions,
                                 cx,
                             )
                             .debug_selector(|| "queue-outgoing".into())
@@ -360,13 +355,6 @@ impl Render for Panel {
                 )
             })
     }
-}
-
-fn guided_icon(cx: &App) -> AnyElement {
-    Icon::new(IconName::Redo2)
-        .small()
-        .text_color(cx.theme().primary)
-        .into_any_element()
 }
 
 pub(super) fn label(item: &Pending) -> SharedString {

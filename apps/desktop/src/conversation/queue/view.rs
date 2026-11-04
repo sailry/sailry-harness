@@ -225,6 +225,7 @@ impl Panel {
             entry.label(),
             entry.options.attachment,
             true,
+            false,
             [
                 edit.into_any_element(),
                 send.into_any_element(),

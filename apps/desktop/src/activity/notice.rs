@@ -125,12 +125,10 @@ impl Shell {
                     }
                 })
         };
+        // While Sailry is in the background the notice also stays in the app,
+        // so returning to the window still shows it.
         let delivery = if preferences.notifications[0] && !window.is_window_active() {
-            if persistent {
-                NotificationDelivery::InAppAndSystem
-            } else {
-                NotificationDelivery::System
-            }
+            NotificationDelivery::InAppAndSystem
         } else {
             NotificationDelivery::InApp
         };
