@@ -223,7 +223,11 @@ impl Panel {
             entry.id,
             entry.id.to_string().into(),
             entry.label(),
-            entry.options.attachment,
+            presentation::RowOptions {
+                attached: entry.options.attachment,
+                draggable: true,
+                joining: false,
+            },
             [
                 edit.into_any_element(),
                 send.into_any_element(),

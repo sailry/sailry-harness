@@ -136,10 +136,11 @@ impl Panel {
             format!("live-queue-row-{turn}"),
             key,
             label(item),
-            !item.attachments.is_empty(),
-            !self.child && !item.notice,
-            // Input joining the running turn shows the loader, not copy.
-            self.guided(turn),
+            presentation::RowOptions {
+                attached: !item.attachments.is_empty(),
+                draggable: !self.child && !item.notice,
+                joining: self.guided(turn),
+            },
             (!item.notice && item.kind == sailry_protocol::conversation::RunKind::Task)
                 .then_some(edit.into_any_element())
                 .into_iter()

@@ -43,23 +43,11 @@ pub(in crate::conversation) fn row(
     id: impl Into<ElementId>,
     key: SharedString,
     label: SharedString,
-    attached: bool,
+    options: RowOptions,
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
-    frame(
-        id,
-        key,
-        label,
-        FrameOptions {
-            attached,
-            draggable: true,
-            drag_enabled: true,
-            joining: false,
-        },
-        actions,
-        cx,
-    )
+    frame(id, key, label, options, true, actions, cx)
 }
 
 pub(in crate::conversation) fn pending(
@@ -75,30 +63,30 @@ pub(in crate::conversation) fn pending(
         id,
         key,
         label,
-        FrameOptions {
+        RowOptions {
             attached,
             draggable: true,
-            drag_enabled: false,
             joining,
         },
+        false,
         actions,
         cx,
     )
 }
 
-struct FrameOptions {
-    attached: bool,
-    draggable: bool,
-    drag_enabled: bool,
+pub(in crate::conversation) struct RowOptions {
+    pub attached: bool,
+    pub draggable: bool,
     /// Input joining the running turn shows the loader in the leading slot.
-    joining: bool,
+    pub joining: bool,
 }
 
 fn frame(
     id: impl Into<ElementId>,
     key: SharedString,
     label: SharedString,
-    options: FrameOptions,
+    options: RowOptions,
+    drag_enabled: bool,
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
@@ -133,7 +121,7 @@ fn frame(
                             .flex()
                             .items_center()
                             .justify_center()
-                            .when(options.drag_enabled, |handle| handle.cursor_grab())
+                            .when(drag_enabled, |handle| handle.cursor_grab())
                             .debug_selector(move || format!("queue-drag-{key}"))
                             .aria_label(tr("queue_drag"))
                             .child(Icon::new(IconName::EllipsisVertical).size_4()),
