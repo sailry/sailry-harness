@@ -26,6 +26,10 @@ settings_message_display: Message display
 settings_message_display_description: Compact mode hides reasoning and groups adjacent tools
 message_display_detailed: Detailed
 message_display_compact: Compact
+settings_sessions: Sessions
+settings_session_order: Session order
+session_order_created: Created
+session_order_updated: Updated
 tool_write_file: Write file
 tool_list_directory: Browse directory
 tool_search_files: Search files

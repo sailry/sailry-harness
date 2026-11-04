@@ -3,7 +3,7 @@ use super::{
     group::{Group, Row},
 };
 use crate::{
-    preferences::{self, MessageDisplay},
+    preferences::{self, MessageDisplay, SessionOrder},
     tr,
 };
 use gpui_kit::{
@@ -75,9 +75,29 @@ impl Workspace {
             self.conversation.preview.clone()
         };
         let display = preferences::data(cx).message_display.unwrap_or_default();
+        let order = preferences::data(cx).session_order.unwrap_or_default();
         gpui_kit::component::v_flex()
             .gap_6()
             .child(host)
+            .child(
+                Group::new("settings_sessions").child(Row::new(
+                    "settings_session_order",
+                    TabBar::new("session-order")
+                        .segmented()
+                        .selected_index(usize::from(order == SessionOrder::Updated))
+                        .children(
+                            ["session_order_created", "session_order_updated"].map(|key| {
+                                Tab::new().debug_selector(move || key.into()).label(tr(key))
+                            }),
+                        )
+                        .on_click(|index, _, cx| {
+                            preferences::update(cx, |data| {
+                                data.session_order =
+                                    Some([SessionOrder::Created, SessionOrder::Updated][*index]);
+                            });
+                        }),
+                )),
+            )
             .child(
                 Group::new("settings_messages")
                     .child(

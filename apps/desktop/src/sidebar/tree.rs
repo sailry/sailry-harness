@@ -224,8 +224,22 @@ impl Shell {
                     .then_some((Target::Session(node, session.id), session.project, session))
             })
             .collect();
+        let updated = crate::preferences::data(cx).session_order
+            == Some(crate::preferences::SessionOrder::Updated);
+        // Stable sorting keeps the Node's creation and manual order for ties.
+        // Sessions that have not run yet stay first, like newly created ones.
         sessions.sort_by_key(|(_, _, session)| {
-            !crate::preferences::sessions::get(node, session.id, cx).pinned
+            let pinned = crate::preferences::sessions::get(node, session.id, cx).pinned;
+            let last = updated
+                .then(|| {
+                    session
+                        .activity
+                        .run
+                        .as_ref()
+                        .and_then(|run| run.finished_ms.or(run.started_ms))
+                })
+                .flatten();
+            (!pinned, last.is_some(), std::cmp::Reverse(last))
         });
         let entries: Vec<_> = terminals
             .iter()

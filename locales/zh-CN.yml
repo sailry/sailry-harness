@@ -1486,6 +1486,10 @@ settings_message_display: 消息显示
 settings_message_display_description: 简洁模式隐藏思考过程并合并相邻工具
 message_display_detailed: 详细
 message_display_compact: 简洁
+settings_sessions: 会话列表
+settings_session_order: 会话排序
+session_order_created: 创建时间
+session_order_updated: 更新时间
 settings_terminal: 终端
 settings_security: 安全
 settings_plugins: 插件

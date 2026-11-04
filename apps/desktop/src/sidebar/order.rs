@@ -17,7 +17,13 @@ impl Shell {
         else {
             return None;
         };
-        if node != destination_node || source == target || self.sidebar.order_pending {
+        // Update-time order is derived from activity, so manual moves would not stick.
+        if node != destination_node
+            || source == target
+            || self.sidebar.order_pending
+            || crate::preferences::data(cx).session_order
+                == Some(crate::preferences::SessionOrder::Updated)
+        {
             return None;
         }
         let live = self.live.as_ref().filter(|live| live.selected == node)?;

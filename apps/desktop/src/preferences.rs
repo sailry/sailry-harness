@@ -41,6 +41,7 @@ pub(crate) struct Data {
     pub artifact_drafts: Option<std::collections::BTreeMap<String, artifacts::Draft>>,
     pub plugin_directories: Option<std::collections::BTreeMap<String, plugins::Directory>>,
     pub message_display: Option<MessageDisplay>,
+    pub session_order: Option<SessionOrder>,
     pub message_text_size: Option<u8>,
     pub file_picker: Option<FilePicker>,
     pub language: Option<crate::locale::Language>,
@@ -56,6 +57,15 @@ pub(crate) enum MessageDisplay {
     #[default]
     Detailed,
     Compact,
+}
+
+/// Sidebar session order; manual and pinned order still apply within it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SessionOrder {
+    #[default]
+    Created,
+    Updated,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,6 +136,7 @@ impl Default for Data {
             plugin_directories: None,
             artifact_drafts: None,
             message_display: None,
+            session_order: None,
             message_text_size: None,
             file_picker: None,
             language: None,
