@@ -95,7 +95,7 @@ mod tests {
                 .iter()
                 .map(|entry| entry.preset.id.as_str())
                 .collect::<Vec<_>>(),
-            ["chat-gpt-oauth", "chat-gpt"]
+            ["chat-gpt-oauth"]
         );
         assert_eq!(
             api.iter()
