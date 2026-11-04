@@ -328,7 +328,11 @@ pub(in crate::store) async fn stop(db: &Connection, turn: TurnId) -> Result<Run,
         super::queue::pause(db, run.session, true).await?;
     }
     run.status = match run.status {
-        Status::Queued => Status::Cancelled,
+        Status::Queued => {
+            // An unstarted turn takes its transcript place when it leaves the queue.
+            run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
+            Status::Cancelled
+        }
         Status::Running => Status::Stopping,
         status => status,
     };
