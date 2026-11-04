@@ -1183,7 +1183,7 @@ async fn position(db: &Connection, turn: TurnId) -> i64 {
 }
 
 #[tokio::test]
-async fn stop_keeps_unconsumed_input_ahead_of_guidance() {
+async fn stop_dismisses_unconsumed_input() {
     let mut fixture = Fixture::new().await;
     let held = fixture.queued().await;
     let active = fixture.queued().await;
@@ -1233,9 +1233,15 @@ async fn stop_keeps_unconsumed_input_ahead_of_guidance() {
         .await
         .unwrap();
     assert!(queue.paused);
+    // The stopped turn keeps its captured input instead of returning to the queue.
     let turns: Vec<_> = queue.items.iter().map(|item| item.turn).collect();
-    assert_eq!(turns[0], active);
+    assert!(!turns.contains(&active));
     assert!(turns.contains(&source) && turns.contains(&held));
+    let db = &fixture.database.connection;
+    let run = runs::hydrate(db, runs::get(db, active).await.unwrap())
+        .await
+        .unwrap();
+    assert!(run.input.is_some());
 }
 
 #[tokio::test]

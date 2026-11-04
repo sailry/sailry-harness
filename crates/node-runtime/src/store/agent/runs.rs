@@ -683,7 +683,13 @@ pub(super) async fn finish_with(
             || (run.status == Status::Completed
                 && !super::queue::read(&transaction, run.session).await?.paused));
     let restored = guidance::restore(&transaction, turn, ready).await?;
-    if incomplete {
+    // An explicit stop ends the task with its captured input still shown as the
+    // stopped turn; only failures and shutdown return unconsumed input to the queue.
+    let dismissed = stopped && run.status == Status::Cancelled && !consumed;
+    if dismissed {
+        super::queue::remove(&transaction, turn, run.session).await?;
+    }
+    if incomplete && !dismissed {
         let retained = transaction.execute("UPDATE agent_runs SET ready=0 WHERE turn=?1 AND EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=?1)", [turn.to_string()]).await.map_err(storage_error)? > 0;
         if retained || halted {
             transaction
@@ -707,7 +713,7 @@ pub(super) async fn finish_with(
         super::queue::remove(&transaction, turn, run.session).await?;
     }
     put(&transaction, &run).await?;
-    if incomplete && !consumed {
+    if incomplete && !consumed && !dismissed {
         // While running, the task's own row kept its admission position as
         // guidance attached ahead of the remaining queue. Retain it first.
         let items = super::queue::read(&transaction, run.session).await?.items;
