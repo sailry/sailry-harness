@@ -209,6 +209,172 @@ mod sanitizer {
     }
 }
 
+mod readme_layout {
+    use super::super::layout::{Align, Item, Layout, Picture, layout};
+    use super::*;
+
+    fn pictures(layout: &Layout) -> Vec<&Picture> {
+        layout
+            .flows
+            .iter()
+            .flat_map(|flow| &flow.items)
+            .filter_map(|item| match item {
+                Item::Picture(picture) => Some(picture),
+                Item::Text(_) => None,
+            })
+            .collect()
+    }
+
+    fn texts(layout: &Layout) -> Vec<&str> {
+        layout
+            .flows
+            .iter()
+            .flat_map(|flow| &flow.items)
+            .filter_map(|item| match item {
+                Item::Text(text) => Some(text.text.as_str()),
+                Item::Picture(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn centers_a_sized_local_logo() {
+        let result = layout(
+            "<p align=\"center\">\n  <img src=\"assets/branding/mark.svg\" alt=\"Sailry\" width=\"88\" height=\"40px\" />\n</p>",
+        );
+        assert!(result.complete);
+        assert_eq!(result.flows.len(), 1);
+        assert_eq!(result.flows[0].align, Align::Center);
+        assert_eq!(
+            pictures(&result),
+            [&Picture {
+                url: "assets/branding/mark.svg".into(),
+                alt: "Sailry".into(),
+                width: Some(88.),
+                height: Some(40.),
+                link: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn keeps_badge_links_in_one_row() {
+        let result = layout(
+            r#"<p align="center"><a href="LICENSE"><img src="https://img.shields.io/a.svg?x=1&amp;y=2" alt="License"></a> <a href="https://example.test/"><img src="https://img.shields.io/b.svg" alt="Build"></a></p>"#,
+        );
+        assert!(result.complete);
+        assert_eq!(result.flows.len(), 1);
+        let found = pictures(&result);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].url, "https://img.shields.io/a.svg?x=1&y=2");
+        assert_eq!(found[0].link.as_deref(), Some("LICENSE"));
+        assert_eq!(found[1].link.as_deref(), Some("https://example.test/"));
+        assert!(texts(&result).is_empty());
+    }
+
+    #[test]
+    fn splits_lines_and_marks_headings() {
+        let result = layout(
+            "<h2 align=\"right\">Sailry   <b>Harness</b></h2>\n<center>One<br>Two &amp; <a href=\"a.md\">three</a></center>",
+        );
+        assert!(result.complete);
+        let shape: Vec<_> = result
+            .flows
+            .iter()
+            .map(|flow| (flow.align, flow.heading))
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                (Align::End, Some(2)),
+                (Align::Center, None),
+                (Align::Center, None),
+            ]
+        );
+        assert_eq!(texts(&result), ["Sailry Harness", "One", "Two & three"]);
+        let Item::Text(heading) = &result.flows[0].items[0] else {
+            panic!("heading text expected");
+        };
+        assert_eq!(heading.marks[0].mark, Mark::Bold);
+        assert_eq!(&heading.text[heading.marks[0].range.clone()], "Harness");
+        let Item::Text(link) = &result.flows[2].items[0] else {
+            panic!("link text expected");
+        };
+        assert_eq!(link.marks[0].mark, Mark::Link("a.md".into()));
+    }
+
+    #[test]
+    fn falls_back_from_picture_sources_to_img() {
+        let result = layout(
+            r#"<picture><source media="(prefers-color-scheme: dark)" srcset="dark.png"><img src="light.png" alt="Logo"></picture>"#,
+        );
+        assert!(result.complete);
+        assert_eq!(pictures(&result)[0].url, "light.png");
+    }
+
+    #[test]
+    fn shows_alt_for_rejected_addresses() {
+        for src in [
+            "javascript:run()",
+            "//example.test/a.png",
+            "file:///etc/passwd.png",
+            "mailto:a@example.test",
+            "C:\\a.png",
+        ] {
+            let result = layout(&format!(r#"<p><img src="{src}" alt="Name"></p>"#));
+            assert!(pictures(&result).is_empty(), "{src}");
+            assert_eq!(texts(&result), ["Name"], "{src}");
+        }
+    }
+
+    #[test]
+    fn strips_active_content() {
+        let result = layout(
+            r#"<div onclick="run()"><script>alert(1)</script><iframe src="https://x.test"></iframe><style>p{}</style><a href="javascript:run()">Go</a><img src="a.png" onerror="run()"></div>"#,
+        );
+        assert_eq!(texts(&result), ["Go"]);
+        let Item::Text(text) = &result.flows[0].items[0] else {
+            panic!("text expected");
+        };
+        assert!(text.marks.is_empty(), "{:?}", text.marks);
+        assert_eq!(pictures(&result)[0].url, "a.png");
+    }
+
+    #[test]
+    fn leaves_richer_markup_to_the_picture() {
+        for source in [
+            "<table><tr><td>Cell</td></tr></table>",
+            "<details><summary>More</summary>Body</details>",
+            r#"<div style="color: red">Red</div>"#,
+            r#"<p><img src="data:image/png;base64,AAAA" alt="Inline"></p>"#,
+        ] {
+            let result = layout(source);
+            assert!(!result.complete, "{source}");
+            assert!(!raster(source).is_empty(), "{source}");
+            assert!(!result.flows.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn rasters_nothing_for_native_blocks() {
+        assert_eq!(raster(r#"<p align="center">Hi</p>"#), "");
+    }
+
+    #[test]
+    fn accepts_style_with_only_alignment() {
+        let result = layout(r#"<div style="text-align: center;">Hi</div>"#);
+        assert!(result.complete);
+        assert_eq!(result.flows[0].align, Align::Center);
+    }
+
+    #[test]
+    fn skips_comments_and_bare_wrappers() {
+        for source in ["<!-- note -->", "<div align=\"center\">", "</div>"] {
+            assert!(layout(source).flows.is_empty(), "{source}");
+        }
+    }
+}
+
 mod spelling {
     use super::*;
 

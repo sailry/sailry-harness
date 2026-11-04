@@ -13,8 +13,12 @@ pub(crate) struct Cache {
     /// not the sanitized copy sent to the surface.
     requests: HashMap<String, (Request, String)>,
     tasks: HashMap<String, Task<()>>,
-    /// Sanitized HTML by block source, kept while the block exists.
+    /// What HTML rasterizes by block source, kept while the block exists.
     sanitized: HashMap<String, String>,
+    /// Native flows by block source, kept while the block exists.
+    layouts: html::layout::Layouts,
+    /// The revision `layouts` was refreshed for.
+    laid_out: Option<u64>,
     images: Images,
     revision: u64,
     hidden: Option<(usize, usize)>,
@@ -33,6 +37,10 @@ struct Preparation {
 impl Cache {
     pub fn images(&self) -> &Images {
         &self.images
+    }
+
+    pub fn layouts(&self) -> &html::layout::Layouts {
+        &self.layouts
     }
 
     pub fn invalidate(&mut self) {
@@ -54,6 +62,11 @@ impl Cache {
         cx: &mut Context<T>,
         owner: fn(&mut T) -> &mut Cache,
     ) {
+        // Native flows need no rendering surface.
+        if self.laid_out != Some(self.revision) {
+            self.laid_out = Some(self.revision);
+            self.lay_out(doc);
+        }
         let Some(renderer) = cx.try_global::<Renderer>().cloned() else {
             return;
         };
@@ -141,6 +154,25 @@ impl Cache {
             self.tasks.insert(key, task);
         }
     }
+
+    fn lay_out(&mut self, doc: &Doc) {
+        let sources: HashSet<_> = doc
+            .blocks
+            .iter()
+            .filter_map(|block| match &block.kind {
+                BlockKind::Html(code) => Some(code.text.as_str()),
+                _ => None,
+            })
+            .collect();
+        self.layouts
+            .retain(|source, _| sources.contains(source.as_str()));
+        for source in sources {
+            if !self.layouts.contains_key(source) {
+                self.layouts
+                    .insert(source.to_owned(), html::layout::layout(source));
+            }
+        }
+    }
 }
 
 fn key(request: &Request) -> String {
@@ -207,9 +239,9 @@ fn requests(
             BlockKind::Html(code) => {
                 let clean = sanitized
                     .entry(code.text.clone())
-                    .or_insert_with(|| html::sanitize(&code.text))
+                    .or_insert_with(|| html::raster(&code.text))
                     .clone();
-                // Nothing left to show; the block keeps its source instead.
+                // Native flows show it, or nothing is left to rasterize.
                 if !clean.trim().is_empty() {
                     add(Kind::Html, &code.text, clean);
                 }

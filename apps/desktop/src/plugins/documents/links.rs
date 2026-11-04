@@ -70,7 +70,7 @@ pub(super) fn images(
     root: Option<String>,
     context: plugin::Context,
 ) -> OnImage {
-    Rc::new(move |url, urls, position, preview, cx| {
+    Rc::new(move |url, urls, position, stated, preview, cx| {
         if let Some(source) = source_for(&base, url, root.as_deref(), &context) {
             let mut index = 0;
             let gallery = urls
@@ -89,8 +89,11 @@ pub(super) fn images(
                 &images,
                 gallery,
                 index,
-                urls.len() > 1,
-                preview,
+                images::Presentation {
+                    compact: urls.len() > 1,
+                    preview,
+                    stated,
+                },
                 cx,
             );
         }

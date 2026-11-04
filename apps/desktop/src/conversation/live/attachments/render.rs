@@ -269,8 +269,11 @@ pub(in crate::conversation::live) fn source_links(
                                 images,
                                 gallery.clone(),
                                 index,
-                                gallery.len() > 1,
-                                true,
+                                images::Presentation {
+                                    compact: gallery.len() > 1,
+                                    preview: true,
+                                    ..Default::default()
+                                },
                                 cx,
                             ))
                             .into_any_element()

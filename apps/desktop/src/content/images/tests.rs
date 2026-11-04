@@ -12,6 +12,20 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     bytes
 }
 
+mod stated_size {
+    use super::super::render::sized;
+    use sailry_content::markdown::render::Stated;
+
+    #[test]
+    fn follows_proportions_for_unset_sides() {
+        let stated = |width, height| Stated { width, height };
+        assert_eq!(sized(stated(None, None), 320., 2.), (320., 160.));
+        assert_eq!(sized(stated(Some(88.), None), 320., 2.), (88., 44.));
+        assert_eq!(sized(stated(None, Some(20.)), 320., 2.), (40., 20.));
+        assert_eq!(sized(stated(Some(88.), Some(40.)), 320., 2.), (88., 40.));
+    }
+}
+
 mod decoding {
     use super::*;
 

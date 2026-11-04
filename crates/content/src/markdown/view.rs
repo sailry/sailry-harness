@@ -269,6 +269,7 @@ impl Render for State {
             |state| &mut state.visuals,
         );
         let visuals = self.visuals.images();
+        let html = self.visuals.layouts();
         let math_entity = cx.weak_entity();
         let on_math_link: super::render::OnMathLink =
             std::sync::Arc::new(move |url, window, cx| {
@@ -395,6 +396,7 @@ impl Render for State {
                     foreground: self.foreground,
                     strong_color: self.strong_color,
                     visuals: Some(visuals),
+                    html: Some(html),
                     on_math_link: Some(on_math_link),
                     ..Editing::default()
                 },
@@ -463,7 +465,8 @@ impl View {
     }
     pub fn on_image(
         mut self,
-        render: impl Fn(&str, &[&str], usize, &App) -> gpui_kit::AnyElement + 'static,
+        render: impl Fn(&str, &[&str], usize, super::render::Stated, &App) -> gpui_kit::AnyElement
+        + 'static,
     ) -> Self {
         self.on_image = Some(Rc::new(render));
         self

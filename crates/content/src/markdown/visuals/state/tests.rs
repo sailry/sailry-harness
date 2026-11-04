@@ -102,7 +102,7 @@ fn renders_sanitized_html_for_its_source(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         let source =
-            "<div align=\"center\" onclick=\"run()\">\n<b>Hi</b><script>run()</script>\n</div>";
+            "<div style=\"color: red\" onclick=\"run()\">\n<b>Hi</b><script>run()</script>\n</div>";
         let doc = crate::markdown::parse::parse(&format!("{source}\n\n<!-- note -->"));
         let mut sanitized = HashMap::new();
         let items = requests(&doc, &Theme::of(cx), false, 14., &mut sanitized, None);
@@ -114,6 +114,18 @@ fn renders_sanitized_html_for_its_source(cx: &mut TestAppContext) {
         assert!(request.source.contains("<b>Hi</b>"));
         assert!(!request.source.contains("onclick") && !request.source.contains("script"));
         assert_eq!(sanitized.len(), 2);
+    });
+}
+
+#[gpui::test]
+fn leaves_readme_html_to_native_flows(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let doc = crate::markdown::parse::parse(
+            "<p align=\"center\">\n  <img src=\"assets/logo.svg\" width=\"88\" />\n</p>",
+        );
+        let items = requests(&doc, &Theme::of(cx), false, 14., &mut HashMap::new(), None);
+        assert!(items.is_empty(), "{items:?}");
     });
 }
 

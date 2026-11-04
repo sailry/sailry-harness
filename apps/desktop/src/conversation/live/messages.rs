@@ -159,7 +159,7 @@ impl View {
                     .into_any_element(),
                 )
             })
-            .on_image(move |url, urls, position, cx| {
+            .on_image(move |url, urls, position, stated, cx| {
                 use crate::content::images::{self, ImageSource};
                 use crate::conversation::file_reference::{self, Target};
                 let workspace = |url: &str| match file_reference::resolve(url, root.as_deref()?)? {
@@ -201,8 +201,11 @@ impl View {
                                 &images,
                                 gallery,
                                 index,
-                                urls.len() > 1,
-                                true,
+                                images::Presentation {
+                                    compact: urls.len() > 1,
+                                    preview: true,
+                                    stated,
+                                },
                                 cx,
                             ))
                             .into_any_element();
