@@ -5,6 +5,85 @@ use serde_json::json;
 #[path = "guidance/timing.rs"]
 mod timing;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn admits_builtin_preset_on_worker() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![(
+            "ask_user".into(),
+            json!({"prompt": "Describe the task", "input": {"kind": "text", "multiline": true, "max_bytes": 1024}}),
+        )])
+        .await;
+        let mut fixture = Fixture::with_server(remote, server).await;
+        tools(&mut fixture).await;
+        let mut provider = fixture.provider.clone();
+        provider.preset = Some(sailry_protocol::conversation::presets::PresetRef {
+            source: sailry_protocol::conversation::presets::Source::Builtin,
+            id: "compatible-chat".into(),
+            route: None,
+        });
+        let Output::Provider(provider) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
+        assert_eq!(
+            provider.preset.as_ref().unwrap().id,
+            "compatible-chat",
+            "transport={remote}"
+        );
+        fixture.provider = provider;
+        let active = fixture.push("Initial task").await;
+        questions::pending(&fixture.client, fixture.session.id).await;
+        let client = Client::new(if remote {
+            fixture
+                .controller
+                .handle()
+                .remote(fixture.node.link().address())
+        } else {
+            fixture.node.local()
+        });
+        let request = client.prepare(Command::GuideTurn {
+            recipient: active.id,
+            expected_revision: active.revision,
+            message: "Continue with the new input".into(),
+        });
+        let Output::QueuedTurn(guided) = tokio::spawn(async move { client.execute(request).await })
+            .await
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("guided input expected")
+        };
+        let page = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(
+            status(&page, guided.id),
+            Status::Queued,
+            "transport={remote}"
+        );
+        assert_eq!(
+            page.queue.items[0].guidance,
+            Some(active.id),
+            "transport={remote}"
+        );
+        fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::StopTurn { turn: active.id }),
+            )
+            .await
+            .unwrap();
+        fixture.close().await;
+    }
+}
+
 async fn held(fixture: &Fixture, message: Input) -> QueuedTurn {
     let Output::QueuedTurn(turn) = fixture
         .client
