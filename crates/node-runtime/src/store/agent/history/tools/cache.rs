@@ -155,223 +155,272 @@ mod tests {
         Cache::trim(&mut entries);
     }
     #[test]
-    fn reuses_only_unchanged_sources() {
-        let cache = Cache::default();
-        let reference = reference(0);
-        let source = 1;
-        let text: Arc<str> = Arc::from("serialized detail");
-        cache
-            .insert_with(reference.clone(), source, None, None, || Ok(text.clone()))
-            .unwrap();
-        assert!(Arc::ptr_eq(
-            &cache
-                .insert_with(reference.clone(), source, None, None, || {
-                    panic!("a concurrent insertion reuses the serialized detail")
-                })
-                .unwrap(),
-            &text
-        ));
-        assert!(Arc::ptr_eq(
-            &cache.get(&reference, source).unwrap().0,
-            &text
-        ));
-        assert!(cache.get(&reference, 2).is_none());
-        assert!(cache.get(&reference, source).is_none());
-    }
-    #[test]
-    fn evicts_the_oldest_detail() {
-        let cache = Cache::default();
-        let first = reference(0);
-        let source = 1;
-        cache
-            .insert_with(first.clone(), source, None, None, || Ok(Arc::from("first")))
-            .unwrap();
-        for index in 1..=ENTRIES * 4 {
-            let reference = reference(index);
-            cache
-                .insert_with(reference.clone(), source, None, None, || {
-                    Ok(Arc::from("detail"))
-                })
-                .unwrap();
-            assert!(cache.get(&reference, source).is_some());
-            let entries = cache.entries.lock().unwrap();
-            assert!(entries.len() <= ENTRIES);
-            assert!(entries.iter().all(|entry| !active(entry)));
-            assert!(entries.iter().map(|entry| entry.text.len()).sum::<usize>() <= BYTES);
+    fn preserves_storage_contracts() {
+        for (scenario, check) in [
+            (
+                "reuses_only_unchanged_sources",
+                (|scenario: &'static str| {
+                    let cache = Cache::default();
+                    let reference = reference(0);
+                    let source = 1;
+                    let text: Arc<str> = Arc::from("serialized detail");
+                    cache
+                        .insert_with(reference.clone(), source, None, None, || Ok(text.clone()))
+                        .unwrap();
+                    assert!(Arc::ptr_eq(
+                    &cache
+                        .insert_with(reference.clone(), source, None, None, || {
+                            panic!("{scenario}: a concurrent insertion reuses the serialized detail")
+                        })
+                        .unwrap(),
+                    &text
+                ), "{scenario}");
+                    assert!(
+                        Arc::ptr_eq(&cache.get(&reference, source).unwrap().0, &text),
+                        "{scenario}"
+                    );
+                    assert!(cache.get(&reference, 2).is_none(), "{scenario}");
+                    assert!(cache.get(&reference, source).is_none(), "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "evicts_the_oldest_detail",
+                (|scenario: &'static str| {
+                    let cache = Cache::default();
+                    let first = reference(0);
+                    let source = 1;
+                    cache
+                        .insert_with(first.clone(), source, None, None, || Ok(Arc::from("first")))
+                        .unwrap();
+                    for index in 1..=ENTRIES * 4 {
+                        let reference = reference(index);
+                        cache
+                            .insert_with(reference.clone(), source, None, None, || {
+                                Ok(Arc::from("detail"))
+                            })
+                            .unwrap();
+                        assert!(cache.get(&reference, source).is_some(), "{scenario}");
+                        let entries = cache.entries.lock().unwrap();
+                        assert!(entries.len() <= ENTRIES, "{scenario}");
+                        assert!(entries.iter().all(|entry| !active(entry)), "{scenario}");
+                        assert!(
+                            entries.iter().map(|entry| entry.text.len()).sum::<usize>() <= BYTES,
+                            "{scenario}"
+                        );
+                    }
+                    assert!(cache.get(&first, source).is_none(), "{scenario}");
+                    assert_eq!(cache.entries.lock().unwrap().len(), ENTRIES, "{scenario}");
+                }),
+            ),
+            (
+                "retains_simultaneous_large_pages",
+                (|scenario: &'static str| {
+                    let cache = Cache::default();
+                    let first = reference(0);
+                    let second = reference(1);
+                    let left: Arc<str> = Arc::from("a".repeat(40 * 1024 * 1024));
+                    let right: Arc<str> = Arc::from("b".repeat(40 * 1024 * 1024));
+                    cache
+                        .insert_with(first.clone(), 1, None, None, || Ok(left.clone()))
+                        .unwrap();
+                    cache
+                        .insert_with(second.clone(), 1, None, None, || Ok(right.clone()))
+                        .unwrap();
+                    for _ in 0..640 {
+                        assert!(
+                            Arc::ptr_eq(&cache.get(&first, 1).unwrap().0, &left),
+                            "{scenario}"
+                        );
+                        assert!(
+                            Arc::ptr_eq(&cache.get(&second, 1).unwrap().0, &right),
+                            "{scenario}"
+                        );
+                    }
+                    let last = super::super::read::slice(
+                        first.clone(),
+                        &cache.get(&first, 1).unwrap().0,
+                        left.len() - 64 * 1024,
+                        64 * 1024,
+                    )
+                    .unwrap();
+                    assert_eq!(last.next_offset, None, "{scenario}");
+                    // One reader reaching EOF cannot end another reader's shared lease.
+                    cache
+                        .insert_with(reference(2), 1, None, None, || Ok(left.clone()))
+                        .unwrap();
+                    assert_eq!(
+                        cache
+                            .insert_with(reference(3), 1, None, None, || Ok(left.clone()))
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::Busy,
+                        "{scenario}"
+                    );
+                    assert!(
+                        Arc::ptr_eq(&cache.get(&first, 1).unwrap().0, &left),
+                        "{scenario}"
+                    );
+                    assert!(
+                        Arc::ptr_eq(&cache.get(&second, 1).unwrap().0, &right),
+                        "{scenario}"
+                    );
+                    assert!(
+                        cache
+                            .entries
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .map(|entry| entry.text.len())
+                            .sum::<usize>()
+                            <= CAPACITY,
+                        "{scenario}"
+                    );
+                    expire(&cache);
+                    assert!(
+                        cache
+                            .entries
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .map(|entry| entry.text.len())
+                            .sum::<usize>()
+                            <= BYTES,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "releases_abandoned_page_leases",
+                (|scenario: &'static str| {
+                    let cache = Cache::default();
+                    let text: Arc<str> = Arc::from("x".repeat(40 * 1024 * 1024));
+                    for index in 0..3 {
+                        cache
+                            .insert_with(reference(index), 1, None, None, || Ok(text.clone()))
+                            .unwrap();
+                    }
+                    let serialized = std::cell::Cell::new(false);
+                    assert_eq!(
+                        cache
+                            .insert_with(reference(3), 1, None, None, || {
+                                serialized.set(true);
+                                Ok(text.clone())
+                            })
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::Busy,
+                        "{scenario}"
+                    );
+                    // Admission uses the actual value size, rather than reserving 64 MiB.
+                    assert!(serialized.get(), "{scenario}");
+                    expire(&cache);
+                    serialized.set(false);
+                    cache
+                        .insert_with(reference(3), 1, None, None, || {
+                            serialized.set(true);
+                            Ok(text)
+                        })
+                        .unwrap();
+                    assert!(serialized.get(), "{scenario}");
+                    assert!(
+                        cache
+                            .entries
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .map(|entry| entry.text.len())
+                            .sum::<usize>()
+                            <= CAPACITY,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "admits_small_details_among_large_leases",
+                (|scenario: &'static str| {
+                    let cache = Cache::default();
+                    let text: Arc<str> = Arc::from("x".repeat(33 * 1024 * 1024));
+                    let large = [reference(0), reference(1)];
+                    for reference in &large {
+                        cache
+                            .insert_with(reference.clone(), 1, None, None, || Ok(text.clone()))
+                            .unwrap();
+                    }
+                    let small = reference(2);
+                    cache
+                        .insert_with(small.clone(), 1, None, None, || {
+                            Ok(Arc::from("s".repeat(1024)))
+                        })
+                        .unwrap();
+                    assert_eq!(cache.get(&small, 1).unwrap().0.len(), 1024, "{scenario}");
+                    for reference in &large {
+                        assert!(
+                            Arc::ptr_eq(&cache.get(reference, 1).unwrap().0, &text),
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "serialization_keeps_cached_reads_available",
+                (|scenario: &'static str| {
+                    let cache = Cache::default();
+                    let first = reference(0);
+                    cache
+                        .insert_with(first.clone(), 1, None, None, || Ok(Arc::from("first")))
+                        .unwrap();
+                    let second = reference(1);
+                    cache
+                        .insert_with(second.clone(), 1, None, None, || {
+                            assert!(cache.entries.try_lock().is_ok(), "{scenario}");
+                            assert_eq!(&*cache.get(&first, 1).unwrap().0, "first", "{scenario}");
+                            // Another reader can finish the same insertion while serialization runs.
+                            cache.insert_with(second.clone(), 1, None, None, || {
+                                Ok(Arc::from("concurrent"))
+                            })?;
+                            Ok(Arc::from("unused"))
+                        })
+                        .unwrap();
+                    assert_eq!(
+                        &*cache.get(&second, 1).unwrap().0,
+                        "concurrent",
+                        "{scenario}"
+                    );
+                    assert_eq!(cache.entries.lock().unwrap().len(), 2, "{scenario}");
+                }),
+            ),
+            (
+                "oversized_details_remain_request_owned",
+                (|scenario: &'static str| {
+                    let cache = Cache::default();
+                    let retained: Arc<str> = Arc::from("x".repeat(40 * 1024 * 1024));
+                    for index in 0..3 {
+                        cache
+                            .insert_with(reference(index), 1, None, None, || Ok(retained.clone()))
+                            .unwrap();
+                    }
+                    let reference = reference(3);
+                    let oversized: Arc<str> = Arc::from("y".repeat(BYTES + 1));
+                    let text = cache
+                        .insert_with(reference.clone(), 1, None, None, || Ok(oversized.clone()))
+                        .unwrap();
+                    assert!(Arc::ptr_eq(&text, &oversized), "{scenario}");
+                    let page =
+                        super::super::read::slice(reference.clone(), &text, 0, DETAIL_PAGE_BYTES)
+                            .unwrap();
+                    assert_eq!(page.total_bytes, BYTES + 1, "{scenario}");
+                    assert!(cache.get(&reference, 1).is_none(), "{scenario}");
+                    let entries = cache.entries.lock().unwrap();
+                    assert_eq!(entries.len(), 3, "{scenario}");
+                    assert!(
+                        entries.iter().map(|entry| entry.text.len()).sum::<usize>() <= CAPACITY,
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert!(cache.get(&first, source).is_none());
-        assert_eq!(cache.entries.lock().unwrap().len(), ENTRIES);
-    }
-    #[test]
-    fn retains_simultaneous_large_pages() {
-        let cache = Cache::default();
-        let first = reference(0);
-        let second = reference(1);
-        let left: Arc<str> = Arc::from("a".repeat(40 * 1024 * 1024));
-        let right: Arc<str> = Arc::from("b".repeat(40 * 1024 * 1024));
-        cache
-            .insert_with(first.clone(), 1, None, None, || Ok(left.clone()))
-            .unwrap();
-        cache
-            .insert_with(second.clone(), 1, None, None, || Ok(right.clone()))
-            .unwrap();
-        for _ in 0..640 {
-            assert!(Arc::ptr_eq(&cache.get(&first, 1).unwrap().0, &left));
-            assert!(Arc::ptr_eq(&cache.get(&second, 1).unwrap().0, &right));
-        }
-        let last = super::super::read::slice(
-            first.clone(),
-            &cache.get(&first, 1).unwrap().0,
-            left.len() - 64 * 1024,
-            64 * 1024,
-        )
-        .unwrap();
-        assert_eq!(last.next_offset, None);
-        // One reader reaching EOF cannot end another reader's shared lease.
-        cache
-            .insert_with(reference(2), 1, None, None, || Ok(left.clone()))
-            .unwrap();
-        assert_eq!(
-            cache
-                .insert_with(reference(3), 1, None, None, || Ok(left.clone()))
-                .unwrap_err()
-                .code,
-            ErrorCode::Busy
-        );
-        assert!(Arc::ptr_eq(&cache.get(&first, 1).unwrap().0, &left));
-        assert!(Arc::ptr_eq(&cache.get(&second, 1).unwrap().0, &right));
-        assert!(
-            cache
-                .entries
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|entry| entry.text.len())
-                .sum::<usize>()
-                <= CAPACITY
-        );
-        expire(&cache);
-        assert!(
-            cache
-                .entries
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|entry| entry.text.len())
-                .sum::<usize>()
-                <= BYTES
-        );
-    }
-
-    #[test]
-    fn releases_abandoned_page_leases() {
-        let cache = Cache::default();
-        let text: Arc<str> = Arc::from("x".repeat(40 * 1024 * 1024));
-        for index in 0..3 {
-            cache
-                .insert_with(reference(index), 1, None, None, || Ok(text.clone()))
-                .unwrap();
-        }
-        let serialized = std::cell::Cell::new(false);
-        assert_eq!(
-            cache
-                .insert_with(reference(3), 1, None, None, || {
-                    serialized.set(true);
-                    Ok(text.clone())
-                })
-                .unwrap_err()
-                .code,
-            ErrorCode::Busy
-        );
-        // Admission uses the actual value size, rather than reserving 64 MiB.
-        assert!(serialized.get());
-        expire(&cache);
-        serialized.set(false);
-        cache
-            .insert_with(reference(3), 1, None, None, || {
-                serialized.set(true);
-                Ok(text)
-            })
-            .unwrap();
-        assert!(serialized.get());
-        assert!(
-            cache
-                .entries
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|entry| entry.text.len())
-                .sum::<usize>()
-                <= CAPACITY
-        );
-    }
-
-    #[test]
-    fn admits_small_details_among_large_leases() {
-        let cache = Cache::default();
-        let text: Arc<str> = Arc::from("x".repeat(33 * 1024 * 1024));
-        let large = [reference(0), reference(1)];
-        for reference in &large {
-            cache
-                .insert_with(reference.clone(), 1, None, None, || Ok(text.clone()))
-                .unwrap();
-        }
-        let small = reference(2);
-        cache
-            .insert_with(small.clone(), 1, None, None, || {
-                Ok(Arc::from("s".repeat(1024)))
-            })
-            .unwrap();
-        assert_eq!(cache.get(&small, 1).unwrap().0.len(), 1024);
-        for reference in &large {
-            assert!(Arc::ptr_eq(&cache.get(reference, 1).unwrap().0, &text));
-        }
-    }
-
-    #[test]
-    fn serialization_keeps_cached_reads_available() {
-        let cache = Cache::default();
-        let first = reference(0);
-        cache
-            .insert_with(first.clone(), 1, None, None, || Ok(Arc::from("first")))
-            .unwrap();
-        let second = reference(1);
-        cache
-            .insert_with(second.clone(), 1, None, None, || {
-                assert!(cache.entries.try_lock().is_ok());
-                assert_eq!(&*cache.get(&first, 1).unwrap().0, "first");
-                // Another reader can finish the same insertion while serialization runs.
-                cache.insert_with(second.clone(), 1, None, None, || {
-                    Ok(Arc::from("concurrent"))
-                })?;
-                Ok(Arc::from("unused"))
-            })
-            .unwrap();
-        assert_eq!(&*cache.get(&second, 1).unwrap().0, "concurrent");
-        assert_eq!(cache.entries.lock().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn oversized_details_remain_request_owned() {
-        let cache = Cache::default();
-        let retained: Arc<str> = Arc::from("x".repeat(40 * 1024 * 1024));
-        for index in 0..3 {
-            cache
-                .insert_with(reference(index), 1, None, None, || Ok(retained.clone()))
-                .unwrap();
-        }
-        let reference = reference(3);
-        let oversized: Arc<str> = Arc::from("y".repeat(BYTES + 1));
-        let text = cache
-            .insert_with(reference.clone(), 1, None, None, || Ok(oversized.clone()))
-            .unwrap();
-        assert!(Arc::ptr_eq(&text, &oversized));
-        let page =
-            super::super::read::slice(reference.clone(), &text, 0, DETAIL_PAGE_BYTES).unwrap();
-        assert_eq!(page.total_bytes, BYTES + 1);
-        assert!(cache.get(&reference, 1).is_none());
-        let entries = cache.entries.lock().unwrap();
-        assert_eq!(entries.len(), 3);
-        assert!(entries.iter().map(|entry| entry.text.len()).sum::<usize>() <= CAPACITY);
     }
 }

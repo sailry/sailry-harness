@@ -93,16 +93,10 @@ async fn preserves_admitted_authority() {
 }
 
 #[tokio::test]
-async fn rejects_incompatible_modes() {
-    for owner in ["defaults", "revision"] {
-        assert_rejected(owner).await;
-    }
-}
-
-#[tokio::test]
-async fn rejects_incompatible_archives_during_upgrade() {
-    for owner in ["event", "receipt"] {
-        assert_rejected(owner).await;
+async fn rejects_incompatible_stored_modes() {
+    for owner in ["defaults", "revision", "event", "receipt"] {
+        eprintln!("case: {owner}");
+        Box::pin(assert_rejected(owner)).await;
     }
 }
 

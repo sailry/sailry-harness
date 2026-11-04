@@ -71,51 +71,65 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matches_full_literal_words() {
-        assert_eq!(
-            offered(" cargo\ttest --lib ").as_deref(),
-            Some("cargo test")
-        );
-        assert!(matches("cargo test --lib", "cargo test"));
-        assert!(!matches("cargo tester", "cargo test"));
-        assert_eq!(
-            select("cargo test --lib", " cargo\ttest ").unwrap(),
-            "cargo test"
-        );
-        assert!(select("cargo test", "test").is_err());
-    }
-
-    #[test]
-    fn rejects_shell_syntax() {
-        for command in [
-            "cargo test; touch side",
-            "cargo test && touch side",
-            "cargo test | cat",
-            "cargo test > out",
-            "cargo test < in",
-            "cargo test $(touch side)",
-            "cargo test `touch side`",
-            "cargo test\nother",
-            "cargo test\0",
-            "PATH=other cargo test",
-            "'cargo' test",
-            "cargo\\ test",
-            "cargo test *",
-            "cargo test ~/file",
-            "cargo test # comment",
-            "cargo test ${VAR}",
+    fn preserves_storage_contracts() {
+        for (scenario, check) in [
+            (
+                "matches_full_literal_words",
+                (|scenario: &'static str| {
+                    assert_eq!(
+                        offered(" cargo\ttest --lib ").as_deref(),
+                        Some("cargo test"),
+                        "{scenario}"
+                    );
+                    assert!(matches("cargo test --lib", "cargo test"), "{scenario}");
+                    assert!(!matches("cargo tester", "cargo test"), "{scenario}");
+                    assert_eq!(
+                        select("cargo test --lib", " cargo\ttest ").unwrap(),
+                        "cargo test",
+                        "{scenario}"
+                    );
+                    assert!(select("cargo test", "test").is_err(), "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "rejects_shell_syntax",
+                (|scenario: &'static str| {
+                    for command in [
+                        "cargo test; touch side",
+                        "cargo test && touch side",
+                        "cargo test | cat",
+                        "cargo test > out",
+                        "cargo test < in",
+                        "cargo test $(touch side)",
+                        "cargo test `touch side`",
+                        "cargo test\nother",
+                        "cargo test\0",
+                        "PATH=other cargo test",
+                        "'cargo' test",
+                        "cargo\\ test",
+                        "cargo test *",
+                        "cargo test ~/file",
+                        "cargo test # comment",
+                        "cargo test ${VAR}",
+                    ] {
+                        assert!(!matches(command, "cargo test"), "{scenario}: {command:?}");
+                    }
+                }),
+            ),
+            (
+                "rejects_non_ascii_separators",
+                (|scenario: &'static str| {
+                    for character in ['\u{00a0}', '\u{2003}', '\u{2028}', '\r', '\u{000b}'] {
+                        let command = format!("cargo{character}test");
+                        assert!(words(&command).is_none(), "{scenario}: {command:?}");
+                        assert!(!matches(&command, "cargo test"), "{scenario}");
+                    }
+                    assert!(matches("cargo\ttest", "cargo test"), "{scenario}");
+                }),
+            ),
         ] {
-            assert!(!matches(command, "cargo test"), "{command:?}");
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn rejects_non_ascii_separators() {
-        for character in ['\u{00a0}', '\u{2003}', '\u{2028}', '\r', '\u{000b}'] {
-            let command = format!("cargo{character}test");
-            assert!(words(&command).is_none(), "{command:?}");
-            assert!(!matches(&command, "cargo test"));
-        }
-        assert!(matches("cargo\ttest", "cargo test"));
     }
 }

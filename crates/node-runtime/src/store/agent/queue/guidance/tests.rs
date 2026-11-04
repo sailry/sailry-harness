@@ -852,121 +852,143 @@ mod provider_capture {
     }
 
     #[test]
-    fn ignores_presentation_and_unselected_models() {
-        let original = provider();
-        let mut changed = original.clone();
-        changed.revision += 1;
-        changed.name = "Renamed provider".into();
-        changed.default_model = "other".into();
-        changed.models[0].display_name = Some("Renamed model".into());
-        changed.models[1].context *= 2;
-        changed.models[1].tools = true;
-        changed.models.reverse();
-        assert!(same_provider(
-            Some(original.clone()),
-            Some(changed.clone()),
-            "selected"
-        ));
-        changed.models.retain(|entry| entry.id == "selected");
-        assert!(same_provider(Some(original), Some(changed), "selected"));
-    }
-
-    #[test]
-    fn retains_protected_provider_fields() {
-        let original = provider();
-        for (field, value) in [
-            ("id", json!(ProviderId::new())),
-            ("api", json!("responses")),
-            ("authentication", json!("chat_gpt_oauth")),
-            ("endpoint", json!("https://other.invalid/v1")),
-            ("enabled", json!(false)),
+    fn preserves_storage_contracts() {
+        for (scenario, check) in [
             (
-                "credential",
-                json!({"node": NodeId([9; 32]), "id": CredentialId::new()}),
+                "ignores_presentation_and_unselected_models",
+                (|scenario: &'static str| {
+                    let original = provider();
+                    let mut changed = original.clone();
+                    changed.revision += 1;
+                    changed.name = "Renamed provider".into();
+                    changed.default_model = "other".into();
+                    changed.models[0].display_name = Some("Renamed model".into());
+                    changed.models[1].context *= 2;
+                    changed.models[1].tools = true;
+                    changed.models.reverse();
+                    assert!(
+                        same_provider(Some(original.clone()), Some(changed.clone()), "selected"),
+                        "{scenario}"
+                    );
+                    changed.models.retain(|entry| entry.id == "selected");
+                    assert!(
+                        same_provider(Some(original), Some(changed), "selected"),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
             ),
             (
-                "options",
-                json!({"kind": "azure_open_ai", "api_version": "2025-01-01"}),
+                "retains_protected_provider_fields",
+                (|scenario: &'static str| {
+                    let original = provider();
+                    for (field, value) in [
+                        ("id", json!(ProviderId::new())),
+                        ("api", json!("responses")),
+                        ("authentication", json!("chat_gpt_oauth")),
+                        ("endpoint", json!("https://other.invalid/v1")),
+                        ("enabled", json!(false)),
+                        (
+                            "credential",
+                            json!({"node": NodeId([9; 32]), "id": CredentialId::new()}),
+                        ),
+                        (
+                            "options",
+                            json!({"kind": "azure_open_ai", "api_version": "2025-01-01"}),
+                        ),
+                        (
+                            "oauth",
+                            json!({"kind": "claude_oauth", "user_agent": "fixture"}),
+                        ),
+                        ("request_max_retries", json!(1)),
+                        ("stream_max_retries", json!(1)),
+                        (
+                            "preset",
+                            json!({"source": {"kind": "builtin"}, "id": "fixture", "route": null}),
+                        ),
+                        (
+                            "binding",
+                            json!({"policies": [{"models": ["selected"], "body": {"temperature": 0}}]}),
+                        ),
+                        (
+                            "consent",
+                            json!({"package": {"name": "fixture", "settings_revision": 1, "digest": "captured"}, "scopes": {"messages": true}}),
+                        ),
+                    ] {
+                        let mut changed = serde_json::to_value(&original).unwrap();
+                        changed[field] = value;
+                        let changed = serde_json::from_value(changed).unwrap();
+                        assert!(
+                            !same_provider(Some(original.clone()), Some(changed), "selected"),
+                            "{scenario}: {field}"
+                        );
+                    }
+                }),
             ),
             (
-                "oauth",
-                json!({"kind": "claude_oauth", "user_agent": "fixture"}),
+                "retains_selected_execution_metadata",
+                (|scenario: &'static str| {
+                    let original = provider();
+                    for (field, value) in [
+                        ("context", json!(64000)),
+                        ("output", json!(4096)),
+                        ("compaction_tokens", json!(16000)),
+                        ("vision", json!(true)),
+                        ("tools", json!(false)),
+                        ("reasoning", json!(false)),
+                        ("generates", json!(["image"])),
+                        ("efforts", json!(["low", "high"])),
+                        ("custom_efforts", json!(true)),
+                        ("default_effort", json!("low")),
+                        ("capabilities", json!({"tools": false})),
+                    ] {
+                        let mut changed = serde_json::to_value(&original).unwrap();
+                        changed["models"][0][field] = value;
+                        let changed = serde_json::from_value(changed).unwrap();
+                        assert!(
+                            !same_provider(Some(original.clone()), Some(changed), "selected"),
+                            "{scenario}: {field}"
+                        );
+                    }
+                    let mut changed = original.clone();
+                    changed.models.remove(0);
+                    assert!(
+                        !same_provider(Some(original), Some(changed), "selected"),
+                        "{scenario}"
+                    );
+                }),
             ),
-            ("request_max_retries", json!(1)),
-            ("stream_max_retries", json!(1)),
             (
-                "preset",
-                json!({"source": {"kind": "builtin"}, "id": "fixture", "route": null}),
-            ),
-            (
-                "binding",
-                json!({"policies": [{"models": ["selected"], "body": {"temperature": 0}}]}),
-            ),
-            (
-                "consent",
-                json!({"package": {"name": "fixture", "settings_revision": 1, "digest": "captured"}, "scopes": {"messages": true}}),
+                "preserves_missing_capture_and_model_availability",
+                (|scenario: &'static str| {
+                    let mut original = provider();
+                    assert!(same_provider(None, None, "selected"), "{scenario}");
+                    assert!(
+                        !same_provider(Some(original.clone()), None, "selected"),
+                        "{scenario}"
+                    );
+                    let mut changed = original.clone();
+                    changed.models.clear();
+                    assert!(
+                        !same_provider(Some(original.clone()), Some(changed.clone()), "unknown"),
+                        "{scenario}"
+                    );
+                    assert!(
+                        !same_provider(Some(original.clone()), Some(changed), "selected"),
+                        "{scenario}"
+                    );
+                    original.models.remove(0);
+                    let mut changed = original.clone();
+                    changed.models[0].context *= 2;
+                    assert!(
+                        same_provider(Some(original), Some(changed), "unknown"),
+                        "{scenario}"
+                    );
+                }),
             ),
         ] {
-            let mut changed = serde_json::to_value(&original).unwrap();
-            changed[field] = value;
-            let changed = serde_json::from_value(changed).unwrap();
-            assert!(
-                !same_provider(Some(original.clone()), Some(changed), "selected"),
-                "{field}"
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn retains_selected_execution_metadata() {
-        let original = provider();
-        for (field, value) in [
-            ("context", json!(64000)),
-            ("output", json!(4096)),
-            ("compaction_tokens", json!(16000)),
-            ("vision", json!(true)),
-            ("tools", json!(false)),
-            ("reasoning", json!(false)),
-            ("generates", json!(["image"])),
-            ("efforts", json!(["low", "high"])),
-            ("custom_efforts", json!(true)),
-            ("default_effort", json!("low")),
-            ("capabilities", json!({"tools": false})),
-        ] {
-            let mut changed = serde_json::to_value(&original).unwrap();
-            changed["models"][0][field] = value;
-            let changed = serde_json::from_value(changed).unwrap();
-            assert!(
-                !same_provider(Some(original.clone()), Some(changed), "selected"),
-                "{field}"
-            );
-        }
-        let mut changed = original.clone();
-        changed.models.remove(0);
-        assert!(!same_provider(Some(original), Some(changed), "selected"));
-    }
-
-    #[test]
-    fn preserves_missing_capture_and_model_availability() {
-        let mut original = provider();
-        assert!(same_provider(None, None, "selected"));
-        assert!(!same_provider(Some(original.clone()), None, "selected"));
-        let mut changed = original.clone();
-        changed.models.clear();
-        assert!(!same_provider(
-            Some(original.clone()),
-            Some(changed.clone()),
-            "unknown"
-        ));
-        assert!(!same_provider(
-            Some(original.clone()),
-            Some(changed),
-            "selected"
-        ));
-        original.models.remove(0);
-        let mut changed = original.clone();
-        changed.models[0].context *= 2;
-        assert!(same_provider(Some(original), Some(changed), "unknown"));
     }
 }
 

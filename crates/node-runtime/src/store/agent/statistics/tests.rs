@@ -77,9 +77,7 @@ mod cache {
         assert_eq!(cache.misses(), misses);
     }
 
-    #[tokio::test]
-    async fn reuses_until_events_change() {
-        let mut fixture = Fixture::new().await;
+    async fn reuses_until_events_change(fixture: &mut Fixture) {
         let cache = Cache::default();
         fixture.completed(&["First reply"]).await;
         fixture.append([timed(100, 20, 125_000)]).await;
@@ -194,8 +192,33 @@ mod cache {
     }
 
     #[tokio::test]
-    async fn retains_prepared_entries_explicitly() {
+    async fn tracks_event_changes() {
+        use futures::FutureExt;
         let mut fixture = Fixture::new().await;
+        std::panic::AssertUnwindSafe(retains_prepared_entries_explicitly(&mut fixture))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: retains_prepared_entries_explicitly");
+                std::panic::resume_unwind(error)
+            });
+        std::panic::AssertUnwindSafe(appends_without_rereading_prior_events(&mut fixture))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: appends_without_rereading_prior_events");
+                std::panic::resume_unwind(error)
+            });
+        std::panic::AssertUnwindSafe(reuses_until_events_change(&mut fixture))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: reuses_until_events_change");
+                std::panic::resume_unwind(error)
+            });
+    }
+
+    async fn retains_prepared_entries_explicitly(fixture: &mut Fixture) {
         let cache = Cache::default();
         fixture.append([event(10, 4)]).await;
         let connection = &fixture.database.connection;
@@ -207,9 +230,7 @@ mod cache {
         assert_current(&fixture, &cache, 2).await;
     }
 
-    #[tokio::test]
-    async fn appends_without_rereading_prior_events() {
-        let mut fixture = Fixture::new().await;
+    async fn appends_without_rereading_prior_events(fixture: &mut Fixture) {
         let cache = Cache::default();
         fixture.append((0..128).map(|_| event(10, 4))).await;
         assert_current(&fixture, &cache, 1).await;

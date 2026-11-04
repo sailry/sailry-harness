@@ -24,86 +24,125 @@ fn document() -> Value {
 }
 
 #[test]
-fn preserves_original_services() {
-    let catalog = parse(SOURCE).unwrap();
-    assert_eq!(catalog.version, 1);
-    assert_eq!(catalog.presets.len(), 3);
-    assert_eq!(catalog.presets[0].id, "global");
-    assert_eq!(catalog.presets[0].selection, Selection::Iroh);
-    assert_eq!(catalog.presets[0].label.label("zh-CN"), "公共网络");
-    for (preset, id, url, label) in [
+fn preserves_storage_contracts() {
+    for (scenario, check) in [
         (
-            &catalog.presets[1],
-            "china-tencent",
-            "https://iroh-service.dux.plus",
-            "中国（腾讯云）",
+            "preserves_original_services",
+            (|scenario: &'static str| {
+                let catalog = parse(SOURCE).unwrap();
+                assert_eq!(catalog.version, 1, "{scenario}");
+                assert_eq!(catalog.presets.len(), 3, "{scenario}");
+                assert_eq!(catalog.presets[0].id, "global", "{scenario}");
+                assert_eq!(catalog.presets[0].selection, Selection::Iroh, "{scenario}");
+                assert_eq!(
+                    catalog.presets[0].label.label("zh-CN"),
+                    "公共网络",
+                    "{scenario}"
+                );
+                for (preset, id, url, label) in [
+                    (
+                        &catalog.presets[1],
+                        "china-tencent",
+                        "https://iroh-service.dux.plus",
+                        "中国（腾讯云）",
+                    ),
+                    (
+                        &catalog.presets[2],
+                        "china-aliyun",
+                        "https://aliyun-1.iroh.jujiang.me",
+                        "中国（阿里云）",
+                    ),
+                ] {
+                    assert_eq!(preset.id, id, "{scenario}");
+                    assert_eq!(
+                        preset.selection,
+                        Selection::Custom {
+                            relays: vec![url.into()]
+                        },
+                        "{scenario}"
+                    );
+                    assert_eq!(preset.label.label("zh-CN"), label, "{scenario}");
+                }
+            }) as fn(&'static str),
         ),
         (
-            &catalog.presets[2],
-            "china-aliyun",
-            "https://aliyun-1.iroh.jujiang.me",
-            "中国（阿里云）",
+            "rejects_invalid_documents",
+            (|scenario: &'static str| {
+                let original = document();
+                let mut cases = vec![];
+                for (key, value) in [("version", json!(2)), ("unknown", json!(true))] {
+                    let mut invalid = original.clone();
+                    invalid[key] = value;
+                    cases.push(invalid);
+                }
+                for (key, value) in [
+                    ("id", json!("")),
+                    ("id", json!("has spaces")),
+                    ("id", json!("a".repeat(65))),
+                    ("label", json!({"label":""})),
+                    ("selection", json!({"kind":"custom","relays":[]})),
+                    (
+                        "selection",
+                        json!({"kind":"custom","relays":["http://relay.example"]}),
+                    ),
+                    (
+                        "selection",
+                        json!({"kind":"custom","relays":["https://user:secret@relay.example"]}),
+                    ),
+                    (
+                        "selection",
+                        json!({"kind":"custom","relays":["https://relay.example?key=secret"]}),
+                    ),
+                    ("unknown", json!(true)),
+                ] {
+                    let mut invalid = original.clone();
+                    invalid["presets"][0][key] = value;
+                    cases.push(invalid);
+                }
+                let mut duplicate = original.clone();
+                duplicate["presets"][1]["id"] = duplicate["presets"][0]["id"].clone();
+                cases.push(duplicate);
+                let mut excess = original;
+                excess["presets"] = json!(vec![excess["presets"][0].clone(); PRESET_LIMIT + 1]);
+                cases.push(excess);
+                for invalid in cases {
+                    assert_eq!(
+                        parse(&serde_json::to_vec(&invalid).unwrap())
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::InvalidRequest,
+                        "{scenario}"
+                    );
+                }
+                assert!(parse(&vec![b' '; BYTE_LIMIT + 1]).is_err(), "{scenario}");
+            }),
+        ),
+        (
+            "limits_fixture_origins",
+            (|scenario: &'static str| {
+                let directory = Directory::default();
+                for endpoint in ["http://127.0.0.1:123/catalog", "http://[::1]:123/catalog"] {
+                    directory.fixture(endpoint).unwrap();
+                }
+                for endpoint in [
+                    "https://127.0.0.1/catalog",
+                    "http://localhost/catalog",
+                    "http://example.com/catalog",
+                    "http://user:secret@127.0.0.1/catalog",
+                    "http://127.0.0.1/catalog?key=value",
+                ] {
+                    assert_eq!(
+                        directory.fixture(endpoint).unwrap_err().code,
+                        ErrorCode::InvalidRequest,
+                        "{scenario}"
+                    );
+                }
+            }),
         ),
     ] {
-        assert_eq!(preset.id, id);
-        assert_eq!(
-            preset.selection,
-            Selection::Custom {
-                relays: vec![url.into()]
-            }
-        );
-        assert_eq!(preset.label.label("zh-CN"), label);
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-}
-
-#[test]
-fn rejects_invalid_documents() {
-    let original = document();
-    let mut cases = vec![];
-    for (key, value) in [("version", json!(2)), ("unknown", json!(true))] {
-        let mut invalid = original.clone();
-        invalid[key] = value;
-        cases.push(invalid);
-    }
-    for (key, value) in [
-        ("id", json!("")),
-        ("id", json!("has spaces")),
-        ("id", json!("a".repeat(65))),
-        ("label", json!({"label":""})),
-        ("selection", json!({"kind":"custom","relays":[]})),
-        (
-            "selection",
-            json!({"kind":"custom","relays":["http://relay.example"]}),
-        ),
-        (
-            "selection",
-            json!({"kind":"custom","relays":["https://user:secret@relay.example"]}),
-        ),
-        (
-            "selection",
-            json!({"kind":"custom","relays":["https://relay.example?key=secret"]}),
-        ),
-        ("unknown", json!(true)),
-    ] {
-        let mut invalid = original.clone();
-        invalid["presets"][0][key] = value;
-        cases.push(invalid);
-    }
-    let mut duplicate = original.clone();
-    duplicate["presets"][1]["id"] = duplicate["presets"][0]["id"].clone();
-    cases.push(duplicate);
-    let mut excess = original;
-    excess["presets"] = json!(vec![excess["presets"][0].clone(); PRESET_LIMIT + 1]);
-    cases.push(excess);
-    for invalid in cases {
-        assert_eq!(
-            parse(&serde_json::to_vec(&invalid).unwrap())
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-    }
-    assert!(parse(&vec![b' '; BYTE_LIMIT + 1]).is_err());
 }
 
 #[tokio::test]
@@ -208,24 +247,4 @@ async fn cancels_active_refreshes() {
             .unwrap()
             .unavailable
     );
-}
-
-#[test]
-fn limits_fixture_origins() {
-    let directory = Directory::default();
-    for endpoint in ["http://127.0.0.1:123/catalog", "http://[::1]:123/catalog"] {
-        directory.fixture(endpoint).unwrap();
-    }
-    for endpoint in [
-        "https://127.0.0.1/catalog",
-        "http://localhost/catalog",
-        "http://example.com/catalog",
-        "http://user:secret@127.0.0.1/catalog",
-        "http://127.0.0.1/catalog?key=value",
-    ] {
-        assert_eq!(
-            directory.fixture(endpoint).unwrap_err().code,
-            ErrorCode::InvalidRequest
-        );
-    }
 }

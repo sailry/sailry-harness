@@ -51,49 +51,64 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preserves_path_and_token_boundaries() {
-        let aliases = [
-            Alias {
-                path: "/Users/fixture".into(),
-                kind: AliasKind::Home,
-            },
-            Alias {
-                path: "/Users/fixture/node/python/bin/python3".into(),
-                kind: AliasKind::Python,
-            },
-        ];
-        assert_eq!(
-            format(
-                "'/Users/fixture/node/python/bin/python3' /Users/fixture/task.py",
-                &aliases
+    fn preserves_storage_contracts() {
+        for (scenario, check) in [
+            (
+                "preserves_path_and_token_boundaries",
+                (|scenario: &'static str| {
+                    let aliases = [
+                        Alias {
+                            path: "/Users/fixture".into(),
+                            kind: AliasKind::Home,
+                        },
+                        Alias {
+                            path: "/Users/fixture/node/python/bin/python3".into(),
+                            kind: AliasKind::Python,
+                        },
+                    ];
+                    assert_eq!(
+                        format(
+                            "'/Users/fixture/node/python/bin/python3' /Users/fixture/task.py",
+                            &aliases
+                        ),
+                        "'python' ~/task.py",
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        format(
+                            "/Users/fixture2/task.py /tmp/Users/fixture /Users/fixture/node/python/bin/python3-other",
+                            &aliases
+                        ),
+                        "/Users/fixture2/task.py /tmp/Users/fixture ~/node/python/bin/python3-other",
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        format(
+                            "printf /other/.sailry/python/bin/python /other/home",
+                            &aliases
+                        ),
+                        "printf /other/.sailry/python/bin/python /other/home",
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
             ),
-            "'python' ~/task.py"
-        );
-        assert_eq!(
-            format(
-                "/Users/fixture2/task.py /tmp/Users/fixture /Users/fixture/node/python/bin/python3-other",
-                &aliases
+            (
+                "formats_windows_and_unicode_paths",
+                (|scenario: &'static str| {
+                    let aliases = [Alias {
+                        path: "C:\\Users\\fixture".into(),
+                        kind: AliasKind::Home,
+                    }];
+                    assert_eq!(
+                        format("type \"C:\\Users\\fixture\\文档.txt\"", &aliases),
+                        "type \"~\\文档.txt\"",
+                        "{scenario}"
+                    );
+                }),
             ),
-            "/Users/fixture2/task.py /tmp/Users/fixture ~/node/python/bin/python3-other"
-        );
-        assert_eq!(
-            format(
-                "printf /other/.sailry/python/bin/python /other/home",
-                &aliases
-            ),
-            "printf /other/.sailry/python/bin/python /other/home"
-        );
-    }
-
-    #[test]
-    fn formats_windows_and_unicode_paths() {
-        let aliases = [Alias {
-            path: "C:\\Users\\fixture".into(),
-            kind: AliasKind::Home,
-        }];
-        assert_eq!(
-            format("type \"C:\\Users\\fixture\\文档.txt\"", &aliases),
-            "type \"~\\文档.txt\""
-        );
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

@@ -72,51 +72,64 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bounds_unicode_reason() {
-        assert!(validate_reason("  ").is_err());
-        assert!(validate_reason("reason\0").is_err());
-        assert!(validate_reason(&"🙂".repeat(2000)).is_ok());
-        assert!(validate_reason(&"🙂".repeat(2001)).is_err());
-    }
-
-    #[test]
-    fn requires_exact_call_and_tool() {
-        use crate::{
-            agent::canonical::{Block, BlockKind, Message},
-            store::agent::tests::fixture::response,
-        };
-        let mut content = Message {
-            part_count: 3,
-            content: [("call", "tool"), ("other", "tool"), ("call", "other")]
-                .into_iter()
-                .enumerate()
-                .map(|(index, (id, tool))| Block {
-                    index,
-                    kind: BlockKind::ToolResponse(response(
-                        id,
-                        tool,
-                        serde_json::json!({"error":"denied"}),
-                    )),
-                })
-                .collect(),
-            ..Message::default()
-        };
-        let original = content.clone();
-        enrich(
-            &mut content,
-            &[Denial {
-                call: "call".into(),
-                tool: "tool".into(),
-                reason: "Read the file first".into(),
-            }],
-        );
-        assert_ne!(
-            serde_json::to_value(&content.content[0]).unwrap(),
-            serde_json::to_value(&original.content[0]).unwrap()
-        );
-        assert_eq!(
-            serde_json::to_value(&content.content[1..]).unwrap(),
-            serde_json::to_value(&original.content[1..]).unwrap()
-        );
+    fn preserves_storage_contracts() {
+        for (scenario, check) in [
+            (
+                "bounds_unicode_reason",
+                (|scenario: &'static str| {
+                    assert!(validate_reason("  ").is_err(), "{scenario}");
+                    assert!(validate_reason("reason\0").is_err(), "{scenario}");
+                    assert!(validate_reason(&"🙂".repeat(2000)).is_ok(), "{scenario}");
+                    assert!(validate_reason(&"🙂".repeat(2001)).is_err(), "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "requires_exact_call_and_tool",
+                (|scenario: &'static str| {
+                    use crate::{
+                        agent::canonical::{Block, BlockKind, Message},
+                        store::agent::tests::fixture::response,
+                    };
+                    let mut content = Message {
+                        part_count: 3,
+                        content: [("call", "tool"), ("other", "tool"), ("call", "other")]
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, (id, tool))| Block {
+                                index,
+                                kind: BlockKind::ToolResponse(response(
+                                    id,
+                                    tool,
+                                    serde_json::json!({"error":"denied"}),
+                                )),
+                            })
+                            .collect(),
+                        ..Message::default()
+                    };
+                    let original = content.clone();
+                    enrich(
+                        &mut content,
+                        &[Denial {
+                            call: "call".into(),
+                            tool: "tool".into(),
+                            reason: "Read the file first".into(),
+                        }],
+                    );
+                    assert_ne!(
+                        serde_json::to_value(&content.content[0]).unwrap(),
+                        serde_json::to_value(&original.content[0]).unwrap(),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::to_value(&content.content[1..]).unwrap(),
+                        serde_json::to_value(&original.content[1..]).unwrap(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

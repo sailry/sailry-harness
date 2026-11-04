@@ -353,41 +353,112 @@ async fn preserves_private_credentials_and_conflicts() {
 }
 
 #[test]
-fn confines_empty_restore_targets() {
-    let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().canonicalize().unwrap();
-    let active = root.join("active");
-    std::fs::create_dir(&active).unwrap();
-    assert!(target_path("relative", Some(&active)).is_err());
-    assert_eq!(
-        target_path(active.to_str().unwrap(), Some(&active))
-            .unwrap_err()
-            .code,
-        ErrorCode::PermissionDenied
-    );
-    let target = root.join("restored");
-    assert_eq!(
-        target_path(target.to_str().unwrap(), Some(&active)).unwrap(),
-        target
-    );
-    std::fs::create_dir(&target).unwrap();
-    std::fs::write(target.join("user.txt"), b"preserved").unwrap();
-    assert_eq!(
-        target_path(target.to_str().unwrap(), Some(&active))
-            .unwrap_err()
-            .code,
-        ErrorCode::Conflict
-    );
-    #[cfg(unix)]
-    {
-        let linked = root.join("linked");
-        std::os::unix::fs::symlink(&target, &linked).unwrap();
-        assert!(target_path(linked.to_str().unwrap(), Some(&active)).is_err());
+fn preserves_storage_contracts() {
+    for (scenario, check) in [
+        (
+            "confines_empty_restore_targets",
+            (|scenario: &'static str| {
+                let directory = tempfile::tempdir().unwrap();
+                let root = directory.path().canonicalize().unwrap();
+                let active = root.join("active");
+                std::fs::create_dir(&active).unwrap();
+                assert!(
+                    target_path("relative", Some(&active)).is_err(),
+                    "{scenario}"
+                );
+                assert_eq!(
+                    target_path(active.to_str().unwrap(), Some(&active))
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::PermissionDenied,
+                    "{scenario}"
+                );
+                let target = root.join("restored");
+                assert_eq!(
+                    target_path(target.to_str().unwrap(), Some(&active)).unwrap(),
+                    target,
+                    "{scenario}"
+                );
+                std::fs::create_dir(&target).unwrap();
+                std::fs::write(target.join("user.txt"), b"preserved").unwrap();
+                assert_eq!(
+                    target_path(target.to_str().unwrap(), Some(&active))
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::Conflict,
+                    "{scenario}"
+                );
+                #[cfg(unix)]
+                {
+                    let linked = root.join("linked");
+                    std::os::unix::fs::symlink(&target, &linked).unwrap();
+                    assert!(
+                        target_path(linked.to_str().unwrap(), Some(&active)).is_err(),
+                        "{scenario}"
+                    );
+                }
+                assert_eq!(
+                    std::fs::read(target.join("user.txt")).unwrap(),
+                    b"preserved",
+                    "{scenario}"
+                );
+            }) as fn(&'static str),
+        ),
+        (
+            "separates_local_destination_from_profile",
+            (|scenario: &'static str| {
+                let directory = tempfile::tempdir().unwrap();
+                let root = directory.path().canonicalize().unwrap();
+                let profile = root.join("node");
+                std::fs::create_dir(&profile).unwrap();
+                assert!(
+                    local_target(root.join("archives/daily").to_str().unwrap(), &profile).is_ok(),
+                    "{scenario}"
+                );
+                for target in [&profile, &root, &profile.join("attachments/backups")] {
+                    assert_eq!(
+                        local_target(target.to_str().unwrap(), &profile)
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::PermissionDenied,
+                        "{scenario}"
+                    );
+                }
+            }),
+        ),
+        (
+            "excludes_plugin_contexts",
+            (|scenario: &'static str| {
+                let mut request = Request::new(
+                    sailry_protocol::NodeId([1; 32]),
+                    Command::DownloadBackup {
+                        expected_revision: 0,
+                    },
+                );
+                controller(&request).unwrap();
+                request.plugin = Some(sailry_protocol::plugin::Context {
+                    invocation: None,
+                    turn: None,
+                    surface: Default::default(),
+                    package: sailry_protocol::plugin::Reference {
+                        name: "example".into(),
+                        digest: "a".repeat(64),
+                        settings_revision: 0,
+                    },
+                    worktree: None,
+                    session: None,
+                });
+                assert_eq!(
+                    controller(&request).unwrap_err().code,
+                    ErrorCode::PermissionDenied,
+                    "{scenario}"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    assert_eq!(
-        std::fs::read(target.join("user.txt")).unwrap(),
-        b"preserved"
-    );
 }
 
 #[tokio::test]
@@ -937,50 +1008,6 @@ async fn copies_consistent_state_without_blocking_commands() {
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }
-}
-
-#[test]
-fn separates_local_destination_from_profile() {
-    let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().canonicalize().unwrap();
-    let profile = root.join("node");
-    std::fs::create_dir(&profile).unwrap();
-    assert!(local_target(root.join("archives/daily").to_str().unwrap(), &profile).is_ok());
-    for target in [&profile, &root, &profile.join("attachments/backups")] {
-        assert_eq!(
-            local_target(target.to_str().unwrap(), &profile)
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-    }
-}
-
-#[test]
-fn excludes_plugin_contexts() {
-    let mut request = Request::new(
-        sailry_protocol::NodeId([1; 32]),
-        Command::DownloadBackup {
-            expected_revision: 0,
-        },
-    );
-    controller(&request).unwrap();
-    request.plugin = Some(sailry_protocol::plugin::Context {
-        invocation: None,
-        turn: None,
-        surface: Default::default(),
-        package: sailry_protocol::plugin::Reference {
-            name: "example".into(),
-            digest: "a".repeat(64),
-            settings_revision: 0,
-        },
-        worktree: None,
-        session: None,
-    });
-    assert_eq!(
-        controller(&request).unwrap_err().code,
-        ErrorCode::PermissionDenied
-    );
 }
 
 #[tokio::test]

@@ -29,47 +29,59 @@ fn state() -> Value {
 }
 
 #[test]
-fn validates_declared_states_and_omissions() {
-    let package = package();
-    let states = evaluation::validate(&package, json!([state()])).unwrap();
-    let entries = evaluation::entries(&package, states);
-    assert_eq!(entries.len(), 2);
-    assert_eq!(entries[0].declaration.id, "badge");
-    assert!(entries[0].state.visible);
-    assert_eq!(entries[0].invoke.as_deref(), Some("invoke"));
-    assert_eq!(entries[0].state.details[0].value, "4");
-    assert_eq!(entries[1].declaration.id, "other");
-    assert!(!entries[1].state.visible);
-    assert!(!entries[1].state.enabled);
-}
-
-#[test]
-fn rejects_invalid_and_oversized_states() {
-    let package = package();
-    let state = state();
-    let mut invalid = Vec::new();
-    for (field, value) in [
-        ("id", json!("undeclared")),
-        ("id", json!("settings")),
-        ("reply_to", json!(1)),
-        ("value", json!(true)),
-        ("choices", json!([])),
+fn preserves_storage_contracts() {
+    for (scenario, check) in [
+        (
+            "validates_declared_states_and_omissions",
+            (|scenario: &'static str| {
+                let package = package();
+                let states = evaluation::validate(&package, json!([state()])).unwrap();
+                let entries = evaluation::entries(&package, states);
+                assert_eq!(entries.len(), 2, "{scenario}");
+                assert_eq!(entries[0].declaration.id, "badge", "{scenario}");
+                assert!(entries[0].state.visible, "{scenario}");
+                assert_eq!(entries[0].invoke.as_deref(), Some("invoke"), "{scenario}");
+                assert_eq!(entries[0].state.details[0].value, "4", "{scenario}");
+                assert_eq!(entries[1].declaration.id, "other", "{scenario}");
+                assert!(!entries[1].state.visible, "{scenario}");
+                assert!(!entries[1].state.enabled, "{scenario}");
+            }) as fn(&'static str),
+        ),
+        (
+            "rejects_invalid_and_oversized_states",
+            (|scenario: &'static str| {
+                let package = package();
+                let state = state();
+                let mut invalid = Vec::new();
+                for (field, value) in [
+                    ("id", json!("undeclared")),
+                    ("id", json!("settings")),
+                    ("reply_to", json!(1)),
+                    ("value", json!(true)),
+                    ("choices", json!([])),
+                ] {
+                    let mut changed = state.clone();
+                    changed[field] = value;
+                    invalid.push(json!([changed]));
+                }
+                invalid.push(json!([state, state]));
+                invalid.push(json!({"states":[state]}));
+                let mut oversized = state.clone();
+                oversized["label"] = json!({"label":"x".repeat(ui::MAX_STATE_BYTES)});
+                invalid.push(json!([oversized]));
+                invalid.push(Value::Array(vec![state; ui::MAX_ENTRIES + 1]));
+                for value in invalid {
+                    assert_eq!(
+                        evaluation::validate(&package, value).unwrap_err().code,
+                        ErrorCode::InvalidRequest,
+                        "{scenario}"
+                    );
+                }
+            }),
+        ),
     ] {
-        let mut changed = state.clone();
-        changed[field] = value;
-        invalid.push(json!([changed]));
-    }
-    invalid.push(json!([state, state]));
-    invalid.push(json!({"states":[state]}));
-    let mut oversized = state.clone();
-    oversized["label"] = json!({"label":"x".repeat(ui::MAX_STATE_BYTES)});
-    invalid.push(json!([oversized]));
-    invalid.push(Value::Array(vec![state; ui::MAX_ENTRIES + 1]));
-    for value in invalid {
-        assert_eq!(
-            evaluation::validate(&package, value).unwrap_err().code,
-            ErrorCode::InvalidRequest
-        );
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }
 

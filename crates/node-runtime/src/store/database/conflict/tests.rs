@@ -10,47 +10,60 @@ async fn integer(connection: &Connection, sql: &str) -> turso::Result<i64> {
 }
 
 #[test]
-fn recognizes_native_conflicts() {
-    for error in [
-        Error::Busy("opaque busy detail".into()),
-        Error::BusySnapshot("opaque snapshot detail".into()),
-        Error::Error("Write-write conflict".into()),
-        Error::Error("Database schema conflict".into()),
+fn preserves_storage_contracts() {
+    for (scenario, check) in [
+        (
+            "recognizes_native_conflicts",
+            (|scenario: &'static str| {
+                for error in [
+                    Error::Busy("opaque busy detail".into()),
+                    Error::BusySnapshot("opaque snapshot detail".into()),
+                    Error::Error("Write-write conflict".into()),
+                    Error::Error("Database schema conflict".into()),
+                ] {
+                    assert!(native(&error), "{scenario}: {error:?}");
+                }
+            }) as fn(&'static str),
+        ),
+        (
+            "rejects_other_errors",
+            (|scenario: &'static str| {
+                for error in [
+                    Error::ToSqlConversionFailure(Box::new(std::io::Error::other(
+                        "Write-write conflict",
+                    ))),
+                    Error::QueryReturnedNoRows,
+                    Error::ConversionFailure("Write-write conflict".into()),
+                    Error::Interrupt("Write-write conflict".into()),
+                    Error::Error("database is locked".into()),
+                    Error::Error("database snapshot is stale".into()),
+                    Error::Error("write-write conflict".into()),
+                    Error::Error("Write-write conflict ".into()),
+                    Error::Error("operation failed: Write-write conflict".into()),
+                    Error::Misuse("Write-write conflict".into()),
+                    Error::Constraint("Write-write conflict".into()),
+                    Error::Readonly("Write-write conflict".into()),
+                    Error::DatabaseFull("Write-write conflict".into()),
+                    Error::NotAdb("Write-write conflict".into()),
+                    Error::Corrupt("Write-write conflict".into()),
+                    Error::IoError(std::io::ErrorKind::Other, "Write-write conflict"),
+                    Error::BatchStatementFailed {
+                        index: 0,
+                        error: Box::new(Error::Busy("database is locked".into())),
+                        results: Vec::new(),
+                    },
+                    Error::BatchRollbackFailed {
+                        error: Box::new(Error::BusySnapshot("snapshot is stale".into())),
+                        rollback_error: Box::new(Error::Busy("database is locked".into())),
+                    },
+                ] {
+                    assert!(!native(&error), "{scenario}: {error:?}");
+                }
+            }),
+        ),
     ] {
-        assert!(native(&error), "{error:?}");
-    }
-}
-
-#[test]
-fn rejects_other_errors() {
-    for error in [
-        Error::ToSqlConversionFailure(Box::new(std::io::Error::other("Write-write conflict"))),
-        Error::QueryReturnedNoRows,
-        Error::ConversionFailure("Write-write conflict".into()),
-        Error::Interrupt("Write-write conflict".into()),
-        Error::Error("database is locked".into()),
-        Error::Error("database snapshot is stale".into()),
-        Error::Error("write-write conflict".into()),
-        Error::Error("Write-write conflict ".into()),
-        Error::Error("operation failed: Write-write conflict".into()),
-        Error::Misuse("Write-write conflict".into()),
-        Error::Constraint("Write-write conflict".into()),
-        Error::Readonly("Write-write conflict".into()),
-        Error::DatabaseFull("Write-write conflict".into()),
-        Error::NotAdb("Write-write conflict".into()),
-        Error::Corrupt("Write-write conflict".into()),
-        Error::IoError(std::io::ErrorKind::Other, "Write-write conflict"),
-        Error::BatchStatementFailed {
-            index: 0,
-            error: Box::new(Error::Busy("database is locked".into())),
-            results: Vec::new(),
-        },
-        Error::BatchRollbackFailed {
-            error: Box::new(Error::BusySnapshot("snapshot is stale".into())),
-            rollback_error: Box::new(Error::Busy("database is locked".into())),
-        },
-    ] {
-        assert!(!native(&error), "{error:?}");
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }
 

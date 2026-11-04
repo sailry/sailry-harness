@@ -8,70 +8,96 @@ use crate::{
 };
 
 #[test]
-fn pages_original_unicode_json() {
-    let session = SessionId::new();
-    let turn = TurnId::new();
-    let value = serde_json::json!({"text":"中文🙂\n".repeat(1000),"value":42});
-    let original = value.to_string();
-    let output = OutputReference {
-        call: "call".into(),
-        revision: blake3::hash(original.as_bytes()).to_hex().to_string(),
-    };
-    let mut combined = String::new();
-    let mut offset = 0;
-    loop {
-        let page = page(
-            Resolved {
-                session,
-                turn,
-                value: value.clone(),
-            },
-            output.clone(),
-            offset,
-            7,
-        )
-        .unwrap();
-        assert_eq!(page.offset, offset);
-        assert_eq!(page.total_bytes, original.len());
-        assert_eq!(page.output, output);
-        assert_eq!(page.turn, turn);
-        combined.push_str(&page.text);
-        let Some(next) = page.next_offset else {
-            break;
-        };
-        assert!(next > offset && original.is_char_boundary(next));
-        offset = next;
+fn preserves_storage_contracts() {
+    for (scenario, check) in [
+        (
+            "pages_original_unicode_json",
+            (|scenario: &'static str| {
+                let session = SessionId::new();
+                let turn = TurnId::new();
+                let value = serde_json::json!({"text":"中文🙂\n".repeat(1000),"value":42});
+                let original = value.to_string();
+                let output = OutputReference {
+                    call: "call".into(),
+                    revision: blake3::hash(original.as_bytes()).to_hex().to_string(),
+                };
+                let mut combined = String::new();
+                let mut offset = 0;
+                loop {
+                    let page = page(
+                        Resolved {
+                            session,
+                            turn,
+                            value: value.clone(),
+                        },
+                        output.clone(),
+                        offset,
+                        7,
+                    )
+                    .unwrap();
+                    assert_eq!(page.offset, offset, "{scenario}");
+                    assert_eq!(page.total_bytes, original.len(), "{scenario}");
+                    assert_eq!(page.output, output, "{scenario}");
+                    assert_eq!(page.turn, turn, "{scenario}");
+                    combined.push_str(&page.text);
+                    let Some(next) = page.next_offset else {
+                        break;
+                    };
+                    assert!(
+                        next > offset && original.is_char_boundary(next),
+                        "{scenario}"
+                    );
+                    offset = next;
+                }
+                assert_eq!(combined, original, "{scenario}");
+            }) as fn(&'static str),
+        ),
+        (
+            "rejects_invalid_page_boundaries",
+            (|scenario: &'static str| {
+                let value = serde_json::json!("中文");
+                let reference = OutputReference {
+                    call: "call".into(),
+                    revision: blake3::hash(value.to_string().as_bytes())
+                        .to_hex()
+                        .to_string(),
+                };
+                let read = |offset, limit| {
+                    page(
+                        Resolved {
+                            session: SessionId::new(),
+                            turn: TurnId::new(),
+                            value: value.clone(),
+                        },
+                        reference.clone(),
+                        offset,
+                        limit,
+                    )
+                };
+                assert_eq!(
+                    read(2, 10).unwrap_err().code,
+                    ErrorCode::InvalidRequest,
+                    "{scenario}"
+                );
+                assert_eq!(
+                    read(0, 0).unwrap_err().code,
+                    ErrorCode::InvalidRequest,
+                    "{scenario}"
+                );
+                assert_eq!(
+                    read(100, 10).unwrap_err().code,
+                    ErrorCode::InvalidRequest,
+                    "{scenario}"
+                );
+                let first = read(1, 1).unwrap();
+                assert_eq!(first.text, "中", "{scenario}");
+                assert_eq!(first.next_offset, Some(4), "{scenario}");
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    assert_eq!(combined, original);
-}
-
-#[test]
-fn rejects_invalid_page_boundaries() {
-    let value = serde_json::json!("中文");
-    let reference = OutputReference {
-        call: "call".into(),
-        revision: blake3::hash(value.to_string().as_bytes())
-            .to_hex()
-            .to_string(),
-    };
-    let read = |offset, limit| {
-        page(
-            Resolved {
-                session: SessionId::new(),
-                turn: TurnId::new(),
-                value: value.clone(),
-            },
-            reference.clone(),
-            offset,
-            limit,
-        )
-    };
-    assert_eq!(read(2, 10).unwrap_err().code, ErrorCode::InvalidRequest);
-    assert_eq!(read(0, 0).unwrap_err().code, ErrorCode::InvalidRequest);
-    assert_eq!(read(100, 10).unwrap_err().code, ErrorCode::InvalidRequest);
-    let first = read(1, 1).unwrap();
-    assert_eq!(first.text, "中");
-    assert_eq!(first.next_offset, Some(4));
 }
 
 #[tokio::test]

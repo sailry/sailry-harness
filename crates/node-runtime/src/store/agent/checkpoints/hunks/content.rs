@@ -138,99 +138,133 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preserves_other_hunks_and_manual_edits() {
-        let before = (0..30)
-            .map(|line| format!("line {line}\n"))
-            .collect::<String>();
-        let after = before
-            .replace("line 2\n", "changed 2\n")
-            .replace("line 26\n", "changed 26\n");
-        let changes = split("source.rs", &before, &after, 0).unwrap();
-        assert_eq!(changes.len(), 2);
-        let current = after.replace("line 15\n", "manual 15\n");
-        let first = apply(&current, &changes[0].after, &changes[0].before).unwrap();
-        assert_eq!(first, current.replace("changed 2\n", "line 2\n"));
-        let second = apply(&first, &changes[1].after, &changes[1].before).unwrap();
-        assert_eq!(second, before.replace("line 15\n", "manual 15\n"));
-    }
-
-    #[test]
-    fn refuses_changed_and_ambiguous_context() {
-        assert_eq!(
-            apply("edited\n", "original\n", "replacement\n")
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(
-            apply("same\nsame\n", "same\n", "replacement\n")
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(
-            apply("aaaa", "aa", "b").unwrap_err().code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(
-            apply("manual", "", "new").unwrap_err().code,
-            ErrorCode::RevisionConflict
-        );
-    }
-
-    #[test]
-    fn requires_line_boundaries_and_exact_eof() {
-        assert_eq!(
-            apply("manualchanged\n", "changed\n", "before\n")
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(
-            apply("changed manual", "changed", "before")
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(
-            apply("changed\n", "changed", "before").unwrap_err().code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(
-            apply("manualchanged\nchanged\n", "changed\n", "before\n").unwrap(),
-            "manualchanged\nbefore\n"
-        );
-        assert_eq!(
-            apply("\n\n\n", "\n\n", "replacement\n").unwrap_err().code,
-            ErrorCode::RevisionConflict
-        );
-    }
-
-    #[test]
-    fn preserves_unicode_crlf_and_missing_newline() {
-        for (before, after) in [
-            ("first\r\nlast", "first\r\nchanged"),
-            ("path 資料\nlast\n", "path 資料\nchanged\n"),
-            ("", "new without newline"),
+    fn preserves_storage_contracts() {
+        for (scenario, check) in [
+            (
+                "preserves_other_hunks_and_manual_edits",
+                (|scenario: &'static str| {
+                    let before = (0..30)
+                        .map(|line| format!("line {line}\n"))
+                        .collect::<String>();
+                    let after = before
+                        .replace("line 2\n", "changed 2\n")
+                        .replace("line 26\n", "changed 26\n");
+                    let changes = split("source.rs", &before, &after, 0).unwrap();
+                    assert_eq!(changes.len(), 2, "{scenario}");
+                    let current = after.replace("line 15\n", "manual 15\n");
+                    let first = apply(&current, &changes[0].after, &changes[0].before).unwrap();
+                    assert_eq!(
+                        first,
+                        current.replace("changed 2\n", "line 2\n"),
+                        "{scenario}"
+                    );
+                    let second = apply(&first, &changes[1].after, &changes[1].before).unwrap();
+                    assert_eq!(
+                        second,
+                        before.replace("line 15\n", "manual 15\n"),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "refuses_changed_and_ambiguous_context",
+                (|scenario: &'static str| {
+                    assert_eq!(
+                        apply("edited\n", "original\n", "replacement\n")
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::RevisionConflict,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        apply("same\nsame\n", "same\n", "replacement\n")
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::RevisionConflict,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        apply("aaaa", "aa", "b").unwrap_err().code,
+                        ErrorCode::RevisionConflict,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        apply("manual", "", "new").unwrap_err().code,
+                        ErrorCode::RevisionConflict,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "requires_line_boundaries_and_exact_eof",
+                (|scenario: &'static str| {
+                    assert_eq!(
+                        apply("manualchanged\n", "changed\n", "before\n")
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::RevisionConflict,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        apply("changed manual", "changed", "before")
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::RevisionConflict,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        apply("changed\n", "changed", "before").unwrap_err().code,
+                        ErrorCode::RevisionConflict,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        apply("manualchanged\nchanged\n", "changed\n", "before\n").unwrap(),
+                        "manualchanged\nbefore\n",
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        apply("\n\n\n", "\n\n", "replacement\n").unwrap_err().code,
+                        ErrorCode::RevisionConflict,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "preserves_unicode_crlf_and_missing_newline",
+                (|scenario: &'static str| {
+                    for (before, after) in [
+                        ("first\r\nlast", "first\r\nchanged"),
+                        ("path 資料\nlast\n", "path 資料\nchanged\n"),
+                        ("", "new without newline"),
+                    ] {
+                        let changes = split("source.rs", before, after, 0).unwrap();
+                        assert_eq!(changes.len(), 1, "{scenario}");
+                        assert_eq!(
+                            apply(before, &changes[0].before, &changes[0].after).unwrap(),
+                            after,
+                            "{scenario}"
+                        );
+                        assert_eq!(
+                            apply(after, &changes[0].after, &changes[0].before).unwrap(),
+                            before,
+                            "{scenario}"
+                        );
+                        assert_eq!(
+                            changes[0].id,
+                            split("source.rs", before, after, 0).unwrap()[0].id,
+                            "{scenario}"
+                        );
+                        assert_ne!(
+                            changes[0].id,
+                            split("different.rs", before, after, 0).unwrap()[0].id,
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
         ] {
-            let changes = split("source.rs", before, after, 0).unwrap();
-            assert_eq!(changes.len(), 1);
-            assert_eq!(
-                apply(before, &changes[0].before, &changes[0].after).unwrap(),
-                after
-            );
-            assert_eq!(
-                apply(after, &changes[0].after, &changes[0].before).unwrap(),
-                before
-            );
-            assert_eq!(
-                changes[0].id,
-                split("source.rs", before, after, 0).unwrap()[0].id
-            );
-            assert_ne!(
-                changes[0].id,
-                split("different.rs", before, after, 0).unwrap()[0].id
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

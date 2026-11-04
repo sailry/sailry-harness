@@ -37,18 +37,7 @@ impl Fixture {
                 Command::CreateSession {
                     project: Some(project.id),
                     worktree: None,
-                    config: Some(SessionConfig {
-                        features: Default::default(),
-                        assistant: None,
-                        resource: None,
-                        provider: ProviderId::new(),
-                        model: "fixture".into(),
-                        effort: Effort::Low,
-                        mode: sailry_protocol::WorkMode::Code,
-                        options: Default::default(),
-                        permission: Permission::Ask,
-                        credential: None,
-                    }),
+                    config: Some(configuration()),
                 },
             )
             .await
@@ -62,6 +51,56 @@ impl Fixture {
                 _root: root,
             }
         })
+    }
+
+    pub async fn fresh_session(&mut self) {
+        // Retain earlier scenario history while keeping its pending work out of later claims.
+        let mut statement = self
+            .database
+            .connection
+            .prepare("SELECT id FROM sessions")
+            .await
+            .unwrap();
+        let mut rows = statement.query(()).await.unwrap();
+        let mut previous = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            previous.push(row.get::<String>(0).unwrap().parse::<SessionId>().unwrap());
+        }
+        drop(rows);
+        drop(statement);
+        for session in previous {
+            queue::pause(&self.database.connection, session, true)
+                .await
+                .unwrap();
+        }
+        let path = self._root.path().join(ProjectId::new().to_string());
+        std::fs::create_dir(&path).unwrap();
+        let Output::Project(project) = command(
+            &mut self.database,
+            &self.events,
+            Command::RegisterProject {
+                name: "Turn history fixture".into(),
+                path: path.to_str().unwrap().into(),
+            },
+        )
+        .await
+        else {
+            panic!("project expected")
+        };
+        let Output::Session(session) = command(
+            &mut self.database,
+            &self.events,
+            Command::CreateSession {
+                project: Some(project.id),
+                worktree: None,
+                config: Some(configuration()),
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        self.session = session.id;
     }
 
     pub async fn queued(&mut self) -> TurnId {
@@ -165,6 +204,21 @@ impl Fixture {
         super::super::history::pages::read(&self.database.connection, self.session, before, limit)
             .await
             .unwrap()
+    }
+}
+
+fn configuration() -> SessionConfig {
+    SessionConfig {
+        features: Default::default(),
+        assistant: None,
+        resource: None,
+        provider: ProviderId::new(),
+        model: "fixture".into(),
+        effort: Effort::Low,
+        mode: sailry_protocol::WorkMode::Code,
+        options: Default::default(),
+        permission: Permission::Ask,
+        credential: None,
     }
 }
 

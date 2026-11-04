@@ -24,366 +24,431 @@ fn manifest(package: &str, name: &str) -> Value {
 }
 
 #[test]
-fn preserves_declared_locales_in_summaries() {
-    for name in ["list_directory", "read_file", "search_files"] {
-        let display = manifest("files", name);
-        let raw = source(
-            json!({"path":"source.rs", "query":"fixture"}),
-            json!({"text":"Captured content"}),
-            display.clone(),
-        );
-        assert!(raw.display.as_ref().unwrap().valid());
-        let summary: Summary =
-            serde_json::from_value(serde_json::to_value(raw.summary()).unwrap()).unwrap();
-        let label = summary.resolved.unwrap().label.unwrap();
-        let locales = display["locales"].as_object().unwrap();
-        assert!(locales.len() >= 10);
-        assert_eq!(
-            serde_json::to_value(&label.locales).unwrap(),
-            display["locales"]
-        );
-        for (locale, text) in locales {
-            assert_eq!(
-                label.label(locale),
-                text.as_str().unwrap(),
-                "{name}: {locale}"
-            );
-        }
-        assert_eq!(
-            label.label("zh-CN"),
-            display["locales"]["zh-CN"].as_str().unwrap()
-        );
-        assert_eq!(
-            label.label("zh-TW"),
-            display["locales"]["zh-TW"].as_str().unwrap()
-        );
-    }
-}
-
-#[test]
-fn preserves_all_valid_message_locales() {
-    let mut locales = manifest("files", "read_file")["locales"]
-        .as_object()
-        .unwrap()
-        .clone();
-    for index in locales.len()..32 {
-        locales.insert(format!("fixture-{index}"), json!(format!("Locale {index}")));
-    }
-    let message = json!({"label":"Read file", "locales":locales});
-    let raw = source(
-        Value::Null,
-        json!({"sailry_result":{"version":1,"diagnostics":[],"status":message}}),
-        json!({
-            "label":"Read file", "locales":locales,
-            "approval":[{"message":message}],
-            "output":{"notices":[{"message":message}]}
-        }),
-    );
-    assert!(raw.display.as_ref().unwrap().valid());
-    let summary: Summary =
-        serde_json::from_value(serde_json::to_value(raw.summary()).unwrap()).unwrap();
-    let resolved = summary.resolved.unwrap();
-    for field in [
-        resolved.label.as_ref().unwrap(),
-        &resolved.approval[0],
-        resolved.status.as_ref().unwrap(),
-        &resolved.output.as_ref().unwrap().notices[0],
-    ] {
-        assert_eq!(field.locales.len(), 32);
-        assert_eq!(
-            serde_json::to_value(&field.locales).unwrap(),
-            json!(locales)
-        );
-        assert_eq!(field.label("zh-CN"), locales["zh-CN"].as_str().unwrap());
-        assert_eq!(field.label("zh-TW"), locales["zh-TW"].as_str().unwrap());
-    }
-}
-
-#[test]
-fn matches_shared_rendering_fixtures() {
-    let fixtures: Vec<Value> = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/tool-display.json",
-    )))
-    .unwrap();
-    assert!(!fixtures.is_empty());
-    for fixture in fixtures {
-        let raw = source(
-            fixture["arguments"].clone(),
-            fixture["result"].clone(),
-            fixture["display"].clone(),
-        );
-        assert_eq!(
-            serde_json::to_value(raw.detail().resolved).unwrap(),
-            fixture["resolved"],
-            "{}",
-            fixture["name"]
-        );
-        assert_eq!(raw.detail().arguments, fixture["arguments"]);
-        assert_eq!(raw.detail().result, Some(fixture["result"].clone()));
-    }
-}
-
-#[test]
-fn preserves_result_names_and_aliases() {
-    let id = "11111111-2222-4333-8444-555555555555";
-    for name in [
-        Value::Null,
-        json!(""),
-        json!(" \n "),
-        json!(7),
-        json!({"name":"ignored"}),
-        json!("  计划 🙂.docx  "),
-    ] {
-        let raw = source(
-            json!({"source":{"value":id}}),
-            json!({"data":{"path":name}}),
-            json!({
-                "label":"Read","input":{"summary":{"path":"/source/value","result_path":"/data/path","code":true}}
-            }),
-        );
-        let resolved = raw.detail().resolved.unwrap();
-        let expected = name
-            .as_str()
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or(id);
-        assert_eq!(resolved.input.summary.unwrap().text, expected);
-        assert_eq!(raw.detail().arguments["source"]["value"], id);
-    }
-    let arguments = json!({"command":"/remote/home/managed/bin/python3 /remote/home/test.py\ncat /remote/home/log.txt"});
-    let raw = source(
-        arguments.clone(),
-        Value::Null,
-        json!({
-            "label":"Run","input":{"summary":{"path":"/command","code":true,"format":"command"},"content":{"path":"/command","code":true}},
-            "aliases":[{"path":"/remote/home","kind":"home"},{"path":"/remote/home/managed/bin/python3","kind":"python"}]
-        }),
-    );
-    let detail = raw.detail();
-    let resolved = detail.resolved.unwrap();
-    assert_eq!(
-        resolved.input.summary.unwrap().text,
-        "python ~/test.py\ncat ~/log.txt"
-    );
-    assert_eq!(resolved.input.content.unwrap().text, arguments["command"]);
-    assert_eq!(detail.arguments, arguments);
-    assert_eq!(
-        raw.summary().resolved.unwrap().input.summary.unwrap().text,
-        "python ~/test.py"
-    );
-}
-
-#[test]
-fn bounds_paths_and_retains_complete_details() {
-    let mut paths: Vec<_> = (0..40)
-        .map(|index| format!("{}file-{index}.txt", "directory/".repeat(30)))
-        .collect();
-    paths.push(paths[0].clone());
-    let raw = source(
-        json!({"path":paths[0]}),
-        json!({"paths":paths}),
-        json!({
-            "label":"Read","input":{"summary":{"path":"/path"},"target":{"path":"/path"}},
-            "output":{"paths":{"value":{"source":"result","path":"/paths"},"item":""}}
-        }),
-    );
-    let summary = raw.summary();
-    let expected = raw.arguments["path"].as_str().unwrap();
-    assert!(expected.chars().count() > 200);
-    let preview: String = expected.chars().take(200).collect();
-    assert_eq!(summary.path.as_deref(), Some(preview.as_str()));
-    let resolved = summary.resolved.unwrap();
-    assert_eq!(resolved.input.summary.unwrap().text, preview);
-    assert_eq!(resolved.input.target.unwrap().text, preview);
-    let output = resolved.output.unwrap();
-    assert_eq!(output.paths.len(), 32);
-    assert_eq!(output.paths[0], preview);
-    assert_eq!(output.path_count, 40);
-    let detail = raw.detail();
-    let resolved = detail.resolved.unwrap();
-    assert_eq!(resolved.input.target.unwrap().text, expected);
-    let paths = resolved.output.unwrap().paths;
-    assert_eq!(paths.len(), 40);
-    assert_eq!(paths[0], expected);
-    assert_eq!(
-        detail.result.unwrap()["paths"].as_array().unwrap().len(),
-        41
-    );
-}
-
-#[test]
-fn preserves_captured_connection_and_session_names() {
-    for format in ["connection", "session"] {
-        let display = json!({"label":"Wait","input":{"summary":{
-            "path":"/session","format":format,"names":{"owned":"Captured title"},"result_path":"/name"
-        }}});
-        for (target, name) in [
-            ("owned", Some("Captured title")),
-            ("foreign", (format == "connection").then_some("foreign")),
-        ] {
-            let mut raw = source(json!({"session":target}), Value::Null, display.clone());
-            let summary = raw.summary();
-            assert_eq!(
-                summary
-                    .resolved
-                    .as_ref()
+fn preserves_storage_contracts() {
+    for (scenario, check) in [
+        (
+            "preserves_declared_locales_in_summaries",
+            (|scenario: &'static str| {
+                for name in ["list_directory", "read_file", "search_files"] {
+                    let display = manifest("files", name);
+                    let raw = source(
+                        json!({"path":"source.rs", "query":"fixture"}),
+                        json!({"text":"Captured content"}),
+                        display.clone(),
+                    );
+                    assert!(raw.display.as_ref().unwrap().valid(), "{scenario}");
+                    let summary: Summary =
+                        serde_json::from_value(serde_json::to_value(raw.summary()).unwrap())
+                            .unwrap();
+                    let label = summary.resolved.unwrap().label.unwrap();
+                    let locales = display["locales"].as_object().unwrap();
+                    assert!(locales.len() >= 10, "{scenario}");
+                    assert_eq!(
+                        serde_json::to_value(&label.locales).unwrap(),
+                        display["locales"],
+                        "{scenario}"
+                    );
+                    for (locale, text) in locales {
+                        assert_eq!(
+                            label.label(locale),
+                            text.as_str().unwrap(),
+                            "{scenario}: {name}: {locale}"
+                        );
+                    }
+                    assert_eq!(
+                        label.label("zh-CN"),
+                        display["locales"]["zh-CN"].as_str().unwrap(),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        label.label("zh-TW"),
+                        display["locales"]["zh-TW"].as_str().unwrap(),
+                        "{scenario}"
+                    );
+                }
+            }) as fn(&'static str),
+        ),
+        (
+            "preserves_all_valid_message_locales",
+            (|scenario: &'static str| {
+                let mut locales = manifest("files", "read_file")["locales"]
+                    .as_object()
                     .unwrap()
-                    .input
-                    .summary
-                    .as_ref()
-                    .map(|field| field.text.as_str()),
-                name
-            );
-            raw.result = Some(json!({"name":"Saved title"}));
-            assert_eq!(
-                raw.detail().resolved.unwrap().input.summary.unwrap().text,
-                "Saved title"
-            );
-        }
-    }
-}
-
-#[test]
-fn preserves_batch_edits() {
-    let arguments = json!({"path":"source.txt","edits":[
-        {"old_text":"First","new_text":"Updated first"},
-        {"old_text":"Second","new_text":"Updated second"}
-    ],"expected_revision":"original"});
-    let raw = source(
-        arguments.clone(),
-        json!({"written":true}),
-        manifest("files", "edit_file"),
-    );
-    let output = raw.detail().resolved.unwrap().output.unwrap();
-    assert!(output.body.is_none());
-    assert_eq!(output.preview, "Updated first\nUpdated second");
-    assert!(output.notices.is_empty());
-    assert_eq!(raw.detail().arguments, arguments);
-    let result = serde_json::to_value(sailry_protocol::Output::DatabaseOutcome(
-        sailry_protocol::database::Outcome::Query(sailry_protocol::database::ResultSet {
-            affected_rows: 2,
-            ..Default::default()
-        }),
-    ))
-    .unwrap();
-    let raw = source(
-        Value::Null,
-        result.clone(),
-        manifest("databases", "database_execute"),
-    );
-    let output = raw.detail().resolved.unwrap().output.unwrap();
-    assert!(output.table.is_none());
-    assert_eq!(output.preview, "affected_rows: 2");
-    assert_eq!(raw.detail().result, Some(result));
-}
-
-#[test]
-fn accepts_receipt_names_without_argument_titles() {
-    for (name, arguments, result, expected) in [
-        (
-            "forget_memory",
-            json!({"id":"owned"}),
-            json!({"receipt":{"title":"Accepted 中文 🙂"}}),
-            Some("Accepted 中文 🙂"),
+                    .clone();
+                for index in locales.len()..32 {
+                    locales.insert(format!("fixture-{index}"), json!(format!("Locale {index}")));
+                }
+                let message = json!({"label":"Read file", "locales":locales});
+                let raw = source(
+                    Value::Null,
+                    json!({"sailry_result":{"version":1,"diagnostics":[],"status":message}}),
+                    json!({
+                    "label":"Read file", "locales":locales,
+                    "approval":[{"message":message}],
+                    "output":{"notices":[{"message":message}]}
+                        }),
+                );
+                assert!(raw.display.as_ref().unwrap().valid(), "{scenario}");
+                let summary: Summary =
+                    serde_json::from_value(serde_json::to_value(raw.summary()).unwrap()).unwrap();
+                let resolved = summary.resolved.unwrap();
+                for field in [
+                    resolved.label.as_ref().unwrap(),
+                    &resolved.approval[0],
+                    resolved.status.as_ref().unwrap(),
+                    &resolved.output.as_ref().unwrap().notices[0],
+                ] {
+                    assert_eq!(field.locales.len(), 32, "{scenario}");
+                    assert_eq!(
+                        serde_json::to_value(&field.locales).unwrap(),
+                        json!(locales),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        field.label("zh-CN"),
+                        locales["zh-CN"].as_str().unwrap(),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        field.label("zh-TW"),
+                        locales["zh-TW"].as_str().unwrap(),
+                        "{scenario}"
+                    );
+                }
+            }),
         ),
         (
-            "forget_memory",
-            json!({"id":"owned"}),
-            json!({"status":"pending"}),
-            None,
+            "matches_shared_rendering_fixtures",
+            (|scenario: &'static str| {
+                let fixtures: Vec<Value> = serde_json::from_str(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../tests/fixtures/tool-display.json",
+                )))
+                .unwrap();
+                assert!(!fixtures.is_empty(), "{scenario}");
+                for fixture in fixtures {
+                    let raw = source(
+                        fixture["arguments"].clone(),
+                        fixture["result"].clone(),
+                        fixture["display"].clone(),
+                    );
+                    assert_eq!(
+                        serde_json::to_value(raw.detail().resolved).unwrap(),
+                        fixture["resolved"],
+                        "{scenario}: {}",
+                        fixture["name"]
+                    );
+                    assert_eq!(raw.detail().arguments, fixture["arguments"], "{scenario}");
+                    assert_eq!(
+                        raw.detail().result,
+                        Some(fixture["result"].clone()),
+                        "{scenario}"
+                    );
+                }
+            }),
         ),
         (
-            "forget_memory",
-            json!({"id":"owned"}),
-            json!({"receipt":{"title":[119,14,79]}}),
-            None,
+            "preserves_result_names_and_aliases",
+            (|scenario: &'static str| {
+                let id = "11111111-2222-4333-8444-555555555555";
+                for name in [
+                    Value::Null,
+                    json!(""),
+                    json!(" \n "),
+                    json!(7),
+                    json!({"name":"ignored"}),
+                    json!("  计划 🙂.docx  "),
+                ] {
+                    let raw = source(
+                        json!({"source":{"value":id}}),
+                        json!({"data":{"path":name}}),
+                        json!({
+                        "label":"Read","input":{"summary":{"path":"/source/value","result_path":"/data/path","code":true}}
+                            }),
+                    );
+                    let resolved = raw.detail().resolved.unwrap();
+                    let expected = name
+                        .as_str()
+                        .filter(|name| !name.trim().is_empty())
+                        .unwrap_or(id);
+                    assert_eq!(resolved.input.summary.unwrap().text, expected, "{scenario}");
+                    assert_eq!(raw.detail().arguments["source"]["value"], id, "{scenario}");
+                }
+                let arguments = json!({"command":"/remote/home/managed/bin/python3 /remote/home/test.py\ncat /remote/home/log.txt"});
+                let raw = source(
+                    arguments.clone(),
+                    Value::Null,
+                    json!({
+                    "label":"Run","input":{"summary":{"path":"/command","code":true,"format":"command"},"content":{"path":"/command","code":true}},
+                    "aliases":[{"path":"/remote/home","kind":"home"},{"path":"/remote/home/managed/bin/python3","kind":"python"}]
+                        }),
+                );
+                let detail = raw.detail();
+                let resolved = detail.resolved.unwrap();
+                assert_eq!(
+                    resolved.input.summary.unwrap().text,
+                    "python ~/test.py\ncat ~/log.txt",
+                    "{scenario}"
+                );
+                assert_eq!(
+                    resolved.input.content.unwrap().text,
+                    arguments["command"],
+                    "{scenario}"
+                );
+                assert_eq!(detail.arguments, arguments, "{scenario}");
+                assert_eq!(
+                    raw.summary().resolved.unwrap().input.summary.unwrap().text,
+                    "python ~/test.py",
+                    "{scenario}"
+                );
+            }),
         ),
         (
-            "save_memory",
-            json!({"title":"Argument"}),
-            json!({"receipt":{"title":" \n "}}),
-            Some("Argument"),
+            "bounds_paths_and_retains_complete_details",
+            (|scenario: &'static str| {
+                let mut paths: Vec<_> = (0..40)
+                    .map(|index| format!("{}file-{index}.txt", "directory/".repeat(30)))
+                    .collect();
+                paths.push(paths[0].clone());
+                let raw = source(
+                    json!({"path":paths[0]}),
+                    json!({"paths":paths}),
+                    json!({
+                    "label":"Read","input":{"summary":{"path":"/path"},"target":{"path":"/path"}},
+                    "output":{"paths":{"value":{"source":"result","path":"/paths"},"item":""}}
+                        }),
+                );
+                let summary = raw.summary();
+                let expected = raw.arguments["path"].as_str().unwrap();
+                assert!(expected.chars().count() > 200, "{scenario}");
+                let preview: String = expected.chars().take(200).collect();
+                assert_eq!(
+                    summary.path.as_deref(),
+                    Some(preview.as_str()),
+                    "{scenario}"
+                );
+                let resolved = summary.resolved.unwrap();
+                assert_eq!(resolved.input.summary.unwrap().text, preview, "{scenario}");
+                assert_eq!(resolved.input.target.unwrap().text, preview, "{scenario}");
+                let output = resolved.output.unwrap();
+                assert_eq!(output.paths.len(), 32, "{scenario}");
+                assert_eq!(output.paths[0], preview, "{scenario}");
+                assert_eq!(output.path_count, 40, "{scenario}");
+                let detail = raw.detail();
+                let resolved = detail.resolved.unwrap();
+                assert_eq!(resolved.input.target.unwrap().text, expected, "{scenario}");
+                let paths = resolved.output.unwrap().paths;
+                assert_eq!(paths.len(), 40, "{scenario}");
+                assert_eq!(paths[0], expected, "{scenario}");
+                assert_eq!(
+                    detail.result.unwrap()["paths"].as_array().unwrap().len(),
+                    41,
+                    "{scenario}"
+                );
+            }),
         ),
         (
-            "save_memory",
-            json!({"title":"Argument"}),
-            json!({"receipt":{"title":{"id":"internal"}}}),
-            Some("Argument"),
+            "preserves_captured_connection_and_session_names",
+            (|scenario: &'static str| {
+                for format in ["connection", "session"] {
+                    let display = json!({"label":"Wait","input":{"summary":{
+                    "path":"/session","format":format,"names":{"owned":"Captured title"},"result_path":"/name"
+                        }}});
+                    for (target, name) in [
+                        ("owned", Some("Captured title")),
+                        ("foreign", (format == "connection").then_some("foreign")),
+                    ] {
+                        let mut raw =
+                            source(json!({"session":target}), Value::Null, display.clone());
+                        let summary = raw.summary();
+                        assert_eq!(
+                            summary
+                                .resolved
+                                .as_ref()
+                                .unwrap()
+                                .input
+                                .summary
+                                .as_ref()
+                                .map(|field| field.text.as_str()),
+                            name,
+                            "{scenario}"
+                        );
+                        raw.result = Some(json!({"name":"Saved title"}));
+                        assert_eq!(
+                            raw.detail().resolved.unwrap().input.summary.unwrap().text,
+                            "Saved title",
+                            "{scenario}"
+                        );
+                    }
+                }
+            }),
+        ),
+        (
+            "preserves_batch_edits",
+            (|scenario: &'static str| {
+                let arguments = json!({"path":"source.txt","edits":[
+                {"old_text":"First","new_text":"Updated first"},
+                {"old_text":"Second","new_text":"Updated second"}
+            ],"expected_revision":"original"});
+                let raw = source(
+                    arguments.clone(),
+                    json!({"written":true}),
+                    manifest("files", "edit_file"),
+                );
+                let output = raw.detail().resolved.unwrap().output.unwrap();
+                assert!(output.body.is_none(), "{scenario}");
+                assert_eq!(
+                    output.preview, "Updated first\nUpdated second",
+                    "{scenario}"
+                );
+                assert!(output.notices.is_empty(), "{scenario}");
+                assert_eq!(raw.detail().arguments, arguments, "{scenario}");
+                let result = serde_json::to_value(sailry_protocol::Output::DatabaseOutcome(
+                    sailry_protocol::database::Outcome::Query(
+                        sailry_protocol::database::ResultSet {
+                            affected_rows: 2,
+                            ..Default::default()
+                        },
+                    ),
+                ))
+                .unwrap();
+                let raw = source(
+                    Value::Null,
+                    result.clone(),
+                    manifest("databases", "database_execute"),
+                );
+                let output = raw.detail().resolved.unwrap().output.unwrap();
+                assert!(output.table.is_none(), "{scenario}");
+                assert_eq!(output.preview, "affected_rows: 2", "{scenario}");
+                assert_eq!(raw.detail().result, Some(result), "{scenario}");
+            }),
+        ),
+        (
+            "accepts_receipt_names_without_argument_titles",
+            (|scenario: &'static str| {
+                for (name, arguments, result, expected) in [
+                    (
+                        "forget_memory",
+                        json!({"id":"owned"}),
+                        json!({"receipt":{"title":"Accepted 中文 🙂"}}),
+                        Some("Accepted 中文 🙂"),
+                    ),
+                    (
+                        "forget_memory",
+                        json!({"id":"owned"}),
+                        json!({"status":"pending"}),
+                        None,
+                    ),
+                    (
+                        "forget_memory",
+                        json!({"id":"owned"}),
+                        json!({"receipt":{"title":[119,14,79]}}),
+                        None,
+                    ),
+                    (
+                        "save_memory",
+                        json!({"title":"Argument"}),
+                        json!({"receipt":{"title":" \n "}}),
+                        Some("Argument"),
+                    ),
+                    (
+                        "save_memory",
+                        json!({"title":"Argument"}),
+                        json!({"receipt":{"title":{"id":"internal"}}}),
+                        Some("Argument"),
+                    ),
+                ] {
+                    let raw = source(arguments.clone(), result.clone(), manifest("memory", name));
+                    let resolved = raw.detail().resolved.unwrap();
+                    assert_eq!(
+                        resolved
+                            .input
+                            .summary
+                            .as_ref()
+                            .map(|field| field.text.as_str()),
+                        expected,
+                        "{scenario}: {name}"
+                    );
+                    assert_eq!(raw.detail().arguments, arguments, "{scenario}");
+                    assert_eq!(raw.detail().result, Some(result), "{scenario}");
+                }
+            }),
+        ),
+        (
+            "defers_json_tables_and_bodies_to_detail",
+            (|scenario: &'static str| {
+                let body = "Literal 内容 🙂\n".repeat(16_000);
+                let raw = source(
+                    json!({"action":"invoke"}),
+                    json!({"data":{"id":"business-id","body":body}}),
+                    json!({
+                    "label":"Invoke","output":{"preview":{"parts":[{
+                        "value":{"source":"result","path":"/data"},"format":"json",
+                        "when":{"all":[{"value":{"source":"arguments","path":"/action"},"equals":"invoke"}]}
+                            }]}}
+                        }),
+                );
+                let summary = raw.summary();
+                assert!(summary.has_details, "{scenario}");
+                let output = summary.resolved.unwrap().output.unwrap();
+                assert!(
+                    output.preview.is_empty() && output.preview_deferred,
+                    "{scenario}"
+                );
+                assert!(
+                    !serde_json::to_string(&raw.summary())
+                        .unwrap()
+                        .contains("business-id"),
+                    "{scenario}"
+                );
+                let detail = raw.detail();
+                let output = detail.resolved.unwrap().output.unwrap();
+                assert_eq!(
+                    output.preview,
+                    serde_json::to_string_pretty(&raw.result.as_ref().unwrap()["data"]).unwrap(),
+                    "{scenario}"
+                );
+                assert!(!output.preview_deferred, "{scenario}");
+            }),
+        ),
+        (
+            "malformed_recipes_preserve_canonical_values",
+            (|scenario: &'static str| {
+                let raw = source(
+                    json!({"path":"source.rs"}),
+                    json!({"text":"中文 🙂"}),
+                    json!({
+                    "label":"Read","input":{"summary":{"path":"/~2"}}
+                        }),
+                );
+                assert!(raw.summary().resolved.is_none(), "{scenario}");
+                assert_eq!(raw.detail().result, raw.result, "{scenario}");
+                assert_eq!(raw.detail().arguments, raw.arguments, "{scenario}");
+            }),
+        ),
+        (
+            "empty_output_recipes_suppress_literal_fallback",
+            (|scenario: &'static str| {
+                for output in [
+                    json!({}),
+                    json!({"body":{"text":{"source":"result","path":"/missing"},"empty":{"label":"Empty"}}}),
+                ] {
+                    let raw = source(
+                        Value::Null,
+                        json!("Canonical value"),
+                        json!({"label":"Read","output":output}),
+                    );
+                    assert!(!raw.summary().has_details, "{scenario}");
+                    assert_eq!(
+                        raw.detail().result,
+                        Some(json!("Canonical value")),
+                        "{scenario}"
+                    );
+                }
+            }),
         ),
     ] {
-        let raw = source(arguments.clone(), result.clone(), manifest("memory", name));
-        let resolved = raw.detail().resolved.unwrap();
-        assert_eq!(
-            resolved
-                .input
-                .summary
-                .as_ref()
-                .map(|field| field.text.as_str()),
-            expected,
-            "{name}"
-        );
-        assert_eq!(raw.detail().arguments, arguments);
-        assert_eq!(raw.detail().result, Some(result));
-    }
-}
-
-#[test]
-fn defers_json_tables_and_bodies_to_detail() {
-    let body = "Literal 内容 🙂\n".repeat(16_000);
-    let raw = source(
-        json!({"action":"invoke"}),
-        json!({"data":{"id":"business-id","body":body}}),
-        json!({
-            "label":"Invoke","output":{"preview":{"parts":[{
-                "value":{"source":"result","path":"/data"},"format":"json",
-                "when":{"all":[{"value":{"source":"arguments","path":"/action"},"equals":"invoke"}]}
-            }]}}
-        }),
-    );
-    let summary = raw.summary();
-    assert!(summary.has_details);
-    let output = summary.resolved.unwrap().output.unwrap();
-    assert!(output.preview.is_empty() && output.preview_deferred);
-    assert!(
-        !serde_json::to_string(&raw.summary())
-            .unwrap()
-            .contains("business-id")
-    );
-    let detail = raw.detail();
-    let output = detail.resolved.unwrap().output.unwrap();
-    assert_eq!(
-        output.preview,
-        serde_json::to_string_pretty(&raw.result.as_ref().unwrap()["data"]).unwrap()
-    );
-    assert!(!output.preview_deferred);
-}
-
-#[test]
-fn malformed_recipes_preserve_canonical_values() {
-    let raw = source(
-        json!({"path":"source.rs"}),
-        json!({"text":"中文 🙂"}),
-        json!({
-            "label":"Read","input":{"summary":{"path":"/~2"}}
-        }),
-    );
-    assert!(raw.summary().resolved.is_none());
-    assert_eq!(raw.detail().result, raw.result);
-    assert_eq!(raw.detail().arguments, raw.arguments);
-}
-
-#[test]
-fn empty_output_recipes_suppress_literal_fallback() {
-    for output in [
-        json!({}),
-        json!({"body":{"text":{"source":"result","path":"/missing"},"empty":{"label":"Empty"}}}),
-    ] {
-        let raw = source(
-            Value::Null,
-            json!("Canonical value"),
-            json!({"label":"Read","output":output}),
-        );
-        assert!(!raw.summary().has_details);
-        assert_eq!(raw.detail().result, Some(json!("Canonical value")));
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }

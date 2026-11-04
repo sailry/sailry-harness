@@ -62,59 +62,6 @@ async fn close_before_claim(
 }
 
 #[tokio::test]
-async fn rolls_back_rules_when_waiter_closes() {
-    let mut fixture = Fixture::new().await;
-    let owner = binding(&fixture).await;
-    let approval = begin_owned(&mut fixture, &owner).await;
-    let (reply, response) = oneshot::channel();
-    fixture.database.approvals.lock().unwrap().insert(
-        approval.id,
-        (fixture.turn, RequestId::new(), deadline(), Some(reply)),
-    );
-    let node = fixture.database.node;
-    let request = Request::new(
-        node,
-        Command::ResolveApproval {
-            session: fixture.session,
-            approval: approval.id,
-            decision: Decision::ApproveSession,
-        },
-    );
-    let error = close_before_claim(&mut fixture, request, response)
-        .await
-        .unwrap_err();
-    assert_eq!(error.code, ErrorCode::Conflict);
-    assert_eq!(
-        fixture
-            .database
-            .connection
-            .prepare("SELECT count(*) FROM agent_approval_rules")
-            .await
-            .unwrap()
-            .query_row(())
-            .await
-            .and_then(|row| row.get::<i64>(0))
-            .unwrap(),
-        0
-    );
-    assert_eq!(
-        get(&fixture.database.connection, approval.id)
-            .await
-            .unwrap()
-            .state,
-        ApprovalState::Pending
-    );
-    prune(&mut fixture.database, &fixture.events).await.unwrap();
-    assert_eq!(
-        get(&fixture.database.connection, approval.id)
-            .await
-            .unwrap()
-            .state,
-        ApprovalState::Cancelled
-    );
-}
-
-#[tokio::test]
 async fn rejects_closed_receipts() {
     let mut fixture = Fixture::new().await;
     let owner = binding(&fixture).await;

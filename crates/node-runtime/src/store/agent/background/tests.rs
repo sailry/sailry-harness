@@ -198,11 +198,28 @@ async fn delivers_all_bounded_batches() {
 }
 
 #[tokio::test]
-async fn cancelling_reservation_prevents_rescheduling() {
+async fn delivery_scenarios() {
     let mut fixture = Fixture::new().await;
+    eprintln!("scenario: cancelling_reservation_prevents_rescheduling");
+    cancelling_reservation_prevents_rescheduling(&mut fixture).await;
+    fixture.fresh_session().await;
+    eprintln!("scenario: terminal_read_wins_late_completion");
+    terminal_read_wins_late_completion(&mut fixture).await;
+    fixture.fresh_session().await;
+    eprintln!("scenario: records_failures_before_process_start");
+    records_failures_before_process_start(&mut fixture).await;
+    fixture.fresh_session().await;
+    eprintln!("scenario: pending_question_blocks_delivery");
+    pending_question_blocks_delivery(&mut fixture).await;
+    fixture.fresh_session().await;
+    eprintln!("scenario: explicit_input_preserves_speech_before_delivery");
+    explicit_input_preserves_speech_before_delivery(&mut fixture).await;
+}
+
+async fn cancelling_reservation_prevents_rescheduling(fixture: &mut Fixture) {
     let source = fixture.completed(&["Started work"]).await;
-    let id = pending(&fixture, source, "Result").await;
-    let queued = schedule(&fixture).await.unwrap();
+    let id = pending(fixture, source, "Result").await;
+    let queued = schedule(fixture).await.unwrap();
     assert_eq!(
         get(&fixture.database.connection, &id)
             .await
@@ -222,9 +239,9 @@ async fn cancelling_reservation_prevents_rescheduling() {
     assert_eq!(record.task.state, State::Pending);
     assert_eq!(record.task.delivery, None);
     assert!(record.task.suppressed);
-    assert!(schedule(&fixture).await.is_none());
-    let newer = pending(&fixture, source, "Later result").await;
-    let next = schedule(&fixture).await.unwrap();
+    assert!(schedule(fixture).await.is_none());
+    let newer = pending(fixture, source, "Later result").await;
+    let next = schedule(fixture).await.unwrap();
     let run = runs::get(&fixture.database.connection, next.id)
         .await
         .unwrap();
@@ -394,15 +411,13 @@ async fn command(fixture: &Fixture, turn: TurnId, follow_up: bool) -> (Request, 
     (request, snapshot)
 }
 
-#[tokio::test]
-async fn terminal_read_wins_late_completion() {
-    let mut fixture = Fixture::new().await;
+async fn terminal_read_wins_late_completion(fixture: &mut Fixture) {
     let queued = fixture.queued().await;
     runs::start(&fixture.database.connection, queued)
         .await
         .unwrap();
-    let invocation = claim(&mut fixture).await;
-    let (request, snapshot) = command(&fixture, invocation.turn.id, true).await;
+    let invocation = claim(fixture).await;
+    let (request, snapshot) = command(fixture, invocation.turn.id, true).await;
     let changed = {
         let transaction = turso::transaction::Transaction::new_unchecked(
             &fixture.database.connection,
@@ -456,9 +471,7 @@ async fn terminal_read_wins_late_completion() {
     );
 }
 
-#[tokio::test]
-async fn records_failures_before_process_start() {
-    let mut fixture = Fixture::new().await;
+async fn records_failures_before_process_start(fixture: &mut Fixture) {
     let queued = fixture.queued().await;
     for (result, expected) in [
         (
@@ -482,7 +495,7 @@ async fn records_failures_before_process_start() {
             Outcome::Cancelled,
         ),
     ] {
-        let (request, _) = command(&fixture, queued, true).await;
+        let (request, _) = command(fixture, queued, true).await;
         let returned = {
             let transaction = turso::transaction::Transaction::new_unchecked(
                 &fixture.database.connection,
@@ -592,11 +605,9 @@ async fn failed_admission_preserves_completion() {
     assert_eq!(get(db, &id).await.unwrap().unwrap().stdout, original.stdout);
 }
 
-#[tokio::test]
-async fn pending_question_blocks_delivery() {
-    let mut fixture = Fixture::new().await;
+async fn pending_question_blocks_delivery(fixture: &mut Fixture) {
     let source = fixture.completed(&["Started work"]).await;
-    let id = pending(&fixture, source, "Durable result").await;
+    let id = pending(fixture, source, "Durable result").await;
     let entry = fixture.read(None, 20).await.page.entries[0].id.clone();
     let question = sailry_protocol::conversation::question::Question {
         id: QuestionId::new(),
@@ -620,7 +631,7 @@ async fn pending_question_blocks_delivery() {
         )
         .await
         .unwrap();
-    assert!(schedule(&fixture).await.is_none());
+    assert!(schedule(fixture).await.is_none());
     assert_eq!(
         get(&fixture.database.connection, &id)
             .await
@@ -639,14 +650,12 @@ async fn pending_question_blocks_delivery() {
         )
         .await
         .unwrap();
-    assert!(schedule(&fixture).await.is_some());
+    assert!(schedule(fixture).await.is_some());
 }
 
-#[tokio::test]
-async fn explicit_input_preserves_speech_before_delivery() {
-    let mut fixture = Fixture::new().await;
+async fn explicit_input_preserves_speech_before_delivery(fixture: &mut Fixture) {
     let source = fixture.completed(&["Earlier task"]).await;
-    let id = pending(&fixture, source, "Untrusted result text").await;
+    let id = pending(fixture, source, "Untrusted result text").await;
     let mut record = get(&fixture.database.connection, &id)
         .await
         .unwrap()
@@ -656,11 +665,11 @@ async fn explicit_input_preserves_speech_before_delivery() {
         .await
         .unwrap();
     let user = fixture.queued().await;
-    assert!(schedule(&fixture).await.is_none());
+    assert!(schedule(fixture).await.is_none());
     runs::start(&fixture.database.connection, user)
         .await
         .unwrap();
-    let invocation = claim(&mut fixture).await;
+    let invocation = claim(fixture).await;
     assert!(!invocation.notice);
     assert_eq!(invocation.message.text, "History fixture");
     assert_eq!(invocation.notices.len(), 1);
@@ -677,7 +686,7 @@ async fn explicit_input_preserves_speech_before_delivery() {
     let metadata = input.metadata.input.as_mut().unwrap();
     metadata.source = Some(canonical::InputSource::User);
     metadata.text_part = Some(1);
-    append(&mut fixture, &invocation, input.clone()).await;
+    append(fixture, &invocation, input.clone()).await;
     let page = fixture.read(None, 100).await.page;
     let entry = page
         .entries

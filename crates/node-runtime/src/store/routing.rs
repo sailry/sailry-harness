@@ -437,91 +437,103 @@ mod tests {
     };
 
     #[test]
-    fn includes_database_reads() {
-        let session = SessionId::new();
-        for command in [
-            Command::Snapshot,
-            Command::ReadSession { session },
-            Command::ReadActivityCatalog,
-            Command::ListKnowledgeCollections,
-            Command::ListArtifacts {
-                session,
-                after: None,
-                limit: 1,
-            },
-            Command::ReadAttachment {
-                worktree: WorktreeId::new(),
-                attachment: AttachmentId::new(),
-            },
-            Command::ListConnections,
-            Command::ReadPluginSettings {
-                package: plugin::Reference {
-                    name: "fixture".into(),
-                    settings_revision: 1,
-                    digest: "a".repeat(64),
-                },
-            },
-            Command::ReadPluginValue { key: "key".into() },
+    fn preserves_storage_contracts() {
+        for (scenario, check) in [
+            (
+                "includes_database_reads",
+                (|scenario: &'static str| {
+                    let session = SessionId::new();
+                    for command in [
+                        Command::Snapshot,
+                        Command::ReadSession { session },
+                        Command::ReadActivityCatalog,
+                        Command::ListKnowledgeCollections,
+                        Command::ListArtifacts {
+                            session,
+                            after: None,
+                            limit: 1,
+                        },
+                        Command::ReadAttachment {
+                            worktree: WorktreeId::new(),
+                            attachment: AttachmentId::new(),
+                        },
+                        Command::ListConnections,
+                        Command::ReadPluginSettings {
+                            package: plugin::Reference {
+                                name: "fixture".into(),
+                                settings_revision: 1,
+                                digest: "a".repeat(64),
+                            },
+                        },
+                        Command::ReadPluginValue { key: "key".into() },
+                    ] {
+                        assert_eq!(route(&command), Route::Read, "{scenario}: {command:?}");
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "excludes_mutations",
+                (|scenario: &'static str| {
+                    for command in [
+                        Command::MarkNotificationsRead {
+                            ids: vec![NotificationId::new()],
+                        },
+                        Command::SetPluginEnabled {
+                            name: "fixture".into(),
+                            expected_revision: 1,
+                            enabled: true,
+                        },
+                        Command::WritePluginValue {
+                            key: "key".into(),
+                            value: serde_json::Value::Null,
+                            expected_revision: 0,
+                        },
+                    ] {
+                        assert_ne!(route(&command), Route::Read, "{scenario}: {command:?}");
+                    }
+                }),
+            ),
+            (
+                "preserves_execution_owners",
+                (|scenario: &'static str| {
+                    for command in [
+                        Command::InspectHost,
+                        Command::ReadHostMetrics { detailed: true },
+                        Command::RefreshModelCatalog,
+                        Command::ReadNetworkSettings,
+                        Command::ListNetworkPresets { refresh: true },
+                        Command::ProbeNetwork {
+                            selection: sailry_protocol::network::Selection::Iroh,
+                        },
+                        Command::ReadInstallations {
+                            requests: Vec::new(),
+                        },
+                        Command::ListChannelPresets {
+                            refresh_partners: false,
+                        },
+                        Command::ReadArtifact {
+                            id: ArtifactId::new(),
+                            revision: None,
+                            session: None,
+                        },
+                        Command::SearchPluginValues(plugin::storage::Search {
+                            terms: vec!["literal".into()],
+                            query: None,
+                            mode: plugin::storage::Mode::Keyword,
+                            weights: [1, 1],
+                            all: Vec::new(),
+                            any: Vec::new(),
+                            offset: 0,
+                            limit: 1,
+                        }),
+                    ] {
+                        assert_ne!(route(&command), Route::Read, "{scenario}: {command:?}");
+                    }
+                }),
+            ),
         ] {
-            assert_eq!(route(&command), Route::Read, "{command:?}");
-        }
-    }
-
-    #[test]
-    fn excludes_mutations() {
-        for command in [
-            Command::MarkNotificationsRead {
-                ids: vec![NotificationId::new()],
-            },
-            Command::SetPluginEnabled {
-                name: "fixture".into(),
-                expected_revision: 1,
-                enabled: true,
-            },
-            Command::WritePluginValue {
-                key: "key".into(),
-                value: serde_json::Value::Null,
-                expected_revision: 0,
-            },
-        ] {
-            assert_ne!(route(&command), Route::Read, "{command:?}");
-        }
-    }
-
-    #[test]
-    fn preserves_execution_owners() {
-        for command in [
-            Command::InspectHost,
-            Command::ReadHostMetrics { detailed: true },
-            Command::RefreshModelCatalog,
-            Command::ReadNetworkSettings,
-            Command::ListNetworkPresets { refresh: true },
-            Command::ProbeNetwork {
-                selection: sailry_protocol::network::Selection::Iroh,
-            },
-            Command::ReadInstallations {
-                requests: Vec::new(),
-            },
-            Command::ListChannelPresets {
-                refresh_partners: false,
-            },
-            Command::ReadArtifact {
-                id: ArtifactId::new(),
-                revision: None,
-                session: None,
-            },
-            Command::SearchPluginValues(plugin::storage::Search {
-                terms: vec!["literal".into()],
-                query: None,
-                mode: plugin::storage::Mode::Keyword,
-                weights: [1, 1],
-                all: Vec::new(),
-                any: Vec::new(),
-                offset: 0,
-                limit: 1,
-            }),
-        ] {
-            assert_ne!(route(&command), Route::Read, "{command:?}");
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

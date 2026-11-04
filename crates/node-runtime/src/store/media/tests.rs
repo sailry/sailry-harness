@@ -57,88 +57,148 @@ fn fixture() -> (Provider, SessionConfig) {
 }
 
 #[test]
-fn plans_admitted_configuration() {
-    let (provider, config) = fixture();
-    let models = for_turn(Snapshot::new(), Some(&provider), &config);
-    assert_eq!(models.len(), 3);
-    for kind in [Kind::Vision, Kind::Image, Kind::Video] {
-        let plan = &models[&kind];
-        let model = plan.primary.as_ref().unwrap();
-        assert_eq!(model.provider.id, config.provider);
-        assert_eq!(model.model, config.model);
-        assert_eq!(model.provider.credential, config.credential);
-        assert_eq!(model.effort, Some(config.effort));
-        assert!(plan.fallback.is_none());
-    }
-    let mut changed = config.clone();
-    changed.model = "missing-model".into();
-    let models = for_turn(Snapshot::new(), Some(&provider), &changed);
-    assert_eq!(models.len(), 3);
-    assert!(models.values().all(|plan| {
-        plan.primary.as_ref().unwrap().model == "missing-model" && plan.fallback.is_none()
-    }));
-    assert!(for_turn(Snapshot::new(), None, &config).is_empty());
-}
-
-#[test]
-fn preserves_disabled_and_frozen_fallback() {
-    let (provider, config) = fixture();
-    let snapshot = [
-        (Kind::Image, None),
+fn preserves_storage_contracts() {
+    for (scenario, check) in [
         (
-            Kind::Vision,
-            Some(Model {
-                provider: provider.clone(),
-                model: config.model.clone(),
-                effort: None,
+            "plans_admitted_configuration",
+            (|scenario: &'static str| {
+                let (provider, config) = fixture();
+                let models = for_turn(Snapshot::new(), Some(&provider), &config);
+                assert_eq!(models.len(), 3, "{scenario}");
+                for kind in [Kind::Vision, Kind::Image, Kind::Video] {
+                    let plan = &models[&kind];
+                    let model = plan.primary.as_ref().unwrap();
+                    assert_eq!(model.provider.id, config.provider, "{scenario}");
+                    assert_eq!(model.model, config.model, "{scenario}");
+                    assert_eq!(model.provider.credential, config.credential, "{scenario}");
+                    assert_eq!(model.effort, Some(config.effort), "{scenario}");
+                    assert!(plan.fallback.is_none(), "{scenario}");
+                }
+                let mut changed = config.clone();
+                changed.model = "missing-model".into();
+                let models = for_turn(Snapshot::new(), Some(&provider), &changed);
+                assert_eq!(models.len(), 3, "{scenario}");
+                assert!(
+                    models.values().all(|plan| {
+                        plan.primary.as_ref().unwrap().model == "missing-model"
+                            && plan.fallback.is_none()
+                    }),
+                    "{scenario}"
+                );
+                assert!(
+                    for_turn(Snapshot::new(), None, &config).is_empty(),
+                    "{scenario}"
+                );
+            }) as fn(&'static str),
+        ),
+        (
+            "preserves_disabled_and_frozen_fallback",
+            (|scenario: &'static str| {
+                let (provider, config) = fixture();
+                let snapshot = [
+                    (Kind::Image, None),
+                    (
+                        Kind::Vision,
+                        Some(Model {
+                            provider: provider.clone(),
+                            model: config.model.clone(),
+                            effort: None,
+                        }),
+                    ),
+                ]
+                .into_iter()
+                .collect();
+                let models = for_turn(snapshot, Some(&provider), &config);
+                assert_eq!(models.len(), 2, "{scenario}");
+                assert!(!models.contains_key(&Kind::Image), "{scenario}");
+                let vision = &models[&Kind::Vision];
+                assert_eq!(
+                    vision.primary.as_ref().unwrap().provider.credential,
+                    config.credential,
+                    "{scenario}"
+                );
+                let fallback = vision.fallback.as_ref().unwrap();
+                assert_eq!(
+                    fallback.provider.credential, provider.credential,
+                    "{scenario}"
+                );
+                assert_ne!(
+                    fallback.provider.credential, config.credential,
+                    "{scenario}"
+                );
+                assert_eq!(fallback.effort, None, "{scenario}");
+                assert!(models[&Kind::Video].primary.is_some(), "{scenario}");
+                assert!(models[&Kind::Video].fallback.is_none(), "{scenario}");
             }),
         ),
-    ]
-    .into_iter()
-    .collect();
-    let models = for_turn(snapshot, Some(&provider), &config);
-    assert_eq!(models.len(), 2);
-    assert!(!models.contains_key(&Kind::Image));
-    let vision = &models[&Kind::Vision];
-    assert_eq!(
-        vision.primary.as_ref().unwrap().provider.credential,
-        config.credential
-    );
-    let fallback = vision.fallback.as_ref().unwrap();
-    assert_eq!(fallback.provider.credential, provider.credential);
-    assert_ne!(fallback.provider.credential, config.credential);
-    assert_eq!(fallback.effort, None);
-    assert!(models[&Kind::Video].primary.is_some());
-    assert!(models[&Kind::Video].fallback.is_none());
-}
-
-#[test]
-fn keeps_fallback_without_primary() {
-    let (provider, config) = fixture();
-    let models = for_turn(
-        [
-            (
-                Kind::Vision,
-                Some(Model {
-                    provider: provider.clone(),
-                    model: config.model.clone(),
-                    effort: None,
-                }),
-            ),
-            (Kind::Image, None),
-        ]
-        .into(),
-        None,
-        &config,
-    );
-    assert_eq!(models.len(), 1);
-    let plan = &models[&Kind::Vision];
-    assert!(plan.primary.is_none());
-    assert_eq!(
-        plan.fallback.as_ref().unwrap().provider.credential,
-        provider.credential
-    );
-    assert!(!models.contains_key(&Kind::Video));
+        (
+            "keeps_fallback_without_primary",
+            (|scenario: &'static str| {
+                let (provider, config) = fixture();
+                let models = for_turn(
+                    [
+                        (
+                            Kind::Vision,
+                            Some(Model {
+                                provider: provider.clone(),
+                                model: config.model.clone(),
+                                effort: None,
+                            }),
+                        ),
+                        (Kind::Image, None),
+                    ]
+                    .into(),
+                    None,
+                    &config,
+                );
+                assert_eq!(models.len(), 1, "{scenario}");
+                let plan = &models[&Kind::Vision];
+                assert!(plan.primary.is_none(), "{scenario}");
+                assert_eq!(
+                    plan.fallback.as_ref().unwrap().provider.credential,
+                    provider.credential,
+                    "{scenario}"
+                );
+                assert!(!models.contains_key(&Kind::Video), "{scenario}");
+            }),
+        ),
+        (
+            "keeps_runtime_effort_out_of_snapshots",
+            (|scenario: &'static str| {
+                let (provider, config) = fixture();
+                let model = for_turn(Snapshot::new(), Some(&provider), &config)
+                    .remove(&Kind::Image)
+                    .unwrap()
+                    .primary
+                    .unwrap();
+                let body = serde_json::to_value(&model).unwrap();
+                assert!(body.get("effort").is_none(), "{scenario}");
+                let restored: Model = serde_json::from_value(body).unwrap();
+                assert_eq!(restored.effort, None, "{scenario}");
+                assert_eq!(
+                    restored.provider.credential, config.credential,
+                    "{scenario}"
+                );
+                let snapshot: Snapshot =
+                    [(Kind::Image, Some(restored)), (Kind::Video, None)].into();
+                let body = serde_json::to_value(&snapshot).unwrap();
+                assert!(body["image"].get("effort").is_none(), "{scenario}");
+                assert!(body["image"].get("primary").is_none(), "{scenario}");
+                assert!(body["image"].get("fallback").is_none(), "{scenario}");
+                assert_eq!(body["video"], serde_json::Value::Null, "{scenario}");
+                let restored: Snapshot = serde_json::from_value(body).unwrap();
+                assert_eq!(
+                    restored[&Kind::Image].as_ref().unwrap().provider.credential,
+                    config.credential,
+                    "{scenario}"
+                );
+                assert!(restored[&Kind::Video].is_none(), "{scenario}");
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }
 
 #[tokio::test]
@@ -275,31 +335,4 @@ async fn preserves_settings_revisions() {
         ErrorCode::RevisionConflict
     );
     assert_eq!(read(&database.connection).await.unwrap(), saved);
-}
-
-#[test]
-fn keeps_runtime_effort_out_of_snapshots() {
-    let (provider, config) = fixture();
-    let model = for_turn(Snapshot::new(), Some(&provider), &config)
-        .remove(&Kind::Image)
-        .unwrap()
-        .primary
-        .unwrap();
-    let body = serde_json::to_value(&model).unwrap();
-    assert!(body.get("effort").is_none());
-    let restored: Model = serde_json::from_value(body).unwrap();
-    assert_eq!(restored.effort, None);
-    assert_eq!(restored.provider.credential, config.credential);
-    let snapshot: Snapshot = [(Kind::Image, Some(restored)), (Kind::Video, None)].into();
-    let body = serde_json::to_value(&snapshot).unwrap();
-    assert!(body["image"].get("effort").is_none());
-    assert!(body["image"].get("primary").is_none());
-    assert!(body["image"].get("fallback").is_none());
-    assert_eq!(body["video"], serde_json::Value::Null);
-    let restored: Snapshot = serde_json::from_value(body).unwrap();
-    assert_eq!(
-        restored[&Kind::Image].as_ref().unwrap().provider.credential,
-        config.credential
-    );
-    assert!(restored[&Kind::Video].is_none());
 }
