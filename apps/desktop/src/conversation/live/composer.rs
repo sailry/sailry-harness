@@ -214,6 +214,21 @@ impl View {
                     cx.propagate();
                 }
             })
+            // Tab queues the draft after the current turn instead of joining it.
+            .on_action(cx.listener(|view, _: &IndentInline, window, cx| {
+                if view.readonly()
+                    || !view.has_input(cx)
+                    || view.input.update(cx, |input, cx| {
+                        input.marked_text_range(window, cx).is_some()
+                    })
+                {
+                    cx.propagate();
+                    return;
+                }
+                view.send_draft(Delivery::Queue, window, cx);
+                cx.stop_propagation();
+                window.prevent_default();
+            }))
             .child(
                 gpui_kit::component::input::Textarea::new(&self.input)
                     .appearance(false)
