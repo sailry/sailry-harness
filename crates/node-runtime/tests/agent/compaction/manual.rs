@@ -410,17 +410,17 @@ async fn formats_historical_attachments() {
 }
 
 #[tokio::test]
-async fn handles_empty_and_small_context() {
+async fn handles_short_and_verbatim_context() {
     for remote in [false, true] {
         let server = Server::summary(100).await;
-        let fixture = fixture(remote, &server).await;
+        let mut fixture = fixture(remote, &server).await;
         let (_, empty) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, empty.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed);
-        assert_eq!(summaries(&page), 1);
+        assert_eq!(page.runs[0].status, Status::Completed, "empty");
+        assert_eq!(summaries(&page), 1, "empty");
         {
             let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 1);
+            assert_eq!(requests.len(), 1, "empty");
             prompt(&requests[0]);
         }
         let (_, _, before) = submit(&fixture.client, fixture.session.id, "Small".into()).await;
@@ -430,22 +430,65 @@ async fn handles_empty_and_small_context() {
             compacted
                 .runs
                 .iter()
-                .all(|run| run.status == Status::Completed)
+                .all(|run| run.status == Status::Completed),
+            "small"
         );
         assert_eq!(
             &compacted.entries[..before.entries.len()],
-            before.entries.as_slice()
+            before.entries.as_slice(),
+            "small"
         );
-        assert_eq!(summaries(&compacted), 2);
-        assert_eq!(server.requests.lock().unwrap().len(), 3);
+        assert_eq!(summaries(&compacted), 2, "small");
+        assert_eq!(server.requests.lock().unwrap().len(), 3, "small");
         let (_, repeated) = compact(&fixture.client, fixture.session.id, 1).await;
         let repeated = finished(&fixture.client, fixture.session.id, repeated.id).await;
         assert_eq!(
             &repeated.entries[..compacted.entries.len()],
-            compacted.entries.as_slice()
+            compacted.entries.as_slice(),
+            "repeated"
         );
-        assert_eq!(summaries(&repeated), 3);
-        assert_eq!(server.requests.lock().unwrap().len(), 4);
+        assert_eq!(summaries(&repeated), 3, "repeated");
+        assert_eq!(server.requests.lock().unwrap().len(), 4, "repeated");
+
+        let Output::Session(session) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::CreateSession {
+                project: fixture.session.project,
+                worktree: Some(fixture.session.worktree),
+                config: Some(fixture.session.config.clone()),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let original = "Retain exact constraints 中文 🙂 ".repeat(200);
+        let (_, _, before) = submit(&fixture.client, fixture.session.id, original.clone()).await;
+        assert!(original.len() > 1_024, "verbatim");
+        let count = server.requests.lock().unwrap().len();
+        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            after.runs.last().unwrap().status,
+            Status::Completed,
+            "verbatim"
+        );
+        assert_eq!(
+            &after.entries[..before.entries.len()],
+            before.entries.as_slice(),
+            "verbatim"
+        );
+        assert_eq!(summaries(&after), 1, "verbatim");
+        assert_eq!(server.requests.lock().unwrap().len(), count + 1, "verbatim");
+        assert!(
+            after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| { matches!(part, Part::Text(text) if text == &original) }),
+            "verbatim"
+        );
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -514,36 +557,6 @@ async fn accepts_a_short_two_turn_handoff() {
         }
         fixture.client.execute(request).await.unwrap();
         assert_eq!(server.requests.lock().unwrap().len(), count + 1);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn preserves_verbatim_only_history() {
-    for remote in [false, true] {
-        let server = Server::summary(100).await;
-        let fixture = fixture(remote, &server).await;
-        let original = "Retain exact constraints 中文 🙂 ".repeat(200);
-        let (_, _, before) = submit(&fixture.client, fixture.session.id, original.clone()).await;
-        assert!(original.len() > 1_024);
-        let count = server.requests.lock().unwrap().len();
-        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
-        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(after.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(
-            &after.entries[..before.entries.len()],
-            before.entries.as_slice()
-        );
-        assert_eq!(summaries(&after), 1);
-        assert_eq!(server.requests.lock().unwrap().len(), count + 1);
-        assert!(
-            after
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| { matches!(part, Part::Text(text) if text == &original) })
-        );
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

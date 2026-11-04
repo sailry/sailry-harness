@@ -45,22 +45,16 @@ fn command(provider: &Provider, options: Option<Options>) -> Command {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn discovers_with_unsaved_options() {
+async fn draft_options() {
     for remote in [false, true] {
+        let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
+        let fixture = Fixture::empty(remote, &server).await;
         for (authentication, api) in [
             (Authentication::ChatGpt, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::ChatCompletions),
         ] {
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                if request.path.starts_with("/models") {
-                    Reply::Json(catalog::models(authentication))
-                } else {
-                    standard(request)
-                }
-            })
-            .await;
-            let fixture = Fixture::empty(remote, &server).await;
+            let case = format!("{remote:?} {authentication:?} {api:?}");
             let provider = execution::signed_in(&fixture, authentication, api).await;
             let draft = options(authentication, "draft");
             let Output::DiscoveredModels(models) = fixture
@@ -73,42 +67,39 @@ async fn discovers_with_unsaved_options() {
                 .await
                 .unwrap()
             else {
-                panic!("catalog expected")
+                panic!("{case}: catalog expected")
             };
-            assert_eq!(models.models.len(), 2);
+            assert_eq!(models.models.len(), 2, "{case}");
             let Output::Providers(saved) = fixture
                 .client
                 .execute(fixture.client.prepare(Command::ListProviders))
                 .await
                 .unwrap()
             else {
-                panic!("providers expected")
+                panic!("{case}: providers expected")
             };
             assert_eq!(
                 saved.iter().find(|value| value.id == provider.id),
-                Some(&provider)
+                Some(&provider),
+                "{case}"
             );
             {
                 let requests = server.requests.lock().unwrap();
                 let request = requests.last().unwrap();
                 headers(request, &draft);
                 if authentication == Authentication::ChatGpt {
-                    assert_eq!(request.path, "/models");
-                    assert!(!request.headers.contains_key("originator"));
-                    assert!(!request.headers.contains_key("chatgpt-account-id"));
+                    assert_eq!(request.path, "/models", "{case}");
+                    assert!(!request.headers.contains_key("originator"), "{case}");
+                    assert!(
+                        !request.headers.contains_key("chatgpt-account-id"),
+                        "{case}"
+                    );
                 }
             }
-            fixture.close().await;
         }
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn rejects_invalid_options_without_http_or_writes() {
-    for remote in [false, true] {
         for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
-            let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-            let fixture = Fixture::empty(remote, &server).await;
+            let case = format!("{remote:?} {authentication:?}");
+            let previous_requests = server.requests.lock().unwrap().len();
             let provider = provider(&fixture.client, authentication).await;
             let mut invalid = options(authentication, "invalid");
             match &mut invalid {
@@ -145,25 +136,30 @@ async fn rejects_invalid_options_without_http_or_writes() {
                         .execute(fixture.client.prepare(command))
                         .await
                         .unwrap_err();
-                    assert_eq!(error.code, ErrorCode::InvalidRequest);
+                    assert_eq!(error.code, ErrorCode::InvalidRequest, "{case}");
                     no_secrets(&error);
                 }
             }
-            assert!(server.requests.lock().unwrap().is_empty());
+            assert_eq!(
+                server.requests.lock().unwrap().len(),
+                previous_requests,
+                "{case}"
+            );
             let Output::Providers(saved) = fixture
                 .client
                 .execute(fixture.client.prepare(Command::ListProviders))
                 .await
                 .unwrap()
             else {
-                panic!("providers expected")
+                panic!("{case}: providers expected")
             };
             assert_eq!(
                 saved.iter().find(|value| value.id == provider.id),
-                Some(&provider)
+                Some(&provider),
+                "{case}"
             );
-            fixture.close().await;
         }
+        fixture.close().await;
     }
 }
 

@@ -56,6 +56,7 @@ struct Fixture {
     client: Client,
     session: Session,
     provider: Provider,
+    cases: usize,
 }
 
 impl Fixture {
@@ -97,10 +98,30 @@ impl Fixture {
         } else {
             node.local()
         });
+        let (session, provider) = Self::configure(&client, &root, api, endpoint, bundled).await;
+        Self {
+            directory,
+            root,
+            node,
+            controller,
+            client,
+            session,
+            provider,
+            cases: 0,
+        }
+    }
+
+    async fn configure(
+        client: &Client,
+        root: &std::path::Path,
+        api: ModelApi,
+        endpoint: &str,
+        bundled: bool,
+    ) -> (Session, Provider) {
         let (mut session, mut provider) = if bundled {
-            configured(&client, endpoint, &root).await
+            configured(client, endpoint, root).await
         } else {
-            configured_session(&client, endpoint, &root).await
+            configured_session(client, endpoint, root).await
         };
         provider.api = api;
         provider.options = cloud::options(api);
@@ -127,7 +148,7 @@ impl Fixture {
         });
         provider.default_model = "fixture-a".into();
         let Output::Provider(provider) = execute(
-            &client,
+            client,
             Command::SaveProvider {
                 expected_revision: provider.revision,
                 provider,
@@ -140,7 +161,7 @@ impl Fixture {
         };
         session.config.credential = provider.credential.clone();
         let Output::Session(session) = execute(
-            &client,
+            client,
             Command::SetSessionConfig {
                 session: session.id,
                 expected_revision: session.revision,
@@ -151,15 +172,15 @@ impl Fixture {
         else {
             panic!("session expected")
         };
-        Self {
-            directory,
-            root,
-            node,
-            controller,
-            client,
-            session,
-            provider,
-        }
+        (session, provider)
+    }
+
+    async fn select(&mut self, case: &str, api: ModelApi, endpoint: &str) {
+        self.cases += 1;
+        self.root = self.directory.path().join(format!("{case}-{}", self.cases));
+        std::fs::create_dir(&self.root).unwrap();
+        (self.session, self.provider) =
+            Self::configure(&self.client, &self.root, api, endpoint, false).await;
     }
 
     async fn submit(&self, message: &str) -> TurnId {
@@ -477,12 +498,22 @@ async fn executes_tools_with_history() {
 
 #[tokio::test]
 async fn bounds_transient_failure_retries() {
-    for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
-        for remote in [false, true] {
+    for remote in [false, true] {
+        let mut fixture = Fixture::empty(remote, ModelApi::Responses, "http://127.0.0.1:9").await;
+        for (api, stream_retries) in [
+            (ModelApi::Anthropic, None),
+            (ModelApi::Gemini, None),
+            (ModelApi::DeepSeek, None),
+            (ModelApi::AzureOpenAi, Some(5)),
+            (ModelApi::AzureAi, Some(5)),
+        ] {
             let server = Server::start(api, Reply::Failure).await;
-            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
+            fixture
+                .select("transient-failure", api, &server.endpoint)
+                .await;
             let mut provider = fixture.provider.clone();
             provider.request_max_retries = None;
+            provider.stream_max_retries = stream_retries;
             execute(
                 &fixture.client,
                 Command::PutProvider {
@@ -502,14 +533,21 @@ async fn bounds_transient_failure_retries() {
             assert_eq!(
                 page.runs.last().unwrap().status,
                 Status::Failed,
-                "{:?}",
+                "{api:?}, remote={remote}: {:?}",
                 page.runs
             );
-            assert_eq!(server.requests.lock().unwrap().len(), 6);
-            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
+            assert_eq!(
+                server.requests.lock().unwrap().len(),
+                6,
+                "{api:?}, remote={remote}"
+            );
+            assert!(
+                !serde_json::to_string(&page).unwrap().contains(server::KEY),
+                "{api:?}, remote={remote}"
+            );
         }
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }
 

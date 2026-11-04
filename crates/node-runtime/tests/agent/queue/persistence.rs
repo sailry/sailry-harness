@@ -1,8 +1,9 @@
 use super::*;
 
 #[tokio::test]
-async fn restart_pauses_idle_input() {
+async fn restart_preserves_idle_and_timestamps() {
     for remote in [false, true] {
+        let idle = format!("{remote:?} idle input");
         let fixture = Fixture::start(remote, false).await;
         let input = "Preserve queued input 中文 🙂\n".repeat(100);
         let Output::QueuedTurn(turn) = fixture
@@ -19,14 +20,14 @@ async fn restart_pauses_idle_input() {
         };
         let queued = read(&fixture.client, turn.id).await;
         let before = fixture.queue().await;
-        assert!(!before.paused);
-        assert!(!before.items[0].ready);
+        assert!(!before.paused, "{idle}");
+        assert!(!before.items[0].ready, "{idle}");
         let fixture = fixture.restart().await;
         let recovered = fixture.queue().await;
-        assert!(recovered.paused);
-        assert_eq!(recovered.revision, before.revision + 1);
-        assert_eq!(recovered.items, before.items);
-        assert_eq!(read(&fixture.client, turn.id).await, queued);
+        assert!(recovered.paused, "{idle}");
+        assert_eq!(recovered.revision, before.revision + 1, "{idle}");
+        assert_eq!(recovered.items, before.items, "{idle}");
+        assert_eq!(read(&fixture.client, turn.id).await, queued, "{idle}");
         fixture
             .client
             .execute(
@@ -36,18 +37,53 @@ async fn restart_pauses_idle_input() {
             )
             .await
             .unwrap();
-        assert!(fixture.queue().await.paused);
-        assert!(fixture.server.requests.lock().unwrap().is_empty());
+        assert!(fixture.queue().await.paused, "{idle}");
+        assert!(fixture.server.requests.lock().unwrap().is_empty(), "{idle}");
         fixture.push("Resume with fresh input").await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert!(!page.queue.paused);
-        assert!(page.runs.iter().all(|run| run.status == Status::Completed));
+        assert!(!page.queue.paused, "{idle}");
+        assert!(
+            page.runs.iter().all(|run| run.status == Status::Completed),
+            "{idle}"
+        );
         {
             let requests = fixture.server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 2);
-            assert_eq!(prompt(&requests[0]), "Resume with fresh input");
-            assert_eq!(prompt(&requests[1]), input);
+            assert_eq!(requests.len(), 2, "{idle}");
+            assert_eq!(prompt(&requests[0]), "Resume with fresh input", "{idle}");
+            assert_eq!(prompt(&requests[1]), input, "{idle}");
         }
+        let timing = format!("{remote:?} execution timestamps");
+        fixture.pause(true).await;
+        let timed = fixture.enqueue("Timed fixture").await;
+        let page = history(&fixture.client, fixture.session.id).await;
+        let queued = page.runs.iter().find(|run| run.turn == timed.id).unwrap();
+        assert_eq!(queued.started_ms, None, "{timing}");
+        assert_eq!(queued.finished_ms, None, "{timing}");
+        let before = chrono::Utc::now().timestamp_millis();
+        fixture.pause(false).await;
+        let page = finished(&fixture.client, fixture.session.id, timed.id).await;
+        let completed = page
+            .runs
+            .iter()
+            .find(|run| run.turn == timed.id)
+            .unwrap()
+            .clone();
+        assert!(completed.started_ms.unwrap() >= before, "{timing}");
+        assert!(
+            completed.finished_ms.unwrap() >= completed.started_ms.unwrap(),
+            "{timing}"
+        );
+        let fixture = fixture.restart().await;
+        let restored = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(
+            restored
+                .runs
+                .iter()
+                .find(|run| run.turn == timed.id)
+                .unwrap(),
+            &completed,
+            "{timing}"
+        );
         fixture.close().await;
     }
 }
@@ -242,41 +278,6 @@ async fn fresh_submission_resumes_active_queue() {
                 1
             );
         }
-        fixture.close().await;
-    }
-}
-
-#[tokio::test]
-async fn restores_execution_timestamps() {
-    for remote in [false, true] {
-        let fixture = Fixture::start(remote, false).await;
-        fixture.pause(true).await;
-        let turn = fixture.enqueue("Timed fixture").await;
-        let page = history(&fixture.client, fixture.session.id).await;
-        let queued = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
-        assert_eq!(queued.started_ms, None);
-        assert_eq!(queued.finished_ms, None);
-        let before = chrono::Utc::now().timestamp_millis();
-        fixture.pause(false).await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let completed = page
-            .runs
-            .iter()
-            .find(|run| run.turn == turn.id)
-            .unwrap()
-            .clone();
-        assert!(completed.started_ms.unwrap() >= before);
-        assert!(completed.finished_ms.unwrap() >= completed.started_ms.unwrap());
-        let fixture = fixture.restart().await;
-        let restored = history(&fixture.client, fixture.session.id).await;
-        assert_eq!(
-            restored
-                .runs
-                .iter()
-                .find(|run| run.turn == turn.id)
-                .unwrap(),
-            &completed
-        );
         fixture.close().await;
     }
 }

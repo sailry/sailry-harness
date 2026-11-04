@@ -10,20 +10,22 @@ use std::collections::HashMap;
 const LIMIT: usize = 1024;
 
 async fn response(
+    client: &reqwest::Client,
+    case_name: &str,
     head: String,
     body: Vec<u8>,
     hold: bool,
 ) -> Result<StreamableHttpPostResponse, StreamableHttpError<reqwest::Error>> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let uri = format!("http://{}/mcp", listener.local_addr().unwrap());
+    let peer_case = case_name.to_owned();
     let peer = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut request = Vec::new();
         let mut buffer = [0; 8192];
         loop {
             let count = stream.read(&mut buffer).await.unwrap();
-            assert!(count > 0);
+            assert!(count > 0, "{peer_case}");
             request.extend_from_slice(&buffer[..count]);
             if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
                 let length: usize = std::str::from_utf8(&request[..end])
@@ -45,12 +47,16 @@ async fn response(
         stream.write_all(&response).await.unwrap();
         if hold {
             // No EOF or terminal chunk: the client must reject and close first.
-            assert_eq!(stream.read(&mut buffer).await.unwrap_or(0), 0);
+            assert_eq!(
+                stream.read(&mut buffer).await.unwrap_or(0),
+                0,
+                "{peer_case}"
+            );
         }
     });
     let result = tokio::time::timeout(
         Duration::from_secs(3),
-        reqwest::Client::new().post_message_with_max_sse_event_size(
+        client.post_message_with_max_sse_event_size(
             uri.into(),
             ClientJsonRpcMessage::request(
                 ClientRequest::PingRequest(PingRequest::default()),
@@ -63,10 +69,12 @@ async fn response(
         ),
     )
     .await
-    .expect("bounded response must finish before the server closes");
+    .unwrap_or_else(|_| {
+        panic!("{case_name}: bounded response must finish before the server closes")
+    });
     tokio::time::timeout(Duration::from_secs(3), peer)
         .await
-        .expect("response connection must close")
+        .unwrap_or_else(|_| panic!("{case_name}: response connection must close"))
         .unwrap();
     result
 }
@@ -78,134 +86,169 @@ fn head(status: u16, content_type: &str, framing: &str) -> String {
 }
 
 #[tokio::test]
-async fn rejects_oversized_bodies() {
-    for (status, content_type) in [
-        (200, "application/json"),
-        (400, "application/json"),
-        (500, "text/plain"),
-    ] {
-        for chunked in [false, true] {
-            let mut framing = if chunked {
-                "Transfer-Encoding: chunked".into()
-            } else {
-                format!("Content-Length: {}", LIMIT + 1)
-            };
-            if status == 500 {
-                framing.push_str("\r\nRetry-After: 17");
-            }
-            let body = if chunked {
-                let mut payload = b"private-http-body".to_vec();
-                payload.resize(LIMIT + 1, b'x');
-                format!(
-                    "{:x}\r\n{}\r\n",
-                    LIMIT + 1,
-                    String::from_utf8(payload).unwrap()
-                )
-                .into_bytes()
-            } else {
-                Vec::new()
-            };
-            let error = response(head(status, content_type, &framing), body, true)
-                .await
-                .unwrap_err();
-            if status == 500 {
-                let StreamableHttpError::HttpStatus(error) = error else {
-                    panic!("typed HTTP server failure expected");
-                };
-                assert_eq!(error.status, 500);
-                assert_eq!(error.retry_after.as_deref(), Some("17"));
-                assert_eq!(error.to_string(), "HTTP 500");
-                assert!(!format!("{error:?}").contains("private-http-body"));
-            } else {
-                assert!(matches!(
-                    error,
-                    StreamableHttpError::UnexpectedServerResponse(_)
-                ));
-                assert!(error.to_string().contains("maximum message size"));
-            }
-        }
-    }
-}
-
-#[tokio::test]
-async fn accepts_limit_sized_messages() {
-    for (status, value) in [
-        (200, json!({"jsonrpc":"2.0", "id":1, "result":{}})),
-        (
-            400,
-            json!({"jsonrpc":"2.0", "id":1, "error":{"code":-32600, "message":"完整结果 🙂"}}),
-        ),
-    ] {
-        let mut body = serde_json::to_vec(&value).unwrap();
-        body.resize(LIMIT, b' ');
-        for chunked in [false, true] {
-            let (framing, body) = if chunked {
-                let mut framed = Vec::new();
-                for chunk in body.chunks(7) {
-                    framed.extend_from_slice(format!("{:x}\r\n", chunk.len()).as_bytes());
-                    framed.extend_from_slice(chunk);
-                    framed.extend_from_slice(b"\r\n");
+async fn bounds_json_errors_and_stream_events() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let client = reqwest::Client::new();
+    for case_name in ["oversized", "at-limit", "truncated", "events"] {
+        match case_name {
+            "oversized" => {
+                for (status, content_type) in [
+                    (200, "application/json"),
+                    (400, "application/json"),
+                    (500, "text/plain"),
+                ] {
+                    for chunked in [false, true] {
+                        let mut framing = if chunked {
+                            "Transfer-Encoding: chunked".into()
+                        } else {
+                            format!("Content-Length: {}", LIMIT + 1)
+                        };
+                        if status == 500 {
+                            framing.push_str("\r\nRetry-After: 17");
+                        }
+                        let body = if chunked {
+                            let mut payload = b"private-http-body".to_vec();
+                            payload.resize(LIMIT + 1, b'x');
+                            format!(
+                                "{:x}\r\n{}\r\n",
+                                LIMIT + 1,
+                                String::from_utf8(payload).unwrap()
+                            )
+                            .into_bytes()
+                        } else {
+                            Vec::new()
+                        };
+                        let error = response(
+                            &client,
+                            case_name,
+                            head(status, content_type, &framing),
+                            body,
+                            true,
+                        )
+                        .await
+                        .unwrap_err();
+                        if status == 500 {
+                            let StreamableHttpError::HttpStatus(error) = error else {
+                                panic!("typed HTTP server failure expected");
+                            };
+                            assert_eq!(error.status, 500, "{case_name}");
+                            assert_eq!(error.retry_after.as_deref(), Some("17"), "{case_name}");
+                            assert_eq!(error.to_string(), "HTTP 500", "{case_name}");
+                            assert!(
+                                !format!("{error:?}").contains("private-http-body"),
+                                "{case_name}"
+                            );
+                        } else {
+                            assert!(
+                                matches!(error, StreamableHttpError::UnexpectedServerResponse(_)),
+                                "{case_name}"
+                            );
+                            assert!(
+                                error.to_string().contains("maximum message size"),
+                                "{case_name}"
+                            );
+                        }
+                    }
                 }
-                framed.extend_from_slice(b"0\r\n\r\n");
-                ("Transfer-Encoding: chunked".into(), framed)
-            } else {
-                (format!("Content-Length: {LIMIT}"), body.clone())
-            };
-            let result = response(head(status, "application/json", &framing), body, false)
+            }
+            "at-limit" => {
+                for (status, value) in [
+                    (200, json!({"jsonrpc":"2.0", "id":1, "result":{}})),
+                    (
+                        400,
+                        json!({"jsonrpc":"2.0", "id":1, "error":{"code":-32600, "message":"完整结果 🙂"}}),
+                    ),
+                ] {
+                    let mut body = serde_json::to_vec(&value).unwrap();
+                    body.resize(LIMIT, b' ');
+                    for chunked in [false, true] {
+                        let (framing, body) = if chunked {
+                            let mut framed = Vec::new();
+                            for chunk in body.chunks(7) {
+                                framed
+                                    .extend_from_slice(format!("{:x}\r\n", chunk.len()).as_bytes());
+                                framed.extend_from_slice(chunk);
+                                framed.extend_from_slice(b"\r\n");
+                            }
+                            framed.extend_from_slice(b"0\r\n\r\n");
+                            ("Transfer-Encoding: chunked".into(), framed)
+                        } else {
+                            (format!("Content-Length: {LIMIT}"), body.clone())
+                        };
+                        let result = response(
+                            &client,
+                            case_name,
+                            head(status, "application/json", &framing),
+                            body,
+                            false,
+                        )
+                        .await
+                        .unwrap();
+                        let StreamableHttpPostResponse::Json(message, _) = result else {
+                            panic!("complete JSON-RPC response expected");
+                        };
+                        assert_eq!(serde_json::to_value(message).unwrap(), value, "{case_name}");
+                    }
+                }
+            }
+            "truncated" => {
+                for status in [200, 400, 500] {
+                    let error = response(
+                        &client,
+                        case_name,
+                        head(status, "application/json", "Content-Length: 100"),
+                        b"{\"private-http-body\":".to_vec(),
+                        false,
+                    )
+                    .await
+                    .unwrap_err();
+                    if status == 500 {
+                        let StreamableHttpError::HttpStatus(error) = error else {
+                            panic!("typed HTTP server failure expected");
+                        };
+                        assert_eq!(error.status, 500, "{case_name}");
+                        assert_eq!(error.retry_after, None, "{case_name}");
+                        assert_eq!(error.to_string(), "HTTP 500", "{case_name}");
+                        assert!(
+                            !format!("{error:?}").contains("private-http-body"),
+                            "{case_name}"
+                        );
+                    } else {
+                        assert!(
+                            matches!(error, StreamableHttpError::Client(_)),
+                            "{case_name}"
+                        );
+                    }
+                }
+            }
+            "events" => {
+                use futures::StreamExt;
+                let event = format!("data: {}\n\n", "x".repeat(LIMIT - 20));
+                let body = event.repeat(2).into_bytes();
+                let framing = format!("Content-Length: {}", body.len());
+                let StreamableHttpPostResponse::Sse(mut stream, _) = response(
+                    &client,
+                    case_name,
+                    head(200, "text/event-stream", &framing),
+                    body,
+                    false,
+                )
                 .await
-                .unwrap();
-            let StreamableHttpPostResponse::Json(message, _) = result else {
-                panic!("complete JSON-RPC response expected");
-            };
-            assert_eq!(serde_json::to_value(message).unwrap(), value);
+                .unwrap() else {
+                    panic!("SSE stream expected");
+                };
+                for _ in 0..2 {
+                    assert_eq!(
+                        stream.next().await.unwrap().unwrap().data.unwrap().len(),
+                        LIMIT - 20,
+                        "{case_name}"
+                    );
+                }
+                assert!(stream.next().await.is_none(), "{case_name}");
+            }
+            _ => unreachable!(),
         }
     }
-}
-
-#[tokio::test]
-async fn reports_truncated_bodies() {
-    for status in [200, 400, 500] {
-        let error = response(
-            head(status, "application/json", "Content-Length: 100"),
-            b"{\"private-http-body\":".to_vec(),
-            false,
-        )
-        .await
-        .unwrap_err();
-        if status == 500 {
-            let StreamableHttpError::HttpStatus(error) = error else {
-                panic!("typed HTTP server failure expected");
-            };
-            assert_eq!(error.status, 500);
-            assert_eq!(error.retry_after, None);
-            assert_eq!(error.to_string(), "HTTP 500");
-            assert!(!format!("{error:?}").contains("private-http-body"));
-        } else {
-            assert!(matches!(error, StreamableHttpError::Client(_)));
-        }
-    }
-}
-
-#[tokio::test]
-async fn preserves_per_event_stream_limits() {
-    use futures::StreamExt;
-    let event = format!("data: {}\n\n", "x".repeat(LIMIT - 20));
-    let body = event.repeat(2).into_bytes();
-    let framing = format!("Content-Length: {}", body.len());
-    let StreamableHttpPostResponse::Sse(mut stream, _) =
-        response(head(200, "text/event-stream", &framing), body, false)
-            .await
-            .unwrap()
-    else {
-        panic!("SSE stream expected");
-    };
-    for _ in 0..2 {
-        assert_eq!(
-            stream.next().await.unwrap().unwrap().data.unwrap().len(),
-            LIMIT - 20
-        );
-    }
-    assert!(stream.next().await.is_none());
 }
 
 pub(super) async fn oversized(stream: &mut TcpStream, chunked: bool) -> std::io::Result<()> {
@@ -236,6 +279,8 @@ pub(super) async fn oversized(stream: &mut TcpStream, chunked: bool) -> std::io:
 #[tokio::test]
 async fn isolates_failed_discovery() {
     for remote in [false, true] {
+        let mut shared = None;
+        let mut peers = Vec::new();
         for method in ["tools/list", "tools/call"] {
             for chunked in [false, true] {
                 let http = Http::start(Reply::Oversized { method, chunked }).await;
@@ -245,13 +290,14 @@ async fn isolates_failed_discovery() {
                     vec![(alias("remote", "write"), json!({"value":"once"}))]
                 };
                 let model = Server::tools(calls).await;
-                let fixture = process::Fixture::packages(remote, &model, &[]).await;
+                let case_name = format!("bounded-{method}-{chunked}").replace('/', "-");
+                let fixture = case_fixture(&mut shared, remote, &model, &case_name).await;
                 package(
                     &fixture.root,
                     json!({"remote":{"type":"streamable-http", "url":http.endpoint}}),
                     "bounded",
                 );
-                install(&fixture, 0).await;
+                install_current(fixture).await;
 
                 let (request, turn) = submit(&fixture, false).await;
                 if method == "tools/call" {
@@ -260,36 +306,42 @@ async fn isolates_failed_discovery() {
                     process::decide(&fixture.client, &approval, Decision::Approve).await;
                 }
                 let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-                assert_eq!(page.runs[0].status, Status::Completed);
+                assert_eq!(page.runs[0].status, Status::Completed, "{case_name}");
                 let output = results(&fixture.client, &page).await;
                 if method == "tools/list" {
                     assert!(
                         output[0]["content"]
                             .as_str()
                             .unwrap()
-                            .contains("Complete skill beside MCP")
+                            .contains("Complete skill beside MCP"),
+                        "{case_name}"
                     );
                 } else {
-                    assert_eq!(output[0]["data"]["code"], "outcome_unknown");
+                    assert_eq!(output[0]["data"]["code"], "outcome_unknown", "{case_name}");
                 }
                 fixture.client.execute(request).await.unwrap();
-                assert_eq!(http.count("initialize"), 1);
+                assert_eq!(http.count("initialize"), 1, "{case_name}");
                 assert_eq!(
                     http.count("tools/list"),
-                    if method == "tools/list" { 1 } else { 2 }
+                    if method == "tools/list" { 1 } else { 2 },
+                    "{case_name}"
                 );
                 assert_eq!(
                     http.count("tools/call"),
-                    usize::from(method == "tools/call")
+                    usize::from(method == "tools/call"),
+                    "{case_name}"
                 );
                 assert_eq!(
                     http.effects.load(Ordering::SeqCst),
-                    usize::from(method == "tools/call")
+                    usize::from(method == "tools/call"),
+                    "{case_name}"
                 );
-                assert_eq!(http.deletes(), 1);
-                fixture.controller.close().await.unwrap();
-                fixture.node.shutdown().await.unwrap();
+                assert_eq!(http.deletes(), 1, "{case_name}");
+                peers.push(http);
             }
         }
+        let fixture = shared.unwrap();
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }

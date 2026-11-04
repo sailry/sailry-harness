@@ -1,146 +1,154 @@
 use super::*;
 
-#[tokio::test]
-async fn requests_encrypted_reasoning_by_capability() {
-    for remote in [false, true] {
-        for (known, catalog, effort, model, include) in [
-            (Some(false), false, Effort::Default, "gpt-6-fixture", false),
-            (None, false, Effort::Default, "gpt-4o", false),
-            (None, false, Effort::High, "gpt-6-fixture", true),
-            (None, false, Effort::High, "unknown-fixture", false),
-            (
-                Some(true),
-                true,
-                Effort::Disabled,
-                "reasoning-fixture",
-                true,
-            ),
-            (None, true, Effort::Disabled, "reasoning-fixture", true),
-        ] {
-            let server = Server::start(ModelApi::Responses, Reply::Text).await;
-            let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-            let mut provider = current.provider.clone();
-            let model = model.to_owned();
-            provider.models[0].id = model.clone();
-            provider.default_model = model.clone();
-            provider.models[0].reasoning = catalog;
-            provider.models[0].capabilities = known.map(|reasoning| {
-                serde_json::from_value(serde_json::json!({"reasoning":reasoning})).unwrap()
-            });
-            provider.models[0].efforts = vec![effort];
-            provider.models[0].default_effort = effort;
-            if known.is_none() && !catalog {
-                // An automatically selected model has no advertised metadata.
-                provider.models.clear();
-            }
-            let Output::Provider(_) = execute(
-                &current.client,
-                Command::PutProvider {
-                    expected_revision: provider.revision,
-                    provider,
-                },
+async fn requests_encrypted_reasoning_by_capability(
+    fixture: &mut Fixture,
+    remote: bool,
+    case_name: &str,
+) {
+    for (known, catalog, effort, model, include) in [
+        (Some(false), false, Effort::Default, "gpt-6-fixture", false),
+        (None, false, Effort::Default, "gpt-4o", false),
+        (None, false, Effort::High, "gpt-6-fixture", true),
+        (None, false, Effort::High, "unknown-fixture", false),
+        (
+            Some(true),
+            true,
+            Effort::Disabled,
+            "reasoning-fixture",
+            true,
+        ),
+        (None, true, Effort::Disabled, "reasoning-fixture", true),
+    ] {
+        let server = Server::start(ModelApi::Responses, Reply::Text).await;
+        fixture
+            .select(
+                "requests_encrypted_reasoning_by_capability",
+                ModelApi::Responses,
+                &server.endpoint,
             )
-            .await
-            else {
-                panic!("provider expected")
-            };
-            let mut config = current.session.config.clone();
-            config.model = model;
-            config.effort = effort;
-            let Output::Session(session) = execute(
-                &current.client,
-                Command::SetSessionConfig {
-                    session: current.session.id,
-                    expected_revision: current.session.revision,
-                    config,
-                },
-            )
-            .await
-            else {
-                panic!("session expected")
-            };
-            current.session = session;
-            let turn = current.submit("Use the model capabilities").await;
-            let page = finished(&current.client, current.session.id, turn).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
+            .await;
+        let mut provider = fixture.provider.clone();
+        let model = model.to_owned();
+        provider.models[0].id = model.clone();
+        provider.default_model = model.clone();
+        provider.models[0].reasoning = catalog;
+        provider.models[0].capabilities = known.map(|reasoning| {
+            serde_json::from_value(serde_json::json!({"reasoning":reasoning})).unwrap()
+        });
+        provider.models[0].efforts = vec![effort];
+        provider.models[0].default_effort = effort;
+        if known.is_none() && !catalog {
+            // An automatically selected model has no advertised metadata.
+            provider.models.clear();
+        }
+        let Output::Provider(_) = execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        let mut config = fixture.session.config.clone();
+        config.model = model;
+        config.effort = effort;
+        let Output::Session(session) = execute(
+            &fixture.client,
+            Command::SetSessionConfig {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                config,
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let turn = fixture.submit("Use the model capabilities").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{case_name}: {}",
+            format_args!(
                 "remote={remote}, known={known:?}, effort={effort:?}: {:?}",
                 page.runs
-            );
-            {
-                let requests = server.requests.lock().unwrap();
-                assert_eq!(requests.len(), 1);
-                let body = &requests[0].body;
-                if include {
-                    assert_eq!(
-                        body["include"],
-                        serde_json::json!(["reasoning.encrypted_content"])
-                    );
-                } else {
-                    assert!(body.get("include").is_none());
-                }
-                assert!(body.get("previous_response_id").is_none());
-            }
-            current.controller.close().await.unwrap();
-            current.node.shutdown().await.unwrap();
-        }
-    }
-}
-
-#[tokio::test]
-async fn attempts_explicit_unknown_effort() {
-    for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
-        for remote in [false, true] {
-            let server = crate::agent_support::Server::start(false).await;
-            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let mut provider = fixture.provider.clone();
-            provider.models[0].reasoning = false;
-            provider.models[0].efforts.clear();
-            provider.models[0].default_effort = Effort::Default;
-            provider.models[0].capabilities = None;
-            let Output::Provider(provider) = execute(
-                &fixture.client,
-                Command::PutProvider {
-                    expected_revision: provider.revision,
-                    provider,
-                },
             )
-            .await
-            else {
-                panic!("provider expected")
-            };
-            assert!(!provider.models[0].reasoning);
-            assert!(provider.models[0].efforts.is_empty());
-            assert!(provider.models[0].capabilities.is_none());
-            assert_eq!(fixture.session.config.effort, Effort::High);
-            let turn = fixture.submit("Use the selected effort").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{:?}",
-                page.runs
-            );
-            {
-                let requests = server.requests.lock().unwrap();
-                assert_eq!(requests.len(), 1);
-                assert_eq!(requests[0]["model"], fixture.session.config.model);
-                let effort = if api == ModelApi::Responses {
-                    &requests[0]["reasoning"]["effort"]
-                } else {
-                    &requests[0]["reasoning_effort"]
-                };
-                assert_eq!(*effort, "high");
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 1, "{case_name}");
+            let body = &requests[0].body;
+            if include {
+                assert_eq!(
+                    body["include"],
+                    serde_json::json!(["reasoning.encrypted_content"]),
+                    "{case_name}"
+                );
+            } else {
+                assert!(body.get("include").is_none(), "{case_name}");
             }
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
+            assert!(body.get("previous_response_id").is_none(), "{case_name}");
         }
     }
 }
 
-#[tokio::test]
-async fn accepts_unannotated_responses() {
+async fn attempts_explicit_unknown_effort(fixture: &mut Fixture, _remote: bool, case_name: &str) {
+    for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
+        let server = crate::agent_support::Server::start(false).await;
+        fixture
+            .select("attempts_explicit_unknown_effort", api, &server.endpoint)
+            .await;
+        let mut provider = fixture.provider.clone();
+        provider.models[0].reasoning = false;
+        provider.models[0].efforts.clear();
+        provider.models[0].default_effort = Effort::Default;
+        provider.models[0].capabilities = None;
+        let Output::Provider(provider) = execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        assert!(!provider.models[0].reasoning, "{case_name}");
+        assert!(provider.models[0].efforts.is_empty(), "{case_name}");
+        assert!(provider.models[0].capabilities.is_none(), "{case_name}");
+        assert_eq!(fixture.session.config.effort, Effort::High, "{case_name}");
+        let turn = fixture.submit("Use the selected effort").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{case_name}: {}",
+            format_args!("{:?}", page.runs)
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 1, "{case_name}");
+            assert_eq!(
+                requests[0]["model"], fixture.session.config.model,
+                "{case_name}"
+            );
+            let effort = if api == ModelApi::Responses {
+                &requests[0]["reasoning"]["effort"]
+            } else {
+                &requests[0]["reasoning_effort"]
+            };
+            assert_eq!(*effort, "high", "{case_name}");
+        }
+    }
+}
+
+async fn accepts_unannotated_responses(fixture: &mut Fixture, _remote: bool, case_name: &str) {
     // Compatible providers can omit annotations even when authenticated with an API key.
     let item = serde_json::json!({"type":"message", "id":"message-fixture", "role":"assistant", "status":"completed",
         "content":[{"type":"output_text", "text":"Compatible response"}]});
@@ -161,119 +169,131 @@ async fn accepts_unannotated_responses() {
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    for remote in [false, true] {
-        let server = Server::start(
+
+    let server = Server::start(
+        ModelApi::Responses,
+        Reply::Raw(Arc::new(raw.clone().into_bytes())),
+    )
+    .await;
+    fixture
+        .select(
+            "accepts_unannotated_responses",
             ModelApi::Responses,
-            Reply::Raw(Arc::new(raw.clone().into_bytes())),
+            &server.endpoint,
         )
         .await;
-        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-        let turn = fixture.submit("Compatible response fixture").await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
+    let turn = fixture.submit("Compatible response fixture").await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(
+        page.runs.last().unwrap().status,
+        Status::Completed,
+        "{case_name}: {}",
+        format_args!("{:?}", page.runs)
+    );
+    assert!(text(&page).contains("Compatible response"), "{case_name}");
+    assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Thinking(text) if text.contains("Inspect the requested files"))), "{case_name}");
+    {
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1, "{case_name}");
         assert_eq!(
-            page.runs.last().unwrap().status,
-            Status::Completed,
-            "{:?}",
-            page.runs
+            requests[0].headers["authorization"],
+            format!("Bearer {}", server::KEY),
+            "{case_name}"
         );
-        assert!(text(&page).contains("Compatible response"));
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Thinking(text) if text.contains("Inspect the requested files"))));
-        {
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 1);
-            assert_eq!(
-                requests[0].headers["authorization"],
-                format!("Bearer {}", server::KEY)
-            );
-            assert_eq!(requests[0].body["reasoning"]["effort"], "high");
-            assert_eq!(requests[0].body["reasoning"]["summary"], "auto");
-        }
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
+        assert_eq!(
+            requests[0].body["reasoning"]["effort"], "high",
+            "{case_name}"
+        );
+        assert_eq!(
+            requests[0].body["reasoning"]["summary"], "auto",
+            "{case_name}"
+        );
     }
 }
 
-#[tokio::test]
-async fn preserves_openai_effort() {
+async fn preserves_openai_effort(fixture: &mut Fixture, _remote: bool, case_name: &str) {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
-        for remote in [false, true] {
-            let server = crate::agent_support::Server::start(false).await;
-            let mut fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let choices = vec![
-                Effort::Default,
-                Effort::Disabled,
-                Effort::Minimal,
-                Effort::Low,
-                Effort::Medium,
-                Effort::High,
-                Effort::XHigh,
-                Effort::Max,
-            ];
-            fixture.provider.models[0].efforts = choices.clone();
-            execute(
+        let server = crate::agent_support::Server::start(false).await;
+        fixture
+            .select("preserves_openai_effort", api, &server.endpoint)
+            .await;
+        let choices = vec![
+            Effort::Default,
+            Effort::Disabled,
+            Effort::Minimal,
+            Effort::Low,
+            Effort::Medium,
+            Effort::High,
+            Effort::XHigh,
+            Effort::Max,
+        ];
+        fixture.provider.models[0].efforts = choices.clone();
+        execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: fixture.provider.revision,
+                provider: fixture.provider.clone(),
+            },
+        )
+        .await;
+        for effort in choices.iter().copied() {
+            let mut config = fixture.session.config.clone();
+            config.effort = effort;
+            let Output::Session(session) = execute(
                 &fixture.client,
-                Command::PutProvider {
-                    expected_revision: fixture.provider.revision,
-                    provider: fixture.provider.clone(),
+                Command::SetSessionConfig {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    config,
                 },
             )
-            .await;
-            for effort in choices.iter().copied() {
-                let mut config = fixture.session.config.clone();
-                config.effort = effort;
-                let Output::Session(session) = execute(
-                    &fixture.client,
-                    Command::SetSessionConfig {
-                        session: fixture.session.id,
-                        expected_revision: fixture.session.revision,
-                        config,
-                    },
-                )
-                .await
-                else {
-                    panic!("session expected")
-                };
-                fixture.session = session;
-                let turn = fixture.submit("OpenAI reasoning fixture").await;
-                let page = finished(&fixture.client, fixture.session.id, turn).await;
-                assert_eq!(
-                    page.runs
-                        .iter()
-                        .find(|run| run.turn == turn)
-                        .unwrap()
-                        .status,
-                    Status::Completed,
-                    "{:?}",
-                    page.runs
-                );
-            }
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), choices.len());
-            for (body, effort) in requests.iter().zip(choices) {
-                let value = if api == ModelApi::Responses {
-                    &body["reasoning"]["effort"]
-                } else {
-                    &body["reasoning_effort"]
-                };
-                let effective = if effort == Effort::Default {
-                    fixture.provider.models[0].default_effort
-                } else {
-                    effort
-                };
-                let expected = match effective {
-                    Effort::Disabled => "none",
-                    Effort::Minimal => "minimal",
-                    Effort::Low => "low",
-                    Effort::Medium => "medium",
-                    Effort::High => "high",
-                    Effort::XHigh => "xhigh",
-                    Effort::Max => "max",
-                    _ => unreachable!(),
-                };
-                assert_eq!(*value, expected, "{api:?}, {effective:?}");
-            }
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
+            .await
+            else {
+                panic!("session expected")
+            };
+            fixture.session = session;
+            let turn = fixture.submit("OpenAI reasoning fixture").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(
+                page.runs
+                    .iter()
+                    .find(|run| run.turn == turn)
+                    .unwrap()
+                    .status,
+                Status::Completed,
+                "{case_name}: {}",
+                format_args!("{:?}", page.runs)
+            );
+        }
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), choices.len(), "{case_name}");
+        for (body, effort) in requests.iter().zip(choices) {
+            let value = if api == ModelApi::Responses {
+                &body["reasoning"]["effort"]
+            } else {
+                &body["reasoning_effort"]
+            };
+            let effective = if effort == Effort::Default {
+                fixture.provider.models[0].default_effort
+            } else {
+                effort
+            };
+            let expected = match effective {
+                Effort::Disabled => "none",
+                Effort::Minimal => "minimal",
+                Effort::Low => "low",
+                Effort::Medium => "medium",
+                Effort::High => "high",
+                Effort::XHigh => "xhigh",
+                Effort::Max => "max",
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                *value,
+                expected,
+                "{case_name}: {}",
+                format_args!("{api:?}, {effective:?}")
+            );
         }
     }
 }
@@ -538,8 +558,7 @@ async fn restores_native_choices() {
     }
 }
 
-#[tokio::test]
-async fn preserves_streamed_whitespace() {
+async fn preserves_streamed_whitespace(fixture: &mut Fixture, remote: bool, case_name: &str) {
     let answer = "中文 paragraph\n\n`https://www.example.com`\n\n- next";
     let thinking = "Inspect the question before answering";
     let mut body = answer.chars().map(|ch| format!("data: {}\n\n", serde_json::json!({
@@ -565,9 +584,8 @@ async fn preserves_streamed_whitespace() {
         })
     ));
     for api in [ModelApi::DeepSeek, ModelApi::ChatCompletions] {
-        for remote in [false, true] {
-            let body = body.clone();
-            let server = Server::start(
+        let body = body.clone();
+        let server = Server::start(
                 api,
                 Reply::Dynamic(Arc::new(move |index| {
                     let body = body.replace(
@@ -585,31 +603,105 @@ async fn preserves_streamed_whitespace() {
                 })),
             )
             .await;
-            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            for prompt in ["First", "Continue"] {
-                let turn = fixture.submit(prompt).await;
-                let page = finished(&fixture.client, fixture.session.id, turn).await;
-                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-                assert!(
-                    page.entries
-                        .iter()
-                        .flat_map(|entry| &entry.parts)
-                        .any(|part| { matches!(part, Part::Thinking(value) if value == thinking) })
-                );
-            }
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 2);
-            let assistant = requests[1].body["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|message| message["role"] == "assistant")
-                .unwrap();
-            assert_eq!(assistant["content"], answer, "{api:?}, remote={remote}");
-            assert_eq!(assistant["reasoning_content"], thinking);
-            assert!(assistant.get("reasoning").is_none());
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
+        fixture
+            .select("preserves_streamed_whitespace", api, &server.endpoint)
+            .await;
+        for prompt in ["First", "Continue"] {
+            let turn = fixture.submit(prompt).await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(
+                page.runs.last().unwrap().status,
+                Status::Completed,
+                "{case_name}"
+            );
+            assert!(
+                page.entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .any(|part| { matches!(part, Part::Thinking(value) if value == thinking) }),
+                "{case_name}"
+            );
         }
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2, "{case_name}");
+        let assistant = requests[1].body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["role"] == "assistant")
+            .unwrap();
+        assert_eq!(
+            assistant["content"],
+            answer,
+            "{case_name}: {}",
+            format_args!("{api:?}, remote={remote}")
+        );
+        assert_eq!(assistant["reasoning_content"], thinking, "{case_name}");
+        assert!(assistant.get("reasoning").is_none(), "{case_name}");
+    }
+}
+
+#[tokio::test]
+async fn choices() {
+    use futures::FutureExt;
+    for remote in [false, true] {
+        let mut fixture = Fixture::empty(remote, ModelApi::Responses, "http://127.0.0.1:9").await;
+        std::panic::AssertUnwindSafe(Box::pin(requests_encrypted_reasoning_by_capability(
+            &mut fixture,
+            remote,
+            "requests_encrypted_reasoning_by_capability",
+        )))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: requests_encrypted_reasoning_by_capability, remote={remote}");
+            std::panic::resume_unwind(error)
+        });
+        std::panic::AssertUnwindSafe(Box::pin(attempts_explicit_unknown_effort(
+            &mut fixture,
+            remote,
+            "attempts_explicit_unknown_effort",
+        )))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: attempts_explicit_unknown_effort, remote={remote}");
+            std::panic::resume_unwind(error)
+        });
+        std::panic::AssertUnwindSafe(Box::pin(accepts_unannotated_responses(
+            &mut fixture,
+            remote,
+            "accepts_unannotated_responses",
+        )))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: accepts_unannotated_responses, remote={remote}");
+            std::panic::resume_unwind(error)
+        });
+        std::panic::AssertUnwindSafe(Box::pin(preserves_openai_effort(
+            &mut fixture,
+            remote,
+            "preserves_openai_effort",
+        )))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: preserves_openai_effort, remote={remote}");
+            std::panic::resume_unwind(error)
+        });
+        std::panic::AssertUnwindSafe(Box::pin(preserves_streamed_whitespace(
+            &mut fixture,
+            remote,
+            "preserves_streamed_whitespace",
+        )))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: preserves_streamed_whitespace, remote={remote}");
+            std::panic::resume_unwind(error)
+        });
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }

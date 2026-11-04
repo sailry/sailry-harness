@@ -5,28 +5,19 @@ use std::path::PathBuf;
 #[path = "follow/server.rs"]
 mod wire;
 
-struct Fixture {
-    _directory: tempfile::TempDir,
-    root: PathBuf,
+struct Suite {
+    directory: tempfile::TempDir,
     node: Node,
     controller: Link,
     client: Client,
-    session: Session,
-    provider: Provider,
     package: plugin::Info,
-    server: wire::Server,
+    cases: std::sync::atomic::AtomicUsize,
+    remote: bool,
 }
 
-impl Fixture {
-    async fn new(remote: bool, api: ModelApi) -> Self {
-        Self::with_outcome(remote, api, wire::Outcome::Completed).await
-    }
-
-    async fn with_outcome(remote: bool, api: ModelApi, outcome: wire::Outcome) -> Self {
-        let server = wire::Server::with_outcome(outcome).await;
+impl Suite {
+    async fn new(remote: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("project");
-        std::fs::create_dir(&root).unwrap();
         let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
@@ -45,7 +36,74 @@ impl Fixture {
             node.local()
         });
         let package = install(&client).await;
-        let (base, mut provider) = configured_session(&client, &server.endpoint, &root).await;
+        Self {
+            directory,
+            node,
+            controller,
+            client,
+            package,
+            cases: std::sync::atomic::AtomicUsize::new(0),
+            remote,
+        }
+    }
+
+    async fn media_revision(&self) -> u64 {
+        let Output::MediaSettings(settings) = self
+            .client
+            .execute(self.client.prepare(Command::ReadMediaSettings))
+            .await
+            .unwrap()
+        else {
+            panic!("media settings expected")
+        };
+        settings.revision
+    }
+
+    async fn close(self) {
+        self.controller.close().await.unwrap();
+        self.node.shutdown().await.unwrap();
+    }
+}
+
+struct Fixture<'a> {
+    suite: &'a Suite,
+    root: PathBuf,
+    session: Session,
+    provider: Provider,
+    server: wire::Server,
+}
+
+impl std::ops::Deref for Fixture<'_> {
+    type Target = Suite;
+
+    fn deref(&self) -> &Suite {
+        self.suite
+    }
+}
+
+impl<'a> Fixture<'a> {
+    async fn new(suite: &'a Suite, api: ModelApi) -> Self {
+        Self::with_outcome(suite, api, wire::Outcome::Completed).await
+    }
+
+    async fn with_outcome(suite: &'a Suite, api: ModelApi, outcome: wire::Outcome) -> Self {
+        let server = wire::Server::with_outcome(outcome).await;
+        let index = suite
+            .cases
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root = suite.directory.path().join(format!("project-{index}"));
+        std::fs::create_dir(&root).unwrap();
+        let client = &suite.client;
+        if index > 0 {
+            client
+                .execute(client.prepare(Command::SaveMediaSettings(Settings {
+                    revision: suite.media_revision().await,
+                    bindings: Default::default(),
+                })))
+                .await
+                .unwrap();
+        }
+        let (base, mut provider) = configured_session(client, &server.endpoint, &root).await;
         provider.api = api;
         provider.options = None;
         provider.models = ["follow-a", "follow-b"]
@@ -88,14 +146,10 @@ impl Fixture {
             panic!("session expected")
         };
         Self {
-            _directory: directory,
+            suite,
             root,
-            node,
-            controller,
-            client,
             session,
             provider,
-            package,
             server,
         }
     }
@@ -265,7 +319,7 @@ impl Fixture {
             panic!("provider expected")
         };
         self.execute(Command::SaveMediaSettings(Settings {
-            revision: 0,
+            revision: self.media_revision().await,
             bindings: [(
                 Kind::Image,
                 Some(Binding {
@@ -291,11 +345,6 @@ impl Fixture {
             Status::Cancelled
         );
         assert!(!serde_json::to_string(&page).unwrap().contains(wire::KEY));
-    }
-
-    async fn close(self) {
-        self.controller.close().await.unwrap();
-        self.node.shutdown().await.unwrap();
     }
 }
 
@@ -336,262 +385,305 @@ fn assert_route(request: &wire::Request, api: ModelApi, model: &str) {
     }
 }
 
-#[tokio::test]
-async fn resolves_admitted_and_future_models() {
-    for remote in [false, true] {
-        for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
-            let fixture = Fixture::new(remote, api).await;
-            let Output::MediaSettings(settings) = fixture.execute(Command::ReadMediaSettings).await
-            else {
-                panic!("settings expected")
-            };
-            assert!(settings.bindings.is_empty());
-            let sent = fixture.queue(&fixture.session).await;
-            let changed = fixture.revise(&fixture.session).await;
-            assert_eq!(sent.config.model, "follow-a");
-            assert_eq!(changed.config.model, "follow-b");
-            fixture.server.discover();
-            fixture.begin(&sent).await;
-            fixture.server.wait_primary(2).await.unwrap();
-            fixture
-                .generated(&changed, &sent, "assets/generated/sent.png")
-                .await;
-            fixture.stop(&sent).await;
-            let future = fixture.queue(&changed).await;
-            assert_eq!(future.config.model, "follow-b");
-            fixture.begin(&future).await;
-            fixture
-                .generated(&changed, &future, "assets/generated/future.png")
-                .await;
-            fixture.stop(&future).await;
-            {
-                let requests = fixture.server.requests.lock().unwrap();
-                let primary: Vec<_> = requests
-                    .iter()
-                    .filter(|request| request.primary())
-                    .collect();
-                let generated: Vec<_> = requests
-                    .iter()
-                    .filter(|request| !request.primary())
-                    .collect();
-                assert_eq!(primary.len(), 3);
-                assert_eq!(generated.len(), 2);
-                assert_eq!(primary[0].body["model"], "follow-a");
-                assert!(!registered(primary[0]));
-                assert!(
-                    primary[0].body["tools"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .any(|tool| {
-                            tool["name"] == "tool_search"
-                                || tool["function"]["name"] == "tool_search"
-                        })
-                );
-                for (index, model) in ["follow-a", "follow-b"].into_iter().enumerate() {
-                    assert_eq!(primary[index + 1].body["model"], model);
-                    assert!(registered(primary[index + 1]));
-                    assert_eq!(
-                        primary[index + 1].headers["authorization"],
-                        generated[index].headers["authorization"]
-                    );
-                    assert_route(generated[index], api, model);
-                }
-            }
-            fixture.close().await;
-        }
-    }
-}
-
-#[tokio::test]
-async fn rejects_unavailable_native_images() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote, ModelApi::Gemini).await;
+async fn resolves_admitted_and_future_models(suite: &Suite) {
+    for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
+        let fixture = Fixture::new(suite, api).await;
+        let Output::MediaSettings(settings) = fixture.execute(Command::ReadMediaSettings).await
+        else {
+            panic!("settings expected")
+        };
+        assert!(settings.bindings.is_empty());
         let sent = fixture.queue(&fixture.session).await;
         let changed = fixture.revise(&fixture.session).await;
+        assert_eq!(sent.config.model, "follow-a");
+        assert_eq!(changed.config.model, "follow-b");
+        fixture.server.discover();
         fixture.begin(&sent).await;
-        let path = "assets/generated/native-sent.png";
-        assert_eq!(
-            fixture.image(&changed, &sent, path).await.unwrap_err().code,
-            ErrorCode::NotConfigured
-        );
-        assert!(!fixture.root.join(path).exists());
+        fixture.server.wait_primary(2).await.unwrap();
+        fixture
+            .generated(&changed, &sent, "assets/generated/sent.png")
+            .await;
         fixture.stop(&sent).await;
         let future = fixture.queue(&changed).await;
+        assert_eq!(future.config.model, "follow-b");
         fixture.begin(&future).await;
-        let path = "assets/generated/native-future.png";
-        assert_eq!(
-            fixture
-                .image(&changed, &future, path)
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        assert!(!fixture.root.join(path).exists());
+        fixture
+            .generated(&changed, &future, "assets/generated/future.png")
+            .await;
         fixture.stop(&future).await;
         {
             let requests = fixture.server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 2);
-            for (request, model) in requests.iter().zip(["follow-a", "follow-b"]) {
-                assert!(request.primary());
+            let primary: Vec<_> = requests
+                .iter()
+                .filter(|request| request.primary())
+                .collect();
+            let generated: Vec<_> = requests
+                .iter()
+                .filter(|request| !request.primary())
+                .collect();
+            assert_eq!(primary.len(), 3);
+            assert_eq!(generated.len(), 2);
+            assert_eq!(primary[0].body["model"], "follow-a");
+            assert!(!registered(primary[0]));
+            assert!(
+                primary[0].body["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|tool| {
+                        tool["name"] == "tool_search" || tool["function"]["name"] == "tool_search"
+                    })
+            );
+            for (index, model) in ["follow-a", "follow-b"].into_iter().enumerate() {
+                assert_eq!(primary[index + 1].body["model"], model);
+                assert!(registered(primary[index + 1]));
                 assert_eq!(
-                    request.path,
-                    format!("/v1/v1beta/models/{model}:streamGenerateContent?alt=sse")
+                    primary[index + 1].headers["authorization"],
+                    generated[index].headers["authorization"]
                 );
-                assert_eq!(request.headers["x-goog-api-key"], wire::KEY);
+                assert_route(generated[index], api, model);
             }
         }
-        assert_eq!(sent.config.model, "follow-a");
-        assert_eq!(future.config.model, "follow-b");
-        fixture.close().await;
     }
 }
 
-#[tokio::test]
-async fn disabled_role_has_no_generation_calls() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote, ModelApi::Responses).await;
+async fn rejects_unavailable_native_images(suite: &Suite) {
+    let fixture = Fixture::new(suite, ModelApi::Gemini).await;
+    let sent = fixture.queue(&fixture.session).await;
+    let changed = fixture.revise(&fixture.session).await;
+    fixture.begin(&sent).await;
+    let path = "assets/generated/native-sent.png";
+    assert_eq!(
+        fixture.image(&changed, &sent, path).await.unwrap_err().code,
+        ErrorCode::NotConfigured
+    );
+    assert!(!fixture.root.join(path).exists());
+    fixture.stop(&sent).await;
+    let future = fixture.queue(&changed).await;
+    fixture.begin(&future).await;
+    let path = "assets/generated/native-future.png";
+    assert_eq!(
         fixture
-            .execute(Command::SaveMediaSettings(Settings {
-                revision: 0,
-                bindings: [(Kind::Image, None)].into(),
-            }))
+            .image(&changed, &future, path)
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    assert!(!fixture.root.join(path).exists());
+    fixture.stop(&future).await;
+    {
+        let requests = fixture.server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for (request, model) in requests.iter().zip(["follow-a", "follow-b"]) {
+            assert!(request.primary());
+            assert_eq!(
+                request.path,
+                format!("/v1/v1beta/models/{model}:streamGenerateContent?alt=sse")
+            );
+            assert_eq!(request.headers["x-goog-api-key"], wire::KEY);
+        }
+    }
+    assert_eq!(sent.config.model, "follow-a");
+    assert_eq!(future.config.model, "follow-b");
+}
+
+async fn disabled_role_has_no_generation_calls(suite: &Suite) {
+    let fixture = Fixture::new(suite, ModelApi::Responses).await;
+    fixture
+        .execute(Command::SaveMediaSettings(Settings {
+            revision: fixture.media_revision().await,
+            bindings: [(Kind::Image, None)].into(),
+        }))
+        .await;
+    let session = fixture.create().await;
+    fixture
+        .execute(Command::SaveMediaSettings(Settings {
+            revision: fixture.media_revision().await,
+            bindings: Default::default(),
+        }))
+        .await;
+    let turn = fixture.queue(&session).await;
+    fixture.begin(&turn).await;
+    assert_eq!(
+        fixture
+            .image(&session, &turn, "assets/generated/disabled.png")
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    assert!(!fixture.root.join("assets/generated/disabled.png").exists());
+    fixture.stop(&turn).await;
+    {
+        let requests = fixture.server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].primary());
+        assert!(!registered(&requests[0]));
+    }
+}
+
+async fn does_not_repeat_same_fallback(suite: &Suite) {
+    let fixture = Fixture::with_outcome(
+        suite,
+        ModelApi::Responses,
+        wire::Outcome::Rejected(400, "unsupported_capability"),
+    )
+    .await;
+    fixture
+        .execute(Command::SaveMediaSettings(Settings {
+            revision: fixture.media_revision().await,
+            bindings: [(
+                Kind::Image,
+                Some(Binding {
+                    provider: fixture.provider.id,
+                    model: "follow-a".into(),
+                }),
+            )]
+            .into(),
+        }))
+        .await;
+    let session = fixture.create().await;
+    let turn = fixture.queue(&session).await;
+    fixture.begin(&turn).await;
+    let path = "assets/generated/duplicate.png";
+    assert_eq!(
+        fixture.image(&session, &turn, path).await.unwrap_err().code,
+        ErrorCode::NotConfigured
+    );
+    assert!(!fixture.root.join(path).exists());
+    fixture.stop(&turn).await;
+    {
+        let requests = fixture.server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests.iter().filter(|request| !request.primary()).count(),
+            1
+        );
+        assert_route(
+            requests.iter().find(|request| !request.primary()).unwrap(),
+            ModelApi::Responses,
+            "follow-a",
+        );
+    }
+}
+
+async fn failures_never_use_companion(suite: &Suite) {
+    let remote = suite.remote;
+    for api in [ModelApi::Responses] {
+        let fixture = Fixture::new(suite, api).await;
+        let mut provider = fixture.provider.clone();
+        provider.request_max_retries = Some(0);
+        provider.stream_max_retries = Some(0);
+        fixture
+            .execute(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            })
             .await;
+        let (companion, _) = fixture.companion().await;
+        let session = fixture.create().await;
+        let turn = fixture.queue(&session).await;
+        fixture.begin(&turn).await;
+        let outcomes = [
+            wire::Outcome::Rejected(401, "invalid_api_key"),
+            wire::Outcome::Rejected(403, "access_denied"),
+            wire::Outcome::Rejected(429, "rate_limit_exceeded"),
+            wire::Outcome::Rejected(500, "internal_error"),
+            wire::Outcome::Rejected(503, "service_unavailable"),
+            wire::Outcome::Rejected(400, "invalid_request"),
+            wire::Outcome::Rejected(404, "missing_resource"),
+            wire::Outcome::Disconnected,
+            wire::Outcome::Invalid,
+            wire::Outcome::Empty,
+            wire::Outcome::Incomplete,
+            wire::Outcome::MissingTerminal,
+            wire::Outcome::NonPng,
+            wire::Outcome::Multiple,
+            wire::Outcome::Oversized,
+            wire::Outcome::Rejected(401, "unsupported_capability"),
+            wire::Outcome::Rejected(403, "unsupported_capability"),
+            wire::Outcome::Rejected(429, "unsupported_capability"),
+        ];
+        for (index, outcome) in outcomes.into_iter().enumerate() {
+            fixture.server.set_outcome(outcome);
+            let path = format!("assets/generated/failure-{index}.png");
+            let error = fixture.image(&session, &turn, &path).await.unwrap_err();
+            assert!(
+                matches!(
+                    error.code,
+                    ErrorCode::Unavailable | ErrorCode::OutcomeUnknown
+                ),
+                "{remote:?} {outcome:?}: {error:?}"
+            );
+            assert!(!error.message.contains(wire::KEY), "{error:?}");
+            if matches!(outcome, wire::Outcome::Rejected(400, "invalid_request")) {
+                assert!(error.message.contains("param tools"), "{error:?}");
+                assert!(error.message.contains("req_image_fixture"), "{error:?}");
+            }
+            assert!(!fixture.root.join(&path).exists(), "{outcome:?}");
+            assert!(companion.requests.lock().unwrap().is_empty(), "{outcome:?}");
+            let requests = fixture.server.requests.lock().unwrap();
+            let generated: Vec<_> = requests
+                .iter()
+                .filter(|request| !request.primary())
+                .collect();
+            assert_eq!(
+                generated.len(),
+                index + 1,
+                "failure must not replay: {outcome:?}"
+            );
+            assert_route(generated.last().unwrap(), api, "follow-a");
+        }
+        fixture.stop(&turn).await;
+    }
+}
+
+async fn uses_companion_only_when_unsupported(suite: &Suite) {
+    for api in [
+        ModelApi::Responses,
+        ModelApi::Gemini,
+        ModelApi::ChatCompletions,
+        ModelApi::Anthropic,
+    ] {
+        let fixture = Fixture::new(suite, api).await;
+        let (companion, _) = fixture.companion().await;
         let session = fixture.create().await;
         fixture
             .execute(Command::SaveMediaSettings(Settings {
-                revision: 1,
+                revision: fixture.media_revision().await,
                 bindings: Default::default(),
             }))
             .await;
-        let turn = fixture.queue(&session).await;
-        fixture.begin(&turn).await;
-        assert_eq!(
-            fixture
-                .image(&session, &turn, "assets/generated/disabled.png")
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        assert!(!fixture.root.join("assets/generated/disabled.png").exists());
-        fixture.stop(&turn).await;
-        {
-            let requests = fixture.server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 1);
-            assert!(requests[0].primary());
-            assert!(!registered(&requests[0]));
+        let without_companion = fixture.create().await;
+        let unsupported = matches!(api, ModelApi::Anthropic | ModelApi::Gemini);
+        let mut outcomes = vec![wire::Outcome::Completed];
+        if !unsupported {
+            outcomes.push(wire::Outcome::Rejected(400, "unsupported_capability"));
+            if api == ModelApi::Responses {
+                outcomes.extend([
+                    wire::Outcome::Rejected(422, "unsupported_tool"),
+                    wire::Outcome::Rejected(405, "route_unavailable"),
+                    wire::Outcome::Rejected(501, "route_unavailable"),
+                ]);
+            }
         }
-        fixture.close().await;
-    }
-}
-
-#[tokio::test]
-async fn does_not_repeat_same_fallback() {
-    for remote in [false, true] {
-        let fixture = Fixture::with_outcome(
-            remote,
-            ModelApi::Responses,
-            wire::Outcome::Rejected(400, "unsupported_capability"),
-        )
-        .await;
-        fixture
-            .execute(Command::SaveMediaSettings(Settings {
-                revision: 0,
-                bindings: [(
-                    Kind::Image,
-                    Some(Binding {
-                        provider: fixture.provider.id,
-                        model: "follow-a".into(),
-                    }),
-                )]
-                .into(),
-            }))
-            .await;
-        let session = fixture.create().await;
-        let turn = fixture.queue(&session).await;
-        fixture.begin(&turn).await;
-        let path = "assets/generated/duplicate.png";
-        assert_eq!(
-            fixture.image(&session, &turn, path).await.unwrap_err().code,
-            ErrorCode::NotConfigured
-        );
-        assert!(!fixture.root.join(path).exists());
-        fixture.stop(&turn).await;
-        {
-            let requests = fixture.server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 2);
-            assert_eq!(
-                requests.iter().filter(|request| !request.primary()).count(),
-                1
-            );
-            assert_route(
-                requests.iter().find(|request| !request.primary()).unwrap(),
-                ModelApi::Responses,
-                "follow-a",
-            );
-        }
-        fixture.close().await;
-    }
-}
-
-#[tokio::test]
-async fn failures_never_use_companion() {
-    for remote in [false, true] {
-        for api in [ModelApi::Responses] {
-            let fixture = Fixture::new(remote, api).await;
-            let mut provider = fixture.provider.clone();
-            provider.request_max_retries = Some(0);
-            provider.stream_max_retries = Some(0);
-            fixture
-                .execute(Command::PutProvider {
-                    expected_revision: provider.revision,
-                    provider,
-                })
-                .await;
-            let (companion, _) = fixture.companion().await;
-            let session = fixture.create().await;
+        let mut fallback_count = 0;
+        for (index, outcome) in outcomes.into_iter().enumerate() {
+            fixture.server.set_outcome(outcome);
             let turn = fixture.queue(&session).await;
             fixture.begin(&turn).await;
-            let outcomes = [
-                wire::Outcome::Rejected(401, "invalid_api_key"),
-                wire::Outcome::Rejected(403, "access_denied"),
-                wire::Outcome::Rejected(429, "rate_limit_exceeded"),
-                wire::Outcome::Rejected(500, "internal_error"),
-                wire::Outcome::Rejected(503, "service_unavailable"),
-                wire::Outcome::Rejected(400, "invalid_request"),
-                wire::Outcome::Rejected(404, "missing_resource"),
-                wire::Outcome::Disconnected,
-                wire::Outcome::Invalid,
-                wire::Outcome::Empty,
-                wire::Outcome::Incomplete,
-                wire::Outcome::MissingTerminal,
-                wire::Outcome::NonPng,
-                wire::Outcome::Multiple,
-                wire::Outcome::Oversized,
-                wire::Outcome::Rejected(401, "unsupported_capability"),
-                wire::Outcome::Rejected(403, "unsupported_capability"),
-                wire::Outcome::Rejected(429, "unsupported_capability"),
-            ];
-            for (index, outcome) in outcomes.into_iter().enumerate() {
-                fixture.server.set_outcome(outcome);
-                let path = format!("assets/generated/failure-{index}.png");
-                let error = fixture.image(&session, &turn, &path).await.unwrap_err();
-                assert!(
-                    matches!(
-                        error.code,
-                        ErrorCode::Unavailable | ErrorCode::OutcomeUnknown
-                    ),
-                    "{remote:?} {outcome:?}: {error:?}"
-                );
-                assert!(!error.message.contains(wire::KEY), "{error:?}");
-                if matches!(outcome, wire::Outcome::Rejected(400, "invalid_request")) {
-                    assert!(error.message.contains("param tools"), "{error:?}");
-                    assert!(error.message.contains("req_image_fixture"), "{error:?}");
-                }
-                assert!(!fixture.root.join(&path).exists(), "{outcome:?}");
-                assert!(companion.requests.lock().unwrap().is_empty(), "{outcome:?}");
+            fixture
+                .generated(
+                    &session,
+                    &turn,
+                    &format!("assets/generated/selected-{index}.png"),
+                )
+                .await;
+            fixture.stop(&turn).await;
+            let fallback = unsupported || !matches!(outcome, wire::Outcome::Completed);
+            fallback_count += usize::from(fallback);
+            {
                 let requests = fixture.server.requests.lock().unwrap();
                 let generated: Vec<_> = requests
                     .iter()
@@ -599,200 +691,189 @@ async fn failures_never_use_companion() {
                     .collect();
                 assert_eq!(
                     generated.len(),
-                    index + 1,
-                    "failure must not replay: {outcome:?}"
+                    if unsupported { 0 } else { index + 1 },
+                    "{api:?} {outcome:?}"
                 );
-                assert_route(generated.last().unwrap(), api, "follow-a");
-            }
-            fixture.stop(&turn).await;
-            fixture.close().await;
-        }
-    }
-}
-
-#[tokio::test]
-async fn uses_companion_only_when_unsupported() {
-    for remote in [false, true] {
-        for api in [
-            ModelApi::Responses,
-            ModelApi::Gemini,
-            ModelApi::ChatCompletions,
-            ModelApi::Anthropic,
-        ] {
-            let fixture = Fixture::new(remote, api).await;
-            let (companion, _) = fixture.companion().await;
-            let session = fixture.create().await;
-            fixture
-                .execute(Command::SaveMediaSettings(Settings {
-                    revision: 1,
-                    bindings: Default::default(),
-                }))
-                .await;
-            let without_companion = fixture.create().await;
-            let unsupported = matches!(api, ModelApi::Anthropic | ModelApi::Gemini);
-            let mut outcomes = vec![wire::Outcome::Completed];
-            if !unsupported {
-                outcomes.push(wire::Outcome::Rejected(400, "unsupported_capability"));
-                if api == ModelApi::Responses {
-                    outcomes.extend([
-                        wire::Outcome::Rejected(422, "unsupported_tool"),
-                        wire::Outcome::Rejected(405, "route_unavailable"),
-                        wire::Outcome::Rejected(501, "route_unavailable"),
-                    ]);
+                if !unsupported {
+                    assert_route(generated.last().unwrap(), api, "follow-a");
                 }
-            }
-            let mut fallback_count = 0;
-            for (index, outcome) in outcomes.into_iter().enumerate() {
-                fixture.server.set_outcome(outcome);
-                let turn = fixture.queue(&session).await;
-                fixture.begin(&turn).await;
-                fixture
-                    .generated(
-                        &session,
-                        &turn,
-                        &format!("assets/generated/selected-{index}.png"),
-                    )
-                    .await;
-                fixture.stop(&turn).await;
-                let fallback = unsupported || !matches!(outcome, wire::Outcome::Completed);
-                fallback_count += usize::from(fallback);
-                {
-                    let requests = fixture.server.requests.lock().unwrap();
-                    let generated: Vec<_> = requests
-                        .iter()
-                        .filter(|request| !request.primary())
-                        .collect();
+                let images = companion.requests.lock().unwrap();
+                assert_eq!(images.len(), fallback_count, "{api:?} {outcome:?}");
+                for request in images.iter() {
+                    assert_eq!(request.path, "/v1/images/generations");
+                    assert_eq!(request.body["model"], "override-image");
                     assert_eq!(
-                        generated.len(),
-                        if unsupported { 0 } else { index + 1 },
-                        "{api:?} {outcome:?}"
+                        request.headers["authorization"],
+                        "Bearer isolated-override-image-key"
                     );
-                    if !unsupported {
-                        assert_route(generated.last().unwrap(), api, "follow-a");
-                    }
-                    let images = companion.requests.lock().unwrap();
-                    assert_eq!(images.len(), fallback_count, "{api:?} {outcome:?}");
-                    for request in images.iter() {
-                        assert_eq!(request.path, "/v1/images/generations");
-                        assert_eq!(request.body["model"], "override-image");
-                        assert_eq!(
-                            request.headers["authorization"],
-                            "Bearer isolated-override-image-key"
-                        );
-                    }
                 }
             }
-            let before = fixture.server.requests.lock().unwrap().len();
-            let turn = fixture.queue(&without_companion).await;
-            fixture.begin(&turn).await;
-            let error = fixture
-                .image(
-                    &without_companion,
-                    &turn,
-                    "assets/generated/unconfigured.png",
-                )
-                .await
-                .unwrap_err();
-            assert_eq!(error.code, ErrorCode::NotConfigured, "{api:?}: {error:?}");
-            assert!(
-                !fixture
-                    .root
-                    .join("assets/generated/unconfigured.png")
-                    .exists()
-            );
-            fixture.stop(&turn).await;
-            assert_eq!(
-                fixture.server.requests.lock().unwrap().len(),
-                before + if unsupported { 1 } else { 2 },
-                "{api:?}"
-            );
-            assert_eq!(
-                companion.requests.lock().unwrap().len(),
-                fallback_count,
-                "{api:?}"
-            );
-            fixture.close().await;
         }
-    }
-}
-
-#[tokio::test]
-async fn retains_frozen_companion_after_revisions() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote, ModelApi::Anthropic).await;
-        let (companion, mut provider) = fixture.companion().await;
-        let session = fixture.create().await;
-        let sent = fixture.queue(&session).await;
-        let changed = fixture.revise(&session).await;
-        provider.endpoint = "http://127.0.0.1:9/revised-image".into();
-        provider.models[0].id = "revised-image".into();
-        provider.default_model = "revised-image".into();
-        fixture
-            .execute(Command::SaveProvider {
-                expected_revision: provider.revision,
-                provider,
-                secret: Some(Secret::new("isolated-revised-image-key".into())),
-            })
-            .await;
-        fixture
-            .execute(Command::SaveMediaSettings(Settings {
-                revision: 1,
-                bindings: Default::default(),
-            }))
-            .await;
-        fixture.begin(&sent).await;
-        fixture
-            .generated(&changed, &sent, "assets/generated/override-sent.png")
-            .await;
-        fixture.stop(&sent).await;
-        let future = fixture.queue(&changed).await;
-        fixture.begin(&future).await;
-        fixture
-            .generated(&changed, &future, "assets/generated/override-future.png")
-            .await;
-        fixture.stop(&future).await;
-        {
-            let requests = fixture.server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 2);
-            assert!(requests.iter().all(|request| request.primary()));
-            assert_eq!(requests[0].body["model"], "follow-a");
-            assert_eq!(requests[1].body["model"], "follow-b");
-            let images = companion.requests.lock().unwrap();
-            assert_eq!(images.len(), 2);
-            for request in images.iter() {
-                assert_eq!(request.path, "/v1/images/generations");
-                assert_eq!(request.body["model"], "override-image");
-                assert_eq!(
-                    request.headers["authorization"],
-                    "Bearer isolated-override-image-key"
-                );
-            }
-        }
-        fixture.close().await;
-    }
-}
-
-#[tokio::test]
-async fn publishes_completed_stream_without_eof() {
-    for remote in [false, true] {
-        let fixture =
-            Fixture::with_outcome(remote, ModelApi::Responses, wire::Outcome::Streamed).await;
-        let turn = fixture.queue(&fixture.session).await;
+        let before = fixture.server.requests.lock().unwrap().len();
+        let turn = fixture.queue(&without_companion).await;
         fixture.begin(&turn).await;
-        tokio::time::timeout(
-            Duration::from_secs(5),
-            fixture.generated(&fixture.session, &turn, "assets/generated/streamed.png"),
-        )
-        .await
-        .expect("completed image waited for HTTP EOF");
-        fixture.stop(&turn).await;
-        let requests = fixture.server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
-        assert_route(
-            requests.iter().find(|request| !request.primary()).unwrap(),
-            ModelApi::Responses,
-            "follow-a",
+        let error = fixture
+            .image(
+                &without_companion,
+                &turn,
+                "assets/generated/unconfigured.png",
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::NotConfigured, "{api:?}: {error:?}");
+        assert!(
+            !fixture
+                .root
+                .join("assets/generated/unconfigured.png")
+                .exists()
         );
-        fixture.close().await;
+        fixture.stop(&turn).await;
+        assert_eq!(
+            fixture.server.requests.lock().unwrap().len(),
+            before + if unsupported { 1 } else { 2 },
+            "{api:?}"
+        );
+        assert_eq!(
+            companion.requests.lock().unwrap().len(),
+            fallback_count,
+            "{api:?}"
+        );
+    }
+}
+
+async fn retains_frozen_companion_after_revisions(suite: &Suite) {
+    let fixture = Fixture::new(suite, ModelApi::Anthropic).await;
+    let (companion, mut provider) = fixture.companion().await;
+    let session = fixture.create().await;
+    let sent = fixture.queue(&session).await;
+    let changed = fixture.revise(&session).await;
+    provider.endpoint = "http://127.0.0.1:9/revised-image".into();
+    provider.models[0].id = "revised-image".into();
+    provider.default_model = "revised-image".into();
+    fixture
+        .execute(Command::SaveProvider {
+            expected_revision: provider.revision,
+            provider,
+            secret: Some(Secret::new("isolated-revised-image-key".into())),
+        })
+        .await;
+    fixture
+        .execute(Command::SaveMediaSettings(Settings {
+            revision: fixture.media_revision().await,
+            bindings: Default::default(),
+        }))
+        .await;
+    fixture.begin(&sent).await;
+    fixture
+        .generated(&changed, &sent, "assets/generated/override-sent.png")
+        .await;
+    fixture.stop(&sent).await;
+    let future = fixture.queue(&changed).await;
+    fixture.begin(&future).await;
+    fixture
+        .generated(&changed, &future, "assets/generated/override-future.png")
+        .await;
+    fixture.stop(&future).await;
+    {
+        let requests = fixture.server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|request| request.primary()));
+        assert_eq!(requests[0].body["model"], "follow-a");
+        assert_eq!(requests[1].body["model"], "follow-b");
+        let images = companion.requests.lock().unwrap();
+        assert_eq!(images.len(), 2);
+        for request in images.iter() {
+            assert_eq!(request.path, "/v1/images/generations");
+            assert_eq!(request.body["model"], "override-image");
+            assert_eq!(
+                request.headers["authorization"],
+                "Bearer isolated-override-image-key"
+            );
+        }
+    }
+}
+
+async fn publishes_completed_stream_without_eof(suite: &Suite) {
+    let fixture = Fixture::with_outcome(suite, ModelApi::Responses, wire::Outcome::Streamed).await;
+    let turn = fixture.queue(&fixture.session).await;
+    fixture.begin(&turn).await;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        fixture.generated(&fixture.session, &turn, "assets/generated/streamed.png"),
+    )
+    .await
+    .expect("completed image waited for HTTP EOF");
+    fixture.stop(&turn).await;
+    let requests = fixture.server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2);
+    assert_route(
+        requests.iter().find(|request| !request.primary()).unwrap(),
+        ModelApi::Responses,
+        "follow-a",
+    );
+}
+
+#[tokio::test]
+async fn generation_routes() {
+    use futures::FutureExt;
+    for remote in [false, true] {
+        let suite = Suite::new(remote).await;
+        std::panic::AssertUnwindSafe(resolves_admitted_and_future_models(&suite))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: resolves_admitted_and_future_models, remote={remote}");
+                std::panic::resume_unwind(error)
+            });
+        std::panic::AssertUnwindSafe(rejects_unavailable_native_images(&suite))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: rejects_unavailable_native_images, remote={remote}");
+                std::panic::resume_unwind(error)
+            });
+        std::panic::AssertUnwindSafe(disabled_role_has_no_generation_calls(&suite))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: disabled_role_has_no_generation_calls, remote={remote}");
+                std::panic::resume_unwind(error)
+            });
+        std::panic::AssertUnwindSafe(does_not_repeat_same_fallback(&suite))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: does_not_repeat_same_fallback, remote={remote}");
+                std::panic::resume_unwind(error)
+            });
+        std::panic::AssertUnwindSafe(failures_never_use_companion(&suite))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: failures_never_use_companion, remote={remote}");
+                std::panic::resume_unwind(error)
+            });
+        std::panic::AssertUnwindSafe(uses_companion_only_when_unsupported(&suite))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: uses_companion_only_when_unsupported, remote={remote}");
+                std::panic::resume_unwind(error)
+            });
+        std::panic::AssertUnwindSafe(retains_frozen_companion_after_revisions(&suite))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: retains_frozen_companion_after_revisions, remote={remote}");
+                std::panic::resume_unwind(error)
+            });
+        std::panic::AssertUnwindSafe(publishes_completed_stream_without_eof(&suite))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: publishes_completed_stream_without_eof, remote={remote}");
+                std::panic::resume_unwind(error)
+            });
+        suite.close().await;
     }
 }

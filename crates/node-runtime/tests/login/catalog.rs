@@ -194,20 +194,37 @@ fn catalog(request: &discovery_support::Request, authentication: Authentication)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reads_native_metadata() {
     for remote in [false, true] {
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if request.path.starts_with("/models") {
+                let authentication = if request
+                    .headers
+                    .get("authorization")
+                    .is_some_and(|value| value.contains("isolated-chatgpt-access"))
+                {
+                    Authentication::ChatGpt
+                } else {
+                    Authentication::Copilot
+                };
+                catalog(request, authentication)
+            } else {
+                standard(request)
+            }
+        })
+        .await;
+        let fixture = Fixture::empty(remote, &server).await;
         for (authentication, api) in [
             (Authentication::ChatGpt, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::Responses),
             (Authentication::Copilot, ModelApi::ChatCompletions),
         ] {
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                if request.path.starts_with("/models") {
-                    catalog(request, authentication)
-                } else {
-                    standard(request)
-                }
-            })
-            .await;
-            let fixture = Fixture::empty(remote, &server).await;
+            let case = format!("{remote:?} {authentication:?} {api:?}");
+            let previous_models = server
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| request.path.starts_with("/models"))
+                .count();
             let provider = execution::signed_in(&fixture, authentication, api).await;
             let before = fixture
                 .client
@@ -219,24 +236,32 @@ async fn reads_native_metadata() {
                 .dispatch(fixture.client.prepare(command(&provider)))
                 .await
                 .unwrap();
-            assert!(!admission.receipt.durable);
+            assert!(!admission.receipt.durable, "{case}");
             let output = admission.completion.await.unwrap().unwrap();
             no_secrets(&output);
             let Output::DiscoveredModels(discovered) = output else {
-                panic!("models expected")
+                panic!("{case}: models expected")
             };
             let discovered = discovered.models;
-            assert_eq!(discovered.len(), 2);
-            assert_eq!(discovered[0].id, "fixture");
-            assert_eq!(discovered[1].id, "unknown");
-            assert_eq!(discovered[1].context, None);
-            assert_eq!(discovered[1].output, None);
-            let capabilities = discovered[0].capabilities.as_ref().unwrap();
-            assert_eq!(capabilities.vision, Some(true));
-            assert_eq!(capabilities.efforts, Some(vec![Effort::Low, Effort::High]));
+            assert_eq!(discovered.len(), 2, "{case}");
+            assert_eq!(discovered[0].id, "fixture", "{case}");
+            assert_eq!(discovered[1].id, "unknown", "{case}");
+            assert_eq!(discovered[1].context, None, "{case}");
+            assert_eq!(discovered[1].output, None, "{case}");
+            let capabilities = discovered[0]
+                .capabilities
+                .as_ref()
+                .unwrap_or_else(|| panic!("{case}: capabilities expected"));
+            assert_eq!(capabilities.vision, Some(true), "{case}");
+            assert_eq!(
+                capabilities.efforts,
+                Some(vec![Effort::Low, Effort::High]),
+                "{case}"
+            );
             assert_eq!(
                 capabilities.default_effort,
-                (authentication == Authentication::ChatGpt).then_some(Effort::High)
+                (authentication == Authentication::ChatGpt).then_some(Effort::High),
+                "{case}"
             );
             let Output::ProviderValidation(validation) = fixture
                 .client
@@ -247,17 +272,18 @@ async fn reads_native_metadata() {
                 .await
                 .unwrap()
             else {
-                panic!("validation expected")
+                panic!("{case}: validation expected")
             };
-            assert!(validation.missing.is_empty());
-            assert_eq!(validation.exceeded, vec!["fixture"]);
+            assert!(validation.missing.is_empty(), "{case}");
+            assert_eq!(validation.exceeded, vec!["fixture"], "{case}");
             assert_eq!(
                 fixture
                     .client
                     .execute(fixture.client.prepare(Command::Snapshot))
                     .await
                     .unwrap(),
-                before
+                before,
+                "{case}"
             );
             assert_eq!(
                 server
@@ -267,10 +293,11 @@ async fn reads_native_metadata() {
                     .iter()
                     .filter(|request| request.path.starts_with("/models"))
                     .count(),
-                3
+                previous_models + 3,
+                "{case}"
             );
-            fixture.close().await;
         }
+        fixture.close().await;
     }
 }
 

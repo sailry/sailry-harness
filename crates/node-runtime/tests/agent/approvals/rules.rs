@@ -366,7 +366,7 @@ async fn releases_matching_pending_calls() {
 }
 
 #[tokio::test]
-async fn remembers_across_turns_and_restart() {
+async fn remembers_across_turns_and_isolates_plain_approval() {
     for remote in [false, true] {
         let first_server = Server::turn_tools(vec![(
             plugin_tool("files", "write_file"),
@@ -444,14 +444,6 @@ async fn remembers_across_turns_and_restart() {
                 .sum::<usize>(),
             6
         );
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn keeps_plain_approval_once() {
-    for remote in [false, true] {
         let server = Server::tools(vec![
             (
                 plugin_tool("files", "write_file"),
@@ -463,24 +455,36 @@ async fn keeps_plain_approval_once() {
             ),
         ])
         .await;
-        let fixture = Fixture::packages(remote, &server, &["files"]).await;
-        let turn = submit(&fixture.client, &fixture.session).await;
-        let first = pending(&fixture.client, fixture.session.id).await;
-        let (decision, receipt) = process::decide(&fixture.client, &first, Decision::Approve).await;
-        let second = pending(&fixture.client, fixture.session.id).await;
-        assert_ne!(first.id, second.id);
-        assert_eq!(second.source, ApprovalSource::User);
+        route(&fixture.client, &fixture.session, &server.endpoint).await;
+        let Output::Session(session) = execute(
+            &fixture.client,
+            Command::CreateSession {
+                project: fixture.session.project,
+                worktree: Some(fixture.session.worktree),
+                config: Some(fixture.session.config.clone()),
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        let turn = submit(&fixture.client, &session).await;
+        let plain = pending(&fixture.client, session.id).await;
+        let (decision, receipt) = process::decide(&fixture.client, &plain, Decision::Approve).await;
+        let later = pending(&fixture.client, session.id).await;
+        assert_ne!(plain.id, later.id);
+        assert_eq!(later.source, ApprovalSource::User);
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("count.txt")).unwrap(),
             "x"
         );
         assert_eq!(fixture.client.execute(decision).await.unwrap(), receipt);
-        assert_eq!(pending(&fixture.client, fixture.session.id).await, second);
-        process::decide(&fixture.client, &second, Decision::Deny).await;
-        let page = completed(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(pending(&fixture.client, session.id).await, later);
+        process::decide(&fixture.client, &later, Decision::Deny).await;
+        let page = completed(&fixture.client, session.id, turn.id).await;
         assert_eq!(page.approvals[0].choice, Some(ApprovalChoice::Once));
-        assert!(claimed(&fixture.node, &first).await.1);
-        assert!(!claimed(&fixture.node, &second).await.1);
+        assert!(claimed(&fixture.node, &plain).await.1);
+        assert!(!claimed(&fixture.node, &later).await.1);
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("count.txt")).unwrap(),
             "x"

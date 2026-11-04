@@ -861,7 +861,7 @@ async fn creates_and_queries_in_one_turn() {
 }
 
 #[tokio::test]
-async fn relative_saves_preserve_scope_and_plan() {
+async fn relative_saves_preserve_scope_plan_and_credentials() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
         let mut fixture = fixture(remote, &server, None).await;
@@ -934,18 +934,21 @@ async fn relative_saves_preserve_scope_and_plan() {
         }));
         assert!(databases(&fixture.client).await.is_empty());
         assert!(!fixture.root.join("sales.db").exists());
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn preserves_credentials_and_reports_missing() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![]).await;
-        let mut fixture = fixture(remote, &server, None).await;
-        install(&fixture).await;
-        configure(&mut fixture, Permission::Full).await;
+        let mut config = fixture.session.config.clone();
+        config.mode = WorkMode::Code;
+        let Output::Session(session) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::CreateSession {
+                project: fixture.session.project,
+                worktree: Some(fixture.session.worktree),
+                config: Some(config),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
         let Output::DatabaseProfile(existing) = fixture
             .client
             .execute(fixture.client.prepare(Command::SaveDatabase {

@@ -83,24 +83,25 @@ async fn configure_model(client: &Client, endpoint: String, api: conversation::M
 }
 
 #[tokio::test]
-async fn completes_before_socket_eof() {
+async fn terminal_and_failure() {
     for remote in [false, true] {
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
+        let context = actions::install_actions(
+            &client,
+            &directory.path().join("source/package"),
+            worktree,
+            0,
+            &[Action::GenerateText],
+        )
+        .await;
         for api in [
             conversation::ModelApi::Responses,
             conversation::ModelApi::ChatCompletions,
             conversation::ModelApi::DeepSeek,
         ] {
+            let case = format!("{remote:?} {api:?}");
             let server = model_fixture::Server::terminal().await;
-            let (directory, node, controller, client, worktree) =
-                crate::plugins::support::empty(remote).await;
-            let context = actions::install_actions(
-                &client,
-                &directory.path().join("source/package"),
-                worktree,
-                0,
-                &[Action::GenerateText],
-            )
-            .await;
             let model = configure_model(&client, server.endpoint.clone(), api).await;
             let request = client
                 .prepare(Command::GeneratePluginText {
@@ -108,31 +109,35 @@ async fn completes_before_socket_eof() {
                     model,
                     prompt: "Choose a card".into(),
                 })
-                .with_plugin(context);
+                .with_plugin(context.clone());
             let result =
                 tokio::time::timeout(Duration::from_secs(5), client.execute(request.clone()))
                     .await
-                    .expect("completion must not wait for socket EOF")
+                    .unwrap_or_else(|_| panic!("{case}: completion must not wait for socket EOF"))
                     .unwrap();
             let Output::PluginText(text) = result else {
-                panic!("plugin text expected")
+                panic!("{case}: plugin text expected")
             };
-            assert_eq!(text.text, "{\"move\":1}");
-            assert_eq!(text.tokens, 16);
-            assert_eq!(server.requests.lock().unwrap().len(), 1);
+            assert_eq!(text.text, "{\"move\":1}", "{case}");
+            assert_eq!(text.tokens, 16, "{case}");
+            assert_eq!(server.requests.lock().unwrap().len(), 1, "{case}");
             if api == conversation::ModelApi::DeepSeek {
                 let sent = server.requests.lock().unwrap()[0].clone();
-                assert_eq!(sent["thinking"]["type"], "enabled");
-                assert_eq!(sent["reasoning_effort"], "high");
-                assert_eq!(sent["max_tokens"], 4096);
-                let Output::Providers(providers) = execute(&client, Command::ListProviders).await
-                else {
-                    panic!("providers expected")
-                };
-                assert_eq!(providers[0].models[0].default_effort, Effort::High);
+                assert_eq!(sent["thinking"]["type"], "enabled", "{case}");
+                assert_eq!(sent["reasoning_effort"], "high", "{case}");
+                assert_eq!(sent["max_tokens"], 4096, "{case}");
                 let Command::GeneratePluginText { model, .. } = &request.command else {
                     unreachable!()
                 };
+                let Output::Providers(providers) = execute(&client, Command::ListProviders).await
+                else {
+                    panic!("{case}: providers expected")
+                };
+                let provider = providers
+                    .iter()
+                    .find(|provider| model.starts_with(&format!("{}/", provider.id)))
+                    .unwrap_or_else(|| panic!("{case}: selected provider expected"));
+                assert_eq!(provider.models[0].default_effort, Effort::High, "{case}");
                 let override_request = client
                     .prepare(Command::GeneratePluginText {
                         model: model.clone(),
@@ -140,13 +145,17 @@ async fn completes_before_socket_eof() {
                         effort: Some(Effort::Max),
                     })
                     .with_plugin(request.plugin.clone().unwrap());
-                assert!(matches!(
-                    client.execute(override_request).await.unwrap(),
-                    Output::PluginText(_)
-                ));
+                assert!(
+                    matches!(
+                        client.execute(override_request).await.unwrap(),
+                        Output::PluginText(_)
+                    ),
+                    "{case}"
+                );
                 assert_eq!(
                     server.requests.lock().unwrap()[1]["reasoning_effort"],
-                    "max"
+                    "max",
+                    "{case}"
                 );
                 for effort in [Effort::XHigh, Effort::Low] {
                     let invalid = client
@@ -158,10 +167,11 @@ async fn completes_before_socket_eof() {
                         .with_plugin(request.plugin.clone().unwrap());
                     assert_eq!(
                         client.execute(invalid).await.unwrap_err().code,
-                        ErrorCode::InvalidRequest
+                        ErrorCode::InvalidRequest,
+                        "{case}: {effort:?}"
                     );
                 }
-                assert_eq!(server.requests.lock().unwrap().len(), 2);
+                assert_eq!(server.requests.lock().unwrap().len(), 2, "{case}");
                 let disabled = client
                     .prepare(Command::GeneratePluginText {
                         model: model.clone(),
@@ -169,13 +179,16 @@ async fn completes_before_socket_eof() {
                         effort: Some(Effort::Disabled),
                     })
                     .with_plugin(request.plugin.clone().unwrap());
-                assert!(matches!(
-                    client.execute(disabled).await.unwrap(),
-                    Output::PluginText(_)
-                ));
+                assert!(
+                    matches!(
+                        client.execute(disabled).await.unwrap(),
+                        Output::PluginText(_)
+                    ),
+                    "{case}"
+                );
                 let sent = server.requests.lock().unwrap()[2].clone();
-                assert_eq!(sent["thinking"]["type"], "disabled");
-                assert!(sent["reasoning_effort"].is_null());
+                assert_eq!(sent["thinking"]["type"], "disabled", "{case}");
+                assert!(sent["reasoning_effort"].is_null(), "{case}");
             }
             if api == conversation::ModelApi::Responses {
                 let Command::GeneratePluginText { model, .. } = request.command else {
@@ -191,19 +204,51 @@ async fn completes_before_socket_eof() {
                 let output =
                     tokio::time::timeout(Duration::from_secs(5), client.execute(truncated))
                         .await
-                        .expect("incomplete events must terminate promptly")
+                        .unwrap_or_else(|_| {
+                            panic!("{case}: incomplete events must terminate promptly")
+                        })
                         .unwrap();
                 let Output::PluginText(text) = output else {
-                    panic!("plugin text expected")
+                    panic!("{case}: plugin text expected")
                 };
-                assert_eq!(text.text, "{\"move\":1}");
-                assert_eq!(text.tokens, 16);
-                assert_eq!(server.requests.lock().unwrap().len(), 2);
+                assert_eq!(text.text, "{\"move\":1}", "{case}");
+                assert_eq!(text.tokens, 16, "{case}");
+                assert_eq!(server.requests.lock().unwrap().len(), 2, "{case}");
             }
-            drop(client);
-            controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
         }
+        let case = format!("{remote:?} unauthorized");
+        let server = model_fixture::Server::http(1, 401).await;
+        let model = configure_empty(&client, server.endpoint.clone()).await;
+        let request = client
+            .prepare(Command::GeneratePluginText {
+                effort: None,
+                model,
+                prompt: "Choose".into(),
+            })
+            .with_plugin(context);
+        let result = client.execute(request.clone()).await.unwrap_err();
+        assert_eq!(result.code, ErrorCode::Unavailable, "{case}");
+        assert_eq!(
+            result.details,
+            Some(FaultDetails::ModelRequest {
+                reason: ModelFailure::Unauthorized,
+            }),
+            "{case}"
+        );
+        assert_eq!(
+            client.execute(request.clone()).await.unwrap_err(),
+            result,
+            "{case}"
+        );
+        assert_eq!(
+            client.outcome(&request).await.unwrap(),
+            RequestOutcome::Completed(Box::new(Err(result))),
+            "{case}"
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 1, "{case}");
+        drop(client);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
     }
 }
 
@@ -356,48 +401,6 @@ async fn rejects_invalid_requests() {
     drop(client);
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
-}
-
-#[tokio::test]
-async fn preserves_failed_attempt() {
-    for remote in [false, true] {
-        let server = model_fixture::Server::http(1, 401).await;
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        let context = actions::install_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            0,
-            &[Action::GenerateText],
-        )
-        .await;
-        let model = configure_empty(&client, server.endpoint.clone()).await;
-        let request = client
-            .prepare(Command::GeneratePluginText {
-                effort: None,
-                model,
-                prompt: "Choose".into(),
-            })
-            .with_plugin(context);
-        let result = client.execute(request.clone()).await.unwrap_err();
-        assert_eq!(result.code, ErrorCode::Unavailable);
-        assert_eq!(
-            result.details,
-            Some(FaultDetails::ModelRequest {
-                reason: ModelFailure::Unauthorized,
-            })
-        );
-        assert_eq!(client.execute(request.clone()).await.unwrap_err(), result);
-        assert_eq!(
-            client.outcome(&request).await.unwrap(),
-            RequestOutcome::Completed(Box::new(Err(result)))
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
 }
 
 #[tokio::test]

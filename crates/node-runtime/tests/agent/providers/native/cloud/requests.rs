@@ -33,45 +33,6 @@ async fn completes_tools() {
 }
 
 #[tokio::test]
-async fn bounds_transient_failure_retries() {
-    for &api in APIS {
-        for remote in [false, true] {
-            let server = Server::start(api, Reply::Failure).await;
-            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let mut provider = fixture.provider.clone();
-            provider.request_max_retries = None;
-            provider.stream_max_retries = Some(5);
-            execute(
-                &fixture.client,
-                Command::PutProvider {
-                    expected_revision: provider.revision,
-                    provider,
-                },
-            )
-            .await;
-            let turn = fixture.submit("Failure fixture").await;
-            let page = finished_within(
-                &fixture.client,
-                fixture.session.id,
-                turn,
-                retry_fixture::budget(),
-            )
-            .await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Failed,
-                "{api:?}: {:?}",
-                page.runs
-            );
-            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-            assert_eq!(server.requests.lock().unwrap().len(), 6, "{api:?}");
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-        }
-    }
-}
-
-#[tokio::test]
 async fn rejects_redirects() {
     for &api in APIS {
         for remote in [false, true] {

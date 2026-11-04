@@ -8,40 +8,44 @@ mod exposure;
 #[tokio::test]
 async fn inherits_parent_model() {
     for remote in [false, true] {
-        for (roster, selection) in [
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        install(&client).await;
+        let mut roster_role: Option<role::Profile> = None;
+        for (index, (roster, selection)) in [
             (false, None),
             (false, Some(None)),
             (true, None),
             (true, Some(None)),
             (true, Some(Some("review"))),
-        ] {
-            let directory = tempfile::tempdir().unwrap();
-            let root = directory.path().join("project");
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let root = directory.path().join(format!("project-{index}"));
             std::fs::create_dir(&root).unwrap();
             std::fs::write(root.join("AGENTS.md"), "Shared default instructions").unwrap();
-            let node = Node::start_empty(directory.path().join("node"))
-                .await
-                .unwrap();
-            let controller =
-                Link::controller(directory.path().join("controller"), NetworkScope::default())
-                    .await
-                    .unwrap();
-            let address = controller
-                .handle()
-                .pair(node.link().invite().unwrap().ticket())
-                .await
-                .unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(address)
-            } else {
-                node.local()
-            });
             let mut args = json!({"task": "第一轮：读取并总结"});
             if let Some(role) = selection {
                 args["role"] = json!(role);
             }
             let server = Server::parallel(vec![("spawn_agent".to_string(), args)]).await;
-            install(&client).await;
             let (mut session, mut provider) =
                 configured_session(&client, &server.endpoint, &root).await;
             provider.models = vec![model("fixture-a")];
@@ -54,32 +58,38 @@ async fn inherits_parent_model() {
                 .await
                 .unwrap();
             if roster {
-                let role = role::Profile {
-                    read_only: false,
-                    appearance: None,
-                    id: RoleId::new(),
-                    revision: 0,
-                    key: "review".into(),
-                    name: "Review".into(),
-                    description: "Inspect the delegated task".into(),
-                    model: None,
-                    max_turns: Some(2),
-                    skills: vec![],
-                    tools: None,
-                    instructions: format!(
-                        "Inherited role instruction {}Full child instruction tail",
-                        "🙂".repeat(1024)
-                    ),
-                };
-                let Output::Role(role) = client
-                    .execute(client.prepare(Command::PutRole {
-                        role,
-                        expected_revision: 0,
-                    }))
-                    .await
-                    .unwrap()
-                else {
-                    panic!("role expected")
+                let role = if let Some(existing) = &roster_role {
+                    existing.clone()
+                } else {
+                    let role = role::Profile {
+                        read_only: false,
+                        appearance: None,
+                        id: RoleId::new(),
+                        revision: 0,
+                        key: "review".into(),
+                        name: "Review".into(),
+                        description: "Inspect the delegated task".into(),
+                        model: None,
+                        max_turns: Some(2),
+                        skills: vec![],
+                        tools: None,
+                        instructions: format!(
+                            "Inherited role instruction {}Full child instruction tail",
+                            "🙂".repeat(1024)
+                        ),
+                    };
+                    let Output::Role(role) = client
+                        .execute(client.prepare(Command::PutRole {
+                            role,
+                            expected_revision: 0,
+                        }))
+                        .await
+                        .unwrap()
+                    else {
+                        panic!("role expected")
+                    };
+                    roster_role = Some(role.clone());
+                    role
                 };
                 let Output::Session(updated) = client
                     .execute(client.prepare(Command::SetSessionRoles {
@@ -255,9 +265,9 @@ async fn inherits_parent_model() {
                 children[0].delegation.as_ref().unwrap().role.is_some(),
                 selection == Some(Some("review"))
             );
-            node.shutdown().await.unwrap();
-            controller.close().await.unwrap();
         }
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
     }
 }
 

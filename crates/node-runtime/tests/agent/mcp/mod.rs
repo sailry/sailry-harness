@@ -125,6 +125,27 @@ async fn submit(fixture: &process::Fixture, queued: bool) -> (Request, QueuedTur
     (request, turn)
 }
 
+async fn case_fixture<'a>(
+    shared: &'a mut Option<process::Fixture>,
+    remote: bool,
+    model: &Server,
+    name: &str,
+) -> &'a mut process::Fixture {
+    if let Some(fixture) = shared {
+        select_case(fixture, model, name).await;
+    } else {
+        *shared = Some(process::Fixture::packages(remote, model, &[]).await);
+    }
+    shared.as_mut().unwrap()
+}
+
+async fn select_case(fixture: &mut process::Fixture, model: &Server, name: &str) {
+    let root = fixture.directory.path().join(name);
+    fs::create_dir(&root).unwrap();
+    fixture.session = approvals::prepare_packages(&fixture.client, model, &root, &[]).await;
+    fixture.root = root;
+}
+
 async fn present(path: &Path) {
     tokio::time::timeout(Duration::from_secs(10), async {
         while !fs::read(path).is_ok_and(|bytes| !bytes.is_empty()) {

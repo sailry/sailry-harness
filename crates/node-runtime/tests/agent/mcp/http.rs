@@ -39,94 +39,172 @@ enum Reply {
     },
 }
 
+async fn install_current(fixture: &process::Fixture) -> plugin::Info {
+    let Output::Plugins(packages) = execute(&fixture.client, Command::ListPlugins).await else {
+        panic!("plugin inventory expected")
+    };
+    let revision = packages
+        .iter()
+        .find(|package| package.name == "example")
+        .map_or(0, |package| package.revision);
+    install(fixture, revision).await
+}
+
 #[tokio::test]
-async fn confines_private_headers() {
+async fn confines_headers_and_isolates_redirect_failures() {
     for remote in [false, true] {
-        for redirect in [false, true] {
-            let target = Http::start(Reply::Normal).await;
-            let origin = Http::start(if redirect {
-                Reply::Redirect(target.endpoint.clone())
+        let mut shared = None;
+        let mut peers = Vec::new();
+        for case_name in ["private-direct", "private-redirect", "isolated-failures"] {
+            if case_name == "isolated-failures" {
+                let target = Http::start(Reply::Normal).await;
+                let origin = Http::start(Reply::Redirect(target.endpoint.clone())).await;
+                let model = Server::tools(vec![(
+                    "load_skill".into(),
+                    json!({"skill": "example:analysis"}),
+                )])
+                .await;
+                let fixture = case_fixture(&mut shared, remote, &model, case_name).await;
+                package(
+                    &fixture.root,
+                    json!({"redirect": {"type": "streamable-http", "url": origin.endpoint, "headers": {"X-Public": "origin-only"}}, "bad-handshake": peer::config("mcp::peer::stdio_peer", "bad_handshake")}),
+                    "version",
+                );
+                install_current(fixture).await;
+
+                let (_, turn) = submit(&fixture, false).await;
+                let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+                assert_eq!(
+                    page.runs[0].status,
+                    Status::Completed,
+                    "{case_name}: {}",
+                    format_args!("{:?}", page.runs)
+                );
+                assert!(
+                    results(&fixture.client, &page).await[0]["content"]
+                        .as_str()
+                        .unwrap()
+                        .contains("Complete skill beside MCP"),
+                    "{case_name}"
+                );
+                assert!(target.requests.lock().unwrap().is_empty(), "{case_name}");
+                assert_eq!(origin.count("initialize"), 1, "{case_name}");
+                reaped(&fixture.node.profile().join("plugins/data/example"));
+                let instructions = model.requests.lock().unwrap()[0]["messages"].to_string();
+                assert!(
+                    instructions.contains("MCP server example/redirect is unavailable"),
+                    "{case_name}"
+                );
+                assert!(!instructions.contains("origin-only"), "{case_name}");
+
+                peers.extend([target, origin]);
             } else {
-                Reply::Normal
-            })
-            .await;
-            let model = Server::tools(if redirect {
-                vec![("load_skill".into(), json!({"skill":"example:analysis"}))]
-            } else {
-                vec![(alias("remote", "read"), json!({}))]
-            })
-            .await;
-            let fixture = process::Fixture::packages(remote, &model, &[]).await;
-            package(
-                &fixture.root,
-                json!({"remote": {
-                    "type":"streamable-http", "url":origin.endpoint, "headers":{"Authorization":""}
-                }}),
-                "private headers",
-            );
-            let root = fixture.root.join("package");
-            let mut manifest: Value =
-                serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
-            manifest["extensions"] = json!({"dev.sailry.platform":{
-                "api_version":"v1", "actions":[], "settings_schema":"dev.sailry.platform/settings.json"
-            }});
-            fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
-            fs::write(root.join("dev.sailry.platform/settings.json"), json!({
+                let redirect = case_name == "private-redirect";
+                let target = Http::start(Reply::Normal).await;
+                let origin = Http::start(if redirect {
+                    Reply::Redirect(target.endpoint.clone())
+                } else {
+                    Reply::Normal
+                })
+                .await;
+                let model = Server::tools(if redirect {
+                    vec![("load_skill".into(), json!({"skill":"example:analysis"}))]
+                } else {
+                    vec![(alias("remote", "read"), json!({}))]
+                })
+                .await;
+                let fixture = case_fixture(&mut shared, remote, &model, case_name).await;
+                package(
+                    &fixture.root,
+                    json!({"remote": {
+                        "type":"streamable-http", "url":origin.endpoint, "headers":{"Authorization":""}
+                    }}),
+                    "private headers",
+                );
+                let root = fixture.root.join("package");
+                let mut manifest: Value =
+                    serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
+                manifest["extensions"] = json!({"dev.sailry.platform":{
+                    "api_version":"v1", "actions":[], "settings_schema":"dev.sailry.platform/settings.json"
+                }});
+                fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
+                fs::write(root.join("dev.sailry.platform/settings.json"), json!({
                 "$schema":plugin::settings::SCHEMA, "type":"object", "additionalProperties":false,
                 "properties":{"token":{"type":"string", "x-sailry-secret":{"server":"remote", "header":"authorization"}}},
                 "required":["token"]
             }).to_string()).unwrap();
-            let package = install(&fixture, 0).await;
-            let invalid = fixture.client.prepare(Command::SavePluginSettings {
-                package: package.summary.reference(),
-                values: BTreeMap::new(),
-                secrets: BTreeMap::from([(
-                    "token".into(),
-                    plugin::settings::SecretUpdate::Replace(Secret::new(
-                        "invalid\r\nheader".into(),
-                    )),
-                )]),
-            });
-            assert_eq!(
-                fixture.client.execute(invalid).await.unwrap_err().code,
-                ErrorCode::InvalidRequest
-            );
-            let secret = "Bearer private-fixture-${PLUGIN_ROOT}";
-            let settings = execute(
-                &fixture.client,
-                Command::SavePluginSettings {
+                let package = install_current(fixture).await;
+                let invalid = fixture.client.prepare(Command::SavePluginSettings {
                     package: package.summary.reference(),
                     values: BTreeMap::new(),
                     secrets: BTreeMap::from([(
                         "token".into(),
-                        plugin::settings::SecretUpdate::Replace(Secret::new(secret.into())),
+                        plugin::settings::SecretUpdate::Replace(Secret::new(
+                            "invalid\r\nheader".into(),
+                        )),
                     )]),
-                },
-            )
-            .await;
-            assert!(!serde_json::to_string(&settings).unwrap().contains(secret));
-
-            let (_, turn) = submit(&fixture, false).await;
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-            assert!(!serde_json::to_string(&page).unwrap().contains(secret));
-            assert!(target.requests.lock().unwrap().is_empty());
-            assert_eq!(origin.count("initialize"), 1);
-            assert_eq!(origin.count("tools/call"), usize::from(!redirect));
-            for (_, headers, _) in origin.requests.lock().unwrap().iter() {
+                });
                 assert_eq!(
-                    headers.get("authorization").map(String::as_str),
-                    Some(secret)
+                    fixture.client.execute(invalid).await.unwrap_err().code,
+                    ErrorCode::InvalidRequest,
+                    "{case_name}"
                 );
+                let secret = "Bearer private-fixture-${PLUGIN_ROOT}";
+                let settings = execute(
+                    &fixture.client,
+                    Command::SavePluginSettings {
+                        package: package.summary.reference(),
+                        values: BTreeMap::new(),
+                        secrets: BTreeMap::from([(
+                            "token".into(),
+                            plugin::settings::SecretUpdate::Replace(Secret::new(secret.into())),
+                        )]),
+                    },
+                )
+                .await;
+                assert!(
+                    !serde_json::to_string(&settings).unwrap().contains(secret),
+                    "{case_name}"
+                );
+
+                let (_, turn) = submit(&fixture, false).await;
+                let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+                assert_eq!(
+                    page.runs.last().unwrap().status,
+                    Status::Completed,
+                    "{case_name}"
+                );
+                assert!(
+                    !serde_json::to_string(&page).unwrap().contains(secret),
+                    "{case_name}"
+                );
+                assert!(target.requests.lock().unwrap().is_empty(), "{case_name}");
+                assert_eq!(origin.count("initialize"), 1, "{case_name}");
+                assert_eq!(
+                    origin.count("tools/call"),
+                    usize::from(!redirect),
+                    "{case_name}"
+                );
+                for (_, headers, _) in origin.requests.lock().unwrap().iter() {
+                    assert_eq!(
+                        headers.get("authorization").map(String::as_str),
+                        Some(secret),
+                        "{case_name}"
+                    );
+                }
+                assert!(
+                    !serde_json::to_string(&*model.requests.lock().unwrap())
+                        .unwrap()
+                        .contains(secret),
+                    "{case_name}"
+                );
+
+                peers.extend([target, origin]);
             }
-            assert!(
-                !serde_json::to_string(&*model.requests.lock().unwrap())
-                    .unwrap()
-                    .contains(secret)
-            );
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
         }
+        let fixture = shared.unwrap();
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
     }
 }
 
@@ -355,7 +433,18 @@ async fn cancellation_joins_held_initialization() {
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
         assert_eq!(run.status, Status::Cancelled);
-        assert!(page.entries.is_empty());
+        assert!(
+            page.entries
+                .iter()
+                .all(|entry| entry.turn == turn.id && entry.author == "user")
+        );
+        assert_eq!(
+            sailry_client::conversation::turns::input(&page, turn.id)
+                .unwrap()
+                .message
+                .text,
+            "Use the configured MCP tools"
+        );
         assert!(model.requests.lock().unwrap().is_empty());
         assert!(
             run.error.is_none(),
@@ -425,44 +514,6 @@ async fn expired_calls_prevent_replay() {
             fixture.node.shutdown().await.unwrap();
             assert_eq!(http.deletes(), 1);
         }
-    }
-}
-
-#[tokio::test]
-async fn isolates_redirect_failures() {
-    for remote in [false, true] {
-        let target = Http::start(Reply::Normal).await;
-        let origin = Http::start(Reply::Redirect(target.endpoint.clone())).await;
-        let model = Server::tools(vec![(
-            "load_skill".into(),
-            json!({"skill": "example:analysis"}),
-        )])
-        .await;
-        let fixture = process::Fixture::packages(remote, &model, &[]).await;
-        package(
-            &fixture.root,
-            json!({"redirect": {"type": "streamable-http", "url": origin.endpoint, "headers": {"X-Public": "origin-only"}}, "bad-handshake": peer::config("mcp::peer::stdio_peer", "bad_handshake")}),
-            "version",
-        );
-        install(&fixture, 0).await;
-
-        let (_, turn) = submit(&fixture, false).await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        assert!(
-            results(&fixture.client, &page).await[0]["content"]
-                .as_str()
-                .unwrap()
-                .contains("Complete skill beside MCP")
-        );
-        assert!(target.requests.lock().unwrap().is_empty());
-        assert_eq!(origin.count("initialize"), 1);
-        reaped(&fixture.node.profile().join("plugins/data/example"));
-        let instructions = model.requests.lock().unwrap()[0]["messages"].to_string();
-        assert!(instructions.contains("MCP server example/redirect is unavailable"));
-        assert!(!instructions.contains("origin-only"));
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
     }
 }
 

@@ -130,61 +130,67 @@ async fn turn(fixture: &process::Fixture, server: &Server, message: &str) -> (St
     )
 }
 
+async fn next_session(fixture: &process::Fixture) -> Session {
+    let Output::Session(session) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::CreateSession {
+            project: fixture.session.project,
+            worktree: Some(fixture.session.worktree),
+            config: Some(fixture.session.config.clone()),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("session expected")
+    };
+    session
+}
+
 #[tokio::test]
-async fn states_each_part_once_per_conversation() {
+async fn keeps_parts_distinct_across_sessions() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let fixture = process::Fixture::packages(remote, &server, &[]).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install_source(&fixture, true, PARTS).await;
         let (latest, total) = turn(&fixture, &server, "parts:alpha|beta").await;
-        assert!(latest.contains("Fixture part alpha"), "{latest}");
-        assert!(latest.contains("Fixture part beta"), "{latest}");
-        assert_eq!(total, 2);
+        assert!(latest.contains("Fixture part alpha"), "dedupe: {latest}");
+        assert!(latest.contains("Fixture part beta"), "dedupe: {latest}");
+        assert_eq!(total, 2, "dedupe: transport={remote}");
         // A repeated part is skipped and a new one is added beside it.
         let (latest, total) = turn(&fixture, &server, "parts:alpha|gamma").await;
-        assert!(latest.contains("Fixture part gamma"), "{latest}");
-        assert!(!latest.contains("Fixture part alpha"), "{latest}");
-        assert_eq!(total, 3);
+        assert!(latest.contains("Fixture part gamma"), "dedupe: {latest}");
+        assert!(!latest.contains("Fixture part alpha"), "dedupe: {latest}");
+        assert_eq!(total, 3, "dedupe: transport={remote}");
         let (_, total) = turn(&fixture, &server, "parts:gamma|beta|alpha").await;
-        assert_eq!(total, 3);
+        assert_eq!(total, 3, "dedupe: transport={remote}");
         let (_, total) = turn(&fixture, &server, "no parts").await;
-        assert_eq!(total, 3);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
+        assert_eq!(total, 3, "dedupe: transport={remote}");
 
-#[tokio::test]
-async fn keeps_distinct_substring_parts() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![]).await;
-        let fixture = process::Fixture::packages(remote, &server, &[]).await;
-        install_source(&fixture, true, PARTS).await;
+        fixture.session = next_session(&fixture).await;
         let (latest, total) = turn(&fixture, &server, "parts:alpha extended").await;
-        assert!(latest.contains("Fixture part alpha extended"), "{latest}");
-        assert_eq!(total, 1);
+        assert!(
+            latest.contains("Fixture part alpha extended"),
+            "substring: {latest}"
+        );
+        assert_eq!(total, 1, "substring: transport={remote}");
         let (latest, total) = turn(&fixture, &server, "parts:alpha").await;
-        assert!(latest.contains("Fixture part alpha"), "{latest}");
-        assert!(!latest.contains("Fixture part alpha extended"), "{latest}");
-        assert_eq!(total, 2);
+        assert!(latest.contains("Fixture part alpha"), "substring: {latest}");
+        assert!(
+            !latest.contains("Fixture part alpha extended"),
+            "substring: {latest}"
+        );
+        assert_eq!(total, 2, "substring: transport={remote}");
         let (_, total) = turn(&fixture, &server, "parts:alpha extended|alpha").await;
-        assert_eq!(total, 2);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
+        assert_eq!(total, 2, "substring: transport={remote}");
 
-#[tokio::test]
-async fn keeps_system_prompt_across_part_changes() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![]).await;
-        let fixture = process::Fixture::packages(remote, &server, &[]).await;
-        install_source(&fixture, true, PARTS).await;
+        fixture.session = next_session(&fixture).await;
+        let request_offset = server.requests.lock().unwrap().len();
         for message in ["parts:alpha", "parts:beta|gamma", "no parts", "parts:alpha"] {
             turn(&fixture, &server, message).await;
         }
         {
             let requests = server.requests.lock().unwrap();
+            let requests = &requests[request_offset..];
             assert_eq!(requests.len(), 4);
             let system = |request: &serde_json::Value| -> String {
                 request["messages"]
