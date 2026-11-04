@@ -39,6 +39,15 @@ impl View {
             }
         }
         descendants.remove(&root);
+        // Only children waiting on approval carry pending cards. Watching every
+        // finished delegate loaded full histories and stalled session switches.
+        descendants.retain(|id| {
+            snapshot.sessions.iter().any(|session| {
+                session.id == *id
+                    && session.activity.waiting
+                        == Some(sailry_protocol::activity::Waiting::Approval)
+            })
+        });
         self.approvals
             .children
             .retain(|id, _| descendants.contains(id));
