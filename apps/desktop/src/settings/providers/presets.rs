@@ -171,7 +171,32 @@ fn intrinsic(svg: &str) -> bool {
 }
 
 pub(crate) fn render_icon(entry: &Entry, size: Rems) -> AnyElement {
-    match glyph(entry) {
+    draw(entry, glyph(entry), size)
+}
+
+/// Whether a glyph paints in the inherited text color when drawn monochrome.
+/// Raster and remote images cannot be tinted and keep their own pixels.
+fn tinted(glyph: &Glyph) -> bool {
+    matches!(
+        glyph,
+        Glyph::Declared(_) | Glyph::Image(ImageFormat::Svg, _) | Glyph::Fallback
+    )
+}
+
+/// The type glyph for colored tiles: vectors, including intrinsically colored
+/// ones, become silhouettes in the inherited text color.
+pub(super) fn render_mono(entry: &Entry, size: Rems) -> AnyElement {
+    let glyph = glyph(entry);
+    if tinted(&glyph)
+        && let Glyph::Image(_, bytes) = &glyph
+    {
+        return Icon::default().data(bytes).size(size).into_any_element();
+    }
+    draw(entry, glyph, size)
+}
+
+fn draw(entry: &Entry, glyph: Glyph<'_>, size: Rems) -> AnyElement {
+    match glyph {
         Glyph::Declared(icon) => crate::assets::icons::icon(icon)
             .size(size)
             .into_any_element(),
