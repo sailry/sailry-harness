@@ -292,7 +292,8 @@ impl Shell {
                             div()
                                 .flex_shrink_0()
                                 .text_xs()
-                                .text_color(cx.theme().muted_foreground)
+                                // Dimmer than titles so the age reads as secondary.
+                                .text_color(cx.theme().muted_foreground.opacity(0.6))
                                 .debug_selector(move || format!("{prefix}-{id}-age"))
                                 .child(age),
                         )

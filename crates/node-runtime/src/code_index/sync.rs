@@ -215,6 +215,11 @@ impl Scan {
 /// Indexed content hash, extraction rules and status of one file.
 pub(super) type Prior = (Option<String>, String, Status);
 
+pub(super) struct Refresh {
+    pub changed: bool,
+    pub checked: BTreeSet<String>,
+}
+
 pub(super) fn prior(cached: Option<&Cached>) -> Option<Prior> {
     cached.map(|cached| {
         (
@@ -273,9 +278,13 @@ impl Service {
         progress: &mut Progress,
         paths: BTreeSet<String>,
         stop: &CancellationToken,
-    ) -> Result<bool, Fault> {
+        deadline: Instant,
+    ) -> Result<Refresh, Fault> {
         if paths.is_empty() {
-            return Ok(false);
+            return Ok(Refresh {
+                changed: false,
+                checked: BTreeSet::new(),
+            });
         }
         let resources = self.resources().await?;
         progress.records.load(index).await?;
@@ -297,14 +306,20 @@ impl Service {
                 files,
                 resources.clone(),
                 stop,
-                Instant::now() + Duration::from_secs(10),
+                deadline,
             )
             .await?;
         let mut changes = Vec::new();
+        let mut checked = BTreeSet::new();
         for (path, result) in names.into_iter().zip(results) {
             match result {
-                Ok(Some(file)) => changes.push(file),
-                Ok(None) => {}
+                Ok(Some(file)) => {
+                    checked.insert(path);
+                    changes.push(file);
+                }
+                Ok(None) => {
+                    checked.insert(path);
+                }
                 Err(fault)
                     if matches!(fault.code, ErrorCode::Cancelled | ErrorCode::NotConfigured) =>
                 {
@@ -312,20 +327,25 @@ impl Service {
                 }
                 // The scan resumes files left by the refresh budget.
                 Err(fault) if fault.code == ErrorCode::Busy => {}
-                Err(_) => changes.push(Parsed::omitted(path, Status::Invalid)),
+                Err(_) => {
+                    checked.insert(path.clone());
+                    changes.push(Parsed::omitted(path, Status::Invalid));
+                }
             }
         }
-        let Some(revision) = index
+        let revision = index
             .replace(&changes, &resources.fingerprint, stop)
-            .await?
-        else {
-            return Ok(false);
-        };
-        for file in &changes {
-            progress.records.insert(file, &resources.fingerprint);
+            .await?;
+        if let Some(revision) = revision {
+            for file in &changes {
+                progress.records.insert(file, &resources.fingerprint);
+            }
+            progress.records.advance(revision);
         }
-        progress.records.advance(revision);
-        Ok(true)
+        Ok(Refresh {
+            changed: revision.is_some(),
+            checked,
+        })
     }
 
     pub(super) async fn synchronize(

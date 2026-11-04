@@ -326,28 +326,15 @@ impl Service {
                 sync::Report::interrupted()
             };
             let scoped = report.scoped(query.path.as_deref());
-            let mut page = index.search(query, stop).await?;
             // Watch events carry no paths, so a bounded scan can still return
             // files changed outside the Agent. Matched files are re-read before
             // their revisions reach revision-checked line reads.
-            let mut progress = match held {
-                Some(progress) => progress,
-                None => {
-                    tokio::select! {biased; _=stop.cancelled()=>return Err(cancelled()),guard=worktree.sync.lock()=>guard}
-                }
+            let mut page = if let Some(mut progress) = held {
+                self.validated_search(&worktree, index, &mut progress, query, stop)
+                    .await?
+            } else {
+                index.search(query, stop).await?
             };
-            let paths = page
-                .symbols
-                .iter()
-                .map(|symbol| symbol.path.clone())
-                .collect();
-            if self
-                .refresh(&worktree, index, &mut progress, paths, stop)
-                .await?
-            {
-                page = index.search(query, stop).await?;
-            }
-            drop(progress);
             page.visited = report.visited;
             page.skipped = scoped.skipped;
             page.partial |= scoped.partial;
@@ -361,6 +348,45 @@ impl Service {
             _ = worktree.stop.cancelled() => Err(cancelled()),
             result = operation => result,
         }
+    }
+
+    async fn validated_search(
+        &self,
+        worktree: &Arc<Worktree>,
+        index: &index::Index,
+        progress: &mut sync::Progress,
+        query: &Search,
+        stop: &CancellationToken,
+    ) -> Result<SearchPage, Fault> {
+        let mut page = index.search(query, stop).await?;
+        let mut checked = BTreeSet::new();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let paths: BTreeSet<_> = page
+                .symbols
+                .iter()
+                .map(|symbol| symbol.path.clone())
+                .filter(|path| !checked.contains(path))
+                .collect();
+            if paths.is_empty() {
+                break;
+            }
+            let refreshed = self
+                .refresh(worktree, index, progress, paths, stop, deadline)
+                .await?;
+            let stalled = refreshed.checked.is_empty();
+            checked.extend(refreshed.checked);
+            if refreshed.changed {
+                page = index.search(query, stop).await?;
+            }
+            if stalled || Instant::now() >= deadline {
+                page.symbols.retain(|symbol| checked.contains(&symbol.path));
+                page.partial = true;
+                page.truncated = true;
+                break;
+            }
+        }
+        Ok(page)
     }
 }
 

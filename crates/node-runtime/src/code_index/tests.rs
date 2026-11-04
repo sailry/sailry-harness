@@ -192,21 +192,73 @@ async fn refreshes_matched_files_changed_outside_the_scan() {
     assert!(
         fixture
             .service
-            .refresh(&worktree, index, &mut progress, paths.clone(), &stop)
+            .refresh(
+                &worktree,
+                index,
+                &mut progress,
+                paths.clone(),
+                &stop,
+                Instant::now() + Duration::from_secs(10),
+            )
             .await
             .unwrap()
+            .changed
     );
     assert!(
         !fixture
             .service
-            .refresh(&worktree, index, &mut progress, paths, &stop)
+            .refresh(
+                &worktree,
+                index,
+                &mut progress,
+                paths,
+                &stop,
+                Instant::now() + Duration::from_secs(10),
+            )
             .await
-            .unwrap(),
+            .unwrap()
+            .changed,
         "unchanged files are not replaced again"
     );
     drop(progress);
     let page = index.search(&query, &stop).await.unwrap();
     assert_eq!(page.symbols[0].file_revision, current);
+}
+
+#[tokio::test]
+async fn validates_replacement_hits_after_changes() {
+    let fixture = Fixture::new();
+    fixture.write("first.rs", "pub fn match_first() {}\n");
+    fixture.write("second.rs", "pub fn match_second() {}\n");
+    fixture.search().await;
+    fixture.write("first.rs", "pub fn removed() {}\n");
+    fixture.write("second.rs", "pub fn match_updated() {}\n");
+    let worktree = fixture
+        .service
+        .worktree(fixture.id, fixture.root.clone())
+        .unwrap();
+    let index = worktree.index().await.unwrap();
+    let query = Search {
+        query: "match".into(),
+        limit: 1,
+        ..Default::default()
+    };
+    let stop = CancellationToken::new();
+    let mut progress = worktree.sync.lock().await;
+    let page = fixture
+        .service
+        .validated_search(&worktree, index, &mut progress, &query, &stop)
+        .await
+        .unwrap();
+    assert_eq!(page.symbols.len(), 1);
+    assert_eq!(page.symbols[0].name, "match_updated");
+    assert_eq!(page.symbols[0].path, "second.rs");
+    assert_eq!(
+        page.symbols[0].file_revision,
+        blake3::hash(b"pub fn match_updated() {}\n")
+            .to_hex()
+            .to_string()
+    );
 }
 
 #[test]

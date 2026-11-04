@@ -206,7 +206,27 @@ impl Shell {
         if delivery.includes_in_app() && !persistent {
             // Kit b79f4ce fixes autohide at five seconds. Its public dismissal
             // API applies the selected duration without replacing the toast.
+            let activation = if window.is_window_active() {
+                None
+            } else {
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                let mut sender = Some(sender);
+                let subscription = cx.observe_window_activation(window, move |_, window, _| {
+                    if window.is_window_active()
+                        && let Some(sender) = sender.take()
+                    {
+                        let _ = sender.send(());
+                    }
+                });
+                Some((subscription, receiver))
+            };
             cx.spawn_in(window, async move |_, cx| {
+                if let Some((subscription, receiver)) = activation {
+                    let _subscription = subscription;
+                    if receiver.await.is_err() {
+                        return;
+                    }
+                }
                 cx.background_executor()
                     .timer(Duration::from_secs(preferences.toast_seconds))
                     .await;

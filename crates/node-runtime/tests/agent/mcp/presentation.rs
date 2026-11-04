@@ -40,8 +40,8 @@ async fn preserves_failures_without_changing_returns() {
         }
         assert_eq!(calls[0].id.as_deref(), Some("call-fixture-0"));
         assert_eq!(calls[1].id.as_deref(), Some("call-fixture-1"));
-        assert_eq!(calls[0].presentation, Presentation::Hidden);
-        assert!(calls[0].hidden(&page));
+        assert_eq!(calls[0].presentation, Presentation::Summary);
+        assert!(!calls[0].hidden(&page));
         assert!(!calls[0].details(&page));
         assert!(calls[1].failure.is_some());
         assert!(!calls[1].hidden(&page));
@@ -121,7 +121,7 @@ async fn preserves_failures_without_changing_returns() {
         let restored = super::super::progress::observe(&client, fixture.session.id).await;
         assert_eq!(restored.calls[1].failure, calls[1].failure);
         assert_eq!(restored.calls[2].failure, calls[2].failure);
-        assert!(restored.calls[0].hidden(&page));
+        assert!(!restored.calls[0].hidden(&page));
         assert!(!restored.calls[3].details(&page));
         assert!(restored.calls[4].failure.is_none());
         assert!(!restored.calls[4].details(&page));
