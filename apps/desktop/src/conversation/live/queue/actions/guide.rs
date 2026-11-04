@@ -85,137 +85,172 @@ mod tests {
     }
 
     #[test]
-    fn drains_once_after_pending_clears() {
-        let queue = queue();
-        let item = &queue.items[0];
-        let mut intent = Some((item.turn, item.revision, false));
-        let recipient = Some(TurnId::new());
-        assert!(
-            take(&mut intent, &queue, recipient, true)
-                .unwrap()
-                .is_none()
-        );
-        assert!(intent.is_some());
-        assert!(
-            matches!(take(&mut intent, &queue, recipient, false), Ok(Some(
-            Command::GuideQueuedTurn { turn, expected_revision: 4, .. }
-        )) if turn == item.turn)
-        );
-        assert!(
-            take(&mut intent, &queue, recipient, false)
-                .unwrap()
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn rejects_changed_or_missing_items() {
-        for change in ["revision", "removed", "guided", "recipient"] {
-            let mut queue = queue();
-            let mut intent = Some((queue.items[0].turn, queue.items[0].revision, false));
-            let mut recipient = Some(TurnId::new());
-            match change {
-                "revision" => queue.items[0].revision += 1,
-                "removed" => queue.items.clear(),
-                "guided" => queue.items[0].guidance = recipient,
-                "recipient" => recipient = None,
-                _ => unreachable!(),
-            }
-            assert!(matches!(
-                take(&mut intent, &queue, recipient, false),
-                Err("queue_changed")
-            ));
-            assert!(intent.is_none());
-        }
-    }
-
-    #[test]
-    fn latest_selection_replaces_waiting_intent() {
-        let mut queue = queue();
-        let mut second = queue.items[0].clone();
-        second.turn = TurnId::new();
-        queue.items.push(second.clone());
-        let mut intent = Some((queue.items[0].turn, queue.items[0].revision, false));
-        let recipient = Some(TurnId::new());
-        assert!(
-            take(&mut intent, &queue, recipient, true)
-                .unwrap()
-                .is_none()
-        );
-        intent = Some((second.turn, second.revision, true));
-        assert!(
-            matches!(take(&mut intent, &queue, recipient, false), Ok(Some(
-            Command::GuideQueuedTurn { turn, immediate: true, .. }
-        )) if turn == second.turn)
-        );
-        assert!(intent.is_none());
-    }
-
-    #[test]
-    fn immediate_selection_keeps_pending_recipient() {
-        let mut queue = queue();
-        let recipient = TurnId::new();
-        queue.items[0].guidance = Some(recipient);
-        let item = &queue.items[0];
-        let mut intent = Some((item.turn, item.revision, true));
-        assert!(matches!(
-            take(&mut intent, &queue, Some(recipient), false),
-            Ok(Some(Command::GuideQueuedTurn {
-                immediate: true,
-                ..
-            }))
-        ));
-    }
-
-    #[test]
-    fn acknowledges_separate_ready_input() {
-        let mut queue = queue();
-        let command = Command::GuideQueuedTurn {
-            turn: queue.items[0].turn,
-            recipient: TurnId::new(),
-            expected_revision: queue.items[0].revision,
-        };
-        // Captured capabilities can differ even with the same session revision.
-        for revision in [1, 2] {
-            queue.items[0].config_revision = revision;
-            assert!(separate(&command, &queue));
-        }
-    }
-
-    #[test]
-    fn ignores_other_guidance_outcomes() {
-        let queue = queue();
-        let turn = queue.items[0].turn;
-        let recipient = TurnId::new();
-        let command = Command::GuideQueuedTurn {
-            turn,
-            recipient,
-            expected_revision: queue.items[0].revision,
-        };
-        for change in [
-            "guided",
-            "other-recipient",
-            "unready",
-            "missing",
-            "other-turn",
+    fn pending_intents_and_outcomes() {
+        for (scenario, check) in [
+            (
+                "drains_once_after_pending_clears",
+                (|_scenario: &str| {
+                    let queue = queue();
+                    let item = &queue.items[0];
+                    let mut intent = Some((item.turn, item.revision));
+                    let recipient = Some(TurnId::new());
+                    assert!(
+                        take(&mut intent, &queue, recipient, true)
+                            .unwrap()
+                            .is_none(),
+                        "drains once after pending clears"
+                    );
+                    assert!(intent.is_some(), "drains once after pending clears");
+                    assert!(
+                        matches!(take(&mut intent, &queue, recipient, false), Ok(Some(
+                    Command::GuideQueuedTurn { turn, expected_revision: 4, .. }
+                )) if turn == item.turn),
+                        "drains once after pending clears"
+                    );
+                    assert!(
+                        take(&mut intent, &queue, recipient, false)
+                            .unwrap()
+                            .is_none(),
+                        "drains once after pending clears"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "rejects_changed_or_missing_items",
+                (|_scenario: &str| {
+                    for change in ["revision", "removed", "guided", "recipient"] {
+                        let mut queue = queue();
+                        let mut intent = Some((queue.items[0].turn, queue.items[0].revision));
+                        let mut recipient = Some(TurnId::new());
+                        match change {
+                            "revision" => queue.items[0].revision += 1,
+                            "removed" => queue.items.clear(),
+                            "guided" => queue.items[0].guidance = Some(TurnId::new()),
+                            "recipient" => recipient = None,
+                            _ => unreachable!(),
+                        }
+                        assert!(
+                            matches!(
+                                take(&mut intent, &queue, recipient, false),
+                                Err("queue_changed")
+                            ),
+                            "rejects changed or missing items"
+                        );
+                        assert!(intent.is_none(), "rejects changed or missing items");
+                    }
+                }),
+            ),
+            (
+                "latest_selection_replaces_waiting_intent",
+                (|_scenario: &str| {
+                    let mut queue = queue();
+                    let mut second = queue.items[0].clone();
+                    second.turn = TurnId::new();
+                    queue.items.push(second.clone());
+                    let mut intent = Some((queue.items[0].turn, queue.items[0].revision));
+                    let recipient = Some(TurnId::new());
+                    assert!(
+                        take(&mut intent, &queue, recipient, true)
+                            .unwrap()
+                            .is_none(),
+                        "latest selection replaces waiting intent"
+                    );
+                    intent = Some((second.turn, second.revision));
+                    assert!(
+                        matches!(take(&mut intent, &queue, recipient, false), Ok(Some(
+                    Command::GuideQueuedTurn { turn, expected_revision: 4, .. }
+                )) if turn == second.turn),
+                        "latest selection replaces waiting intent"
+                    );
+                    assert!(intent.is_none(), "latest selection replaces waiting intent");
+                }),
+            ),
+            (
+                "selection_keeps_pending_recipient",
+                (|_scenario: &str| {
+                    let mut queue = queue();
+                    let recipient = TurnId::new();
+                    queue.items[0].guidance = Some(recipient);
+                    let item = &queue.items[0];
+                    let mut intent = Some((item.turn, item.revision));
+                    assert!(
+                        matches!(
+                            take(&mut intent, &queue, Some(recipient), false),
+                            Ok(Some(Command::GuideQueuedTurn {
+                                recipient: selected,
+                                ..
+                            })) if selected == recipient
+                        ),
+                        "selection keeps pending recipient"
+                    );
+                }),
+            ),
+            (
+                "acknowledges_separate_ready_input",
+                (|_scenario: &str| {
+                    let mut queue = queue();
+                    let command = Command::GuideQueuedTurn {
+                        turn: queue.items[0].turn,
+                        recipient: TurnId::new(),
+                        expected_revision: queue.items[0].revision,
+                    };
+                    // Captured capabilities can differ even with the same session revision.
+                    for revision in [1, 2] {
+                        queue.items[0].config_revision = revision;
+                        assert!(
+                            separate(&command, &queue),
+                            "acknowledges separate ready input"
+                        );
+                    }
+                }),
+            ),
+            (
+                "ignores_other_guidance_outcomes",
+                (|_scenario: &str| {
+                    let queue = queue();
+                    let turn = queue.items[0].turn;
+                    let recipient = TurnId::new();
+                    let command = Command::GuideQueuedTurn {
+                        turn,
+                        recipient,
+                        expected_revision: queue.items[0].revision,
+                    };
+                    for change in [
+                        "guided",
+                        "other-recipient",
+                        "unready",
+                        "missing",
+                        "other-turn",
+                    ] {
+                        let mut queue = queue.clone();
+                        match change {
+                            "guided" => queue.items[0].guidance = Some(recipient),
+                            "other-recipient" => queue.items[0].guidance = Some(TurnId::new()),
+                            "unready" => queue.items[0].ready = false,
+                            "missing" => queue.items.clear(),
+                            "other-turn" => queue.items[0].turn = TurnId::new(),
+                            _ => unreachable!(),
+                        }
+                        assert!(
+                            !separate(&command, &queue),
+                            "ignores other guidance outcomes: {change}"
+                        );
+                    }
+                    assert!(
+                        !separate(
+                            &Command::SendQueuedTurn {
+                                turn,
+                                expected_revision: queue.items[0].revision,
+                            },
+                            &queue,
+                        ),
+                        "ignores other guidance outcomes"
+                    );
+                }),
+            ),
         ] {
-            let mut queue = queue.clone();
-            match change {
-                "guided" => queue.items[0].guidance = Some(recipient),
-                "other-recipient" => queue.items[0].guidance = Some(TurnId::new()),
-                "unready" => queue.items[0].ready = false,
-                "missing" => queue.items.clear(),
-                "other-turn" => queue.items[0].turn = TurnId::new(),
-                _ => unreachable!(),
-            }
-            assert!(!separate(&command, &queue), "{change}");
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert!(!separate(
-            &Command::SendQueuedTurn {
-                turn,
-                expected_revision: queue.items[0].revision,
-            },
-            &queue,
-        ));
     }
 }

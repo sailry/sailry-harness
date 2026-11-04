@@ -126,19 +126,125 @@ async fn ordinary_previews_keep_semver_channels() {
 }
 
 #[test]
-fn stable_versions_reject_prerelease_flags() {
-    let base = "https://github.com/sailry/sailry-harness/releases/download";
-    let mut config = configure(base);
-    config.channel = Channel::Experience;
-    let mut value = release(base, "3.0.0");
-    value["prerelease"] = true.into();
-    assert!(
-        serde_json::from_value::<Release>(value)
-            .unwrap()
-            .published(&config)
-            .unwrap()
-            .is_none()
-    );
+fn immutable_release_identity() {
+    for (scenario, check) in [
+        (
+            "stable_versions_reject_prerelease_flags",
+            (|_scenario: &str| {
+                let base = "https://github.com/sailry/sailry-harness/releases/download";
+                let mut config = configure(base);
+                config.channel = Channel::Experience;
+                let mut value = release(base, "3.0.0");
+                value["prerelease"] = true.into();
+                assert!(
+                    serde_json::from_value::<Release>(value)
+                        .unwrap()
+                        .published(&config)
+                        .unwrap()
+                        .is_none(),
+                    "stable versions reject prerelease flags"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "rejects_mutable_urls_and_incomplete_formal_assets",
+            (|_scenario: &str| {
+                let base = "https://github.com/sailry/sailry-harness/releases/download";
+                let mut config = configure(base);
+                config.channel = Channel::Experience;
+                let mut value = release(base, "1.0.0");
+                for asset in value["assets"].as_array_mut().unwrap() {
+                    asset["browser_download_url"] = asset["browser_download_url"]
+                        .as_str()
+                        .unwrap()
+                        .replace("/v1.0.0/", "/latest/")
+                        .into();
+                }
+                assert!(
+                    serde_json::from_value::<Release>(value)
+                        .unwrap()
+                        .published(&config)
+                        .is_err(),
+                    "rejects mutable urls and incomplete formal assets"
+                );
+                for missing in [
+                    "Sailry-x86_64-apple-darwin.zip.update.json",
+                    "Sailry-aarch64-apple-darwin.dmg",
+                ] {
+                    let mut value = release(base, "1.0.0");
+                    value["assets"]
+                        .as_array_mut()
+                        .unwrap()
+                        .retain(|asset| asset["name"] != missing);
+                    assert!(
+                        serde_json::from_value::<Release>(value)
+                            .unwrap()
+                            .published(&config)
+                            .unwrap()
+                            .is_none(),
+                        "rejects mutable urls and incomplete formal assets"
+                    );
+                }
+                for invalid in ["size", "state"] {
+                    let mut value = release(base, "1.0.0");
+                    value["assets"][0][invalid] = if invalid == "size" {
+                        0.into()
+                    } else {
+                        "starter".into()
+                    };
+                    assert!(
+                        serde_json::from_value::<Release>(value)
+                            .unwrap()
+                            .published(&config)
+                            .unwrap()
+                            .is_none(),
+                        "rejects mutable urls and incomplete formal assets"
+                    );
+                }
+            }),
+        ),
+        (
+            "binds_signed_catalog_to_exact_release",
+            (|_scenario: &str| {
+                let base = "https://github.com/sailry/sailry-harness/releases/download";
+                let config = configure(base);
+                let published = serde_json::from_value::<Release>(release(base, "1.0.0"))
+                    .unwrap()
+                    .published(&config)
+                    .unwrap()
+                    .unwrap();
+                published
+                    .authenticate(&catalog(base, "1.0.0"), &config)
+                    .unwrap();
+                assert!(
+                    published
+                        .authenticate(&catalog(base, "2.0.0"), &config)
+                        .is_err(),
+                    "binds signed catalog to exact release"
+                );
+                let mut item = fixture::release();
+                item.version = "1.0.0".into();
+                item.name = format!("Sailry-{}.zip", item.target);
+                item.url = format!("{base}/latest/{}", item.name);
+                assert!(
+                    published
+                        .authenticate(&fixture::signed(&[item]), &config)
+                        .is_err(),
+                    "binds signed catalog to exact release"
+                );
+                let mut bytes = catalog(base, "1.0.0");
+                let changed = bytes.iter().position(|byte| *byte == b'1').unwrap();
+                bytes[changed] = b'2';
+                assert!(
+                    published.authenticate(&bytes, &config).is_err(),
+                    "binds signed catalog to exact release"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }
 
 #[tokio::test]
@@ -205,89 +311,4 @@ async fn follows_pages_before_selecting_highest_version() {
     .unwrap();
     assert_eq!(selection.release.version, "1.0.0");
     serving.await.unwrap();
-}
-
-#[test]
-fn rejects_mutable_urls_and_incomplete_formal_assets() {
-    let base = "https://github.com/sailry/sailry-harness/releases/download";
-    let mut config = configure(base);
-    config.channel = Channel::Experience;
-    let mut value = release(base, "1.0.0");
-    for asset in value["assets"].as_array_mut().unwrap() {
-        asset["browser_download_url"] = asset["browser_download_url"]
-            .as_str()
-            .unwrap()
-            .replace("/v1.0.0/", "/latest/")
-            .into();
-    }
-    assert!(
-        serde_json::from_value::<Release>(value)
-            .unwrap()
-            .published(&config)
-            .is_err()
-    );
-    for missing in [
-        "Sailry-x86_64-apple-darwin.zip.update.json",
-        "Sailry-aarch64-apple-darwin.dmg",
-    ] {
-        let mut value = release(base, "1.0.0");
-        value["assets"]
-            .as_array_mut()
-            .unwrap()
-            .retain(|asset| asset["name"] != missing);
-        assert!(
-            serde_json::from_value::<Release>(value)
-                .unwrap()
-                .published(&config)
-                .unwrap()
-                .is_none()
-        );
-    }
-    for invalid in ["size", "state"] {
-        let mut value = release(base, "1.0.0");
-        value["assets"][0][invalid] = if invalid == "size" {
-            0.into()
-        } else {
-            "starter".into()
-        };
-        assert!(
-            serde_json::from_value::<Release>(value)
-                .unwrap()
-                .published(&config)
-                .unwrap()
-                .is_none()
-        );
-    }
-}
-
-#[test]
-fn binds_signed_catalog_to_exact_release() {
-    let base = "https://github.com/sailry/sailry-harness/releases/download";
-    let config = configure(base);
-    let published = serde_json::from_value::<Release>(release(base, "1.0.0"))
-        .unwrap()
-        .published(&config)
-        .unwrap()
-        .unwrap();
-    published
-        .authenticate(&catalog(base, "1.0.0"), &config)
-        .unwrap();
-    assert!(
-        published
-            .authenticate(&catalog(base, "2.0.0"), &config)
-            .is_err()
-    );
-    let mut item = fixture::release();
-    item.version = "1.0.0".into();
-    item.name = format!("Sailry-{}.zip", item.target);
-    item.url = format!("{base}/latest/{}", item.name);
-    assert!(
-        published
-            .authenticate(&fixture::signed(&[item]), &config)
-            .is_err()
-    );
-    let mut bytes = catalog(base, "1.0.0");
-    let changed = bytes.iter().position(|byte| *byte == b'1').unwrap();
-    bytes[changed] = b'2';
-    assert!(published.authenticate(&bytes, &config).is_err());
 }

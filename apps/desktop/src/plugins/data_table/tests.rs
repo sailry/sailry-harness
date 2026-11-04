@@ -2,14 +2,41 @@ use super::*;
 use core::prelude::v1::test;
 
 #[test]
-fn stripes_and_headers_are_opt_in() {
-    let props: Props = serde_json::from_value(json!({
-        "revision":"1", "columns":[], "rows":[],
-    }))
-    .unwrap();
-    assert!(!props.stripe);
-    assert!(props.header);
-    assert!(props.empty_icon.is_none());
+fn columns_and_cells() {
+    for (scenario, check) in [
+        (
+            "stripes_and_headers_are_opt_in",
+            (|_scenario: &str| {
+                let props: Props = serde_json::from_value(json!({
+                "revision":"1", "columns":[], "rows":[],
+                    }))
+                .unwrap();
+                assert!(!props.stripe, "stripes and headers are opt in");
+                assert!(props.header, "stripes and headers are opt in");
+                assert!(props.empty_icon.is_none(), "stripes and headers are opt in");
+            }) as fn(&str),
+        ),
+        (
+            "fill_index_must_name_a_column",
+            (|_scenario: &str| {
+                let props: Props = serde_json::from_value(json!({
+                "revision":"1", "columns":["Name"], "rows":[], "fill":0,
+                    }))
+                .unwrap();
+                assert_eq!(props.fill, Some(0), "fill index must name a column");
+                assert!(
+                    serde_json::from_value::<Props>(json!({
+                    "revision":"1", "columns":["Name"], "rows":[], "fill":"wide",
+                        }))
+                    .is_err(),
+                    "fill index must name a column"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }
 
 #[gpui::test]
@@ -67,21 +94,6 @@ fn fill_column_absorbs_remaining_width(cx: &mut TestAppContext) {
         rows.width = px(200.);
         assert_eq!(rows.fill(1), px(60.));
     });
-}
-
-#[test]
-fn fill_index_must_name_a_column() {
-    let props: Props = serde_json::from_value(json!({
-        "revision":"1", "columns":["Name"], "rows":[], "fill":0,
-    }))
-    .unwrap();
-    assert_eq!(props.fill, Some(0));
-    assert!(
-        serde_json::from_value::<Props>(json!({
-            "revision":"1", "columns":["Name"], "rows":[], "fill":"wide",
-        }))
-        .is_err()
-    );
 }
 
 mod inline_parts {

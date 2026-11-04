@@ -177,194 +177,442 @@ mod selection {
 }
 
 #[test]
-fn follows_last_tool_outcome() {
-    let page = page();
-    let unknown = call(State::Returned, Some(ErrorCode::OutcomeUnknown));
-    let success = call(State::Returned, None);
-    let error = call(State::Returned, Some(ErrorCode::Internal));
-    let running = call(State::Running, None);
-    let recovered = group_summary(&[&unknown, &error, &success], &page);
-    assert!(!recovered.detail.warning);
-    assert!(!recovered.detail.failed);
-    let warning = group_summary(&[&error, &unknown], &page);
-    assert!(warning.detail.warning);
-    assert!(!warning.detail.failed);
-    assert_eq!(warning.detail.state, Some(tr("tool_interrupted")));
-    let failure = group_summary(&[&success, &unknown, &error], &page);
-    assert!(!failure.detail.warning);
-    assert!(failure.detail.failed);
-    assert_eq!(failure.detail.state, Some(tr("tool_failed")));
-    let active = group_summary(&[&unknown, &error, &running], &page);
-    assert!(active.detail.running);
-    assert!(!active.detail.warning);
-    assert!(!active.detail.failed);
-}
-
-#[test]
-fn preserves_non_execution_states() {
-    let page = page();
-    let stopped = summary(&call(State::Cancelled, None), &page);
-    assert_eq!(stopped.detail.state, None);
-    assert!(!stopped.detail.warning);
-    for (state, key) in [
-        (State::Interrupted, "tool_interrupted"),
-        (State::NotExecuted, "tool_not_executed"),
-    ] {
-        let row = summary(&call(state, None), &page);
-        assert_eq!(row.detail.state, Some(tr(key)));
-        assert!(row.detail.warning);
-        assert!(!row.detail.failed);
-    }
-}
-
-#[test]
-fn keeps_last_title_while_earlier_tool_runs() {
-    let mut page = page();
-    let mut running = call(State::Running, None);
-    running.name = "shell".into();
-    let mut last = call(State::Returned, None);
-    last.name = "read_file".into();
-    last.resolved = Some(display::Resolved {
-        label: None,
-        input: display::Input {
-            summary: Some(display::Text {
-                text: "src/lib.rs".into(),
-                code: true,
-            }),
-            ..Default::default()
-        },
-        output: None,
-        approval: vec![],
-        status: None,
-        command: None,
-        diagnostics: vec![],
-    });
-    std::sync::Arc::make_mut(&mut page.entries).push(sailry_protocol::conversation::Entry {
-        id: last.source.entry.clone(),
-        turn: last.turn,
-        sequence: 1,
-        author: "assistant".into(),
-        branch: String::new(),
-        timestamp_ms: 1,
-        usage: None,
-        citations: vec![],
-        search_suggestions: None,
-        parts: vec![Part::ToolCall {
-            id: last.id.clone(),
-            name: last.name.clone(),
-            presentation: last.presentation,
-            grouping: last.grouping,
-            summary: Box::new(tool::detail::Summary {
-                resolved: last.resolved.clone(),
-                ..Default::default()
-            }),
-        }],
-    });
-    let expected = summary(&last, &page);
-    let summary = group_summary(&[&running, &last], &page);
-    assert_eq!(summary.label, expected.label);
-    assert_eq!(summary.detail.text.as_ref(), "src/lib.rs");
-    assert!(summary.detail.mono);
-    assert!(summary.detail.running);
-    assert!(!summary.detail.hide_caret);
-}
-
-#[test]
-fn avoids_duplicate_file_context() {
-    let mut call = call(State::Returned, Some(ErrorCode::InvalidRequest));
-    call.name = "read_file".into();
-    call.presentation = tool::Presentation::Details;
-    call.response = Some(sailry_client::conversation::tools::Reference {
-        entry: "source".into(),
-        index: 1,
-    });
-    call.resolved = Some(display::Resolved {
-        label: None,
-        input: display::Input {
-            summary: Some(display::Text {
-                text: "docs".into(),
-                code: true,
-            }),
-            ..Default::default()
-        },
-        output: Some(display::Output {
-            preview: String::new(),
-            preview_deferred: false,
-            notices: vec![],
-            paths: vec!["docs".into()],
-            path_count: 1,
-            body: None,
-            table: None,
-        }),
-        approval: vec![],
-        status: None,
-        command: None,
-        diagnostics: vec![],
-    });
-    let mut page = page();
-    std::sync::Arc::make_mut(&mut page.entries).push(sailry_protocol::conversation::Entry {
-        id: "source".into(),
-        sequence: 1,
-        turn: call.turn,
-        author: "assistant".into(),
-        branch: String::new(),
-        timestamp_ms: 1,
-        parts: vec![
-            Part::ToolCall {
-                id: call.id.clone(),
-                name: call.name.clone(),
-                summary: Default::default(),
-                presentation: call.presentation,
-                grouping: call.grouping,
-            },
-            Part::ToolResult {
-                id: call.id.clone(),
-                name: call.name.clone(),
-                summary: Box::new(tool::detail::Summary {
-                    resolved: call.resolved.clone(),
-                    has_details: true,
-                    diagnostics: true,
-                    ..Default::default()
-                }),
-                images: vec![],
-            },
-        ],
-        usage: None,
-        citations: vec![],
-        search_suggestions: None,
-    });
-    call.detail = Some(std::sync::Arc::new(tool::detail::Detail {
-        arguments: json!({"path":"docs"}),
-        result: Some(
-            json!({"error":sailry_protocol::Fault::invalid("only regular files can be read")}),
+fn outcomes_and_expansion() {
+    for (scenario, check) in [
+        (
+            "follows_last_tool_outcome",
+            (|_scenario: &str| {
+                let page = page();
+                let unknown = call(State::Returned, Some(ErrorCode::OutcomeUnknown));
+                let success = call(State::Returned, None);
+                let error = call(State::Returned, Some(ErrorCode::Internal));
+                let running = call(State::Running, None);
+                let recovered = group_summary(&[&unknown, &error, &success], &page);
+                assert!(!recovered.detail.warning, "follows last tool outcome");
+                assert!(!recovered.detail.failed, "follows last tool outcome");
+                let warning = group_summary(&[&error, &unknown], &page);
+                assert!(warning.detail.warning, "follows last tool outcome");
+                assert!(!warning.detail.failed, "follows last tool outcome");
+                assert_eq!(
+                    warning.detail.state,
+                    Some(tr("tool_interrupted")),
+                    "follows last tool outcome"
+                );
+                let failure = group_summary(&[&success, &unknown, &error], &page);
+                assert!(!failure.detail.warning, "follows last tool outcome");
+                assert!(failure.detail.failed, "follows last tool outcome");
+                assert_eq!(
+                    failure.detail.state,
+                    Some(tr("tool_failed")),
+                    "follows last tool outcome"
+                );
+                let active = group_summary(&[&unknown, &error, &running], &page);
+                assert!(active.detail.running, "follows last tool outcome");
+                assert!(!active.detail.warning, "follows last tool outcome");
+                assert!(!active.detail.failed, "follows last tool outcome");
+            }) as fn(&str),
         ),
-        resolved: None,
-        content: None,
-        images: vec![],
-    }));
-    let original = page.clone();
-    assert!(call.details(&page));
-    assert_eq!(summary(&call, &page).detail.text.as_ref(), "docs");
-    assert!(!projection::grouped(&call, &page));
-    assert_eq!(
-        output::failure(call.failure.as_ref(), call.result(&page)).as_deref(),
-        Some("only regular files can be read")
-    );
-    assert!(summary(&call, &page).detail.failed);
-    for paths in [
-        vec!["docs".into(), "notes".into()],
-        vec!["different.txt".into()],
+        (
+            "preserves_non_execution_states",
+            (|_scenario: &str| {
+                let page = page();
+                let stopped = summary(&call(State::Cancelled, None), &page);
+                assert_eq!(stopped.detail.state, None, "preserves non execution states");
+                assert!(!stopped.detail.warning, "preserves non execution states");
+                for (state, key) in [
+                    (State::Interrupted, "tool_interrupted"),
+                    (State::NotExecuted, "tool_not_executed"),
+                ] {
+                    let row = summary(&call(state, None), &page);
+                    assert_eq!(
+                        row.detail.state,
+                        Some(tr(key)),
+                        "preserves non execution states"
+                    );
+                    assert!(row.detail.warning, "preserves non execution states");
+                    assert!(!row.detail.failed, "preserves non execution states");
+                }
+            }),
+        ),
+        (
+            "keeps_last_title_while_earlier_tool_runs",
+            (|_scenario: &str| {
+                let mut page = page();
+                let mut running = call(State::Running, None);
+                running.name = "shell".into();
+                let mut last = call(State::Returned, None);
+                last.name = "read_file".into();
+                last.resolved = Some(display::Resolved {
+                    label: None,
+                    input: display::Input {
+                        summary: Some(display::Text {
+                            text: "src/lib.rs".into(),
+                            code: true,
+                        }),
+                        ..Default::default()
+                    },
+                    output: None,
+                    approval: vec![],
+                    status: None,
+                    command: None,
+                    diagnostics: vec![],
+                });
+                std::sync::Arc::make_mut(&mut page.entries).push(
+                    sailry_protocol::conversation::Entry {
+                        id: last.source.entry.clone(),
+                        turn: last.turn,
+                        sequence: 1,
+                        author: "assistant".into(),
+                        branch: String::new(),
+                        timestamp_ms: 1,
+                        usage: None,
+                        citations: vec![],
+                        search_suggestions: None,
+                        parts: vec![Part::ToolCall {
+                            id: last.id.clone(),
+                            name: last.name.clone(),
+                            presentation: last.presentation,
+                            grouping: last.grouping,
+                            summary: Box::new(tool::detail::Summary {
+                                resolved: last.resolved.clone(),
+                                ..Default::default()
+                            }),
+                        }],
+                    },
+                );
+                let expected = summary(&last, &page);
+                let summary = group_summary(&[&running, &last], &page);
+                assert_eq!(
+                    summary.label, expected.label,
+                    "keeps last title while earlier tool runs"
+                );
+                assert_eq!(
+                    summary.detail.text.as_ref(),
+                    "src/lib.rs",
+                    "keeps last title while earlier tool runs"
+                );
+                assert!(
+                    summary.detail.mono,
+                    "keeps last title while earlier tool runs"
+                );
+                assert!(
+                    summary.detail.running,
+                    "keeps last title while earlier tool runs"
+                );
+                assert!(
+                    !summary.detail.hide_caret,
+                    "keeps last title while earlier tool runs"
+                );
+            }),
+        ),
+        (
+            "avoids_duplicate_file_context",
+            (|_scenario: &str| {
+                let mut call = call(State::Returned, Some(ErrorCode::InvalidRequest));
+                call.name = "read_file".into();
+                call.presentation = tool::Presentation::Details;
+                call.response = Some(sailry_client::conversation::tools::Reference {
+                    entry: "source".into(),
+                    index: 1,
+                });
+                call.resolved = Some(display::Resolved {
+                    label: None,
+                    input: display::Input {
+                        summary: Some(display::Text {
+                            text: "docs".into(),
+                            code: true,
+                        }),
+                        ..Default::default()
+                    },
+                    output: Some(display::Output {
+                        preview: String::new(),
+                        preview_deferred: false,
+                        notices: vec![],
+                        paths: vec!["docs".into()],
+                        path_count: 1,
+                        body: None,
+                        table: None,
+                    }),
+                    approval: vec![],
+                    status: None,
+                    command: None,
+                    diagnostics: vec![],
+                });
+                let mut page = page();
+                std::sync::Arc::make_mut(&mut page.entries).push(
+                    sailry_protocol::conversation::Entry {
+                        id: "source".into(),
+                        sequence: 1,
+                        turn: call.turn,
+                        author: "assistant".into(),
+                        branch: String::new(),
+                        timestamp_ms: 1,
+                        parts: vec![
+                            Part::ToolCall {
+                                id: call.id.clone(),
+                                name: call.name.clone(),
+                                summary: Default::default(),
+                                presentation: call.presentation,
+                                grouping: call.grouping,
+                            },
+                            Part::ToolResult {
+                                id: call.id.clone(),
+                                name: call.name.clone(),
+                                summary: Box::new(tool::detail::Summary {
+                                    resolved: call.resolved.clone(),
+                                    has_details: true,
+                                    diagnostics: true,
+                                    ..Default::default()
+                                }),
+                                images: vec![],
+                            },
+                        ],
+                        usage: None,
+                        citations: vec![],
+                        search_suggestions: None,
+                    },
+                );
+                call.detail = Some(std::sync::Arc::new(tool::detail::Detail {
+                    arguments: json!({"path":"docs"}),
+                    result: Some(
+                        json!({"error":sailry_protocol::Fault::invalid("only regular files can be read")}),
+                    ),
+                    resolved: None,
+                    content: None,
+                    images: vec![],
+                }));
+                let original = page.clone();
+                assert!(call.details(&page), "avoids duplicate file context");
+                assert_eq!(
+                    summary(&call, &page).detail.text.as_ref(),
+                    "docs",
+                    "avoids duplicate file context"
+                );
+                assert!(
+                    !projection::grouped(&call, &page),
+                    "avoids duplicate file context"
+                );
+                assert_eq!(
+                    output::failure(call.failure.as_ref(), call.result(&page)).as_deref(),
+                    Some("only regular files can be read"),
+                    "avoids duplicate file context"
+                );
+                assert!(
+                    summary(&call, &page).detail.failed,
+                    "avoids duplicate file context"
+                );
+                for paths in [
+                    vec!["docs".into(), "notes".into()],
+                    vec!["different.txt".into()],
+                ] {
+                    call.resolved
+                        .as_mut()
+                        .unwrap()
+                        .output
+                        .as_mut()
+                        .unwrap()
+                        .paths = paths;
+                    assert!(
+                        projection::grouped(&call, &page),
+                        "avoids duplicate file context"
+                    );
+                }
+                assert_eq!(page, original, "avoids duplicate file context");
+            }),
+        ),
+        (
+            "raw_copy_requires_loaded_diagnostics",
+            (|_scenario: &str| {
+                let result = json!({"output":{"logs_content":"Job output","job_id":12},"metadata":{"cursor":"next","revision":4}});
+                let (call, page) = raw_fixture(result.clone());
+                let original = page.clone();
+                assert!(
+                    call.raw_result(&page),
+                    "raw copy requires loaded diagnostics"
+                );
+                assert!(call.details(&page), "raw copy requires loaded diagnostics");
+                assert!(
+                    expandable(&[&call], &page),
+                    "raw copy requires loaded diagnostics"
+                );
+                assert!(
+                    !summary(&call, &page).detail.hide_caret,
+                    "raw copy requires loaded diagnostics"
+                );
+                assert!(
+                    !summary(&call, &page).detail.failed,
+                    "raw copy requires loaded diagnostics"
+                );
+                assert_eq!(
+                    summary(&call, &page).label.as_ref(),
+                    "External read",
+                    "raw copy requires loaded diagnostics"
+                );
+                assert!(
+                    inspector::copy(&call, &page).is_none(),
+                    "raw copy requires loaded diagnostics"
+                );
+                assert_eq!(
+                    call.result(&page),
+                    Some(&result),
+                    "raw copy requires loaded diagnostics"
+                );
+                assert_eq!(page, original, "raw copy requires loaded diagnostics");
+            }),
+        ),
+        (
+            "groups_calls_without_details",
+            (|_scenario: &str| {
+                for raw in [false, true] {
+                    let result = json!({"output":{"logs_content":"Job output"},"metadata":{"cursor":"next"}});
+                    let (first, mut page) = raw_fixture(result.clone());
+                    if let Part::ToolResult { summary, .. } =
+                        &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+                    {
+                        summary.raw_result = raw;
+                        summary.has_details = false;
+                    }
+                    let mut second = first.clone();
+                    second.id = Some("second".into());
+                    second.source.index = 1;
+                    second.response.as_mut().unwrap().index = 1;
+                    let mut source = page.entries[0].parts[0].clone();
+                    if let Part::ToolCall { id, .. } = &mut source {
+                        *id = second.id.clone();
+                    }
+                    std::sync::Arc::make_mut(&mut page.entries)[0]
+                        .parts
+                        .push(source);
+                    let mut response = page.entries[1].parts[0].clone();
+                    if let Part::ToolResult { id, .. } = &mut response {
+                        *id = second.id.clone();
+                    }
+                    std::sync::Arc::make_mut(&mut page.entries)[1]
+                        .parts
+                        .push(response);
+                    let original = page.clone();
+                    let calls = [&first, &second];
+                    assert!(expandable(&calls, &page), "groups calls without details");
+                    assert!(
+                        !group_summary(&calls, &page).detail.hide_caret,
+                        "groups calls without details"
+                    );
+                    for call in calls {
+                        assert!(!call.details(&page), "groups calls without details");
+                        assert!(
+                            summary(call, &page).detail.hide_caret,
+                            "groups calls without details"
+                        );
+                        assert!(
+                            inspector::copy(call, &page).is_none(),
+                            "groups calls without details"
+                        );
+                        assert_eq!(
+                            call.result(&page),
+                            Some(&result),
+                            "groups calls without details"
+                        );
+                    }
+                    assert_eq!(page, original, "groups calls without details");
+                }
+            }),
+        ),
+        (
+            "declared_content_keeps_expansion",
+            (|_scenario: &str| {
+                let result = json!({"output":{"text":"Job output","revision":4,
+        "sailry_content":{"version":1,"blocks":[{"kind":"text","path":"/text"}]}}});
+                let (mut call, mut page) = raw_fixture(result.clone());
+                call.presentation = tool::Presentation::Content;
+                if let Part::ToolCall { presentation, .. } =
+                    &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+                {
+                    *presentation = call.presentation;
+                }
+                let content = call.presentation.content(&result);
+                assert!(content.is_some(), "declared content keeps expansion");
+                std::sync::Arc::make_mut(call.detail.as_mut().unwrap()).content = content;
+                assert!(call.details(&page), "declared content keeps expansion");
+                assert!(
+                    expandable(&[&call], &page),
+                    "declared content keeps expansion"
+                );
+                assert!(
+                    !summary(&call, &page).detail.hide_caret,
+                    "declared content keeps expansion"
+                );
+                assert!(
+                    inspector::copy(&call, &page).is_none(),
+                    "declared content keeps expansion"
+                );
+                assert_eq!(
+                    call.result(&page),
+                    Some(&result),
+                    "declared content keeps expansion"
+                );
+            }),
+        ),
+        (
+            "failed_raw_keeps_diagnostics",
+            (|_scenario: &str| {
+                let result = json!({"error":sailry_protocol::Fault::new(ErrorCode::Unavailable,"Read failed")});
+                let (mut call, mut page) = raw_fixture(result.clone());
+                call.failure = Some(tool::Failure {
+                    code: Some(ErrorCode::Unavailable),
+                });
+                let Part::ToolResult { summary: facts, .. } =
+                    &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+                else {
+                    unreachable!()
+                };
+                facts.diagnostics = true;
+                assert!(call.details(&page), "failed raw keeps diagnostics");
+                assert!(expandable(&[&call], &page), "failed raw keeps diagnostics");
+                assert!(
+                    !summary(&call, &page).detail.hide_caret,
+                    "failed raw keeps diagnostics"
+                );
+                assert!(
+                    summary(&call, &page).detail.failed,
+                    "failed raw keeps diagnostics"
+                );
+                assert_eq!(
+                    output::tool_preview(call.failure.as_ref(), &result).text,
+                    "Read failed",
+                    "failed raw keeps diagnostics"
+                );
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(
+                        &inspector::copy(&call, &page).unwrap()
+                    )
+                    .unwrap(),
+                    result,
+                    "failed raw keeps diagnostics"
+                );
+                for changed in 0..3 {
+                    let mut page = page.clone();
+                    if changed == 0 {
+                        std::sync::Arc::make_mut(&mut page.entries)[1].turn = TurnId::new();
+                    } else if let Part::ToolResult { id, name, .. } =
+                        &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+                    {
+                        if changed == 1 {
+                            *id = Some("other-call".into());
+                        } else {
+                            *name = "other-tool".into();
+                        }
+                    }
+                    assert!(
+                        inspector::copy(&call, &page).is_none(),
+                        "failed raw keeps diagnostics"
+                    );
+                }
+            }),
+        ),
     ] {
-        call.resolved
-            .as_mut()
-            .unwrap()
-            .output
-            .as_mut()
-            .unwrap()
-            .paths = paths;
-        assert!(projection::grouped(&call, &page));
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    assert_eq!(page, original);
 }
 
 fn raw_fixture(result: serde_json::Value) -> (Call, Page) {
@@ -426,126 +674,4 @@ fn raw_fixture(result: serde_json::Value) -> (Call, Page) {
         images: vec![],
     }));
     (call, page)
-}
-
-#[test]
-fn raw_copy_requires_loaded_diagnostics() {
-    let result = json!({"output":{"logs_content":"Job output","job_id":12},"metadata":{"cursor":"next","revision":4}});
-    let (call, page) = raw_fixture(result.clone());
-    let original = page.clone();
-    assert!(call.raw_result(&page));
-    assert!(call.details(&page));
-    assert!(expandable(&[&call], &page));
-    assert!(!summary(&call, &page).detail.hide_caret);
-    assert!(!summary(&call, &page).detail.failed);
-    assert_eq!(summary(&call, &page).label.as_ref(), "External read");
-    assert!(inspector::copy(&call, &page).is_none());
-    assert_eq!(call.result(&page), Some(&result));
-    assert_eq!(page, original);
-}
-
-#[test]
-fn groups_calls_without_details() {
-    for raw in [false, true] {
-        let result = json!({"output":{"logs_content":"Job output"},"metadata":{"cursor":"next"}});
-        let (first, mut page) = raw_fixture(result.clone());
-        if let Part::ToolResult { summary, .. } =
-            &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
-        {
-            summary.raw_result = raw;
-            summary.has_details = false;
-        }
-        let mut second = first.clone();
-        second.id = Some("second".into());
-        second.source.index = 1;
-        second.response.as_mut().unwrap().index = 1;
-        let mut source = page.entries[0].parts[0].clone();
-        if let Part::ToolCall { id, .. } = &mut source {
-            *id = second.id.clone();
-        }
-        std::sync::Arc::make_mut(&mut page.entries)[0]
-            .parts
-            .push(source);
-        let mut response = page.entries[1].parts[0].clone();
-        if let Part::ToolResult { id, .. } = &mut response {
-            *id = second.id.clone();
-        }
-        std::sync::Arc::make_mut(&mut page.entries)[1]
-            .parts
-            .push(response);
-        let original = page.clone();
-        let calls = [&first, &second];
-        assert!(expandable(&calls, &page));
-        assert!(!group_summary(&calls, &page).detail.hide_caret);
-        for call in calls {
-            assert!(!call.details(&page));
-            assert!(summary(call, &page).detail.hide_caret);
-            assert!(inspector::copy(call, &page).is_none());
-            assert_eq!(call.result(&page), Some(&result));
-        }
-        assert_eq!(page, original);
-    }
-}
-
-#[test]
-fn declared_content_keeps_expansion() {
-    let result = json!({"output":{"text":"Job output","revision":4,
-        "sailry_content":{"version":1,"blocks":[{"kind":"text","path":"/text"}]}}});
-    let (mut call, mut page) = raw_fixture(result.clone());
-    call.presentation = tool::Presentation::Content;
-    if let Part::ToolCall { presentation, .. } =
-        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
-    {
-        *presentation = call.presentation;
-    }
-    let content = call.presentation.content(&result);
-    assert!(content.is_some());
-    std::sync::Arc::make_mut(call.detail.as_mut().unwrap()).content = content;
-    assert!(call.details(&page));
-    assert!(expandable(&[&call], &page));
-    assert!(!summary(&call, &page).detail.hide_caret);
-    assert!(inspector::copy(&call, &page).is_none());
-    assert_eq!(call.result(&page), Some(&result));
-}
-
-#[test]
-fn failed_raw_keeps_diagnostics() {
-    let result = json!({"error":sailry_protocol::Fault::new(ErrorCode::Unavailable,"Read failed")});
-    let (mut call, mut page) = raw_fixture(result.clone());
-    call.failure = Some(tool::Failure {
-        code: Some(ErrorCode::Unavailable),
-    });
-    let Part::ToolResult { summary: facts, .. } =
-        &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
-    else {
-        unreachable!()
-    };
-    facts.diagnostics = true;
-    assert!(call.details(&page));
-    assert!(expandable(&[&call], &page));
-    assert!(!summary(&call, &page).detail.hide_caret);
-    assert!(summary(&call, &page).detail.failed);
-    assert_eq!(
-        output::tool_preview(call.failure.as_ref(), &result).text,
-        "Read failed"
-    );
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&inspector::copy(&call, &page).unwrap()).unwrap(),
-        result
-    );
-    for changed in 0..3 {
-        let mut page = page.clone();
-        if changed == 0 {
-            std::sync::Arc::make_mut(&mut page.entries)[1].turn = TurnId::new();
-        } else if let Part::ToolResult { id, name, .. } =
-            &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
-        {
-            if changed == 1 {
-                *id = Some("other-call".into());
-            } else {
-                *name = "other-tool".into();
-            }
-        }
-        assert!(inspector::copy(&call, &page).is_none());
-    }
 }

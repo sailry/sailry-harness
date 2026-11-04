@@ -259,50 +259,105 @@ mod tests {
     use super::*;
 
     #[test]
-    fn packages_directory_contents() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join("plugin.json"), b"{}").unwrap();
-        std::fs::create_dir(root.path().join("skills")).unwrap();
-        std::fs::write(root.path().join("skills/SKILL.md"), b"skill fixture").unwrap();
-        let file = open_plugin(root.path().into(), CancellationToken::new()).unwrap();
-        let mut zip = zip::ZipArchive::new(file.file).unwrap();
-        assert_eq!(zip.len(), 3);
-        let mut text = String::new();
-        zip.by_name("skills/SKILL.md")
-            .unwrap()
-            .read_to_string(&mut text)
-            .unwrap();
-        assert_eq!(text, "skill fixture");
-    }
-
-    #[test]
-    fn missing_manifest_and_cancellation() {
-        let root = tempfile::tempdir().unwrap();
-        assert_eq!(
-            open_plugin(root.path().join("missing"), CancellationToken::new())
-                .err()
-                .unwrap()
-                .code,
-            ErrorCode::NotFound
-        );
-        assert_eq!(
-            open_plugin(root.path().into(), CancellationToken::new())
-                .err()
-                .unwrap()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        assert_eq!(
-            io_error(std::io::Error::from(std::io::ErrorKind::PermissionDenied)).code,
-            ErrorCode::PermissionDenied
-        );
-        std::fs::write(root.path().join("plugin.json"), b"{}").unwrap();
-        let stop = CancellationToken::new();
-        stop.cancel();
-        assert_eq!(
-            open_plugin(root.path().into(), stop).err().unwrap().code,
-            ErrorCode::Cancelled
-        );
+    fn archive_capture() {
+        for (scenario, check) in [
+            (
+                "packages_directory_contents",
+                (|_scenario: &str| {
+                    let root = tempfile::tempdir().unwrap();
+                    std::fs::write(root.path().join("plugin.json"), b"{}").unwrap();
+                    std::fs::create_dir(root.path().join("skills")).unwrap();
+                    std::fs::write(root.path().join("skills/SKILL.md"), b"skill fixture").unwrap();
+                    let file = open_plugin(root.path().into(), CancellationToken::new()).unwrap();
+                    let mut zip = zip::ZipArchive::new(file.file).unwrap();
+                    assert_eq!(zip.len(), 3, "packages directory contents");
+                    let mut text = String::new();
+                    zip.by_name("skills/SKILL.md")
+                        .unwrap()
+                        .read_to_string(&mut text)
+                        .unwrap();
+                    assert_eq!(text, "skill fixture", "packages directory contents");
+                }) as fn(&str),
+            ),
+            (
+                "missing_manifest_and_cancellation",
+                (|_scenario: &str| {
+                    let root = tempfile::tempdir().unwrap();
+                    assert_eq!(
+                        open_plugin(root.path().join("missing"), CancellationToken::new())
+                            .err()
+                            .unwrap()
+                            .code,
+                        ErrorCode::NotFound,
+                        "missing manifest and cancellation"
+                    );
+                    assert_eq!(
+                        open_plugin(root.path().into(), CancellationToken::new())
+                            .err()
+                            .unwrap()
+                            .code,
+                        ErrorCode::InvalidRequest,
+                        "missing manifest and cancellation"
+                    );
+                    assert_eq!(
+                        io_error(std::io::Error::from(std::io::ErrorKind::PermissionDenied)).code,
+                        ErrorCode::PermissionDenied,
+                        "missing manifest and cancellation"
+                    );
+                    std::fs::write(root.path().join("plugin.json"), b"{}").unwrap();
+                    let stop = CancellationToken::new();
+                    stop.cancel();
+                    assert_eq!(
+                        open_plugin(root.path().into(), stop).err().unwrap().code,
+                        ErrorCode::Cancelled,
+                        "missing manifest and cancellation"
+                    );
+                }),
+            ),
+            (
+                "snapshots_skill_archives",
+                (|_scenario: &str| {
+                    let root = tempfile::tempdir().unwrap();
+                    for name in ["one.zip", "one.skill", "one.tar", "one.tar.gz", "one.tgz"] {
+                        let path = root.path().join(name);
+                        std::fs::write(&path, b"frozen archive").unwrap();
+                        let mut opened =
+                            open_skill(path.clone(), false, CancellationToken::new()).unwrap();
+                        std::fs::write(&path, b"changed source").unwrap();
+                        let mut bytes = Vec::new();
+                        opened.file.read_to_end(&mut bytes).unwrap();
+                        assert_eq!(bytes, b"frozen archive", "snapshots skill archives");
+                        assert!(opened.directory.is_none(), "snapshots skill archives");
+                    }
+                }),
+            ),
+            (
+                "packages_skills_without_plugin_manifest",
+                (|_scenario: &str| {
+                    let root = tempfile::tempdir().unwrap();
+                    std::fs::write(root.path().join("SKILL.md"), b"skill fixture").unwrap();
+                    let opened =
+                        open_skill(root.path().into(), true, CancellationToken::new()).unwrap();
+                    assert_eq!(
+                        opened.directory,
+                        Some(root.path().canonicalize().unwrap()),
+                        "packages skills without plugin manifest"
+                    );
+                    let mut zip = zip::ZipArchive::new(opened.file).unwrap();
+                    assert!(
+                        zip.by_name("SKILL.md").is_ok(),
+                        "packages skills without plugin manifest"
+                    );
+                    assert!(
+                        open_skill(root.path().into(), false, CancellationToken::new()).is_err(),
+                        "packages skills without plugin manifest"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 
     #[cfg(unix)]
@@ -326,31 +381,5 @@ mod tests {
         assert_ne!(zip.by_name("tool").unwrap().unix_mode().unwrap() & 0o111, 0);
         symlink("/private/secret", root.path().join("outside")).unwrap();
         assert!(open_plugin(root.path().into(), CancellationToken::new()).is_err());
-    }
-
-    #[test]
-    fn snapshots_skill_archives() {
-        let root = tempfile::tempdir().unwrap();
-        for name in ["one.zip", "one.skill", "one.tar", "one.tar.gz", "one.tgz"] {
-            let path = root.path().join(name);
-            std::fs::write(&path, b"frozen archive").unwrap();
-            let mut opened = open_skill(path.clone(), false, CancellationToken::new()).unwrap();
-            std::fs::write(&path, b"changed source").unwrap();
-            let mut bytes = Vec::new();
-            opened.file.read_to_end(&mut bytes).unwrap();
-            assert_eq!(bytes, b"frozen archive");
-            assert!(opened.directory.is_none());
-        }
-    }
-
-    #[test]
-    fn packages_skills_without_plugin_manifest() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join("SKILL.md"), b"skill fixture").unwrap();
-        let opened = open_skill(root.path().into(), true, CancellationToken::new()).unwrap();
-        assert_eq!(opened.directory, Some(root.path().canonicalize().unwrap()));
-        let mut zip = zip::ZipArchive::new(opened.file).unwrap();
-        assert!(zip.by_name("SKILL.md").is_ok());
-        assert!(open_skill(root.path().into(), false, CancellationToken::new()).is_err());
     }
 }

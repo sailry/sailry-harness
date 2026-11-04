@@ -365,45 +365,90 @@ mod tests {
     use sailry_protocol::plugin::connector::Kind;
 
     #[test]
-    fn separates_saved_configuration_from_account_binding() {
-        for method in [
-            Kind::Secret,
-            Kind::Application,
-            Kind::Oauth2,
-            Kind::McpOauth,
-            Kind::LocalCli,
+    fn configuration_and_binding() {
+        for (scenario, check) in [
+            (
+                "separates_saved_configuration_from_account_binding",
+                (|_scenario: &str| {
+                    for method in [
+                        Kind::Secret,
+                        Kind::Application,
+                        Kind::Oauth2,
+                        Kind::McpOauth,
+                        Kind::LocalCli,
+                    ] {
+                        assert_eq!(
+                            submit_key(method, true, true),
+                            "settings_save",
+                            "separates saved configuration from account binding"
+                        );
+                        assert_eq!(
+                            success_key(method, true),
+                            "connector_saved",
+                            "separates saved configuration from account binding"
+                        );
+                        assert_eq!(
+                            updates(method, true, false),
+                            matches!(method, Kind::Oauth2 | Kind::McpOauth | Kind::LocalCli),
+                            "separates saved configuration from account binding"
+                        );
+                        assert!(
+                            !updates(method, false, false),
+                            "separates saved configuration from account binding"
+                        );
+                        assert!(
+                            !updates(method, true, true),
+                            "separates saved configuration from account binding"
+                        );
+                        let (submit, success) = match method {
+                            Kind::Oauth2 | Kind::McpOauth => {
+                                ("connector_authorize", "connector_authorized")
+                            }
+                            Kind::LocalCli => ("connector_bind", "connector_bound"),
+                            _ => ("settings_save", "connector_saved"),
+                        };
+                        assert_eq!(
+                            submit_key(method, false, false),
+                            submit,
+                            "separates saved configuration from account binding"
+                        );
+                        assert_eq!(
+                            success_key(method, false),
+                            success,
+                            "separates saved configuration from account binding"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "distinguishes_login_failures_from_expired_accounts",
+                (|_scenario: &str| {
+                    for code in [
+                        ErrorCode::Expired,
+                        ErrorCode::PermissionDenied,
+                        ErrorCode::Unavailable,
+                    ] {
+                        assert_eq!(
+                            failure_key(code),
+                            "oauth_failed_title",
+                            "distinguishes login failures from expired accounts"
+                        );
+                    }
+                    assert_eq!(
+                        failure_key(ErrorCode::RevisionConflict),
+                        "connector_conflict",
+                        "distinguishes login failures from expired accounts"
+                    );
+                    assert_eq!(
+                        failure_key(ErrorCode::OutcomeUnknown),
+                        "connector_unknown",
+                        "distinguishes login failures from expired accounts"
+                    );
+                }),
+            ),
         ] {
-            assert_eq!(submit_key(method, true, true), "settings_save");
-            assert_eq!(success_key(method, true), "connector_saved");
-            assert_eq!(
-                updates(method, true, false),
-                matches!(method, Kind::Oauth2 | Kind::McpOauth | Kind::LocalCli)
-            );
-            assert!(!updates(method, false, false));
-            assert!(!updates(method, true, true));
-            let (submit, success) = match method {
-                Kind::Oauth2 | Kind::McpOauth => ("connector_authorize", "connector_authorized"),
-                Kind::LocalCli => ("connector_bind", "connector_bound"),
-                _ => ("settings_save", "connector_saved"),
-            };
-            assert_eq!(submit_key(method, false, false), submit);
-            assert_eq!(success_key(method, false), success);
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn distinguishes_login_failures_from_expired_accounts() {
-        for code in [
-            ErrorCode::Expired,
-            ErrorCode::PermissionDenied,
-            ErrorCode::Unavailable,
-        ] {
-            assert_eq!(failure_key(code), "oauth_failed_title");
-        }
-        assert_eq!(
-            failure_key(ErrorCode::RevisionConflict),
-            "connector_conflict"
-        );
-        assert_eq!(failure_key(ErrorCode::OutcomeUnknown), "connector_unknown");
     }
 }

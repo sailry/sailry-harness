@@ -178,29 +178,25 @@ mod tests {
     }
 
     #[test]
-    fn uses_word_initials() {
-        assert_eq!(alone("WorkBuddy China"), "WBC");
-        assert_eq!(alone("WorkBuddy International"), "WBI");
-        assert_eq!(alone("chatgpt oauth"), "CO");
-        assert_eq!(alone("open_router.ai"), "ORA");
-        assert_eq!(alone("my-very-long-channel-name"), "MVL");
-        assert_eq!(alone("OpenAIProxy"), "OAP");
-    }
-
-    #[test]
-    fn uses_two_letters_for_single_words() {
-        assert_eq!(alone("grok"), "GR");
-        assert_eq!(alone("rrwkj"), "RR");
-        assert_eq!(alone("x"), "X");
-    }
-
-    #[test]
-    fn handles_wide_and_empty_names() {
-        assert_eq!(alone("深度求索"), "深度");
-        assert_eq!(alone("通义 千问 国际"), "通千");
-        assert_eq!(alone("Kimi 中国"), "K中");
-        assert_eq!(alone(""), "");
-        assert_eq!(alone("  -_ "), "");
+    fn initials_and_single_names() {
+        for (name, expected) in [
+            ("WorkBuddy China", "WBC"),
+            ("WorkBuddy International", "WBI"),
+            ("chatgpt oauth", "CO"),
+            ("open_router.ai", "ORA"),
+            ("my-very-long-channel-name", "MVL"),
+            ("OpenAIProxy", "OAP"),
+            ("grok", "GR"),
+            ("rrwkj", "RR"),
+            ("x", "X"),
+            ("深度求索", "深度"),
+            ("通义 千问 国际", "通千"),
+            ("Kimi 中国", "K中"),
+            ("", ""),
+            ("  -_ ", ""),
+        ] {
+            assert_eq!(alone(name), expected, "{name:?}");
+        }
     }
 
     #[test]

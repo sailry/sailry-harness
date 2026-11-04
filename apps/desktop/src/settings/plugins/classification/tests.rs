@@ -12,58 +12,90 @@ fn package(name: &str) -> Info {
 }
 
 #[test]
-fn bundled_resources_stay_with_plugin() {
-    let mut info = package("mcp-with-skills");
-    info.skills.push(
-        serde_json::from_value(serde_json::json!({
-            "name": "documents", "description": "Read documents", "path": "skills/documents"
-        }))
-        .unwrap(),
-    );
-    info.mcp.push(Mcp {
-        host: None,
-        name: "documents".into(),
-        transport: McpTransport::Stdio,
-        allowed: true,
-        availability: mcp::Availability::Available,
-    });
-    assert_eq!(Kind::of(&info), Kind::Plugin);
-    assert_eq!(Kind::of(&info).section(), Section::Plugins);
-}
-
-#[test]
-fn provenance_selects_core_management() {
-    let mut skill = package("ordinary-name");
-    skill.skill = Some(skills::Provenance::Imported {
-        imported: skills::Imported {
-            digest: "captured".into(),
-            path: "skills/documents".into(),
-            kind: sailry_protocol::plugin::UploadSource::Directory,
-        },
-    });
-    assert_eq!(Kind::of(&skill).section(), Section::Skills);
-    let mut mcp = package("another-name");
-    mcp.mcp_source = Some(mcp::Definition::Stdio {
-        command: "fixture".into(),
-        args: Vec::new(),
-        env: Vec::new(),
-    });
-    assert_eq!(Kind::of(&mcp).section(), Section::Connectors);
-}
-
-#[test]
-fn missing_and_stale_metadata_stay_unclassified() {
-    let current = package("current");
-    let stale = package("stale");
-    let missing = package("missing");
-    let mut changed = stale.summary.clone();
-    changed.settings_revision += 1;
-    changed.revision += 1;
-    let summaries = vec![missing.summary, changed, current.summary.clone()];
-    let entries = BTreeMap::from([
-        (current.summary.name.clone(), current.clone()),
-        (stale.summary.name.clone(), stale),
-    ]);
-    let selected = inventory(&summaries, &entries, Kind::Plugin);
-    assert_eq!(selected, vec![&current]);
+fn provenance_and_ownership() {
+    for (scenario, check) in [
+        (
+            "bundled_resources_stay_with_plugin",
+            (|_scenario: &str| {
+                let mut info = package("mcp-with-skills");
+                info.skills.push(
+                    serde_json::from_value(serde_json::json!({
+                    "name": "documents", "description": "Read documents", "path": "skills/documents"
+                        }))
+                    .unwrap(),
+                );
+                info.mcp.push(Mcp {
+                    host: None,
+                    name: "documents".into(),
+                    transport: McpTransport::Stdio,
+                    allowed: true,
+                    availability: mcp::Availability::Available,
+                });
+                assert_eq!(
+                    Kind::of(&info),
+                    Kind::Plugin,
+                    "bundled resources stay with plugin"
+                );
+                assert_eq!(
+                    Kind::of(&info).section(),
+                    Section::Plugins,
+                    "bundled resources stay with plugin"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "provenance_selects_core_management",
+            (|_scenario: &str| {
+                let mut skill = package("ordinary-name");
+                skill.skill = Some(skills::Provenance::Imported {
+                    imported: skills::Imported {
+                        digest: "captured".into(),
+                        path: "skills/documents".into(),
+                        kind: sailry_protocol::plugin::UploadSource::Directory,
+                    },
+                });
+                assert_eq!(
+                    Kind::of(&skill).section(),
+                    Section::Skills,
+                    "provenance selects core management"
+                );
+                let mut mcp = package("another-name");
+                mcp.mcp_source = Some(mcp::Definition::Stdio {
+                    command: "fixture".into(),
+                    args: Vec::new(),
+                    env: Vec::new(),
+                });
+                assert_eq!(
+                    Kind::of(&mcp).section(),
+                    Section::Connectors,
+                    "provenance selects core management"
+                );
+            }),
+        ),
+        (
+            "missing_and_stale_metadata_stay_unclassified",
+            (|_scenario: &str| {
+                let current = package("current");
+                let stale = package("stale");
+                let missing = package("missing");
+                let mut changed = stale.summary.clone();
+                changed.settings_revision += 1;
+                changed.revision += 1;
+                let summaries = vec![missing.summary, changed, current.summary.clone()];
+                let entries = BTreeMap::from([
+                    (current.summary.name.clone(), current.clone()),
+                    (stale.summary.name.clone(), stale),
+                ]);
+                let selected = inventory(&summaries, &entries, Kind::Plugin);
+                assert_eq!(
+                    selected,
+                    vec![&current],
+                    "missing and stale metadata stay unclassified"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }

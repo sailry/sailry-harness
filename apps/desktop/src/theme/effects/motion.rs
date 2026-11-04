@@ -40,51 +40,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn remains_bounded() {
-        for seed in [0, 12, u32::MAX] {
-            for index in 0..64 {
-                for step in 0..100 {
-                    let point = sample(index, seed, step as f32 / 100.);
-                    for value in [point.x, point.y, point.time, point.fade, point.pulse] {
-                        assert!((0. ..=1.).contains(&value));
+    fn bounded_travel() {
+        for (scenario, check) in [
+            (
+                "remains_bounded",
+                (|_scenario: &str| {
+                    for seed in [0, 12, u32::MAX] {
+                        for index in 0..64 {
+                            for step in 0..100 {
+                                let point = sample(index, seed, step as f32 / 100.);
+                                for value in [point.x, point.y, point.time, point.fade, point.pulse]
+                                {
+                                    assert!((0. ..=1.).contains(&value), "remains bounded");
+                                }
+                                assert!((0.65..=1.35).contains(&point.scale), "remains bounded");
+                            }
+                        }
                     }
-                    assert!((0.65..=1.35).contains(&point.scale));
-                }
-            }
+                }) as fn(&str),
+            ),
+            (
+                "loops_without_position_jump",
+                (|_scenario: &str| {
+                    for index in 0..64 {
+                        let first = sample(index, 27, 0.);
+                        let last = sample(index, 27, 1.);
+                        for (start, end) in [
+                            (first.x, last.x),
+                            (first.y, last.y),
+                            (first.time, last.time),
+                            (first.fade, last.fade),
+                            (first.pulse, last.pulse),
+                            (first.sway, last.sway),
+                        ] {
+                            assert!((start - end).abs() < 0.00001, "loops without position jump");
+                        }
+                    }
+                }),
+            ),
+            (
+                "hides_travel_endpoints",
+                (|_scenario: &str| {
+                    for index in 0..64 {
+                        let offset = sample(index, 27, 0.).time;
+                        assert_eq!(
+                            sample(index, 27, -offset).fade,
+                            0.,
+                            "hides travel endpoints"
+                        );
+                        assert!(
+                            sample(index, 27, 1. - offset - 0.00001).fade < 0.00001,
+                            "hides travel endpoints"
+                        );
+                    }
+                }),
+            ),
+            (
+                "varies_with_seed",
+                (|_scenario: &str| {
+                    let first = sample(1, 1, 0.2);
+                    let other = sample(1, 2, 0.2);
+                    assert_ne!((first.x, first.y), (other.x, other.y), "varies with seed");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn loops_without_position_jump() {
-        for index in 0..64 {
-            let first = sample(index, 27, 0.);
-            let last = sample(index, 27, 1.);
-            for (start, end) in [
-                (first.x, last.x),
-                (first.y, last.y),
-                (first.time, last.time),
-                (first.fade, last.fade),
-                (first.pulse, last.pulse),
-                (first.sway, last.sway),
-            ] {
-                assert!((start - end).abs() < 0.00001);
-            }
-        }
-    }
-
-    #[test]
-    fn hides_travel_endpoints() {
-        for index in 0..64 {
-            let offset = sample(index, 27, 0.).time;
-            assert_eq!(sample(index, 27, -offset).fade, 0.);
-            assert!(sample(index, 27, 1. - offset - 0.00001).fade < 0.00001);
-        }
-    }
-
-    #[test]
-    fn varies_with_seed() {
-        let first = sample(1, 1, 0.2);
-        let other = sample(1, 2, 0.2);
-        assert_ne!((first.x, first.y), (other.x, other.y));
     }
 }

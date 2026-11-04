@@ -214,26 +214,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vocabulary_rejects_duplicate_ids() {
-        let directory = tempfile::tempdir().unwrap();
-        let tokens = directory.path().join("tokens.txt");
-        std::fs::write(&tokens, "<blank> 0\nhello 0\n").unwrap();
-        assert!(vocabulary(&tokens, 2).is_err());
-        std::fs::write(&tokens, "<blank> 0\nhello 1\n").unwrap();
-        vocabulary(&tokens, 2).unwrap();
-        assert!(vocabulary(&tokens, 3).is_err());
-    }
-
-    #[test]
-    fn rejects_non_graph_before_sherpa() {
-        let directory = tempfile::tempdir().unwrap();
-        let graph = directory.path().join("model.onnx");
-        let tokens = directory.path().join("tokens.txt");
-        std::fs::write(&graph, b"not an ONNX graph").unwrap();
-        std::fs::write(&tokens, "<blank> 0\n").unwrap();
-        let error = check(&graph, &tokens).unwrap_err();
-        assert_eq!(error.key(), "dictation_model_invalid");
-        assert_eq!(error.stage(), "onnx_parse");
+    fn verified_inputs() {
+        for (scenario, check) in [
+            (
+                "vocabulary_rejects_duplicate_ids",
+                (|_scenario: &str| {
+                    let directory = tempfile::tempdir().unwrap();
+                    let tokens = directory.path().join("tokens.txt");
+                    std::fs::write(&tokens, "<blank> 0\nhello 0\n").unwrap();
+                    assert!(
+                        vocabulary(&tokens, 2).is_err(),
+                        "vocabulary rejects duplicate ids"
+                    );
+                    std::fs::write(&tokens, "<blank> 0\nhello 1\n").unwrap();
+                    vocabulary(&tokens, 2).unwrap();
+                    assert!(
+                        vocabulary(&tokens, 3).is_err(),
+                        "vocabulary rejects duplicate ids"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "rejects_non_graph_before_sherpa",
+                (|_scenario: &str| {
+                    let directory = tempfile::tempdir().unwrap();
+                    let graph = directory.path().join("model.onnx");
+                    let tokens = directory.path().join("tokens.txt");
+                    std::fs::write(&graph, b"not an ONNX graph").unwrap();
+                    std::fs::write(&tokens, "<blank> 0\n").unwrap();
+                    let error = check(&graph, &tokens).unwrap_err();
+                    assert_eq!(
+                        error.key(),
+                        "dictation_model_invalid",
+                        "rejects non graph before sherpa"
+                    );
+                    assert_eq!(
+                        error.stage(),
+                        "onnx_parse",
+                        "rejects non graph before sherpa"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 
     #[test]

@@ -166,64 +166,119 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn reveals_filtered_batches_before_fetching() {
-        let mut state = State {
-            total: 29,
-            ..Default::default()
-        };
-        assert_eq!(state.limit, 12);
-        assert!(state.reveal());
-        assert_eq!(state.limit, 24);
-        assert!(state.reveal());
-        assert!(!state.reveal());
-        state.reset();
-        assert_eq!(state.limit, 12);
-        assert_eq!(state.total, 0);
-        assert_eq!(state.generation, 1);
-        assert!(!state.accepts(0, false, false));
-        assert!(!state.accepts(1, true, true));
-        state.previous = Some(0);
-        state.count(0);
-        assert!(!state.paused);
-        state.received(2);
-        state.count(0);
-        assert!(state.paused);
-        assert!(!state.accepts(1, false, false));
-        assert!(state.accepts(1, false, true));
-        state.previous = Some(0);
-        state.received(3);
-        state.count(1);
-        assert!(!state.paused);
-    }
-
-    #[test]
-    fn appends_stable_ids_without_reordering() {
-        let mut rows = vec!["a".to_owned(), "b".to_owned()];
-        assert_eq!(
-            append(
-                &mut rows,
-                vec!["b".into(), "c".into(), "c".into()],
-                String::as_str
+    fn stable_batches() {
+        for (scenario, check) in [
+            (
+                "reveals_filtered_batches_before_fetching",
+                (|_scenario: &str| {
+                    let mut state = State {
+                        total: 29,
+                        ..Default::default()
+                    };
+                    assert_eq!(state.limit, 12, "reveals filtered batches before fetching");
+                    assert!(state.reveal(), "reveals filtered batches before fetching");
+                    assert_eq!(state.limit, 24, "reveals filtered batches before fetching");
+                    assert!(state.reveal(), "reveals filtered batches before fetching");
+                    assert!(!state.reveal(), "reveals filtered batches before fetching");
+                    state.reset();
+                    assert_eq!(state.limit, 12, "reveals filtered batches before fetching");
+                    assert_eq!(state.total, 0, "reveals filtered batches before fetching");
+                    assert_eq!(
+                        state.generation, 1,
+                        "reveals filtered batches before fetching"
+                    );
+                    assert!(
+                        !state.accepts(0, false, false),
+                        "reveals filtered batches before fetching"
+                    );
+                    assert!(
+                        !state.accepts(1, true, true),
+                        "reveals filtered batches before fetching"
+                    );
+                    state.previous = Some(0);
+                    state.count(0);
+                    assert!(!state.paused, "reveals filtered batches before fetching");
+                    state.received(2);
+                    state.count(0);
+                    assert!(state.paused, "reveals filtered batches before fetching");
+                    assert!(
+                        !state.accepts(1, false, false),
+                        "reveals filtered batches before fetching"
+                    );
+                    assert!(
+                        state.accepts(1, false, true),
+                        "reveals filtered batches before fetching"
+                    );
+                    state.previous = Some(0);
+                    state.received(3);
+                    state.count(1);
+                    assert!(!state.paused, "reveals filtered batches before fetching");
+                }) as fn(&str),
             ),
-            1
-        );
-        assert_eq!(rows, ["a", "b", "c"]);
-        assert_eq!(append(&mut rows, vec!["a".into()], String::as_str), 0);
-        let mut state = State {
-            failed: Some(3),
-            total: 24,
-            ..Default::default()
-        };
-        assert_eq!(state.failed, Some(3));
-        state.received(3);
-        assert_eq!(state.failed, None);
-        assert_eq!(state.limit, 24);
-        state.failed = Some(4);
-        state.reset();
-        assert_eq!(state.failed, None);
-        assert_eq!(advancing(2, Some(2)), None);
-        assert_eq!(advancing(2, Some(1)), None);
-        assert_eq!(advancing(2, Some(3)), Some(3));
-        assert_eq!(advancing(2, None), None);
+            (
+                "appends_stable_ids_without_reordering",
+                (|_scenario: &str| {
+                    let mut rows = vec!["a".to_owned(), "b".to_owned()];
+                    assert_eq!(
+                        append(
+                            &mut rows,
+                            vec!["b".into(), "c".into(), "c".into()],
+                            String::as_str
+                        ),
+                        1,
+                        "appends stable ids without reordering"
+                    );
+                    assert_eq!(
+                        rows,
+                        ["a", "b", "c"],
+                        "appends stable ids without reordering"
+                    );
+                    assert_eq!(
+                        append(&mut rows, vec!["a".into()], String::as_str),
+                        0,
+                        "appends stable ids without reordering"
+                    );
+                    let mut state = State {
+                        failed: Some(3),
+                        total: 24,
+                        ..Default::default()
+                    };
+                    assert_eq!(
+                        state.failed,
+                        Some(3),
+                        "appends stable ids without reordering"
+                    );
+                    state.received(3);
+                    assert_eq!(state.failed, None, "appends stable ids without reordering");
+                    assert_eq!(state.limit, 24, "appends stable ids without reordering");
+                    state.failed = Some(4);
+                    state.reset();
+                    assert_eq!(state.failed, None, "appends stable ids without reordering");
+                    assert_eq!(
+                        advancing(2, Some(2)),
+                        None,
+                        "appends stable ids without reordering"
+                    );
+                    assert_eq!(
+                        advancing(2, Some(1)),
+                        None,
+                        "appends stable ids without reordering"
+                    );
+                    assert_eq!(
+                        advancing(2, Some(3)),
+                        Some(3),
+                        "appends stable ids without reordering"
+                    );
+                    assert_eq!(
+                        advancing(2, None),
+                        None,
+                        "appends stable ids without reordering"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

@@ -87,51 +87,69 @@ mod tests {
     use super::*;
 
     #[test]
-    fn policy_validation_is_atomic() {
-        let mut data = fixtures();
-        let local = data.get_mut(&0).unwrap();
-        let original = local.ports.clone();
-        for value in ["0", "65536", "-1", "3000,no", "1.5", "3000;5173"] {
-            assert_eq!(
-                local.save_ports(&original, value),
-                Err("tunnel_invalid_ports")
-            );
-            assert_eq!(local.ports, original);
+    fn validation_and_replacement() {
+        for (scenario, check) in [
+            (
+                "policy_validation_is_atomic",
+                (|_scenario: &str| {
+                    let mut data = fixtures();
+                    let local = data.get_mut(&0).unwrap();
+                    let original = local.ports.clone();
+                    for value in ["0", "65536", "-1", "3000,no", "1.5", "3000;5173"] {
+                        assert_eq!(
+                            local.save_ports(&original, value),
+                            Err("tunnel_invalid_ports"),
+                            "policy validation is atomic"
+                        );
+                        assert_eq!(local.ports, original, "policy validation is atomic");
+                    }
+                    local
+                        .save_ports(&original, "65535, 1 3000\n3000\t5173")
+                        .unwrap();
+                    assert_eq!(
+                        local.ports,
+                        vec![1, 3000, 5173, 65535],
+                        "policy validation is atomic"
+                    );
+                    assert_eq!(
+                        local.save_ports(&original, "80"),
+                        Err("tunnel_policy_changed"),
+                        "policy validation is atomic"
+                    );
+                    local.save_ports(&local.ports.clone(), " \n,").unwrap();
+                    assert!(local.ports.is_empty(), "policy validation is atomic");
+                    let remote = data.get_mut(&1).unwrap();
+                    assert_eq!(
+                        remote.save_ports(&original, "80"),
+                        Err("tunnel_policy_changed"),
+                        "policy validation is atomic"
+                    );
+                    assert_eq!(remote.ports, original, "policy validation is atomic");
+                }) as fn(&str),
+            ),
+            (
+                "preserves_replacements",
+                (|_scenario: &str| {
+                    let mut data = fixtures();
+                    let local = data.get_mut(&0).unwrap();
+                    let original = local.entries[&0].clone();
+                    local.entries.get_mut(&0).unwrap().local_port = 3001;
+                    local.close(0, &original);
+                    assert_eq!(local.entries.len(), 2, "preserves replacements");
+                    let updated = local.entries[&0].clone();
+                    local.error = Some("tunnel_load_error");
+                    local.close(0, &updated);
+                    assert_eq!(local.entries.len(), 2, "preserves replacements");
+                    local.error = None;
+                    local.close(0, &updated);
+                    local.close(0, &updated);
+                    assert_eq!(local.entries.len(), 1, "preserves replacements");
+                    assert_eq!(data[&1].entries.len(), 2, "preserves replacements");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        local
-            .save_ports(&original, "65535, 1 3000\n3000\t5173")
-            .unwrap();
-        assert_eq!(local.ports, vec![1, 3000, 5173, 65535]);
-        assert_eq!(
-            local.save_ports(&original, "80"),
-            Err("tunnel_policy_changed")
-        );
-        local.save_ports(&local.ports.clone(), " \n,").unwrap();
-        assert!(local.ports.is_empty());
-        let remote = data.get_mut(&1).unwrap();
-        assert_eq!(
-            remote.save_ports(&original, "80"),
-            Err("tunnel_policy_changed")
-        );
-        assert_eq!(remote.ports, original);
-    }
-
-    #[test]
-    fn preserves_replacements() {
-        let mut data = fixtures();
-        let local = data.get_mut(&0).unwrap();
-        let original = local.entries[&0].clone();
-        local.entries.get_mut(&0).unwrap().local_port = 3001;
-        local.close(0, &original);
-        assert_eq!(local.entries.len(), 2);
-        let updated = local.entries[&0].clone();
-        local.error = Some("tunnel_load_error");
-        local.close(0, &updated);
-        assert_eq!(local.entries.len(), 2);
-        local.error = None;
-        local.close(0, &updated);
-        local.close(0, &updated);
-        assert_eq!(local.entries.len(), 1);
-        assert_eq!(data[&1].entries.len(), 2);
     }
 }

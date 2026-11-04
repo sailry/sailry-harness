@@ -55,257 +55,328 @@ async fn run(
 }
 
 #[test]
-fn reveals_only_local_registered_paths() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote);
-        let access = access(&fixture);
-        let requests = fixture.transport.requests.lock().unwrap().len();
-        let result = fixture.runtime.block_on(system::prepare(
-            system::Action::Reveal,
-            access.clone(),
-            "notes.txt".into(),
-            !remote,
-            fixture.directory.path().join("temporary"),
-            CancellationToken::new(),
-        ));
-        if remote {
-            assert_eq!(result.err().unwrap().code, ErrorCode::InvalidRequest);
-            assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
-            assert!(!fixture.directory.path().join("temporary").exists());
-        } else {
-            let opened = result.unwrap();
-            assert!(opened.copy.is_none());
-            assert_eq!(
-                opened.path,
-                fixture
-                    .directory
-                    .path()
-                    .join("project/notes.txt")
-                    .canonicalize()
-                    .unwrap()
-            );
-            let outside = fixture.runtime.block_on(system::prepare(
-                system::Action::Reveal,
-                access,
-                "../outside.txt".into(),
-                true,
-                fixture.directory.path().join("temporary"),
-                CancellationToken::new(),
-            ));
-            assert!(outside.is_err());
-        }
-        fixture.close();
-    }
-}
-
-#[test]
-fn retains_captured_locations_and_publication_receipts() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote);
-        let source = access(&fixture);
-        let root = fixture.directory.path().join("other");
-        std::fs::create_dir(&root).unwrap();
-        let Output::Project(project) = fixture.execute(Command::RegisterProject {
-            name: "Destination".into(),
-            path: root.to_str().unwrap().into(),
-        }) else {
-            panic!("project expected")
-        };
-        let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
-            panic!("snapshot expected")
-        };
-        let tree = snapshot
-            .worktrees
-            .iter()
-            .find(|tree| tree.project == Some(project.id))
-            .unwrap()
-            .id;
-        let mut target = source.clone();
-        target.context.worktree = Some(tree);
-        let entry = worker::Source::Entry {
-            access: Box::new(source.clone()),
-            path: "notes.txt".into(),
-            kind: sailry_protocol::EntryKind::File,
-            cut: false,
-        };
-        let completion = fixture.runtime.block_on(run(
-            target.clone(),
-            entry.clone(),
-            "copy.txt",
-            None,
-            CancellationToken::new(),
-        ));
-        assert_eq!(completion.result, Ok(()));
-        assert!(completion.published);
-        assert_eq!(
-            std::fs::read(root.join("copy.txt")).unwrap(),
-            std::fs::read(fixture.directory.path().join("project/notes.txt")).unwrap()
-        );
-        std::fs::write(root.join("copy.txt"), "External destination edit").unwrap();
-        let completed = fixture.runtime.block_on(run(
-            target.clone(),
-            entry,
-            "copy.txt",
-            completion.prepared,
-            CancellationToken::new(),
-        ));
-        assert_eq!(completed.result, Ok(()));
-        assert_eq!(
-            std::fs::read_to_string(root.join("copy.txt")).unwrap(),
-            "External destination edit"
-        );
-        std::fs::write(
-            fixture.directory.path().join("project/move.txt"),
-            "Move once",
-        )
-        .unwrap();
-        let entry = worker::Source::Entry {
-            access: Box::new(source),
-            path: "move.txt".into(),
-            kind: sailry_protocol::EntryKind::File,
-            cut: true,
-        };
-        let completion = fixture.runtime.block_on(run(
-            target,
-            entry,
-            "moved.txt",
-            None,
-            CancellationToken::new(),
-        ));
-        assert_eq!(completion.result, Ok(()));
-        assert_eq!(
-            std::fs::read_to_string(root.join("moved.txt")).unwrap(),
-            "Move once"
-        );
-        assert!(!fixture.directory.path().join("project/move.txt").exists());
-        fixture.close();
-    }
-}
-
-#[test]
-fn streams_captured_sources() {
-    for remote in [false, true] {
-        let source_fixture = Fixture::new(remote);
-        let target_fixture = Fixture::new(remote);
-        let source = access(&source_fixture);
-        let target = access(&target_fixture);
-        let bytes = vec![0xf1; 384 * 1024];
-        std::fs::write(
-            source_fixture.directory.path().join("project/source.bin"),
-            &bytes,
-        )
-        .unwrap();
-        let entry = worker::Source::Entry {
-            access: Box::new(source.clone()),
-            path: "source.bin".into(),
-            kind: sailry_protocol::EntryKind::File,
-            cut: false,
-        };
-        let completion = target_fixture.runtime.block_on(run(
-            target.clone(),
-            entry.clone(),
-            "copy.bin",
-            None,
-            CancellationToken::new(),
-        ));
-        assert_eq!(completion.result, Ok(()));
-        assert_eq!(
-            std::fs::read(target_fixture.directory.path().join("project/copy.bin")).unwrap(),
-            bytes
-        );
-        std::fs::write(
-            target_fixture.directory.path().join("project/copy.bin"),
-            b"Later",
-        )
-        .unwrap();
-        let replay = target_fixture.runtime.block_on(run(
-            target.clone(),
-            entry,
-            "copy.bin",
-            completion.prepared,
-            CancellationToken::new(),
-        ));
-        assert_eq!(replay.result, Ok(()));
-        assert_eq!(
-            std::fs::read(target_fixture.directory.path().join("project/copy.bin")).unwrap(),
-            b"Later"
-        );
-        let folder = worker::Source::Entry {
-            access: Box::new(source),
-            path: "package".into(),
-            kind: sailry_protocol::EntryKind::Directory,
-            cut: false,
-        };
-        let failure = target_fixture.runtime.block_on(run(
-            target,
-            folder,
-            "folder",
-            None,
-            CancellationToken::new(),
-        ));
-        assert_eq!(failure.result.unwrap_err().code, ErrorCode::InvalidRequest);
-        assert!(
-            !target_fixture
-                .directory
-                .path()
-                .join("project/folder")
-                .exists()
-        );
-        source_fixture.close();
-        target_fixture.close();
-    }
-}
-
-#[test]
-fn stops_before_admission_when_cancelled_or_disabled() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote);
-        let target = access(&fixture);
-        let entry = worker::Source::Entry {
-            access: Box::new(target.clone()),
-            path: "notes.txt".into(),
-            kind: sailry_protocol::EntryKind::File,
-            cut: false,
-        };
-        let stop = CancellationToken::new();
-        stop.cancel();
-        let cancelled = fixture.runtime.block_on(run(
-            target.clone(),
-            entry.clone(),
-            "cancelled.txt",
-            None,
-            stop,
-        ));
-        assert_eq!(cancelled.result.unwrap_err().code, ErrorCode::Cancelled);
-        assert!(cancelled.prepared.is_none());
-        fixture.execute(Command::SetPluginEnabled {
-            name: target.context.package.name.clone(),
-            expected_revision: 1,
-            enabled: false,
-        });
-        let disabled = fixture.runtime.block_on(run(
-            target,
-            entry,
-            "disabled.txt",
-            None,
-            CancellationToken::new(),
-        ));
-        assert_eq!(disabled.result.unwrap_err().code, ErrorCode::NotConfigured);
-        assert!(disabled.prepared.is_none());
-        assert!(
-            !fixture
-                .directory
-                .path()
-                .join("project/cancelled.txt")
-                .exists()
-        );
-        assert!(
-            !fixture
-                .directory
-                .path()
-                .join("project/disabled.txt")
-                .exists()
-        );
-        fixture.close();
+fn captured_publication() {
+    for (scenario, check) in [
+        (
+            "reveals_only_local_registered_paths",
+            (|_scenario: &str| {
+                for remote in [false, true] {
+                    let fixture = Fixture::new(remote);
+                    let access = access(&fixture);
+                    let requests = fixture.transport.requests.lock().unwrap().len();
+                    let result = fixture.runtime.block_on(system::prepare(
+                        system::Action::Reveal,
+                        access.clone(),
+                        "notes.txt".into(),
+                        !remote,
+                        fixture.directory.path().join("temporary"),
+                        CancellationToken::new(),
+                    ));
+                    if remote {
+                        assert_eq!(
+                            result.err().unwrap().code,
+                            ErrorCode::InvalidRequest,
+                            "reveals only local registered paths"
+                        );
+                        assert_eq!(
+                            fixture.transport.requests.lock().unwrap().len(),
+                            requests,
+                            "reveals only local registered paths"
+                        );
+                        assert!(
+                            !fixture.directory.path().join("temporary").exists(),
+                            "reveals only local registered paths"
+                        );
+                    } else {
+                        let opened = result.unwrap();
+                        assert!(opened.copy.is_none(), "reveals only local registered paths");
+                        assert_eq!(
+                            opened.path,
+                            fixture
+                                .directory
+                                .path()
+                                .join("project/notes.txt")
+                                .canonicalize()
+                                .unwrap(),
+                            "reveals only local registered paths"
+                        );
+                        let outside = fixture.runtime.block_on(system::prepare(
+                            system::Action::Reveal,
+                            access,
+                            "../outside.txt".into(),
+                            true,
+                            fixture.directory.path().join("temporary"),
+                            CancellationToken::new(),
+                        ));
+                        assert!(outside.is_err(), "reveals only local registered paths");
+                    }
+                    fixture.close();
+                }
+            }) as fn(&str),
+        ),
+        (
+            "retains_captured_locations_and_publication_receipts",
+            (|_scenario: &str| {
+                for remote in [false, true] {
+                    let fixture = Fixture::new(remote);
+                    let source = access(&fixture);
+                    let root = fixture.directory.path().join("other");
+                    std::fs::create_dir(&root).unwrap();
+                    let Output::Project(project) = fixture.execute(Command::RegisterProject {
+                        name: "Destination".into(),
+                        path: root.to_str().unwrap().into(),
+                    }) else {
+                        panic!("project expected")
+                    };
+                    let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
+                        panic!("snapshot expected")
+                    };
+                    let tree = snapshot
+                        .worktrees
+                        .iter()
+                        .find(|tree| tree.project == Some(project.id))
+                        .unwrap()
+                        .id;
+                    let mut target = source.clone();
+                    target.context.worktree = Some(tree);
+                    let entry = worker::Source::Entry {
+                        access: Box::new(source.clone()),
+                        path: "notes.txt".into(),
+                        kind: sailry_protocol::EntryKind::File,
+                        cut: false,
+                    };
+                    let completion = fixture.runtime.block_on(run(
+                        target.clone(),
+                        entry.clone(),
+                        "copy.txt",
+                        None,
+                        CancellationToken::new(),
+                    ));
+                    assert_eq!(
+                        completion.result,
+                        Ok(()),
+                        "retains captured locations and publication receipts"
+                    );
+                    assert!(
+                        completion.published,
+                        "retains captured locations and publication receipts"
+                    );
+                    assert_eq!(
+                        std::fs::read(root.join("copy.txt")).unwrap(),
+                        std::fs::read(fixture.directory.path().join("project/notes.txt")).unwrap(),
+                        "retains captured locations and publication receipts"
+                    );
+                    std::fs::write(root.join("copy.txt"), "External destination edit").unwrap();
+                    let completed = fixture.runtime.block_on(run(
+                        target.clone(),
+                        entry,
+                        "copy.txt",
+                        completion.prepared,
+                        CancellationToken::new(),
+                    ));
+                    assert_eq!(
+                        completed.result,
+                        Ok(()),
+                        "retains captured locations and publication receipts"
+                    );
+                    assert_eq!(
+                        std::fs::read_to_string(root.join("copy.txt")).unwrap(),
+                        "External destination edit",
+                        "retains captured locations and publication receipts"
+                    );
+                    std::fs::write(
+                        fixture.directory.path().join("project/move.txt"),
+                        "Move once",
+                    )
+                    .unwrap();
+                    let entry = worker::Source::Entry {
+                        access: Box::new(source),
+                        path: "move.txt".into(),
+                        kind: sailry_protocol::EntryKind::File,
+                        cut: true,
+                    };
+                    let completion = fixture.runtime.block_on(run(
+                        target,
+                        entry,
+                        "moved.txt",
+                        None,
+                        CancellationToken::new(),
+                    ));
+                    assert_eq!(
+                        completion.result,
+                        Ok(()),
+                        "retains captured locations and publication receipts"
+                    );
+                    assert_eq!(
+                        std::fs::read_to_string(root.join("moved.txt")).unwrap(),
+                        "Move once",
+                        "retains captured locations and publication receipts"
+                    );
+                    assert!(
+                        !fixture.directory.path().join("project/move.txt").exists(),
+                        "retains captured locations and publication receipts"
+                    );
+                    fixture.close();
+                }
+            }),
+        ),
+        (
+            "streams_captured_sources",
+            (|_scenario: &str| {
+                for remote in [false, true] {
+                    let source_fixture = Fixture::new(remote);
+                    let target_fixture = Fixture::new(remote);
+                    let source = access(&source_fixture);
+                    let target = access(&target_fixture);
+                    let bytes = vec![0xf1; 384 * 1024];
+                    std::fs::write(
+                        source_fixture.directory.path().join("project/source.bin"),
+                        &bytes,
+                    )
+                    .unwrap();
+                    let entry = worker::Source::Entry {
+                        access: Box::new(source.clone()),
+                        path: "source.bin".into(),
+                        kind: sailry_protocol::EntryKind::File,
+                        cut: false,
+                    };
+                    let completion = target_fixture.runtime.block_on(run(
+                        target.clone(),
+                        entry.clone(),
+                        "copy.bin",
+                        None,
+                        CancellationToken::new(),
+                    ));
+                    assert_eq!(completion.result, Ok(()), "streams captured sources");
+                    assert_eq!(
+                        std::fs::read(target_fixture.directory.path().join("project/copy.bin"))
+                            .unwrap(),
+                        bytes,
+                        "streams captured sources"
+                    );
+                    std::fs::write(
+                        target_fixture.directory.path().join("project/copy.bin"),
+                        b"Later",
+                    )
+                    .unwrap();
+                    let replay = target_fixture.runtime.block_on(run(
+                        target.clone(),
+                        entry,
+                        "copy.bin",
+                        completion.prepared,
+                        CancellationToken::new(),
+                    ));
+                    assert_eq!(replay.result, Ok(()), "streams captured sources");
+                    assert_eq!(
+                        std::fs::read(target_fixture.directory.path().join("project/copy.bin"))
+                            .unwrap(),
+                        b"Later",
+                        "streams captured sources"
+                    );
+                    let folder = worker::Source::Entry {
+                        access: Box::new(source),
+                        path: "package".into(),
+                        kind: sailry_protocol::EntryKind::Directory,
+                        cut: false,
+                    };
+                    let failure = target_fixture.runtime.block_on(run(
+                        target,
+                        folder,
+                        "folder",
+                        None,
+                        CancellationToken::new(),
+                    ));
+                    assert_eq!(
+                        failure.result.unwrap_err().code,
+                        ErrorCode::InvalidRequest,
+                        "streams captured sources"
+                    );
+                    assert!(
+                        !target_fixture
+                            .directory
+                            .path()
+                            .join("project/folder")
+                            .exists(),
+                        "streams captured sources"
+                    );
+                    source_fixture.close();
+                    target_fixture.close();
+                }
+            }),
+        ),
+        (
+            "stops_before_admission_when_cancelled_or_disabled",
+            (|_scenario: &str| {
+                for remote in [false, true] {
+                    let fixture = Fixture::new(remote);
+                    let target = access(&fixture);
+                    let entry = worker::Source::Entry {
+                        access: Box::new(target.clone()),
+                        path: "notes.txt".into(),
+                        kind: sailry_protocol::EntryKind::File,
+                        cut: false,
+                    };
+                    let stop = CancellationToken::new();
+                    stop.cancel();
+                    let cancelled = fixture.runtime.block_on(run(
+                        target.clone(),
+                        entry.clone(),
+                        "cancelled.txt",
+                        None,
+                        stop,
+                    ));
+                    assert_eq!(
+                        cancelled.result.unwrap_err().code,
+                        ErrorCode::Cancelled,
+                        "stops before admission when cancelled or disabled"
+                    );
+                    assert!(
+                        cancelled.prepared.is_none(),
+                        "stops before admission when cancelled or disabled"
+                    );
+                    fixture.execute(Command::SetPluginEnabled {
+                        name: target.context.package.name.clone(),
+                        expected_revision: 1,
+                        enabled: false,
+                    });
+                    let disabled = fixture.runtime.block_on(run(
+                        target,
+                        entry,
+                        "disabled.txt",
+                        None,
+                        CancellationToken::new(),
+                    ));
+                    assert_eq!(
+                        disabled.result.unwrap_err().code,
+                        ErrorCode::NotConfigured,
+                        "stops before admission when cancelled or disabled"
+                    );
+                    assert!(
+                        disabled.prepared.is_none(),
+                        "stops before admission when cancelled or disabled"
+                    );
+                    assert!(
+                        !fixture
+                            .directory
+                            .path()
+                            .join("project/cancelled.txt")
+                            .exists(),
+                        "stops before admission when cancelled or disabled"
+                    );
+                    assert!(
+                        !fixture
+                            .directory
+                            .path()
+                            .join("project/disabled.txt")
+                            .exists(),
+                        "stops before admission when cancelled or disabled"
+                    );
+                    fixture.close();
+                }
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }

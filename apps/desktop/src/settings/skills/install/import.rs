@@ -416,67 +416,102 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn recognizes_supported_archives() {
-        for (path, expected) in [
-            ("one.zip", ArchiveFormat::Zip),
-            ("one.skill", ArchiveFormat::Zip),
-            ("one.tar", ArchiveFormat::Tar),
-            ("one.tar.gz", ArchiveFormat::TarGz),
-            ("ONE.TGZ", ArchiveFormat::TarGz),
+    fn frozen_sources() {
+        for (scenario, check) in [
+            (
+                "recognizes_supported_archives",
+                (|_scenario: &str| {
+                    for (path, expected) in [
+                        ("one.zip", ArchiveFormat::Zip),
+                        ("one.skill", ArchiveFormat::Zip),
+                        ("one.tar", ArchiveFormat::Tar),
+                        ("one.tar.gz", ArchiveFormat::TarGz),
+                        ("ONE.TGZ", ArchiveFormat::TarGz),
+                    ] {
+                        assert_eq!(
+                            archive(std::path::Path::new(path)),
+                            Some(expected),
+                            "recognizes supported archives"
+                        );
+                    }
+                    for path in ["one", "one.json", "one.zip.exe"] {
+                        assert_eq!(
+                            archive(std::path::Path::new(path)),
+                            None,
+                            "recognizes supported archives"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "binds_install_to_the_discovered_snapshot",
+                (|_scenario: &str| {
+                    let candidate = Candidate {
+                        name: "skill-analysis".into(),
+                        path: "nested/analysis".into(),
+                        skill: plugin::Skill {
+                            name: "Analysis".into(),
+                            display_name: None,
+                            display_locales: Default::default(),
+                            description: "Fixture skill".into(),
+                            path: "SKILL.md".into(),
+                            license: Some("MIT".into()),
+                            compatibility: None,
+                        },
+                    };
+                    let discovery = ImportDiscovery {
+                        stream: StreamId::new(),
+                        digest: "a".repeat(64),
+                        kind: UploadSource::Directory,
+                        skills: vec![candidate.clone()],
+                    };
+                    let Command::InstallSkillUpload {
+                        stream,
+                        source,
+                        name,
+                        expected_revision,
+                    } = command(discovery.clone(), &candidate, 7).unwrap()
+                    else {
+                        unreachable!()
+                    };
+                    assert_eq!(
+                        stream, discovery.stream,
+                        "binds install to the discovered snapshot"
+                    );
+                    assert_eq!(
+                        source,
+                        Imported {
+                            digest: discovery.digest.clone(),
+                            path: candidate.path.clone(),
+                            kind: discovery.kind
+                        },
+                        "binds install to the discovered snapshot"
+                    );
+                    assert_eq!(
+                        name, candidate.name,
+                        "binds install to the discovered snapshot"
+                    );
+                    assert_eq!(
+                        expected_revision, 7,
+                        "binds install to the discovered snapshot"
+                    );
+                    let mut changed = candidate.clone();
+                    changed.path = "other".into();
+                    assert!(
+                        command(discovery.clone(), &changed, 7).is_err(),
+                        "binds install to the discovered snapshot"
+                    );
+                    let mut changed = discovery;
+                    changed.skills.push(candidate.clone());
+                    assert!(
+                        command(changed, &candidate, 7).is_err(),
+                        "binds install to the discovered snapshot"
+                    );
+                }),
+            ),
         ] {
-            assert_eq!(archive(std::path::Path::new(path)), Some(expected));
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        for path in ["one", "one.json", "one.zip.exe"] {
-            assert_eq!(archive(std::path::Path::new(path)), None);
-        }
-    }
-
-    #[test]
-    fn binds_install_to_the_discovered_snapshot() {
-        let candidate = Candidate {
-            name: "skill-analysis".into(),
-            path: "nested/analysis".into(),
-            skill: plugin::Skill {
-                name: "Analysis".into(),
-                display_name: None,
-                display_locales: Default::default(),
-                description: "Fixture skill".into(),
-                path: "SKILL.md".into(),
-                license: Some("MIT".into()),
-                compatibility: None,
-            },
-        };
-        let discovery = ImportDiscovery {
-            stream: StreamId::new(),
-            digest: "a".repeat(64),
-            kind: UploadSource::Directory,
-            skills: vec![candidate.clone()],
-        };
-        let Command::InstallSkillUpload {
-            stream,
-            source,
-            name,
-            expected_revision,
-        } = command(discovery.clone(), &candidate, 7).unwrap()
-        else {
-            unreachable!()
-        };
-        assert_eq!(stream, discovery.stream);
-        assert_eq!(
-            source,
-            Imported {
-                digest: discovery.digest.clone(),
-                path: candidate.path.clone(),
-                kind: discovery.kind
-            }
-        );
-        assert_eq!(name, candidate.name);
-        assert_eq!(expected_revision, 7);
-        let mut changed = candidate.clone();
-        changed.path = "other".into();
-        assert!(command(discovery.clone(), &changed, 7).is_err());
-        let mut changed = discovery;
-        changed.skills.push(candidate.clone());
-        assert!(command(changed, &candidate, 7).is_err());
     }
 }

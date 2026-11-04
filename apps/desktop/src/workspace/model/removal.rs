@@ -83,134 +83,186 @@ mod tests {
     }
 
     #[test]
-    fn protected_states() {
-        let mut state = State::default();
-        assert_eq!(
-            state.removal_reason(state.owner(0)),
-            Some("worktree_remove_main")
-        );
-        let owner = empty(&mut state, 0);
-        for (reason, main, locked, busy, dirty, branch) in [
+    fn ownership_and_atomicity() {
+        for (scenario, check) in [
             (
-                "worktree_remove_main",
-                true,
-                false,
-                false,
-                false,
-                "feature/remove",
+                "protected_states",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    assert_eq!(
+                        state.removal_reason(state.owner(0)),
+                        Some("worktree_remove_main"),
+                        "protected states"
+                    );
+                    let owner = empty(&mut state, 0);
+                    for (reason, main, locked, busy, dirty, branch) in [
+                        (
+                            "worktree_remove_main",
+                            true,
+                            false,
+                            false,
+                            false,
+                            "feature/remove",
+                        ),
+                        (
+                            "worktree_remove_locked",
+                            false,
+                            true,
+                            false,
+                            false,
+                            "feature/remove",
+                        ),
+                        (
+                            "worktree_remove_busy",
+                            false,
+                            false,
+                            true,
+                            false,
+                            "feature/remove",
+                        ),
+                        (
+                            "worktree_remove_dirty",
+                            false,
+                            false,
+                            false,
+                            true,
+                            "feature/remove",
+                        ),
+                        ("worktree_remove_detached", false, false, false, false, ""),
+                    ] {
+                        let tree = state.worktrees.get_mut(&owner.worktree).unwrap();
+                        tree.main = main;
+                        tree.locked = locked;
+                        tree.busy = busy;
+                        tree.dirty = dirty;
+                        tree.branch = branch.into();
+                        let expected = state.removal(owner).unwrap();
+                        assert_eq!(
+                            state.remove_worktree(&expected),
+                            Err(reason),
+                            "protected states"
+                        );
+                        assert!(state.contains(owner), "protected states");
+                    }
+                    state.projects.get_mut(&0).unwrap().trusted = false;
+                    let expected = state.removal(owner).unwrap();
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Err("worktree_remove_untrusted"),
+                        "protected states"
+                    );
+                    assert!(
+                        state.removal(Owner { host: 1, ..owner }).is_none(),
+                        "protected states"
+                    );
+                }) as fn(&str),
             ),
             (
-                "worktree_remove_locked",
-                false,
-                true,
-                false,
-                false,
-                "feature/remove",
+                "retains_archived_owners",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    let owner = empty(&mut state, 0);
+                    let expected = state.removal(owner).unwrap();
+                    let key = state.create_session(owner);
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Err("worktree_remove_sessions"),
+                        "retains archived owners"
+                    );
+                    state.sessions.get_mut(&key).unwrap().archived = true;
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Err("worktree_remove_sessions"),
+                        "retains archived owners"
+                    );
+                    state.sessions.remove(&key);
+                    let terminal = state.create_terminal(owner);
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Err("worktree_remove_terminals"),
+                        "retains archived owners"
+                    );
+                    state.terminals.remove(&terminal);
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Ok(()),
+                        "retains archived owners"
+                    );
+                }),
             ),
             (
-                "worktree_remove_busy",
-                false,
-                false,
-                true,
-                false,
-                "feature/remove",
+                "selected_fallback_and_identity",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    let owner = empty(&mut state, 0);
+                    state.select(owner);
+                    let remote = state.owner(1);
+                    let expected = state.removal(owner).unwrap();
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Ok(()),
+                        "selected fallback and identity"
+                    );
+                    assert_eq!(state.owner(0).worktree, 0, "selected fallback and identity");
+                    assert_eq!(state.owner(1), remote, "selected fallback and identity");
+                    assert_eq!(
+                        state.sessions[&(0, 0)].owner.worktree,
+                        0,
+                        "selected fallback and identity"
+                    );
+                    assert_eq!(
+                        state.terminals[&(0, 0)].owner.worktree,
+                        0,
+                        "selected fallback and identity"
+                    );
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Err("worktree_remove_missing"),
+                        "selected fallback and identity"
+                    );
+                    let replacement = empty(&mut state, 0);
+                    assert!(
+                        replacement.worktree > owner.worktree,
+                        "selected fallback and identity"
+                    );
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Err("worktree_remove_missing"),
+                        "selected fallback and identity"
+                    );
+                    assert!(
+                        state.contains(replacement),
+                        "selected fallback and identity"
+                    );
+                }),
             ),
             (
-                "worktree_remove_dirty",
-                false,
-                false,
-                false,
-                true,
-                "feature/remove",
+                "changed_snapshot_is_atomic",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    let owner = empty(&mut state, 0);
+                    let expected = state.removal(owner).unwrap();
+                    state.worktrees.get_mut(&owner.worktree).unwrap().path =
+                        "/preview/changed".into();
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Err("worktree_remove_changed"),
+                        "changed snapshot is atomic"
+                    );
+                    let expected = state.removal(owner).unwrap();
+                    state.projects.get_mut(&0).unwrap().path = "/preview/new-project".into();
+                    assert_eq!(
+                        state.remove_worktree(&expected),
+                        Err("worktree_remove_changed"),
+                        "changed snapshot is atomic"
+                    );
+                    assert!(state.contains(owner), "changed snapshot is atomic");
+                    assert_eq!(state.owner(0).worktree, 0, "changed snapshot is atomic");
+                }),
             ),
-            ("worktree_remove_detached", false, false, false, false, ""),
         ] {
-            let tree = state.worktrees.get_mut(&owner.worktree).unwrap();
-            tree.main = main;
-            tree.locked = locked;
-            tree.busy = busy;
-            tree.dirty = dirty;
-            tree.branch = branch.into();
-            let expected = state.removal(owner).unwrap();
-            assert_eq!(state.remove_worktree(&expected), Err(reason));
-            assert!(state.contains(owner));
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        state.projects.get_mut(&0).unwrap().trusted = false;
-        let expected = state.removal(owner).unwrap();
-        assert_eq!(
-            state.remove_worktree(&expected),
-            Err("worktree_remove_untrusted")
-        );
-        assert!(state.removal(Owner { host: 1, ..owner }).is_none());
-    }
-
-    #[test]
-    fn retains_archived_owners() {
-        let mut state = State::default();
-        let owner = empty(&mut state, 0);
-        let expected = state.removal(owner).unwrap();
-        let key = state.create_session(owner);
-        assert_eq!(
-            state.remove_worktree(&expected),
-            Err("worktree_remove_sessions")
-        );
-        state.sessions.get_mut(&key).unwrap().archived = true;
-        assert_eq!(
-            state.remove_worktree(&expected),
-            Err("worktree_remove_sessions")
-        );
-        state.sessions.remove(&key);
-        let terminal = state.create_terminal(owner);
-        assert_eq!(
-            state.remove_worktree(&expected),
-            Err("worktree_remove_terminals")
-        );
-        state.terminals.remove(&terminal);
-        assert_eq!(state.remove_worktree(&expected), Ok(()));
-    }
-
-    #[test]
-    fn selected_fallback_and_identity() {
-        let mut state = State::default();
-        let owner = empty(&mut state, 0);
-        state.select(owner);
-        let remote = state.owner(1);
-        let expected = state.removal(owner).unwrap();
-        assert_eq!(state.remove_worktree(&expected), Ok(()));
-        assert_eq!(state.owner(0).worktree, 0);
-        assert_eq!(state.owner(1), remote);
-        assert_eq!(state.sessions[&(0, 0)].owner.worktree, 0);
-        assert_eq!(state.terminals[&(0, 0)].owner.worktree, 0);
-        assert_eq!(
-            state.remove_worktree(&expected),
-            Err("worktree_remove_missing")
-        );
-        let replacement = empty(&mut state, 0);
-        assert!(replacement.worktree > owner.worktree);
-        assert_eq!(
-            state.remove_worktree(&expected),
-            Err("worktree_remove_missing")
-        );
-        assert!(state.contains(replacement));
-    }
-
-    #[test]
-    fn changed_snapshot_is_atomic() {
-        let mut state = State::default();
-        let owner = empty(&mut state, 0);
-        let expected = state.removal(owner).unwrap();
-        state.worktrees.get_mut(&owner.worktree).unwrap().path = "/preview/changed".into();
-        assert_eq!(
-            state.remove_worktree(&expected),
-            Err("worktree_remove_changed")
-        );
-        let expected = state.removal(owner).unwrap();
-        state.projects.get_mut(&0).unwrap().path = "/preview/new-project".into();
-        assert_eq!(
-            state.remove_worktree(&expected),
-            Err("worktree_remove_changed")
-        );
-        assert!(state.contains(owner));
-        assert_eq!(state.owner(0).worktree, 0);
     }
 }

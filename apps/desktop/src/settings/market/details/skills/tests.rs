@@ -16,22 +16,109 @@ fn entry(name: &str, path: &str) -> protocol::Candidate {
     }
 }
 #[test]
-fn selects_actual_documents() {
-    let entries = [
-        entry("design", "skills/design"),
-        entry("review", "other/review"),
-    ];
-    assert_eq!(candidate(&entries, "review").unwrap().path, "other/review");
-    assert!(candidate(&entries, "unknown").is_none());
-    let ambiguous = [
-        entry("review", "first/review"),
-        entry("review", "second/review"),
-    ];
-    assert!(candidate(&ambiguous, "review").is_none());
-    assert_eq!(
-        candidate(&entries[..1], "directory-id").unwrap().path,
-        "skills/design"
-    );
+fn scoped_documents() {
+    for (scenario, check) in [
+        (
+            "selects_actual_documents",
+            (|_scenario: &str| {
+                let entries = [
+                    entry("design", "skills/design"),
+                    entry("review", "other/review"),
+                ];
+                assert_eq!(
+                    candidate(&entries, "review").unwrap().path,
+                    "other/review",
+                    "selects actual documents"
+                );
+                assert!(
+                    candidate(&entries, "unknown").is_none(),
+                    "selects actual documents"
+                );
+                let ambiguous = [
+                    entry("review", "first/review"),
+                    entry("review", "second/review"),
+                ];
+                assert!(
+                    candidate(&ambiguous, "review").is_none(),
+                    "selects actual documents"
+                );
+                assert_eq!(
+                    candidate(&entries[..1], "directory-id").unwrap().path,
+                    "skills/design",
+                    "selects actual documents"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "discards_replaced_reads_and_preserves_failures",
+            (|_scenario: &str| {
+                let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
+                let transport = std::sync::Arc::new(Documents {
+                    node: sailry_protocol::NodeId([1; 32]),
+                    arrived: tokio::sync::Semaphore::new(0),
+                    release: tokio::sync::Semaphore::new(0),
+                });
+                let binding = Binding {
+                    client: std::sync::Arc::new(sailry_client::Client::new(transport.clone())),
+                    runtime: runtime.clone(),
+                    label: "Fixture".into(),
+                };
+                runtime.block_on(async {
+                    let old = CancellationToken::new();
+                    let task = tokio::spawn({
+                        let binding = binding.clone();
+                        let stop = old.child_token();
+                        async move { read(&binding, &listing("old"), &stop).await }
+                    });
+                    transport.arrived.acquire().await.unwrap().forget();
+                    old.cancel();
+                    let current = CancellationToken::new();
+                    let (_, document) = read(&binding, &listing("latest"), &current)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(
+                        document.unwrap().content,
+                        "latest",
+                        "discards replaced reads and preserves failures"
+                    );
+                    transport.release.add_permits(1);
+                    assert!(
+                        task.await.unwrap().is_none(),
+                        "discards replaced reads and preserves failures"
+                    );
+                    let wrong = read(&binding, &listing("wrong"), &current)
+                        .await
+                        .unwrap()
+                        .err()
+                        .unwrap();
+                    assert_eq!(
+                        wrong.code,
+                        sailry_protocol::ErrorCode::Internal,
+                        "discards replaced reads and preserves failures"
+                    );
+                    let invalid = read(&binding, &listing("invalid"), &current)
+                        .await
+                        .unwrap()
+                        .err()
+                        .unwrap();
+                    assert_eq!(
+                        invalid.code,
+                        sailry_protocol::ErrorCode::InvalidRequest,
+                        "discards replaced reads and preserves failures"
+                    );
+                    current.cancel();
+                    assert!(
+                        read(&binding, &listing("latest"), &current).await.is_none(),
+                        "discards replaced reads and preserves failures"
+                    );
+                });
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }
 
 struct Documents {
@@ -106,51 +193,4 @@ fn listing(name: &str) -> skillcatalog::Entry {
         source: None,
         bundled: true,
     }
-}
-
-#[test]
-fn discards_replaced_reads_and_preserves_failures() {
-    let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
-    let transport = std::sync::Arc::new(Documents {
-        node: sailry_protocol::NodeId([1; 32]),
-        arrived: tokio::sync::Semaphore::new(0),
-        release: tokio::sync::Semaphore::new(0),
-    });
-    let binding = Binding {
-        client: std::sync::Arc::new(sailry_client::Client::new(transport.clone())),
-        runtime: runtime.clone(),
-        label: "Fixture".into(),
-    };
-    runtime.block_on(async {
-        let old = CancellationToken::new();
-        let task = tokio::spawn({
-            let binding = binding.clone();
-            let stop = old.child_token();
-            async move { read(&binding, &listing("old"), &stop).await }
-        });
-        transport.arrived.acquire().await.unwrap().forget();
-        old.cancel();
-        let current = CancellationToken::new();
-        let (_, document) = read(&binding, &listing("latest"), &current)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(document.unwrap().content, "latest");
-        transport.release.add_permits(1);
-        assert!(task.await.unwrap().is_none());
-        let wrong = read(&binding, &listing("wrong"), &current)
-            .await
-            .unwrap()
-            .err()
-            .unwrap();
-        assert_eq!(wrong.code, sailry_protocol::ErrorCode::Internal);
-        let invalid = read(&binding, &listing("invalid"), &current)
-            .await
-            .unwrap()
-            .err()
-            .unwrap();
-        assert_eq!(invalid.code, sailry_protocol::ErrorCode::InvalidRequest);
-        current.cancel();
-        assert!(read(&binding, &listing("latest"), &current).await.is_none());
-    });
 }

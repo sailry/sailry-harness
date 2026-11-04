@@ -31,54 +31,80 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn retains_registered_and_unresolved_sources() {
-        let node = NodeId([1; 32]);
-        let other = NodeId([2; 32]);
-        let known = BTreeSet::from([node]);
-        let entries = BTreeMap::new();
-        assert!(needed(node, None, &entries));
-        assert!(needed(node, Some(&known), &entries));
-        assert!(!needed(other, Some(&known), &entries));
-    }
-
-    #[test]
-    fn retains_rows_until_completion_or_dismissal() {
-        let node = NodeId([1; 32]);
-        let known = BTreeSet::new();
-        let id = RequestId::new();
-        for status in [
-            Presentation::Waiting,
-            Presentation::Starting,
-            Presentation::Observed(Status::Queued),
-            Presentation::Observed(Status::Running {
-                phase: sailry_protocol::installation::Phase::Inspecting,
-                progress: None,
-            }),
-            Presentation::Observed(Status::Failed {
-                error: Fault::invalid("fixture"),
-            }),
-            Presentation::Observed(Status::Uncertain {
-                error: Fault::new(ErrorCode::OutcomeUnknown, "fixture"),
-            }),
+    fn capture_and_completion() {
+        for (scenario, check) in [
+            (
+                "retains_registered_and_unresolved_sources",
+                (|_scenario: &str| {
+                    let node = NodeId([1; 32]);
+                    let other = NodeId([2; 32]);
+                    let known = BTreeSet::from([node]);
+                    let entries = BTreeMap::new();
+                    assert!(
+                        needed(node, None, &entries),
+                        "retains registered and unresolved sources"
+                    );
+                    assert!(
+                        needed(node, Some(&known), &entries),
+                        "retains registered and unresolved sources"
+                    );
+                    assert!(
+                        !needed(other, Some(&known), &entries),
+                        "retains registered and unresolved sources"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "retains_rows_until_completion_or_dismissal",
+                (|_scenario: &str| {
+                    let node = NodeId([1; 32]);
+                    let known = BTreeSet::new();
+                    let id = RequestId::new();
+                    for status in [
+                        Presentation::Waiting,
+                        Presentation::Starting,
+                        Presentation::Observed(Status::Queued),
+                        Presentation::Observed(Status::Running {
+                            phase: sailry_protocol::installation::Phase::Inspecting,
+                            progress: None,
+                        }),
+                        Presentation::Observed(Status::Failed {
+                            error: Fault::invalid("fixture"),
+                        }),
+                        Presentation::Observed(Status::Uncertain {
+                            error: Fault::new(ErrorCode::OutcomeUnknown, "fixture"),
+                        }),
+                    ] {
+                        let finished = status.terminal();
+                        let mut entries = BTreeMap::from([(
+                            (Location::Node(node), id),
+                            Entry {
+                                order: 1,
+                                resource: Resource::Plugin {
+                                    name: "fixture".into(),
+                                },
+                                status,
+                                retry: None,
+                                finished,
+                                connected: false,
+                                dismissing: false,
+                            },
+                        )]);
+                        assert!(
+                            needed(node, Some(&known), &entries),
+                            "retains rows until completion or dismissal"
+                        );
+                        entries.remove(&(Location::Node(node), id));
+                        assert!(
+                            !needed(node, Some(&known), &entries),
+                            "retains rows until completion or dismissal"
+                        );
+                    }
+                }),
+            ),
         ] {
-            let finished = status.terminal();
-            let mut entries = BTreeMap::from([(
-                (Location::Node(node), id),
-                Entry {
-                    order: 1,
-                    resource: Resource::Plugin {
-                        name: "fixture".into(),
-                    },
-                    status,
-                    retry: None,
-                    finished,
-                    connected: false,
-                    dismissing: false,
-                },
-            )]);
-            assert!(needed(node, Some(&known), &entries));
-            entries.remove(&(Location::Node(node), id));
-            assert!(!needed(node, Some(&known), &entries));
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

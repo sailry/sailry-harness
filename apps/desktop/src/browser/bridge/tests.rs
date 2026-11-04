@@ -1,4 +1,5 @@
 use super::*;
+use core::prelude::v1::test;
 
 fn entry(browser: &Entity<Browser>) -> Entry {
     Entry {
@@ -9,7 +10,7 @@ fn entry(browser: &Entity<Browser>) -> Entry {
 
 #[gpui::test]
 fn release_preserves_other_owners(cx: &mut TestAppContext) {
-    cx.update(|cx| {
+    let released = cx.update(|cx| {
         let browser = cx.new(|_| super::super::tests::fixture());
         browser.update(cx, |browser, _| browser.serial = 7);
         let other = cx.new(|_| super::super::tests::fixture());
@@ -30,8 +31,9 @@ fn release_preserves_other_owners(cx: &mut TestAppContext) {
         assert!(state.views.get(&remaining).unwrap().view.as_ref() == Some(&other));
         let released = browser.downgrade();
         drop(browser);
-        assert!(released.upgrade().is_none());
+        released
     });
+    assert!(released.upgrade().is_none());
 }
 
 #[gpui::test]

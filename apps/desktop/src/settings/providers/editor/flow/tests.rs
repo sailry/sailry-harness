@@ -2,33 +2,39 @@ use super::*;
 use core::prelude::v1::test;
 
 #[test]
-fn skips_single_method() {
-    let mut flow = Flow::new(false, Origin::Providers);
-    flow.select("single", 1);
-    assert!(flow.step == Step::Configure);
-    assert_eq!(flow.back(1), Some(Origin::Providers));
-    assert!(flow.step == Step::Brand);
-}
-
-#[test]
-fn returns_through_method_selection() {
-    let mut flow = Flow::new(false, Origin::Providers);
-    flow.select("multiple", 3);
-    assert!(flow.step == Step::Method);
-    flow.step = Step::Configure;
-    assert_eq!(flow.back(3), None);
-    assert!(flow.step == Step::Method);
-    assert_eq!(flow.back(3), Some(Origin::Providers));
-    assert!(flow.step == Step::Brand);
-}
-
-#[test]
-fn editing_cannot_change_type() {
+fn navigation_and_editing() {
+    for origin in [Origin::Providers, Origin::Welcome] {
+        let mut flow = Flow::new(false, origin);
+        flow.select("single", 1);
+        assert!(flow.step == Step::Configure, "single method: configure");
+        assert_eq!(flow.back(1), Some(origin), "single method: origin");
+        assert!(flow.step == Step::Brand, "single method: brand");
+        for methods in [2, 3] {
+            flow.select("multiple", methods);
+            assert!(flow.step == Step::Method, "{methods} methods: select");
+            flow.step = Step::Configure;
+            assert_eq!(flow.back(methods), None, "{methods} methods: back");
+            assert!(flow.step == Step::Method, "{methods} methods: method step");
+            assert_eq!(
+                flow.back(methods),
+                Some(origin),
+                "{methods} methods: origin"
+            );
+            assert!(flow.step == Step::Brand, "{methods} methods: brand");
+        }
+        flow.select("single", 1);
+        assert_eq!(flow.back(1), Some(origin), "restored single method");
+    }
     let mut flow = Flow::new(true, Origin::Providers);
     flow.select("other", 3);
-    assert_eq!(flow.back(3), None);
-    assert!(flow.step == Step::Configure);
-    assert!(flow.brand.is_none());
+    assert_eq!(flow.back(3), None, "editing: no type navigation");
+    assert!(flow.step == Step::Configure, "editing: configure");
+    assert!(flow.brand.is_none(), "editing: no replacement brand");
+    assert_eq!(
+        Flow::new(true, Origin::Welcome).back(2),
+        None,
+        "editing welcome"
+    );
 }
 
 #[test]
@@ -73,19 +79,4 @@ mod access {
             SharedString::from("ChatGPT OAuth")
         );
     }
-}
-
-#[test]
-fn returns_to_original_entry() {
-    for origin in [Origin::Providers, Origin::Welcome] {
-        let mut flow = Flow::new(false, origin);
-        flow.select("multiple", 2);
-        flow.step = Step::Configure;
-        assert_eq!(flow.back(2), None);
-        assert!(flow.step == Step::Method);
-        assert_eq!(flow.back(2), Some(origin));
-        flow.select("single", 1);
-        assert_eq!(flow.back(1), Some(origin));
-    }
-    assert_eq!(Flow::new(true, Origin::Welcome).back(2), None);
 }

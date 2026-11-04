@@ -140,91 +140,122 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn hides_complete_native_reference_artifacts() {
-        let marker = "\u{e200}cite\u{e202}turn0search2\u{e202}turn1fetch3\u{e201}";
-        let source = format!("Result{marker} [source](https://example.com) tail");
-        assert_eq!(
-            presentation(&source),
-            "Result [source](https://example.com) tail"
-        );
-        assert!(source.contains(marker), "canonical input is unchanged");
-        for end in 0..marker.len() {
-            if marker.is_char_boundary(end) {
-                assert_eq!(presentation(&marker[..end]), &marker[..end]);
-            }
-        }
-        let sources = [Citation {
-            uri: "https://example.com".into(),
-            title: None,
-            start: None,
-            end: None,
-        }];
-        let resolved = text(&source, 0, true, &sources);
-        assert!(presentation(&resolved).contains("[1](<https://example.com>)"));
-    }
-
-    #[test]
-    fn preserves_literal_and_unknown_artifacts() {
-        let marker = "\u{e200}cite\u{e202}turn0search2\u{e201}";
-        for source in [
-            format!("`{marker}`"),
-            format!("```text\n{marker}\n```"),
-            format!("[{marker}](https://example.com)"),
-            format!("[source](https://example.com/{marker})"),
-            format!("<div>\n{marker}\n</div>"),
-            format!("<span data-citation=\"{marker}\"></span>"),
-            format!("${marker}$"),
-            "\u{e200}cite\u{e202}unknown\u{e201}".into(),
-            "\u{e200}cite\u{e202}turn0search\u{e201}".into(),
-            "\u{e200}cite\u{e202}turn0search2junk\u{e201}".into(),
-            "\u{e200}other\u{e202}turn0search2\u{e201}".into(),
-            "Private literal \u{e000} stays".into(),
+    fn native_artifacts_and_parts() {
+        for (scenario, check) in [
+            (
+                "hides_complete_native_reference_artifacts",
+                (|_scenario: &str| {
+                    let marker = "\u{e200}cite\u{e202}turn0search2\u{e202}turn1fetch3\u{e201}";
+                    let source = format!("Result{marker} [source](https://example.com) tail");
+                    assert_eq!(
+                        presentation(&source),
+                        "Result [source](https://example.com) tail",
+                        "hides complete native reference artifacts"
+                    );
+                    assert!(
+                        source.contains(marker),
+                        "hides complete native reference artifacts: canonical input is unchanged"
+                    );
+                    for end in 0..marker.len() {
+                        if marker.is_char_boundary(end) {
+                            assert_eq!(
+                                presentation(&marker[..end]),
+                                &marker[..end],
+                                "hides complete native reference artifacts"
+                            );
+                        }
+                    }
+                    let sources = [Citation {
+                        uri: "https://example.com".into(),
+                        title: None,
+                        start: None,
+                        end: None,
+                    }];
+                    let resolved = text(&source, 0, true, &sources);
+                    assert!(
+                        presentation(&resolved).contains("[1](<https://example.com>)"),
+                        "hides complete native reference artifacts"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "preserves_literal_and_unknown_artifacts",
+                (|_scenario: &str| {
+                    let marker = "\u{e200}cite\u{e202}turn0search2\u{e201}";
+                    for source in [
+                        format!("`{marker}`"),
+                        format!("```text\n{marker}\n```"),
+                        format!("[{marker}](https://example.com)"),
+                        format!("[source](https://example.com/{marker})"),
+                        format!("<div>\n{marker}\n</div>"),
+                        format!("<span data-citation=\"{marker}\"></span>"),
+                        format!("${marker}$"),
+                        "\u{e200}cite\u{e202}unknown\u{e201}".into(),
+                        "\u{e200}cite\u{e202}turn0search\u{e201}".into(),
+                        "\u{e200}cite\u{e202}turn0search2junk\u{e201}".into(),
+                        "\u{e200}other\u{e202}turn0search2\u{e201}".into(),
+                        "Private literal \u{e000} stays".into(),
+                    ] {
+                        assert_eq!(
+                            presentation(&source),
+                            source,
+                            "preserves literal and unknown artifacts"
+                        );
+                    }
+                }),
+            ),
+            (
+                "places_sources_across_parts",
+                (|_scenario: &str| {
+                    let source = Citation {
+                        uri: "https://example.com/a_(b)".into(),
+                        title: Some("Source".into()),
+                        start: Some(0),
+                        end: Some(3),
+                    };
+                    let sources = vec![
+                        source.clone(),
+                        Citation {
+                            start: None,
+                            end: None,
+                            ..source
+                        },
+                    ];
+                    assert_eq!(
+                        text("结果🙂", 0, false, &sources),
+                        "结果🙂 [1](<https://example.com/a_(b)>)",
+                        "places sources across parts"
+                    );
+                    assert_eq!(
+                        text("More", 3, true, &sources),
+                        "More [2](<https://example.com/a_(b)>)",
+                        "places sources across parts"
+                    );
+                }),
+            ),
+            (
+                "preserves_unrelated_parts",
+                (|_scenario: &str| {
+                    let sources = [Citation {
+                        uri: "https://example.com".into(),
+                        title: None,
+                        start: Some(3),
+                        end: Some(5),
+                    }];
+                    assert!(
+                        matches!(text("🙂", 0, false, &sources), Cow::Borrowed("🙂")),
+                        "preserves unrelated parts"
+                    );
+                    assert_eq!(
+                        text("ab", 3, true, &sources),
+                        "ab [1](<https://example.com>)",
+                        "preserves unrelated parts"
+                    );
+                }),
+            ),
         ] {
-            assert_eq!(presentation(&source), source);
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn places_sources_across_parts() {
-        let source = Citation {
-            uri: "https://example.com/a_(b)".into(),
-            title: Some("Source".into()),
-            start: Some(0),
-            end: Some(3),
-        };
-        let sources = vec![
-            source.clone(),
-            Citation {
-                start: None,
-                end: None,
-                ..source
-            },
-        ];
-        assert_eq!(
-            text("结果🙂", 0, false, &sources),
-            "结果🙂 [1](<https://example.com/a_(b)>)"
-        );
-        assert_eq!(
-            text("More", 3, true, &sources),
-            "More [2](<https://example.com/a_(b)>)"
-        );
-    }
-
-    #[test]
-    fn preserves_unrelated_parts() {
-        let sources = [Citation {
-            uri: "https://example.com".into(),
-            title: None,
-            start: Some(3),
-            end: Some(5),
-        }];
-        assert!(matches!(
-            text("🙂", 0, false, &sources),
-            Cow::Borrowed("🙂")
-        ));
-        assert_eq!(
-            text("ab", 3, true, &sources),
-            "ab [1](<https://example.com>)"
-        );
     }
 }

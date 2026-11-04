@@ -258,35 +258,202 @@ mod tests {
     use super::*;
 
     #[test]
-    fn directory_links_preserve_repository_identity() {
-        for host in ["skills.sh", "www.skills.sh"] {
-            let selected =
-                Selection::skills(&format!("https://{host}/vercel-labs/skills/find-skills"))
-                    .unwrap();
-            let Selection::Git { source } = selected else {
-                panic!("Git source expected")
-            };
-            assert_eq!(
-                source.repository,
-                format!("https://{host}/vercel-labs/skills/find-skills")
-            );
-            assert_eq!(source.path, None);
-        }
-    }
-
-    #[test]
-    fn rejects_other_origins_and_escaped_paths() {
-        for input in [
-            "http://skills.sh/a/b/c",
-            "https://skills.sh.evil/a/b/c",
-            "https://user@skills.sh/a/b/c",
-            "https://skills.sh/a/b/c?source=x",
-            "https://skills.sh/a/b/%2e%2e/c",
-            "https://skills.sh/a/b/../b/c",
-            "https://skills.sh/a/b",
-            "https://skills.sh/a/b/c/extra",
+    fn immutable_source_identity() {
+        for (scenario, check) in [
+            (
+                "directory_links_preserve_repository_identity",
+                (|_scenario: &str| {
+                    for host in ["skills.sh", "www.skills.sh"] {
+                        let selected = Selection::skills(&format!(
+                            "https://{host}/vercel-labs/skills/find-skills"
+                        ))
+                        .unwrap();
+                        let Selection::Git { source } = selected else {
+                            panic!("Git source expected")
+                        };
+                        assert_eq!(
+                            source.repository,
+                            format!("https://{host}/vercel-labs/skills/find-skills"),
+                            "directory links preserve repository identity"
+                        );
+                        assert_eq!(
+                            source.path, None,
+                            "directory links preserve repository identity"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "rejects_other_origins_and_escaped_paths",
+                (|_scenario: &str| {
+                    for input in [
+                        "http://skills.sh/a/b/c",
+                        "https://skills.sh.evil/a/b/c",
+                        "https://user@skills.sh/a/b/c",
+                        "https://skills.sh/a/b/c?source=x",
+                        "https://skills.sh/a/b/%2e%2e/c",
+                        "https://skills.sh/a/b/../b/c",
+                        "https://skills.sh/a/b",
+                        "https://skills.sh/a/b/c/extra",
+                    ] {
+                        assert!(
+                            Selection::skills(input).is_none(),
+                            "rejects other origins and escaped paths: {input}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "preserves_node_discovery_and_frozen_paths",
+                (|_scenario: &str| {
+                    let selection =
+                        Selection::skills("https://skills.sh/example/skills/find-skills").unwrap();
+                    let discovered = discovery(&[("Find Skills", "nested/actual-directory")]);
+                    let frozen = discovered.clone();
+                    let selected = selection
+                        .select(Output::SkillDiscovery(discovered))
+                        .unwrap();
+                    let Discovery::Git(selected) = selected else {
+                        panic!("Git discovery expected")
+                    };
+                    assert_eq!(
+                        selected, frozen,
+                        "preserves node discovery and frozen paths"
+                    );
+                    assert_eq!(
+                        selected.skills[0].path, "nested/actual-directory",
+                        "preserves node discovery and frozen paths"
+                    );
+                    assert_eq!(
+                        selected.skills[0].skill.license.as_deref(),
+                        Some("MIT"),
+                        "preserves node discovery and frozen paths"
+                    );
+                }),
+            ),
+            (
+                "registry_links_keep_namespace_and_version",
+                (|_scenario: &str| {
+                    let Selection::Registry(source) = Selection::hub(
+                        "https://skillhub.cn/skills/clawhub_steipete/github?version=1.0.0",
+                    )
+                    .unwrap() else {
+                        panic!("registry source expected")
+                    };
+                    assert_eq!(
+                        source.namespace.as_deref(),
+                        Some("clawhub_steipete"),
+                        "registry links keep namespace and version"
+                    );
+                    assert_eq!(
+                        source.slug, "github",
+                        "registry links keep namespace and version"
+                    );
+                    assert_eq!(
+                        source.version.as_deref(),
+                        Some("1.0.0"),
+                        "registry links keep namespace and version"
+                    );
+                    let Selection::Registry(source) =
+                        Selection::hub("https://www.skillhub.cn/skills/github").unwrap()
+                    else {
+                        panic!("registry source expected")
+                    };
+                    assert_eq!(
+                        source.namespace, None,
+                        "registry links keep namespace and version"
+                    );
+                    assert_eq!(
+                        source.version, None,
+                        "registry links keep namespace and version"
+                    );
+                    for input in [
+                        "https://skillhub.cn.evil/skills/github",
+                        "http://skillhub.cn/skills/github",
+                        "https://user@skillhub.cn/skills/github",
+                        "https://skillhub.cn/skills/%2e%2e/github",
+                        "https://skillhub.cn/skills/a/../github",
+                        "https://skillhub.cn/skills/github?token=secret",
+                        "https://skillhub.cn/skills/github?version=1&version=2",
+                        "https://skillhub.cn/skills/a/b/c",
+                    ] {
+                        assert!(
+                            Selection::hub(input).is_none(),
+                            "registry links keep namespace and version: {input}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "registry_install_preserves_the_resolved_identity",
+                (|_scenario: &str| {
+                    let selection =
+                        Selection::hub("https://skillhub.cn/skills/verified/example?version=1.2.3")
+                            .unwrap();
+                    let resolved = sailry_protocol::plugin::skills::RegistryResolved {
+                        namespace: "verified".into(),
+                        slug: "example".into(),
+                        version: "1.2.3".into(),
+                        version_id: "immutable-version".into(),
+                        content_hash: "a".repeat(64),
+                        package_md5: "b".repeat(32),
+                        archive_sha256: "c".repeat(64),
+                    };
+                    let candidate = discovery(&[("Example", "")]).skills.remove(0);
+                    let registry = RegistryDiscovery {
+                        source: resolved.clone(),
+                        skills: vec![candidate.clone()],
+                    };
+                    let selected = selection
+                        .select(Output::RegistrySkillDiscovery(registry.clone()))
+                        .unwrap();
+                    let Command::InstallRegistrySkill {
+                        source,
+                        name,
+                        expected_revision,
+                    } = selected.install(0, 7).unwrap()
+                    else {
+                        panic!("registry installation expected")
+                    };
+                    assert_eq!(
+                        source, resolved,
+                        "registry install preserves the resolved identity"
+                    );
+                    assert_eq!(
+                        name, candidate.name,
+                        "registry install preserves the resolved identity"
+                    );
+                    assert_eq!(
+                        expected_revision, 7,
+                        "registry install preserves the resolved identity"
+                    );
+                    let mut wrong = registry.clone();
+                    wrong.source.namespace = "other-publisher".into();
+                    assert!(
+                        selection
+                            .select(Output::RegistrySkillDiscovery(wrong))
+                            .is_err(),
+                        "registry install preserves the resolved identity"
+                    );
+                    let mut wrong = registry;
+                    wrong.source.version = "1.2.4".into();
+                    assert!(
+                        selection
+                            .select(Output::RegistrySkillDiscovery(wrong))
+                            .is_err(),
+                        "registry install preserves the resolved identity"
+                    );
+                    assert!(
+                        selection
+                            .select(Output::SkillDiscovery(discovery(&[("Example", "")])))
+                            .is_err(),
+                        "registry install preserves the resolved identity"
+                    );
+                }),
+            ),
         ] {
-            assert!(Selection::skills(input).is_none(), "{input}");
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 
@@ -314,106 +481,5 @@ mod tests {
                 })
                 .collect(),
         }
-    }
-
-    #[test]
-    fn preserves_node_discovery_and_frozen_paths() {
-        let selection = Selection::skills("https://skills.sh/example/skills/find-skills").unwrap();
-        let discovered = discovery(&[("Find Skills", "nested/actual-directory")]);
-        let frozen = discovered.clone();
-        let selected = selection
-            .select(Output::SkillDiscovery(discovered))
-            .unwrap();
-        let Discovery::Git(selected) = selected else {
-            panic!("Git discovery expected")
-        };
-        assert_eq!(selected, frozen);
-        assert_eq!(selected.skills[0].path, "nested/actual-directory");
-        assert_eq!(selected.skills[0].skill.license.as_deref(), Some("MIT"));
-    }
-
-    #[test]
-    fn registry_links_keep_namespace_and_version() {
-        let Selection::Registry(source) =
-            Selection::hub("https://skillhub.cn/skills/clawhub_steipete/github?version=1.0.0")
-                .unwrap()
-        else {
-            panic!("registry source expected")
-        };
-        assert_eq!(source.namespace.as_deref(), Some("clawhub_steipete"));
-        assert_eq!(source.slug, "github");
-        assert_eq!(source.version.as_deref(), Some("1.0.0"));
-        let Selection::Registry(source) =
-            Selection::hub("https://www.skillhub.cn/skills/github").unwrap()
-        else {
-            panic!("registry source expected")
-        };
-        assert_eq!(source.namespace, None);
-        assert_eq!(source.version, None);
-        for input in [
-            "https://skillhub.cn.evil/skills/github",
-            "http://skillhub.cn/skills/github",
-            "https://user@skillhub.cn/skills/github",
-            "https://skillhub.cn/skills/%2e%2e/github",
-            "https://skillhub.cn/skills/a/../github",
-            "https://skillhub.cn/skills/github?token=secret",
-            "https://skillhub.cn/skills/github?version=1&version=2",
-            "https://skillhub.cn/skills/a/b/c",
-        ] {
-            assert!(Selection::hub(input).is_none(), "{input}");
-        }
-    }
-
-    #[test]
-    fn registry_install_preserves_the_resolved_identity() {
-        let selection =
-            Selection::hub("https://skillhub.cn/skills/verified/example?version=1.2.3").unwrap();
-        let resolved = sailry_protocol::plugin::skills::RegistryResolved {
-            namespace: "verified".into(),
-            slug: "example".into(),
-            version: "1.2.3".into(),
-            version_id: "immutable-version".into(),
-            content_hash: "a".repeat(64),
-            package_md5: "b".repeat(32),
-            archive_sha256: "c".repeat(64),
-        };
-        let candidate = discovery(&[("Example", "")]).skills.remove(0);
-        let registry = RegistryDiscovery {
-            source: resolved.clone(),
-            skills: vec![candidate.clone()],
-        };
-        let selected = selection
-            .select(Output::RegistrySkillDiscovery(registry.clone()))
-            .unwrap();
-        let Command::InstallRegistrySkill {
-            source,
-            name,
-            expected_revision,
-        } = selected.install(0, 7).unwrap()
-        else {
-            panic!("registry installation expected")
-        };
-        assert_eq!(source, resolved);
-        assert_eq!(name, candidate.name);
-        assert_eq!(expected_revision, 7);
-        let mut wrong = registry.clone();
-        wrong.source.namespace = "other-publisher".into();
-        assert!(
-            selection
-                .select(Output::RegistrySkillDiscovery(wrong))
-                .is_err()
-        );
-        let mut wrong = registry;
-        wrong.source.version = "1.2.4".into();
-        assert!(
-            selection
-                .select(Output::RegistrySkillDiscovery(wrong))
-                .is_err()
-        );
-        assert!(
-            selection
-                .select(Output::SkillDiscovery(discovery(&[("Example", "")])))
-                .is_err()
-        );
     }
 }

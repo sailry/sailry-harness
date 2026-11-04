@@ -20,145 +20,207 @@ fn declared(package: &str, id: &str, brand: &str) -> PresetEntry {
 }
 
 #[test]
-fn shares_add_groups_and_order() {
-    let mut entries = presets::bundled();
-    entries.extend([
-        declared("first", "china", "provider"),
-        declared("first", "global", "provider"),
-        declared("second", "global", "provider"),
-    ]);
-    let groups = presets::groups(&entries);
-    let choices = choices(&entries, &[], &Selection::All, &[]);
-    assert_eq!(choices[0].selection, Selection::All);
-    assert_eq!(choices.len(), groups.len() + 1);
-    for (choice, (key, group)) in choices[1..].iter().zip(&groups) {
-        assert_eq!(choice.selection, Selection::Group(key.clone()));
-        assert_eq!(choice.label, presets::brand_label(&group[0]));
-        assert_eq!(choice.entry.as_ref(), Some(&group[0]));
-    }
-    let (_, openai) = groups.iter().find(|(key, _)| key == "openai").unwrap();
-    assert!(
-        openai
-            .iter()
-            .any(|entry| entry.preset.id == "chat-gpt-oauth")
-    );
-    let (_, opencode) = groups.iter().find(|(key, _)| key == "opencode").unwrap();
-    assert!(
-        opencode
-            .iter()
-            .any(|entry| entry.preset.id == "opencode-go")
-    );
-    assert!(
-        opencode
-            .iter()
-            .any(|entry| entry.preset.id == "opencode-zen")
-    );
-    assert_eq!(
-        groups
-            .iter()
-            .filter(|(key, _)| key == "package:first:provider")
-            .count(),
-        1
-    );
-    assert_ne!(
-        presets::brand(&entries[entries.len() - 2]),
-        presets::brand(entries.last().unwrap())
-    );
-    assert_eq!(Store::default().category, Selection::All);
-}
-
-#[test]
-fn matches_all_methods_in_declared_family() {
-    let first = declared("sample", "china", "provider");
-    let second = declared("sample", "global", "provider");
-    let third = declared("other", "global", "provider");
-    let mut channels = vec![Store::default().channels.remove(0); 3];
-    for (channel, entry) in channels.iter_mut().zip([first, second, third]) {
-        channel.directory = Some(entry);
-    }
-    let selected = selection(&channels[0], None);
-    assert_eq!(
-        channels
-            .iter()
-            .filter(|channel| selection(channel, None) == selected)
-            .count(),
-        2
-    );
-    assert_ne!(selected, selection(&channels[2], None));
-    let mut legacy = channels[0].clone();
-    legacy.directory = None;
-    for preset in [
-        Preset::OpenAi,
-        Preset::CompatibleResponses,
-        Preset::ChatGptOAuth,
-        Preset::ChatGpt,
-    ] {
-        legacy.preset = preset;
-        assert_eq!(selection(&legacy, None), Selection::Group("openai".into()));
-    }
-    legacy.preset = Preset::OpenCodeZen;
-    assert_eq!(
-        selection(&legacy, None),
-        Selection::Group("opencode".into())
-    );
-}
-
-#[test]
-fn preserves_selection_after_refresh() {
-    let first = declared("sample", "china", "provider");
-    let second = declared("sample", "global", "provider");
-    let selected = Selection::Group(presets::brand(&first));
-    for entries in [[first.clone(), second.clone()], [second, first]] {
-        let choices = choices(&entries, &[], &selected, &[]);
-        let matching = choices
-            .iter()
-            .filter(|choice| choice.selection == selected)
-            .collect::<Vec<_>>();
-        assert_eq!(matching.len(), 1);
-        assert_eq!(matching[0].label, "Declared family");
-    }
-    let missing = choices(&[], std::slice::from_ref(&selected), &selected, &[]);
-    assert_eq!(missing.len(), 2);
-    assert_eq!(missing[1].selection, selected);
-}
-
-#[test]
-fn preserves_unknown_saved_identity() {
-    let reference = sailry_protocol::conversation::presets::PresetRef {
-        source: Source::Package {
-            name: "sample".into(),
-        },
-        id: "unlisted".into(),
-        route: None,
-    };
-    let provider: Provider = serde_json::from_value(serde_json::json!({
+fn groups_and_identity() {
+    for (scenario, check) in [
+        (
+            "shares_add_groups_and_order",
+            (|_scenario: &str| {
+                let mut entries = presets::bundled();
+                entries.extend([
+                    declared("first", "china", "provider"),
+                    declared("first", "global", "provider"),
+                    declared("second", "global", "provider"),
+                ]);
+                let groups = presets::groups(&entries);
+                let choices = choices(&entries, &[], &Selection::All, &[]);
+                assert_eq!(
+                    choices[0].selection,
+                    Selection::All,
+                    "shares add groups and order"
+                );
+                assert_eq!(
+                    choices.len(),
+                    groups.len() + 1,
+                    "shares add groups and order"
+                );
+                for (choice, (key, group)) in choices[1..].iter().zip(&groups) {
+                    assert_eq!(
+                        choice.selection,
+                        Selection::Group(key.clone()),
+                        "shares add groups and order"
+                    );
+                    assert_eq!(
+                        choice.label,
+                        presets::brand_label(&group[0]),
+                        "shares add groups and order"
+                    );
+                    assert_eq!(
+                        choice.entry.as_ref(),
+                        Some(&group[0]),
+                        "shares add groups and order"
+                    );
+                }
+                let (_, openai) = groups.iter().find(|(key, _)| key == "openai").unwrap();
+                assert!(
+                    openai
+                        .iter()
+                        .any(|entry| entry.preset.id == "chat-gpt-oauth"),
+                    "shares add groups and order"
+                );
+                let (_, opencode) = groups.iter().find(|(key, _)| key == "opencode").unwrap();
+                assert!(
+                    opencode
+                        .iter()
+                        .any(|entry| entry.preset.id == "opencode-go"),
+                    "shares add groups and order"
+                );
+                assert!(
+                    opencode
+                        .iter()
+                        .any(|entry| entry.preset.id == "opencode-zen"),
+                    "shares add groups and order"
+                );
+                assert_eq!(
+                    groups
+                        .iter()
+                        .filter(|(key, _)| key == "package:first:provider")
+                        .count(),
+                    1,
+                    "shares add groups and order"
+                );
+                assert_ne!(
+                    presets::brand(&entries[entries.len() - 2]),
+                    presets::brand(entries.last().unwrap()),
+                    "shares add groups and order"
+                );
+                assert_eq!(
+                    Store::default().category,
+                    Selection::All,
+                    "shares add groups and order"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "matches_all_methods_in_declared_family",
+            (|_scenario: &str| {
+                let first = declared("sample", "china", "provider");
+                let second = declared("sample", "global", "provider");
+                let third = declared("other", "global", "provider");
+                let mut channels = vec![Store::default().channels.remove(0); 3];
+                for (channel, entry) in channels.iter_mut().zip([first, second, third]) {
+                    channel.directory = Some(entry);
+                }
+                let selected = selection(&channels[0], None);
+                assert_eq!(
+                    channels
+                        .iter()
+                        .filter(|channel| selection(channel, None) == selected)
+                        .count(),
+                    2,
+                    "matches all methods in declared family"
+                );
+                assert_ne!(
+                    selected,
+                    selection(&channels[2], None),
+                    "matches all methods in declared family"
+                );
+                let mut legacy = channels[0].clone();
+                legacy.directory = None;
+                for preset in [
+                    Preset::OpenAi,
+                    Preset::CompatibleResponses,
+                    Preset::ChatGptOAuth,
+                    Preset::ChatGpt,
+                ] {
+                    legacy.preset = preset;
+                    assert_eq!(
+                        selection(&legacy, None),
+                        Selection::Group("openai".into()),
+                        "matches all methods in declared family"
+                    );
+                }
+                legacy.preset = Preset::OpenCodeZen;
+                assert_eq!(
+                    selection(&legacy, None),
+                    Selection::Group("opencode".into()),
+                    "matches all methods in declared family"
+                );
+            }),
+        ),
+        (
+            "preserves_selection_after_refresh",
+            (|_scenario: &str| {
+                let first = declared("sample", "china", "provider");
+                let second = declared("sample", "global", "provider");
+                let selected = Selection::Group(presets::brand(&first));
+                for entries in [[first.clone(), second.clone()], [second, first]] {
+                    let choices = choices(&entries, &[], &selected, &[]);
+                    let matching = choices
+                        .iter()
+                        .filter(|choice| choice.selection == selected)
+                        .collect::<Vec<_>>();
+                    assert_eq!(matching.len(), 1, "preserves selection after refresh");
+                    assert_eq!(
+                        matching[0].label, "Declared family",
+                        "preserves selection after refresh"
+                    );
+                }
+                let missing = choices(&[], std::slice::from_ref(&selected), &selected, &[]);
+                assert_eq!(missing.len(), 2, "preserves selection after refresh");
+                assert_eq!(
+                    missing[1].selection, selected,
+                    "preserves selection after refresh"
+                );
+            }),
+        ),
+        (
+            "preserves_unknown_saved_identity",
+            (|_scenario: &str| {
+                let reference = sailry_protocol::conversation::presets::PresetRef {
+                    source: Source::Package {
+                        name: "sample".into(),
+                    },
+                    id: "unlisted".into(),
+                    route: None,
+                };
+                let provider: Provider = serde_json::from_value(serde_json::json!({
         "id":sailry_protocol::ProviderId::new(),"revision":1,"name":"Custom channel",
         "api":"chat_completions","authentication":"api_key","endpoint":"https://example.test/v1",
         "enabled":true,"models":[],"default_model":"","credential":null,"preset":reference,
-    }))
-    .unwrap();
-    let mut channel = Store::default().channels.remove(0);
-    channel.directory = Some(declared("different", "unlisted", "provider"));
-    assert_eq!(
-        selection(&channel, Some(&provider)),
-        Selection::Group("package:sample:unlisted".into())
-    );
-}
-
-#[test]
-fn loaded_identity_outweighs_local_groups() {
-    let mut entry = presets::bundled()
-        .into_iter()
-        .find(|entry| entry.preset.id == "compatible-responses")
-        .unwrap();
-    entry.preset.brand = Some("node-defined-brand".into());
-    let reference = presets::reference(&entry, &entry.preset.routes[0]);
-    assert_eq!(
-        for_reference(Some(&reference), Preset::CompatibleResponses, Some(&entry)),
-        Selection::Group("node-defined-brand".into())
-    );
-    assert_eq!(
-        for_reference(Some(&reference), Preset::CompatibleResponses, None),
-        Selection::Group("compatible-responses".into())
-    );
+            }))
+            .unwrap();
+                let mut channel = Store::default().channels.remove(0);
+                channel.directory = Some(declared("different", "unlisted", "provider"));
+                assert_eq!(
+                    selection(&channel, Some(&provider)),
+                    Selection::Group("package:sample:unlisted".into()),
+                    "preserves unknown saved identity"
+                );
+            }),
+        ),
+        (
+            "loaded_identity_outweighs_local_groups",
+            (|_scenario: &str| {
+                let mut entry = presets::bundled()
+                    .into_iter()
+                    .find(|entry| entry.preset.id == "compatible-responses")
+                    .unwrap();
+                entry.preset.brand = Some("node-defined-brand".into());
+                let reference = presets::reference(&entry, &entry.preset.routes[0]);
+                assert_eq!(
+                    for_reference(Some(&reference), Preset::CompatibleResponses, Some(&entry)),
+                    Selection::Group("node-defined-brand".into()),
+                    "loaded identity outweighs local groups"
+                );
+                assert_eq!(
+                    for_reference(Some(&reference), Preset::CompatibleResponses, None),
+                    Selection::Group("compatible-responses".into()),
+                    "loaded identity outweighs local groups"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }

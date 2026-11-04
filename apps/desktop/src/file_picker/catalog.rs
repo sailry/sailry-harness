@@ -188,56 +188,81 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn host_scope() {
-        let local = Catalog::new(0);
-        assert!(local.list("/preview/remote-workspace").is_err());
-        for path in ["/", "/preview/../private", "relative", ""] {
-            assert!(local.list(path).is_err());
+    fn scope_and_memory() {
+        for (scenario, check) in [
+            (
+                "host_scope",
+                (|_scenario: &str| {
+                    let local = Catalog::new(0);
+                    assert!(
+                        local.list("/preview/remote-workspace").is_err(),
+                        "host scope"
+                    );
+                    for path in ["/", "/preview/../private", "relative", ""] {
+                        assert!(local.list(path).is_err(), "host scope");
+                    }
+                    assert!(local.list("/preview/restricted").is_err(), "host scope");
+                    assert!(
+                        local
+                            .list("/preview/empty")
+                            .unwrap()
+                            .directory
+                            .entries
+                            .is_empty(),
+                        "host scope"
+                    );
+                    assert_eq!(
+                        local.list("/preview/many").unwrap().directory.entries.len(),
+                        64,
+                        "host scope"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "mutations_remain_in_memory",
+                (|_scenario: &str| {
+                    let mut catalog = Catalog::new(0);
+                    catalog
+                        .apply(&FileAction::CreateDirectory {
+                            path: "/preview/created".into(),
+                        })
+                        .unwrap();
+                    catalog
+                        .apply(&FileAction::Rename {
+                            from: "/preview/created".into(),
+                            to: "/preview/renamed".into(),
+                        })
+                        .unwrap();
+                    catalog
+                        .apply(&FileAction::Transfer {
+                            paths: vec!["/preview/renamed".into()],
+                            destination: "/preview/empty".into(),
+                            cut: false,
+                            conflict: Conflict::Stop,
+                        })
+                        .unwrap();
+                    assert!(
+                        catalog.list("/preview/empty/renamed").is_ok(),
+                        "mutations remain in memory"
+                    );
+                    catalog
+                        .apply(&FileAction::Trash {
+                            paths: vec!["/preview/renamed".into()],
+                        })
+                        .unwrap();
+                    assert!(
+                        catalog.list("/preview/renamed").is_err(),
+                        "mutations remain in memory"
+                    );
+                    assert!(
+                        catalog.list("/preview/empty/renamed").is_ok(),
+                        "mutations remain in memory"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert!(local.list("/preview/restricted").is_err());
-        assert!(
-            local
-                .list("/preview/empty")
-                .unwrap()
-                .directory
-                .entries
-                .is_empty()
-        );
-        assert_eq!(
-            local.list("/preview/many").unwrap().directory.entries.len(),
-            64
-        );
-    }
-
-    #[test]
-    fn mutations_remain_in_memory() {
-        let mut catalog = Catalog::new(0);
-        catalog
-            .apply(&FileAction::CreateDirectory {
-                path: "/preview/created".into(),
-            })
-            .unwrap();
-        catalog
-            .apply(&FileAction::Rename {
-                from: "/preview/created".into(),
-                to: "/preview/renamed".into(),
-            })
-            .unwrap();
-        catalog
-            .apply(&FileAction::Transfer {
-                paths: vec!["/preview/renamed".into()],
-                destination: "/preview/empty".into(),
-                cut: false,
-                conflict: Conflict::Stop,
-            })
-            .unwrap();
-        assert!(catalog.list("/preview/empty/renamed").is_ok());
-        catalog
-            .apply(&FileAction::Trash {
-                paths: vec!["/preview/renamed".into()],
-            })
-            .unwrap();
-        assert!(catalog.list("/preview/renamed").is_err());
-        assert!(catalog.list("/preview/empty/renamed").is_ok());
     }
 }

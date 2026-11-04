@@ -11,51 +11,83 @@ const FIRST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const SECOND: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 #[test]
-fn offers_only_newer_official_versions() {
-    let mut entry = catalog::bundled().themes.remove(0);
-    let mut installed = Installed {
-        id: entry.id.clone(),
-        version: Some("0.1.0".into()),
-        digest: "sha256:changed".into(),
-        official: true,
-        commit: Some(FIRST.into()),
-    };
-    entry.package_version = "0.1.1".into();
-    assert!(entry.update_available(&installed));
-    for candidate in ["0.1.0", "0.1.0+new-build", "0.0.9", "0.1.0-alpha.1"] {
-        entry.package_version = candidate.into();
-        assert!(!entry.update_available(&installed));
-    }
-    entry.package_version = "0.1.1".into();
-    installed.official = false;
-    assert!(!entry.update_available(&installed));
-    installed.official = true;
-    for version in [None, Some("old local label".into())] {
-        installed.version = version;
-        assert!(!entry.update_available(&installed));
-    }
-}
-
-#[test]
-fn rejects_unsafe_catalog_resources() {
-    let entry = catalog::bundled().themes.remove(0);
-    for path in [
-        "../escape",
-        "assets/../escape",
-        "assets//bad",
-        "assets/file?secret",
-        "https://example.com/file",
+fn versions_and_resources() {
+    for (scenario, check) in [
+        (
+            "offers_only_newer_official_versions",
+            (|_scenario: &str| {
+                let mut entry = catalog::bundled().themes.remove(0);
+                let mut installed = Installed {
+                    id: entry.id.clone(),
+                    version: Some("0.1.0".into()),
+                    digest: "sha256:changed".into(),
+                    official: true,
+                    commit: Some(FIRST.into()),
+                };
+                entry.package_version = "0.1.1".into();
+                assert!(
+                    entry.update_available(&installed),
+                    "offers only newer official versions"
+                );
+                for candidate in ["0.1.0", "0.1.0+new-build", "0.0.9", "0.1.0-alpha.1"] {
+                    entry.package_version = candidate.into();
+                    assert!(
+                        !entry.update_available(&installed),
+                        "offers only newer official versions"
+                    );
+                }
+                entry.package_version = "0.1.1".into();
+                installed.official = false;
+                assert!(
+                    !entry.update_available(&installed),
+                    "offers only newer official versions"
+                );
+                installed.official = true;
+                for version in [None, Some("old local label".into())] {
+                    installed.version = version;
+                    assert!(
+                        !entry.update_available(&installed),
+                        "offers only newer official versions"
+                    );
+                }
+            }) as fn(&str),
+        ),
+        (
+            "rejects_unsafe_catalog_resources",
+            (|_scenario: &str| {
+                let entry = catalog::bundled().themes.remove(0);
+                for path in [
+                    "../escape",
+                    "assets/../escape",
+                    "assets//bad",
+                    "assets/file?secret",
+                    "https://example.com/file",
+                ] {
+                    let mut value = entry.clone();
+                    value.resources[0].path = path.into();
+                    assert!(
+                        value.validate().is_err(),
+                        "rejects unsafe catalog resources"
+                    );
+                }
+                let mut value = entry.clone();
+                value.resources.push(value.resources[0].clone());
+                assert!(
+                    value.validate().is_err(),
+                    "rejects unsafe catalog resources"
+                );
+                value = entry;
+                value.resources[0].bytes = PACKAGE_BYTES + 1;
+                assert!(
+                    value.validate().is_err(),
+                    "rejects unsafe catalog resources"
+                );
+            }),
+        ),
     ] {
-        let mut value = entry.clone();
-        value.resources[0].path = path.into();
-        assert!(value.validate().is_err());
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    let mut value = entry.clone();
-    value.resources.push(value.resources[0].clone());
-    assert!(value.validate().is_err());
-    value = entry;
-    value.resources[0].bytes = PACKAGE_BYTES + 1;
-    assert!(value.validate().is_err());
 }
 
 #[tokio::test]

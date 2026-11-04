@@ -195,58 +195,77 @@ mod tests {
     use sailry_protocol::conversation::{ModelApi, presets::Protocol};
 
     #[test]
-    fn preserves_custom_endpoints() {
-        for entry in super::super::super::presets::bundled() {
-            for route in &entry.preset.routes {
-                let kind = super::super::super::presets::kind(&entry, route);
-                assert_eq!(
-                    connection(Some(route), None, kind, "https://custom.invalid/v1").unwrap(),
-                    (route.protocol.api(), "https://custom.invalid/v1".into())
-                );
-                assert_eq!(
-                    connection(None, None, kind, "https://custom.invalid/v1").unwrap(),
-                    (kind.api(), "https://custom.invalid/v1".into())
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn saved_api_survives_missing_declaration() {
-        let provider: Provider = serde_json::from_value(serde_json::json!({
+    fn saved_overrides() {
+        for (scenario, check) in [
+            (
+                "preserves_custom_endpoints",
+                (|_scenario: &str| {
+                    for entry in super::super::super::presets::bundled() {
+                        for route in &entry.preset.routes {
+                            let kind = super::super::super::presets::kind(&entry, route);
+                            assert_eq!(
+                                connection(Some(route), None, kind, "https://custom.invalid/v1")
+                                    .unwrap(),
+                                (route.protocol.api(), "https://custom.invalid/v1".into()),
+                                "preserves custom endpoints"
+                            );
+                            assert_eq!(
+                                connection(None, None, kind, "https://custom.invalid/v1").unwrap(),
+                                (kind.api(), "https://custom.invalid/v1".into()),
+                                "preserves custom endpoints"
+                            );
+                        }
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "saved_api_survives_missing_declaration",
+                (|_scenario: &str| {
+                    let provider: Provider = serde_json::from_value(serde_json::json!({
             "id":sailry_protocol::ProviderId::new(),"revision":3,"name":"Saved provider",
             "api":"chat_completions","authentication":"api_key","endpoint":"https://saved.invalid/v1",
             "enabled":true,"models":[],"default_model":"","credential":null
-        })).unwrap();
-        assert_eq!(
-            connection(None, Some(&provider), Preset::OpenAi, &provider.endpoint).unwrap(),
-            (ModelApi::ChatCompletions, provider.endpoint.clone())
-        );
-        let mut route = super::super::super::presets::bundled()
-            .remove(0)
-            .preset
-            .routes
-            .remove(0);
-        route.protocol = Protocol::Anthropic;
-        assert_eq!(
-            connection(
-                Some(&route),
-                Some(&provider),
-                Preset::OpenAi,
-                "https://custom.invalid"
-            )
-            .unwrap()
-            .0,
-            ModelApi::Anthropic
-        );
-    }
-
-    #[test]
-    fn empty_input_does_not_restore_defaults() {
-        let entry = super::super::super::presets::bundled().remove(0);
-        assert_eq!(
-            connection(Some(&entry.preset.routes[0]), None, Preset::OpenAi, " "),
-            Err("provider_endpoint_required")
-        );
+                })).unwrap();
+                    assert_eq!(
+                        connection(None, Some(&provider), Preset::OpenAi, &provider.endpoint)
+                            .unwrap(),
+                        (ModelApi::ChatCompletions, provider.endpoint.clone()),
+                        "saved api survives missing declaration"
+                    );
+                    let mut route = super::super::super::presets::bundled()
+                        .remove(0)
+                        .preset
+                        .routes
+                        .remove(0);
+                    route.protocol = Protocol::Anthropic;
+                    assert_eq!(
+                        connection(
+                            Some(&route),
+                            Some(&provider),
+                            Preset::OpenAi,
+                            "https://custom.invalid"
+                        )
+                        .unwrap()
+                        .0,
+                        ModelApi::Anthropic,
+                        "saved api survives missing declaration"
+                    );
+                }),
+            ),
+            (
+                "empty_input_does_not_restore_defaults",
+                (|_scenario: &str| {
+                    let entry = super::super::super::presets::bundled().remove(0);
+                    assert_eq!(
+                        connection(Some(&entry.preset.routes[0]), None, Preset::OpenAi, " "),
+                        Err("provider_endpoint_required"),
+                        "empty input does not restore defaults"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

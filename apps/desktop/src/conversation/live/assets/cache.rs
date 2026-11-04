@@ -61,43 +61,83 @@ mod tests {
     }
 
     #[test]
-    fn reuses_appended_history() {
-        let value = loaded(3, 10);
-        assert!(value.current(Some((3, 10))));
-        assert!(value.reusable(Some((3, 12))));
-        assert!(!value.current(Some((3, 12))));
-        assert!(!value.reusable(Some((4, 10))));
-        assert!(!value.reusable(None));
-        assert!(!value.current(None));
-    }
-
-    #[test]
-    fn scopes_entries_by_node_and_session() {
-        let mut cache = Cache::default();
-        let session = SessionId::new();
-        let local = NodeId([1; 32]);
-        cache.put(local, session, loaded(1, 5));
-        assert_eq!(cache.take(NodeId([2; 32]), session), None);
-        assert_eq!(cache.take(local, SessionId::new()), None);
-        assert_eq!(cache.take(local, session), Some(loaded(1, 5)));
-        assert_eq!(cache.take(local, session), None);
-    }
-
-    #[test]
-    fn replaces_and_evicts_oldest() {
-        let mut cache = Cache::default();
-        let node = NodeId([1; 32]);
-        let first = SessionId::new();
-        cache.put(node, first, loaded(1, 1));
-        cache.put(node, first, loaded(1, 2));
-        let others: Vec<_> = (0..CAPACITY - 1).map(|_| SessionId::new()).collect();
-        for session in &others {
-            cache.put(node, *session, loaded(1, 1));
+    fn reuse_and_ownership() {
+        for (scenario, check) in [
+            (
+                "reuses_appended_history",
+                (|_scenario: &str| {
+                    let value = loaded(3, 10);
+                    assert!(value.current(Some((3, 10))), "reuses appended history");
+                    assert!(value.reusable(Some((3, 12))), "reuses appended history");
+                    assert!(!value.current(Some((3, 12))), "reuses appended history");
+                    assert!(!value.reusable(Some((4, 10))), "reuses appended history");
+                    assert!(!value.reusable(None), "reuses appended history");
+                    assert!(!value.current(None), "reuses appended history");
+                }) as fn(&str),
+            ),
+            (
+                "scopes_entries_by_node_and_session",
+                (|_scenario: &str| {
+                    let mut cache = Cache::default();
+                    let session = SessionId::new();
+                    let local = NodeId([1; 32]);
+                    cache.put(local, session, loaded(1, 5));
+                    assert_eq!(
+                        cache.take(NodeId([2; 32]), session),
+                        None,
+                        "scopes entries by node and session"
+                    );
+                    assert_eq!(
+                        cache.take(local, SessionId::new()),
+                        None,
+                        "scopes entries by node and session"
+                    );
+                    assert_eq!(
+                        cache.take(local, session),
+                        Some(loaded(1, 5)),
+                        "scopes entries by node and session"
+                    );
+                    assert_eq!(
+                        cache.take(local, session),
+                        None,
+                        "scopes entries by node and session"
+                    );
+                }),
+            ),
+            (
+                "replaces_and_evicts_oldest",
+                (|_scenario: &str| {
+                    let mut cache = Cache::default();
+                    let node = NodeId([1; 32]);
+                    let first = SessionId::new();
+                    cache.put(node, first, loaded(1, 1));
+                    cache.put(node, first, loaded(1, 2));
+                    let others: Vec<_> = (0..CAPACITY - 1).map(|_| SessionId::new()).collect();
+                    for session in &others {
+                        cache.put(node, *session, loaded(1, 1));
+                    }
+                    assert_eq!(
+                        cache.take(node, first),
+                        Some(loaded(1, 2)),
+                        "replaces and evicts oldest"
+                    );
+                    cache.put(node, first, loaded(1, 3));
+                    cache.put(node, SessionId::new(), loaded(1, 1));
+                    assert_eq!(
+                        cache.take(node, others[0]),
+                        None,
+                        "replaces and evicts oldest"
+                    );
+                    assert_eq!(
+                        cache.take(node, first),
+                        Some(loaded(1, 3)),
+                        "replaces and evicts oldest"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert_eq!(cache.take(node, first), Some(loaded(1, 2)));
-        cache.put(node, first, loaded(1, 3));
-        cache.put(node, SessionId::new(), loaded(1, 1));
-        assert_eq!(cache.take(node, others[0]), None);
-        assert_eq!(cache.take(node, first), Some(loaded(1, 3)));
     }
 }

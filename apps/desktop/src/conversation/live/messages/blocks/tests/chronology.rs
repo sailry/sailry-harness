@@ -137,133 +137,189 @@ fn history() -> (TurnId, View) {
 }
 
 #[test]
-fn delegation_order() {
-    let (turn, mut history) = history();
-    let ids: Vec<_> = history
-        .snapshot
-        .as_ref()
-        .unwrap()
-        .page
-        .children
-        .iter()
-        .map(|child| child.run.session)
-        .collect();
-    let blocks = collect(turn, &history);
-    assert_eq!(blocks.len(), 3);
-    assert!(
-        matches!(&blocks[0], Block::Children(group) if group.iter().map(|child| child.run.session).eq(ids[..2].iter().copied()))
-    );
-    assert!(matches!(&blocks[1], Block::Compaction(_, "Summary")));
-    assert!(
-        matches!(&blocks[2], Block::Children(group) if group.iter().map(|child| child.run.session).eq(ids[2..].iter().copied()))
-    );
+fn ordered_execution() {
+    for (scenario, check) in [
+        (
+            "delegation_order",
+            (|_scenario: &str| {
+                let (turn, mut history) = history();
+                let ids: Vec<_> = history
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .page
+                    .children
+                    .iter()
+                    .map(|child| child.run.session)
+                    .collect();
+                let blocks = collect(turn, &history);
+                assert_eq!(blocks.len(), 3, "delegation order");
+                assert!(
+                    matches!(&blocks[0], Block::Children(group) if group.iter().map(|child| child.run.session).eq(ids[..2].iter().copied())),
+                    "delegation order"
+                );
+                assert!(
+                    matches!(&blocks[1], Block::Compaction(_, "Summary")),
+                    "delegation order"
+                );
+                assert!(
+                    matches!(&blocks[2], Block::Children(group) if group.iter().map(|child| child.run.session).eq(ids[2..].iter().copied())),
+                    "delegation order"
+                );
 
-    // Missing summaries must not hide the tool's result or error.
-    Arc::make_mut(
-        &mut Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page).entries,
-    )
-    .retain(|entry| entry.id != "summary");
-    let blocks = collect(turn, &history);
-    assert!(matches!(&blocks[1], Block::Tools(group) if group[0].name == "compact_context"));
-}
-
-#[test]
-fn keeps_reused_calls_independent() {
-    let (turn, mut history) = history();
-    let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
-    page.children[0].run.status = Status::Cancelled;
-    let original = page.children[0].run.turn;
-    let mut guidance = page.children[0].clone();
-    guidance.run.turn = TurnId::new();
-    guidance.run.status = Status::Queued;
-    guidance.run.sequence = 10;
-    let source = guidance.run.turn;
-    page.children[1].run.session = guidance.run.session;
-    page.children[1].run.status = Status::Running;
-    page.children[1].run.sequence = 11;
-    let reused = page.children[1].run.turn;
-    page.children.push(guidance);
-    let blocks = collect(turn, &history);
-    let Block::Children(children) = &blocks[0] else {
-        panic!("child group expected")
-    };
-    assert_eq!(children.len(), 2);
-    assert_eq!(children[0].run.turn, original);
-    assert_eq!(children[0].run.status, Status::Cancelled);
-    assert_eq!(children[1].run.turn, reused);
-    assert_eq!(children[1].run.status, Status::Running);
-    drop(blocks);
-    let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
-    page.children.last_mut().unwrap().run.status = Status::Running;
-    let blocks = collect(turn, &history);
-    assert!(
-        matches!(&blocks[0], Block::Children(children) if children[0].run.turn == source && children[1].run.turn == reused)
-    );
-    drop(blocks);
-    let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
-    let mut joined = page.children.last().unwrap().clone();
-    joined.run.turn = TurnId::new();
-    joined.run.sequence = 12;
-    joined.run.status = Status::Continued;
-    joined.run.joined = Some(source);
-    page.children.push(joined);
-    let blocks = collect(turn, &history);
-    assert!(
-        matches!(&blocks[0], Block::Children(children) if children[0].run.turn == source && children[1].run.turn == reused)
-    );
-}
-
-#[test]
-fn joins_children_after_hidden_reasoning() {
-    let (turn, mut history) = history();
-    let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
-    Arc::make_mut(&mut page.entries)[0]
-        .parts
-        .push(Part::Thinking("Before the next delegation".into()));
-    let original = page.clone();
-    let blocks = collect(turn, &history);
-    assert_eq!(blocks.len(), 5);
-    assert!(matches!(&blocks[1], Block::Thinking(..)));
-    let blocks = super::super::compact(blocks);
-    assert_eq!(blocks.len(), 3);
-    assert!(
-        matches!(&blocks[0], Block::Children(children) if children.iter().map(|child| child.run.session).eq(original.children[..2].iter().map(|child| child.run.session)))
-    );
-    assert!(matches!(&blocks[1], Block::Compaction(..)));
-    assert!(
-        matches!(&blocks[2], Block::Children(children) if children.len() == 1 && children[0].run.session == original.children[2].run.session)
-    );
-    assert_eq!(history.snapshot.as_ref().unwrap().page.as_ref(), &original);
-}
-
-#[test]
-fn keeps_children_at_visible_boundaries() {
-    let (_, history) = history();
-    let children = &history.snapshot.as_ref().unwrap().page.children;
-    let call = &history.calls[2];
-    let mut progress = (*call).clone();
-    progress.presentation = sailry_protocol::tool::Presentation::Progress;
-    for separator in [
-        Block::Text("answer".into(), "Keep this answer here".into()),
-        Block::Tools(vec![call]),
-        Block::Tools(vec![&progress]),
-        Block::Question(call),
-        Block::Resource,
-        Block::Compaction("summary".into(), "Summary"),
+                // Missing summaries must not hide the tool's result or error.
+                Arc::make_mut(
+                    &mut Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page)
+                        .entries,
+                )
+                .retain(|entry| entry.id != "summary");
+                let blocks = collect(turn, &history);
+                assert!(
+                    matches!(&blocks[1], Block::Tools(group) if group[0].name == "compact_context"),
+                    "delegation order"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "keeps_reused_calls_independent",
+            (|_scenario: &str| {
+                let (turn, mut history) = history();
+                let page =
+                    Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
+                page.children[0].run.status = Status::Cancelled;
+                let original = page.children[0].run.turn;
+                let mut guidance = page.children[0].clone();
+                guidance.run.turn = TurnId::new();
+                guidance.run.status = Status::Queued;
+                guidance.run.sequence = 10;
+                let source = guidance.run.turn;
+                page.children[1].run.session = guidance.run.session;
+                page.children[1].run.status = Status::Running;
+                page.children[1].run.sequence = 11;
+                let reused = page.children[1].run.turn;
+                page.children.push(guidance);
+                let blocks = collect(turn, &history);
+                let Block::Children(children) = &blocks[0] else {
+                    panic!("child group expected")
+                };
+                assert_eq!(children.len(), 2, "keeps reused calls independent");
+                assert_eq!(
+                    children[0].run.turn, original,
+                    "keeps reused calls independent"
+                );
+                assert_eq!(
+                    children[0].run.status,
+                    Status::Cancelled,
+                    "keeps reused calls independent"
+                );
+                assert_eq!(
+                    children[1].run.turn, reused,
+                    "keeps reused calls independent"
+                );
+                assert_eq!(
+                    children[1].run.status,
+                    Status::Running,
+                    "keeps reused calls independent"
+                );
+                drop(blocks);
+                let page =
+                    Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
+                page.children.last_mut().unwrap().run.status = Status::Running;
+                let blocks = collect(turn, &history);
+                assert!(
+                    matches!(&blocks[0], Block::Children(children) if children[0].run.turn == source && children[1].run.turn == reused),
+                    "keeps reused calls independent"
+                );
+                drop(blocks);
+                let page =
+                    Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
+                let mut joined = page.children.last().unwrap().clone();
+                joined.run.turn = TurnId::new();
+                joined.run.sequence = 12;
+                joined.run.status = Status::Continued;
+                joined.run.joined = Some(source);
+                page.children.push(joined);
+                let blocks = collect(turn, &history);
+                assert!(
+                    matches!(&blocks[0], Block::Children(children) if children[0].run.turn == source && children[1].run.turn == reused),
+                    "keeps reused calls independent"
+                );
+            }),
+        ),
+        (
+            "joins_children_after_hidden_reasoning",
+            (|_scenario: &str| {
+                let (turn, mut history) = history();
+                let page =
+                    Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
+                Arc::make_mut(&mut page.entries)[0]
+                    .parts
+                    .push(Part::Thinking("Before the next delegation".into()));
+                let original = page.clone();
+                let blocks = collect(turn, &history);
+                assert_eq!(blocks.len(), 5, "joins children after hidden reasoning");
+                assert!(
+                    matches!(&blocks[1], Block::Thinking(..)),
+                    "joins children after hidden reasoning"
+                );
+                let blocks = super::super::compact(blocks);
+                assert_eq!(blocks.len(), 3, "joins children after hidden reasoning");
+                assert!(
+                    matches!(&blocks[0], Block::Children(children) if children.iter().map(|child| child.run.session).eq(original.children[..2].iter().map(|child| child.run.session))),
+                    "joins children after hidden reasoning"
+                );
+                assert!(
+                    matches!(&blocks[1], Block::Compaction(..)),
+                    "joins children after hidden reasoning"
+                );
+                assert!(
+                    matches!(&blocks[2], Block::Children(children) if children.len() == 1 && children[0].run.session == original.children[2].run.session),
+                    "joins children after hidden reasoning"
+                );
+                assert_eq!(
+                    history.snapshot.as_ref().unwrap().page.as_ref(),
+                    &original,
+                    "joins children after hidden reasoning"
+                );
+            }),
+        ),
+        (
+            "keeps_children_at_visible_boundaries",
+            (|_scenario: &str| {
+                let (_, history) = history();
+                let children = &history.snapshot.as_ref().unwrap().page.children;
+                let call = &history.calls[2];
+                let mut progress = (*call).clone();
+                progress.presentation = sailry_protocol::tool::Presentation::Progress;
+                for separator in [
+                    Block::Text("answer".into(), "Keep this answer here".into()),
+                    Block::Tools(vec![call]),
+                    Block::Tools(vec![&progress]),
+                    Block::Question(call),
+                    Block::Resource,
+                    Block::Compaction("summary".into(), "Summary"),
+                ] {
+                    let blocks = super::super::compact(vec![
+                        Block::Children(vec![&children[0]]),
+                        Block::Thinking("before".into(), "Before".into()),
+                        separator,
+                        Block::Thinking("after".into(), "After".into()),
+                        Block::Children(vec![&children[1]]),
+                    ]);
+                    assert_eq!(blocks.len(), 3, "keeps children at visible boundaries");
+                    assert!(
+                        matches!(&blocks[0], Block::Children(group) if group.len() == 1 && std::ptr::eq(group[0], &children[0])),
+                        "keeps children at visible boundaries"
+                    );
+                    assert!(
+                        matches!(&blocks[2], Block::Children(group) if group.len() == 1 && std::ptr::eq(group[0], &children[1])),
+                        "keeps children at visible boundaries"
+                    );
+                }
+            }),
+        ),
     ] {
-        let blocks = super::super::compact(vec![
-            Block::Children(vec![&children[0]]),
-            Block::Thinking("before".into(), "Before".into()),
-            separator,
-            Block::Thinking("after".into(), "After".into()),
-            Block::Children(vec![&children[1]]),
-        ]);
-        assert_eq!(blocks.len(), 3);
-        assert!(
-            matches!(&blocks[0], Block::Children(group) if group.len() == 1 && std::ptr::eq(group[0], &children[0]))
-        );
-        assert!(
-            matches!(&blocks[2], Block::Children(group) if group.len() == 1 && std::ptr::eq(group[0], &children[1]))
-        );
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }

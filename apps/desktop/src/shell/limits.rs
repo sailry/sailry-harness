@@ -49,18 +49,31 @@ mod minimums {
     use core::prelude::v1::test;
 
     #[test]
-    fn keeps_application_floor() {
-        assert_eq!(
-            minimum(size(px(320.), px(0.)), size(px(56.), px(48.))),
-            baseline()
-        );
-    }
-
-    #[test]
-    fn adds_content_and_chrome() {
-        assert_eq!(
-            minimum(size(px(1000.), px(769.)), size(px(336.), px(48.))),
-            size(px(1336.), px(817.)),
-        );
+    fn content_and_chrome() {
+        for (scenario, check) in [
+            (
+                "keeps_application_floor",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        minimum(size(px(320.), px(0.)), size(px(56.), px(48.))),
+                        baseline(),
+                        "keeps application floor"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "adds_content_and_chrome",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        minimum(size(px(1000.), px(769.)), size(px(336.), px(48.))),
+                        size(px(1336.), px(817.)),
+                        "adds content and chrome"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

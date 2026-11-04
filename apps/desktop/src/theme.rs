@@ -303,31 +303,41 @@ mod tests {
     }
 
     #[gpui::test]
-    fn reviews_keep_default_contrast(cx: &mut TestAppContext) {
+    fn default_palette(cx: &mut TestAppContext) {
         cx.update(|cx| {
             gpui_kit::init(cx);
             init(cx);
+        });
+        // Reviews keep default contrast.
+        cx.update(|cx| {
             for mode in [ThemeMode::Light, ThemeMode::Dark] {
                 Theme::change(mode, None, cx);
                 let background = review_background(cx);
-                assert!(background.is_opaque());
+                assert!(
+                    background.is_opaque(),
+                    "reviews keep default contrast {mode:?}"
+                );
                 let value = background.to_rgb();
                 for channel in [value.r, value.g, value.b] {
                     if mode.is_dark() {
-                        assert!(channel < 0.25, "translucent white tint must remain dark");
+                        assert!(
+                            channel < 0.25,
+                            "reviews keep default contrast {mode:?}: {}",
+                            format_args!("translucent white tint must remain dark")
+                        );
                     } else {
-                        assert!(channel > 0.9, "transparent black tint must remain light");
+                        assert!(
+                            channel > 0.9,
+                            "reviews keep default contrast {mode:?}: {}",
+                            format_args!("transparent black tint must remain light")
+                        );
                     }
                 }
             }
         });
-    }
 
-    #[gpui::test]
-    fn light_interactions_are_subtle(cx: &mut TestAppContext) {
+        // Light interactions are subtle.
         cx.update(|cx| {
-            gpui_kit::init(cx);
-            init(cx);
             Theme::change(ThemeMode::Light, None, cx);
             let theme = cx.theme();
             for color in [
@@ -336,108 +346,359 @@ mod tests {
                 theme.table_hover,
                 theme.button_hover,
             ] {
-                assert!((color.a - 16. / 255.).abs() < 0.001);
+                assert!(
+                    (color.a - 16. / 255.).abs() < 0.001,
+                    "light interactions are subtle"
+                );
             }
             for color in [
                 theme.list_active,
                 theme.table_active,
                 theme.secondary_active,
             ] {
-                assert!((color.a - 8. / 255.).abs() < 0.001);
-                assert!(color.a < theme.accent.a);
+                assert!(
+                    (color.a - 8. / 255.).abs() < 0.001,
+                    "light interactions are subtle"
+                );
+                assert!(color.a < theme.accent.a, "light interactions are subtle");
             }
-            assert!((theme.selection.a - 24. / 255.).abs() < 0.001);
-            assert!((theme.sidebar_accent.a - 8. / 255.).abs() < 0.001);
-            assert!((theme.border.a - 16. / 255.).abs() < 0.001);
-            assert!((theme.muted.a - 6. / 255.).abs() < 0.001);
-            assert_eq!(theme.semantic_tokens().colors.muted, theme.muted);
-            assert!(theme.list_active_border.a > theme.list_active.a);
-            assert!(theme.table_active_border.a > theme.table_active.a);
-            assert!(theme.table_active_border.a < theme.ring.a);
-            assert_eq!(theme.background.l, 1.);
-            assert!((theme.sidebar.l - 250. / 255.).abs() < 0.001);
-            assert!(theme.button_primary.a > 0.8);
+            assert!(
+                (theme.selection.a - 24. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert!(
+                (theme.sidebar_accent.a - 8. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert!(
+                (theme.border.a - 16. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert!(
+                (theme.muted.a - 6. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert_eq!(
+                theme.semantic_tokens().colors.muted,
+                theme.muted,
+                "light interactions are subtle"
+            );
+            assert!(
+                theme.list_active_border.a > theme.list_active.a,
+                "light interactions are subtle"
+            );
+            assert!(
+                theme.table_active_border.a > theme.table_active.a,
+                "light interactions are subtle"
+            );
+            assert!(
+                theme.table_active_border.a < theme.ring.a,
+                "light interactions are subtle"
+            );
+            assert_eq!(theme.background.l, 1., "light interactions are subtle");
+            assert!(
+                (theme.sidebar.l - 250. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert!(
+                theme.button_primary.a > 0.8,
+                "light interactions are subtle"
+            );
             Theme::change(ThemeMode::Dark, None, cx);
-            assert!((cx.theme().accent.a - 15. / 255.).abs() < 0.001);
-            assert!((cx.theme().secondary_active.a - 31. / 255.).abs() < 0.001);
-            assert!((cx.theme().list_active.a - 51. / 255.).abs() < 0.001);
-            assert!((cx.theme().table_active.a - 51. / 255.).abs() < 0.001);
-            assert!((cx.theme().muted.a - 18. / 255.).abs() < 0.001);
-            assert!((cx.theme().border.a - 12. / 255.).abs() < 0.001);
-            assert_eq!(cx.theme().table_active_border, cx.theme().ring);
+            assert!(
+                (cx.theme().accent.a - 15. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert!(
+                (cx.theme().secondary_active.a - 31. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert!(
+                (cx.theme().list_active.a - 51. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert!(
+                (cx.theme().table_active.a - 51. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert!(
+                (cx.theme().muted.a - 18. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert!(
+                (cx.theme().border.a - 12. / 255.).abs() < 0.001,
+                "light interactions are subtle"
+            );
+            assert_eq!(
+                cx.theme().table_active_border,
+                cx.theme().ring,
+                "light interactions are subtle"
+            );
         });
-    }
 
-    #[gpui::test]
-    fn editor_overlays_follow_theme(cx: &mut TestAppContext) {
+        // Editor overlays follow theme.
         cx.update(|cx| {
-            gpui_kit::init(cx);
-            init(cx);
             for mode in [ThemeMode::Light, ThemeMode::Dark] {
                 Theme::change(mode, None, cx);
                 sync_editor(cx);
                 let style = &cx.theme().highlight_theme.style;
                 let gutter = style.editor_gutter_background.unwrap();
                 let active = style.editor_active_line.unwrap();
-                assert!(gutter.a > 0. && gutter.a < active.a && active.a < 0.1);
-                assert_eq!(gutter.l, cx.theme().foreground.l);
-                assert_eq!(active.l, cx.theme().foreground.l);
+                assert!(
+                    gutter.a > 0. && gutter.a < active.a && active.a < 0.1,
+                    "editor overlays follow theme {mode:?}"
+                );
+                assert_eq!(
+                    gutter.l,
+                    cx.theme().foreground.l,
+                    "editor overlays follow theme {mode:?}"
+                );
+                assert_eq!(
+                    active.l,
+                    cx.theme().foreground.l,
+                    "editor overlays follow theme {mode:?}"
+                );
             }
         });
-    }
 
-    #[gpui::test]
-    fn switch_thumb_contrast(cx: &mut TestAppContext) {
+        // Switch thumb contrast.
         cx.update(|cx| {
-            gpui_kit::init(cx);
-            init(cx);
             for mode in [ThemeMode::Light, ThemeMode::Dark] {
                 Theme::change(mode, None, cx);
                 let theme = cx.theme();
                 let surface = theme.background.blend(theme.group_box);
                 let selected = surface.blend(theme.button_primary);
-                assert!(contrast(selected, theme.button_primary_foreground) >= 4.5);
-                assert_ne!(theme.button_primary, theme.primary);
+                assert!(
+                    contrast(selected, theme.button_primary_foreground) >= 4.5,
+                    "switch thumb contrast {mode:?}"
+                );
+                assert_ne!(
+                    theme.button_primary, theme.primary,
+                    "switch thumb contrast {mode:?}"
+                );
                 for color in [
                     theme.button_primary,
                     theme.tab_active,
                     theme.tab_active_foreground,
                 ] {
                     let color = theme.background.blend(color).to_rgb();
-                    assert_eq!(color.r, color.g);
-                    assert_eq!(color.g, color.b);
+                    assert_eq!(color.r, color.g, "switch thumb contrast {mode:?}");
+                    assert_eq!(color.g, color.b, "switch thumb contrast {mode:?}");
                 }
-                assert_eq!(theme.tab_active.a, 1.);
-                assert_eq!(theme.tab_active_foreground.a, 1.);
+                assert_eq!(theme.tab_active.a, 1., "switch thumb contrast {mode:?}");
+                assert_eq!(
+                    theme.tab_active_foreground.a, 1.,
+                    "switch thumb contrast {mode:?}"
+                );
                 assert_eq!(
                     theme.tab_active.l,
                     if mode == ThemeMode::Dark {
                         69. / 255.
                     } else {
                         1.
-                    }
+                    },
+                    "switch thumb contrast {mode:?}"
                 );
                 let bar = theme.background.blend(theme.tab_bar_segmented);
-                assert!(theme.tab_active.l > bar.l);
+                assert!(theme.tab_active.l > bar.l, "switch thumb contrast {mode:?}");
                 assert_eq!(
                     theme.tab_active_foreground.l,
                     if mode == ThemeMode::Dark {
                         1.
                     } else {
                         24. / 255.
-                    }
+                    },
+                    "switch thumb contrast {mode:?}"
                 );
-                assert!(contrast(theme.tab_active, theme.tab_active_foreground) >= 4.5);
+                assert!(
+                    contrast(theme.tab_active, theme.tab_active_foreground) >= 4.5,
+                    "switch thumb contrast {mode:?}"
+                );
                 let thumb = theme.tokens.switch_thumb.color;
-                assert_eq!(thumb.a, 1.);
+                assert_eq!(thumb.a, 1., "switch thumb contrast {mode:?}");
                 for (opacity, minimum) in [(1., 3.), (0.5, 1.5)] {
                     let rendered = surface.blend(theme.tokens.primary.color.opacity(opacity));
-                    assert!(contrast(thumb, rendered) >= minimum);
+                    assert!(
+                        contrast(thumb, rendered) >= minimum,
+                        "switch thumb contrast {mode:?}"
+                    );
                     let inactive = surface
                         .blend(theme.tokens.switch.color.opacity(opacity))
                         .to_rgb()
                         .r;
-                    assert!((thumb.to_rgb().r - inactive).abs() > 0.1 * opacity);
+                    assert!(
+                        (thumb.to_rgb().r - inactive).abs() > 0.1 * opacity,
+                        "switch thumb contrast {mode:?}"
+                    );
+                }
+            }
+        });
+
+        // Surface contrast.
+        for mode in [ThemeMode::Dark, ThemeMode::Light, ThemeMode::Dark] {
+            cx.update(|cx| Theme::change(mode, None, cx));
+            cx.update(|cx| {
+                let theme = cx.theme();
+                let background = theme.background.to_rgb().r;
+                let composer = theme.background.blend(theme.muted).to_rgb().r;
+                let card = theme.background.blend(theme.group_box).to_rgb().r;
+                let navigation = navigation_background(cx);
+                let main = panel_background(cx);
+                assert!(main.a > 0. && main.a < 1., "surface contrast {mode:?}");
+                assert_eq!(navigation.a, main.a, "surface contrast {mode:?}");
+                let navigation_contrast = (navigation.to_rgb().r - main.to_rgb().r).abs();
+                assert!(
+                    (0.01..0.03).contains(&navigation_contrast),
+                    "surface contrast {mode:?}"
+                );
+                assert!(sidebar_background(cx).a < 1., "surface contrast {mode:?}");
+                assert!(
+                    theme.muted.a > 0. && theme.muted.a < 1.,
+                    "surface contrast {mode:?}"
+                );
+                assert!(
+                    (theme.popover.a - FLOATING_ALPHA).abs() < f32::EPSILON,
+                    "surface contrast {mode:?}"
+                );
+                if mode == ThemeMode::Dark {
+                    assert!(
+                        navigation.to_rgb().r > main.to_rgb().r,
+                        "surface contrast {mode:?}"
+                    );
+                    let popover = theme.background.blend(theme.popover).to_rgb().r;
+                    assert!(popover - background > 0.03, "surface contrast {mode:?}");
+                    assert!(
+                        (background - 24. / 255.).abs() < 0.001,
+                        "surface contrast {mode:?}"
+                    );
+                    assert!(
+                        theme.group_box.a > 0. && theme.group_box.a < 1.,
+                        "surface contrast {mode:?}"
+                    );
+                    assert!(card - background > 0.03, "surface contrast {mode:?}");
+                    assert!(composer - card > 0.02, "surface contrast {mode:?}");
+                } else {
+                    assert!(
+                        navigation.to_rgb().r < main.to_rgb().r,
+                        "surface contrast {mode:?}"
+                    );
+                    assert_eq!(
+                        theme.popover,
+                        theme.background.alpha(FLOATING_ALPHA),
+                        "surface contrast {mode:?}"
+                    );
+                    assert_eq!(theme.group_box.a, 0., "surface contrast {mode:?}");
+                    assert_eq!(card, background, "surface contrast {mode:?}");
+                    assert!(background - composer > 0.02, "surface contrast {mode:?}");
+                }
+            });
+        }
+
+        // Terminal preserves neutral levels.
+        cx.update(|cx| {
+            for mode in [ThemeMode::Light, ThemeMode::Dark] {
+                Theme::change(mode, None, cx);
+                let appearance = terminal(cx);
+                let muted = appearance.palette[8];
+                assert_ne!(
+                    muted, appearance.foreground,
+                    "terminal preserves neutral levels {mode:?}"
+                );
+                assert_ne!(
+                    muted, appearance.background,
+                    "terminal preserves neutral levels {mode:?}"
+                );
+                if mode == ThemeMode::Light {
+                    assert!(
+                        muted.red > appearance.foreground.red,
+                        "terminal preserves neutral levels {mode:?}"
+                    );
+                    assert!(
+                        muted.red < appearance.background.red,
+                        "terminal preserves neutral levels {mode:?}"
+                    );
+                } else {
+                    assert!(
+                        muted.red < appearance.foreground.red,
+                        "terminal preserves neutral levels {mode:?}"
+                    );
+                    assert!(
+                        muted.red > appearance.background.red,
+                        "terminal preserves neutral levels {mode:?}"
+                    );
+                }
+            }
+        });
+
+        // Shell boundaries remain distinct.
+        cx.update(|cx| {
+            for mode in [ThemeMode::Light, ThemeMode::Dark] {
+                Theme::change(mode, None, cx);
+                let theme = cx.theme();
+                for border in [
+                    theme.title_bar_border,
+                    theme.window_border,
+                    theme.status_bar_border,
+                    theme.input,
+                    theme.table_row_border,
+                ] {
+                    assert!(
+                        (border.a - 16. / 255.).abs() < 0.001,
+                        "shell boundaries remain distinct {mode:?}"
+                    );
+                    assert_eq!(
+                        border, theme.input,
+                        "shell boundaries remain distinct {mode:?}"
+                    );
+                }
+                assert_eq!(
+                    theme.semantic_tokens().colors.border,
+                    theme.border,
+                    "shell boundaries remain distinct {mode:?}"
+                );
+                let base = cx.global::<gpui_kit::base::Theme>();
+                assert_eq!(
+                    base.tokens.colors.border, theme.border,
+                    "shell boundaries remain distinct {mode:?}"
+                );
+                assert_eq!(
+                    base.tokens.colors.input, theme.input,
+                    "shell boundaries remain distinct {mode:?}"
+                );
+                assert_eq!(
+                    base.resizable.handle,
+                    Some(theme.border),
+                    "shell boundaries remain distinct {mode:?}"
+                );
+                let border_alpha = if mode.is_dark() { 12. } else { 16. } / 255.;
+                assert!(
+                    (theme.border.a - border_alpha).abs() < 0.001,
+                    "shell boundaries remain distinct {mode:?}"
+                );
+                assert!(
+                    (theme.sidebar_border.a - 20. / 255.).abs() < 0.001,
+                    "shell boundaries remain distinct {mode:?}"
+                );
+                assert!(
+                    theme.border.a <= 0.1,
+                    "shell boundaries remain distinct {mode:?}"
+                );
+                assert!(
+                    theme.sidebar_border.a > theme.border.a,
+                    "shell boundaries remain distinct {mode:?}"
+                );
+                assert!(
+                    theme.sidebar_border.a <= 0.1,
+                    "shell boundaries remain distinct {mode:?}"
+                );
+                for surface in [theme.background, theme.sidebar] {
+                    let edge = surface.blend(theme.sidebar_border).to_rgb().r;
+                    let fill = surface.to_rgb().r;
+                    let minimum = if mode.is_dark() { 0.06 } else { 0.04 };
+                    assert!(
+                        (edge - fill).abs() >= minimum,
+                        "shell boundaries remain distinct {mode:?}"
+                    );
                 }
             }
         });
@@ -484,108 +745,6 @@ mod tests {
                         "{} {mode:?}: checked thumb {thumb}",
                         package.id
                     );
-                }
-            }
-        });
-    }
-
-    #[gpui::test]
-    fn surface_contrast(cx: &mut TestAppContext) {
-        cx.update(|cx| {
-            gpui_kit::init(cx);
-            init(cx);
-        });
-        for mode in [ThemeMode::Dark, ThemeMode::Light, ThemeMode::Dark] {
-            cx.update(|cx| Theme::change(mode, None, cx));
-            cx.update(|cx| {
-                let theme = cx.theme();
-                let background = theme.background.to_rgb().r;
-                let composer = theme.background.blend(theme.muted).to_rgb().r;
-                let card = theme.background.blend(theme.group_box).to_rgb().r;
-                let navigation = navigation_background(cx);
-                let main = panel_background(cx);
-                assert!(main.a > 0. && main.a < 1.);
-                assert_eq!(navigation.a, main.a);
-                let navigation_contrast = (navigation.to_rgb().r - main.to_rgb().r).abs();
-                assert!((0.01..0.03).contains(&navigation_contrast));
-                assert!(sidebar_background(cx).a < 1.);
-                assert!(theme.muted.a > 0. && theme.muted.a < 1.);
-                assert!((theme.popover.a - FLOATING_ALPHA).abs() < f32::EPSILON);
-                if mode == ThemeMode::Dark {
-                    assert!(navigation.to_rgb().r > main.to_rgb().r);
-                    let popover = theme.background.blend(theme.popover).to_rgb().r;
-                    assert!(popover - background > 0.03);
-                    assert!((background - 24. / 255.).abs() < 0.001);
-                    assert!(theme.group_box.a > 0. && theme.group_box.a < 1.);
-                    assert!(card - background > 0.03);
-                    assert!(composer - card > 0.02);
-                } else {
-                    assert!(navigation.to_rgb().r < main.to_rgb().r);
-                    assert_eq!(theme.popover, theme.background.alpha(FLOATING_ALPHA));
-                    assert_eq!(theme.group_box.a, 0.);
-                    assert_eq!(card, background);
-                    assert!(background - composer > 0.02);
-                }
-            });
-        }
-    }
-
-    #[gpui::test]
-    fn terminal_preserves_neutral_levels(cx: &mut TestAppContext) {
-        cx.update(|cx| {
-            gpui_kit::init(cx);
-            init(cx);
-            for mode in [ThemeMode::Light, ThemeMode::Dark] {
-                Theme::change(mode, None, cx);
-                let appearance = terminal(cx);
-                let muted = appearance.palette[8];
-                assert_ne!(muted, appearance.foreground);
-                assert_ne!(muted, appearance.background);
-                if mode == ThemeMode::Light {
-                    assert!(muted.red > appearance.foreground.red);
-                    assert!(muted.red < appearance.background.red);
-                } else {
-                    assert!(muted.red < appearance.foreground.red);
-                    assert!(muted.red > appearance.background.red);
-                }
-            }
-        });
-    }
-
-    #[gpui::test]
-    fn shell_boundaries_remain_distinct(cx: &mut TestAppContext) {
-        cx.update(|cx| {
-            gpui_kit::init(cx);
-            init(cx);
-            for mode in [ThemeMode::Light, ThemeMode::Dark] {
-                Theme::change(mode, None, cx);
-                let theme = cx.theme();
-                for border in [
-                    theme.title_bar_border,
-                    theme.window_border,
-                    theme.status_bar_border,
-                    theme.input,
-                    theme.table_row_border,
-                ] {
-                    assert!((border.a - 16. / 255.).abs() < 0.001);
-                    assert_eq!(border, theme.input);
-                }
-                assert_eq!(theme.semantic_tokens().colors.border, theme.border);
-                let base = cx.global::<gpui_kit::base::Theme>();
-                assert_eq!(base.tokens.colors.border, theme.border);
-                assert_eq!(base.tokens.colors.input, theme.input);
-                assert_eq!(base.resizable.handle, Some(theme.border));
-                let border_alpha = if mode.is_dark() { 12. } else { 16. } / 255.;
-                assert!((theme.border.a - border_alpha).abs() < 0.001);
-                assert!((theme.sidebar_border.a - 20. / 255.).abs() < 0.001);
-                assert!(theme.border.a <= 0.1);
-                assert!(theme.sidebar_border.a > theme.border.a);
-                assert!(theme.sidebar_border.a <= 0.1);
-                for surface in [theme.background, theme.sidebar] {
-                    let edge = surface.blend(theme.sidebar_border).to_rgb().r;
-                    let fill = surface.to_rgb().r;
-                    let minimum = if mode.is_dark() { 0.06 } else { 0.04 };
-                    assert!((edge - fill).abs() >= minimum);
                 }
             }
         });

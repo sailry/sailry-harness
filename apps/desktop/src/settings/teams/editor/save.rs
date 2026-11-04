@@ -137,35 +137,50 @@ mod tests {
     }
 
     #[test]
-    fn skips_unchanged_team() {
-        let team = stored();
-        assert!(command(Some(&team), team.clone()).is_none());
-    }
-
-    #[test]
-    fn sends_stored_revision() {
-        let team = stored();
-        let mut changed = team.clone();
-        changed.members.reverse();
-        let Some(Command::PutTeam {
-            team: sent,
-            expected_revision,
-        }) = command(Some(&team), changed.clone())
-        else {
-            panic!("expected a team write");
-        };
-        assert_eq!(expected_revision, 7);
-        assert_eq!(sent, changed);
-    }
-
-    #[test]
-    fn creates_with_zero_revision() {
-        let Some(Command::PutTeam {
-            expected_revision, ..
-        }) = command(None, stored())
-        else {
-            panic!("expected a team write");
-        };
-        assert_eq!(expected_revision, 0);
+    fn revision_checked_commands() {
+        for (scenario, check) in [
+            (
+                "skips_unchanged_team",
+                (|_scenario: &str| {
+                    let team = stored();
+                    assert!(
+                        command(Some(&team), team.clone()).is_none(),
+                        "skips unchanged team"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "sends_stored_revision",
+                (|_scenario: &str| {
+                    let team = stored();
+                    let mut changed = team.clone();
+                    changed.members.reverse();
+                    let Some(Command::PutTeam {
+                        team: sent,
+                        expected_revision,
+                    }) = command(Some(&team), changed.clone())
+                    else {
+                        panic!("expected a team write");
+                    };
+                    assert_eq!(expected_revision, 7, "sends stored revision");
+                    assert_eq!(sent, changed, "sends stored revision");
+                }),
+            ),
+            (
+                "creates_with_zero_revision",
+                (|_scenario: &str| {
+                    let Some(Command::PutTeam {
+                        expected_revision, ..
+                    }) = command(None, stored())
+                    else {
+                        panic!("expected a team write");
+                    };
+                    assert_eq!(expected_revision, 0, "creates with zero revision");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

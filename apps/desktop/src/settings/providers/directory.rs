@@ -123,103 +123,176 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn invalidation_preserves_received_entries() {
-        let entries = super::super::presets::bundled();
-        let mut state = State {
-            plugins: Some(Vec::new()),
-            entries: entries.clone(),
-            ..Default::default()
-        };
-        state.invalidate();
-        assert!(state.plugins.is_none());
-        assert_eq!(state.entries, entries);
-    }
-
-    #[test]
-    fn matches_source_and_stable_identity() {
-        let mut entry = super::super::presets::bundled().remove(0);
-        entry.source = sailry_protocol::conversation::presets::Source::Package {
-            name: "fixture".into(),
-        };
-        let mut reference = PresetRef {
-            source: entry.source.clone(),
-            id: entry.preset.id.clone(),
-            route: None,
-        };
-        assert_eq!(
-            selected(Some(&reference), std::slice::from_ref(&entry))
-                .unwrap()
-                .source,
-            entry.source
-        );
-        assert!(selected(Some(&reference), &[]).is_none());
-        reference.source = sailry_protocol::conversation::presets::Source::Partner;
-        assert!(selected(Some(&reference), &[entry]).is_none());
-    }
-
-    #[test]
-    fn loaded_directory_never_borrows_local_entries() {
-        let entry = super::super::presets::bundled().remove(0);
-        let reference = super::super::presets::reference(&entry, &entry.preset.routes[0]);
-        assert!(selected(Some(&reference), &[]).is_none());
-    }
-
-    #[test]
-    fn refresh_preserves_saved_overrides() {
-        use sailry_protocol::conversation::{
-            ModelApi,
-            connection::{Options, Product},
-        };
-        let mut entry = super::super::presets::bundled()
-            .into_iter()
-            .find(|entry| entry.preset.id == "qwen")
-            .unwrap();
-        let reference = super::super::presets::reference(&entry, &entry.preset.routes[0]);
-        let credential = sailry_protocol::CredentialRef {
-            node: sailry_protocol::NodeId(
-                ed25519_dalek::SigningKey::from_bytes(&[7; 32])
-                    .verifying_key()
-                    .to_bytes(),
+    fn identity_and_refresh() {
+        for (scenario, check) in [
+            (
+                "invalidation_preserves_received_entries",
+                (|_scenario: &str| {
+                    let entries = super::super::presets::bundled();
+                    let mut state = State {
+                        plugins: Some(Vec::new()),
+                        entries: entries.clone(),
+                        ..Default::default()
+                    };
+                    state.invalidate();
+                    assert!(
+                        state.plugins.is_none(),
+                        "invalidation preserves received entries"
+                    );
+                    assert_eq!(
+                        state.entries, entries,
+                        "invalidation preserves received entries"
+                    );
+                }) as fn(&str),
             ),
-            id: sailry_protocol::CredentialId::new(),
-        };
-        let model = super::super::live::model(&super::super::data::Model::example("saved-model"));
-        let provider: Provider = serde_json::from_value(serde_json::json!({
+            (
+                "matches_source_and_stable_identity",
+                (|_scenario: &str| {
+                    let mut entry = super::super::presets::bundled().remove(0);
+                    entry.source = sailry_protocol::conversation::presets::Source::Package {
+                        name: "fixture".into(),
+                    };
+                    let mut reference = PresetRef {
+                        source: entry.source.clone(),
+                        id: entry.preset.id.clone(),
+                        route: None,
+                    };
+                    assert_eq!(
+                        selected(Some(&reference), std::slice::from_ref(&entry))
+                            .unwrap()
+                            .source,
+                        entry.source,
+                        "matches source and stable identity"
+                    );
+                    assert!(
+                        selected(Some(&reference), &[]).is_none(),
+                        "matches source and stable identity"
+                    );
+                    reference.source = sailry_protocol::conversation::presets::Source::Partner;
+                    assert!(
+                        selected(Some(&reference), &[entry]).is_none(),
+                        "matches source and stable identity"
+                    );
+                }),
+            ),
+            (
+                "loaded_directory_never_borrows_local_entries",
+                (|_scenario: &str| {
+                    let entry = super::super::presets::bundled().remove(0);
+                    let reference =
+                        super::super::presets::reference(&entry, &entry.preset.routes[0]);
+                    assert!(
+                        selected(Some(&reference), &[]).is_none(),
+                        "loaded directory never borrows local entries"
+                    );
+                }),
+            ),
+            (
+                "refresh_preserves_saved_overrides",
+                (|_scenario: &str| {
+                    use sailry_protocol::conversation::{
+                        ModelApi,
+                        connection::{Options, Product},
+                    };
+                    let mut entry = super::super::presets::bundled()
+                        .into_iter()
+                        .find(|entry| entry.preset.id == "qwen")
+                        .unwrap();
+                    let reference =
+                        super::super::presets::reference(&entry, &entry.preset.routes[0]);
+                    let credential = sailry_protocol::CredentialRef {
+                        node: sailry_protocol::NodeId(
+                            ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+                                .verifying_key()
+                                .to_bytes(),
+                        ),
+                        id: sailry_protocol::CredentialId::new(),
+                    };
+                    let model = super::super::live::model(&super::super::data::Model::example(
+                        "saved-model",
+                    ));
+                    let provider: Provider = serde_json::from_value(serde_json::json!({
             "id":sailry_protocol::ProviderId::new(),"revision":7,"name":"Saved custom name",
             "api":"chat_completions","authentication":"api_key","endpoint":"https://custom.invalid/v1",
             "enabled":true,"models":[model],"default_model":"saved-model","credential":credential,"preset":reference,
             "options":Options::Hosted { product: Product::Metered }
-        })).unwrap();
-        assert_eq!(provider.api, ModelApi::ChatCompletions);
-        let channel = super::super::live::channel(7, &provider);
-        let before = channel.clone();
-        entry.preset.name = "Execution Node preset".into();
-        entry.preset.locales.clear();
-        entry.preset.brand_display = None;
-        entry.preset.routes[0].endpoint = "https://new-default.invalid/v1".into();
-        let entries = super::super::presets::presentation(vec![entry.clone()]);
-        let mut channels = [channel];
-        apply(&mut channels, &[(7, provider.clone())].into(), &entries);
-        let current = &channels[0];
-        assert_eq!(current.directory.as_ref(), Some(&entries[0]));
-        assert_eq!(
-            super::super::presets::brand_label(current.directory.as_ref().unwrap()),
-            "Execution Node preset"
-        );
-        assert_eq!(current.name, before.name);
-        assert_eq!(current.endpoint, before.endpoint);
-        assert_eq!(current.models, before.models);
-        assert_eq!(current.default_model, before.default_model);
-        assert_eq!(current.credential_configured, before.credential_configured);
-        assert_eq!(
-            current.options,
-            Some(Options::Hosted {
-                product: Product::Metered
-            })
-        );
-        assert_eq!(current.label().as_ref(), "Execution Node preset");
-        assert_eq!(provider.endpoint, "https://custom.invalid/v1");
-        assert_eq!(provider.preset.as_ref(), Some(&reference));
-        assert_eq!(provider.credential.as_ref(), Some(&credential));
+                })).unwrap();
+                    assert_eq!(
+                        provider.api,
+                        ModelApi::ChatCompletions,
+                        "refresh preserves saved overrides"
+                    );
+                    let channel = super::super::live::channel(7, &provider);
+                    let before = channel.clone();
+                    entry.preset.name = "Execution Node preset".into();
+                    entry.preset.locales.clear();
+                    entry.preset.brand_display = None;
+                    entry.preset.routes[0].endpoint = "https://new-default.invalid/v1".into();
+                    let entries = super::super::presets::presentation(vec![entry.clone()]);
+                    let mut channels = [channel];
+                    apply(&mut channels, &[(7, provider.clone())].into(), &entries);
+                    let current = &channels[0];
+                    assert_eq!(
+                        current.directory.as_ref(),
+                        Some(&entries[0]),
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        super::super::presets::brand_label(current.directory.as_ref().unwrap()),
+                        "Execution Node preset",
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        current.name, before.name,
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        current.endpoint, before.endpoint,
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        current.models, before.models,
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        current.default_model, before.default_model,
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        current.credential_configured, before.credential_configured,
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        current.options,
+                        Some(Options::Hosted {
+                            product: Product::Metered
+                        }),
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        current.label().as_ref(),
+                        "Execution Node preset",
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        provider.endpoint, "https://custom.invalid/v1",
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        provider.preset.as_ref(),
+                        Some(&reference),
+                        "refresh preserves saved overrides"
+                    );
+                    assert_eq!(
+                        provider.credential.as_ref(),
+                        Some(&credential),
+                        "refresh preserves saved overrides"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

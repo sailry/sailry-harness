@@ -161,120 +161,158 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
-    fn omits_headline_delay() {
-        for (attempt, fallback, limit) in
-            [(4, false, Some(5)), (2, false, None), (3, true, Some(5))]
-        {
-            let mut retry = Retry {
-                attempt,
-                fallback,
-                limit,
-                delay_ms: None,
-                transport: Some(Transport::Http),
-                status: Some(503),
-                code: Some("connection_lost".into()),
-                error: Some("Connection closed".into()),
-            };
-            let active = label(&retry, true);
-            let settled = label(&retry, false);
-            for delay in [0, 60_000, 120_000] {
-                retry.delay_ms = Some(delay);
-                assert_eq!(label(&retry, true), active);
-                assert_eq!(label(&retry, false), settled);
-            }
-        }
-    }
+    fn original_failure_details() {
+        for (scenario, check) in [
+            (
+                "omits_headline_delay",
+                (|_scenario: &str| {
+                    for (attempt, fallback, limit) in
+                        [(4, false, Some(5)), (2, false, None), (3, true, Some(5))]
+                    {
+                        let mut retry = Retry {
+                            attempt,
+                            fallback,
+                            limit,
+                            delay_ms: None,
+                            transport: Some(Transport::Http),
+                            status: Some(503),
+                            code: Some("connection_lost".into()),
+                            error: Some("Connection closed".into()),
+                        };
+                        let active = label(&retry, true);
+                        let settled = label(&retry, false);
+                        for delay in [0, 60_000, 120_000] {
+                            retry.delay_ms = Some(delay);
+                            assert_eq!(label(&retry, true), active, "omits headline delay");
+                            assert_eq!(label(&retry, false), settled, "omits headline delay");
+                        }
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "preserves_original_error_body",
+                (|_scenario: &str| {
+                    let mut retry = Retry {
+                        attempt: 4,
+                        fallback: false,
+                        limit: Some(5),
+                        delay_ms: Some(1723),
+                        transport: Some(Transport::Http),
+                        status: Some(503),
+                        code: Some("model.request_unavailable".into()),
+                        error: None,
+                    };
+                    assert_eq!(body(&retry), None, "preserves original error body");
+                    for error in [
+                        "HTTP response ended before completion",
+                        "Provider rejected the request with HTTP 503",
+                        r#"{"error":{"message":"Provider explanation"}}"#,
+                        "  Original detail\n\n[redacted]  ",
+                    ] {
+                        retry.error = Some(error.into());
+                        assert_eq!(body(&retry), Some(error), "preserves original error body");
+                    }
+                    for error in ["", "  "] {
+                        retry.error = Some(error.into());
+                        assert_eq!(body(&retry), None, "preserves original error body");
+                    }
+                    retry.error = Some("HTTP response ended before completion".into());
+                    retry.fallback = true;
+                    retry.attempt = 3;
+                    assert_eq!(body(&retry), None, "preserves original error body");
+                }),
+            ),
+            (
+                "collapses_after_model_output",
+                (|_scenario: &str| {
+                    let retry = Retry::from_resource(&serde_json::json!({
+                    "type":"model_retry", "attempt":4, "limit":5,
+                    "error":"HTTP response ended before completion"
+                        }))
+                    .unwrap();
+                    let mut blocks = vec![
+                        Block::Text("earlier".into(), "Earlier response".into()),
+                        Block::Retry("failure".into(), retry.clone()),
+                        Block::Resource,
+                        Block::Text("empty".into(), "  ".into()),
+                    ];
+                    assert!(
+                        recovered(&blocks).is_empty(),
+                        "collapses after model output"
+                    );
+                    blocks.push(Block::Thinking("output".into(), "Response resumed".into()));
+                    blocks.push(Block::Retry("later".into(), retry));
+                    assert_eq!(
+                        recovered(&blocks),
+                        BTreeSet::from(["failure".into()]),
+                        "collapses after model output"
+                    );
 
-    #[test]
-    fn preserves_original_error_body() {
-        let mut retry = Retry {
-            attempt: 4,
-            fallback: false,
-            limit: Some(5),
-            delay_ms: Some(1723),
-            transport: Some(Transport::Http),
-            status: Some(503),
-            code: Some("model.request_unavailable".into()),
-            error: None,
-        };
-        assert_eq!(body(&retry), None);
-        for error in [
-            "HTTP response ended before completion",
-            "Provider rejected the request with HTTP 503",
-            r#"{"error":{"message":"Provider explanation"}}"#,
-            "  Original detail\n\n[redacted]  ",
+                    let pending = expansion("failure".into(), false);
+                    let settled = expansion("failure".into(), true);
+                    let mut expanded = BTreeMap::from([(pending, true)]);
+                    assert!(
+                        !expanded.get(&settled).copied().unwrap_or(false),
+                        "collapses after model output"
+                    );
+                    expanded.insert(settled.clone(), true);
+                    assert_eq!(
+                        expansion("failure".into(), true),
+                        settled,
+                        "collapses after model output"
+                    );
+                    assert_eq!(
+                        expanded.get(&settled),
+                        Some(&true),
+                        "collapses after model output"
+                    );
+                }),
+            ),
+            (
+                "preserves_stop_details_and_original_cause",
+                (|_scenario: &str| {
+                    for reason in [
+                        Stop::AttemptsExhausted,
+                        Stop::RateLimited,
+                        Stop::ServerOverloaded,
+                        Stop::InvalidRequest,
+                        Stop::InvalidPrompt,
+                        Stop::ContextWindowExceeded,
+                        Stop::QuotaExceeded,
+                        Stop::UsageNotIncluded,
+                        Stop::UsageLimitReached,
+                        Stop::ResponseIncomplete,
+                        Stop::FlexUnavailable,
+                        Stop::PolicyViolation,
+                        Stop::LocalFailure,
+                    ] {
+                        for (code, expected) in [
+                            (ErrorCode::Unavailable, stop_key(reason)),
+                            (ErrorCode::Cancelled, "turn_cancelled"),
+                            (ErrorCode::OutcomeUnknown, "chat_execution_unknown"),
+                        ] {
+                            let fault = Fault {
+                                code,
+                                message: r#"{"error":{"message":"Final provider failure"}}"#.into(),
+                                details: Some(FaultDetails::ModelRecovery { reason }),
+                            };
+                            let original = fault.clone();
+                            assert_eq!(
+                                failure_key(&fault),
+                                expected,
+                                "preserves stop details and original cause"
+                            );
+                            assert_eq!(
+                                fault, original,
+                                "preserves stop details and original cause"
+                            );
+                        }
+                    }
+                }),
+            ),
         ] {
-            retry.error = Some(error.into());
-            assert_eq!(body(&retry), Some(error));
-        }
-        for error in ["", "  "] {
-            retry.error = Some(error.into());
-            assert_eq!(body(&retry), None);
-        }
-        retry.error = Some("HTTP response ended before completion".into());
-        retry.fallback = true;
-        retry.attempt = 3;
-        assert_eq!(body(&retry), None);
-    }
-
-    #[test]
-    fn collapses_after_model_output() {
-        let retry = Retry::from_resource(&serde_json::json!({
-            "type":"model_retry", "attempt":4, "limit":5,
-            "error":"HTTP response ended before completion"
-        }))
-        .unwrap();
-        let mut blocks = vec![
-            Block::Text("earlier".into(), "Earlier response".into()),
-            Block::Retry("failure".into(), retry.clone()),
-            Block::Resource,
-            Block::Text("empty".into(), "  ".into()),
-        ];
-        assert!(recovered(&blocks).is_empty());
-        blocks.push(Block::Thinking("output".into(), "Response resumed".into()));
-        blocks.push(Block::Retry("later".into(), retry));
-        assert_eq!(recovered(&blocks), BTreeSet::from(["failure".into()]));
-
-        let pending = expansion("failure".into(), false);
-        let settled = expansion("failure".into(), true);
-        let mut expanded = BTreeMap::from([(pending, true)]);
-        assert!(!expanded.get(&settled).copied().unwrap_or(false));
-        expanded.insert(settled.clone(), true);
-        assert_eq!(expansion("failure".into(), true), settled);
-        assert_eq!(expanded.get(&settled), Some(&true));
-    }
-
-    #[test]
-    fn preserves_stop_details_and_original_cause() {
-        for reason in [
-            Stop::AttemptsExhausted,
-            Stop::RateLimited,
-            Stop::ServerOverloaded,
-            Stop::InvalidRequest,
-            Stop::InvalidPrompt,
-            Stop::ContextWindowExceeded,
-            Stop::QuotaExceeded,
-            Stop::UsageNotIncluded,
-            Stop::UsageLimitReached,
-            Stop::ResponseIncomplete,
-            Stop::FlexUnavailable,
-            Stop::PolicyViolation,
-            Stop::LocalFailure,
-        ] {
-            for (code, expected) in [
-                (ErrorCode::Unavailable, stop_key(reason)),
-                (ErrorCode::Cancelled, "turn_cancelled"),
-                (ErrorCode::OutcomeUnknown, "chat_execution_unknown"),
-            ] {
-                let fault = Fault {
-                    code,
-                    message: r#"{"error":{"message":"Final provider failure"}}"#.into(),
-                    details: Some(FaultDetails::ModelRecovery { reason }),
-                };
-                let original = fault.clone();
-                assert_eq!(failure_key(&fault), expected);
-                assert_eq!(fault, original);
-            }
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

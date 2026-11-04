@@ -258,79 +258,166 @@ mod model_tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn projects_only_current_package_identity() {
-        let mut provider:sailry_protocol::conversation::Provider=serde_json::from_value(json!({
+    fn captured_declarations() {
+        for (scenario, check) in [
+            (
+                "projects_only_current_package_identity",
+                (|_scenario: &str| {
+                    let mut provider:sailry_protocol::conversation::Provider=serde_json::from_value(json!({
             "id":sailry_protocol::ProviderId::new(),"revision":9007199254740993_u64,
             "name":"Private channel","api":"plugin","authentication":"api_key",
             "endpoint":"https://private.example.test",
             "enabled":true,"models":[],"default_model":"old-model",
             "preset":{"source":{"kind":"package","data":{"name":"sample"}},"id":"regional","route":null}
-        })).unwrap();
-        let context =
-            crate::plugins::providers::context(&provider, "selected-model", "sample", &[]).unwrap();
-        assert_eq!(context["revision"], "9007199254740993");
-        assert_eq!(context["model"], "selected-model");
-        assert_eq!(context["preset"]["id"], "regional");
-        assert_eq!(context["authentication"], "api_key");
-        assert_eq!(context.as_object().unwrap().len(), 5);
-        assert!(!context.to_string().contains("private.example"));
-        assert!(
-            crate::plugins::providers::context(&provider, "selected-model", "other", &[]).is_none()
-        );
-        provider.enabled = false;
-        assert!(
-            crate::plugins::providers::context(&provider, "selected-model", "sample", &[])
-                .is_none()
-        );
-        provider.enabled = true;
-        provider.preset = None;
-        assert!(
-            crate::plugins::providers::context(&provider, "selected-model", "sample", &[])
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn projects_declared_native_authentication() {
-        for (authentication, api) in [
-            ("chat_gpt", "responses"),
-            ("chat_gpt_oauth", "responses"),
-            ("claude_oauth", "anthropic"),
-        ] {
-            let mut provider: sailry_protocol::conversation::Provider =
-                serde_json::from_value(json!({
-                    "id":sailry_protocol::ProviderId::new(),"revision":9007199254740993_u64,
-                    "name":"Private channel","api":api,"authentication":authentication,
-                    "endpoint":"https://private.example.test","enabled":true,
-                    "models":[],"default_model":"previous","credential":null
-                }))
-                .unwrap();
-            let resources = vec![serde_json::from_value(json!({
-                "authentication":authentication,"requests":{"usage":{"url":"https://example.test/usage"}}
-            })).unwrap()];
-            let context =
-                crate::plugins::providers::context(&provider, "selected", "status", &resources)
+                })).unwrap();
+                    let context = crate::plugins::providers::context(
+                        &provider,
+                        "selected-model",
+                        "sample",
+                        &[],
+                    )
                     .unwrap();
-            assert_eq!(context["authentication"], authentication);
-            assert_eq!(context["revision"], "9007199254740993");
-            assert_eq!(context["model"], "selected");
-            assert!(context["preset"].is_null());
-            assert_eq!(context.as_object().unwrap().len(), 5);
-            assert!(!context.to_string().contains("private.example"));
-            assert!(
-                crate::plugins::providers::context(&provider, "selected", "status", &[]).is_none()
-            );
-            provider.authentication = sailry_protocol::Authentication::ApiKey;
-            assert!(
-                crate::plugins::providers::context(&provider, "selected", "status", &resources)
-                    .is_none()
-            );
-            provider.authentication = resources[0].authentication;
-            provider.enabled = false;
-            assert!(
-                crate::plugins::providers::context(&provider, "selected", "status", &resources)
-                    .is_none()
-            );
+                    assert_eq!(
+                        context["revision"], "9007199254740993",
+                        "projects only current package identity"
+                    );
+                    assert_eq!(
+                        context["model"], "selected-model",
+                        "projects only current package identity"
+                    );
+                    assert_eq!(
+                        context["preset"]["id"], "regional",
+                        "projects only current package identity"
+                    );
+                    assert_eq!(
+                        context["authentication"], "api_key",
+                        "projects only current package identity"
+                    );
+                    assert_eq!(
+                        context.as_object().unwrap().len(),
+                        5,
+                        "projects only current package identity"
+                    );
+                    assert!(
+                        !context.to_string().contains("private.example"),
+                        "projects only current package identity"
+                    );
+                    assert!(
+                        crate::plugins::providers::context(
+                            &provider,
+                            "selected-model",
+                            "other",
+                            &[]
+                        )
+                        .is_none(),
+                        "projects only current package identity"
+                    );
+                    provider.enabled = false;
+                    assert!(
+                        crate::plugins::providers::context(
+                            &provider,
+                            "selected-model",
+                            "sample",
+                            &[]
+                        )
+                        .is_none(),
+                        "projects only current package identity"
+                    );
+                    provider.enabled = true;
+                    provider.preset = None;
+                    assert!(
+                        crate::plugins::providers::context(
+                            &provider,
+                            "selected-model",
+                            "sample",
+                            &[]
+                        )
+                        .is_none(),
+                        "projects only current package identity"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "projects_declared_native_authentication",
+                (|_scenario: &str| {
+                    for (authentication, api) in [
+                        ("chat_gpt", "responses"),
+                        ("chat_gpt_oauth", "responses"),
+                        ("claude_oauth", "anthropic"),
+                    ] {
+                        let mut provider: sailry_protocol::conversation::Provider =
+                            serde_json::from_value(json!({
+                            "id":sailry_protocol::ProviderId::new(),"revision":9007199254740993_u64,
+                            "name":"Private channel","api":api,"authentication":authentication,
+                            "endpoint":"https://private.example.test","enabled":true,
+                            "models":[],"default_model":"previous","credential":null
+                                }))
+                            .unwrap();
+                        let resources = vec![serde_json::from_value(json!({
+                "authentication":authentication,"requests":{"usage":{"url":"https://example.test/usage"}}
+                    })).unwrap()];
+                        let context = crate::plugins::providers::context(
+                            &provider, "selected", "status", &resources,
+                        )
+                        .unwrap();
+                        assert_eq!(
+                            context["authentication"], authentication,
+                            "projects declared native authentication"
+                        );
+                        assert_eq!(
+                            context["revision"], "9007199254740993",
+                            "projects declared native authentication"
+                        );
+                        assert_eq!(
+                            context["model"], "selected",
+                            "projects declared native authentication"
+                        );
+                        assert!(
+                            context["preset"].is_null(),
+                            "projects declared native authentication"
+                        );
+                        assert_eq!(
+                            context.as_object().unwrap().len(),
+                            5,
+                            "projects declared native authentication"
+                        );
+                        assert!(
+                            !context.to_string().contains("private.example"),
+                            "projects declared native authentication"
+                        );
+                        assert!(
+                            crate::plugins::providers::context(
+                                &provider,
+                                "selected",
+                                "status",
+                                &[]
+                            )
+                            .is_none(),
+                            "projects declared native authentication"
+                        );
+                        provider.authentication = sailry_protocol::Authentication::ApiKey;
+                        assert!(
+                            crate::plugins::providers::context(
+                                &provider, "selected", "status", &resources
+                            )
+                            .is_none(),
+                            "projects declared native authentication"
+                        );
+                        provider.authentication = resources[0].authentication;
+                        provider.enabled = false;
+                        assert!(
+                            crate::plugins::providers::context(
+                                &provider, "selected", "status", &resources
+                            )
+                            .is_none(),
+                            "projects declared native authentication"
+                        );
+                    }
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

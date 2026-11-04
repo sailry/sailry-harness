@@ -63,43 +63,89 @@ mod tests {
     use sailry_protocol::{ErrorCode, plugin::Reference};
 
     #[test]
-    fn reports_each_unresolved_failure_once() {
-        let package = Reference {
-            name: "example".into(),
-            digest: "a".repeat(64),
-            settings_revision: 1,
-        };
-        let mut failures = Failures::default();
-        assert!(failures.record(&package, ErrorCode::Busy, "view_read", false));
-        assert!(!failures.record(&package, ErrorCode::Busy, "view_read", false));
-        assert!(failures.record(&package, ErrorCode::Internal, "view_initialize", false));
-        assert!(!failures.record(&package, ErrorCode::Internal, "view_initialize", false));
-        assert!(failures.record(&package, ErrorCode::InvalidRequest, "view_read", false));
-        assert!(failures.record(&package, ErrorCode::InvalidRequest, "view_read", true));
-        assert!(!failures.record(&package, ErrorCode::InvalidRequest, "view_read", true));
-        failures.clear();
-        assert!(failures.record(&package, ErrorCode::Internal, "view_initialize", false));
-        let updated = Reference {
-            settings_revision: 2,
-            ..package
-        };
-        assert!(failures.record(&updated, ErrorCode::Internal, "view_initialize", false));
-    }
-
-    #[test]
-    fn disconnected_failures_can_restore() {
-        for mut state in [
-            Initialization::Loading,
-            Initialization::Published,
-            Initialization::Failed,
+    fn failures_and_recovery() {
+        for (scenario, check) in [
+            (
+                "reports_each_unresolved_failure_once",
+                (|_scenario: &str| {
+                    let package = Reference {
+                        name: "example".into(),
+                        digest: "a".repeat(64),
+                        settings_revision: 1,
+                    };
+                    let mut failures = Failures::default();
+                    assert!(
+                        failures.record(&package, ErrorCode::Busy, "view_read", false),
+                        "reports each unresolved failure once"
+                    );
+                    assert!(
+                        !failures.record(&package, ErrorCode::Busy, "view_read", false),
+                        "reports each unresolved failure once"
+                    );
+                    assert!(
+                        failures.record(&package, ErrorCode::Internal, "view_initialize", false),
+                        "reports each unresolved failure once"
+                    );
+                    assert!(
+                        !failures.record(&package, ErrorCode::Internal, "view_initialize", false),
+                        "reports each unresolved failure once"
+                    );
+                    assert!(
+                        failures.record(&package, ErrorCode::InvalidRequest, "view_read", false),
+                        "reports each unresolved failure once"
+                    );
+                    assert!(
+                        failures.record(&package, ErrorCode::InvalidRequest, "view_read", true),
+                        "reports each unresolved failure once"
+                    );
+                    assert!(
+                        !failures.record(&package, ErrorCode::InvalidRequest, "view_read", true),
+                        "reports each unresolved failure once"
+                    );
+                    failures.clear();
+                    assert!(
+                        failures.record(&package, ErrorCode::Internal, "view_initialize", false),
+                        "reports each unresolved failure once"
+                    );
+                    let updated = Reference {
+                        settings_revision: 2,
+                        ..package
+                    };
+                    assert!(
+                        failures.record(&updated, ErrorCode::Internal, "view_initialize", false),
+                        "reports each unresolved failure once"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "disconnected_failures_can_restore",
+                (|_scenario: &str| {
+                    for mut state in [
+                        Initialization::Loading,
+                        Initialization::Published,
+                        Initialization::Failed,
+                    ] {
+                        state.invalidate();
+                        assert_eq!(
+                            state,
+                            Initialization::Invalidated,
+                            "disconnected failures can restore"
+                        );
+                        assert!(!state.loading(), "disconnected failures can restore");
+                        assert!(!state.failed(), "disconnected failures can restore");
+                    }
+                    let mut state = Initialization::Unloaded;
+                    state.invalidate();
+                    assert_eq!(
+                        state,
+                        Initialization::Unloaded,
+                        "disconnected failures can restore"
+                    );
+                }),
+            ),
         ] {
-            state.invalidate();
-            assert_eq!(state, Initialization::Invalidated);
-            assert!(!state.loading());
-            assert!(!state.failed());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let mut state = Initialization::Unloaded;
-        state.invalidate();
-        assert_eq!(state, Initialization::Unloaded);
     }
 }

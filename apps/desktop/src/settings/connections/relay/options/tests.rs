@@ -24,33 +24,55 @@ fn preset(id: &str, selection: Selection) -> Preset {
 }
 
 #[test]
-fn starts_with_only_the_actual_selection() {
+fn initial_and_retained_networks() {
     let empty = initial(None);
-    assert_eq!(empty.len(), 1);
-    assert_eq!(empty[0].choice, Choice::Custom);
-    for selection in [Selection::Iroh, network("retained")] {
-        let items = initial(Some(&selection));
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[0].choice, Choice::Retained(selection));
-        assert_eq!(items[1].choice, Choice::Custom);
+    assert_eq!(empty.len(), 1, "empty: count");
+    assert_eq!(empty[0].choice, Choice::Custom, "empty: custom choice");
+    let previous = initial(Some(&network("before")));
+    for (case, selected) in [
+        ("default", Selection::Iroh),
+        ("saved", network("retained")),
+        ("changed", network("after")),
+    ] {
+        let items = initial(Some(&selected));
+        assert_eq!(items.len(), 2, "{case}: initial count");
+        assert_eq!(
+            items[0].choice,
+            Choice::Retained(selected.clone()),
+            "{case}: initial selection"
+        );
+        assert_eq!(items[1].choice, Choice::Custom, "{case}: initial custom");
+        let (items, choice) = retain(&previous, Some(&selected));
+        assert_eq!(items.len(), 2, "{case}: retained count");
+        assert_eq!(
+            choice,
+            Choice::Retained(selected),
+            "{case}: retained selection"
+        );
+        assert_eq!(items[1].choice, Choice::Custom, "{case}: retained custom");
     }
 }
 
 #[test]
-fn empty_catalog_preserves_selected_network() {
+fn catalog_refreshes() {
     let actual = network("retained");
     let previous = initial(Some(&actual));
     let (items, selected) = merge(vec![], &previous, Some(&previous[0].choice));
-    assert_eq!(selected, Some(previous[0].choice.clone()));
-    assert_eq!(items.len(), 2);
-    assert_eq!(selection(selected.as_ref(), "", None), Some(actual));
+    assert_eq!(
+        selected,
+        Some(previous[0].choice.clone()),
+        "empty catalog: selection"
+    );
+    assert_eq!(items.len(), 2, "empty catalog: count");
+    assert_eq!(
+        selection(selected.as_ref(), "", None),
+        Some(actual.clone()),
+        "empty catalog: destination"
+    );
     let (items, selected) = merge(vec![], &items, Some(&Choice::Custom));
-    assert_eq!(items.len(), 1);
-    assert_eq!(selected, Some(Choice::Custom));
-}
+    assert_eq!(items.len(), 1, "custom selection: count");
+    assert_eq!(selected, Some(Choice::Custom), "custom selection: identity");
 
-#[test]
-fn refreshes_labels_without_changing_destinations() {
     let actual = network("same");
     let previous = initial(Some(&actual));
     let mut updated = preset("dynamic", actual.clone());
@@ -59,10 +81,72 @@ fn refreshes_labels_without_changing_destinations() {
         .locales
         .insert("zh-CN".into(), "动态服务".into());
     let (items, selected) = merge(vec![updated], &previous, Some(&previous[0].choice));
-    assert!(matches!(selected, Some(Choice::Preset { .. })));
-    assert_eq!(selection(selected.as_ref(), "", None), Some(actual));
-    assert_eq!(items[0].label.as_ref().unwrap().label("zh-CN"), "动态服务");
-    assert_eq!(items.len(), 2);
+    assert!(
+        matches!(selected, Some(Choice::Preset { .. })),
+        "updated label: catalog identity"
+    );
+    assert_eq!(
+        selection(selected.as_ref(), "", None),
+        Some(actual.clone()),
+        "updated label: destination"
+    );
+    assert_eq!(
+        items[0].label.as_ref().unwrap().label("zh-CN"),
+        "动态服务",
+        "updated label: localization"
+    );
+    assert_eq!(items.len(), 2, "updated label: count");
+    let presets = vec![preset("first", actual.clone()), preset("selected", actual)];
+    let (previous, _) = merge(presets.clone(), &[], None);
+    let selected = previous[1].choice.clone();
+    let (_, current) = merge(presets, &previous, Some(&selected));
+    assert_eq!(
+        current,
+        Some(selected),
+        "equal destinations: selected identity"
+    );
+
+    let old = network("old");
+    let (previous, _) = merge(vec![preset("service", old.clone())], &[], None);
+    for (case, presets) in [
+        ("removed", vec![]),
+        ("changed", vec![preset("service", network("new"))]),
+    ] {
+        let (items, selected) = merge(presets.clone(), &previous, Some(&previous[0].choice));
+        assert_eq!(
+            selected,
+            Some(Choice::Retained(old.clone())),
+            "{case}: retained identity"
+        );
+        assert_eq!(
+            selection(selected.as_ref(), "", None),
+            Some(old.clone()),
+            "{case}: retained destination"
+        );
+        assert_eq!(items.len(), presets.len() + 2, "{case}: count");
+        if let Some(preset) = presets.first() {
+            assert_eq!(
+                items[1].choice.selection(),
+                Some(preset.selection.clone()),
+                "{case}: new destination"
+            );
+        }
+    }
+    let (items, _) = merge(
+        vec![preset("custom", network("custom"))],
+        &initial(None),
+        Some(&Choice::Custom),
+    );
+    assert_ne!(
+        items[0].choice,
+        Choice::Custom,
+        "custom preset: distinct identity"
+    );
+    assert_eq!(
+        items[1].choice,
+        Choice::Custom,
+        "custom preset: editable choice"
+    );
 }
 
 #[test]
@@ -86,71 +170,14 @@ fn keeps_catalog_order_during_latency_updates() {
 }
 
 #[test]
-fn equal_destinations_keep_the_selected_identity() {
-    let actual = network("same");
-    let presets = vec![preset("first", actual.clone()), preset("selected", actual)];
-    let (previous, _) = merge(presets.clone(), &[], None);
-    let selected = previous[1].choice.clone();
-    let (_, current) = merge(presets, &previous, Some(&selected));
-    assert_eq!(current, Some(selected));
-}
-
-#[test]
-fn preserves_removed_and_changed_destinations() {
-    let old = network("old");
-    let (previous, _) = merge(vec![preset("service", old.clone())], &[], None);
-    for presets in [vec![], vec![preset("service", network("new"))]] {
-        let (items, selected) = merge(presets.clone(), &previous, Some(&previous[0].choice));
-        assert_eq!(selected, Some(Choice::Retained(old.clone())));
-        assert_eq!(selection(selected.as_ref(), "", None), Some(old.clone()));
-        assert_eq!(items.len(), presets.len() + 2);
-        if let Some(preset) = presets.first() {
-            assert_eq!(items[1].choice.selection(), Some(preset.selection.clone()));
-        }
-    }
-}
-
-#[test]
-fn retains_only_the_current_network() {
-    let previous = initial(Some(&network("before")));
-    let actual = network("after");
-    let (items, selected) = retain(&previous, Some(&actual));
-    assert_eq!(items.len(), 2);
-    assert_eq!(selected, Choice::Retained(actual));
-    assert_eq!(items[1].choice, Choice::Custom);
-}
-
-#[test]
-fn custom_keeps_full_saved_relay_set() {
+fn exact_destinations_and_custom_edits() {
     let saved = Selection::Custom {
         relays: vec![
             "https://first.example".into(),
             "https://second.example".into(),
         ],
     };
-    assert_eq!(
-        selection(
-            Some(&Choice::Custom),
-            "  https://first.example  ",
-            Some(&saved)
-        ),
-        Some(saved.clone())
-    );
-    assert_eq!(
-        selection(
-            Some(&Choice::Custom),
-            "https://changed.example",
-            Some(&saved)
-        ),
-        Some(network("changed"))
-    );
-    assert_eq!(selection(Some(&Choice::Custom), " ", Some(&saved)), None);
-    assert_eq!(selection(None, "https://first.example", Some(&saved)), None);
-}
-
-#[test]
-fn explicit_preset_keeps_its_complete_set() {
-    let saved = Selection::Custom {
+    let explicit_saved = Selection::Custom {
         relays: vec![
             "https://first.example".into(),
             "https://saved.example".into(),
@@ -162,33 +189,47 @@ fn explicit_preset_keeps_its_complete_set() {
             "https://selected.example".into(),
         ],
     };
-    let value = Choice::Preset {
-        id: "dynamic".into(),
-        selection: chosen.clone(),
-    };
-    assert_eq!(
-        selection(Some(&value), "https://first.example", Some(&saved)),
-        Some(chosen)
-    );
-    assert_eq!(
-        selection(
-            Some(&Choice::Retained(Selection::Iroh)),
-            "https://first.example",
-            Some(&saved)
+    for (case, choice, address, previous, expected) in [
+        (
+            "unchanged custom",
+            Some(Choice::Custom),
+            "  https://first.example  ",
+            &saved,
+            Some(saved.clone()),
         ),
-        Some(Selection::Iroh)
-    );
-}
-
-#[test]
-fn custom_choice_has_separate_identity() {
-    let (items, _) = merge(
-        vec![preset("custom", network("custom"))],
-        &initial(None),
-        Some(&Choice::Custom),
-    );
-    assert_ne!(items[0].choice, Choice::Custom);
-    assert_eq!(items[1].choice, Choice::Custom);
+        (
+            "edited custom",
+            Some(Choice::Custom),
+            "https://changed.example",
+            &saved,
+            Some(network("changed")),
+        ),
+        ("empty custom", Some(Choice::Custom), " ", &saved, None),
+        ("no choice", None, "https://first.example", &saved, None),
+        (
+            "explicit preset",
+            Some(Choice::Preset {
+                id: "dynamic".into(),
+                selection: chosen.clone(),
+            }),
+            "https://first.example",
+            &explicit_saved,
+            Some(chosen.clone()),
+        ),
+        (
+            "retained default",
+            Some(Choice::Retained(Selection::Iroh)),
+            "https://first.example",
+            &explicit_saved,
+            Some(Selection::Iroh),
+        ),
+    ] {
+        assert_eq!(
+            selection(choice.as_ref(), address, Some(previous)),
+            expected,
+            "{case}"
+        );
+    }
 }
 
 #[test]

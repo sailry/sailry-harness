@@ -295,27 +295,48 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[test]
-    fn core_tools_have_labels_and_icons() {
-        for name in [
-            "load_skill",
-            "read_skill_resource",
-            "list_sessions",
-            "read_session",
-            "search_session",
+    fn tool_labels_and_literals() {
+        for (scenario, check) in [
+            (
+                "core_tools_have_labels_and_icons",
+                (|_scenario: &str| {
+                    for name in [
+                        "load_skill",
+                        "read_skill_resource",
+                        "list_sessions",
+                        "read_session",
+                        "search_session",
+                    ] {
+                        let label = tool_label(name);
+                        assert_ne!(label.as_ref(), name, "core tools have labels and icons");
+                        assert!(
+                            !label.is_empty() && !label.starts_with("tool_"),
+                            "core tools have labels and icons"
+                        );
+                        assert!(
+                            tool_icon(name).is_some(),
+                            "core tools have labels and icons"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "literal_line_endings",
+                (|_scenario: &str| {
+                    assert_eq!(literal("line\n"), "```\nline\n```", "literal line endings");
+                    assert_eq!(literal("line"), "```\nline\n```", "literal line endings");
+                    assert_eq!(
+                        literal("line\n\n"),
+                        "```\nline\n\n```",
+                        "literal line endings"
+                    );
+                    assert_eq!(literal("```\n"), "````\n```\n````", "literal line endings");
+                }),
+            ),
         ] {
-            let label = tool_label(name);
-            assert_ne!(label.as_ref(), name);
-            assert!(!label.is_empty() && !label.starts_with("tool_"));
-            assert!(tool_icon(name).is_some());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn literal_line_endings() {
-        assert_eq!(literal("line\n"), "```\nline\n```");
-        assert_eq!(literal("line"), "```\nline\n```");
-        assert_eq!(literal("line\n\n"), "```\nline\n\n```");
-        assert_eq!(literal("```\n"), "````\n```\n````");
     }
 
     #[gpui::test]

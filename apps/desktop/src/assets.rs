@@ -620,116 +620,173 @@ mod tests {
     use super::*;
 
     #[test]
-    fn embedded_component_icons() {
-        let paths = ComponentAssets.list("icons/").unwrap();
-        assert_eq!(paths.len(), 106);
-        let names = Assets.list("icons/").unwrap();
-        for path in paths {
-            let bytes = ComponentAssets.load(&path).unwrap().unwrap();
-            assert!(matches!(bytes, Cow::Borrowed(_)), "{path}");
-            assert!(!bytes.is_empty(), "{path}");
-            assert_eq!(Assets.load(&path).unwrap().unwrap(), bytes, "{path}");
-            assert!(names.contains(&path), "{path}");
-        }
-    }
-
-    #[test]
-    fn embedded_product_icons() {
-        assert!(Assets.load("icons/folder.svg").unwrap().is_some());
-        assert!(Assets.load("icons/list-todo.svg").unwrap().is_some());
-    }
-
-    #[test]
-    fn footer_icons() {
-        let names = Assets.list("icons/").unwrap();
-        for path in [
-            "icons/gauge.svg",
-            "icons/dollar-sign.svg",
-            "icons/messages-square.svg",
+    fn embedded_inventory() {
+        for (scenario, check) in [
+            (
+                "embedded_component_icons",
+                (|_scenario: &str| {
+                    let paths = ComponentAssets.list("icons/").unwrap();
+                    assert_eq!(paths.len(), 106, "embedded component icons");
+                    let names = Assets.list("icons/").unwrap();
+                    for path in paths {
+                        let bytes = ComponentAssets.load(&path).unwrap().unwrap();
+                        assert!(
+                            matches!(bytes, Cow::Borrowed(_)),
+                            "embedded component icons: {path}"
+                        );
+                        assert!(!bytes.is_empty(), "embedded component icons: {path}");
+                        assert_eq!(
+                            Assets.load(&path).unwrap().unwrap(),
+                            bytes,
+                            "embedded component icons: {path}"
+                        );
+                        assert!(names.contains(&path), "embedded component icons: {path}");
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "embedded_product_icons",
+                (|_scenario: &str| {
+                    assert!(
+                        Assets.load("icons/folder.svg").unwrap().is_some(),
+                        "embedded product icons"
+                    );
+                    assert!(
+                        Assets.load("icons/list-todo.svg").unwrap().is_some(),
+                        "embedded product icons"
+                    );
+                }),
+            ),
+            (
+                "footer_icons",
+                (|_scenario: &str| {
+                    let names = Assets.list("icons/").unwrap();
+                    for path in [
+                        "icons/gauge.svg",
+                        "icons/dollar-sign.svg",
+                        "icons/messages-square.svg",
+                    ] {
+                        let expected = UsageAssets.load(path).unwrap().unwrap();
+                        assert_eq!(
+                            Assets.load(path).unwrap().unwrap(),
+                            expected,
+                            "footer icons"
+                        );
+                        assert!(
+                            names.iter().any(|name| name.as_ref() == path),
+                            "footer icons"
+                        );
+                    }
+                }),
+            ),
+            (
+                "settings_icons",
+                (|_scenario: &str| {
+                    let names = Assets.list("icons/").unwrap();
+                    for path in [
+                        "icons/download.svg",
+                        "icons/upload.svg",
+                        "icons/trash.svg",
+                        "icons/volume-2.svg",
+                        "icons/square.svg",
+                        "icons/pause.svg",
+                        "icons/house.svg",
+                        "icons/rotate-ccw.svg",
+                        "icons/key-round.svg",
+                        "icons/link.svg",
+                        "icons/cloud.svg",
+                        "icons/plug.svg",
+                        "icons/brain-circuit.svg",
+                        "icons/zap.svg",
+                        "icons/crown.svg",
+                    ] {
+                        let expected = SettingsAssets.load(path).unwrap().unwrap();
+                        assert_eq!(
+                            Assets.load(path).unwrap().unwrap(),
+                            expected,
+                            "settings icons"
+                        );
+                        assert!(
+                            names.iter().any(|name| name.as_ref() == path),
+                            "settings icons"
+                        );
+                    }
+                }),
+            ),
+            (
+                "content_icons",
+                (|_scenario: &str| {
+                    let names = Assets.list("icons/").unwrap();
+                    for path in [
+                        "icons/bold.svg",
+                        "icons/italic.svg",
+                        "icons/strikethrough.svg",
+                        "icons/list-ordered.svg",
+                        "icons/list-checks.svg",
+                        "icons/quote.svg",
+                        "icons/table.svg",
+                        "icons/text-wrap.svg",
+                        "icons/code-xml.svg",
+                        "icons/image.svg",
+                        "icons/image-plus.svg",
+                        "icons/separator-horizontal.svg",
+                        "icons/square-code.svg",
+                        "icons/workflow.svg",
+                        "icons/sigma.svg",
+                        "icons/chart-bar.svg",
+                        "icons/file-code.svg",
+                        "icons/x.svg",
+                    ] {
+                        assert_eq!(
+                            Assets.load(path).unwrap().unwrap(),
+                            ContentAssets.load(path).unwrap().unwrap(),
+                            "content icons"
+                        );
+                        assert!(
+                            names.iter().any(|name| name.as_ref() == path),
+                            "content icons"
+                        );
+                    }
+                }),
+            ),
+            (
+                "catalog_icons",
+                (|_scenario: &str| {
+                    assert!(
+                        Assets.load("icons/heading-1.svg").unwrap().is_some(),
+                        "catalog icons"
+                    );
+                    assert!(
+                        Assets.load("icons/missing-icon.svg").is_err(),
+                        "catalog icons"
+                    );
+                }),
+            ),
+            (
+                "picker_icons",
+                (|_scenario: &str| {
+                    let names = Assets.list("icons/").unwrap();
+                    for path in [
+                        "icons/monitor.svg",
+                        "icons/list.svg",
+                        "icons/layout-grid.svg",
+                        "icons/file-archive.svg",
+                    ] {
+                        assert_eq!(
+                            Assets.load(path).unwrap().unwrap(),
+                            PickerAssets.load(path).unwrap().unwrap(),
+                            "picker icons"
+                        );
+                        assert!(
+                            names.iter().any(|name| name.as_ref() == path),
+                            "picker icons"
+                        );
+                    }
+                }),
+            ),
         ] {
-            let expected = UsageAssets.load(path).unwrap().unwrap();
-            assert_eq!(Assets.load(path).unwrap().unwrap(), expected);
-            assert!(names.iter().any(|name| name.as_ref() == path));
-        }
-    }
-
-    #[test]
-    fn settings_icons() {
-        let names = Assets.list("icons/").unwrap();
-        for path in [
-            "icons/download.svg",
-            "icons/upload.svg",
-            "icons/trash.svg",
-            "icons/volume-2.svg",
-            "icons/square.svg",
-            "icons/pause.svg",
-            "icons/house.svg",
-            "icons/rotate-ccw.svg",
-            "icons/key-round.svg",
-            "icons/link.svg",
-            "icons/cloud.svg",
-            "icons/plug.svg",
-            "icons/brain-circuit.svg",
-            "icons/zap.svg",
-            "icons/crown.svg",
-        ] {
-            let expected = SettingsAssets.load(path).unwrap().unwrap();
-            assert_eq!(Assets.load(path).unwrap().unwrap(), expected);
-            assert!(names.iter().any(|name| name.as_ref() == path));
-        }
-    }
-
-    #[test]
-    fn content_icons() {
-        let names = Assets.list("icons/").unwrap();
-        for path in [
-            "icons/bold.svg",
-            "icons/italic.svg",
-            "icons/strikethrough.svg",
-            "icons/list-ordered.svg",
-            "icons/list-checks.svg",
-            "icons/quote.svg",
-            "icons/table.svg",
-            "icons/text-wrap.svg",
-            "icons/code-xml.svg",
-            "icons/image.svg",
-            "icons/image-plus.svg",
-            "icons/separator-horizontal.svg",
-            "icons/square-code.svg",
-            "icons/workflow.svg",
-            "icons/sigma.svg",
-            "icons/chart-bar.svg",
-            "icons/file-code.svg",
-            "icons/x.svg",
-        ] {
-            assert_eq!(
-                Assets.load(path).unwrap().unwrap(),
-                ContentAssets.load(path).unwrap().unwrap()
-            );
-            assert!(names.iter().any(|name| name.as_ref() == path));
-        }
-    }
-
-    #[test]
-    fn catalog_icons() {
-        assert!(Assets.load("icons/heading-1.svg").unwrap().is_some());
-        assert!(Assets.load("icons/missing-icon.svg").is_err());
-    }
-
-    #[test]
-    fn picker_icons() {
-        let names = Assets.list("icons/").unwrap();
-        for path in [
-            "icons/monitor.svg",
-            "icons/list.svg",
-            "icons/layout-grid.svg",
-            "icons/file-archive.svg",
-        ] {
-            assert_eq!(
-                Assets.load(path).unwrap().unwrap(),
-                PickerAssets.load(path).unwrap().unwrap()
-            );
-            assert!(names.iter().any(|name| name.as_ref() == path));
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

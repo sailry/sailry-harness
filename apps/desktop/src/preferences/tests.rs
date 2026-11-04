@@ -95,24 +95,25 @@ mod message_size {
     use super::*;
 
     #[test]
-    fn defaults_to_standard() {
-        assert_eq!(Data::default().message_text_size(), 14);
-        assert_eq!(Data::MESSAGE_TEXT_SIZES, [12, 14, 16, 18]);
-    }
+    fn defaults_and_persisted_steps() {
+        assert_eq!(Data::default().message_text_size(), 14, "default size");
+        assert_eq!(
+            Data::MESSAGE_TEXT_SIZES,
+            [12, 14, 16, 18],
+            "supported sizes"
+        );
 
-    #[test]
-    fn persists_each_step() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("preferences.json");
         for size in Data::MESSAGE_TEXT_SIZES {
             let mut preferences = Preferences::open(path.clone());
             preferences.data.message_text_size = Some(size);
             preferences.save();
-            assert_eq!(preferences.error, None);
+            assert_eq!(preferences.error, None, "size {size}");
             let restored = Preferences::open(path.clone());
-            assert_eq!(restored.data.message_text_size(), size);
-            assert_eq!(restored.data.version, 1);
-            assert_eq!(restored.data.terminal, Terminal::default());
+            assert_eq!(restored.data.message_text_size(), size, "size {size}");
+            assert_eq!(restored.data.version, 1, "size {size}");
+            assert_eq!(restored.data.terminal, Terminal::default(), "size {size}");
         }
     }
 
@@ -138,44 +139,44 @@ mod update_channel {
     use crate::updater::Channel;
 
     #[test]
-    fn defaults_from_installed_version() {
-        assert_eq!(Channel::initial("0.1.0-alpha.1"), Channel::Experience);
-        assert_eq!(Channel::initial("0.1.0"), Channel::Stable);
-        assert_eq!(Channel::initial("0.1.0+build.2"), Channel::Stable);
-        assert_eq!(Data::default().update_channel, None);
-    }
-
-    #[test]
-    fn preserves_explicit_choice_across_versions() {
+    fn installed_and_persisted_channels() {
+        for (version, expected) in [
+            ("0.1.0-alpha.1", Channel::Experience),
+            ("0.1.0", Channel::Stable),
+            ("0.1.0+build.2", Channel::Stable),
+        ] {
+            assert_eq!(
+                Channel::initial(version),
+                expected,
+                "installed version: {version}"
+            );
+        }
+        assert_eq!(Data::default().update_channel, None, "unset channel");
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("preferences.json");
         let mut preferences = Preferences::open(path.clone());
-        preferences.data.update_channel = Some(Channel::Stable);
-        preferences.save();
-        assert_eq!(preferences.error, None);
-        assert_eq!(
-            Preferences::open(path).data.update_channel,
-            Some(Channel::Stable)
-        );
-    }
-
-    #[test]
-    fn alpha_choice_survives_stable_reload() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("preferences.json");
-        let mut preferences = Preferences::open(path.clone());
-        let initial = Channel::initial("0.1.0-alpha.1");
-        preferences.data.update_channel = Some(initial);
-        preferences.save();
-
-        let restored = Preferences::open(path);
-        assert_eq!(
-            restored
-                .data
-                .update_channel
-                .unwrap_or_else(|| Channel::initial("0.1.0")),
-            Channel::Experience
-        );
+        for (case, chosen) in [
+            ("explicit stable", Channel::Stable),
+            ("alpha default", Channel::initial("0.1.0-alpha.1")),
+        ] {
+            preferences.data.update_channel = Some(chosen);
+            preferences.save();
+            assert_eq!(preferences.error, None, "{case}: save");
+            let restored = Preferences::open(path.clone());
+            assert_eq!(
+                restored.data.update_channel,
+                Some(chosen),
+                "{case}: exact choice"
+            );
+            assert_eq!(
+                restored
+                    .data
+                    .update_channel
+                    .unwrap_or_else(|| Channel::initial("0.1.0")),
+                chosen,
+                "{case}: stable reload"
+            );
+        }
     }
 }
 

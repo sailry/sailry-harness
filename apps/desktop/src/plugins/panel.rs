@@ -1091,33 +1091,53 @@ mod availability {
     use sailry_protocol::plugin::Compatibility;
 
     #[test]
-    fn preserves_disabled_settings_access() {
-        let mut summary: Summary = serde_json::from_value(serde_json::json!({
-            "name":"example", "revision":1, "digest":"capture", "settings_revision":0,
-            "version":"0.1.0", "enabled":false,
-        }))
-        .unwrap();
-        assert!(accepts(&summary, Surface::Settings));
-        assert!(!accepts(&summary, Surface::Workspace));
-        summary.enabled = true;
-        assert!(accepts(&summary, Surface::Workspace));
-    }
-
-    #[test]
-    fn rejects_incompatible_packages() {
-        let mut summary: Summary = serde_json::from_value(serde_json::json!({
-            "name":"example", "revision":1, "digest":"capture", "settings_revision":0,
-            "version":"0.1.0", "enabled":true,
-        }))
-        .unwrap();
-        summary.compatibility = Compatibility::RequiresNewer {
-            required: "0.1.0-alpha.5".into(),
-        };
-        for enabled in [true, false] {
-            summary.enabled = enabled;
-            for surface in [Surface::Workspace, Surface::Settings] {
-                assert!(!accepts(&summary, surface));
-            }
+    fn package_access() {
+        for (scenario, check) in [
+            (
+                "preserves_disabled_settings_access",
+                (|_scenario: &str| {
+                    let mut summary: Summary = serde_json::from_value(serde_json::json!({
+                    "name":"example", "revision":1, "digest":"capture", "settings_revision":0,
+                    "version":"0.1.0", "enabled":false,
+                        }))
+                    .unwrap();
+                    assert!(
+                        accepts(&summary, Surface::Settings),
+                        "preserves disabled settings access"
+                    );
+                    assert!(
+                        !accepts(&summary, Surface::Workspace),
+                        "preserves disabled settings access"
+                    );
+                    summary.enabled = true;
+                    assert!(
+                        accepts(&summary, Surface::Workspace),
+                        "preserves disabled settings access"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "rejects_incompatible_packages",
+                (|_scenario: &str| {
+                    let mut summary: Summary = serde_json::from_value(serde_json::json!({
+                    "name":"example", "revision":1, "digest":"capture", "settings_revision":0,
+                    "version":"0.1.0", "enabled":true,
+                        }))
+                    .unwrap();
+                    summary.compatibility = Compatibility::RequiresNewer {
+                        required: "0.1.0-alpha.5".into(),
+                    };
+                    for enabled in [true, false] {
+                        summary.enabled = enabled;
+                        for surface in [Surface::Workspace, Surface::Settings] {
+                            assert!(!accepts(&summary, surface), "rejects incompatible packages");
+                        }
+                    }
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

@@ -190,42 +190,59 @@ mod tests {
         }
     }
     #[test]
-    fn drive_root_stays_absolute() {
-        assert_eq!(
-            crumbs(&listing("D:\\source\\目录", '\\')),
-            vec![
-                ("D:".into(), "D:\\".into()),
-                ("source".into(), "D:\\source".into()),
-                ("目录".into(), "D:\\source\\目录".into())
-            ]
-        );
-    }
-    #[test]
-    fn unc_preserves_share_root() {
-        assert_eq!(
-            crumbs(&listing("\\\\node\\share\\folder", '\\')),
-            vec![
-                ("\\\\node\\share".into(), "\\\\node\\share".into()),
-                ("folder".into(), "\\\\node\\share\\folder".into())
-            ]
-        );
-    }
-    #[test]
-    fn volume_name_comes_from_node() {
-        let mut listing = listing("/Volumes/Work/source", '/');
-        listing
-            .locations
-            .push(sailry_protocol::file_browser::Location {
-                kind: sailry_protocol::file_browser::LocationKind::Volume,
-                name: "Work".into(),
-                path: "/Volumes/Work".into(),
-            });
-        assert_eq!(
-            crumbs(&listing),
-            vec![
-                ("Work".into(), "/Volumes/Work".into()),
-                ("source".into(), "/Volumes/Work/source".into())
-            ]
-        );
+    fn portable_roots() {
+        for (scenario, check) in [
+            (
+                "drive_root_stays_absolute",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        crumbs(&listing("D:\\source\\目录", '\\')),
+                        vec![
+                            ("D:".into(), "D:\\".into()),
+                            ("source".into(), "D:\\source".into()),
+                            ("目录".into(), "D:\\source\\目录".into())
+                        ],
+                        "drive root stays absolute"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "unc_preserves_share_root",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        crumbs(&listing("\\\\node\\share\\folder", '\\')),
+                        vec![
+                            ("\\\\node\\share".into(), "\\\\node\\share".into()),
+                            ("folder".into(), "\\\\node\\share\\folder".into())
+                        ],
+                        "unc preserves share root"
+                    );
+                }),
+            ),
+            (
+                "volume_name_comes_from_node",
+                (|_scenario: &str| {
+                    let mut listing = listing("/Volumes/Work/source", '/');
+                    listing
+                        .locations
+                        .push(sailry_protocol::file_browser::Location {
+                            kind: sailry_protocol::file_browser::LocationKind::Volume,
+                            name: "Work".into(),
+                            path: "/Volumes/Work".into(),
+                        });
+                    assert_eq!(
+                        crumbs(&listing),
+                        vec![
+                            ("Work".into(), "/Volumes/Work".into()),
+                            ("source".into(), "/Volumes/Work/source".into())
+                        ],
+                        "volume name comes from node"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

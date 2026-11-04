@@ -220,23 +220,19 @@ mod workspace_visibility {
     use super::*;
 
     #[test]
-    fn preserves_split_on_terminal_focus() {
-        for (page, terminal_workspace) in [
-            (Page::Conversation, false),
-            (Page::Terminal, true),
-            (Page::Conversation, false),
+    fn active_pages_and_terminal_focus() {
+        for (page, terminal_workspace, expected) in [
+            (Page::Conversation, false, true),
+            (Page::Conversation, true, true),
+            (Page::Terminal, false, false),
+            (Page::Terminal, true, true),
         ] {
-            assert!(page.workspace_visible(terminal_workspace), "{page:?}");
+            assert_eq!(
+                page.workspace_visible(terminal_workspace),
+                expected,
+                "{page:?}: terminal {terminal_workspace}"
+            );
         }
-    }
-
-    #[test]
-    fn hides_inactive_terminal_workspaces() {
-        assert!(!Page::Terminal.workspace_visible(false));
-    }
-
-    #[test]
-    fn hides_other_pages() {
         for page in Page::ALL
             .into_iter()
             .chain([Page::Plugin, Page::Notifications])
@@ -245,8 +241,21 @@ mod workspace_visibility {
                 continue;
             }
             for terminal_workspace in [false, true] {
-                assert!(!page.workspace_visible(terminal_workspace), "{page:?}");
+                assert!(
+                    !page.workspace_visible(terminal_workspace),
+                    "{page:?}: terminal {terminal_workspace}"
+                );
             }
+        }
+        for (page, terminal_workspace) in [
+            (Page::Conversation, false),
+            (Page::Terminal, true),
+            (Page::Conversation, false),
+        ] {
+            assert!(
+                page.workspace_visible(terminal_workspace),
+                "focus sequence: {page:?}"
+            );
         }
     }
 }

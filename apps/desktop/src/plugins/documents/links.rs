@@ -190,87 +190,120 @@ mod tests {
     use super::{image_path, portable, resolve};
 
     #[test]
-    fn resolves_relative_to_document() {
-        assert_eq!(
-            resolve("docs/a.md", "node.md").as_deref(),
-            Some("docs/node.md")
-        );
-        assert_eq!(
-            resolve("docs/a.md", "../README.md#top").as_deref(),
-            Some("README.md")
-        );
-        assert_eq!(
-            resolve("docs/a.md", "/docs/node.md").as_deref(),
-            Some("docs/node.md")
-        );
-        assert_eq!(resolve("a.md", "./b.md").as_deref(), Some("b.md"));
-    }
-
-    #[test]
-    fn resolves_images_on_execution_host() {
-        for (url, expected) in [
-            ("../images/a.png", "images/a.png"),
-            ("/remote/project/images/a.png", "images/a.png"),
-            ("file:///remote/project/images/a.png", "images/a.png"),
-            ("/images/a.png", "images/a.png"),
+    fn portable_targets() {
+        for (scenario, check) in [
+            (
+                "resolves_relative_to_document",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        resolve("docs/a.md", "node.md").as_deref(),
+                        Some("docs/node.md"),
+                        "resolves relative to document"
+                    );
+                    assert_eq!(
+                        resolve("docs/a.md", "../README.md#top").as_deref(),
+                        Some("README.md"),
+                        "resolves relative to document"
+                    );
+                    assert_eq!(
+                        resolve("docs/a.md", "/docs/node.md").as_deref(),
+                        Some("docs/node.md"),
+                        "resolves relative to document"
+                    );
+                    assert_eq!(
+                        resolve("a.md", "./b.md").as_deref(),
+                        Some("b.md"),
+                        "resolves relative to document"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "resolves_images_on_execution_host",
+                (|_scenario: &str| {
+                    for (url, expected) in [
+                        ("../images/a.png", "images/a.png"),
+                        ("/remote/project/images/a.png", "images/a.png"),
+                        ("file:///remote/project/images/a.png", "images/a.png"),
+                        ("/images/a.png", "images/a.png"),
+                    ] {
+                        assert_eq!(
+                            image_path("docs/a.md", url, Some("/remote/project")).as_deref(),
+                            Some(expected),
+                            "resolves images on execution host"
+                        );
+                    }
+                    assert_eq!(
+                        image_path(
+                            "docs/a.md",
+                            "https://example.test/a.png",
+                            Some("/remote/project")
+                        ),
+                        None,
+                        "resolves images on execution host"
+                    );
+                    assert_eq!(
+                        image_path("a.md", "../../private.png", Some("/remote/project")),
+                        None,
+                        "resolves images on execution host"
+                    );
+                }),
+            ),
+            (
+                "chooser_keeps_portable_references",
+                (|_scenario: &str| {
+                    for (base, selected, root, expected) in [
+                        (
+                            "docs/a.md",
+                            "/remote/project/images/a.png",
+                            "/remote/project",
+                            "../images/a.png",
+                        ),
+                        (
+                            "docs/a.md",
+                            "/remote/project/docs/a.png",
+                            "/remote/project",
+                            "a.png",
+                        ),
+                        (
+                            "a.md",
+                            "C:/project/images/a.png",
+                            "C:/project",
+                            "images/a.png",
+                        ),
+                    ] {
+                        let reference = portable(base, selected, Some(root)).unwrap();
+                        assert_eq!(reference, expected, "chooser keeps portable references");
+                        assert_eq!(
+                            image_path(base, &reference, Some(root)),
+                            image_path(base, selected, Some(root)),
+                            "chooser keeps portable references"
+                        );
+                    }
+                    assert_eq!(
+                        portable("a.md", "/other/private.png", Some("/remote/project")),
+                        None,
+                        "chooser keeps portable references"
+                    );
+                }),
+            ),
+            (
+                "rejects_paths_outside_workspace",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        resolve("a.md", "../b.md"),
+                        None,
+                        "rejects paths outside workspace"
+                    );
+                    assert_eq!(
+                        resolve("a.md", "#section"),
+                        None,
+                        "rejects paths outside workspace"
+                    );
+                }),
+            ),
         ] {
-            assert_eq!(
-                image_path("docs/a.md", url, Some("/remote/project")).as_deref(),
-                Some(expected)
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert_eq!(
-            image_path(
-                "docs/a.md",
-                "https://example.test/a.png",
-                Some("/remote/project")
-            ),
-            None
-        );
-        assert_eq!(
-            image_path("a.md", "../../private.png", Some("/remote/project")),
-            None
-        );
-    }
-
-    #[test]
-    fn chooser_keeps_portable_references() {
-        for (base, selected, root, expected) in [
-            (
-                "docs/a.md",
-                "/remote/project/images/a.png",
-                "/remote/project",
-                "../images/a.png",
-            ),
-            (
-                "docs/a.md",
-                "/remote/project/docs/a.png",
-                "/remote/project",
-                "a.png",
-            ),
-            (
-                "a.md",
-                "C:/project/images/a.png",
-                "C:/project",
-                "images/a.png",
-            ),
-        ] {
-            let reference = portable(base, selected, Some(root)).unwrap();
-            assert_eq!(reference, expected);
-            assert_eq!(
-                image_path(base, &reference, Some(root)),
-                image_path(base, selected, Some(root))
-            );
-        }
-        assert_eq!(
-            portable("a.md", "/other/private.png", Some("/remote/project")),
-            None
-        );
-    }
-
-    #[test]
-    fn rejects_paths_outside_workspace() {
-        assert_eq!(resolve("a.md", "../b.md"), None);
-        assert_eq!(resolve("a.md", "#section"), None);
     }
 }

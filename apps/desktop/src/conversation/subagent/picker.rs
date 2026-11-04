@@ -373,26 +373,45 @@ mod tests {
     }
 
     #[test]
-    fn orders_newest_siblings() {
-        let items = tree_items(&[
-            row(0, None, 1),
-            row(1, Some(0), 3),
-            row(2, Some(0), 4),
-            row(3, None, 2),
-        ]);
-        assert_eq!(flatten(&items), ["3:0", "0:0", "2:0", "1:0"]);
-        assert_eq!(items[1].children.len(), 2);
-        assert!(items[1].is_expanded());
-    }
-
-    #[test]
-    fn deduplicates_invalid_ancestry() {
-        let items = tree_items(&[
-            row(0, Some(7), 5),
-            row(1, Some(1), 4),
-            row(2, Some(3), 3),
-            row(3, Some(2), 2),
-        ]);
-        assert_eq!(flatten(&items), ["0:0", "1:0", "2:0", "3:0"]);
+    fn ancestry_and_ordering() {
+        for (scenario, check) in [
+            (
+                "orders_newest_siblings",
+                (|_scenario: &str| {
+                    let items = tree_items(&[
+                        row(0, None, 1),
+                        row(1, Some(0), 3),
+                        row(2, Some(0), 4),
+                        row(3, None, 2),
+                    ]);
+                    assert_eq!(
+                        flatten(&items),
+                        ["3:0", "0:0", "2:0", "1:0"],
+                        "orders newest siblings"
+                    );
+                    assert_eq!(items[1].children.len(), 2, "orders newest siblings");
+                    assert!(items[1].is_expanded(), "orders newest siblings");
+                }) as fn(&str),
+            ),
+            (
+                "deduplicates_invalid_ancestry",
+                (|_scenario: &str| {
+                    let items = tree_items(&[
+                        row(0, Some(7), 5),
+                        row(1, Some(1), 4),
+                        row(2, Some(3), 3),
+                        row(3, Some(2), 2),
+                    ]);
+                    assert_eq!(
+                        flatten(&items),
+                        ["0:0", "1:0", "2:0", "3:0"],
+                        "deduplicates invalid ancestry"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

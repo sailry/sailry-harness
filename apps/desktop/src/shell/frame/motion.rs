@@ -53,40 +53,102 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn settles_only_at_target() {
-        assert_eq!(Phase::new(true, 1.), Phase::Open);
-        assert_eq!(Phase::new(true, 0.9999), Phase::Open);
-        assert_eq!(Phase::new(true, 0.), Phase::Moving);
-        assert_eq!(Phase::new(false, 0.), Phase::Closed);
-        assert_eq!(Phase::new(false, 0.00001), Phase::Closed);
-        assert_eq!(Phase::new(false, 1.), Phase::Moving);
-        assert_eq!(Phase::new(false, 0.5), Phase::Moving);
-    }
-
-    #[test]
-    fn keeps_content_until_closed() {
-        assert!(Phase::Open.mounted());
-        assert!(Phase::Moving.mounted());
-        assert!(!Phase::Closed.mounted());
-    }
-
-    #[test]
-    fn scales_extent_while_moving() {
-        let width = px(240.);
-        assert_eq!(Phase::Open.extent(width, 0.2), width);
-        assert_eq!(Phase::Closed.extent(width, 0.8), px(0.));
-        assert_eq!(Phase::Moving.extent(width, 0.5), px(120.));
-        assert_eq!(Phase::Moving.extent(width, 1.2), width);
-    }
-
-    #[test]
-    fn fixes_range_until_open() {
-        let range = px(200.)..px(480.);
-        assert_eq!(Phase::Open.range(range.clone(), px(240.)), range);
-        assert_eq!(
-            Phase::Moving.range(range.clone(), px(96.)),
-            px(96.)..px(96.)
-        );
-        assert_eq!(Phase::Closed.range(range, px(0.)), px(0.)..px(0.));
+    fn phases_and_extent() {
+        for (scenario, check) in [
+            (
+                "settles_only_at_target",
+                (|_scenario: &str| {
+                    assert_eq!(Phase::new(true, 1.), Phase::Open, "settles only at target");
+                    assert_eq!(
+                        Phase::new(true, 0.9999),
+                        Phase::Open,
+                        "settles only at target"
+                    );
+                    assert_eq!(
+                        Phase::new(true, 0.),
+                        Phase::Moving,
+                        "settles only at target"
+                    );
+                    assert_eq!(
+                        Phase::new(false, 0.),
+                        Phase::Closed,
+                        "settles only at target"
+                    );
+                    assert_eq!(
+                        Phase::new(false, 0.00001),
+                        Phase::Closed,
+                        "settles only at target"
+                    );
+                    assert_eq!(
+                        Phase::new(false, 1.),
+                        Phase::Moving,
+                        "settles only at target"
+                    );
+                    assert_eq!(
+                        Phase::new(false, 0.5),
+                        Phase::Moving,
+                        "settles only at target"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "keeps_content_until_closed",
+                (|_scenario: &str| {
+                    assert!(Phase::Open.mounted(), "keeps content until closed");
+                    assert!(Phase::Moving.mounted(), "keeps content until closed");
+                    assert!(!Phase::Closed.mounted(), "keeps content until closed");
+                }),
+            ),
+            (
+                "scales_extent_while_moving",
+                (|_scenario: &str| {
+                    let width = px(240.);
+                    assert_eq!(
+                        Phase::Open.extent(width, 0.2),
+                        width,
+                        "scales extent while moving"
+                    );
+                    assert_eq!(
+                        Phase::Closed.extent(width, 0.8),
+                        px(0.),
+                        "scales extent while moving"
+                    );
+                    assert_eq!(
+                        Phase::Moving.extent(width, 0.5),
+                        px(120.),
+                        "scales extent while moving"
+                    );
+                    assert_eq!(
+                        Phase::Moving.extent(width, 1.2),
+                        width,
+                        "scales extent while moving"
+                    );
+                }),
+            ),
+            (
+                "fixes_range_until_open",
+                (|_scenario: &str| {
+                    let range = px(200.)..px(480.);
+                    assert_eq!(
+                        Phase::Open.range(range.clone(), px(240.)),
+                        range,
+                        "fixes range until open"
+                    );
+                    assert_eq!(
+                        Phase::Moving.range(range.clone(), px(96.)),
+                        px(96.)..px(96.),
+                        "fixes range until open"
+                    );
+                    assert_eq!(
+                        Phase::Closed.range(range, px(0.)),
+                        px(0.)..px(0.),
+                        "fixes range until open"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

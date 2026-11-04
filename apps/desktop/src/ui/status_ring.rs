@@ -121,54 +121,86 @@ mod tests {
     }
 
     #[test]
-    fn stays_inside_bounds() {
-        let line = px(1.5);
-        for (start, length) in [(0., 1.), (0.9, SEGMENT), (0.5, SEGMENT)] {
-            let path = arc(bounds(), line, start, length).unwrap();
-            let outer = bounds().dilate(px(0.1));
-            for vertex in &path.vertices {
-                assert!(outer.contains(&vertex.xy_position), "{vertex:?}");
-            }
+    fn bounded_progress() {
+        for (scenario, check) in [
+            (
+                "stays_inside_bounds",
+                (|_scenario: &str| {
+                    let line = px(1.5);
+                    for (start, length) in [(0., 1.), (0.9, SEGMENT), (0.5, SEGMENT)] {
+                        let path = arc(bounds(), line, start, length).unwrap();
+                        let outer = bounds().dilate(px(0.1));
+                        for vertex in &path.vertices {
+                            assert!(
+                                outer.contains(&vertex.xy_position),
+                                "stays inside bounds: {vertex:?}"
+                            );
+                        }
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "progress_starts_at_top",
+                (|_scenario: &str| {
+                    let line = px(2.);
+                    let rings: Vec<_> = measured(square(), line, 0.07, Hsla::red()).collect();
+                    assert_eq!(rings.len(), 2, "progress starts at top");
+                    let center = square().center();
+                    let outer = square().dilate(px(0.1));
+                    for vertex in &rings[1].0.vertices {
+                        let at = vertex.xy_position;
+                        assert!(outer.contains(&at), "progress starts at top: {vertex:?}");
+                        // 7% sweeps about 25 degrees clockwise from 12 o'clock, so the
+                        // stroke stays in the top of the ring, right of its vertical axis.
+                        assert!(
+                            at.y < center.y - px(10.),
+                            "progress starts at top: {vertex:?}"
+                        );
+                        assert!(at.x > center.x - line, "progress starts at top: {vertex:?}");
+                    }
+                    // Stroked arcs leave the ring's interior uncovered.
+                    let hole = Bounds::centered_at(center, size(px(16.), px(16.)));
+                    for (path, _) in &rings {
+                        for vertex in &path.vertices {
+                            assert!(
+                                !hole.contains(&vertex.xy_position),
+                                "progress starts at top: {vertex:?}"
+                            );
+                        }
+                    }
+                }),
+            ),
+            (
+                "empty_progress_shows_track",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        measured(square(), px(2.), 0., Hsla::red()).count(),
+                        1,
+                        "empty progress shows track"
+                    );
+                }),
+            ),
+            (
+                "rejects_degenerate_rings",
+                (|_scenario: &str| {
+                    let flat = Bounds::new(point(px(0.), px(0.)), size(px(40.), px(1.)));
+                    assert!(
+                        arc(flat, px(1.5), 0., 1.).is_none(),
+                        "rejects degenerate rings"
+                    );
+                    assert!(
+                        arc(bounds(), px(1.5), 0., 0.).is_none(),
+                        "rejects degenerate rings"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 
     fn square() -> Bounds<Pixels> {
         Bounds::new(point(px(8.), px(700.)), size(px(32.), px(32.)))
-    }
-
-    #[test]
-    fn progress_starts_at_top() {
-        let line = px(2.);
-        let rings: Vec<_> = measured(square(), line, 0.07, Hsla::red()).collect();
-        assert_eq!(rings.len(), 2);
-        let center = square().center();
-        let outer = square().dilate(px(0.1));
-        for vertex in &rings[1].0.vertices {
-            let at = vertex.xy_position;
-            assert!(outer.contains(&at), "{vertex:?}");
-            // 7% sweeps about 25 degrees clockwise from 12 o'clock, so the
-            // stroke stays in the top of the ring, right of its vertical axis.
-            assert!(at.y < center.y - px(10.), "{vertex:?}");
-            assert!(at.x > center.x - line, "{vertex:?}");
-        }
-        // Stroked arcs leave the ring's interior uncovered.
-        let hole = Bounds::centered_at(center, size(px(16.), px(16.)));
-        for (path, _) in &rings {
-            for vertex in &path.vertices {
-                assert!(!hole.contains(&vertex.xy_position), "{vertex:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn empty_progress_shows_track() {
-        assert_eq!(measured(square(), px(2.), 0., Hsla::red()).count(), 1);
-    }
-
-    #[test]
-    fn rejects_degenerate_rings() {
-        let flat = Bounds::new(point(px(0.), px(0.)), size(px(40.), px(1.)));
-        assert!(arc(flat, px(1.5), 0., 1.).is_none());
-        assert!(arc(bounds(), px(1.5), 0., 0.).is_none());
     }
 }

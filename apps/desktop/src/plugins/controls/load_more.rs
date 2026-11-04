@@ -97,22 +97,33 @@ mod tests {
     }
 
     #[test]
-    fn reports_entry_once() {
-        let mask = Bounds::new(point(px(0.), px(0.)), size(px(100.), px(50.)));
-        let seen = Cell::new(false);
-        assert!(!entered(&seen, row(80.), mask));
-        assert!(entered(&seen, row(49.), mask));
-        assert!(!entered(&seen, row(20.), mask));
-        assert!(!entered(&seen, row(50.), mask));
-        assert!(entered(&seen, row(0.), mask));
-    }
-
-    #[test]
-    fn rearms_after_reset() {
-        let mask = Bounds::new(point(px(0.), px(0.)), size(px(100.), px(50.)));
-        let seen = Cell::new(false);
-        assert!(entered(&seen, row(10.), mask));
-        seen.set(false);
-        assert!(entered(&seen, row(10.), mask));
+    fn entry_and_reset() {
+        for (scenario, check) in [
+            (
+                "reports_entry_once",
+                (|_scenario: &str| {
+                    let mask = Bounds::new(point(px(0.), px(0.)), size(px(100.), px(50.)));
+                    let seen = Cell::new(false);
+                    assert!(!entered(&seen, row(80.), mask), "reports entry once");
+                    assert!(entered(&seen, row(49.), mask), "reports entry once");
+                    assert!(!entered(&seen, row(20.), mask), "reports entry once");
+                    assert!(!entered(&seen, row(50.), mask), "reports entry once");
+                    assert!(entered(&seen, row(0.), mask), "reports entry once");
+                }) as fn(&str),
+            ),
+            (
+                "rearms_after_reset",
+                (|_scenario: &str| {
+                    let mask = Bounds::new(point(px(0.), px(0.)), size(px(100.), px(50.)));
+                    let seen = Cell::new(false);
+                    assert!(entered(&seen, row(10.), mask), "rearms after reset");
+                    seen.set(false);
+                    assert!(entered(&seen, row(10.), mask), "rearms after reset");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

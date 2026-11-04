@@ -310,281 +310,344 @@ mod tests {
     use sailry_protocol::{NodeId, SessionId, TerminalId, WorktreeId};
 
     #[test]
-    fn split_and_detach_order() {
-        let node = NodeId([1; 32]);
-        let a = Target::Session(node, SessionId::new());
-        let b = Target::Session(node, SessionId::new());
-        let terminal = Target::Terminal(node, WorktreeId::new(), TerminalId::new());
-        let first = Some(ProjectId::new());
-        let second = Some(ProjectId::new());
-        let entries = [
-            (terminal, second, None),
-            (a, first, Some(1)),
-            (b, second, Some(2)),
-        ];
-        let parents = BTreeMap::from([(b, a), (terminal, b)]);
-        let rows = project(
-            &entries,
-            |target| parents.get(&target).copied(),
-            |_| Vec::new(),
-        );
-        assert_eq!(
-            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
-            [a, a, b, terminal]
-        );
-        assert!(rows.iter().all(|row| row.project == first));
-        assert_eq!(
-            rows.iter()
-                .map(|row| row.ancestors.len())
-                .collect::<Vec<_>>(),
-            [0, 1, 1, 1]
-        );
-        assert!(rows[0].folder);
-        assert!(
-            rows[1..]
-                .iter()
-                .all(|row| !row.folder && row.group == Some(a))
-        );
-        let detached = project(&entries, |_| None, |_| Vec::new());
-        assert_eq!(
-            detached
-                .iter()
-                .filter(|row| row.project == second)
-                .map(|row| row.target)
-                .collect::<Vec<_>>(),
-            [terminal, b]
-        );
-        assert!(detached.iter().all(|row| row.ancestors.is_empty()));
-        assert!(
-            detached
-                .iter()
-                .all(|row| !row.folder && row.group.is_none())
-        );
-    }
-
-    #[test]
-    fn hidden_parents() {
-        let node = NodeId([1; 32]);
-        let a = Target::Session(node, SessionId::new());
-        let b = Target::Session(node, SessionId::new());
-        let rows = project(
-            &[(b, Some(ProjectId::new()), Some(1))],
-            |_| Some(a),
-            |_| Vec::new(),
-        );
-        assert_eq!(rows[0].target, b);
-        assert!(rows[0].ancestors.is_empty());
-        assert!(!rows[0].folder);
-        assert!(rows[0].group.is_none());
-    }
-
-    #[test]
-    fn conversation_order_preserves_folder_owner() {
-        let node = NodeId([1; 32]);
-        let owner = Some(ProjectId::new());
-        let [a, b, c] = std::array::from_fn(|_| Target::Session(node, SessionId::new()));
-        let entries = [
-            (a, owner, Some(0)),
-            (b, owner, Some(1)),
-            (c, owner, Some(2)),
-        ];
-        let parents = BTreeMap::from([(b, a), (c, b)]);
-        let rows = project(
-            &entries,
-            |target| parents.get(&target).copied(),
-            |_| vec![c, a, b],
-        );
-        assert_eq!(
-            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
-            [c, a, b, c]
-        );
-        assert!(rows[0].folder);
-        assert!(rows.iter().all(|row| row.group == Some(a)));
-        assert!(
-            rows[1..]
-                .iter()
-                .all(|row| !row.folder && row.ancestors.len() == 1)
-        );
-    }
-
-    #[test]
-    fn stable_session_order() {
-        let node = NodeId([1; 32]);
-        let owner = Some(ProjectId::new());
-        let [a, b, c, d] = std::array::from_fn(|_| Target::Session(node, SessionId::new()));
-        let entries = [
-            (a, owner, Some(30)),
-            (b, owner, Some(10)),
-            (c, owner, Some(20)),
-            (d, owner, Some(20)),
-        ];
-        let rows = project(&entries, |_| None, |_| Vec::new());
-        assert_eq!(
-            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
-            [b, c, d, a]
-        );
-        let reversed: Vec<_> = entries.into_iter().rev().collect();
-        assert_eq!(
-            project(&reversed, |_| None, |_| Vec::new())
-                .iter()
-                .map(|row| row.target)
-                .collect::<Vec<_>>(),
-            [b, d, c, a]
-        );
-    }
-
-    #[test]
-    fn terminal_source_order() {
-        let node = NodeId([1; 32]);
-        let owner = Some(ProjectId::new());
-        let mut terminals: [Target; 2] =
-            std::array::from_fn(|_| Target::Terminal(node, WorktreeId::new(), TerminalId::new()));
-        terminals.sort_by(|left, right| right.cmp(left));
-        let [first, second] = terminals;
-        let session = Target::Session(node, SessionId::new());
-        let entries = [
-            (first, owner, None),
-            (session, owner, Some(0)),
-            (second, owner, None),
-        ];
-        let rows = project(&entries, |_| None, |_| Vec::new());
-        assert_eq!(
-            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
-            [first, second, session]
-        );
-    }
-
-    #[test]
-    fn descendant_order() {
-        let node = NodeId([1; 32]);
-        let owner = Some(ProjectId::new());
-        let [a, b, c, d] = std::array::from_fn(|_| Target::Session(node, SessionId::new()));
-        let terminal = Target::Terminal(node, WorktreeId::new(), TerminalId::new());
-        let nested = Target::Terminal(node, WorktreeId::new(), TerminalId::new());
-        let mut entries = [
-            (a, owner, Some(90)),
-            (b, owner, Some(40)),
-            (c, owner, Some(20)),
-            (d, owner, Some(70)),
-            (terminal, owner, None),
-            (nested, owner, None),
-        ];
-        let parents = BTreeMap::from([(c, a), (d, a), (nested, c)]);
-        let rows = project(
-            &entries,
-            |target| parents.get(&target).copied(),
-            |_| Vec::new(),
-        );
-        assert_eq!(
-            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
-            [terminal, a, c, d, nested, a, b]
-        );
-        assert_eq!(
-            rows.iter()
-                .map(|row| row.ancestors.len())
-                .collect::<Vec<_>>(),
-            [0, 0, 1, 1, 1, 1, 0]
-        );
-        assert!(!rows[2].last);
-        assert!(rows[5].last);
-        entries[1].2 = Some(10);
-        let changed = project(
-            &entries,
-            |target| parents.get(&target).copied(),
-            |_| Vec::new(),
-        );
-        assert_eq!(
-            changed.iter().map(|row| row.target).collect::<Vec<_>>(),
-            [terminal, b, a, c, d, nested, a]
-        );
-        let mut parents = parents;
-        parents.insert(a, terminal);
-        let changed = project(
-            &entries,
-            |target| parents.get(&target).copied(),
-            |_| Vec::new(),
-        );
-        assert_eq!(
-            changed.iter().map(|row| row.target).collect::<Vec<_>>(),
-            [b, terminal, terminal, c, d, nested, a]
-        );
-    }
-
-    #[test]
-    fn keeps_split_groups_whole() {
-        let node = NodeId([1; 32]);
-        let owner = Some(ProjectId::new());
-        let roots: Vec<_> = (0..7)
-            .map(|_| Target::Session(node, SessionId::new()))
-            .collect();
-        let children: Vec<_> = (0..7)
-            .map(|_| Target::Session(node, SessionId::new()))
-            .collect();
-        let entries: Vec<_> = roots
-            .iter()
-            .chain(&children)
-            .enumerate()
-            .map(|(rank, target)| (*target, owner, Some(rank)))
-            .collect();
-        let build = || {
-            project(
-                &entries,
-                |target| children.contains(&target).then_some(roots[0]),
-                |_| Vec::new(),
-            )
-        };
-        let (visible, more) = window(build(), false);
-        assert!(more);
-        assert_eq!(
-            visible
-                .iter()
-                .filter(|row| row.ancestors.is_empty())
-                .count(),
-            5
-        );
-        assert!(
-            children
-                .iter()
-                .all(|target| visible.iter().any(|row| row.target == *target))
-        );
-        assert_eq!(visible.last().unwrap().target, roots[4]);
-        assert!(visible.last().unwrap().last);
-        assert!(
-            visible
-                .iter()
-                .filter(|row| !row.ancestors.is_empty())
-                .all(|row| row.ancestors[0])
-        );
-        let (expanded, more) = window(build(), true);
-        assert!(more);
-        assert_eq!(
-            expanded
-                .iter()
-                .filter(|row| row.ancestors.is_empty())
-                .count(),
-            7
-        );
-    }
-
-    #[test]
-    fn retains_terminal_roots_outside_session_limit() {
-        let node = NodeId([1; 32]);
-        let owner = Some(ProjectId::new());
-        let terminal = Target::Terminal(node, WorktreeId::new(), TerminalId::new());
-        let mut entries = vec![(terminal, owner, None)];
-        entries.extend(
-            (0..6).map(|rank| (Target::Session(node, SessionId::new()), owner, Some(rank))),
-        );
-        let (visible, more) = window(project(&entries, |_| None, |_| Vec::new()), false);
-        assert!(more);
-        assert_eq!(visible.len(), 6);
-        assert!(visible.iter().any(|row| row.target == terminal));
-        assert_eq!(
-            visible
-                .iter()
-                .filter(|row| matches!(row.target, Target::Session(..)))
-                .count(),
-            5
-        );
+    fn ownership_and_ordering() {
+        for (scenario, check) in
+            [
+                (
+                    "split_and_detach_order",
+                    (|_scenario: &str| {
+                        let node = NodeId([1; 32]);
+                        let a = Target::Session(node, SessionId::new());
+                        let b = Target::Session(node, SessionId::new());
+                        let terminal = Target::Terminal(node, WorktreeId::new(), TerminalId::new());
+                        let first = Some(ProjectId::new());
+                        let second = Some(ProjectId::new());
+                        let entries = [
+                            (terminal, second, None),
+                            (a, first, Some(1)),
+                            (b, second, Some(2)),
+                        ];
+                        let parents = BTreeMap::from([(b, a), (terminal, b)]);
+                        let rows = project(
+                            &entries,
+                            |target| parents.get(&target).copied(),
+                            |_| Vec::new(),
+                        );
+                        assert_eq!(
+                            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
+                            [a, a, b, terminal],
+                            "split and detach order"
+                        );
+                        assert!(
+                            rows.iter().all(|row| row.project == first),
+                            "split and detach order"
+                        );
+                        assert_eq!(
+                            rows.iter()
+                                .map(|row| row.ancestors.len())
+                                .collect::<Vec<_>>(),
+                            [0, 1, 1, 1],
+                            "split and detach order"
+                        );
+                        assert!(rows[0].folder, "split and detach order");
+                        assert!(
+                            rows[1..]
+                                .iter()
+                                .all(|row| !row.folder && row.group == Some(a)),
+                            "split and detach order"
+                        );
+                        let detached = project(&entries, |_| None, |_| Vec::new());
+                        assert_eq!(
+                            detached
+                                .iter()
+                                .filter(|row| row.project == second)
+                                .map(|row| row.target)
+                                .collect::<Vec<_>>(),
+                            [terminal, b],
+                            "split and detach order"
+                        );
+                        assert!(
+                            detached.iter().all(|row| row.ancestors.is_empty()),
+                            "split and detach order"
+                        );
+                        assert!(
+                            detached
+                                .iter()
+                                .all(|row| !row.folder && row.group.is_none()),
+                            "split and detach order"
+                        );
+                    }) as fn(&str),
+                ),
+                (
+                    "hidden_parents",
+                    (|_scenario: &str| {
+                        let node = NodeId([1; 32]);
+                        let a = Target::Session(node, SessionId::new());
+                        let b = Target::Session(node, SessionId::new());
+                        let rows = project(
+                            &[(b, Some(ProjectId::new()), Some(1))],
+                            |_| Some(a),
+                            |_| Vec::new(),
+                        );
+                        assert_eq!(rows[0].target, b, "hidden parents");
+                        assert!(rows[0].ancestors.is_empty(), "hidden parents");
+                        assert!(!rows[0].folder, "hidden parents");
+                        assert!(rows[0].group.is_none(), "hidden parents");
+                    }),
+                ),
+                (
+                    "conversation_order_preserves_folder_owner",
+                    (|_scenario: &str| {
+                        let node = NodeId([1; 32]);
+                        let owner = Some(ProjectId::new());
+                        let [a, b, c] =
+                            std::array::from_fn(|_| Target::Session(node, SessionId::new()));
+                        let entries = [
+                            (a, owner, Some(0)),
+                            (b, owner, Some(1)),
+                            (c, owner, Some(2)),
+                        ];
+                        let parents = BTreeMap::from([(b, a), (c, b)]);
+                        let rows = project(
+                            &entries,
+                            |target| parents.get(&target).copied(),
+                            |_| vec![c, a, b],
+                        );
+                        assert_eq!(
+                            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
+                            [c, a, b, c],
+                            "conversation order preserves folder owner"
+                        );
+                        assert!(rows[0].folder, "conversation order preserves folder owner");
+                        assert!(
+                            rows.iter().all(|row| row.group == Some(a)),
+                            "conversation order preserves folder owner"
+                        );
+                        assert!(
+                            rows[1..]
+                                .iter()
+                                .all(|row| !row.folder && row.ancestors.len() == 1),
+                            "conversation order preserves folder owner"
+                        );
+                    }),
+                ),
+                (
+                    "stable_session_order",
+                    (|_scenario: &str| {
+                        let node = NodeId([1; 32]);
+                        let owner = Some(ProjectId::new());
+                        let [a, b, c, d] =
+                            std::array::from_fn(|_| Target::Session(node, SessionId::new()));
+                        let entries = [
+                            (a, owner, Some(30)),
+                            (b, owner, Some(10)),
+                            (c, owner, Some(20)),
+                            (d, owner, Some(20)),
+                        ];
+                        let rows = project(&entries, |_| None, |_| Vec::new());
+                        assert_eq!(
+                            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
+                            [b, c, d, a],
+                            "stable session order"
+                        );
+                        let reversed: Vec<_> = entries.into_iter().rev().collect();
+                        assert_eq!(
+                            project(&reversed, |_| None, |_| Vec::new())
+                                .iter()
+                                .map(|row| row.target)
+                                .collect::<Vec<_>>(),
+                            [b, d, c, a],
+                            "stable session order"
+                        );
+                    }),
+                ),
+                (
+                    "terminal_source_order",
+                    (|_scenario: &str| {
+                        let node = NodeId([1; 32]);
+                        let owner = Some(ProjectId::new());
+                        let mut terminals: [Target; 2] = std::array::from_fn(|_| {
+                            Target::Terminal(node, WorktreeId::new(), TerminalId::new())
+                        });
+                        terminals.sort_by(|left, right| right.cmp(left));
+                        let [first, second] = terminals;
+                        let session = Target::Session(node, SessionId::new());
+                        let entries = [
+                            (first, owner, None),
+                            (session, owner, Some(0)),
+                            (second, owner, None),
+                        ];
+                        let rows = project(&entries, |_| None, |_| Vec::new());
+                        assert_eq!(
+                            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
+                            [first, second, session],
+                            "terminal source order"
+                        );
+                    }),
+                ),
+                (
+                    "descendant_order",
+                    (|_scenario: &str| {
+                        let node = NodeId([1; 32]);
+                        let owner = Some(ProjectId::new());
+                        let [a, b, c, d] =
+                            std::array::from_fn(|_| Target::Session(node, SessionId::new()));
+                        let terminal = Target::Terminal(node, WorktreeId::new(), TerminalId::new());
+                        let nested = Target::Terminal(node, WorktreeId::new(), TerminalId::new());
+                        let mut entries = [
+                            (a, owner, Some(90)),
+                            (b, owner, Some(40)),
+                            (c, owner, Some(20)),
+                            (d, owner, Some(70)),
+                            (terminal, owner, None),
+                            (nested, owner, None),
+                        ];
+                        let parents = BTreeMap::from([(c, a), (d, a), (nested, c)]);
+                        let rows = project(
+                            &entries,
+                            |target| parents.get(&target).copied(),
+                            |_| Vec::new(),
+                        );
+                        assert_eq!(
+                            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
+                            [terminal, a, c, d, nested, a, b],
+                            "descendant order"
+                        );
+                        assert_eq!(
+                            rows.iter()
+                                .map(|row| row.ancestors.len())
+                                .collect::<Vec<_>>(),
+                            [0, 0, 1, 1, 1, 1, 0],
+                            "descendant order"
+                        );
+                        assert!(!rows[2].last, "descendant order");
+                        assert!(rows[5].last, "descendant order");
+                        entries[1].2 = Some(10);
+                        let changed = project(
+                            &entries,
+                            |target| parents.get(&target).copied(),
+                            |_| Vec::new(),
+                        );
+                        assert_eq!(
+                            changed.iter().map(|row| row.target).collect::<Vec<_>>(),
+                            [terminal, b, a, c, d, nested, a],
+                            "descendant order"
+                        );
+                        let mut parents = parents;
+                        parents.insert(a, terminal);
+                        let changed = project(
+                            &entries,
+                            |target| parents.get(&target).copied(),
+                            |_| Vec::new(),
+                        );
+                        assert_eq!(
+                            changed.iter().map(|row| row.target).collect::<Vec<_>>(),
+                            [b, terminal, terminal, c, d, nested, a],
+                            "descendant order"
+                        );
+                    }),
+                ),
+                (
+                    "keeps_split_groups_whole",
+                    (|_scenario: &str| {
+                        let node = NodeId([1; 32]);
+                        let owner = Some(ProjectId::new());
+                        let roots: Vec<_> = (0..7)
+                            .map(|_| Target::Session(node, SessionId::new()))
+                            .collect();
+                        let children: Vec<_> = (0..7)
+                            .map(|_| Target::Session(node, SessionId::new()))
+                            .collect();
+                        let entries: Vec<_> = roots
+                            .iter()
+                            .chain(&children)
+                            .enumerate()
+                            .map(|(rank, target)| (*target, owner, Some(rank)))
+                            .collect();
+                        let build = || {
+                            project(
+                                &entries,
+                                |target| children.contains(&target).then_some(roots[0]),
+                                |_| Vec::new(),
+                            )
+                        };
+                        let (visible, more) = window(build(), false);
+                        assert!(more, "keeps split groups whole");
+                        assert_eq!(
+                            visible
+                                .iter()
+                                .filter(|row| row.ancestors.is_empty())
+                                .count(),
+                            5,
+                            "keeps split groups whole"
+                        );
+                        assert!(
+                            children
+                                .iter()
+                                .all(|target| visible.iter().any(|row| row.target == *target)),
+                            "keeps split groups whole"
+                        );
+                        assert_eq!(
+                            visible.last().unwrap().target,
+                            roots[4],
+                            "keeps split groups whole"
+                        );
+                        assert!(visible.last().unwrap().last, "keeps split groups whole");
+                        assert!(
+                            visible
+                                .iter()
+                                .filter(|row| !row.ancestors.is_empty())
+                                .all(|row| row.ancestors[0]),
+                            "keeps split groups whole"
+                        );
+                        let (expanded, more) = window(build(), true);
+                        assert!(more, "keeps split groups whole");
+                        assert_eq!(
+                            expanded
+                                .iter()
+                                .filter(|row| row.ancestors.is_empty())
+                                .count(),
+                            7,
+                            "keeps split groups whole"
+                        );
+                    }),
+                ),
+                (
+                    "retains_terminal_roots_outside_session_limit",
+                    (|_scenario: &str| {
+                        let node = NodeId([1; 32]);
+                        let owner = Some(ProjectId::new());
+                        let terminal = Target::Terminal(node, WorktreeId::new(), TerminalId::new());
+                        let mut entries = vec![(terminal, owner, None)];
+                        entries.extend((0..6).map(|rank| {
+                            (Target::Session(node, SessionId::new()), owner, Some(rank))
+                        }));
+                        let (visible, more) =
+                            window(project(&entries, |_| None, |_| Vec::new()), false);
+                        assert!(more, "retains terminal roots outside session limit");
+                        assert_eq!(
+                            visible.len(),
+                            6,
+                            "retains terminal roots outside session limit"
+                        );
+                        assert!(
+                            visible.iter().any(|row| row.target == terminal),
+                            "retains terminal roots outside session limit"
+                        );
+                        assert_eq!(
+                            visible
+                                .iter()
+                                .filter(|row| matches!(row.target, Target::Session(..)))
+                                .count(),
+                            5,
+                            "retains terminal roots outside session limit"
+                        );
+                    }),
+                ),
+            ]
+        {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

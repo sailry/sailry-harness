@@ -161,39 +161,74 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn disk_errors_do_not_imply_authorization() {
-        assert_eq!(disk_result(Ok(())), Status::Granted);
-        assert_eq!(
-            disk_result(Err(io::ErrorKind::PermissionDenied.into())),
-            Status::Required
-        );
-        for kind in [io::ErrorKind::NotFound, io::ErrorKind::Other] {
-            assert_eq!(disk_result(Err(kind.into())), Status::Unknown);
+    fn native_access() {
+        for (scenario, check) in [
+            (
+                "disk_errors_do_not_imply_authorization",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        disk_result(Ok(())),
+                        Status::Granted,
+                        "disk errors do not imply authorization"
+                    );
+                    assert_eq!(
+                        disk_result(Err(io::ErrorKind::PermissionDenied.into())),
+                        Status::Required,
+                        "disk errors do not imply authorization"
+                    );
+                    for kind in [io::ErrorKind::NotFound, io::ErrorKind::Other] {
+                        assert_eq!(
+                            disk_result(Err(kind.into())),
+                            Status::Unknown,
+                            "disk errors do not imply authorization"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "directory_check_avoids_content_access",
+                (|_scenario: &str| {
+                    let root = tempfile::tempdir().unwrap();
+                    let file = root.path().join("unopened");
+                    std::fs::write(&file, b"preserved").unwrap();
+                    assert_eq!(
+                        disk_status(root.path()),
+                        Status::Granted,
+                        "directory check avoids content access"
+                    );
+                    assert_eq!(
+                        std::fs::read(file).unwrap(),
+                        b"preserved",
+                        "directory check avoids content access"
+                    );
+                    assert_eq!(
+                        disk_status(&root.path().join("missing")),
+                        Status::Unknown,
+                        "directory check avoids content access"
+                    );
+                }),
+            ),
+            (
+                "reveals_the_bundle_not_a_bare_executable",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        bundle_at(Path::new(
+                            "/Applications/Sailry.app/Contents/MacOS/sailry-desktop"
+                        )),
+                        Some(PathBuf::from("/Applications/Sailry.app")),
+                        "reveals the bundle not a bare executable"
+                    );
+                    assert_eq!(
+                        bundle_at(Path::new("/work/target/debug/sailry-desktop")),
+                        None,
+                        "reveals the bundle not a bare executable"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn directory_check_avoids_content_access() {
-        let root = tempfile::tempdir().unwrap();
-        let file = root.path().join("unopened");
-        std::fs::write(&file, b"preserved").unwrap();
-        assert_eq!(disk_status(root.path()), Status::Granted);
-        assert_eq!(std::fs::read(file).unwrap(), b"preserved");
-        assert_eq!(disk_status(&root.path().join("missing")), Status::Unknown);
-    }
-
-    #[test]
-    fn reveals_the_bundle_not_a_bare_executable() {
-        assert_eq!(
-            bundle_at(Path::new(
-                "/Applications/Sailry.app/Contents/MacOS/sailry-desktop"
-            )),
-            Some(PathBuf::from("/Applications/Sailry.app"))
-        );
-        assert_eq!(
-            bundle_at(Path::new("/work/target/debug/sailry-desktop")),
-            None
-        );
     }
 
     #[gpui::test]

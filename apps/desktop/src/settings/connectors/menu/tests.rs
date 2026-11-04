@@ -36,79 +36,107 @@ fn fixture(method: Kind, fields: bool) -> (Connection, Type) {
 }
 
 #[test]
-fn uses_one_management_menu_for_every_method() {
-    for method in [
-        Kind::Secret,
-        Kind::Application,
-        Kind::Oauth2,
-        Kind::McpOauth,
-        Kind::LocalCli,
+fn available_actions() {
+    for (scenario, check) in [
+        (
+            "uses_one_management_menu_for_every_method",
+            (|_scenario: &str| {
+                for method in [
+                    Kind::Secret,
+                    Kind::Application,
+                    Kind::Oauth2,
+                    Kind::McpOauth,
+                    Kind::LocalCli,
+                ] {
+                    let (row, kind) = fixture(method, false);
+                    assert_eq!(
+                        items(&row, Some(&kind)),
+                        [
+                            Item::Action(Operation::Edit, "connector_configure"),
+                            Item::Action(Operation::Probe, "connector_probe"),
+                            Item::Action(Operation::Remove, "connector_remove"),
+                        ],
+                        "uses one management menu for every method"
+                    );
+                }
+            }) as fn(&str),
+        ),
+        (
+            "checks_only_backend_supported_states",
+            (|_scenario: &str| {
+                let (mut row, kind) = fixture(Kind::Oauth2, true);
+                for enabled in [false, true] {
+                    row.enabled = enabled;
+                    for state in [
+                        State::Connected,
+                        State::Failed,
+                        State::Expired,
+                        State::NotConnected,
+                        State::Connecting,
+                        State::NeedsConfirmation,
+                    ] {
+                        row.state = state;
+                        let expected = enabled
+                            && matches!(state, State::Connected | State::Failed | State::Expired);
+                        assert_eq!(
+                            checkable(&row),
+                            expected,
+                            "checks only backend supported states: {enabled}/{state:?}"
+                        );
+                        let actions = items(&row, Some(&kind));
+                        assert_eq!(
+                            actions.contains(&Item::Action(Operation::Probe, "connector_probe")),
+                            expected,
+                            "checks only backend supported states"
+                        );
+                        assert!(
+                            actions.contains(&Item::Action(Operation::Edit, "connector_configure")),
+                            "checks only backend supported states"
+                        );
+                        assert!(
+                            actions.contains(&Item::Action(Operation::Remove, "connector_remove")),
+                            "checks only backend supported states"
+                        );
+                    }
+                }
+            }),
+        ),
+        (
+            "keeps_disabled_configuration_accessible",
+            (|_scenario: &str| {
+                let (row, mut kind) = fixture(Kind::McpOauth, false);
+                kind.enabled = false;
+                assert_eq!(
+                    items(&row, Some(&kind)),
+                    [
+                        Item::Action(Operation::Edit, "connector_configure"),
+                        Item::Action(Operation::Remove, "connector_remove"),
+                    ],
+                    "keeps disabled configuration accessible"
+                );
+            }),
+        ),
+        (
+            "removes_orphans_without_disconnecting_other_accounts",
+            (|_scenario: &str| {
+                let (mut row, _) = fixture(Kind::Secret, false);
+                row.state = State::NotConnected;
+                row.can_disconnect = true;
+                assert_eq!(
+                    items(&row, None),
+                    [Item::Action(Operation::Remove, "connector_remove")],
+                    "removes orphans without disconnecting other accounts"
+                );
+                row.can_disconnect = false;
+                assert_eq!(
+                    items(&row, None),
+                    [Item::Action(Operation::Remove, "connector_remove")],
+                    "removes orphans without disconnecting other accounts"
+                );
+            }),
+        ),
     ] {
-        let (row, kind) = fixture(method, false);
-        assert_eq!(
-            items(&row, Some(&kind)),
-            [
-                Item::Action(Operation::Edit, "connector_configure"),
-                Item::Action(Operation::Probe, "connector_probe"),
-                Item::Action(Operation::Remove, "connector_remove"),
-            ]
-        );
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-}
-
-#[test]
-fn checks_only_backend_supported_states() {
-    let (mut row, kind) = fixture(Kind::Oauth2, true);
-    for enabled in [false, true] {
-        row.enabled = enabled;
-        for state in [
-            State::Connected,
-            State::Failed,
-            State::Expired,
-            State::NotConnected,
-            State::Connecting,
-            State::NeedsConfirmation,
-        ] {
-            row.state = state;
-            let expected =
-                enabled && matches!(state, State::Connected | State::Failed | State::Expired);
-            assert_eq!(checkable(&row), expected, "{enabled}/{state:?}");
-            let actions = items(&row, Some(&kind));
-            assert_eq!(
-                actions.contains(&Item::Action(Operation::Probe, "connector_probe")),
-                expected
-            );
-            assert!(actions.contains(&Item::Action(Operation::Edit, "connector_configure")));
-            assert!(actions.contains(&Item::Action(Operation::Remove, "connector_remove")));
-        }
-    }
-}
-
-#[test]
-fn keeps_disabled_configuration_accessible() {
-    let (row, mut kind) = fixture(Kind::McpOauth, false);
-    kind.enabled = false;
-    assert_eq!(
-        items(&row, Some(&kind)),
-        [
-            Item::Action(Operation::Edit, "connector_configure"),
-            Item::Action(Operation::Remove, "connector_remove"),
-        ]
-    );
-}
-
-#[test]
-fn removes_orphans_without_disconnecting_other_accounts() {
-    let (mut row, _) = fixture(Kind::Secret, false);
-    row.state = State::NotConnected;
-    row.can_disconnect = true;
-    assert_eq!(
-        items(&row, None),
-        [Item::Action(Operation::Remove, "connector_remove")]
-    );
-    row.can_disconnect = false;
-    assert_eq!(
-        items(&row, None),
-        [Item::Action(Operation::Remove, "connector_remove")]
-    );
 }

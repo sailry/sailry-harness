@@ -104,30 +104,70 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn identities_are_stable_and_varied() {
-        let identities: std::collections::HashSet<_> = (0..256)
-            .map(|id| identity(&format!("agent-{id}")))
-            .collect();
-        assert!(identities.len() > 32);
-        assert_eq!(identity("agent-7"), (2, 0));
-        assert_ne!(identity("agent-7"), identity("agent-8"));
-    }
-
-    #[test]
-    fn settled_badges_use_muted_color() {
-        let muted = hsla(0., 0., 0.5, 1.);
-        for index in 0..8 {
-            assert_eq!(tint(index, false, false, muted), muted);
-            assert_eq!(tint(index, false, true, muted), muted);
+    fn identity_and_tints() {
+        for (scenario, check) in [
+            (
+                "identities_are_stable_and_varied",
+                (|_scenario: &str| {
+                    let identities: std::collections::HashSet<_> = (0..256)
+                        .map(|id| identity(&format!("agent-{id}")))
+                        .collect();
+                    assert!(identities.len() > 32, "identities are stable and varied");
+                    assert_eq!(
+                        identity("agent-7"),
+                        (2, 0),
+                        "identities are stable and varied"
+                    );
+                    assert_ne!(
+                        identity("agent-7"),
+                        identity("agent-8"),
+                        "identities are stable and varied"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "settled_badges_use_muted_color",
+                (|_scenario: &str| {
+                    let muted = hsla(0., 0., 0.5, 1.);
+                    for index in 0..8 {
+                        assert_eq!(
+                            tint(index, false, false, muted),
+                            muted,
+                            "settled badges use muted color"
+                        );
+                        assert_eq!(
+                            tint(index, false, true, muted),
+                            muted,
+                            "settled badges use muted color"
+                        );
+                    }
+                }),
+            ),
+            (
+                "running_badges_retain_identity_color",
+                (|_scenario: &str| {
+                    let muted = hsla(0., 0., 0.5, 1.);
+                    assert_eq!(
+                        tint(0, true, false, muted),
+                        ColorName::Cyan.scale(600),
+                        "running badges retain identity color"
+                    );
+                    assert_eq!(
+                        tint(0, true, true, muted),
+                        ColorName::Cyan.scale(400),
+                        "running badges retain identity color"
+                    );
+                    assert_ne!(
+                        tint(0, true, true, muted),
+                        tint(1, true, true, muted),
+                        "running badges retain identity color"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn running_badges_retain_identity_color() {
-        let muted = hsla(0., 0., 0.5, 1.);
-        assert_eq!(tint(0, true, false, muted), ColorName::Cyan.scale(600));
-        assert_eq!(tint(0, true, true, muted), ColorName::Cyan.scale(400));
-        assert_ne!(tint(0, true, true, muted), tint(1, true, true, muted));
     }
 
     #[gpui_kit::test]

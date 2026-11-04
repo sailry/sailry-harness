@@ -183,26 +183,75 @@ async fn finish(job: tokio::task::JoinHandle<()>) {
 }
 
 #[tokio::test]
-async fn recovers_with_unchanged_inventory() {
-    let package = info("ssh");
-    let reads = Reads::new(vec![(
-        "ssh",
-        vec![
-            failure(ErrorCode::Busy),
-            failure(ErrorCode::Unavailable),
-            success(&package),
-        ],
-    )]);
-    let (job, mut receiver) = start(
-        reads.clone(),
-        vec![package.summary.clone()],
-        CancellationToken::new(),
-    );
-    let batch = next(&mut receiver).await;
-    assert!(!batch.retrying);
-    assert_eq!(batch.results, vec![("ssh".into(), Ok(package))]);
-    finish(job).await;
-    assert_eq!(*reads.requests.lock().unwrap(), ["ssh", "ssh", "ssh"]);
+async fn bounded_reads_and_revisions() {
+    let ssh = info("ssh");
+    let git = info("git");
+    let mut changed = git.clone();
+    changed.summary.revision += 1;
+    for (case, expected, steps, result, diagnostic, attempts) in [
+        (
+            "transient recovery",
+            ssh.summary.clone(),
+            vec![
+                failure(ErrorCode::Busy),
+                failure(ErrorCode::Unavailable),
+                success(&ssh),
+            ],
+            Some(Ok(ssh.clone())),
+            None,
+            3,
+        ),
+        (
+            "attempt limit",
+            ssh.summary.clone(),
+            vec![
+                failure(ErrorCode::Busy),
+                failure(ErrorCode::Unavailable),
+                failure(ErrorCode::Busy),
+            ],
+            None,
+            Some(ErrorCode::Busy),
+            3,
+        ),
+        (
+            "changed revision",
+            git.summary.clone(),
+            vec![success(&changed)],
+            Some(Err("plugins_conflict")),
+            None,
+            1,
+        ),
+        (
+            "unknown outcome",
+            ssh.summary.clone(),
+            vec![failure(ErrorCode::OutcomeUnknown)],
+            None,
+            None,
+            1,
+        ),
+    ] {
+        let name = expected.name.clone();
+        let reads = Reads::new(vec![(&name, steps)]);
+        let (job, mut receiver) = start(reads.clone(), vec![expected], CancellationToken::new());
+        let batch = next(&mut receiver).await;
+        assert!(!batch.retrying, "{case}: final batch");
+        if let Some(result) = result {
+            assert_eq!(
+                batch.results,
+                vec![(name.clone(), result)],
+                "{case}: result"
+            );
+        }
+        if let Some(code) = diagnostic {
+            assert_eq!(batch.diagnostics[&name].code, code, "{case}: diagnostic");
+        }
+        finish(job).await;
+        assert_eq!(
+            *reads.requests.lock().unwrap(),
+            vec![name; attempts],
+            "{case}: requests"
+        );
+    }
 }
 
 #[tokio::test]
@@ -247,60 +296,6 @@ async fn isolates_failed_and_pending_packages() {
     stop.cancel();
     finish(job).await;
     assert!(stopped.is_cancelled());
-}
-
-#[tokio::test]
-async fn bounds_transient_attempts() {
-    let reads = Reads::new(vec![(
-        "ssh",
-        vec![
-            failure(ErrorCode::Busy),
-            failure(ErrorCode::Unavailable),
-            failure(ErrorCode::Busy),
-        ],
-    )]);
-    let (job, mut receiver) = start(
-        reads.clone(),
-        vec![info("ssh").summary],
-        CancellationToken::new(),
-    );
-    let batch = next(&mut receiver).await;
-    assert!(!batch.retrying);
-    assert_eq!(batch.diagnostics["ssh"].code, ErrorCode::Busy);
-    finish(job).await;
-    assert_eq!(*reads.requests.lock().unwrap(), ["ssh", "ssh", "ssh"]);
-}
-
-#[tokio::test]
-async fn rejects_changed_revisions_without_retry() {
-    let expected = info("git");
-    let mut changed = expected.clone();
-    changed.summary.revision += 1;
-    let reads = Reads::new(vec![("git", vec![success(&changed)])]);
-    let (job, mut receiver) = start(
-        reads.clone(),
-        vec![expected.summary],
-        CancellationToken::new(),
-    );
-    assert_eq!(
-        next(&mut receiver).await.results,
-        vec![("git".into(), Err("plugins_conflict"))]
-    );
-    finish(job).await;
-    assert_eq!(*reads.requests.lock().unwrap(), ["git"]);
-}
-
-#[tokio::test]
-async fn keeps_unknown_outcomes_stable() {
-    let reads = Reads::new(vec![("ssh", vec![failure(ErrorCode::OutcomeUnknown)])]);
-    let (job, mut receiver) = start(
-        reads.clone(),
-        vec![info("ssh").summary],
-        CancellationToken::new(),
-    );
-    assert!(!next(&mut receiver).await.retrying);
-    finish(job).await;
-    assert_eq!(*reads.requests.lock().unwrap(), ["ssh"]);
 }
 
 #[tokio::test]

@@ -37,178 +37,278 @@ pub(in crate::dictation) fn installed(directory: PathBuf) -> (Arc<Manager>, Mode
 }
 
 #[test]
-fn preserves_installed_selection_records() {
-    let directory = tempfile::tempdir().unwrap();
-    let manager = Manager::open(directory.path().into()).unwrap();
-    let definition = definition();
-    let id = manager.register(definition.clone()).unwrap();
-    assert_eq!(manager.register(definition.clone()).unwrap(), id);
-    manager.finish(Some(id), Ok(()), &CancellationToken::new());
-    let reopened = Manager::open(directory.path().into()).unwrap();
-    let entry = reopened.entries().pop().unwrap();
-    assert_eq!(entry.record.id, id);
-    assert_eq!(entry.record.definition, definition);
-    assert_eq!(entry.state, State::Installed);
-    assert!(!reopened.capture(Some(id)).unwrap().ready());
-}
-
-#[test]
-fn immutable_versions_reject_new_assets() {
-    let directory = tempfile::tempdir().unwrap();
-    let manager = Manager::open(directory.path().into()).unwrap();
-    let mut definition = definition();
-    manager.register(definition.clone()).unwrap();
-    definition.assets[0].sha256 = "c".repeat(64);
-    assert_eq!(manager.register(definition), Err("model_library_conflict"));
-    assert_eq!(manager.entries().len(), 1);
-}
-
-#[test]
-fn captured_model_keeps_its_installation() {
-    let directory = tempfile::tempdir().unwrap();
-    let (manager, id, captured) = installed(directory.path().into());
-    let cloned = captured.clone();
-    assert_eq!(manager.remove(id), Err("dictation_busy"));
-    let mut other = definition();
-    other.source.revision = "d".repeat(40);
-    let other = manager.register(other).unwrap();
-    manager.remove(other).unwrap();
-    drop(captured);
-    assert_eq!(manager.remove(id), Err("dictation_busy"));
-    drop(cloned);
-    manager.remove(id).unwrap();
-    assert!(manager.entries().is_empty());
-}
-
-#[test]
-fn cancellation_never_publishes_an_installation() {
-    let directory = tempfile::tempdir().unwrap();
-    let manager = Manager::open(directory.path().into()).unwrap();
-    let id = manager.register(definition()).unwrap();
-    let cancel = CancellationToken::new();
-    manager.data.lock().unwrap().jobs.insert(
-        Some(id),
-        Job {
-            cancel: cancel.clone(),
-            state: State::Downloading(Progress::default()),
-        },
-    );
-    manager.cancel(Some(id));
-    assert!(cancel.is_cancelled());
-    manager.finish(Some(id), Ok(()), &cancel);
-    assert_eq!(manager.entries()[0].state, State::Missing);
-    assert!(
-        !Manager::open(directory.path().into()).unwrap().entries()[0]
-            .record
-            .installed
-    );
-}
-
-#[test]
-fn preserves_invalid_index() {
-    let directory = tempfile::tempdir().unwrap();
-    std::fs::create_dir(directory.path().join("models")).unwrap();
-    let path = directory.path().join("models/speech.json");
-    std::fs::write(&path, b"invalid").unwrap();
-    assert!(Manager::open(directory.path().into()).is_err());
-    assert_eq!(std::fs::read(path).unwrap(), b"invalid");
-}
-
-#[test]
-fn cancels_only_the_addressed_model() {
-    let directory = tempfile::tempdir().unwrap();
-    let manager = Manager::open(directory.path().into()).unwrap();
-    let id = manager.register(definition()).unwrap();
-    let default = CancellationToken::new();
-    let custom = CancellationToken::new();
-    {
-        let mut data = manager.data.lock().unwrap();
-        for (id, cancel) in [(None, default.clone()), (Some(id), custom.clone())] {
-            data.jobs.insert(
-                id,
-                Job {
-                    cancel,
-                    state: State::Downloading(Progress::default()),
-                },
-            );
-        }
+fn capture_and_installation() {
+    for (scenario, check) in [
+        (
+            "preserves_installed_selection_records",
+            (|_scenario: &str| {
+                let directory = tempfile::tempdir().unwrap();
+                let manager = Manager::open(directory.path().into()).unwrap();
+                let definition = definition();
+                let id = manager.register(definition.clone()).unwrap();
+                assert_eq!(
+                    manager.register(definition.clone()).unwrap(),
+                    id,
+                    "preserves installed selection records"
+                );
+                manager.finish(Some(id), Ok(()), &CancellationToken::new());
+                let reopened = Manager::open(directory.path().into()).unwrap();
+                let entry = reopened.entries().pop().unwrap();
+                assert_eq!(entry.record.id, id, "preserves installed selection records");
+                assert_eq!(
+                    entry.record.definition, definition,
+                    "preserves installed selection records"
+                );
+                assert_eq!(
+                    entry.state,
+                    State::Installed,
+                    "preserves installed selection records"
+                );
+                assert!(
+                    !reopened.capture(Some(id)).unwrap().ready(),
+                    "preserves installed selection records"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "immutable_versions_reject_new_assets",
+            (|_scenario: &str| {
+                let directory = tempfile::tempdir().unwrap();
+                let manager = Manager::open(directory.path().into()).unwrap();
+                let mut definition = definition();
+                manager.register(definition.clone()).unwrap();
+                definition.assets[0].sha256 = "c".repeat(64);
+                assert_eq!(
+                    manager.register(definition),
+                    Err("model_library_conflict"),
+                    "immutable versions reject new assets"
+                );
+                assert_eq!(
+                    manager.entries().len(),
+                    1,
+                    "immutable versions reject new assets"
+                );
+            }),
+        ),
+        (
+            "captured_model_keeps_its_installation",
+            (|_scenario: &str| {
+                let directory = tempfile::tempdir().unwrap();
+                let (manager, id, captured) = installed(directory.path().into());
+                let cloned = captured.clone();
+                assert_eq!(
+                    manager.remove(id),
+                    Err("dictation_busy"),
+                    "captured model keeps its installation"
+                );
+                let mut other = definition();
+                other.source.revision = "d".repeat(40);
+                let other = manager.register(other).unwrap();
+                manager.remove(other).unwrap();
+                drop(captured);
+                assert_eq!(
+                    manager.remove(id),
+                    Err("dictation_busy"),
+                    "captured model keeps its installation"
+                );
+                drop(cloned);
+                manager.remove(id).unwrap();
+                assert!(
+                    manager.entries().is_empty(),
+                    "captured model keeps its installation"
+                );
+            }),
+        ),
+        (
+            "cancellation_never_publishes_an_installation",
+            (|_scenario: &str| {
+                let directory = tempfile::tempdir().unwrap();
+                let manager = Manager::open(directory.path().into()).unwrap();
+                let id = manager.register(definition()).unwrap();
+                let cancel = CancellationToken::new();
+                manager.data.lock().unwrap().jobs.insert(
+                    Some(id),
+                    Job {
+                        cancel: cancel.clone(),
+                        state: State::Downloading(Progress::default()),
+                    },
+                );
+                manager.cancel(Some(id));
+                assert!(
+                    cancel.is_cancelled(),
+                    "cancellation never publishes an installation"
+                );
+                manager.finish(Some(id), Ok(()), &cancel);
+                assert_eq!(
+                    manager.entries()[0].state,
+                    State::Missing,
+                    "cancellation never publishes an installation"
+                );
+                assert!(
+                    !Manager::open(directory.path().into()).unwrap().entries()[0]
+                        .record
+                        .installed,
+                    "cancellation never publishes an installation"
+                );
+            }),
+        ),
+        (
+            "preserves_invalid_index",
+            (|_scenario: &str| {
+                let directory = tempfile::tempdir().unwrap();
+                std::fs::create_dir(directory.path().join("models")).unwrap();
+                let path = directory.path().join("models/speech.json");
+                std::fs::write(&path, b"invalid").unwrap();
+                assert!(
+                    Manager::open(directory.path().into()).is_err(),
+                    "preserves invalid index"
+                );
+                assert_eq!(
+                    std::fs::read(path).unwrap(),
+                    b"invalid",
+                    "preserves invalid index"
+                );
+            }),
+        ),
+        (
+            "cancels_only_the_addressed_model",
+            (|_scenario: &str| {
+                let directory = tempfile::tempdir().unwrap();
+                let manager = Manager::open(directory.path().into()).unwrap();
+                let id = manager.register(definition()).unwrap();
+                let default = CancellationToken::new();
+                let custom = CancellationToken::new();
+                {
+                    let mut data = manager.data.lock().unwrap();
+                    for (id, cancel) in [(None, default.clone()), (Some(id), custom.clone())] {
+                        data.jobs.insert(
+                            id,
+                            Job {
+                                cancel,
+                                state: State::Downloading(Progress::default()),
+                            },
+                        );
+                    }
+                }
+                manager.cancel(None);
+                assert!(default.is_cancelled(), "cancels only the addressed model");
+                assert!(!custom.is_cancelled(), "cancels only the addressed model");
+                assert!(manager.cancelling(None), "cancels only the addressed model");
+                assert!(
+                    !manager.cancelling(Some(id)),
+                    "cancels only the addressed model"
+                );
+                manager.cancel(Some(id));
+                assert!(custom.is_cancelled(), "cancels only the addressed model");
+            }),
+        ),
+        (
+            "restores_files_when_index_save_fails",
+            (|_scenario: &str| {
+                let directory = tempfile::tempdir().unwrap();
+                let manager = Manager::open(directory.path().into()).unwrap();
+                let id = manager.register(definition()).unwrap();
+                manager.finish(Some(id), Ok(()), &CancellationToken::new());
+                let model = manager.path(Some(id));
+                std::fs::create_dir_all(&model).unwrap();
+                std::fs::write(model.join("model.onnx"), b"original graph").unwrap();
+                let index = directory.path().join("models/speech.json");
+                std::fs::remove_file(&index).unwrap();
+                std::fs::create_dir(&index).unwrap();
+                assert_eq!(
+                    manager.remove(id),
+                    Err("dictation_storage"),
+                    "restores files when index save fails"
+                );
+                assert_eq!(
+                    manager.entries()[0].record.id,
+                    id,
+                    "restores files when index save fails"
+                );
+                assert!(
+                    manager.entries()[0].record.installed,
+                    "restores files when index save fails"
+                );
+                assert_eq!(
+                    std::fs::read(model.join("model.onnx")).unwrap(),
+                    b"original graph",
+                    "restores files when index save fails"
+                );
+                assert_eq!(
+                    std::fs::read_dir(model.parent().unwrap()).unwrap().count(),
+                    1,
+                    "restores files when index save fails"
+                );
+            }),
+        ),
+        (
+            "preserves_installation_when_resaving_fails",
+            (|_scenario: &str| {
+                let directory = tempfile::tempdir().unwrap();
+                let manager = Manager::open(directory.path().into()).unwrap();
+                let id = manager.register(definition()).unwrap();
+                manager.finish(Some(id), Ok(()), &CancellationToken::new());
+                let index = directory.path().join("models/speech.json");
+                std::fs::remove_file(&index).unwrap();
+                std::fs::create_dir(&index).unwrap();
+                manager.data.lock().unwrap().jobs.insert(
+                    Some(id),
+                    Job {
+                        cancel: CancellationToken::new(),
+                        state: State::Downloading(Progress::default()),
+                    },
+                );
+                manager.finish(Some(id), Ok(()), &CancellationToken::new());
+                let entry = manager.entries().pop().unwrap();
+                assert!(
+                    entry.record.installed,
+                    "preserves installation when resaving fails"
+                );
+                assert_eq!(
+                    entry.state,
+                    State::Failed("dictation_storage"),
+                    "preserves installation when resaving fails"
+                );
+                assert!(
+                    manager.capture(Some(id)).is_ok(),
+                    "preserves installation when resaving fails"
+                );
+            }),
+        ),
+        (
+            "checking_preserves_an_active_download",
+            (|_scenario: &str| {
+                let directory = tempfile::tempdir().unwrap();
+                let manager = Manager::open(directory.path().into()).unwrap();
+                let progress = Progress {
+                    phase: sailry_model_assets::Phase::Downloading,
+                    percent: 45.,
+                    bytes_per_second: 1024.,
+                };
+                manager.data.lock().unwrap().jobs.insert(
+                    None,
+                    Job {
+                        cancel: CancellationToken::new(),
+                        state: State::Downloading(progress),
+                    },
+                );
+                manager.observe(None, false);
+                assert_eq!(
+                    manager.default_state(),
+                    Some(State::Downloading(progress)),
+                    "checking preserves an active download"
+                );
+                manager.finish(None, Ok(()), &CancellationToken::new());
+                manager.observe(None, true);
+                assert_eq!(
+                    manager.default_state(),
+                    Some(State::Installed),
+                    "checking preserves an active download"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    manager.cancel(None);
-    assert!(default.is_cancelled());
-    assert!(!custom.is_cancelled());
-    assert!(manager.cancelling(None));
-    assert!(!manager.cancelling(Some(id)));
-    manager.cancel(Some(id));
-    assert!(custom.is_cancelled());
-}
-
-#[test]
-fn restores_files_when_index_save_fails() {
-    let directory = tempfile::tempdir().unwrap();
-    let manager = Manager::open(directory.path().into()).unwrap();
-    let id = manager.register(definition()).unwrap();
-    manager.finish(Some(id), Ok(()), &CancellationToken::new());
-    let model = manager.path(Some(id));
-    std::fs::create_dir_all(&model).unwrap();
-    std::fs::write(model.join("model.onnx"), b"original graph").unwrap();
-    let index = directory.path().join("models/speech.json");
-    std::fs::remove_file(&index).unwrap();
-    std::fs::create_dir(&index).unwrap();
-    assert_eq!(manager.remove(id), Err("dictation_storage"));
-    assert_eq!(manager.entries()[0].record.id, id);
-    assert!(manager.entries()[0].record.installed);
-    assert_eq!(
-        std::fs::read(model.join("model.onnx")).unwrap(),
-        b"original graph"
-    );
-    assert_eq!(
-        std::fs::read_dir(model.parent().unwrap()).unwrap().count(),
-        1
-    );
-}
-
-#[test]
-fn preserves_installation_when_resaving_fails() {
-    let directory = tempfile::tempdir().unwrap();
-    let manager = Manager::open(directory.path().into()).unwrap();
-    let id = manager.register(definition()).unwrap();
-    manager.finish(Some(id), Ok(()), &CancellationToken::new());
-    let index = directory.path().join("models/speech.json");
-    std::fs::remove_file(&index).unwrap();
-    std::fs::create_dir(&index).unwrap();
-    manager.data.lock().unwrap().jobs.insert(
-        Some(id),
-        Job {
-            cancel: CancellationToken::new(),
-            state: State::Downloading(Progress::default()),
-        },
-    );
-    manager.finish(Some(id), Ok(()), &CancellationToken::new());
-    let entry = manager.entries().pop().unwrap();
-    assert!(entry.record.installed);
-    assert_eq!(entry.state, State::Failed("dictation_storage"));
-    assert!(manager.capture(Some(id)).is_ok());
-}
-
-#[test]
-fn checking_preserves_an_active_download() {
-    let directory = tempfile::tempdir().unwrap();
-    let manager = Manager::open(directory.path().into()).unwrap();
-    let progress = Progress {
-        phase: sailry_model_assets::Phase::Downloading,
-        percent: 45.,
-        bytes_per_second: 1024.,
-    };
-    manager.data.lock().unwrap().jobs.insert(
-        None,
-        Job {
-            cancel: CancellationToken::new(),
-            state: State::Downloading(progress),
-        },
-    );
-    manager.observe(None, false);
-    assert_eq!(manager.default_state(), Some(State::Downloading(progress)));
-    manager.finish(None, Ok(()), &CancellationToken::new());
-    manager.observe(None, true);
-    assert_eq!(manager.default_state(), Some(State::Installed));
 }

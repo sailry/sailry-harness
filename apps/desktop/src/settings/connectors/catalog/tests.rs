@@ -75,63 +75,62 @@ fn directory(types: &[Type], accounts: &[Connection], infos: &[Info]) -> Vec<Ser
 }
 
 #[test]
-fn tracks_account_changes_without_package_revisions() {
-    let info = info("github", &["server"]);
-    let kind = kind(&info, "account", &["server"]);
-    let connected = account(&kind);
-    let mut disconnected = connected.clone();
-    disconnected.state = connector::State::NotConnected;
-    disconnected.configured.clear();
-    let package = BTreeSet::from(["github".into()]);
-    assert_eq!(
-        changed_accounts(&[disconnected.clone()], std::slice::from_ref(&connected)),
-        package
-    );
-    assert_eq!(
-        changed_accounts(std::slice::from_ref(&connected), &[disconnected]),
-        package
-    );
-    for changed in [
-        Connection {
-            revision: connected.revision + 1,
-            ..connected.clone()
-        },
-        Connection {
-            enabled: false,
-            ..connected.clone()
-        },
-        Connection {
-            state: connector::State::Expired,
-            ..connected.clone()
-        },
-    ] {
-        assert_eq!(
-            changed_accounts(std::slice::from_ref(&connected), &[changed]),
-            package
-        );
-    }
-}
-
-#[test]
-fn scopes_snapshots_to_changed_accounts() {
+fn account_snapshot_changes() {
     let github = info("github", &["server"]);
     let figma = info("figma", &[]);
     let accounts = [
         account(&kind(&github, "account", &["server"])),
         account(&kind(&figma, "account", &[])),
     ];
-    assert!(changed_accounts(&accounts, &[accounts[1].clone(), accounts[0].clone()]).is_empty());
+    let connected = &accounts[0];
+    let package = BTreeSet::from(["github".into()]);
+    let mut disconnected = connected.clone();
+    disconnected.state = connector::State::NotConnected;
+    disconnected.configured.clear();
+    for (case, before, after) in [
+        (
+            "disconnect",
+            vec![disconnected.clone()],
+            vec![connected.clone()],
+        ),
+        ("connect", vec![connected.clone()], vec![disconnected]),
+        (
+            "revision",
+            vec![connected.clone()],
+            vec![Connection {
+                revision: connected.revision + 1,
+                ..connected.clone()
+            }],
+        ),
+        (
+            "disable",
+            vec![connected.clone()],
+            vec![Connection {
+                enabled: false,
+                ..connected.clone()
+            }],
+        ),
+        (
+            "expire",
+            vec![connected.clone()],
+            vec![Connection {
+                state: connector::State::Expired,
+                ..connected.clone()
+            }],
+        ),
+        ("remove one", accounts.to_vec(), vec![accounts[1].clone()]),
+        ("add one", vec![accounts[1].clone()], accounts.to_vec()),
+    ] {
+        assert_eq!(changed_accounts(&before, &after), package, "{case}");
+    }
+    assert!(
+        changed_accounts(&accounts, &[accounts[1].clone(), accounts[0].clone()]).is_empty(),
+        "reorder"
+    );
     assert_eq!(
         changed_accounts(&[], &accounts),
-        BTreeSet::from(["figma".into(), "github".into()])
-    );
-    assert_eq!(
-        changed_accounts(&accounts, &[accounts[1].clone()]),
-        BTreeSet::from(["github".into()])
-    );
-    assert_eq!(
-        changed_accounts(&[accounts[1].clone()], &accounts),
-        BTreeSet::from(["github".into()])
+        BTreeSet::from(["figma".into(), "github".into()]),
+        "all added"
     );
 }
 
@@ -158,37 +157,145 @@ fn excludes_unadded_and_plugin_internal_services() {
 }
 
 #[test]
-fn retains_real_ids_with_shared_labels() {
+fn account_identity_and_configuration() {
     let info = info("service", &[]);
     let kind = kind(&info, "account", &[]);
     let first = account(&kind);
     let mut second = first.clone();
     second.id = RequestId::new();
-    let services = directory(&[kind], &[first.clone(), second.clone()], &[info]);
-    assert_eq!(services.len(), 2);
-    assert_ne!(services[0].key, services[1].key);
-    assert!(
-        services
-            .iter()
-            .any(|service| service.key.member == Member::Account(first.id))
+    let services = directory(
+        std::slice::from_ref(&kind),
+        &[first.clone(), second.clone()],
+        std::slice::from_ref(&info),
     );
-    assert!(
-        services
-            .iter()
-            .any(|service| service.key.member == Member::Account(second.id))
+    assert_eq!(services.len(), 2, "shared labels: count");
+    assert_ne!(
+        services[0].key, services[1].key,
+        "shared labels: identities"
     );
-}
+    for account in [&first, &second] {
+        assert!(
+            services
+                .iter()
+                .any(|service| service.key.member == Member::Account(account.id)),
+            "shared labels: {}",
+            account.id
+        );
+    }
+    for state in [
+        connector::State::Connected,
+        connector::State::NotConnected,
+        connector::State::Expired,
+        connector::State::Connecting,
+        connector::State::NeedsConfirmation,
+    ] {
+        let mut account = first.clone();
+        account.enabled = false;
+        account.state = state;
+        let services = directory(
+            std::slice::from_ref(&kind),
+            std::slice::from_ref(&account),
+            std::slice::from_ref(&info),
+        );
+        assert_eq!(services.len(), 1, "disabled {state:?}: count");
+        assert_eq!(
+            services[0].account.as_ref().unwrap(),
+            &account,
+            "disabled {state:?}: account"
+        );
+    }
+    let removed = account(&self::kind(&info, "removed", &[]));
+    let services = directory(
+        &[],
+        std::slice::from_ref(&removed),
+        std::slice::from_ref(&info),
+    );
+    assert_eq!(services.len(), 1, "removed declaration: count");
+    assert!(
+        services[0].kind.is_none(),
+        "removed declaration: absent kind"
+    );
+    assert_eq!(
+        services[0].key.member,
+        Member::Account(removed.id),
+        "removed declaration: identity"
+    );
+    assert_eq!(
+        services[0].account.as_ref().unwrap().id,
+        removed.id,
+        "removed declaration: account"
+    );
 
-#[test]
-fn keeps_bound_capabilities_inside_the_account() {
-    let info = info("service", &["read", "write"]);
-    let kind = kind(&info, "account", &["read", "write"]);
-    let account = account(&kind);
-    let services = directory(&[kind], std::slice::from_ref(&account), &[info]);
-    assert_eq!(services.len(), 1);
-    assert_eq!(services[0].account.as_ref().unwrap(), &account);
-    assert_eq!(services[0].servers.len(), 2);
-    assert!(!services[0].manual());
+    let mut info = self::info("service", &["read", "write"]);
+    let mut kind = self::kind(&info, "account", &["read", "write"]);
+    let mut account = account(&kind);
+    let services = directory(
+        std::slice::from_ref(&kind),
+        std::slice::from_ref(&account),
+        std::slice::from_ref(&info),
+    );
+    assert_eq!(services.len(), 1, "bound capabilities: count");
+    assert_eq!(
+        services[0].account.as_ref().unwrap(),
+        &account,
+        "bound capabilities: account"
+    );
+    assert_eq!(services[0].servers.len(), 2, "bound capabilities: servers");
+    assert!(
+        !services[0].manual(),
+        "bound capabilities: declared account"
+    );
+
+    // Keep the single-server revision fixture distinct from the capability inventory.
+    info.mcp.truncate(1);
+    info.mcp[0].name = "server".into();
+    kind = self::kind(&info, "account", &["server"]);
+    account = self::account(&kind);
+    let before = directory(
+        std::slice::from_ref(&kind),
+        std::slice::from_ref(&account),
+        std::slice::from_ref(&info),
+    );
+    info.summary.settings_revision += 1;
+    let services = directory(
+        std::slice::from_ref(&kind),
+        std::slice::from_ref(&account),
+        std::slice::from_ref(&info),
+    );
+    assert_eq!(services.len(), 1, "mixed revisions: count");
+    assert_eq!(
+        services[0].account.as_ref().unwrap().id,
+        account.id,
+        "mixed revisions: identity"
+    );
+    assert!(
+        services[0].info.is_none(),
+        "mixed revisions: metadata excluded"
+    );
+    assert!(
+        services[0].servers.is_empty(),
+        "mixed revisions: servers excluded"
+    );
+
+    info.summary.enabled = false;
+    kind.package = info.summary.reference();
+    kind.enabled = false;
+    account.package = kind.package.clone();
+    let after = directory(&[kind], std::slice::from_ref(&account), &[info]);
+    assert_eq!(
+        before[0].key, after[0].key,
+        "configuration change: selection"
+    );
+    assert_eq!(
+        after[0].account.as_ref().unwrap().id,
+        account.id,
+        "configuration change: account"
+    );
+    assert_eq!(
+        super::super::status(&after[0]),
+        Some("connector_package_disabled"),
+        "configuration change: disabled status"
+    );
 }
 
 #[test]
@@ -230,74 +337,6 @@ fn never_merges_instances_by_url_or_display() {
     assert_eq!(services.len(), 2);
     assert_ne!(services[0].key, services[1].key);
     assert_ne!(services[0].package.name, services[1].package.name);
-}
-
-#[test]
-fn preserves_disabled_and_unavailable_accounts() {
-    let info = info("service", &[]);
-    let kind = kind(&info, "account", &[]);
-    for state in [
-        connector::State::Connected,
-        connector::State::NotConnected,
-        connector::State::Expired,
-        connector::State::Connecting,
-        connector::State::NeedsConfirmation,
-    ] {
-        let mut account = account(&kind);
-        account.enabled = false;
-        account.state = state;
-        let services = directory(
-            std::slice::from_ref(&kind),
-            &[account.clone()],
-            std::slice::from_ref(&info),
-        );
-        assert_eq!(services.len(), 1);
-        assert_eq!(services[0].account.as_ref().unwrap(), &account);
-    }
-}
-
-#[test]
-fn retains_removed_declarations_by_account_id() {
-    let info = info("service", &[]);
-    let account = account(&kind(&info, "removed", &[]));
-    let services = directory(&[], std::slice::from_ref(&account), &[info]);
-    assert_eq!(services.len(), 1);
-    assert!(services[0].kind.is_none());
-    assert_eq!(services[0].key.member, Member::Account(account.id));
-    assert_eq!(services[0].account.as_ref().unwrap().id, account.id);
-}
-
-#[test]
-fn never_joins_mixed_configuration_revisions() {
-    let mut info = info("service", &["server"]);
-    let kind = kind(&info, "account", &["server"]);
-    let account = account(&kind);
-    info.summary.settings_revision += 1;
-    let services = directory(&[kind], std::slice::from_ref(&account), &[info]);
-    assert_eq!(services.len(), 1);
-    assert_eq!(services[0].account.as_ref().unwrap().id, account.id);
-    assert!(services[0].info.is_none());
-    assert!(services[0].servers.is_empty());
-}
-
-#[test]
-fn keeps_selection_through_configuration_changes() {
-    let mut info = info("service", &["server"]);
-    let mut kind = kind(&info, "account", &["server"]);
-    let mut account = account(&kind);
-    let before = directory(&[kind.clone()], &[account.clone()], &[info.clone()]);
-    info.summary.settings_revision += 1;
-    info.summary.enabled = false;
-    kind.package = info.summary.reference();
-    kind.enabled = false;
-    account.package = kind.package.clone();
-    let after = directory(&[kind], &[account.clone()], &[info]);
-    assert_eq!(before[0].key, after[0].key);
-    assert_eq!(after[0].account.as_ref().unwrap().id, account.id);
-    assert_eq!(
-        super::super::status(&after[0]),
-        Some("connector_package_disabled")
-    );
 }
 
 #[test]

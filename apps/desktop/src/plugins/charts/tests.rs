@@ -39,58 +39,80 @@ fn height(chart: &Heatmap, width: f32) -> f32 {
 }
 
 #[test]
-fn fits_all_columns() {
-    for count in [7, 30, 365] {
-        let chart = heatmap(count);
-        for width in [120., 400., 1000.] {
-            let bounds = Bounds::new(
-                point(px(0.), px(0.)),
-                size(px(width), px(height(&chart, width))),
-            );
-            let pitch = chart.pitch(bounds);
-            assert!(pitch > 0. && pitch <= MAX_PITCH);
-            let cells = chart
-                .props
-                .cells
-                .iter()
-                .map(|cell| chart.cell(cell, bounds).unwrap())
-                .collect::<Vec<_>>();
-            assert_eq!(cells.len(), count);
-            assert_eq!(cells[0].origin, point(px(0.), px(0.)));
-            for cell in &cells {
-                assert_eq!(cell.size.width, cell.size.height);
-                assert!(cell.right() <= bounds.size.width);
-                assert!(cell.bottom() <= px(chart.props.rows as f32 * pitch));
-            }
-            let last = cells
-                .iter()
-                .fold(px(0.), |right, cell| right.max(cell.right()));
-            if pitch < MAX_PITCH {
-                // Scaled cells reach the right edge, leaving only the trailing gap.
-                assert!((px(width) - last).as_f32() <= pitch * GAP + 0.01);
-            }
-        }
+fn bounded_series() {
+    for (scenario, check) in [
+        (
+            "fits_all_columns",
+            (|_scenario: &str| {
+                for count in [7, 30, 365] {
+                    let chart = heatmap(count);
+                    for width in [120., 400., 1000.] {
+                        let bounds = Bounds::new(
+                            point(px(0.), px(0.)),
+                            size(px(width), px(height(&chart, width))),
+                        );
+                        let pitch = chart.pitch(bounds);
+                        assert!(pitch > 0. && pitch <= MAX_PITCH, "fits all columns");
+                        let cells = chart
+                            .props
+                            .cells
+                            .iter()
+                            .map(|cell| chart.cell(cell, bounds).unwrap())
+                            .collect::<Vec<_>>();
+                        assert_eq!(cells.len(), count, "fits all columns");
+                        assert_eq!(cells[0].origin, point(px(0.), px(0.)), "fits all columns");
+                        for cell in &cells {
+                            assert_eq!(cell.size.width, cell.size.height, "fits all columns");
+                            assert!(cell.right() <= bounds.size.width, "fits all columns");
+                            assert!(
+                                cell.bottom() <= px(chart.props.rows as f32 * pitch),
+                                "fits all columns"
+                            );
+                        }
+                        let last = cells
+                            .iter()
+                            .fold(px(0.), |right, cell| right.max(cell.right()));
+                        if pitch < MAX_PITCH {
+                            // Scaled cells reach the right edge, leaving only the trailing gap.
+                            assert!(
+                                (px(width) - last).as_f32() <= pitch * GAP + 0.01,
+                                "fits all columns"
+                            );
+                        }
+                    }
+                }
+            }) as fn(&str),
+        ),
+        (
+            "disjoint_stacks",
+            (|_scenario: &str| {
+                let chart = stacked();
+                assert_eq!(
+                    chart
+                        .series
+                        .iter()
+                        .map(|series| (series.points[0].y0, series.points[0].y1))
+                        .collect::<Vec<_>>(),
+                    [(0., 4.), (4., 12.), (12., 15.)],
+                    "disjoint stacks"
+                );
+                assert!(
+                    chart
+                        .series
+                        .iter()
+                        .all(|series| series.points[1].y0 == 0. && series.points[1].y1 == 0.),
+                    "disjoint stacks"
+                );
+                assert_eq!(
+                    chart.props.buckets[1].tooltip.footer.value, "Unknown",
+                    "disjoint stacks"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-}
-
-#[test]
-fn disjoint_stacks() {
-    let chart = stacked();
-    assert_eq!(
-        chart
-            .series
-            .iter()
-            .map(|series| (series.points[0].y0, series.points[0].y1))
-            .collect::<Vec<_>>(),
-        [(0., 4.), (4., 12.), (12., 15.)]
-    );
-    assert!(
-        chart
-            .series
-            .iter()
-            .all(|series| series.points[1].y0 == 0. && series.points[1].y1 == 0.)
-    );
-    assert_eq!(chart.props.buckets[1].tooltip.footer.value, "Unknown");
 }
 
 mod stacked_bars {
@@ -112,36 +134,60 @@ mod stacked_bars {
     }
 
     #[test]
-    fn marks_only_known_empty_buckets() {
-        let chart = chart(vec![Some([0., 0., 0.]), None, Some([1., 0., 3.])]);
-        assert_eq!(chart.empty(), [0]);
-        assert_eq!(chart.props.height, Some(200.));
-    }
-
-    #[test]
-    fn caps_and_centers_sparse_bars() {
-        let area = Bounds::new(point(px(48.), px(8.)), size(px(800.), px(160.)));
-        let sparse = chart(vec![Some([1., 1., 1.]); 7]);
-        let scale = sparse.scale(area);
-        let (width, inset) = StackedChart::bar(&scale);
-        assert_eq!(width, MAX_BAR);
-        assert!((inset * 2. + width - scale.band_width()).abs() < 0.01);
-        let dense = chart(vec![Some([1., 1., 1.]); 48]);
-        let scale = dense.scale(area);
-        assert_eq!(StackedChart::bar(&scale), (scale.band_width(), 0.));
-    }
-
-    #[test]
-    fn rejects_unbounded_heights() {
-        let mut props = json!({"series":[],"maximum":1,"ticks":[],"buckets":[],"height":40});
-        let parse = |value: &serde_json::Value| {
-            StackedChart::new(
-                "bars".into(),
-                serde_json::from_value(value.clone()).unwrap(),
-            )
-        };
-        assert!(parse(&props).is_none());
-        props["height"] = json!(200);
-        assert!(parse(&props).is_some());
+    fn bounded_series() {
+        for (scenario, check) in [
+            (
+                "marks_only_known_empty_buckets",
+                (|_scenario: &str| {
+                    let chart = chart(vec![Some([0., 0., 0.]), None, Some([1., 0., 3.])]);
+                    assert_eq!(chart.empty(), [0], "marks only known empty buckets");
+                    assert_eq!(
+                        chart.props.height,
+                        Some(200.),
+                        "marks only known empty buckets"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "caps_and_centers_sparse_bars",
+                (|_scenario: &str| {
+                    let area = Bounds::new(point(px(48.), px(8.)), size(px(800.), px(160.)));
+                    let sparse = chart(vec![Some([1., 1., 1.]); 7]);
+                    let scale = sparse.scale(area);
+                    let (width, inset) = StackedChart::bar(&scale);
+                    assert_eq!(width, MAX_BAR, "caps and centers sparse bars");
+                    assert!(
+                        (inset * 2. + width - scale.band_width()).abs() < 0.01,
+                        "caps and centers sparse bars"
+                    );
+                    let dense = chart(vec![Some([1., 1., 1.]); 48]);
+                    let scale = dense.scale(area);
+                    assert_eq!(
+                        StackedChart::bar(&scale),
+                        (scale.band_width(), 0.),
+                        "caps and centers sparse bars"
+                    );
+                }),
+            ),
+            (
+                "rejects_unbounded_heights",
+                (|_scenario: &str| {
+                    let mut props =
+                        json!({"series":[],"maximum":1,"ticks":[],"buckets":[],"height":40});
+                    let parse = |value: &serde_json::Value| {
+                        StackedChart::new(
+                            "bars".into(),
+                            serde_json::from_value(value.clone()).unwrap(),
+                        )
+                    };
+                    assert!(parse(&props).is_none(), "rejects unbounded heights");
+                    props["height"] = json!(200);
+                    assert!(parse(&props).is_some(), "rejects unbounded heights");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

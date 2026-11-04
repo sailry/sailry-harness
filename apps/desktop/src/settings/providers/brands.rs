@@ -251,57 +251,128 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn extends_rows_without_losing_brands() {
-        assert_eq!(row_lengths(14), [4, 6, 4]);
-        for count in [0, 1, 5, 14, 15, 33, 50] {
-            let rows = row_lengths(count);
-            assert_eq!(rows.iter().sum::<usize>(), count);
-            assert!(rows.iter().all(|length| (1..=6).contains(length)));
+    fn ordering_and_navigation() {
+        for (scenario, check) in [
+            (
+                "extends_rows_without_losing_brands",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        row_lengths(14),
+                        [4, 6, 4],
+                        "extends rows without losing brands"
+                    );
+                    for count in [0, 1, 5, 14, 15, 33, 50] {
+                        let rows = row_lengths(count);
+                        assert_eq!(
+                            rows.iter().sum::<usize>(),
+                            count,
+                            "extends rows without losing brands"
+                        );
+                        assert!(
+                            rows.iter().all(|length| (1..=6).contains(length)),
+                            "extends rows without losing brands"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "routes_focus_across_centered_rows",
+                (|_scenario: &str| {
+                    let rows = row_lengths(14);
+                    assert_eq!(
+                        next(&rows, 0, "left"),
+                        Some(3),
+                        "routes focus across centered rows"
+                    );
+                    assert_eq!(
+                        next(&rows, 3, "right"),
+                        Some(0),
+                        "routes focus across centered rows"
+                    );
+                    assert_eq!(
+                        next(&rows, 6, "home"),
+                        Some(4),
+                        "routes focus across centered rows"
+                    );
+                    assert_eq!(
+                        next(&rows, 6, "end"),
+                        Some(9),
+                        "routes focus across centered rows"
+                    );
+                    assert_eq!(
+                        next(&rows, 0, "down"),
+                        Some(5),
+                        "routes focus across centered rows"
+                    );
+                    assert_eq!(
+                        next(&rows, 4, "down"),
+                        Some(10),
+                        "routes focus across centered rows"
+                    );
+                    assert_eq!(
+                        next(&rows, 13, "down"),
+                        Some(3),
+                        "routes focus across centered rows"
+                    );
+                    assert_eq!(
+                        next(&rows, 0, "up"),
+                        Some(10),
+                        "routes focus across centered rows"
+                    );
+                    assert_eq!(
+                        next(&rows, 1, "enter"),
+                        None,
+                        "routes focus across centered rows"
+                    );
+                    assert_eq!(
+                        next(&[], 0, "left"),
+                        None,
+                        "routes focus across centered rows"
+                    );
+                }),
+            ),
+            (
+                "fades_outward_from_centre",
+                (|_scenario: &str| {
+                    let rows = row_lengths(14);
+                    let distances = distances(&rows);
+                    assert_eq!(distances.len(), 14, "fades outward from centre");
+                    assert!(
+                        (0..14).all(|index| distances[index] == distances[13 - index]),
+                        "fades outward from centre"
+                    );
+                    assert_eq!(distances[6], 0.5, "fades outward from centre");
+                    assert_eq!(distances[0], 1.5f32.hypot(1.), "fades outward from centre");
+                    assert_eq!(fade(0.), (0.64, 1.), "fades outward from centre");
+                    assert_eq!(fade(10.), (0.22, 0.35), "fades outward from centre");
+                }),
+            ),
+            (
+                "shares_declared_order_across_entry_points",
+                (|_scenario: &str| {
+                    let mut entries = presets::bundled();
+                    let expected = groups(Some(&entries));
+                    entries.reverse();
+                    assert_eq!(
+                        groups(Some(&entries)),
+                        expected
+                            .into_iter()
+                            .map(|(key, mut choices)| {
+                                choices.reverse();
+                                (key, choices)
+                            })
+                            .collect::<Vec<_>>(),
+                        "shares declared order across entry points"
+                    );
+                    assert!(
+                        groups(Some(&[])).is_empty(),
+                        "shares declared order across entry points"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn routes_focus_across_centered_rows() {
-        let rows = row_lengths(14);
-        assert_eq!(next(&rows, 0, "left"), Some(3));
-        assert_eq!(next(&rows, 3, "right"), Some(0));
-        assert_eq!(next(&rows, 6, "home"), Some(4));
-        assert_eq!(next(&rows, 6, "end"), Some(9));
-        assert_eq!(next(&rows, 0, "down"), Some(5));
-        assert_eq!(next(&rows, 4, "down"), Some(10));
-        assert_eq!(next(&rows, 13, "down"), Some(3));
-        assert_eq!(next(&rows, 0, "up"), Some(10));
-        assert_eq!(next(&rows, 1, "enter"), None);
-        assert_eq!(next(&[], 0, "left"), None);
-    }
-
-    #[test]
-    fn fades_outward_from_centre() {
-        let rows = row_lengths(14);
-        let distances = distances(&rows);
-        assert_eq!(distances.len(), 14);
-        assert!((0..14).all(|index| distances[index] == distances[13 - index]));
-        assert_eq!(distances[6], 0.5);
-        assert_eq!(distances[0], 1.5f32.hypot(1.));
-        assert_eq!(fade(0.), (0.64, 1.));
-        assert_eq!(fade(10.), (0.22, 0.35));
-    }
-
-    #[test]
-    fn shares_declared_order_across_entry_points() {
-        let mut entries = presets::bundled();
-        let expected = groups(Some(&entries));
-        entries.reverse();
-        assert_eq!(
-            groups(Some(&entries)),
-            expected
-                .into_iter()
-                .map(|(key, mut choices)| {
-                    choices.reverse();
-                    (key, choices)
-                })
-                .collect::<Vec<_>>()
-        );
-        assert!(groups(Some(&[])).is_empty());
     }
 }

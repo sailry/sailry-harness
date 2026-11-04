@@ -731,37 +731,84 @@ mod tests {
     use sailry_protocol::plugin::connector::{Kind, State};
 
     #[test]
-    fn existing_oauth_requires_an_explicit_action() {
-        for method in [Kind::Oauth2, Kind::McpOauth] {
-            assert!(!configuring(method, Some(State::Connected), false, false));
-            assert!(configuring(method, Some(State::Connected), true, false));
-            assert!(!configuring(method, Some(State::Connected), true, true));
-            assert_eq!(submit_key(method, false, true), "connector_reauthorize");
-            assert_eq!(submit_key(method, false, false), "connector_authorize");
-            for state in [
-                State::Expired,
-                State::NotConnected,
-                State::NeedsConfirmation,
-            ] {
-                assert!(!configuring(method, Some(state), true, false));
-            }
+    fn explicit_login_actions() {
+        for (scenario, check) in [
+            (
+                "existing_oauth_requires_an_explicit_action",
+                (|_scenario: &str| {
+                    for method in [Kind::Oauth2, Kind::McpOauth] {
+                        assert!(
+                            !configuring(method, Some(State::Connected), false, false),
+                            "existing oauth requires an explicit action"
+                        );
+                        assert!(
+                            configuring(method, Some(State::Connected), true, false),
+                            "existing oauth requires an explicit action"
+                        );
+                        assert!(
+                            !configuring(method, Some(State::Connected), true, true),
+                            "existing oauth requires an explicit action"
+                        );
+                        assert_eq!(
+                            submit_key(method, false, true),
+                            "connector_reauthorize",
+                            "existing oauth requires an explicit action"
+                        );
+                        assert_eq!(
+                            submit_key(method, false, false),
+                            "connector_authorize",
+                            "existing oauth requires an explicit action"
+                        );
+                        for state in [
+                            State::Expired,
+                            State::NotConnected,
+                            State::NeedsConfirmation,
+                        ] {
+                            assert!(
+                                !configuring(method, Some(state), true, false),
+                                "existing oauth requires an explicit action"
+                            );
+                        }
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "preserves_token_and_cli_actions",
+                (|_scenario: &str| {
+                    for method in [Kind::Secret, Kind::Application] {
+                        assert!(
+                            configuring(method, Some(State::Connected), true, false),
+                            "preserves token and cli actions"
+                        );
+                        assert_eq!(
+                            submit_key(method, true, true),
+                            "settings_save",
+                            "preserves token and cli actions"
+                        );
+                        assert_eq!(
+                            submit_key(method, false, false),
+                            "settings_save",
+                            "preserves token and cli actions"
+                        );
+                    }
+                    assert!(
+                        !configuring(Kind::LocalCli, Some(State::Connected), false, false),
+                        "preserves token and cli actions"
+                    );
+                    assert_eq!(
+                        submit_key(Kind::LocalCli, false, true),
+                        "connector_bind",
+                        "preserves token and cli actions"
+                    );
+                    assert!(
+                        !configuring(Kind::Secret, None, true, false),
+                        "preserves token and cli actions"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn preserves_token_and_cli_actions() {
-        for method in [Kind::Secret, Kind::Application] {
-            assert!(configuring(method, Some(State::Connected), true, false));
-            assert_eq!(submit_key(method, true, true), "settings_save");
-            assert_eq!(submit_key(method, false, false), "settings_save");
-        }
-        assert!(!configuring(
-            Kind::LocalCli,
-            Some(State::Connected),
-            false,
-            false
-        ));
-        assert_eq!(submit_key(Kind::LocalCli, false, true), "connector_bind");
-        assert!(!configuring(Kind::Secret, None, true, false));
     }
 }

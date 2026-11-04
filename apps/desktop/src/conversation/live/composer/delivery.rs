@@ -49,27 +49,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn enter_submits_idle_input() {
-        let session = SessionId::new();
-        assert!(matches!(
-            Delivery::enter(None).command(session, 7, "Continue".into()),
-            Command::SubmitTurn { session: actual, expected_revision: 7, .. } if actual == session
-        ));
-    }
-
-    #[test]
-    fn enter_preserves_captured_recipient() {
-        let recipient = TurnId::new();
-        let delivery = Delivery::enter(Some((recipient, 4)));
-        let message = Input {
-            text: "Use the attached sample".into(),
-            attachments: vec![sailry_protocol::AttachmentId::new()],
-            references: Vec::new(),
-        };
-        assert!(matches!(
-            delivery.command(SessionId::new(), 9, message.clone()),
-            Command::GuideTurn { recipient: actual, expected_revision: 4, message: input }
-                if actual == recipient && input == message
-        ));
+    fn captured_recipient() {
+        for (scenario, check) in [
+            (
+                "enter_submits_idle_input",
+                (|_scenario: &str| {
+                    let session = SessionId::new();
+                    assert!(
+                        matches!(
+                            Delivery::enter(None).command(session, 7, "Continue".into()),
+                            Command::SubmitTurn { session: actual, expected_revision: 7, .. } if actual == session
+                        ),
+                        "enter submits idle input"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "enter_preserves_captured_recipient",
+                (|_scenario: &str| {
+                    let recipient = TurnId::new();
+                    let delivery = Delivery::enter(Some((recipient, 4)));
+                    let message = Input {
+                        text: "Use the attached sample".into(),
+                        attachments: vec![sailry_protocol::AttachmentId::new()],
+                        references: Vec::new(),
+                    };
+                    assert!(
+                        matches!(
+                            delivery.command(SessionId::new(), 9, message.clone()),
+                            Command::GuideTurn { recipient: actual, expected_revision: 4, message: input }
+                                if actual == recipient && input == message
+                        ),
+                        "enter preserves captured recipient"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

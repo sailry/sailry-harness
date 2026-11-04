@@ -205,55 +205,104 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn hover_crosses_into_content() {
-        let mut visibility = Visibility::default();
-        assert_eq!(visibility.hover(true, true), Some(true));
-        visibility.open = true;
-        assert_eq!(visibility.hover(true, false), Some(false));
-        assert_eq!(visibility.hover(false, true), Some(true));
-        assert_eq!(visibility.hover(true, false), Some(true));
-        assert_eq!(visibility.hover(false, false), Some(false));
-    }
-
-    #[test]
-    fn click_keeps_the_preview_open() {
-        let mut visibility = Visibility::default();
-        _ = visibility.hover(true, true);
-        visibility.open = true;
-        visibility.hold();
-        _ = visibility.hover(true, false);
-        _ = visibility.hover(false, false);
-        assert!(visibility.open);
-        assert_eq!(visibility.pending(), None);
-    }
-
-    #[test]
-    fn dismissal_clears_pending_hover() {
-        let mut visibility = Visibility::default();
-        _ = visibility.hover(true, true);
-        _ = visibility.hover(false, true);
-        visibility.hold();
-        visibility.dismiss();
-        assert!(!visibility.open);
-        assert!(!visibility.held);
-        assert_eq!(visibility.pending(), Some(false));
-    }
-
-    #[test]
-    fn reentry_invalidates_an_earlier_timer() {
-        let mut visibility = Visibility::default();
-        _ = visibility.hover(true, true);
-        let previous = visibility.revision;
-        _ = visibility.hover(true, false);
-        _ = visibility.hover(true, true);
-        assert!(!visibility.settle(previous, true));
-        assert!(!visibility.open);
-        assert!(visibility.settle(visibility.revision, true));
-        assert!(visibility.open);
-        let closing = visibility.revision;
-        visibility.hold();
-        assert!(!visibility.settle(closing, false));
-        visibility.dismiss();
-        assert!(!visibility.settle(closing, true));
+    fn hover_and_hold() {
+        for (scenario, check) in [
+            (
+                "hover_crosses_into_content",
+                (|_scenario: &str| {
+                    let mut visibility = Visibility::default();
+                    assert_eq!(
+                        visibility.hover(true, true),
+                        Some(true),
+                        "hover crosses into content"
+                    );
+                    visibility.open = true;
+                    assert_eq!(
+                        visibility.hover(true, false),
+                        Some(false),
+                        "hover crosses into content"
+                    );
+                    assert_eq!(
+                        visibility.hover(false, true),
+                        Some(true),
+                        "hover crosses into content"
+                    );
+                    assert_eq!(
+                        visibility.hover(true, false),
+                        Some(true),
+                        "hover crosses into content"
+                    );
+                    assert_eq!(
+                        visibility.hover(false, false),
+                        Some(false),
+                        "hover crosses into content"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "click_keeps_the_preview_open",
+                (|_scenario: &str| {
+                    let mut visibility = Visibility::default();
+                    _ = visibility.hover(true, true);
+                    visibility.open = true;
+                    visibility.hold();
+                    _ = visibility.hover(true, false);
+                    _ = visibility.hover(false, false);
+                    assert!(visibility.open, "click keeps the preview open");
+                    assert_eq!(visibility.pending(), None, "click keeps the preview open");
+                }),
+            ),
+            (
+                "dismissal_clears_pending_hover",
+                (|_scenario: &str| {
+                    let mut visibility = Visibility::default();
+                    _ = visibility.hover(true, true);
+                    _ = visibility.hover(false, true);
+                    visibility.hold();
+                    visibility.dismiss();
+                    assert!(!visibility.open, "dismissal clears pending hover");
+                    assert!(!visibility.held, "dismissal clears pending hover");
+                    assert_eq!(
+                        visibility.pending(),
+                        Some(false),
+                        "dismissal clears pending hover"
+                    );
+                }),
+            ),
+            (
+                "reentry_invalidates_an_earlier_timer",
+                (|_scenario: &str| {
+                    let mut visibility = Visibility::default();
+                    _ = visibility.hover(true, true);
+                    let previous = visibility.revision;
+                    _ = visibility.hover(true, false);
+                    _ = visibility.hover(true, true);
+                    assert!(
+                        !visibility.settle(previous, true),
+                        "reentry invalidates an earlier timer"
+                    );
+                    assert!(!visibility.open, "reentry invalidates an earlier timer");
+                    assert!(
+                        visibility.settle(visibility.revision, true),
+                        "reentry invalidates an earlier timer"
+                    );
+                    assert!(visibility.open, "reentry invalidates an earlier timer");
+                    let closing = visibility.revision;
+                    visibility.hold();
+                    assert!(
+                        !visibility.settle(closing, false),
+                        "reentry invalidates an earlier timer"
+                    );
+                    visibility.dismiss();
+                    assert!(
+                        !visibility.settle(closing, true),
+                        "reentry invalidates an earlier timer"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

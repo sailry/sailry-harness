@@ -43,58 +43,88 @@ mod tests {
     }
 
     #[test]
-    fn guides_first_eligible_input_in_order() {
-        let recipient = TurnId::new();
-        let mut notice = item();
-        notice.notice = true;
-        let mut compaction = item();
-        compaction.kind = RunKind::Compaction;
-        let mut guided = item();
-        guided.guidance = Some(recipient);
-        let first = item();
-        let second = item();
-        let queue = Queue {
-            revision: 17,
-            paused: true,
-            items: vec![notice, compaction, guided, first.clone(), second.clone()],
-        };
-        assert!(matches!(
-            next(&queue, Some(recipient)),
-            Some(Command::GuideQueuedTurn { turn, recipient: actual, expected_revision: 4 })
-                if turn == first.turn && actual == recipient
-        ));
-        let mut reordered = queue.clone();
-        reordered.items.swap(3, 4);
-        assert!(matches!(
-            next(&reordered, Some(recipient)),
-            Some(Command::GuideQueuedTurn { turn, .. }) if turn == second.turn
-        ));
-        assert_eq!(queue.items[3], first);
-    }
-
-    #[test]
-    fn sends_idle_input_using_item_revision() {
-        let first = item();
-        let queue = Queue {
-            revision: 19,
-            paused: true,
-            items: vec![first.clone()],
-        };
-        assert!(matches!(
-            next(&queue, None),
-            Some(Command::SendQueuedTurn { turn, expected_revision: 4 }) if turn == first.turn
-        ));
-    }
-
-    #[test]
-    fn ignores_empty_and_already_guided_queues() {
-        assert!(next(&Queue::default(), None).is_none());
-        let mut guided = item();
-        guided.guidance = Some(TurnId::new());
-        let queue = Queue {
-            items: vec![guided],
-            ..Default::default()
-        };
-        assert!(next(&queue, Some(TurnId::new())).is_none());
+    fn input_order_and_revisions() {
+        for (scenario, check) in [
+            (
+                "guides_first_eligible_input_in_order",
+                (|_scenario: &str| {
+                    let recipient = TurnId::new();
+                    let mut notice = item();
+                    notice.notice = true;
+                    let mut compaction = item();
+                    compaction.kind = RunKind::Compaction;
+                    let mut guided = item();
+                    guided.guidance = Some(recipient);
+                    let first = item();
+                    let second = item();
+                    let queue = Queue {
+                        revision: 17,
+                        paused: true,
+                        items: vec![notice, compaction, guided, first.clone(), second.clone()],
+                    };
+                    assert!(
+                        matches!(
+                            next(&queue, Some(recipient)),
+                            Some(Command::GuideQueuedTurn { turn, recipient: actual, expected_revision: 4 })
+                                if turn == first.turn && actual == recipient
+                        ),
+                        "guides first eligible input in order"
+                    );
+                    let mut reordered = queue.clone();
+                    reordered.items.swap(3, 4);
+                    assert!(
+                        matches!(
+                            next(&reordered, Some(recipient)),
+                            Some(Command::GuideQueuedTurn { turn, .. }) if turn == second.turn
+                        ),
+                        "guides first eligible input in order"
+                    );
+                    assert_eq!(
+                        queue.items[3], first,
+                        "guides first eligible input in order"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "sends_idle_input_using_item_revision",
+                (|_scenario: &str| {
+                    let first = item();
+                    let queue = Queue {
+                        revision: 19,
+                        paused: true,
+                        items: vec![first.clone()],
+                    };
+                    assert!(
+                        matches!(
+                            next(&queue, None),
+                            Some(Command::SendQueuedTurn { turn, expected_revision: 4 }) if turn == first.turn
+                        ),
+                        "sends idle input using item revision"
+                    );
+                }),
+            ),
+            (
+                "ignores_empty_and_already_guided_queues",
+                (|_scenario: &str| {
+                    assert!(
+                        next(&Queue::default(), None).is_none(),
+                        "ignores empty and already guided queues"
+                    );
+                    let mut guided = item();
+                    guided.guidance = Some(TurnId::new());
+                    let queue = Queue {
+                        items: vec![guided],
+                        ..Default::default()
+                    };
+                    assert!(
+                        next(&queue, Some(TurnId::new())).is_none(),
+                        "ignores empty and already guided queues"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

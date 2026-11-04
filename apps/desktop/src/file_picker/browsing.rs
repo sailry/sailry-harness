@@ -86,82 +86,122 @@ mod tests {
     use super::*;
 
     #[test]
-    fn folders_stay_first_in_both_directions() {
-        let folder = Entry {
-            name: "z",
-            kind: "Folder",
-            directory: true,
-            size: 0,
-        };
-        let file = Entry {
-            name: "a",
-            kind: "Text",
-            directory: false,
-            size: 100,
-        };
-        for column in 0..3 {
-            for descending in [false, true] {
-                assert_eq!(
-                    Order { column, descending }.compare(&folder, &file),
-                    Ordering::Less
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn columns_use_names_types_and_numeric_sizes() {
-        let left = Entry {
-            name: "beta",
-            kind: "Image",
-            directory: false,
-            size: 2,
-        };
-        let right = Entry {
-            name: "Alpha",
-            kind: "Text",
-            directory: false,
-            size: 100,
-        };
-        for (column, expected) in [
-            (0, Ordering::Greater),
-            (1, Ordering::Less),
-            (2, Ordering::Less),
+    fn ordering_and_navigation() {
+        for (scenario, check) in [
+            (
+                "folders_stay_first_in_both_directions",
+                (|_scenario: &str| {
+                    let folder = Entry {
+                        name: "z",
+                        kind: "Folder",
+                        directory: true,
+                        size: 0,
+                    };
+                    let file = Entry {
+                        name: "a",
+                        kind: "Text",
+                        directory: false,
+                        size: 100,
+                    };
+                    for column in 0..3 {
+                        for descending in [false, true] {
+                            assert_eq!(
+                                Order { column, descending }.compare(&folder, &file),
+                                Ordering::Less,
+                                "folders stay first in both directions"
+                            );
+                        }
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "columns_use_names_types_and_numeric_sizes",
+                (|_scenario: &str| {
+                    let left = Entry {
+                        name: "beta",
+                        kind: "Image",
+                        directory: false,
+                        size: 2,
+                    };
+                    let right = Entry {
+                        name: "Alpha",
+                        kind: "Text",
+                        directory: false,
+                        size: 100,
+                    };
+                    for (column, expected) in [
+                        (0, Ordering::Greater),
+                        (1, Ordering::Less),
+                        (2, Ordering::Less),
+                    ] {
+                        assert_eq!(
+                            Order {
+                                column,
+                                descending: false
+                            }
+                            .compare(&left, &right),
+                            expected,
+                            "columns use names types and numeric sizes"
+                        );
+                        assert_eq!(
+                            Order {
+                                column,
+                                descending: true
+                            }
+                            .compare(&left, &right),
+                            expected.reverse(),
+                            "columns use names types and numeric sizes"
+                        );
+                    }
+                }),
+            ),
+            (
+                "prefixes_extend_and_repeated_letters_cycle",
+                (|_scenario: &str| {
+                    let mut search = Search::default();
+                    let now = Instant::now();
+                    let names = ["Alpha", "Apple", "Beta"];
+                    assert_eq!(
+                        search.find("a", now, &names, None),
+                        Some(0),
+                        "prefixes extend and repeated letters cycle"
+                    );
+                    assert_eq!(
+                        search.find("a", now, &names, Some(0)),
+                        Some(1),
+                        "prefixes extend and repeated letters cycle"
+                    );
+                    assert_eq!(
+                        search.find("p", now, &names, Some(1)),
+                        Some(1),
+                        "prefixes extend and repeated letters cycle"
+                    );
+                    assert_eq!(
+                        search.find("p", now, &names, Some(1)),
+                        Some(1),
+                        "prefixes extend and repeated letters cycle"
+                    );
+                    assert_eq!(
+                        search.find("b", now + Duration::from_secs(2), &names, Some(1)),
+                        Some(2),
+                        "prefixes extend and repeated letters cycle"
+                    );
+                    search.reset();
+                    assert_eq!(
+                        search.find("A", now, &names, Some(1)),
+                        Some(0),
+                        "prefixes extend and repeated letters cycle"
+                    );
+                    assert_eq!(
+                        search.find("\n", now, &names, None),
+                        None,
+                        "prefixes extend and repeated letters cycle"
+                    );
+                }),
+            ),
         ] {
-            assert_eq!(
-                Order {
-                    column,
-                    descending: false
-                }
-                .compare(&left, &right),
-                expected
-            );
-            assert_eq!(
-                Order {
-                    column,
-                    descending: true
-                }
-                .compare(&left, &right),
-                expected.reverse()
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn prefixes_extend_and_repeated_letters_cycle() {
-        let mut search = Search::default();
-        let now = Instant::now();
-        let names = ["Alpha", "Apple", "Beta"];
-        assert_eq!(search.find("a", now, &names, None), Some(0));
-        assert_eq!(search.find("a", now, &names, Some(0)), Some(1));
-        assert_eq!(search.find("p", now, &names, Some(1)), Some(1));
-        assert_eq!(search.find("p", now, &names, Some(1)), Some(1));
-        assert_eq!(
-            search.find("b", now + Duration::from_secs(2), &names, Some(1)),
-            Some(2)
-        );
-        search.reset();
-        assert_eq!(search.find("A", now, &names, Some(1)), Some(0));
-        assert_eq!(search.find("\n", now, &names, None), None);
     }
 }

@@ -178,49 +178,68 @@ mod tests {
     use crate::{conversation::fixture, tr};
 
     #[test]
-    fn duration_boundaries() {
-        let mut turn = Turn::new("prompt".into());
-        for (seconds, expected) in [
-            (0, "0s"),
-            (59, "59s"),
-            (60, "1m00s"),
-            (70, "1m10s"),
-            (3601, "1h00m01s"),
+    fn streaming_and_completion() {
+        for (scenario, check) in [
+            (
+                "duration_boundaries",
+                (|_scenario: &str| {
+                    let mut turn = Turn::new("prompt".into());
+                    for (seconds, expected) in [
+                        (0, "0s"),
+                        (59, "59s"),
+                        (60, "1m00s"),
+                        (70, "1m10s"),
+                        (3601, "1h00m01s"),
+                    ] {
+                        turn.elapsed = Duration::from_secs(seconds);
+                        assert_eq!(turn.duration_label(), expected, "duration boundaries");
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "streams_unicode_prefixes",
+                (|_scenario: &str| {
+                    let mut turn = Turn::new("prompt".into());
+                    let full = tr("preview_notice");
+                    let mut previous = String::new();
+                    for ms in (4000..=8000).step_by(125) {
+                        fixture::advance(&mut turn, Duration::from_millis(ms));
+                        let current = turn.copy_text();
+                        assert!(full.starts_with(&current), "streams unicode prefixes");
+                        assert!(current.starts_with(&previous), "streams unicode prefixes");
+                        previous = current;
+                    }
+                    assert_eq!(previous, full.as_ref(), "streams unicode prefixes");
+                    assert_eq!(turn.blocks.len(), 3, "streams unicode prefixes");
+                }),
+            ),
+            (
+                "stops_tools_and_copies_answer",
+                (|_scenario: &str| {
+                    let mut turn = Turn::new("prompt".into());
+                    fixture::advance(&mut turn, Duration::from_secs(3));
+                    if let Block::Tools(calls) = &mut turn.blocks[1] {
+                        calls[0].status = Status::Completed;
+                    }
+                    turn.stop(Status::Cancelled);
+                    assert!(
+                        matches!(&turn.blocks[1], Block::Tools(calls)
+                    if calls[0].status == Status::Completed && calls[1].status == Status::Cancelled),
+                        "stops tools and copies answer"
+                    );
+                    turn.blocks.push(Block::Text("First".into()));
+                    turn.blocks.push(Block::Error("Error".into()));
+                    turn.blocks.push(Block::Text("Second".into()));
+                    assert_eq!(
+                        turn.copy_text(),
+                        "First\n\nSecond",
+                        "stops tools and copies answer"
+                    );
+                }),
+            ),
         ] {
-            turn.elapsed = Duration::from_secs(seconds);
-            assert_eq!(turn.duration_label(), expected);
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn streams_unicode_prefixes() {
-        let mut turn = Turn::new("prompt".into());
-        let full = tr("preview_notice");
-        let mut previous = String::new();
-        for ms in (4000..=8000).step_by(125) {
-            fixture::advance(&mut turn, Duration::from_millis(ms));
-            let current = turn.copy_text();
-            assert!(full.starts_with(&current));
-            assert!(current.starts_with(&previous));
-            previous = current;
-        }
-        assert_eq!(previous, full.as_ref());
-        assert_eq!(turn.blocks.len(), 3);
-    }
-
-    #[test]
-    fn stops_tools_and_copies_answer() {
-        let mut turn = Turn::new("prompt".into());
-        fixture::advance(&mut turn, Duration::from_secs(3));
-        if let Block::Tools(calls) = &mut turn.blocks[1] {
-            calls[0].status = Status::Completed;
-        }
-        turn.stop(Status::Cancelled);
-        assert!(matches!(&turn.blocks[1], Block::Tools(calls)
-            if calls[0].status == Status::Completed && calls[1].status == Status::Cancelled));
-        turn.blocks.push(Block::Text("First".into()));
-        turn.blocks.push(Block::Error("Error".into()));
-        turn.blocks.push(Block::Text("Second".into()));
-        assert_eq!(turn.copy_text(), "First\n\nSecond");
     }
 }

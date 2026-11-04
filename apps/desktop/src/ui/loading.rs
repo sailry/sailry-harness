@@ -64,22 +64,36 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn wave_timing() {
-        assert_eq!(opacity(0.), 1.);
-        assert!((opacity(0.45) - DIM).abs() < 1e-6);
-        assert_eq!(opacity(0.9), DIM);
-        assert!((opacity(0.96) - 0.55).abs() < 1e-5);
-        for step in 0..100 {
-            let phase = step as f32 / 100.;
-            assert!((opacity(phase) - opacity(phase + 1.)).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn clockwise_chase() {
-        let cells = [(0, 0), (0, 1), (1, 1), (2, 1), (2, 0), (1, 0)];
-        for (phase, (row, col)) in cells.into_iter().enumerate() {
-            assert_eq!(RING[row][col], phase);
+    fn animation_timing() {
+        for (scenario, check) in [
+            (
+                "wave_timing",
+                (|_scenario: &str| {
+                    assert_eq!(opacity(0.), 1., "wave timing");
+                    assert!((opacity(0.45) - DIM).abs() < 1e-6, "wave timing");
+                    assert_eq!(opacity(0.9), DIM, "wave timing");
+                    assert!((opacity(0.96) - 0.55).abs() < 1e-5, "wave timing");
+                    for step in 0..100 {
+                        let phase = step as f32 / 100.;
+                        assert!(
+                            (opacity(phase) - opacity(phase + 1.)).abs() < 1e-5,
+                            "wave timing"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "clockwise_chase",
+                (|_scenario: &str| {
+                    let cells = [(0, 0), (0, 1), (1, 1), (2, 1), (2, 0), (1, 0)];
+                    for (phase, (row, col)) in cells.into_iter().enumerate() {
+                        assert_eq!(RING[row][col], phase, "clockwise chase");
+                    }
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

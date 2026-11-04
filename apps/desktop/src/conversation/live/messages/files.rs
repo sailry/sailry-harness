@@ -159,23 +159,43 @@ mod tests {
     }
 
     #[test]
-    fn generated_images_use_turn_worktree() {
-        let worktree = WorktreeId::new();
-        let output = file("assets/generated/result.png");
-        let source = image_source(&output, Some(worktree)).unwrap();
-        assert!(matches!(
-            source,
-            ImageSource::File { worktree: captured, path, context: None }
-                if captured == worktree && path == output.path
-        ));
-    }
-
-    #[test]
-    fn unsupported_outputs_keep_file_actions() {
-        let worktree = Some(WorktreeId::new());
-        for path in ["report.pdf", "document.html", "assets/generated/result.mp4"] {
-            assert!(image_source(&file(path), worktree).is_none(), "{path}");
+    fn generated_assets() {
+        for (scenario, check) in [
+            (
+                "generated_images_use_turn_worktree",
+                (|_scenario: &str| {
+                    let worktree = WorktreeId::new();
+                    let output = file("assets/generated/result.png");
+                    let source = image_source(&output, Some(worktree)).unwrap();
+                    assert!(
+                        matches!(
+                            source,
+                            ImageSource::File { worktree: captured, path, context: None }
+                                if captured == worktree && path == output.path
+                        ),
+                        "generated images use turn worktree"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "unsupported_outputs_keep_file_actions",
+                (|_scenario: &str| {
+                    let worktree = Some(WorktreeId::new());
+                    for path in ["report.pdf", "document.html", "assets/generated/result.mp4"] {
+                        assert!(
+                            image_source(&file(path), worktree).is_none(),
+                            "unsupported outputs keep file actions: {path}"
+                        );
+                    }
+                    assert!(
+                        image_source(&file("assets/generated/result.png"), None).is_none(),
+                        "unsupported outputs keep file actions"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert!(image_source(&file("assets/generated/result.png"), None).is_none());
     }
 }

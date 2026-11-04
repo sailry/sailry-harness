@@ -192,10 +192,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn colors_are_stable() {
-        // Lock the algorithm so refactors cannot recolor existing identities.
-        assert_eq!(color("office"), rgb(0x28B49C).into());
-        assert_ne!(color("office"), color("project-summary"));
+    fn identity_and_images() {
+        for (scenario, check) in [
+            (
+                "colors_are_stable",
+                (|_scenario: &str| {
+                    // Lock the algorithm so refactors cannot recolor existing identities.
+                    assert_eq!(color("office"), rgb(0x28B49C).into(), "colors are stable");
+                    assert_ne!(
+                        color("office"),
+                        color("project-summary"),
+                        "colors are stable"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "fallback_tints_are_stable",
+                (|_scenario: &str| {
+                    use sailry_protocol::plugin::Tint;
+                    // Lock the algorithm so refactors cannot recolor existing tiles.
+                    assert_eq!(fallback("office"), Tint::Teal, "fallback tints are stable");
+                }),
+            ),
+            (
+                "preserves_custom_images",
+                (|_scenario: &str| {
+                    let glyph = Glyph::Name("reicon:ui/puzzle-piece".into());
+                    assert_eq!(
+                        image_source(Some(&glyph), Some("aWNvbg==")),
+                        Some((ImageFormat::Png, b"icon".to_vec())),
+                        "preserves custom images"
+                    );
+                    let glyph = Glyph::Svg {
+                        svg: "<svg fill=\"red\"/>".into(),
+                    };
+                    assert_eq!(
+                        image_source(Some(&glyph), None),
+                        Some((ImageFormat::Svg, b"<svg fill=\"red\"/>".to_vec())),
+                        "preserves custom images"
+                    );
+                    assert!(
+                        image_source(None, Some("invalid base64")).is_none(),
+                        "preserves custom images"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 
     #[gpui_kit::test]
@@ -229,29 +274,5 @@ mod tests {
                 }
             }
         });
-    }
-
-    #[test]
-    fn fallback_tints_are_stable() {
-        use sailry_protocol::plugin::Tint;
-        // Lock the algorithm so refactors cannot recolor existing tiles.
-        assert_eq!(fallback("office"), Tint::Teal);
-    }
-
-    #[test]
-    fn preserves_custom_images() {
-        let glyph = Glyph::Name("reicon:ui/puzzle-piece".into());
-        assert_eq!(
-            image_source(Some(&glyph), Some("aWNvbg==")),
-            Some((ImageFormat::Png, b"icon".to_vec()))
-        );
-        let glyph = Glyph::Svg {
-            svg: "<svg fill=\"red\"/>".into(),
-        };
-        assert_eq!(
-            image_source(Some(&glyph), None),
-            Some((ImageFormat::Svg, b"<svg fill=\"red\"/>".to_vec()))
-        );
-        assert!(image_source(None, Some("invalid base64")).is_none());
     }
 }

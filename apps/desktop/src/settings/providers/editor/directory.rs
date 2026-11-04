@@ -466,23 +466,47 @@ mod tests {
         }
 
         #[test]
-        fn empty_without_partners() {
-            let entry = compatible();
-            let route = entry.preset.routes[0].clone();
-            assert!(partner_choices(&[], &route).is_empty());
-            assert!(partner_choices(&presets::bundled(), &route).is_empty());
-        }
-
-        #[test]
-        fn matches_route_protocol() {
-            let builtin = compatible();
-            let route = builtin.preset.routes[0].clone();
-            let mut partner = builtin.clone();
-            partner.source = Source::Partner;
-            let choices = partner_choices(&[builtin, partner], &route);
-            assert_eq!(choices.len(), 1);
-            assert_eq!(choices[0].0.source, Source::Partner);
-            assert_eq!(choices[0].1.protocol, route.protocol);
+        fn refresh_and_selection() {
+            for (scenario, check) in [
+                (
+                    "empty_without_partners",
+                    (|_scenario: &str| {
+                        let entry = compatible();
+                        let route = entry.preset.routes[0].clone();
+                        assert!(
+                            partner_choices(&[], &route).is_empty(),
+                            "empty without partners"
+                        );
+                        assert!(
+                            partner_choices(&presets::bundled(), &route).is_empty(),
+                            "empty without partners"
+                        );
+                    }) as fn(&str),
+                ),
+                (
+                    "matches_route_protocol",
+                    (|_scenario: &str| {
+                        let builtin = compatible();
+                        let route = builtin.preset.routes[0].clone();
+                        let mut partner = builtin.clone();
+                        partner.source = Source::Partner;
+                        let choices = partner_choices(&[builtin, partner], &route);
+                        assert_eq!(choices.len(), 1, "matches route protocol");
+                        assert_eq!(
+                            choices[0].0.source,
+                            Source::Partner,
+                            "matches route protocol"
+                        );
+                        assert_eq!(
+                            choices[0].1.protocol, route.protocol,
+                            "matches route protocol"
+                        );
+                    }),
+                ),
+            ] {
+                eprintln!("case: {scenario}");
+                check(scenario);
+            }
         }
     }
 }

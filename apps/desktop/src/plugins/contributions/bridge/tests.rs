@@ -149,43 +149,383 @@ async fn keeps_latest_search_results() {
 }
 
 #[test]
-fn rejects_invalid_batches_without_partial_updates() {
-    let bridge = picker();
-    assert!(!bridge.ready());
-    bridge.publish(vec![]).unwrap();
-    assert!(!bridge.ready());
-    let initial = bridge.subscribe().borrow().clone();
-    for invalid in [
-        json!({"id":"missing"}),
-        json!({"id":"resource", "reply_to":1}),
-        json!({"id":"resource", "choices":[{"id":"x","label":{"label":"X"}},
-            {"id":"x","label":{"label":"Duplicate"}}]}),
+fn publication_and_scope() {
+    for (scenario, check) in [
+        (
+            "rejects_invalid_batches_without_partial_updates",
+            (|_scenario: &str| {
+                let bridge = picker();
+                assert!(
+                    !bridge.ready(),
+                    "rejects invalid batches without partial updates"
+                );
+                bridge.publish(vec![]).unwrap();
+                assert!(
+                    !bridge.ready(),
+                    "rejects invalid batches without partial updates"
+                );
+                let initial = bridge.subscribe().borrow().clone();
+                for invalid in [
+                    json!({"id":"missing"}),
+                    json!({"id":"resource", "reply_to":1}),
+                    json!({"id":"resource", "choices":[{"id":"x","label":{"label":"X"}},
+                    {"id":"x","label":{"label":"Duplicate"}}]}),
+                ] {
+                    assert!(
+                        bridge
+                            .publish(vec![
+                                state(json!({"id":"resource", "enabled":true})),
+                                state(invalid)
+                            ])
+                            .is_err(),
+                        "rejects invalid batches without partial updates"
+                    );
+                    assert_eq!(
+                        *bridge.subscribe().borrow(),
+                        initial,
+                        "rejects invalid batches without partial updates"
+                    );
+                    assert!(
+                        !bridge.ready(),
+                        "rejects invalid batches without partial updates"
+                    );
+                }
+                assert!(
+                    bridge
+                        .invoke("resource", EventKind::Search, json!("a"))
+                        .is_err(),
+                    "rejects invalid batches without partial updates"
+                );
+                bridge
+                    .publish(vec![state(json!({"id":"resource", "choices":[]}))])
+                    .unwrap();
+                assert!(
+                    bridge.ready(),
+                    "rejects invalid batches without partial updates"
+                );
+                assert!(
+                    bridge
+                        .invoke("resource", EventKind::Change, json!("missing"))
+                        .is_err(),
+                    "rejects invalid batches without partial updates"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "hides_contributions_until_state_arrives",
+            (|_scenario: &str| {
+                let bridge = picker();
+                assert!(
+                    !bridge.state("resource").unwrap().visible,
+                    "hides contributions until state arrives"
+                );
+                bridge
+                    .publish(vec![state(json!({"id":"resource"}))])
+                    .unwrap();
+                assert!(
+                    bridge.state("resource").unwrap().visible,
+                    "hides contributions until state arrives"
+                );
+            }),
+        ),
+        (
+            "fences_replaced_provider_scopes",
+            (|_scenario: &str| {
+                let bridge = Bridge::new(vec![
+                serde_json::from_value(
+                    json!({"id":"usage","slot":"provider","kind":"metric","label":{"label":"Usage"}}),
+                )
+                .unwrap(),
+            ]);
+                let first = ui::ProviderScope {
+                    provider: sailry_protocol::ProviderId::new(),
+                    revision: "3:1".into(),
+                    credential: sailry_protocol::CredentialRef {
+                        node: sailry_protocol::NodeId([1; 32]),
+                        id: sailry_protocol::CredentialId::new(),
+                    },
+                };
+                let second = ui::ProviderScope {
+                    provider: sailry_protocol::ProviderId::new(),
+                    ..first.clone()
+                };
+                let metric = |scope: &ui::ProviderScope, value: &str| {
+                    state(json!({"id":"usage","scope":scope,"value":value}))
+                };
+                bridge.scopes(vec![first.clone(), second.clone()]);
+                bridge
+                    .publish(vec![metric(&first, "10%"), metric(&second, "80%")])
+                    .unwrap();
+                assert_eq!(
+                    bridge
+                        .subscribe()
+                        .borrow()
+                        .values()
+                        .filter(|state| state.scope.is_some())
+                        .count(),
+                    2,
+                    "fences replaced provider scopes"
+                );
+                assert!(
+                    bridge
+                        .publish(vec![metric(&first, "11%"), metric(&first, "12%")])
+                        .is_err(),
+                    "fences replaced provider scopes"
+                );
+                let replaced = ui::ProviderScope {
+                    revision: "4:1".into(),
+                    credential: sailry_protocol::CredentialRef {
+                        node: first.credential.node,
+                        id: sailry_protocol::CredentialId::new(),
+                    },
+                    ..first.clone()
+                };
+                bridge.scopes(vec![replaced.clone(), second.clone()]);
+                assert!(
+                    !bridge
+                        .subscribe()
+                        .borrow()
+                        .values()
+                        .any(|state| state.scope.as_ref() == Some(&first)),
+                    "fences replaced provider scopes"
+                );
+                assert!(
+                    bridge.publish(vec![metric(&first, "100%")]).is_err(),
+                    "fences replaced provider scopes"
+                );
+                bridge.publish(vec![metric(&replaced, "20%")]).unwrap();
+                assert!(
+                    bridge
+                        .subscribe()
+                        .borrow()
+                        .values()
+                        .any(|state| state.scope.as_ref() == Some(&replaced)
+                            && state.value == json!("20%")),
+                    "fences replaced provider scopes"
+                );
+                assert!(
+                    bridge
+                        .subscribe()
+                        .borrow()
+                        .values()
+                        .any(|state| state.scope.as_ref() == Some(&second)
+                            && state.value == json!("80%")),
+                    "fences replaced provider scopes"
+                );
+                let renewed = ui::ProviderScope {
+                    revision: "4:2".into(),
+                    ..replaced.clone()
+                };
+                assert_eq!(
+                    renewed.credential, replaced.credential,
+                    "fences replaced provider scopes"
+                );
+                bridge.scopes(vec![renewed.clone(), second.clone()]);
+                assert!(
+                    bridge.publish(vec![metric(&replaced, "99%")]).is_err(),
+                    "fences replaced provider scopes"
+                );
+                bridge.publish(vec![metric(&renewed, "35%")]).unwrap();
+                assert!(
+                    bridge
+                        .subscribe()
+                        .borrow()
+                        .values()
+                        .any(|state| state.scope.as_ref() == Some(&renewed)
+                            && state.value == json!("35%")),
+                    "fences replaced provider scopes"
+                );
+                bridge.scopes(vec![]);
+                assert!(
+                    bridge.publish(vec![metric(&replaced, "100%")]).is_err(),
+                    "fences replaced provider scopes"
+                );
+                assert!(
+                    !bridge
+                        .subscribe()
+                        .borrow()
+                        .values()
+                        .any(|state| state.scope.is_some()),
+                    "fences replaced provider scopes"
+                );
+            }),
+        ),
+        (
+            "hides_unpublished_controls",
+            (|_scenario: &str| {
+                let bridge = picker();
+                let declaration = &bridge.declarations[0];
+                assert!(
+                    bridge.presentation(declaration, false, false).is_none(),
+                    "hides unpublished controls"
+                );
+                let failed = bridge.presentation(declaration, false, true).unwrap();
+                assert!(failed.visible, "hides unpublished controls");
+                assert!(!failed.enabled, "hides unpublished controls");
+                assert!(!failed.loading, "hides unpublished controls");
+                bridge.restart();
+                assert!(
+                    bridge.presentation(declaration, false, false).is_none(),
+                    "hides unpublished controls"
+                );
+                bridge
+                    .publish(vec![state(json!({"id":"resource"}))])
+                    .unwrap();
+                assert!(
+                    bridge
+                        .presentation(declaration, true, false)
+                        .unwrap()
+                        .enabled,
+                    "hides unpublished controls"
+                );
+                bridge
+                    .publish(vec![state(json!({"id":"resource", "visible":false}))])
+                    .unwrap();
+                assert!(
+                    bridge.presentation(declaration, true, false).is_none(),
+                    "hides unpublished controls"
+                );
+                assert!(
+                    bridge.presentation(declaration, false, true).is_none(),
+                    "hides unpublished controls"
+                );
+            }),
+        ),
+        (
+            "publishes_each_declaration_independently",
+            (|_scenario: &str| {
+                let first = picker().declarations[0].clone();
+                let mut second = first.clone();
+                second.id = "other".into();
+                let bridge = Bridge::new(vec![first.clone(), second.clone()]);
+                bridge
+                    .publish(vec![state(json!({"id":"resource", "visible":false}))])
+                    .unwrap();
+                assert!(
+                    bridge.presentation(&first, true, false).is_none(),
+                    "publishes each declaration independently"
+                );
+                assert!(
+                    bridge.published(&first.id),
+                    "publishes each declaration independently"
+                );
+                assert!(
+                    !bridge.published(&second.id),
+                    "publishes each declaration independently"
+                );
+                assert!(
+                    bridge.presentation(&second, false, false).is_none(),
+                    "publishes each declaration independently"
+                );
+            }),
+        ),
+        (
+            "retains_disabled_labels_until_replacement",
+            (|_scenario: &str| {
+                let bridge = picker();
+                let declaration = &bridge.declarations[0];
+                bridge
+                    .publish(vec![state(
+                        json!({"id":"resource", "label":{"label":"Selected checkout"}}),
+                    )])
+                    .unwrap();
+                let disconnected = bridge.presentation(declaration, false, false).unwrap();
+                assert!(
+                    !disconnected.enabled,
+                    "retains disabled labels until replacement"
+                );
+                assert_eq!(
+                    disconnected.label.unwrap().label,
+                    "Selected checkout",
+                    "retains disabled labels until replacement"
+                );
+                bridge.restart();
+                assert!(
+                    !bridge
+                        .presentation(declaration, true, false)
+                        .unwrap()
+                        .enabled,
+                    "retains disabled labels until replacement"
+                );
+                bridge
+                    .publish(vec![state(
+                        json!({"id":"resource", "label":{"label":"Recovered checkout"}}),
+                    )])
+                    .unwrap();
+                assert!(
+                    bridge
+                        .presentation(declaration, true, false)
+                        .unwrap()
+                        .enabled,
+                    "retains disabled labels until replacement"
+                );
+                let replacement = picker();
+                assert!(
+                    replacement
+                        .presentation(&replacement.declarations[0], false, false)
+                        .is_none(),
+                    "retains disabled labels until replacement"
+                );
+            }),
+        ),
+        (
+            "rejects_actions_while_loading",
+            (|_scenario: &str| {
+                let bridge = picker();
+                bridge
+                    .publish(vec![state(json!({"id":"resource", "loading":true}))])
+                    .unwrap();
+                assert!(
+                    !bridge
+                        .presentation(&bridge.declarations[0], true, false)
+                        .unwrap()
+                        .enabled,
+                    "rejects actions while loading"
+                );
+                assert!(
+                    bridge
+                        .invoke("resource", EventKind::Search, json!("query"))
+                        .is_err(),
+                    "rejects actions while loading"
+                );
+            }),
+        ),
+        (
+            "retains_empty_indicators_without_placeholder_labels",
+            (|_scenario: &str| {
+                let entry = serde_json::from_value(json!({
+                "id":"progress", "slot":"composer", "kind":"indicator",
+                "label":{"label":"Progress"}
+                    }))
+                .unwrap();
+                let bridge = Bridge::new(vec![entry]);
+                for failed in [false, true] {
+                    let state = bridge
+                        .presentation(&bridge.declarations[0], false, failed)
+                        .unwrap();
+                    assert!(
+                        state.visible,
+                        "retains empty indicators without placeholder labels"
+                    );
+                    assert!(
+                        !state.enabled,
+                        "retains empty indicators without placeholder labels"
+                    );
+                    assert!(
+                        state.value.is_null(),
+                        "retains empty indicators without placeholder labels"
+                    );
+                    assert!(
+                        state.label.is_none(),
+                        "retains empty indicators without placeholder labels"
+                    );
+                }
+            }),
+        ),
     ] {
-        assert!(
-            bridge
-                .publish(vec![
-                    state(json!({"id":"resource", "enabled":true})),
-                    state(invalid)
-                ])
-                .is_err()
-        );
-        assert_eq!(*bridge.subscribe().borrow(), initial);
-        assert!(!bridge.ready());
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    assert!(
-        bridge
-            .invoke("resource", EventKind::Search, json!("a"))
-            .is_err()
-    );
-    bridge
-        .publish(vec![state(json!({"id":"resource", "choices":[]}))])
-        .unwrap();
-    assert!(bridge.ready());
-    assert!(
-        bridge
-            .invoke("resource", EventKind::Change, json!("missing"))
-            .is_err()
-    );
 }
 
 #[tokio::test]
@@ -292,115 +632,6 @@ async fn uses_current_choice_availability() {
     assert_eq!(action.value, "tool");
 }
 
-#[test]
-fn hides_contributions_until_state_arrives() {
-    let bridge = picker();
-    assert!(!bridge.state("resource").unwrap().visible);
-    bridge
-        .publish(vec![state(json!({"id":"resource"}))])
-        .unwrap();
-    assert!(bridge.state("resource").unwrap().visible);
-}
-
-#[test]
-fn fences_replaced_provider_scopes() {
-    let bridge = Bridge::new(vec![
-        serde_json::from_value(
-            json!({"id":"usage","slot":"provider","kind":"metric","label":{"label":"Usage"}}),
-        )
-        .unwrap(),
-    ]);
-    let first = ui::ProviderScope {
-        provider: sailry_protocol::ProviderId::new(),
-        revision: "3:1".into(),
-        credential: sailry_protocol::CredentialRef {
-            node: sailry_protocol::NodeId([1; 32]),
-            id: sailry_protocol::CredentialId::new(),
-        },
-    };
-    let second = ui::ProviderScope {
-        provider: sailry_protocol::ProviderId::new(),
-        ..first.clone()
-    };
-    let metric = |scope: &ui::ProviderScope, value: &str| {
-        state(json!({"id":"usage","scope":scope,"value":value}))
-    };
-    bridge.scopes(vec![first.clone(), second.clone()]);
-    bridge
-        .publish(vec![metric(&first, "10%"), metric(&second, "80%")])
-        .unwrap();
-    assert_eq!(
-        bridge
-            .subscribe()
-            .borrow()
-            .values()
-            .filter(|state| state.scope.is_some())
-            .count(),
-        2
-    );
-    assert!(
-        bridge
-            .publish(vec![metric(&first, "11%"), metric(&first, "12%")])
-            .is_err()
-    );
-    let replaced = ui::ProviderScope {
-        revision: "4:1".into(),
-        credential: sailry_protocol::CredentialRef {
-            node: first.credential.node,
-            id: sailry_protocol::CredentialId::new(),
-        },
-        ..first.clone()
-    };
-    bridge.scopes(vec![replaced.clone(), second.clone()]);
-    assert!(
-        !bridge
-            .subscribe()
-            .borrow()
-            .values()
-            .any(|state| state.scope.as_ref() == Some(&first))
-    );
-    assert!(bridge.publish(vec![metric(&first, "100%")]).is_err());
-    bridge.publish(vec![metric(&replaced, "20%")]).unwrap();
-    assert!(
-        bridge
-            .subscribe()
-            .borrow()
-            .values()
-            .any(|state| state.scope.as_ref() == Some(&replaced) && state.value == json!("20%"))
-    );
-    assert!(
-        bridge
-            .subscribe()
-            .borrow()
-            .values()
-            .any(|state| state.scope.as_ref() == Some(&second) && state.value == json!("80%"))
-    );
-    let renewed = ui::ProviderScope {
-        revision: "4:2".into(),
-        ..replaced.clone()
-    };
-    assert_eq!(renewed.credential, replaced.credential);
-    bridge.scopes(vec![renewed.clone(), second.clone()]);
-    assert!(bridge.publish(vec![metric(&replaced, "99%")]).is_err());
-    bridge.publish(vec![metric(&renewed, "35%")]).unwrap();
-    assert!(
-        bridge
-            .subscribe()
-            .borrow()
-            .values()
-            .any(|state| state.scope.as_ref() == Some(&renewed) && state.value == json!("35%"))
-    );
-    bridge.scopes(vec![]);
-    assert!(bridge.publish(vec![metric(&replaced, "100%")]).is_err());
-    assert!(
-        !bridge
-            .subscribe()
-            .borrow()
-            .values()
-            .any(|state| state.scope.is_some())
-    );
-}
-
 #[tokio::test]
 async fn indicator_uses_controlled_boolean_interactions() {
     let bridge = Bridge::new(vec![
@@ -445,124 +676,6 @@ async fn indicator_uses_controlled_boolean_interactions() {
     assert_eq!(bridge.next().await.unwrap().value, json!(false));
 }
 
-#[test]
-fn hides_unpublished_controls() {
-    let bridge = picker();
-    let declaration = &bridge.declarations[0];
-    assert!(bridge.presentation(declaration, false, false).is_none());
-    let failed = bridge.presentation(declaration, false, true).unwrap();
-    assert!(failed.visible);
-    assert!(!failed.enabled);
-    assert!(!failed.loading);
-    bridge.restart();
-    assert!(bridge.presentation(declaration, false, false).is_none());
-    bridge
-        .publish(vec![state(json!({"id":"resource"}))])
-        .unwrap();
-    assert!(
-        bridge
-            .presentation(declaration, true, false)
-            .unwrap()
-            .enabled
-    );
-    bridge
-        .publish(vec![state(json!({"id":"resource", "visible":false}))])
-        .unwrap();
-    assert!(bridge.presentation(declaration, true, false).is_none());
-    assert!(bridge.presentation(declaration, false, true).is_none());
-}
-
-#[test]
-fn publishes_each_declaration_independently() {
-    let first = picker().declarations[0].clone();
-    let mut second = first.clone();
-    second.id = "other".into();
-    let bridge = Bridge::new(vec![first.clone(), second.clone()]);
-    bridge
-        .publish(vec![state(json!({"id":"resource", "visible":false}))])
-        .unwrap();
-    assert!(bridge.presentation(&first, true, false).is_none());
-    assert!(bridge.published(&first.id));
-    assert!(!bridge.published(&second.id));
-    assert!(bridge.presentation(&second, false, false).is_none());
-}
-
-#[test]
-fn retains_disabled_labels_until_replacement() {
-    let bridge = picker();
-    let declaration = &bridge.declarations[0];
-    bridge
-        .publish(vec![state(
-            json!({"id":"resource", "label":{"label":"Selected checkout"}}),
-        )])
-        .unwrap();
-    let disconnected = bridge.presentation(declaration, false, false).unwrap();
-    assert!(!disconnected.enabled);
-    assert_eq!(disconnected.label.unwrap().label, "Selected checkout");
-    bridge.restart();
-    assert!(
-        !bridge
-            .presentation(declaration, true, false)
-            .unwrap()
-            .enabled
-    );
-    bridge
-        .publish(vec![state(
-            json!({"id":"resource", "label":{"label":"Recovered checkout"}}),
-        )])
-        .unwrap();
-    assert!(
-        bridge
-            .presentation(declaration, true, false)
-            .unwrap()
-            .enabled
-    );
-    let replacement = picker();
-    assert!(
-        replacement
-            .presentation(&replacement.declarations[0], false, false)
-            .is_none()
-    );
-}
-
-#[test]
-fn rejects_actions_while_loading() {
-    let bridge = picker();
-    bridge
-        .publish(vec![state(json!({"id":"resource", "loading":true}))])
-        .unwrap();
-    assert!(
-        !bridge
-            .presentation(&bridge.declarations[0], true, false)
-            .unwrap()
-            .enabled
-    );
-    assert!(
-        bridge
-            .invoke("resource", EventKind::Search, json!("query"))
-            .is_err()
-    );
-}
-
-#[test]
-fn retains_empty_indicators_without_placeholder_labels() {
-    let entry = serde_json::from_value(json!({
-        "id":"progress", "slot":"composer", "kind":"indicator",
-        "label":{"label":"Progress"}
-    }))
-    .unwrap();
-    let bridge = Bridge::new(vec![entry]);
-    for failed in [false, true] {
-        let state = bridge
-            .presentation(&bridge.declarations[0], false, failed)
-            .unwrap();
-        assert!(state.visible);
-        assert!(!state.enabled);
-        assert!(state.value.is_null());
-        assert!(state.label.is_none());
-    }
-}
-
 mod status {
     use super::*;
 
@@ -575,20 +688,93 @@ mod status {
     }
 
     #[test]
-    fn rejects_publication_without_partial_updates() {
-        let bridge = bridge();
-        assert!(bridge.state("button").is_none());
-        assert!(bridge.state("details").is_none());
-        let pending = bridge.state("normal").unwrap();
-        assert_eq!(
-            bridge.publish(vec![
-                state(json!({"id": "normal"})),
-                state(json!({"id": "button"})),
-            ]),
-            Err("status state is owned by the execution Node")
-        );
-        assert_eq!(bridge.state("normal").unwrap(), pending);
-        assert!(!bridge.ready());
+    fn publication_and_scope() {
+        for (scenario, check) in [
+            (
+                "rejects_publication_without_partial_updates",
+                (|_scenario: &str| {
+                    let bridge = bridge();
+                    assert!(
+                        bridge.state("button").is_none(),
+                        "rejects publication without partial updates"
+                    );
+                    assert!(
+                        bridge.state("details").is_none(),
+                        "rejects publication without partial updates"
+                    );
+                    let pending = bridge.state("normal").unwrap();
+                    assert_eq!(
+                        bridge.publish(vec![
+                            state(json!({"id": "normal"})),
+                            state(json!({"id": "button"})),
+                        ]),
+                        Err("status state is owned by the execution Node"),
+                        "rejects publication without partial updates"
+                    );
+                    assert_eq!(
+                        bridge.state("normal").unwrap(),
+                        pending,
+                        "rejects publication without partial updates"
+                    );
+                    assert!(
+                        !bridge.ready(),
+                        "rejects publication without partial updates"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "close_commands_are_scoped_bounded_and_drained",
+                (|_scenario: &str| {
+                    let bridge = bridge();
+                    let mut updates = bridge.subscribe();
+                    let states = updates.borrow_and_update().clone();
+                    for id in ["missing", "button", "normal"] {
+                        assert!(
+                            bridge.close(id).is_err(),
+                            "close commands are scoped bounded and drained"
+                        );
+                    }
+                    assert!(
+                        !updates.has_changed().unwrap(),
+                        "close commands are scoped bounded and drained"
+                    );
+                    for _ in 0..100 {
+                        bridge.close("details").unwrap();
+                    }
+                    assert!(
+                        updates.has_changed().unwrap(),
+                        "close commands are scoped bounded and drained"
+                    );
+                    assert_eq!(
+                        *updates.borrow_and_update(),
+                        states,
+                        "close commands are scoped bounded and drained"
+                    );
+                    assert_eq!(
+                        bridge.take_closed(),
+                        BTreeSet::from(["details".into()]),
+                        "close commands are scoped bounded and drained"
+                    );
+                    assert!(
+                        bridge.take_closed().is_empty(),
+                        "close commands are scoped bounded and drained"
+                    );
+                    bridge.close("details").unwrap();
+                    bridge.restart();
+                    assert!(
+                        bridge.take_closed().is_empty(),
+                        "close commands are scoped bounded and drained"
+                    );
+                    assert!(
+                        !bridge.ready(),
+                        "close commands are scoped bounded and drained"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 
     #[tokio::test]
@@ -620,27 +806,5 @@ mod status {
             assert!(bridge.forward(id, kind, value).is_err());
         }
         assert_eq!(bridge.current.lock().unwrap().sequence, 4);
-    }
-
-    #[test]
-    fn close_commands_are_scoped_bounded_and_drained() {
-        let bridge = bridge();
-        let mut updates = bridge.subscribe();
-        let states = updates.borrow_and_update().clone();
-        for id in ["missing", "button", "normal"] {
-            assert!(bridge.close(id).is_err());
-        }
-        assert!(!updates.has_changed().unwrap());
-        for _ in 0..100 {
-            bridge.close("details").unwrap();
-        }
-        assert!(updates.has_changed().unwrap());
-        assert_eq!(*updates.borrow_and_update(), states);
-        assert_eq!(bridge.take_closed(), BTreeSet::from(["details".into()]));
-        assert!(bridge.take_closed().is_empty());
-        bridge.close("details").unwrap();
-        bridge.restart();
-        assert!(bridge.take_closed().is_empty());
-        assert!(!bridge.ready());
     }
 }

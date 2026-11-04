@@ -758,37 +758,52 @@ mod tests {
     use sailry_protocol::{ErrorCode, Fault, FaultDetails, ModelFailure};
 
     #[test]
-    fn classifies_model_failures() {
-        for (reason, key) in [
-            (ModelFailure::Request, "chat_model_failed"),
-            (ModelFailure::Unauthorized, "chat_model_unauthorized"),
-            (ModelFailure::RateLimited, "chat_model_rate_limited"),
-            (ModelFailure::Timeout, "chat_response_timeout"),
-            (ModelFailure::InvalidResponse, "chat_response_invalid"),
-            (ModelFailure::SharedUsageLimit, "chat_subscription_limit"),
+    fn failure_classification() {
+        for (scenario, check) in [
             (
-                ModelFailure::SharedUsageUnavailable,
-                "chat_subscription_unavailable",
+                "classifies_model_failures",
+                (|_scenario: &str| {
+                    for (reason, key) in [
+                        (ModelFailure::Request, "chat_model_failed"),
+                        (ModelFailure::Unauthorized, "chat_model_unauthorized"),
+                        (ModelFailure::RateLimited, "chat_model_rate_limited"),
+                        (ModelFailure::Timeout, "chat_response_timeout"),
+                        (ModelFailure::InvalidResponse, "chat_response_invalid"),
+                        (ModelFailure::SharedUsageLimit, "chat_subscription_limit"),
+                        (
+                            ModelFailure::SharedUsageUnavailable,
+                            "chat_subscription_unavailable",
+                        ),
+                    ] {
+                        let mut fault = Fault::new(ErrorCode::Unavailable, "Provider explanation");
+                        fault.details = Some(FaultDetails::ModelRequest { reason });
+                        assert_eq!(failure_key(&fault), key, "classifies model failures");
+                        assert_eq!(
+                            fault.message, "Provider explanation",
+                            "classifies model failures"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "leaves_untyped_failures_generic",
+                (|_scenario: &str| {
+                    for message in [
+                        "unavailable",
+                        "Max iterations (100) exceeded",
+                        "Agent execution failed (model.openai_responses.unauthorized); HTTP 401",
+                    ] {
+                        assert_eq!(
+                            failure_key(&Fault::new(ErrorCode::Unavailable, message)),
+                            "turn_failed",
+                            "leaves untyped failures generic"
+                        );
+                    }
+                }),
             ),
         ] {
-            let mut fault = Fault::new(ErrorCode::Unavailable, "Provider explanation");
-            fault.details = Some(FaultDetails::ModelRequest { reason });
-            assert_eq!(failure_key(&fault), key);
-            assert_eq!(fault.message, "Provider explanation");
-        }
-    }
-
-    #[test]
-    fn leaves_untyped_failures_generic() {
-        for message in [
-            "unavailable",
-            "Max iterations (100) exceeded",
-            "Agent execution failed (model.openai_responses.unauthorized); HTTP 401",
-        ] {
-            assert_eq!(
-                failure_key(&Fault::new(ErrorCode::Unavailable, message)),
-                "turn_failed"
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

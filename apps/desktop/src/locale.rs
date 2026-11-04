@@ -109,63 +109,181 @@ mod tests {
     use super::*;
 
     #[test]
-    fn english_resources_resolve() {
-        let resource: std::collections::BTreeMap<String, String> =
-            serde_saphyr::from_str(include_str!("../../../locales/application.en.yml")).unwrap();
-        for (key, value) in resource {
-            assert_eq!(rust_i18n::t!(&key, locale = "en"), value, "{key}");
-        }
-    }
-
-    #[test]
-    fn additional_resources_resolve() {
-        let resources = [
+    fn resources_and_preferences() {
+        for (scenario, check) in [
             (
-                "zh-TW",
-                include_str!("../../../locales/application.zh-TW.yml"),
+                "english_resources_resolve",
+                (|_scenario: &str| {
+                    let resource: std::collections::BTreeMap<String, String> =
+                        serde_saphyr::from_str(include_str!("../../../locales/application.en.yml"))
+                            .unwrap();
+                    for (key, value) in resource {
+                        assert_eq!(
+                            rust_i18n::t!(&key, locale = "en"),
+                            value,
+                            "english resources resolve: {key}"
+                        );
+                    }
+                }) as fn(&str),
             ),
-            ("ja", include_str!("../../../locales/application.ja.yml")),
-            ("ko", include_str!("../../../locales/application.ko.yml")),
-            ("fr", include_str!("../../../locales/application.fr.yml")),
-            ("de", include_str!("../../../locales/application.de.yml")),
-            ("es", include_str!("../../../locales/application.es.yml")),
             (
-                "pt-BR",
-                include_str!("../../../locales/application.pt-BR.yml"),
+                "additional_resources_resolve",
+                (|_scenario: &str| {
+                    let resources = [
+                        (
+                            "zh-TW",
+                            include_str!("../../../locales/application.zh-TW.yml"),
+                        ),
+                        ("ja", include_str!("../../../locales/application.ja.yml")),
+                        ("ko", include_str!("../../../locales/application.ko.yml")),
+                        ("fr", include_str!("../../../locales/application.fr.yml")),
+                        ("de", include_str!("../../../locales/application.de.yml")),
+                        ("es", include_str!("../../../locales/application.es.yml")),
+                        (
+                            "pt-BR",
+                            include_str!("../../../locales/application.pt-BR.yml"),
+                        ),
+                        ("ru", include_str!("../../../locales/application.ru.yml")),
+                    ];
+                    for (locale, resource) in resources {
+                        let resource: std::collections::BTreeMap<String, String> =
+                            serde_saphyr::from_str(resource).unwrap();
+                        for (key, value) in resource {
+                            assert_eq!(
+                                rust_i18n::t!(&key, locale = locale),
+                                value,
+                                "additional resources resolve: {locale}: {key}"
+                            );
+                        }
+                    }
+                }),
             ),
-            ("ru", include_str!("../../../locales/application.ru.yml")),
-        ];
-        for (locale, resource) in resources {
-            let resource: std::collections::BTreeMap<String, String> =
-                serde_saphyr::from_str(resource).unwrap();
-            for (key, value) in resource {
-                assert_eq!(
-                    rust_i18n::t!(&key, locale = locale),
-                    value,
-                    "{locale}: {key}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn settings_headings_resolve() {
-        for language in Language::ALL
-            .into_iter()
-            .filter(|language| *language != Language::System)
-        {
-            let locale = language.resolve([]);
-            for section in [
-                crate::settings::Section::Connectors,
-                crate::settings::Section::Decision,
-            ] {
-                let description = format!("{}_description", section.key());
-                for key in [section.key(), description.as_str()] {
-                    let text = rust_i18n::t!(key, locale = locale);
-                    assert!(!text.trim().is_empty(), "{locale}: {key}");
-                    assert_ne!(text, key, "{locale}: {key}");
-                }
-            }
+            (
+                "settings_headings_resolve",
+                (|_scenario: &str| {
+                    for language in Language::ALL
+                        .into_iter()
+                        .filter(|language| *language != Language::System)
+                    {
+                        let locale = language.resolve([]);
+                        for section in [
+                            crate::settings::Section::Connectors,
+                            crate::settings::Section::Decision,
+                        ] {
+                            let description = format!("{}_description", section.key());
+                            for key in [section.key(), description.as_str()] {
+                                let text = rust_i18n::t!(key, locale = locale);
+                                assert!(
+                                    !text.trim().is_empty(),
+                                    "settings headings resolve: {locale}: {key}"
+                                );
+                                assert_ne!(text, key, "settings headings resolve: {locale}: {key}");
+                            }
+                        }
+                    }
+                }),
+            ),
+            (
+                "follows_supported_system_preferences",
+                (|_scenario: &str| {
+                    let cases: &[(&[&str], &str)] = &[
+                        (&["zh-Hans-CN"], "zh-CN"),
+                        (&["zh_CN.UTF-8"], "zh-CN"),
+                        (&["zh-Hans-TW"], "zh-CN"),
+                        (&["zh-TW"], "zh-TW"),
+                        (&["zh_HK.UTF-8"], "zh-TW"),
+                        (&["zh-MO"], "zh-TW"),
+                        (&["zh-Hant"], "zh-TW"),
+                        (&["fr-CA", "zh-TW"], "fr"),
+                        (&["de-DE"], "de"),
+                        (&["es-MX"], "es"),
+                        (&["ja-JP"], "ja"),
+                        (&["ko-KR"], "ko"),
+                        (&["pt_BR.UTF-8"], "pt-BR"),
+                        (&["ru-RU"], "ru"),
+                        (&["ar-SA", "es-ES"], "es"),
+                        (&["pt-PT"], "en"),
+                    ];
+                    for (locales, expected) in cases {
+                        assert_eq!(
+                            Language::System.resolve(locales.iter().map(|value| value.to_string())),
+                            *expected,
+                            "follows supported system preferences"
+                        );
+                    }
+                    assert_eq!(
+                        Language::System.resolve(["en-US".into(), "zh-CN".into()]),
+                        "en",
+                        "follows supported system preferences"
+                    );
+                    assert_eq!(
+                        Language::System.resolve(["ar-SA".into()]),
+                        "en",
+                        "follows supported system preferences"
+                    );
+                    assert_eq!(
+                        Language::System.resolve([]),
+                        "en",
+                        "follows supported system preferences"
+                    );
+                }),
+            ),
+            (
+                "explicit_choices_override_system",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        Language::English.resolve(["zh-CN".into()]),
+                        "en",
+                        "explicit choices override system"
+                    );
+                    assert_eq!(
+                        Language::Chinese.resolve(["en-US".into()]),
+                        "zh-CN",
+                        "explicit choices override system"
+                    );
+                    let choices = [
+                        (Language::TraditionalChinese, "zh-TW"),
+                        (Language::Japanese, "ja"),
+                        (Language::Korean, "ko"),
+                        (Language::French, "fr"),
+                        (Language::German, "de"),
+                        (Language::Spanish, "es"),
+                        (Language::PortugueseBrazil, "pt-BR"),
+                        (Language::Russian, "ru"),
+                    ];
+                    assert_eq!(Language::ALL.len(), 11, "explicit choices override system");
+                    for (language, locale) in choices {
+                        assert_eq!(
+                            language.resolve(["en-US".into()]),
+                            locale,
+                            "explicit choices override system"
+                        );
+                        assert_eq!(
+                            serde_json::from_str::<Language>(
+                                &serde_json::to_string(&language).unwrap()
+                            )
+                            .unwrap(),
+                            language,
+                            "explicit choices override system"
+                        );
+                        assert_ne!(
+                            rust_i18n::t!(language.label(), locale = "en"),
+                            language.label(),
+                            "explicit choices override system"
+                        );
+                    }
+                    assert_eq!(
+                        crate::preferences::Data::default()
+                            .language
+                            .unwrap_or_default(),
+                        Language::System,
+                        "explicit choices override system"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 
@@ -192,74 +310,5 @@ mod tests {
         }
         rust_i18n::set_locale(&before);
         gpui_kit::component::set_locale(&kit_before);
-    }
-
-    #[test]
-    fn follows_supported_system_preferences() {
-        let cases: &[(&[&str], &str)] = &[
-            (&["zh-Hans-CN"], "zh-CN"),
-            (&["zh_CN.UTF-8"], "zh-CN"),
-            (&["zh-Hans-TW"], "zh-CN"),
-            (&["zh-TW"], "zh-TW"),
-            (&["zh_HK.UTF-8"], "zh-TW"),
-            (&["zh-MO"], "zh-TW"),
-            (&["zh-Hant"], "zh-TW"),
-            (&["fr-CA", "zh-TW"], "fr"),
-            (&["de-DE"], "de"),
-            (&["es-MX"], "es"),
-            (&["ja-JP"], "ja"),
-            (&["ko-KR"], "ko"),
-            (&["pt_BR.UTF-8"], "pt-BR"),
-            (&["ru-RU"], "ru"),
-            (&["ar-SA", "es-ES"], "es"),
-            (&["pt-PT"], "en"),
-        ];
-        for (locales, expected) in cases {
-            assert_eq!(
-                Language::System.resolve(locales.iter().map(|value| value.to_string())),
-                *expected
-            );
-        }
-        assert_eq!(
-            Language::System.resolve(["en-US".into(), "zh-CN".into()]),
-            "en"
-        );
-        assert_eq!(Language::System.resolve(["ar-SA".into()]), "en");
-        assert_eq!(Language::System.resolve([]), "en");
-    }
-
-    #[test]
-    fn explicit_choices_override_system() {
-        assert_eq!(Language::English.resolve(["zh-CN".into()]), "en");
-        assert_eq!(Language::Chinese.resolve(["en-US".into()]), "zh-CN");
-        let choices = [
-            (Language::TraditionalChinese, "zh-TW"),
-            (Language::Japanese, "ja"),
-            (Language::Korean, "ko"),
-            (Language::French, "fr"),
-            (Language::German, "de"),
-            (Language::Spanish, "es"),
-            (Language::PortugueseBrazil, "pt-BR"),
-            (Language::Russian, "ru"),
-        ];
-        assert_eq!(Language::ALL.len(), 11);
-        for (language, locale) in choices {
-            assert_eq!(language.resolve(["en-US".into()]), locale);
-            assert_eq!(
-                serde_json::from_str::<Language>(&serde_json::to_string(&language).unwrap())
-                    .unwrap(),
-                language
-            );
-            assert_ne!(
-                rust_i18n::t!(language.label(), locale = "en"),
-                language.label()
-            );
-        }
-        assert_eq!(
-            crate::preferences::Data::default()
-                .language
-                .unwrap_or_default(),
-            Language::System
-        );
     }
 }

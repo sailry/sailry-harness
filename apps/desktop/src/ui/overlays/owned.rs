@@ -74,31 +74,42 @@ mod tests {
     use std::{cell::Cell, rc::Rc};
 
     #[test]
-    fn dismissal_releases_listener() {
-        let released = Rc::new(Cell::new(0));
-        let observed = released.clone();
-        let mut owner = Owned {
-            listener: Some(Subscription::new(move || observed.set(observed.get() + 1))),
-            ..Default::default()
-        };
-        owner.dismissed();
-        assert_eq!(released.get(), 1);
-        assert!(owner.listener.is_none());
-        owner.dismissed();
-        drop(owner);
-        assert_eq!(released.get(), 1);
-    }
-
-    #[test]
-    fn owner_releases_listener() {
-        let released = Rc::new(Cell::new(false));
-        let observed = released.clone();
-        let owner = Owned {
-            listener: Some(Subscription::new(move || observed.set(true))),
-            ..Default::default()
-        };
-        assert!(!released.get());
-        drop(owner);
-        assert!(released.get());
+    fn listener_lifecycle() {
+        for (scenario, check) in [
+            (
+                "dismissal_releases_listener",
+                (|_scenario: &str| {
+                    let released = Rc::new(Cell::new(0));
+                    let observed = released.clone();
+                    let mut owner = Owned {
+                        listener: Some(Subscription::new(move || observed.set(observed.get() + 1))),
+                        ..Default::default()
+                    };
+                    owner.dismissed();
+                    assert_eq!(released.get(), 1, "dismissal releases listener");
+                    assert!(owner.listener.is_none(), "dismissal releases listener");
+                    owner.dismissed();
+                    drop(owner);
+                    assert_eq!(released.get(), 1, "dismissal releases listener");
+                }) as fn(&str),
+            ),
+            (
+                "owner_releases_listener",
+                (|_scenario: &str| {
+                    let released = Rc::new(Cell::new(false));
+                    let observed = released.clone();
+                    let owner = Owned {
+                        listener: Some(Subscription::new(move || observed.set(true))),
+                        ..Default::default()
+                    };
+                    assert!(!released.get(), "owner releases listener");
+                    drop(owner);
+                    assert!(released.get(), "owner releases listener");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

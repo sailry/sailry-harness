@@ -140,23 +140,49 @@ mod tests {
     }
 
     #[test]
-    fn keeps_label_when_everything_fits() {
-        assert!(!widths(200., 100., 100., 30., 30.).compact(px(260.)));
-        assert!(!Widths::default().compact(px(260.)));
-    }
-
-    #[test]
-    fn collapses_label_before_truncating_model() {
-        // The model is squeezed by 20px while the label is shown.
-        assert!(widths(260., 100., 120., 30., 30.).compact(px(260.)));
-    }
-
-    #[test]
-    fn stays_collapsed_while_label_cannot_fit() {
-        // Collapsed to a 16px icon; restoring the 30px label would overflow.
-        assert!(widths(250., 120., 120., 16., 30.).compact(px(260.)));
-        // Enough room to restore it.
-        assert!(!widths(240., 120., 120., 16., 30.).compact(px(260.)));
+    fn available_space() {
+        for (case, widths, cap, expected) in [
+            ("unmeasured", Widths::default(), 260., false),
+            ("fits", widths(200., 100., 100., 30., 30.), 260., false),
+            (
+                "squeezed model",
+                widths(260., 100., 120., 30., 30.),
+                260.,
+                true,
+            ),
+            (
+                "collapsed label",
+                widths(250., 120., 120., 16., 30.),
+                260.,
+                true,
+            ),
+            (
+                "restored label",
+                widths(240., 120., 120., 16., 30.),
+                260.,
+                false,
+            ),
+            (
+                "narrow toolbar",
+                Widths {
+                    spare: Some(px(10.)),
+                    ..widths(180., 100., 100., 16., 30.)
+                },
+                220.,
+                true,
+            ),
+            (
+                "wide toolbar",
+                Widths {
+                    spare: Some(px(80.)),
+                    ..widths(180., 100., 100., 16., 30.)
+                },
+                220.,
+                false,
+            ),
+        ] {
+            assert_eq!(widths.compact(px(cap)), expected, "{case}");
+        }
     }
 
     #[test]
@@ -165,19 +191,5 @@ mod tests {
         assert!(fit.compact(px(260.)));
         fit.forget_effort();
         assert!(!fit.compact(px(260.)));
-    }
-
-    #[test]
-    fn uses_free_toolbar_space() {
-        let narrow = Widths {
-            spare: Some(px(10.)),
-            ..widths(180., 100., 100., 16., 30.)
-        };
-        assert!(narrow.compact(px(220.)));
-        let wide = Widths {
-            spare: Some(px(80.)),
-            ..narrow
-        };
-        assert!(!wide.compact(px(220.)));
     }
 }

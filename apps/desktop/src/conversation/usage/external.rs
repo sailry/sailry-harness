@@ -250,58 +250,101 @@ mod tests {
     }
 
     #[test]
-    fn groups_values_before_meters_in_order() {
-        let details = details(json!([
-            {"label":{"label":"A"},"value":"1"},
-            {"label":{"label":"B"},"value":"2","progress":40},
-            {"label":{"label":"C"},"value":"3"},
-            {"label":{"label":"D"},"value":"4","progress":95.5}
-        ]));
-        let layout = Layout::new(&details);
-        let values: Vec<_> = layout
-            .values
-            .iter()
-            .map(|(_, row)| row.value.as_str())
-            .collect();
-        let meters: Vec<_> = layout
-            .meters
-            .iter()
-            .map(|(index, row, progress)| (*index, row.value.as_str(), *progress))
-            .collect();
-        assert_eq!(values, ["1", "3"]);
-        assert_eq!(meters, [(1, "2", 40.), (3, "4", 95.5)]);
-    }
-
-    #[test]
-    fn clamps_progress() {
-        let details = details(json!([
-            {"label":{"label":"Low"},"value":"0","progress":-5},
-            {"label":{"label":"High"},"value":"9","progress":250}
-        ]));
-        let progress: Vec<_> = Layout::new(&details)
-            .meters
-            .iter()
-            .map(|(_, _, progress)| *progress)
-            .collect();
-        assert_eq!(progress, [0., 100.]);
-    }
-
-    #[test]
-    fn labels_truncate_and_values_keep_width() {
-        let mut name = caption("A very long package name".into());
-        let style = name.style();
-        assert_eq!(style.flex_grow, Some(1.));
-        assert_eq!(style.min_size.width, Some(px(0.).into()));
-        assert_eq!(style.overflow.x, Some(Overflow::Hidden));
-        assert_eq!(style.text.white_space, Some(WhiteSpace::Nowrap));
-        assert!(matches!(
-            style.text.text_overflow,
-            Some(TextOverflow::Truncate(_))
-        ));
-        let mut value = amount("1500 / 1500".into());
-        let style = value.style();
-        assert_eq!(style.flex_shrink, Some(0.));
-        assert_eq!(style.text.white_space, Some(WhiteSpace::Nowrap));
-        assert_eq!(style.overflow.x, None);
+    fn ordered_values_and_meters() {
+        for (scenario, check) in [
+            (
+                "groups_values_before_meters_in_order",
+                (|_scenario: &str| {
+                    let details = details(json!([
+                        {"label":{"label":"A"},"value":"1"},
+                        {"label":{"label":"B"},"value":"2","progress":40},
+                        {"label":{"label":"C"},"value":"3"},
+                        {"label":{"label":"D"},"value":"4","progress":95.5}
+                    ]));
+                    let layout = Layout::new(&details);
+                    let values: Vec<_> = layout
+                        .values
+                        .iter()
+                        .map(|(_, row)| row.value.as_str())
+                        .collect();
+                    let meters: Vec<_> = layout
+                        .meters
+                        .iter()
+                        .map(|(index, row, progress)| (*index, row.value.as_str(), *progress))
+                        .collect();
+                    assert_eq!(values, ["1", "3"], "groups values before meters in order");
+                    assert_eq!(
+                        meters,
+                        [(1, "2", 40.), (3, "4", 95.5)],
+                        "groups values before meters in order"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "clamps_progress",
+                (|_scenario: &str| {
+                    let details = details(json!([
+                        {"label":{"label":"Low"},"value":"0","progress":-5},
+                        {"label":{"label":"High"},"value":"9","progress":250}
+                    ]));
+                    let progress: Vec<_> = Layout::new(&details)
+                        .meters
+                        .iter()
+                        .map(|(_, _, progress)| *progress)
+                        .collect();
+                    assert_eq!(progress, [0., 100.], "clamps progress");
+                }),
+            ),
+            (
+                "labels_truncate_and_values_keep_width",
+                (|_scenario: &str| {
+                    let mut name = caption("A very long package name".into());
+                    let style = name.style();
+                    assert_eq!(
+                        style.flex_grow,
+                        Some(1.),
+                        "labels truncate and values keep width"
+                    );
+                    assert_eq!(
+                        style.min_size.width,
+                        Some(px(0.).into()),
+                        "labels truncate and values keep width"
+                    );
+                    assert_eq!(
+                        style.overflow.x,
+                        Some(Overflow::Hidden),
+                        "labels truncate and values keep width"
+                    );
+                    assert_eq!(
+                        style.text.white_space,
+                        Some(WhiteSpace::Nowrap),
+                        "labels truncate and values keep width"
+                    );
+                    assert!(
+                        matches!(style.text.text_overflow, Some(TextOverflow::Truncate(_))),
+                        "labels truncate and values keep width"
+                    );
+                    let mut value = amount("1500 / 1500".into());
+                    let style = value.style();
+                    assert_eq!(
+                        style.flex_shrink,
+                        Some(0.),
+                        "labels truncate and values keep width"
+                    );
+                    assert_eq!(
+                        style.text.white_space,
+                        Some(WhiteSpace::Nowrap),
+                        "labels truncate and values keep width"
+                    );
+                    assert_eq!(
+                        style.overflow.x, None,
+                        "labels truncate and values keep width"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

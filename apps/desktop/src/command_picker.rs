@@ -173,24 +173,63 @@ mod navigation {
     use core::prelude::v1::test;
 
     #[test]
-    fn wraps_enabled_rows() {
-        let first = IndexPath::new(1);
-        let last = IndexPath::new(3).section(1);
-        let choices = [first, last];
-        assert_eq!(next(&choices, Some(first), false), Some(last));
-        assert_eq!(next(&choices, Some(last), false), Some(first));
-        assert_eq!(next(&choices, Some(first), true), Some(last));
-        assert_eq!(next(&choices, Some(last), true), Some(first));
-    }
-
-    #[test]
-    fn starts_at_enabled_edges() {
-        let choices = [IndexPath::new(1), IndexPath::new(3)];
-        for selected in [None, Some(IndexPath::new(0))] {
-            assert_eq!(next(&choices, selected, false), Some(choices[0]));
-            assert_eq!(next(&choices, selected, true), Some(choices[1]));
+    fn enabled_navigation() {
+        for (scenario, check) in [
+            (
+                "wraps_enabled_rows",
+                (|_scenario: &str| {
+                    let first = IndexPath::new(1);
+                    let last = IndexPath::new(3).section(1);
+                    let choices = [first, last];
+                    assert_eq!(
+                        next(&choices, Some(first), false),
+                        Some(last),
+                        "wraps enabled rows"
+                    );
+                    assert_eq!(
+                        next(&choices, Some(last), false),
+                        Some(first),
+                        "wraps enabled rows"
+                    );
+                    assert_eq!(
+                        next(&choices, Some(first), true),
+                        Some(last),
+                        "wraps enabled rows"
+                    );
+                    assert_eq!(
+                        next(&choices, Some(last), true),
+                        Some(first),
+                        "wraps enabled rows"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "starts_at_enabled_edges",
+                (|_scenario: &str| {
+                    let choices = [IndexPath::new(1), IndexPath::new(3)];
+                    for selected in [None, Some(IndexPath::new(0))] {
+                        assert_eq!(
+                            next(&choices, selected, false),
+                            Some(choices[0]),
+                            "starts at enabled edges"
+                        );
+                        assert_eq!(
+                            next(&choices, selected, true),
+                            Some(choices[1]),
+                            "starts at enabled edges"
+                        );
+                    }
+                    assert_eq!(next(&[], None, false), None, "starts at enabled edges");
+                    assert_eq!(
+                        next(&[], Some(choices[0]), true),
+                        None,
+                        "starts at enabled edges"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert_eq!(next(&[], None, false), None);
-        assert_eq!(next(&[], Some(choices[0]), true), None);
     }
 }

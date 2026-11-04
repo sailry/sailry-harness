@@ -17,33 +17,44 @@ fn device(local: bool, online: bool, route: Option<Route>, rtt_ms: Option<u64>) 
 }
 
 #[test]
-fn preserves_local_meaning() {
-    let local = device(true, true, Some(Route::Local), None);
-    assert_eq!(local.status_key(), "composer_host_local");
-    assert_eq!(local.route_key(), None);
-    assert_eq!(local.latency_text(), None);
-}
-
-#[test]
-fn pairs_selected_route_with_rtt() {
-    for (route, key) in [
-        (Route::P2p, "connection_route_p2p"),
-        (Route::Relay, "connection_route_relay"),
+fn routes_and_latency() {
+    for (case, device, route, latency) in [
+        (
+            "local",
+            device(true, true, Some(Route::Local), None),
+            None,
+            None,
+        ),
+        (
+            "peer",
+            device(false, true, Some(Route::P2p), Some(9)),
+            Some("connection_route_p2p"),
+            Some("9 ms"),
+        ),
+        (
+            "relay",
+            device(false, true, Some(Route::Relay), Some(9)),
+            Some("connection_route_relay"),
+            Some("9 ms"),
+        ),
+        (
+            "disconnected",
+            device(false, false, Some(Route::Relay), Some(120)),
+            Some("connection_route_unknown"),
+            Some("—"),
+        ),
+        (
+            "unknown",
+            device(false, true, None, None),
+            Some("connection_route_unknown"),
+            Some("—"),
+        ),
     ] {
-        let remote = device(false, true, Some(route), Some(9));
-        assert_eq!(remote.route_key(), Some(key));
-        assert_eq!(remote.latency_text().as_deref(), Some("9 ms"));
-    }
-}
-
-#[test]
-fn does_not_infer_disconnected_routes() {
-    for remote in [
-        device(false, false, Some(Route::Relay), Some(120)),
-        device(false, true, None, None),
-    ] {
-        assert_eq!(remote.route_key(), Some("connection_route_unknown"));
-        assert_eq!(remote.latency_text().as_deref(), Some("—"));
+        assert_eq!(device.route_key(), route, "{case}: route");
+        assert_eq!(device.latency_text().as_deref(), latency, "{case}: latency");
+        if case == "local" {
+            assert_eq!(device.status_key(), "composer_host_local", "{case}: status");
+        }
     }
 }
 

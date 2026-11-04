@@ -145,34 +145,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn phase_actions_and_stale_clicks() {
-        for scene in [1, 4, 5, 7, 8, 10, 11] {
-            assert!(State::sample(scene).primary().is_none());
+    fn phases_and_retries() {
+        for (scenario, check) in [
+            (
+                "phase_actions_and_stale_clicks",
+                (|_scenario: &str| {
+                    for scene in [1, 4, 5, 7, 8, 10, 11] {
+                        assert!(
+                            State::sample(scene).primary().is_none(),
+                            "phase actions and stale clicks"
+                        );
+                    }
+                    let mut state = State::sample(0);
+                    let idle = state.clone();
+                    state.advance(&idle);
+                    assert_eq!(
+                        state.phase,
+                        Phase::Available,
+                        "phase actions and stale clicks"
+                    );
+                    state.advance(&idle);
+                    assert_eq!(
+                        state.phase,
+                        Phase::Available,
+                        "phase actions and stale clicks"
+                    );
+                    state.advance(&state.clone());
+                    assert_eq!(state.phase, Phase::Staged, "phase actions and stale clicks");
+                    state.advance(&state.clone());
+                    assert_eq!(
+                        state.phase,
+                        Phase::RestartPending,
+                        "phase actions and stale clicks"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "status_retry",
+                (|_scenario: &str| {
+                    let mut state = State::sample(7);
+                    state.error = Some(tr("update_error_preview"));
+                    state.retry = Action::Status;
+                    state.advance(&state.clone());
+                    assert_eq!(state.phase, Phase::Applying, "status retry");
+                    assert!(state.error.is_none(), "status retry");
+                    let mut failed = State::sample(9);
+                    failed.retry = Action::Apply;
+                    assert_eq!(failed.primary().unwrap().0, Action::Check, "status retry");
+                    failed.advance(&failed.clone());
+                    assert_eq!(failed.phase, Phase::Available, "status retry");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let mut state = State::sample(0);
-        let idle = state.clone();
-        state.advance(&idle);
-        assert_eq!(state.phase, Phase::Available);
-        state.advance(&idle);
-        assert_eq!(state.phase, Phase::Available);
-        state.advance(&state.clone());
-        assert_eq!(state.phase, Phase::Staged);
-        state.advance(&state.clone());
-        assert_eq!(state.phase, Phase::RestartPending);
-    }
-
-    #[test]
-    fn status_retry() {
-        let mut state = State::sample(7);
-        state.error = Some(tr("update_error_preview"));
-        state.retry = Action::Status;
-        state.advance(&state.clone());
-        assert_eq!(state.phase, Phase::Applying);
-        assert!(state.error.is_none());
-        let mut failed = State::sample(9);
-        failed.retry = Action::Apply;
-        assert_eq!(failed.primary().unwrap().0, Action::Check);
-        failed.advance(&failed.clone());
-        assert_eq!(failed.phase, Phase::Available);
     }
 }

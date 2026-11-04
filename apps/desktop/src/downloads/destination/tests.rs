@@ -12,71 +12,128 @@ fn staged(path: PathBuf) -> Destination {
 }
 
 #[test]
-fn publishes_selected_targets() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("资料.bin");
-    staged(path.clone())
-        .publish(&CancellationToken::new())
-        .unwrap();
-    assert_eq!(fs::read(&path).unwrap(), b"downloaded");
-    fs::write(&path, "original").unwrap();
-    staged(path.clone())
-        .publish(&CancellationToken::new())
-        .unwrap();
-    assert_eq!(fs::read(&path).unwrap(), b"downloaded");
-    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
-}
-
-#[test]
-fn preserves_concurrent_changes() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("target");
-    for existing in [false, true] {
-        if existing {
-            fs::write(&path, "old").unwrap();
-        }
-        let destination = staged(path.clone());
-        fs::write(&path, "external change").unwrap();
-        assert_eq!(
-            destination.publish(&CancellationToken::new()),
-            Err("files_download_conflict")
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), "external change");
+fn publication_ownership() {
+    for (scenario, check) in [
+        (
+            "publishes_selected_targets",
+            (|_scenario: &str| {
+                let temp = tempfile::tempdir().unwrap();
+                let path = temp.path().join("资料.bin");
+                staged(path.clone())
+                    .publish(&CancellationToken::new())
+                    .unwrap();
+                assert_eq!(
+                    fs::read(&path).unwrap(),
+                    b"downloaded",
+                    "publishes selected targets"
+                );
+                fs::write(&path, "original").unwrap();
+                staged(path.clone())
+                    .publish(&CancellationToken::new())
+                    .unwrap();
+                assert_eq!(
+                    fs::read(&path).unwrap(),
+                    b"downloaded",
+                    "publishes selected targets"
+                );
+                assert_eq!(
+                    fs::read_dir(temp.path()).unwrap().count(),
+                    1,
+                    "publishes selected targets"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "preserves_concurrent_changes",
+            (|_scenario: &str| {
+                let temp = tempfile::tempdir().unwrap();
+                let path = temp.path().join("target");
+                for existing in [false, true] {
+                    if existing {
+                        fs::write(&path, "old").unwrap();
+                    }
+                    let destination = staged(path.clone());
+                    fs::write(&path, "external change").unwrap();
+                    assert_eq!(
+                        destination.publish(&CancellationToken::new()),
+                        Err("files_download_conflict"),
+                        "preserves concurrent changes"
+                    );
+                    assert_eq!(
+                        fs::read_to_string(&path).unwrap(),
+                        "external change",
+                        "preserves concurrent changes"
+                    );
+                }
+                assert_eq!(
+                    fs::read_dir(temp.path()).unwrap().count(),
+                    1,
+                    "preserves concurrent changes"
+                );
+            }),
+        ),
+        (
+            "cleans_owned_staging",
+            (|_scenario: &str| {
+                let temp = tempfile::tempdir().unwrap();
+                let path = temp.path().join("target");
+                fs::write(&path, "original").unwrap();
+                let cancel = CancellationToken::new();
+                cancel.cancel();
+                assert_eq!(
+                    staged(path.clone()).publish(&cancel),
+                    Err("files_download_cancelled"),
+                    "cleans owned staging"
+                );
+                drop(staged(path.clone()));
+                assert_eq!(
+                    fs::read_to_string(&path).unwrap(),
+                    "original",
+                    "cleans owned staging"
+                );
+                assert_eq!(
+                    fs::read_dir(temp.path()).unwrap().count(),
+                    1,
+                    "cleans owned staging"
+                );
+            }),
+        ),
+        (
+            "rejects_invalid_targets",
+            (|_scenario: &str| {
+                let temp = tempfile::tempdir().unwrap();
+                assert!(
+                    Destination::prepare(PathBuf::from("relative")).is_err(),
+                    "rejects invalid targets"
+                );
+                assert!(
+                    Destination::prepare(temp.path().to_path_buf()).is_err(),
+                    "rejects invalid targets"
+                );
+                assert!(
+                    Destination::prepare(temp.path().join("missing/target")).is_err(),
+                    "rejects invalid targets"
+                );
+                let path = temp.path().join("target");
+                fs::write(&path, "original").unwrap();
+                let destination = staged(path.clone());
+                fs::remove_file(&path).unwrap();
+                assert_eq!(
+                    destination.publish(&CancellationToken::new()),
+                    Err("files_download_conflict"),
+                    "rejects invalid targets"
+                );
+                assert_eq!(
+                    fs::read_dir(temp.path()).unwrap().count(),
+                    0,
+                    "rejects invalid targets"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
-}
-
-#[test]
-fn cleans_owned_staging() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("target");
-    fs::write(&path, "original").unwrap();
-    let cancel = CancellationToken::new();
-    cancel.cancel();
-    assert_eq!(
-        staged(path.clone()).publish(&cancel),
-        Err("files_download_cancelled")
-    );
-    drop(staged(path.clone()));
-    assert_eq!(fs::read_to_string(&path).unwrap(), "original");
-    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
-}
-
-#[test]
-fn rejects_invalid_targets() {
-    let temp = tempfile::tempdir().unwrap();
-    assert!(Destination::prepare(PathBuf::from("relative")).is_err());
-    assert!(Destination::prepare(temp.path().to_path_buf()).is_err());
-    assert!(Destination::prepare(temp.path().join("missing/target")).is_err());
-    let path = temp.path().join("target");
-    fs::write(&path, "original").unwrap();
-    let destination = staged(path.clone());
-    fs::remove_file(&path).unwrap();
-    assert_eq!(
-        destination.publish(&CancellationToken::new()),
-        Err("files_download_conflict")
-    );
-    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
 }
 
 #[cfg(unix)]

@@ -100,55 +100,58 @@ fn observed(id: RequestId, state: Status) -> View {
 }
 
 #[gpui::test]
-fn disappearance_does_not_complete_owned_requests(cx: &mut TestAppContext) {
+fn owned_completion_and_unavailability(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let queue = registry(cx);
-        let key = key();
+        let vanished = key();
         queue.update(cx, |queue, _| {
-            queue.entries.insert(key, entry());
+            queue.entries.insert(vanished, entry());
             queue.accept(
-                key.0,
+                vanished.0,
                 View {
                     connected: true,
                     ..Default::default()
                 },
             );
-            assert!(!queue.entries[&key].finished);
+            assert!(
+                !queue.entries[&vanished].finished,
+                "disappearance: pending completion"
+            );
         });
         Ticket {
             queue: queue.clone(),
-            key,
+            key: vanished,
         }
         .record(Ok(()), cx);
-        assert!(queue.read(cx).entries.is_empty());
-        assert!(!visible(cx));
-    });
-}
+        assert!(
+            queue.read(cx).entries.is_empty(),
+            "disappearance: completed request"
+        );
+        assert!(!visible(cx), "disappearance: hidden queue");
 
-#[gpui::test]
-fn actions_wait_for_original_completion(cx: &mut TestAppContext) {
-    cx.update(|cx| {
-        let queue = registry(cx);
-        let key = key();
+        let failed = key();
         queue.update(cx, |queue, _| {
-            queue.entries.insert(key, entry());
-            queue.accept(key.0, observed(key.1, Status::Failed { error: failure() }));
-            assert!(!queue.entries[&key].actionable());
+            queue.entries.insert(failed, entry());
+            queue.accept(
+                failed.0,
+                observed(failed.1, Status::Failed { error: failure() }),
+            );
+            assert!(
+                !queue.entries[&failed].actionable(),
+                "failure: original request pending"
+            );
         });
         Ticket {
             queue: queue.clone(),
-            key,
+            key: failed,
         }
         .record(Err(failure()), cx);
-        assert!(queue.read(cx).entries[&key].actionable());
-        assert!(visible(cx));
-    });
-}
+        assert!(
+            queue.read(cx).entries[&failed].actionable(),
+            "failure: original request complete"
+        );
+        assert!(visible(cx), "failure: visible queue");
 
-#[gpui::test]
-fn confirmed_unavailability_remains_a_failure(cx: &mut TestAppContext) {
-    cx.update(|cx| {
-        let queue = registry(cx);
         let raw = key();
         let confirmed = key();
         queue.update(cx, |queue, _| {
@@ -166,62 +169,71 @@ fn confirmed_unavailability_remains_a_failure(cx: &mut TestAppContext) {
             key: confirmed,
         }
         .record_outcome(Err(error), cx);
-        assert!(matches!(
-            queue.read(cx).entries[&raw].status,
-            Presentation::Observed(Status::Uncertain { .. })
-        ));
-        assert!(matches!(
-            queue.read(cx).entries[&confirmed].status,
-            Presentation::Observed(Status::Failed { .. })
-        ));
-        assert!(queue.read(cx).entries[&confirmed].actionable());
+        assert!(
+            matches!(
+                queue.read(cx).entries[&raw].status,
+                Presentation::Observed(Status::Uncertain { .. })
+            ),
+            "transport failure: uncertain outcome"
+        );
+        assert!(
+            matches!(
+                queue.read(cx).entries[&confirmed].status,
+                Presentation::Observed(Status::Failed { .. })
+            ),
+            "confirmed failure: failed outcome"
+        );
+        assert!(
+            queue.read(cx).entries[&confirmed].actionable(),
+            "confirmed failure: retry available"
+        );
     });
 }
 
 #[gpui::test]
-fn recovers_unowned_terminal_tasks(cx: &mut TestAppContext) {
+fn observed_recovery_and_progress(cx: &mut TestAppContext) {
+    use sailry_protocol::installation::{Phase, Progress};
     cx.update(|cx| {
         let queue = registry(cx);
-        let key = key();
+        let failed = key();
         queue.update(cx, |queue, _| {
-            queue.accept(key.0, observed(key.1, Status::Failed { error: failure() }));
-            let entry = &queue.entries[&key];
-            assert!(entry.actionable());
-            assert!(entry.retry.is_none());
-        });
-    });
-}
-
-#[gpui::test]
-fn retains_uncertainty_after_unowned_disappearance(cx: &mut TestAppContext) {
-    cx.update(|cx| {
-        let queue = registry(cx);
-        let key = key();
-        queue.update(cx, |queue, _| {
-            queue.accept(key.0, observed(key.1, Status::Queued));
             queue.accept(
-                key.0,
+                failed.0,
+                observed(failed.1, Status::Failed { error: failure() }),
+            );
+            let entry = &queue.entries[&failed];
+            assert!(entry.actionable(), "recovered failure: actionable");
+            assert!(entry.retry.is_none(), "recovered failure: no owned retry");
+        });
+        let vanished = key();
+        queue.update(cx, |queue, _| {
+            queue.accept(vanished.0, observed(vanished.1, Status::Queued));
+            queue.accept(
+                vanished.0,
                 View {
                     connected: true,
                     ..Default::default()
                 },
             );
-            assert!(matches!(
-                queue.entries[&key].status,
-                Presentation::Observed(Status::Uncertain { .. })
-            ));
-            assert!(queue.entries[&key].actionable());
+            assert!(
+                matches!(
+                    queue.entries[&vanished].status,
+                    Presentation::Observed(Status::Uncertain { .. })
+                ),
+                "unowned disappearance: uncertain"
+            );
+            assert!(
+                queue.entries[&vanished].actionable(),
+                "unowned disappearance: actionable"
+            );
         });
-    });
-}
 
-#[gpui::test]
-fn exposes_observed_model_progress(cx: &mut TestAppContext) {
-    use sailry_protocol::installation::{Phase, Progress};
-    cx.update(|cx| {
         let node = NodeId([1; 32]);
-        assert_eq!(model_progress(node, "model", cx), None);
-        let queue = registry(cx);
+        assert_eq!(
+            model_progress(node, "model", cx),
+            None,
+            "model progress: initially absent"
+        );
         let request = RequestId::new();
         let progress = Progress::Percent {
             percent: 40,
@@ -248,8 +260,20 @@ fn exposes_observed_model_progress(cx: &mut TestAppContext) {
                 },
             );
         });
-        assert_eq!(model_progress(node, "model", cx), Some(progress));
-        assert_eq!(model_progress(node, "other", cx), None);
-        assert_eq!(model_progress(NodeId([2; 32]), "model", cx), None);
+        assert_eq!(
+            model_progress(node, "model", cx),
+            Some(progress),
+            "model progress: matching task"
+        );
+        assert_eq!(
+            model_progress(node, "other", cx),
+            None,
+            "model progress: other model"
+        );
+        assert_eq!(
+            model_progress(NodeId([2; 32]), "model", cx),
+            None,
+            "model progress: other node"
+        );
     });
 }

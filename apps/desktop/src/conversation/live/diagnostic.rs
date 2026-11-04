@@ -61,49 +61,66 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renders_nested_fields_without_dropping_values() {
-        let output = display(
-            r#"{"error":{"code":503,"message":"Temporarily unavailable","retry":true},"details":[null,{},[]],"request.id":"abc"}"#,
-        );
-        for line in [
-            "error.code: 503",
-            "error.message: Temporarily unavailable",
-            "error.retry: true",
-            "details[0]: null",
-            "details[1]: {}",
-            "details[2]: []",
-            "[\"request.id\"]: abc",
-        ] {
-            assert!(
-                output.lines().any(|actual| actual == line),
-                "missing {line}"
-            );
-        }
-        assert_eq!(output.lines().count(), 7);
-    }
-
-    #[test]
-    fn preserves_classification_heading() {
-        assert_eq!(
-            display(
-                "Agent execution failed (model.api_error); HTTP 503; unavailable\n\n{\"request_id\":\"abc\"}"
+    fn structured_details() {
+        for (scenario, check) in [
+            (
+                "renders_nested_fields_without_dropping_values",
+                (|_scenario: &str| {
+                    let output = display(
+                        r#"{"error":{"code":503,"message":"Temporarily unavailable","retry":true},"details":[null,{},[]],"request.id":"abc"}"#,
+                    );
+                    for line in [
+                        "error.code: 503",
+                        "error.message: Temporarily unavailable",
+                        "error.retry: true",
+                        "details[0]: null",
+                        "details[1]: {}",
+                        "details[2]: []",
+                        "[\"request.id\"]: abc",
+                    ] {
+                        assert!(
+                            output.lines().any(|actual| actual == line),
+                            "renders nested fields without dropping values: missing {line}"
+                        );
+                    }
+                    assert_eq!(
+                        output.lines().count(),
+                        7,
+                        "renders nested fields without dropping values"
+                    );
+                }) as fn(&str),
             ),
-            "Agent execution failed (model.api_error); HTTP 503; unavailable\n\nrequest_id: abc"
-        );
-    }
-
-    #[test]
-    fn preserves_other_native_messages() {
-        for message in [
-            "Network unavailable",
-            "{invalid JSON",
-            "{}",
-            "[1,2]",
-            "null",
-            "Provider detail\n\n{\"code\":503}",
-            "Agent execution failed (model.api_error)\n\nnot JSON",
+            (
+                "preserves_classification_heading",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        display(
+                            "Agent execution failed (model.api_error); HTTP 503; unavailable\n\n{\"request_id\":\"abc\"}"
+                        ),
+                        "Agent execution failed (model.api_error); HTTP 503; unavailable\n\nrequest_id: abc",
+                        "preserves classification heading"
+                    );
+                }),
+            ),
+            (
+                "preserves_other_native_messages",
+                (|_scenario: &str| {
+                    for message in [
+                        "Network unavailable",
+                        "{invalid JSON",
+                        "{}",
+                        "[1,2]",
+                        "null",
+                        "Provider detail\n\n{\"code\":503}",
+                        "Agent execution failed (model.api_error)\n\nnot JSON",
+                    ] {
+                        assert_eq!(display(message), message, "preserves other native messages");
+                    }
+                }),
+            ),
         ] {
-            assert_eq!(display(message), message);
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

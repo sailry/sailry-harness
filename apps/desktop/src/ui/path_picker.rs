@@ -556,37 +556,74 @@ mod tests {
         use super::*;
 
         #[test]
-        fn matches_archive_extensions() {
-            for name in ["one.zip", "ONE.Skill", "one.tar", "one.TAR.GZ", "one.tgz"] {
-                assert!(
+        fn extensions_and_path_kinds() {
+            for (name, expected) in [
+                ("one.zip", true),
+                ("ONE.Skill", true),
+                ("one.tar", true),
+                ("one.TAR.GZ", true),
+                ("one.tgz", true),
+                ("one", false),
+                ("one.json", false),
+                ("one.zip.exe", false),
+                ("zip", false),
+                (".zip", false),
+                ("one.gz", false),
+            ] {
+                assert_eq!(
                     accepts(Kind::File, ARCHIVES, Path::new(name), false),
-                    "{name}"
+                    expected,
+                    "archive: {name}"
                 );
             }
-        }
-
-        #[test]
-        fn rejects_other_files() {
-            for name in ["one", "one.json", "one.zip.exe", "zip", ".zip", "one.gz"] {
-                assert!(
-                    !accepts(Kind::File, ARCHIVES, Path::new(name), false),
-                    "{name}"
+            for (case, kind, filters, name, directory, expected) in [
+                (
+                    "directory as file",
+                    Kind::File,
+                    ARCHIVES,
+                    "skills.zip",
+                    true,
+                    false,
+                ),
+                (
+                    "directory",
+                    Kind::Directory,
+                    ARCHIVES,
+                    "skills.zip",
+                    true,
+                    true,
+                ),
+                (
+                    "file as directory",
+                    Kind::Directory,
+                    &[][..],
+                    "notes",
+                    false,
+                    false,
+                ),
+                (
+                    "unfiltered file",
+                    Kind::File,
+                    &[][..],
+                    "id_ed25519",
+                    false,
+                    true,
+                ),
+                (
+                    "unfiltered directory",
+                    Kind::File,
+                    &[][..],
+                    "keys",
+                    true,
+                    false,
+                ),
+            ] {
+                assert_eq!(
+                    accepts(kind, filters, Path::new(name), directory),
+                    expected,
+                    "{case}"
                 );
             }
-        }
-
-        #[test]
-        fn separates_files_and_directories() {
-            let path = Path::new("skills.zip");
-            assert!(!accepts(Kind::File, ARCHIVES, path, true));
-            assert!(accepts(Kind::Directory, ARCHIVES, path, true));
-            assert!(!accepts(Kind::Directory, &[], Path::new("notes"), false));
-        }
-
-        #[test]
-        fn allows_any_file_without_filter() {
-            assert!(accepts(Kind::File, &[], Path::new("id_ed25519"), false));
-            assert!(!accepts(Kind::File, &[], Path::new("keys"), true));
         }
     }
 }

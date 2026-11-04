@@ -20,99 +20,159 @@ fn items() -> Vec<Item> {
 }
 
 #[test]
-fn retains_full_sibling_paths() {
-    let items = items();
-    let paths = paths(&items);
-    assert_eq!(paths["root"], [false]);
-    assert_eq!(paths["leaf-first"], [false, true, true, true]);
-    assert_eq!(paths["leaf-last"], [false, true, true, false]);
-    assert_eq!(paths["last-leaf"], [false, false, false]);
-    let mut collapsed = items.clone();
-    collapsed[0].expanded = false;
-    assert_eq!(super::paths(&collapsed), paths);
-}
-
-#[test]
-fn continues_ancestors_and_stops_last_siblings() {
-    assert_eq!(
-        columns(&[false, true, true, false], 0),
-        [
-            Column {
-                index: 0,
-                half: false,
-                arm: false
-            },
-            Column {
-                index: 1,
-                half: false,
-                arm: false
-            },
-            Column {
-                index: 2,
-                half: true,
-                arm: true
-            },
-        ]
-    );
-    assert_eq!(
-        columns(&[false, false, false], 0),
-        [Column {
-            index: 1,
-            half: true,
-            arm: true
-        }]
-    );
-    assert_eq!(
-        columns(&[false, true, true, true], 0).last(),
-        Some(&Column {
-            index: 2,
-            half: false,
-            arm: true
-        })
-    );
-}
-
-#[test]
-fn skips_hidden_groups_and_flat_roots() {
-    assert_eq!(
-        columns(&[false, true, true, false], 1),
-        [
-            Column {
-                index: 0,
-                half: false,
-                arm: false
-            },
-            Column {
-                index: 1,
-                half: true,
-                arm: true
-            },
-        ]
-    );
-    assert!(columns(&[true], 0).is_empty());
-    assert!(columns(&[false, false], 1).is_empty());
-    assert!(columns(&[false, true], 4).is_empty());
-}
-
-#[test]
-fn uses_fixed_spacing_within_rows() {
-    assert_eq!(pattern(px(28.)), Some([px(2.), px(2.)]));
-    assert_eq!(pattern(px(56.)), Some([px(4.), px(4.)]));
-    assert_eq!(pattern(px(0.)), None);
-    for height in [px(28.), px(32.), px(35.), px(56.)] {
-        let [dash, gap] = pattern(height).unwrap();
-        assert_eq!(dash, gap);
-        assert!((height / (dash + gap) - 7.).abs() < 0.00001);
-    }
-}
-
-#[test]
-fn joins_half_rows_on_dash_ends() {
-    for height in [px(28.), px(32.), px(35.), px(56.)] {
-        let [dash, gap] = pattern(height).unwrap();
-        let middle = height / 2.;
-        let last_dash = (dash + gap) * 3.;
-        assert!((f32::from(middle - last_dash - dash)).abs() < 0.00001);
-        assert!((f32::from((dash + gap) * 7. - height)).abs() < 0.00001);
+fn ancestry_and_spacing() {
+    for (scenario, check) in [
+        (
+            "retains_full_sibling_paths",
+            (|_scenario: &str| {
+                let items = items();
+                let paths = paths(&items);
+                assert_eq!(paths["root"], [false], "retains full sibling paths");
+                assert_eq!(
+                    paths["leaf-first"],
+                    [false, true, true, true],
+                    "retains full sibling paths"
+                );
+                assert_eq!(
+                    paths["leaf-last"],
+                    [false, true, true, false],
+                    "retains full sibling paths"
+                );
+                assert_eq!(
+                    paths["last-leaf"],
+                    [false, false, false],
+                    "retains full sibling paths"
+                );
+                let mut collapsed = items.clone();
+                collapsed[0].expanded = false;
+                assert_eq!(
+                    super::paths(&collapsed),
+                    paths,
+                    "retains full sibling paths"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "continues_ancestors_and_stops_last_siblings",
+            (|_scenario: &str| {
+                assert_eq!(
+                    columns(&[false, true, true, false], 0),
+                    [
+                        Column {
+                            index: 0,
+                            half: false,
+                            arm: false
+                        },
+                        Column {
+                            index: 1,
+                            half: false,
+                            arm: false
+                        },
+                        Column {
+                            index: 2,
+                            half: true,
+                            arm: true
+                        },
+                    ],
+                    "continues ancestors and stops last siblings"
+                );
+                assert_eq!(
+                    columns(&[false, false, false], 0),
+                    [Column {
+                        index: 1,
+                        half: true,
+                        arm: true
+                    }],
+                    "continues ancestors and stops last siblings"
+                );
+                assert_eq!(
+                    columns(&[false, true, true, true], 0).last(),
+                    Some(&Column {
+                        index: 2,
+                        half: false,
+                        arm: true
+                    }),
+                    "continues ancestors and stops last siblings"
+                );
+            }),
+        ),
+        (
+            "skips_hidden_groups_and_flat_roots",
+            (|_scenario: &str| {
+                assert_eq!(
+                    columns(&[false, true, true, false], 1),
+                    [
+                        Column {
+                            index: 0,
+                            half: false,
+                            arm: false
+                        },
+                        Column {
+                            index: 1,
+                            half: true,
+                            arm: true
+                        },
+                    ],
+                    "skips hidden groups and flat roots"
+                );
+                assert!(
+                    columns(&[true], 0).is_empty(),
+                    "skips hidden groups and flat roots"
+                );
+                assert!(
+                    columns(&[false, false], 1).is_empty(),
+                    "skips hidden groups and flat roots"
+                );
+                assert!(
+                    columns(&[false, true], 4).is_empty(),
+                    "skips hidden groups and flat roots"
+                );
+            }),
+        ),
+        (
+            "uses_fixed_spacing_within_rows",
+            (|_scenario: &str| {
+                assert_eq!(
+                    pattern(px(28.)),
+                    Some([px(2.), px(2.)]),
+                    "uses fixed spacing within rows"
+                );
+                assert_eq!(
+                    pattern(px(56.)),
+                    Some([px(4.), px(4.)]),
+                    "uses fixed spacing within rows"
+                );
+                assert_eq!(pattern(px(0.)), None, "uses fixed spacing within rows");
+                for height in [px(28.), px(32.), px(35.), px(56.)] {
+                    let [dash, gap] = pattern(height).unwrap();
+                    assert_eq!(dash, gap, "uses fixed spacing within rows");
+                    assert!(
+                        (height / (dash + gap) - 7.).abs() < 0.00001,
+                        "uses fixed spacing within rows"
+                    );
+                }
+            }),
+        ),
+        (
+            "joins_half_rows_on_dash_ends",
+            (|_scenario: &str| {
+                for height in [px(28.), px(32.), px(35.), px(56.)] {
+                    let [dash, gap] = pattern(height).unwrap();
+                    let middle = height / 2.;
+                    let last_dash = (dash + gap) * 3.;
+                    assert!(
+                        (f32::from(middle - last_dash - dash)).abs() < 0.00001,
+                        "joins half rows on dash ends"
+                    );
+                    assert!(
+                        (f32::from((dash + gap) * 7. - height)).abs() < 0.00001,
+                        "joins half rows on dash ends"
+                    );
+                }
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }

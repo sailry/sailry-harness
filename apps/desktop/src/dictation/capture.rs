@@ -163,36 +163,70 @@ where
 mod tests {
     use super::*;
     #[test]
-    fn sample_levels() {
-        assert_eq!(validate(&[]), Err("dictation_no_audio"));
-        assert_eq!(validate(&[0.; 100]), Err("dictation_silent"));
-        assert!(validate(&[0.0001, -0.0001]).is_ok());
-    }
-
-    #[test]
-    fn chunks_preserve_resampled_pcm() {
-        let mut sampler = Sampler::new(48_000);
-        let mut buffer = Buffer::default();
-        for sample in [0.5, 0.5, 0.5, -0.25, -0.25, -0.25] {
-            sampler.push(sample, |sample| buffer.push(sample));
+    fn audio_bounds() {
+        for (scenario, check) in [
+            (
+                "sample_levels",
+                (|_scenario: &str| {
+                    assert_eq!(validate(&[]), Err("dictation_no_audio"), "sample levels");
+                    assert_eq!(
+                        validate(&[0.; 100]),
+                        Err("dictation_silent"),
+                        "sample levels"
+                    );
+                    assert!(validate(&[0.0001, -0.0001]).is_ok(), "sample levels");
+                }) as fn(&str),
+            ),
+            (
+                "chunks_preserve_resampled_pcm",
+                (|_scenario: &str| {
+                    let mut sampler = Sampler::new(48_000);
+                    let mut buffer = Buffer::default();
+                    for sample in [0.5, 0.5, 0.5, -0.25, -0.25, -0.25] {
+                        sampler.push(sample, |sample| buffer.push(sample));
+                    }
+                    assert_eq!(
+                        std::mem::take(&mut buffer.pending),
+                        [16384, -8192],
+                        "chunks preserve resampled pcm"
+                    );
+                    assert_eq!(buffer.count, 2, "chunks preserve resampled pcm");
+                    buffer.push(-1.);
+                    buffer.push(1.);
+                    assert_eq!(
+                        buffer.pending,
+                        [i16::MIN, i16::MAX],
+                        "chunks preserve resampled pcm"
+                    );
+                }),
+            ),
+            (
+                "draining_keeps_the_duration_bound",
+                (|_scenario: &str| {
+                    let mut buffer = Buffer {
+                        count: MAX_SAMPLES - 1,
+                        ..Default::default()
+                    };
+                    buffer.push(0.5);
+                    assert_eq!(
+                        std::mem::take(&mut buffer.pending),
+                        [16384],
+                        "draining keeps the duration bound"
+                    );
+                    buffer.push(0.5);
+                    assert!(
+                        buffer.pending.is_empty(),
+                        "draining keeps the duration bound"
+                    );
+                    assert_eq!(
+                        buffer.count, MAX_SAMPLES,
+                        "draining keeps the duration bound"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert_eq!(std::mem::take(&mut buffer.pending), [16384, -8192]);
-        assert_eq!(buffer.count, 2);
-        buffer.push(-1.);
-        buffer.push(1.);
-        assert_eq!(buffer.pending, [i16::MIN, i16::MAX]);
-    }
-
-    #[test]
-    fn draining_keeps_the_duration_bound() {
-        let mut buffer = Buffer {
-            count: MAX_SAMPLES - 1,
-            ..Default::default()
-        };
-        buffer.push(0.5);
-        assert_eq!(std::mem::take(&mut buffer.pending), [16384]);
-        buffer.push(0.5);
-        assert!(buffer.pending.is_empty());
-        assert_eq!(buffer.count, MAX_SAMPLES);
     }
 }

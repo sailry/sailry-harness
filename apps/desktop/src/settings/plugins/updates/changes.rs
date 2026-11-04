@@ -98,29 +98,60 @@ mod tests {
     }
 
     #[test]
-    fn extracts_declared_changes() {
-        let changes = Changes::between(&info("old", "files.read"), &info("new", "files.write"));
-        for (delta, kind) in [
-            (&changes.tools, "tool"),
-            (&changes.skills, "skill"),
-            (&changes.settings, "setting"),
+    fn declared_differences() {
+        for (scenario, check) in [
+            (
+                "extracts_declared_changes",
+                (|_scenario: &str| {
+                    let changes =
+                        Changes::between(&info("old", "files.read"), &info("new", "files.write"));
+                    for (delta, kind) in [
+                        (&changes.tools, "tool"),
+                        (&changes.skills, "skill"),
+                        (&changes.settings, "setting"),
+                    ] {
+                        assert_eq!(
+                            delta.added,
+                            [format!("{kind}_new")],
+                            "extracts declared changes"
+                        );
+                        assert_eq!(
+                            delta.removed,
+                            [format!("{kind}_old")],
+                            "extracts declared changes"
+                        );
+                    }
+                    assert_eq!(
+                        changes.actions.added,
+                        ["files.write"],
+                        "extracts declared changes"
+                    );
+                    assert_eq!(
+                        changes.actions.removed,
+                        ["files.read"],
+                        "extracts declared changes"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "omits_unchanged_entries",
+                (|_scenario: &str| {
+                    let delta = Delta::between(
+                        ["retained", "removed"].map(str::to_owned).into(),
+                        ["retained", "added"].map(str::to_owned).into(),
+                    );
+                    assert_eq!(delta.added, ["added"], "omits unchanged entries");
+                    assert_eq!(delta.removed, ["removed"], "omits unchanged entries");
+                    assert!(!delta.empty(), "omits unchanged entries");
+                    assert!(
+                        Delta::between(BTreeSet::new(), BTreeSet::new()).empty(),
+                        "omits unchanged entries"
+                    );
+                }),
+            ),
         ] {
-            assert_eq!(delta.added, [format!("{kind}_new")]);
-            assert_eq!(delta.removed, [format!("{kind}_old")]);
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert_eq!(changes.actions.added, ["files.write"]);
-        assert_eq!(changes.actions.removed, ["files.read"]);
-    }
-
-    #[test]
-    fn omits_unchanged_entries() {
-        let delta = Delta::between(
-            ["retained", "removed"].map(str::to_owned).into(),
-            ["retained", "added"].map(str::to_owned).into(),
-        );
-        assert_eq!(delta.added, ["added"]);
-        assert_eq!(delta.removed, ["removed"]);
-        assert!(!delta.empty());
-        assert!(Delta::between(BTreeSet::new(), BTreeSet::new()).empty());
     }
 }

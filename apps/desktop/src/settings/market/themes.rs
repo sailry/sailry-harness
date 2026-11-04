@@ -399,33 +399,51 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[test]
-    fn adapts_to_available_width() {
-        for (width, expected) in [
-            (960., 3),
-            (1600., 3),
-            (752., 3),
-            (744., 2),
-            (496., 2),
-            (480., 1),
+    fn layout_and_ownership() {
+        for (scenario, check) in [
+            (
+                "adapts_to_available_width",
+                (|_scenario: &str| {
+                    for (width, expected) in [
+                        (960., 3),
+                        (1600., 3),
+                        (752., 3),
+                        (744., 2),
+                        (496., 2),
+                        (480., 1),
+                    ] {
+                        assert_eq!(
+                            column_count(px(width)),
+                            expected,
+                            "adapts to available width"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "pane_identity_owns_selection",
+                (|_scenario: &str| {
+                    let mut selection = Selection::default();
+                    let first = EntityId::from(1);
+                    let second = EntityId::from(2);
+                    assert!(
+                        !selection.contains("default"),
+                        "pane identity owns selection"
+                    );
+                    selection.select("ink".into(), first);
+                    assert!(selection.contains("ink"), "pane identity owns selection");
+                    selection.select("paper".into(), second);
+                    assert!(!selection.contains("ink"), "pane identity owns selection");
+                    assert!(!selection.close(first), "pane identity owns selection");
+                    assert!(selection.contains("paper"), "pane identity owns selection");
+                    assert!(selection.close(second), "pane identity owns selection");
+                    assert!(!selection.contains("paper"), "pane identity owns selection");
+                    assert!(!selection.close(second), "pane identity owns selection");
+                }),
+            ),
         ] {
-            assert_eq!(column_count(px(width)), expected);
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn pane_identity_owns_selection() {
-        let mut selection = Selection::default();
-        let first = EntityId::from(1);
-        let second = EntityId::from(2);
-        assert!(!selection.contains("default"));
-        selection.select("ink".into(), first);
-        assert!(selection.contains("ink"));
-        selection.select("paper".into(), second);
-        assert!(!selection.contains("ink"));
-        assert!(!selection.close(first));
-        assert!(selection.contains("paper"));
-        assert!(selection.close(second));
-        assert!(!selection.contains("paper"));
-        assert!(!selection.close(second));
     }
 }

@@ -97,120 +97,155 @@ mod tests {
     use sailry_protocol::conversation::{connection::Product, presets::Region};
 
     #[test]
-    fn derives_models_and_discovery_from_products() {
-        let mut entry = presets::bundled()
-            .into_iter()
-            .find(|entry| entry.preset.id == "qwen")
-            .unwrap();
-        entry.preset.id = "fixture-vendor".into();
-        let route = entry
-            .preset
-            .routes
-            .iter()
-            .find(|route| route.product == Some(Product::Coding))
-            .unwrap()
-            .clone();
-        entry.preset.models = Models::Static {
-            ids: vec!["fixture-a".into(), "fixture-default".into()],
-        };
-        let product = entry
-            .preset
-            .products
-            .iter_mut()
-            .find(|product| product.kind == Product::Coding)
-            .unwrap();
-        product.default_model = Some("fixture-default".into());
-        assert_eq!(
-            models(&entry.preset, Some(&route)),
-            ["fixture-default", "fixture-a"]
-        );
-        assert!(metadata_only(&entry.preset, Some(&route)));
-        entry.preset.models = Models::Discover;
-        entry
-            .preset
-            .products
-            .iter_mut()
-            .find(|product| product.kind == Product::Coding)
-            .unwrap()
-            .discover = false;
-        assert!(metadata_only(&entry.preset, Some(&route)));
-        entry
-            .preset
-            .products
-            .iter_mut()
-            .find(|product| product.kind == Product::Coding)
-            .unwrap()
-            .discover = true;
-        assert!(!metadata_only(&entry.preset, Some(&route)));
-    }
-
-    #[test]
-    fn preserves_region_across_products() {
-        let entry = presets::bundled()
-            .into_iter()
-            .find(|entry| entry.preset.id == "qwen")
-            .unwrap();
-        let current = entry
-            .preset
-            .routes
-            .iter()
-            .find(|route| {
-                route.region == Some(Region::Global) && route.product == Some(Product::Metered)
-            })
-            .unwrap();
-        let requested = entry
-            .preset
-            .routes
-            .iter()
-            .find(|route| {
-                route.region == Some(Region::China) && route.product == Some(Product::Coding)
-            })
-            .unwrap()
-            .clone();
-        let target = target(&entry.preset.routes, Some(current), requested);
-        assert_eq!(target.region, Some(Region::Global));
-        assert_eq!(target.product, Some(Product::Coding));
-        assert_eq!(
-            target.endpoint,
-            entry
-                .preset
-                .routes
-                .iter()
-                .find(|route| route.key() == target.key())
-                .unwrap()
-                .endpoint
-        );
-        let choices = choices(&entry.preset.routes, &target, true);
-        assert_eq!(choices.len(), 2);
-        assert!(
-            choices
-                .iter()
-                .all(|route| route.product == Some(Product::Coding))
-        );
-    }
-
-    #[test]
-    fn keeps_explicit_missing_region_fallback() {
-        let entry = presets::bundled()
-            .into_iter()
-            .find(|entry| entry.preset.id == "doubao")
-            .unwrap();
-        let current = entry
-            .preset
-            .routes
-            .iter()
-            .find(|route| route.product == Some(Product::Metered))
-            .unwrap();
-        let requested = entry
-            .preset
-            .routes
-            .iter()
-            .find(|route| route.product == Some(Product::Coding))
-            .unwrap()
-            .clone();
-        assert_eq!(
-            target(&entry.preset.routes, Some(current), requested.clone()),
-            requested
-        );
+    fn product_regions() {
+        for (scenario, check) in [
+            (
+                "derives_models_and_discovery_from_products",
+                (|_scenario: &str| {
+                    let mut entry = presets::bundled()
+                        .into_iter()
+                        .find(|entry| entry.preset.id == "qwen")
+                        .unwrap();
+                    entry.preset.id = "fixture-vendor".into();
+                    let route = entry
+                        .preset
+                        .routes
+                        .iter()
+                        .find(|route| route.product == Some(Product::Coding))
+                        .unwrap()
+                        .clone();
+                    entry.preset.models = Models::Static {
+                        ids: vec!["fixture-a".into(), "fixture-default".into()],
+                    };
+                    let product = entry
+                        .preset
+                        .products
+                        .iter_mut()
+                        .find(|product| product.kind == Product::Coding)
+                        .unwrap();
+                    product.default_model = Some("fixture-default".into());
+                    assert_eq!(
+                        models(&entry.preset, Some(&route)),
+                        ["fixture-default", "fixture-a"],
+                        "derives models and discovery from products"
+                    );
+                    assert!(
+                        metadata_only(&entry.preset, Some(&route)),
+                        "derives models and discovery from products"
+                    );
+                    entry.preset.models = Models::Discover;
+                    entry
+                        .preset
+                        .products
+                        .iter_mut()
+                        .find(|product| product.kind == Product::Coding)
+                        .unwrap()
+                        .discover = false;
+                    assert!(
+                        metadata_only(&entry.preset, Some(&route)),
+                        "derives models and discovery from products"
+                    );
+                    entry
+                        .preset
+                        .products
+                        .iter_mut()
+                        .find(|product| product.kind == Product::Coding)
+                        .unwrap()
+                        .discover = true;
+                    assert!(
+                        !metadata_only(&entry.preset, Some(&route)),
+                        "derives models and discovery from products"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "preserves_region_across_products",
+                (|_scenario: &str| {
+                    let entry = presets::bundled()
+                        .into_iter()
+                        .find(|entry| entry.preset.id == "qwen")
+                        .unwrap();
+                    let current = entry
+                        .preset
+                        .routes
+                        .iter()
+                        .find(|route| {
+                            route.region == Some(Region::Global)
+                                && route.product == Some(Product::Metered)
+                        })
+                        .unwrap();
+                    let requested = entry
+                        .preset
+                        .routes
+                        .iter()
+                        .find(|route| {
+                            route.region == Some(Region::China)
+                                && route.product == Some(Product::Coding)
+                        })
+                        .unwrap()
+                        .clone();
+                    let target = target(&entry.preset.routes, Some(current), requested);
+                    assert_eq!(
+                        target.region,
+                        Some(Region::Global),
+                        "preserves region across products"
+                    );
+                    assert_eq!(
+                        target.product,
+                        Some(Product::Coding),
+                        "preserves region across products"
+                    );
+                    assert_eq!(
+                        target.endpoint,
+                        entry
+                            .preset
+                            .routes
+                            .iter()
+                            .find(|route| route.key() == target.key())
+                            .unwrap()
+                            .endpoint,
+                        "preserves region across products"
+                    );
+                    let choices = choices(&entry.preset.routes, &target, true);
+                    assert_eq!(choices.len(), 2, "preserves region across products");
+                    assert!(
+                        choices
+                            .iter()
+                            .all(|route| route.product == Some(Product::Coding)),
+                        "preserves region across products"
+                    );
+                }),
+            ),
+            (
+                "keeps_explicit_missing_region_fallback",
+                (|_scenario: &str| {
+                    let entry = presets::bundled()
+                        .into_iter()
+                        .find(|entry| entry.preset.id == "doubao")
+                        .unwrap();
+                    let current = entry
+                        .preset
+                        .routes
+                        .iter()
+                        .find(|route| route.product == Some(Product::Metered))
+                        .unwrap();
+                    let requested = entry
+                        .preset
+                        .routes
+                        .iter()
+                        .find(|route| route.product == Some(Product::Coding))
+                        .unwrap()
+                        .clone();
+                    assert_eq!(
+                        target(&entry.preset.routes, Some(current), requested.clone()),
+                        requested,
+                        "keeps explicit missing region fallback"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

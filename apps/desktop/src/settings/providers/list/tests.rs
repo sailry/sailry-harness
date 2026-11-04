@@ -20,111 +20,134 @@ fn packaged(mut channel: super::Channel) -> super::Channel {
     channel
 }
 
-mod auth {
-    use super::*;
-
-    #[test]
-    fn follows_authentication() {
-        let key = channel(Preset::CompatibleChat);
-        assert_eq!(AuthKind::of(&key, Authentication::ApiKey), AuthKind::ApiKey);
-        let login = channel(Preset::ChatGptOAuth);
-        assert_eq!(
-            AuthKind::of(&login, Authentication::ChatGptOAuth),
-            AuthKind::OAuth
-        );
-    }
-
-    #[test]
-    fn marks_plugin_channels() {
-        let channel = packaged(channel(Preset::CompatibleChat));
-        assert_eq!(
-            AuthKind::of(&channel, Authentication::ApiKey),
-            AuthKind::Plugin
-        );
-        let declared = super::channel(Preset::Plugin);
-        assert_eq!(
-            AuthKind::of(&declared, Authentication::Plugin),
-            AuthKind::Plugin
-        );
-    }
-}
-
-mod status {
-    use super::*;
-
-    #[test]
-    fn requires_hosted_keys() {
-        let mut hosted = channel(Preset::OpenAi);
-        assert_eq!(Status::of(&hosted, Authentication::ApiKey), None);
-        hosted.credential_configured = false;
-        assert_eq!(
-            Status::of(&hosted, Authentication::ApiKey),
-            Some(Status::MissingKey)
-        );
-        let mut cloud = channel(Preset::AzureOpenAi);
-        cloud.credential_configured = false;
-        assert_eq!(
-            Status::of(&cloud, Authentication::ApiKey),
-            Some(Status::MissingKey)
-        );
-    }
-
-    #[test]
-    fn allows_keyless_custom_endpoints() {
-        let mut custom = channel(Preset::CompatibleChat);
-        custom.credential_configured = false;
-        assert_eq!(Status::of(&custom, Authentication::ApiKey), None);
-    }
-
-    #[test]
-    fn named_routes_require_declared_keys() {
-        let mut hosted = channel(Preset::CompatibleChat);
-        hosted.credential_configured = false;
-        hosted.directory = super::super::super::presets::bundled()
-            .into_iter()
-            .find(|entry| entry.preset.id == "qwen");
-        assert_eq!(
-            Status::of(&hosted, Authentication::ApiKey),
-            Some(Status::MissingKey)
-        );
-        hosted.directory.as_mut().unwrap().preset.auth =
-            sailry_protocol::conversation::presets::Auth::None;
-        assert_eq!(Status::of(&hosted, Authentication::ApiKey), None);
-    }
-
-    #[test]
-    fn reports_missing_login() {
-        let mut login = channel(Preset::ChatGptOAuth);
-        login.credential_configured = false;
-        assert_eq!(
-            Status::of(&login, Authentication::ChatGptOAuth),
-            Some(Status::SignedOut)
-        );
+#[test]
+fn authentication_kinds() {
+    for (case, channel, authentication, expected) in [
+        (
+            "API key",
+            channel(Preset::CompatibleChat),
+            Authentication::ApiKey,
+            AuthKind::ApiKey,
+        ),
+        (
+            "OAuth",
+            channel(Preset::ChatGptOAuth),
+            Authentication::ChatGptOAuth,
+            AuthKind::OAuth,
+        ),
+        (
+            "packaged",
+            packaged(channel(Preset::CompatibleChat)),
+            Authentication::ApiKey,
+            AuthKind::Plugin,
+        ),
+        (
+            "declared plugin",
+            channel(Preset::Plugin),
+            Authentication::Plugin,
+            AuthKind::Plugin,
+        ),
+    ] {
+        assert_eq!(AuthKind::of(&channel, authentication), expected, "{case}");
     }
 }
 
-mod chips {
-    use super::*;
-
-    fn models(ids: &[&str]) -> Vec<Model> {
-        ids.iter().map(|id| Model::example(id)).collect()
+#[test]
+fn credential_requirements() {
+    let mut named = channel(Preset::CompatibleChat);
+    named.credential_configured = false;
+    named.directory = super::super::presets::bundled()
+        .into_iter()
+        .find(|entry| entry.preset.id == "qwen");
+    assert_eq!(
+        Status::of(&named, Authentication::ApiKey),
+        Some(Status::MissingKey),
+        "named route"
+    );
+    named.directory.as_mut().unwrap().preset.auth =
+        sailry_protocol::conversation::presets::Auth::None;
+    assert_eq!(
+        Status::of(&named, Authentication::ApiKey),
+        None,
+        "keyless named route"
+    );
+    for (case, preset, configured, authentication, expected) in [
+        (
+            "configured hosted",
+            Preset::OpenAi,
+            true,
+            Authentication::ApiKey,
+            None,
+        ),
+        (
+            "missing hosted",
+            Preset::OpenAi,
+            false,
+            Authentication::ApiKey,
+            Some(Status::MissingKey),
+        ),
+        (
+            "missing cloud",
+            Preset::AzureOpenAi,
+            false,
+            Authentication::ApiKey,
+            Some(Status::MissingKey),
+        ),
+        (
+            "keyless custom",
+            Preset::CompatibleChat,
+            false,
+            Authentication::ApiKey,
+            None,
+        ),
+        (
+            "signed out",
+            Preset::ChatGptOAuth,
+            false,
+            Authentication::ChatGptOAuth,
+            Some(Status::SignedOut),
+        ),
+    ] {
+        let mut channel = channel(preset);
+        channel.credential_configured = configured;
+        assert_eq!(Status::of(&channel, authentication), expected, "{case}");
     }
+}
 
-    #[test]
-    fn leads_with_default() {
-        let models = models(&["a", "b", "c"]);
-        assert_eq!(chips(&models, "c", 8), (vec!["c", "a", "b"], 0));
-        assert_eq!(chips(&models, "missing", 8), (vec!["a", "b", "c"], 0));
-    }
-
-    #[test]
-    fn counts_hidden_models() {
-        let ids = (0..11).map(|index| format!("m{index}")).collect::<Vec<_>>();
-        let models = models(&ids.iter().map(String::as_str).collect::<Vec<_>>());
-        let (shown, hidden) = chips(&models, "m10", CHIPS);
-        assert_eq!(shown.len(), CHIPS);
-        assert_eq!(shown[0], "m10");
-        assert_eq!(hidden, 3);
+#[test]
+fn model_chips() {
+    for (case, ids, default, limit, expected, hidden) in [
+        (
+            "default first",
+            vec!["a".into(), "b".into(), "c".into()],
+            "c",
+            8,
+            vec!["c".to_owned(), "a".to_owned(), "b".to_owned()],
+            0,
+        ),
+        (
+            "missing default",
+            vec!["a".into(), "b".into(), "c".into()],
+            "missing",
+            8,
+            vec!["a".into(), "b".into(), "c".into()],
+            0,
+        ),
+        (
+            "hidden",
+            (0..11).map(|index| format!("m{index}")).collect(),
+            "m10",
+            CHIPS,
+            std::iter::once("m10".into())
+                .chain((0..CHIPS - 1).map(|index| format!("m{index}")))
+                .collect(),
+            3,
+        ),
+    ] {
+        let models: Vec<_> = ids.iter().map(|id: &String| Model::example(id)).collect();
+        let (shown, count) = chips(&models, default, limit);
+        assert_eq!(shown, expected, "{case}: shown");
+        assert_eq!(count, hidden, "{case}: hidden");
     }
 }
 
@@ -194,78 +217,122 @@ mod lines {
     }
 
     #[test]
-    fn one_meter_one_line() {
-        let rows = details(json!([{"label":{"label":"5h"},"value":"90%","progress":90}]));
-        let lines = lines(&rows, Some("64%".into()), "en");
-        assert_eq!(
-            lines,
-            [Line {
-                value: "90%".into(),
-                label: Some("5h".into()),
-                progress: Some(90.),
-            }]
-        );
-    }
-
-    #[test]
-    fn caps_meters_at_two() {
-        let rows = details(json!([
-            {"label":{"label":"5h"},"value":"90%","progress":90},
-            {"label":{"label":"7d"},"value":"40%","progress":40},
-            {"label":{"label":"Month"},"value":"10%","progress":10}
-        ]));
-        let lines = lines(&rows, None, "en");
-        assert_eq!(labels(&lines), [Some("5h"), Some("7d")]);
-        assert_eq!(lines.len(), METERS);
-    }
-
-    #[test]
-    fn meters_take_precedence() {
-        let rows = details(json!([
-            {"label":{"label":"Credits"},"value":"41205.37"},
-            {"label":{"label":"7d left"},"value":"91%","progress":91},
-            {"label":{"label":"Low"},"value":"0%","progress":-4}
-        ]));
-        let lines = lines(&rows, Some("888.00".into()), "en");
-        let values: Vec<_> = lines.iter().map(|line| line.value.as_ref()).collect();
-        assert_eq!(values, ["91%", "0%"]);
-        assert_eq!(lines[1].progress, Some(0.));
-    }
-
-    #[test]
-    fn values_show_first_value() {
-        let rows = details(json!([
-            {"label":{"label":"Credits"},"value":"2550.59"},
-            {"label":{"label":"Spent"},"value":"12"}
-        ]));
-        let expected = [Line {
-            value: "2550.59".into(),
-            label: None,
-            progress: None,
-        }];
-        assert_eq!(lines(&rows, Some("888.00".into()), "en"), expected);
-        let fallback = lines(&[], Some("888.00".into()), "en");
-        assert_eq!(fallback[0].value.as_ref(), "888.00");
-        assert_eq!(fallback[0].label, None);
-    }
-
-    #[test]
-    fn localizes_and_omits_blank_labels() {
-        let rows = details(json!([
-            {"label":{"label":"7d","locales":{"zh-CN":"7天"}},"value":"9%","progress":9},
-            {"label":{"label":"  "},"value":"3%","progress":3}
-        ]));
-        assert_eq!(labels(&lines(&rows, None, "zh-CN")), [Some("7天"), None]);
-    }
-
-    #[test]
-    fn empty_without_usage() {
-        assert!(lines(&[], None, "en").is_empty());
-    }
-
-    #[test]
-    fn credits_icon_is_bundled() {
+    fn usage_lines() {
+        for (case, rows, fallback, locale, expected) in [
+            (
+                "one meter",
+                json!([{"label":{"label":"5h"},"value":"90%","progress":90}]),
+                Some("64%"),
+                "en",
+                vec![Line {
+                    value: "90%".into(),
+                    label: Some("5h".into()),
+                    progress: Some(90.),
+                }],
+            ),
+            (
+                "meter limit",
+                json!([
+                    {"label":{"label":"5h"},"value":"90%","progress":90},
+                    {"label":{"label":"7d"},"value":"40%","progress":40},
+                    {"label":{"label":"Month"},"value":"10%","progress":10}
+                ]),
+                None,
+                "en",
+                vec![
+                    Line {
+                        value: "90%".into(),
+                        label: Some("5h".into()),
+                        progress: Some(90.),
+                    },
+                    Line {
+                        value: "40%".into(),
+                        label: Some("7d".into()),
+                        progress: Some(40.),
+                    },
+                ],
+            ),
+            (
+                "meters before values",
+                json!([
+                    {"label":{"label":"Credits"},"value":"41205.37"},
+                    {"label":{"label":"7d left"},"value":"91%","progress":91},
+                    {"label":{"label":"Low"},"value":"0%","progress":-4}
+                ]),
+                Some("888.00"),
+                "en",
+                vec![
+                    Line {
+                        value: "91%".into(),
+                        label: Some("7d left".into()),
+                        progress: Some(91.),
+                    },
+                    Line {
+                        value: "0%".into(),
+                        label: Some("Low".into()),
+                        progress: Some(0.),
+                    },
+                ],
+            ),
+            (
+                "first value",
+                json!([
+                    {"label":{"label":"Credits"},"value":"2550.59"},
+                    {"label":{"label":"Spent"},"value":"12"}
+                ]),
+                Some("888.00"),
+                "en",
+                vec![Line {
+                    value: "2550.59".into(),
+                    label: None,
+                    progress: None,
+                }],
+            ),
+            (
+                "fallback",
+                json!([]),
+                Some("888.00"),
+                "en",
+                vec![Line {
+                    value: "888.00".into(),
+                    label: None,
+                    progress: None,
+                }],
+            ),
+            (
+                "localized labels",
+                json!([
+                    {"label":{"label":"7d","locales":{"zh-CN":"7天"}},"value":"9%","progress":9},
+                    {"label":{"label":"  "},"value":"3%","progress":3}
+                ]),
+                None,
+                "zh-CN",
+                vec![
+                    Line {
+                        value: "9%".into(),
+                        label: Some("7天".into()),
+                        progress: Some(9.),
+                    },
+                    Line {
+                        value: "3%".into(),
+                        label: None,
+                        progress: Some(3.),
+                    },
+                ],
+            ),
+            ("empty", json!([]), None, "en", vec![]),
+        ] {
+            let actual = lines(&details(rows), fallback.map(Into::into), locale);
+            assert_eq!(actual, expected, "{case}");
+            if case == "meter limit" {
+                assert_eq!(labels(&actual), [Some("5h"), Some("7d")], "{case}: labels");
+                assert_eq!(actual.len(), METERS, "{case}: limit");
+            }
+        }
         let path = gpui_kit::assets::IconName::Coins.path();
-        assert!(crate::assets::Assets.load(&path).unwrap().is_some());
+        assert!(
+            crate::assets::Assets.load(&path).unwrap().is_some(),
+            "credits icon"
+        );
     }
 }

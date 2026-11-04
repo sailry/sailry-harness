@@ -48,27 +48,65 @@ mod tests {
     use super::*;
 
     #[test]
-    fn combines_category_and_installed_filters() {
-        let mut filter = Filter::default();
-        assert!(filter.plugin(None, false));
-        filter.category = Some(Category::Development);
-        assert!(!filter.plugin(None, true));
-        assert!(!filter.plugin(Some(Category::Data), true));
-        assert!(filter.plugin(Some(Category::Development), false));
-        filter.installed = true;
-        assert!(!filter.plugin(Some(Category::Development), false));
-        assert!(filter.plugin(Some(Category::Development), true));
-    }
-
-    #[test]
-    fn preserves_unknown_theme_modes() {
-        let filter = Filter {
-            dark: Some(true),
-            ..Default::default()
-        };
-        assert!(filter.theme(&[], false));
-        assert!(filter.theme(&["light".into(), "dark".into()], false));
-        assert!(!filter.theme(&["light".into()], true));
-        assert!(filter.theme(&["dark".into()], false));
+    fn combined_choices() {
+        for (scenario, check) in [
+            (
+                "combines_category_and_installed_filters",
+                (|_scenario: &str| {
+                    let mut filter = Filter::default();
+                    assert!(
+                        filter.plugin(None, false),
+                        "combines category and installed filters"
+                    );
+                    filter.category = Some(Category::Development);
+                    assert!(
+                        !filter.plugin(None, true),
+                        "combines category and installed filters"
+                    );
+                    assert!(
+                        !filter.plugin(Some(Category::Data), true),
+                        "combines category and installed filters"
+                    );
+                    assert!(
+                        filter.plugin(Some(Category::Development), false),
+                        "combines category and installed filters"
+                    );
+                    filter.installed = true;
+                    assert!(
+                        !filter.plugin(Some(Category::Development), false),
+                        "combines category and installed filters"
+                    );
+                    assert!(
+                        filter.plugin(Some(Category::Development), true),
+                        "combines category and installed filters"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "preserves_unknown_theme_modes",
+                (|_scenario: &str| {
+                    let filter = Filter {
+                        dark: Some(true),
+                        ..Default::default()
+                    };
+                    assert!(filter.theme(&[], false), "preserves unknown theme modes");
+                    assert!(
+                        filter.theme(&["light".into(), "dark".into()], false),
+                        "preserves unknown theme modes"
+                    );
+                    assert!(
+                        !filter.theme(&["light".into()], true),
+                        "preserves unknown theme modes"
+                    );
+                    assert!(
+                        filter.theme(&["dark".into()], false),
+                        "preserves unknown theme modes"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

@@ -98,62 +98,96 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn keeps_fixed_listener_without_pasting() {
-        let callback = sailry_protocol::plugin::model_auth::Callback {
-            path: "/auth/callback".into(),
-            port: Some(1455),
-            redirect_uri: Some("http://localhost:1455/auth/callback".into()),
-            manual: true,
-            allow_localhost: true,
-        };
-        let presentation = Presentation::Script {
-            callback: Some(callback.clone()),
-        };
-        assert_eq!(listener(Some(&presentation)), Some(callback));
-        assert!(!manual(Some(&presentation)));
-    }
-
-    #[test]
-    fn uses_declared_interaction() {
-        for (presentation, needs_listener, needs_manual) in [
+    fn declared_interaction() {
+        for (scenario, check) in [
             (
-                Presentation::Pkce {
-                    redirect: Redirect::Loopback,
-                },
-                true,
-                false,
+                "keeps_fixed_listener_without_pasting",
+                (|_scenario: &str| {
+                    let callback = sailry_protocol::plugin::model_auth::Callback {
+                        path: "/auth/callback".into(),
+                        port: Some(1455),
+                        redirect_uri: Some("http://localhost:1455/auth/callback".into()),
+                        manual: true,
+                        allow_localhost: true,
+                    };
+                    let presentation = Presentation::Script {
+                        callback: Some(callback.clone()),
+                    };
+                    assert_eq!(
+                        listener(Some(&presentation)),
+                        Some(callback),
+                        "keeps fixed listener without pasting"
+                    );
+                    assert!(
+                        !manual(Some(&presentation)),
+                        "keeps fixed listener without pasting"
+                    );
+                }) as fn(&str),
             ),
             (
-                Presentation::Pkce {
-                    redirect: Redirect::Paste,
-                },
-                false,
-                true,
-            ),
-            (Presentation::Polling, false, false),
-            (Presentation::DeviceCode, false, false),
-            (Presentation::TokenExchange, false, false),
-            (Presentation::Script { callback: None }, false, false),
-        ] {
-            assert_eq!(listener(Some(&presentation)).is_some(), needs_listener);
-            assert_eq!(manual(Some(&presentation)), needs_manual);
-        }
-        for (path, manual_callback) in [("/auth/callback", false), ("/callback", true)] {
-            let presentation = Presentation::Script {
-                callback: Some(sailry_protocol::plugin::model_auth::Callback {
-                    path: path.into(),
-                    port: None,
-                    redirect_uri: None,
-                    manual: manual_callback,
-                    allow_localhost: manual_callback,
+                "uses_declared_interaction",
+                (|_scenario: &str| {
+                    for (presentation, needs_listener, needs_manual) in [
+                        (
+                            Presentation::Pkce {
+                                redirect: Redirect::Loopback,
+                            },
+                            true,
+                            false,
+                        ),
+                        (
+                            Presentation::Pkce {
+                                redirect: Redirect::Paste,
+                            },
+                            false,
+                            true,
+                        ),
+                        (Presentation::Polling, false, false),
+                        (Presentation::DeviceCode, false, false),
+                        (Presentation::TokenExchange, false, false),
+                        (Presentation::Script { callback: None }, false, false),
+                    ] {
+                        assert_eq!(
+                            listener(Some(&presentation)).is_some(),
+                            needs_listener,
+                            "uses declared interaction"
+                        );
+                        assert_eq!(
+                            manual(Some(&presentation)),
+                            needs_manual,
+                            "uses declared interaction"
+                        );
+                    }
+                    for (path, manual_callback) in [("/auth/callback", false), ("/callback", true)]
+                    {
+                        let presentation = Presentation::Script {
+                            callback: Some(sailry_protocol::plugin::model_auth::Callback {
+                                path: path.into(),
+                                port: None,
+                                redirect_uri: None,
+                                manual: manual_callback,
+                                allow_localhost: manual_callback,
+                            }),
+                        };
+                        let callback = listener(Some(&presentation)).unwrap();
+                        assert_eq!(callback.path, path, "uses declared interaction");
+                        assert_eq!(
+                            callback.manual, manual_callback,
+                            "uses declared interaction"
+                        );
+                        assert_eq!(
+                            manual(Some(&presentation)),
+                            manual_callback,
+                            "uses declared interaction"
+                        );
+                    }
+                    assert_eq!(listener(None), None, "uses declared interaction");
+                    assert!(!manual(None), "uses declared interaction");
                 }),
-            };
-            let callback = listener(Some(&presentation)).unwrap();
-            assert_eq!(callback.path, path);
-            assert_eq!(callback.manual, manual_callback);
-            assert_eq!(manual(Some(&presentation)), manual_callback);
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert_eq!(listener(None), None);
-        assert!(!manual(None));
     }
 }

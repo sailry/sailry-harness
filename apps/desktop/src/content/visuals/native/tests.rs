@@ -16,78 +16,100 @@ fn request(source: &str) -> Request {
 }
 
 #[test]
-fn serves_only_fixed_local_assets() {
-    let response = asset(
-        &wry::http::Request::builder()
-            .uri("sailry-visual://localhost/index.html")
-            .body(Vec::new())
-            .unwrap(),
-    );
-    assert_eq!(response.status(), 200);
-    assert_eq!(
-        response.headers()["Content-Type"],
-        "text/html; charset=utf-8"
-    );
-    for url in [
-        "sailry-visual://localhost/../profile",
-        "sailry-visual://localhost/index.html?url=https://example.com",
+fn fixed_assets_and_json() {
+    for (scenario, check) in [
+        (
+            "serves_only_fixed_local_assets",
+            (|_scenario: &str| {
+                let response = asset(
+                    &wry::http::Request::builder()
+                        .uri("sailry-visual://localhost/index.html")
+                        .body(Vec::new())
+                        .unwrap(),
+                );
+                assert_eq!(response.status(), 200, "serves only fixed local assets");
+                assert_eq!(
+                    response.headers()["Content-Type"],
+                    "text/html; charset=utf-8",
+                    "serves only fixed local assets"
+                );
+                for url in [
+                    "sailry-visual://localhost/../profile",
+                    "sailry-visual://localhost/index.html?url=https://example.com",
+                ] {
+                    assert_eq!(
+                        asset(
+                            &wry::http::Request::builder()
+                                .uri(url)
+                                .body(Vec::new())
+                                .unwrap()
+                        )
+                        .status(),
+                        404,
+                        "serves only fixed local assets"
+                    );
+                }
+                assert_eq!(
+                    asset(
+                        &wry::http::Request::builder()
+                            .method("POST")
+                            .uri(URL)
+                            .body(Vec::new())
+                            .unwrap()
+                    )
+                    .status(),
+                    404,
+                    "serves only fixed local assets"
+                );
+                assert!(navigation(URL.into()), "serves only fixed local assets");
+                assert!(
+                    navigation("http://sailry-visual.localhost/index.html".into()),
+                    "serves only fixed local assets"
+                );
+                assert!(
+                    navigation("about:blank".into()),
+                    "serves only fixed local assets"
+                );
+                for url in [
+                    "https://example.com",
+                    "file:///tmp/private",
+                    "sailry-visual://localhost/other",
+                ] {
+                    assert!(!navigation(url.into()), "serves only fixed local assets");
+                }
+            }) as fn(&str),
+        ),
+        (
+            "serves_html_rasterizer",
+            (|_scenario: &str| {
+                let response = asset(
+                    &wry::http::Request::builder()
+                        .uri("sailry-visual://localhost/html2canvas.js")
+                        .body(Vec::new())
+                        .unwrap(),
+                );
+                assert_eq!(response.status(), 200, "serves html rasterizer");
+                assert!(
+                    response.body().starts_with(b"/*!\n * html2canvas"),
+                    "serves html rasterizer"
+                );
+            }),
+        ),
+        (
+            "keeps_requested_source_inside_json",
+            (|_scenario: &str| {
+                let input = request("flowchart LR\nA[\"quote ' </script> \\\"\"] --> B");
+                let rendered = script(7, &input);
+                let prefix = "Promise.resolve().then(()=>window.sailryRender(";
+                let end = rendered.find(")).then(").unwrap();
+                let decoded: Request = serde_json::from_str(&rendered[prefix.len()..end]).unwrap();
+                assert_eq!(decoded, input, "keeps requested source inside json");
+            }),
+        ),
     ] {
-        assert_eq!(
-            asset(
-                &wry::http::Request::builder()
-                    .uri(url)
-                    .body(Vec::new())
-                    .unwrap()
-            )
-            .status(),
-            404
-        );
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    assert_eq!(
-        asset(
-            &wry::http::Request::builder()
-                .method("POST")
-                .uri(URL)
-                .body(Vec::new())
-                .unwrap()
-        )
-        .status(),
-        404
-    );
-    assert!(navigation(URL.into()));
-    assert!(navigation(
-        "http://sailry-visual.localhost/index.html".into()
-    ));
-    assert!(navigation("about:blank".into()));
-    for url in [
-        "https://example.com",
-        "file:///tmp/private",
-        "sailry-visual://localhost/other",
-    ] {
-        assert!(!navigation(url.into()));
-    }
-}
-
-#[test]
-fn serves_html_rasterizer() {
-    let response = asset(
-        &wry::http::Request::builder()
-            .uri("sailry-visual://localhost/html2canvas.js")
-            .body(Vec::new())
-            .unwrap(),
-    );
-    assert_eq!(response.status(), 200);
-    assert!(response.body().starts_with(b"/*!\n * html2canvas"));
-}
-
-#[test]
-fn keeps_requested_source_inside_json() {
-    let input = request("flowchart LR\nA[\"quote ' </script> \\\"\"] --> B");
-    let rendered = script(7, &input);
-    let prefix = "Promise.resolve().then(()=>window.sailryRender(";
-    let end = rendered.find(")).then(").unwrap();
-    let decoded: Request = serde_json::from_str(&rendered[prefix.len()..end]).unwrap();
-    assert_eq!(decoded, input);
 }
 
 #[gpui_kit::test]

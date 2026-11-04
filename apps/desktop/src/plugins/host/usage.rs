@@ -390,151 +390,212 @@ mod tests {
     use sailry_protocol::{ErrorCode, plugin::Context};
 
     #[test]
-    fn selects_only_known_scoped_sources() {
-        let fixture = crate::plugins::fixture::Fixture::new(true);
-        let controller = fixture
-            .runtime
-            .block_on(sailry_node_runtime::Node::start_isolated(
-                fixture.directory.path().join("usage-controller"),
-            ))
-            .unwrap();
-        let client = Arc::new(Client::new(controller.local()));
-        let Output::Plugin(package) = fixture
-            .runtime
-            .block_on(client.execute(client.prepare(Command::ReadPlugin {
-                name: "statistics".into(),
-            })))
-            .unwrap()
-        else {
-            panic!("plugin expected");
-        };
-        let host = Host::new(
-            client,
-            Context {
-                invocation: None,
-                turn: None,
-                surface: Surface::Workspace,
-                package: package.summary.reference(),
-                worktree: None,
-                session: None,
-            },
-            fixture.runtime.handle().clone(),
-            false,
-            None,
-        );
-        let sources = Sources::default();
-        sources.set(vec![Source {
-            client: fixture.binding.client.clone(),
-            label: "Remote fixture".into(),
-        }]);
-        for selected in [
-            None,
-            Some(HostValue::Null),
-            Some(node_key(host.target()).into()),
-        ] {
-            let scoped = host.usage_client(&sources, selected.as_ref()).unwrap();
-            assert_eq!(scoped.target(), host.target());
-            assert_eq!(
-                fixture
-                    .runtime
-                    .block_on(scoped.read_usage(empty_query()))
-                    .unwrap()
-                    .node,
-                controller.id()
-            );
-        }
-        let selected = HostValue::from(node_key(fixture.node.id()));
-        let scoped = host.usage_client(&sources, Some(&selected)).unwrap();
-        assert_eq!(scoped.target(), fixture.node.id());
-        assert_eq!(
-            fixture
-                .runtime
-                .block_on(scoped.read_usage(empty_query()))
-                .unwrap()
-                .node,
-            fixture.node.id()
-        );
-        for selected in [
-            HostValue::from("invalid"),
-            HostValue::Bool(true),
-            HostValue::from(node_key(sailry_protocol::NodeId([7; 32]))),
-        ] {
-            assert!(host.usage_client(&sources, Some(&selected)).is_err());
-        }
-        let Output::Plugin(package) = fixture.execute(Command::ReadPlugin {
-            name: "statistics".into(),
-        }) else {
-            panic!("plugin expected");
-        };
-        fixture.execute(Command::SetPluginEnabled {
-            name: "statistics".into(),
-            expected_revision: package.summary.revision,
-            enabled: false,
-        });
-        assert_eq!(
-            fixture
-                .runtime
-                .block_on(scoped.read_usage(empty_query()))
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        assert!(
-            fixture
-                .runtime
-                .block_on(
-                    host.usage_client(&sources, None)
+    fn scoped_reads() {
+        for (scenario, check) in [
+            (
+                "selects_only_known_scoped_sources",
+                (|_scenario: &str| {
+                    let fixture = crate::plugins::fixture::Fixture::new(true);
+                    let controller = fixture
+                        .runtime
+                        .block_on(sailry_node_runtime::Node::start_isolated(
+                            fixture.directory.path().join("usage-controller"),
+                        ))
+                        .unwrap();
+                    let client = Arc::new(Client::new(controller.local()));
+                    let Output::Plugin(package) = fixture
+                        .runtime
+                        .block_on(client.execute(client.prepare(Command::ReadPlugin {
+                            name: "statistics".into(),
+                        })))
                         .unwrap()
-                        .read_usage(empty_query())
-                )
-                .is_ok()
-        );
-        sources.set(vec![]);
-        assert!(host.usage_client(&sources, Some(&selected)).is_err());
-        host.close();
-        drop(host);
-        drop(scoped);
-        fixture.runtime.block_on(controller.shutdown()).unwrap();
-        fixture.close();
-    }
-
-    #[test]
-    fn preserves_exact_cursors_and_counters() {
-        let mut query = serde_json::to_value(empty_query()).unwrap();
-        query["before"] =
-            json!({"node":sailry_protocol::NodeId([1;32]),"timestamp_ms":1,"sequence":u64::MAX});
-        let cursor = super::query(exact(query)).unwrap().before.unwrap();
-        assert_eq!(cursor.sequence, u64::MAX);
-        assert_eq!(cursor.node, sailry_protocol::NodeId([1; 32]));
-        assert_eq!(cursor.timestamp_ms, 1);
-        assert_eq!(
-            exact(json!({"tokens":u64::MAX}))["tokens"],
-            u64::MAX.to_string()
-        );
-        assert_eq!(
-            exact(json!({"observations":{"recent":[{"turn_index":u64::MAX}]}}))["observations"]["recent"]
-                [0]["turn_index"],
-            u64::MAX.to_string()
-        );
-    }
-
-    #[test]
-    fn reads_dimension_and_offset() {
-        use sailry_protocol::usage::Dimension;
-        let mut value = serde_json::to_value(empty_query()).unwrap();
-        value.as_object_mut().unwrap().remove("utc_offset_minutes");
-        value["dimension"] = json!("project");
-        let parsed = super::query(value.clone()).unwrap();
-        assert_eq!(parsed.dimension, Dimension::Project);
-        assert_eq!(parsed.utc_offset_minutes, local_offset());
-        value["dimension"] = json!("provider");
-        value["utc_offset_minutes"] = json!("-300");
-        let parsed = super::query(value.clone()).unwrap();
-        assert_eq!(parsed.dimension, Dimension::Provider);
-        assert_eq!(parsed.utc_offset_minutes, -300);
-        value["utc_offset_minutes"] = json!(330);
-        assert_eq!(super::query(value.clone()).unwrap().utc_offset_minutes, 330);
-        value["dimension"] = json!("session");
-        assert!(super::query(value).is_err());
+                    else {
+                        panic!("plugin expected");
+                    };
+                    let host = Host::new(
+                        client,
+                        Context {
+                            invocation: None,
+                            turn: None,
+                            surface: Surface::Workspace,
+                            package: package.summary.reference(),
+                            worktree: None,
+                            session: None,
+                        },
+                        fixture.runtime.handle().clone(),
+                        false,
+                        None,
+                    );
+                    let sources = Sources::default();
+                    sources.set(vec![Source {
+                        client: fixture.binding.client.clone(),
+                        label: "Remote fixture".into(),
+                    }]);
+                    for selected in [
+                        None,
+                        Some(HostValue::Null),
+                        Some(node_key(host.target()).into()),
+                    ] {
+                        let scoped = host.usage_client(&sources, selected.as_ref()).unwrap();
+                        assert_eq!(
+                            scoped.target(),
+                            host.target(),
+                            "selects only known scoped sources"
+                        );
+                        assert_eq!(
+                            fixture
+                                .runtime
+                                .block_on(scoped.read_usage(empty_query()))
+                                .unwrap()
+                                .node,
+                            controller.id(),
+                            "selects only known scoped sources"
+                        );
+                    }
+                    let selected = HostValue::from(node_key(fixture.node.id()));
+                    let scoped = host.usage_client(&sources, Some(&selected)).unwrap();
+                    assert_eq!(
+                        scoped.target(),
+                        fixture.node.id(),
+                        "selects only known scoped sources"
+                    );
+                    assert_eq!(
+                        fixture
+                            .runtime
+                            .block_on(scoped.read_usage(empty_query()))
+                            .unwrap()
+                            .node,
+                        fixture.node.id(),
+                        "selects only known scoped sources"
+                    );
+                    for selected in [
+                        HostValue::from("invalid"),
+                        HostValue::Bool(true),
+                        HostValue::from(node_key(sailry_protocol::NodeId([7; 32]))),
+                    ] {
+                        assert!(
+                            host.usage_client(&sources, Some(&selected)).is_err(),
+                            "selects only known scoped sources"
+                        );
+                    }
+                    let Output::Plugin(package) = fixture.execute(Command::ReadPlugin {
+                        name: "statistics".into(),
+                    }) else {
+                        panic!("plugin expected");
+                    };
+                    fixture.execute(Command::SetPluginEnabled {
+                        name: "statistics".into(),
+                        expected_revision: package.summary.revision,
+                        enabled: false,
+                    });
+                    assert_eq!(
+                        fixture
+                            .runtime
+                            .block_on(scoped.read_usage(empty_query()))
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::NotConfigured,
+                        "selects only known scoped sources"
+                    );
+                    assert!(
+                        fixture
+                            .runtime
+                            .block_on(
+                                host.usage_client(&sources, None)
+                                    .unwrap()
+                                    .read_usage(empty_query())
+                            )
+                            .is_ok(),
+                        "selects only known scoped sources"
+                    );
+                    sources.set(vec![]);
+                    assert!(
+                        host.usage_client(&sources, Some(&selected)).is_err(),
+                        "selects only known scoped sources"
+                    );
+                    host.close();
+                    drop(host);
+                    drop(scoped);
+                    fixture.runtime.block_on(controller.shutdown()).unwrap();
+                    fixture.close();
+                }) as fn(&str),
+            ),
+            (
+                "preserves_exact_cursors_and_counters",
+                (|_scenario: &str| {
+                    let mut query = serde_json::to_value(empty_query()).unwrap();
+                    query["before"] = json!({"node":sailry_protocol::NodeId([1;32]),"timestamp_ms":1,"sequence":u64::MAX});
+                    let cursor = super::query(exact(query)).unwrap().before.unwrap();
+                    assert_eq!(
+                        cursor.sequence,
+                        u64::MAX,
+                        "preserves exact cursors and counters"
+                    );
+                    assert_eq!(
+                        cursor.node,
+                        sailry_protocol::NodeId([1; 32]),
+                        "preserves exact cursors and counters"
+                    );
+                    assert_eq!(
+                        cursor.timestamp_ms, 1,
+                        "preserves exact cursors and counters"
+                    );
+                    assert_eq!(
+                        exact(json!({"tokens":u64::MAX}))["tokens"],
+                        u64::MAX.to_string(),
+                        "preserves exact cursors and counters"
+                    );
+                    assert_eq!(
+                        exact(json!({"observations":{"recent":[{"turn_index":u64::MAX}]}}))["observations"]
+                            ["recent"][0]["turn_index"],
+                        u64::MAX.to_string(),
+                        "preserves exact cursors and counters"
+                    );
+                }),
+            ),
+            (
+                "reads_dimension_and_offset",
+                (|_scenario: &str| {
+                    use sailry_protocol::usage::Dimension;
+                    let mut value = serde_json::to_value(empty_query()).unwrap();
+                    value.as_object_mut().unwrap().remove("utc_offset_minutes");
+                    value["dimension"] = json!("project");
+                    let parsed = super::query(value.clone()).unwrap();
+                    assert_eq!(
+                        parsed.dimension,
+                        Dimension::Project,
+                        "reads dimension and offset"
+                    );
+                    assert_eq!(
+                        parsed.utc_offset_minutes,
+                        local_offset(),
+                        "reads dimension and offset"
+                    );
+                    value["dimension"] = json!("provider");
+                    value["utc_offset_minutes"] = json!("-300");
+                    let parsed = super::query(value.clone()).unwrap();
+                    assert_eq!(
+                        parsed.dimension,
+                        Dimension::Provider,
+                        "reads dimension and offset"
+                    );
+                    assert_eq!(
+                        parsed.utc_offset_minutes, -300,
+                        "reads dimension and offset"
+                    );
+                    value["utc_offset_minutes"] = json!(330);
+                    assert_eq!(
+                        super::query(value.clone()).unwrap().utc_offset_minutes,
+                        330,
+                        "reads dimension and offset"
+                    );
+                    value["dimension"] = json!("session");
+                    assert!(super::query(value).is_err(), "reads dimension and offset");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

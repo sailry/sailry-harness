@@ -67,83 +67,124 @@ mod tests {
     }
 
     #[test]
-    fn blocks_owned_resources() {
-        let mut state = State::default();
-        let id = empty(&mut state, 0);
-        let owner = state.project_owner(id).unwrap();
-        let expected = state.project_removal(id).unwrap();
-        let key = state.create_session(owner);
-        state.sessions.get_mut(&key).unwrap().archived = true;
-        assert_eq!(
-            state.remove_project(&expected),
-            Err("project_remove_sessions")
-        );
-        state.sessions.remove(&key);
-        let key = state.create_terminal(owner);
-        assert_eq!(
-            state.remove_project(&expected),
-            Err("project_remove_terminals")
-        );
-        state.terminals.remove(&key);
-        assert_eq!(state.project_removal(id), Some(expected.clone()));
-        assert_eq!(state.remove_project(&expected), Ok(()));
-    }
-
-    #[test]
-    fn stale_snapshot_is_atomic() {
-        let mut state = State::default();
-        let id = empty(&mut state, 0);
-        let expected = state.project_removal(id).unwrap();
-        state.projects.get_mut(&id).unwrap().path = "/preview/changed".into();
-        assert_eq!(state.remove_project(&expected), Err("project_changed"));
-        state.projects.get_mut(&id).unwrap().repository = super::super::Repository::Ready;
-        let expected = state.project_removal(id).unwrap();
-        state
-            .add_worktree(id, "main", "feature/new", "/preview/new")
-            .unwrap();
-        assert_eq!(state.remove_project(&expected), Err("project_changed"));
-        assert!(state.projects.contains_key(&id));
-        assert_eq!(
-            state
-                .worktrees
-                .values()
-                .filter(|tree| tree.project == id)
-                .count(),
-            2
-        );
-    }
-
-    #[test]
-    fn scopes_selection_fallback() {
-        let mut state = State::default();
-        let id = empty(&mut state, 1);
-        state.select(state.project_owner(id).unwrap());
-        let local = state.owner(0);
-        let expected = state.project_removal(id).unwrap();
-        state.remove_project(&expected).unwrap();
-        assert_eq!(state.owner(1).project, 1);
-        assert_eq!(state.owner(0), local);
-        assert_eq!(state.remove_project(&expected), Err("project_missing"));
-        assert!(empty(&mut state, 1) > id);
-    }
-
-    #[test]
-    fn retains_empty_host() {
-        let mut state = State::default();
-        state.sessions.retain(|key, _| key.0 != 1);
-        state.terminals.retain(|key, _| key.0 != 1);
-        let expected = state.project_removal(1).unwrap();
-        state.remove_project(&expected).unwrap();
-        assert_eq!(state.selected_owner(1), None);
-        assert!(state.worktrees.values().all(|tree| tree.project != 1));
-        let id = empty(&mut state, 1);
-        let owner = state.project_owner(id).unwrap();
-        assert!(state.select(owner));
-        assert_eq!(state.owner(1), owner);
-        assert!(
-            state
-                .save_project(2, None, "Unknown", "/preview/unknown")
-                .is_err()
-        );
+    fn ownership_and_fallback() {
+        for (scenario, check) in [
+            (
+                "blocks_owned_resources",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    let id = empty(&mut state, 0);
+                    let owner = state.project_owner(id).unwrap();
+                    let expected = state.project_removal(id).unwrap();
+                    let key = state.create_session(owner);
+                    state.sessions.get_mut(&key).unwrap().archived = true;
+                    assert_eq!(
+                        state.remove_project(&expected),
+                        Err("project_remove_sessions"),
+                        "blocks owned resources"
+                    );
+                    state.sessions.remove(&key);
+                    let key = state.create_terminal(owner);
+                    assert_eq!(
+                        state.remove_project(&expected),
+                        Err("project_remove_terminals"),
+                        "blocks owned resources"
+                    );
+                    state.terminals.remove(&key);
+                    assert_eq!(
+                        state.project_removal(id),
+                        Some(expected.clone()),
+                        "blocks owned resources"
+                    );
+                    assert_eq!(
+                        state.remove_project(&expected),
+                        Ok(()),
+                        "blocks owned resources"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "stale_snapshot_is_atomic",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    let id = empty(&mut state, 0);
+                    let expected = state.project_removal(id).unwrap();
+                    state.projects.get_mut(&id).unwrap().path = "/preview/changed".into();
+                    assert_eq!(
+                        state.remove_project(&expected),
+                        Err("project_changed"),
+                        "stale snapshot is atomic"
+                    );
+                    state.projects.get_mut(&id).unwrap().repository =
+                        super::super::Repository::Ready;
+                    let expected = state.project_removal(id).unwrap();
+                    state
+                        .add_worktree(id, "main", "feature/new", "/preview/new")
+                        .unwrap();
+                    assert_eq!(
+                        state.remove_project(&expected),
+                        Err("project_changed"),
+                        "stale snapshot is atomic"
+                    );
+                    assert!(state.projects.contains_key(&id), "stale snapshot is atomic");
+                    assert_eq!(
+                        state
+                            .worktrees
+                            .values()
+                            .filter(|tree| tree.project == id)
+                            .count(),
+                        2,
+                        "stale snapshot is atomic"
+                    );
+                }),
+            ),
+            (
+                "scopes_selection_fallback",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    let id = empty(&mut state, 1);
+                    state.select(state.project_owner(id).unwrap());
+                    let local = state.owner(0);
+                    let expected = state.project_removal(id).unwrap();
+                    state.remove_project(&expected).unwrap();
+                    assert_eq!(state.owner(1).project, 1, "scopes selection fallback");
+                    assert_eq!(state.owner(0), local, "scopes selection fallback");
+                    assert_eq!(
+                        state.remove_project(&expected),
+                        Err("project_missing"),
+                        "scopes selection fallback"
+                    );
+                    assert!(empty(&mut state, 1) > id, "scopes selection fallback");
+                }),
+            ),
+            (
+                "retains_empty_host",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    state.sessions.retain(|key, _| key.0 != 1);
+                    state.terminals.retain(|key, _| key.0 != 1);
+                    let expected = state.project_removal(1).unwrap();
+                    state.remove_project(&expected).unwrap();
+                    assert_eq!(state.selected_owner(1), None, "retains empty host");
+                    assert!(
+                        state.worktrees.values().all(|tree| tree.project != 1),
+                        "retains empty host"
+                    );
+                    let id = empty(&mut state, 1);
+                    let owner = state.project_owner(id).unwrap();
+                    assert!(state.select(owner), "retains empty host");
+                    assert_eq!(state.owner(1), owner, "retains empty host");
+                    assert!(
+                        state
+                            .save_project(2, None, "Unknown", "/preview/unknown")
+                            .is_err(),
+                        "retains empty host"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

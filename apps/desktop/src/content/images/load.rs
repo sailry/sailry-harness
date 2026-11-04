@@ -296,55 +296,84 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn distinguishes_failure_phases() {
-        let mut entry = Entry::new(Area::Image, Phase::Begin);
-        entry.source_kind = Some("file");
-        let worktree = sailry_protocol::WorktreeId::new();
-        entry.context.worktree = Some(worktree);
-        for (reason, code) in [
-            ("command", ErrorCode::NotFound),
-            ("transfer", ErrorCode::Unavailable),
-            ("decode", ErrorCode::InvalidRequest),
-            ("slot", ErrorCode::Cancelled),
-        ] {
-            let observed = failure(&entry, Instant::now(), reason, code, Some(512));
-            assert_eq!(observed.reason, Some(reason));
-            assert_eq!(observed.code, Some(code));
-            assert_eq!(observed.context.worktree, Some(worktree));
-            assert_eq!(observed.source_kind, Some("file"));
-            assert_eq!(observed.bytes, Some(512));
-            assert_eq!(
-                matches!(observed.phase, Phase::Cancelled),
-                code == ErrorCode::Cancelled
-            );
-            assert!(observed.duration_us.is_some());
-        }
-    }
-
-    #[test]
-    fn preserves_image_error_keys() {
-        let entry = Entry::new(Area::Image, Phase::Begin);
-        assert_eq!(
-            failed(
-                &entry,
-                Instant::now(),
-                "size",
-                ErrorCode::InvalidRequest,
-                None,
-                "chat_image_too_large"
+    fn failure_classification() {
+        for (scenario, check) in [
+            (
+                "distinguishes_failure_phases",
+                (|_scenario: &str| {
+                    let mut entry = Entry::new(Area::Image, Phase::Begin);
+                    entry.source_kind = Some("file");
+                    let worktree = sailry_protocol::WorktreeId::new();
+                    entry.context.worktree = Some(worktree);
+                    for (reason, code) in [
+                        ("command", ErrorCode::NotFound),
+                        ("transfer", ErrorCode::Unavailable),
+                        ("decode", ErrorCode::InvalidRequest),
+                        ("slot", ErrorCode::Cancelled),
+                    ] {
+                        let observed = failure(&entry, Instant::now(), reason, code, Some(512));
+                        assert_eq!(
+                            observed.reason,
+                            Some(reason),
+                            "distinguishes failure phases"
+                        );
+                        assert_eq!(observed.code, Some(code), "distinguishes failure phases");
+                        assert_eq!(
+                            observed.context.worktree,
+                            Some(worktree),
+                            "distinguishes failure phases"
+                        );
+                        assert_eq!(
+                            observed.source_kind,
+                            Some("file"),
+                            "distinguishes failure phases"
+                        );
+                        assert_eq!(observed.bytes, Some(512), "distinguishes failure phases");
+                        assert_eq!(
+                            matches!(observed.phase, Phase::Cancelled),
+                            code == ErrorCode::Cancelled,
+                            "distinguishes failure phases"
+                        );
+                        assert!(
+                            observed.duration_us.is_some(),
+                            "distinguishes failure phases"
+                        );
+                    }
+                }) as fn(&str),
             ),
-            "chat_image_too_large"
-        );
-        assert_eq!(
-            decode_logged(
-                &entry,
-                Instant::now(),
-                b"not a PNG",
-                source::Kind::Raster(image::ImageFormat::Png),
-                128
-            )
-            .err(),
-            Some("chat_image_unavailable")
-        );
+            (
+                "preserves_image_error_keys",
+                (|_scenario: &str| {
+                    let entry = Entry::new(Area::Image, Phase::Begin);
+                    assert_eq!(
+                        failed(
+                            &entry,
+                            Instant::now(),
+                            "size",
+                            ErrorCode::InvalidRequest,
+                            None,
+                            "chat_image_too_large"
+                        ),
+                        "chat_image_too_large",
+                        "preserves image error keys"
+                    );
+                    assert_eq!(
+                        decode_logged(
+                            &entry,
+                            Instant::now(),
+                            b"not a PNG",
+                            source::Kind::Raster(image::ImageFormat::Png),
+                            128
+                        )
+                        .err(),
+                        Some("chat_image_unavailable"),
+                        "preserves image error keys"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

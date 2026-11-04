@@ -38,48 +38,264 @@ fn content() -> Content {
 }
 
 #[test]
-fn confines_content_and_preserves_capture() {
-    let mut content = content();
-    content.html = "<p>Closing </script> content 中文 🙂</p>".into();
-    let page = document(
-        &content,
-        json!({"primary":"#fff"}),
-        json!({"submit":"Send"}),
-        false,
-        vec![],
-    )
-    .unwrap();
-    assert!(page.contains("connect-src 'none'"));
-    assert!(page.contains("form-action 'none'"));
-    assert!(page.contains("frame-src 'none'"));
-    assert!(page.contains(&content.artifact.id.to_string()));
-    assert!(page.contains(&content.artifact.session.to_string()));
-    assert!(page.contains("\"revision\":1"));
-    assert!(page.contains("\"writable\":false"));
-    assert!(page.contains("\\u003c/script>"));
-    assert!(page.contains("window.sailryDocumentReady.then("));
-    assert!(page.contains("kind:'surface_ready'"));
-    assert!(page.contains("kind:'surface_failed'"));
-    assert_eq!(page.matches("<script>").count(), 1);
-    assert_eq!(page.matches("</script>").count(), 1);
-}
+fn captured_documents() {
+    for (scenario, check) in [
+        (
+            "confines_content_and_preserves_capture",
+            (|_scenario: &str| {
+                let mut content = content();
+                content.html = "<p>Closing </script> content 中文 🙂</p>".into();
+                let page = document(
+                    &content,
+                    json!({"primary":"#fff"}),
+                    json!({"submit":"Send"}),
+                    false,
+                    vec![],
+                )
+                .unwrap();
+                assert!(
+                    page.contains("connect-src 'none'"),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains("form-action 'none'"),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains("frame-src 'none'"),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains(&content.artifact.id.to_string()),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains(&content.artifact.session.to_string()),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains("\"revision\":1"),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains("\"writable\":false"),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains("\\u003c/script>"),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains("window.sailryDocumentReady.then("),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains("kind:'surface_ready'"),
+                    "confines content and preserves capture"
+                );
+                assert!(
+                    page.contains("kind:'surface_failed'"),
+                    "confines content and preserves capture"
+                );
+                assert_eq!(
+                    page.matches("<script>").count(),
+                    1,
+                    "confines content and preserves capture"
+                );
+                assert_eq!(
+                    page.matches("</script>").count(),
+                    1,
+                    "confines content and preserves capture"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "reports_synchronous_mount_failure",
+            (|_scenario: &str| {
+                let mut content = content();
+                content.view.as_mut().unwrap().scripts =
+                    vec!["window.sailryDocument={mount:()=>{throw Error('mount failed')}};".into()];
+                let page = document(&content, json!({}), json!({}), false, vec![]).unwrap();
+                assert!(
+                    page.contains("Promise.resolve().then(()=>window.sailryDocument.mount("),
+                    "reports synchronous mount failure"
+                );
+                assert!(
+                    page.contains("()=>window.sailryDocumentPost({kind:'surface_failed'})"),
+                    "reports synchronous mount failure"
+                );
+            }),
+        ),
+        (
+            "rejects_preview_in_privileged_document",
+            (|_scenario: &str| {
+                let mut content = content();
+                content.artifact.kind = sailry_protocol::artifact::Kind::Preview;
+                content.html = "<script>window.ipc.postMessage('submit')</script>".into();
+                assert!(
+                    document(&content, json!({}), json!({}), false, vec![]).is_err(),
+                    "rejects preview in privileged document"
+                );
+            }),
+        ),
+        (
+            "rejects_missing_or_oversized_views",
+            (|_scenario: &str| {
+                let mut content = content();
+                content.view = None;
+                assert!(
+                    document(&content, json!({}), json!({}), false, vec![]).is_err(),
+                    "rejects missing or oversized views"
+                );
+                content = super::tests::content();
+                content.view.as_mut().unwrap().scripts =
+                    vec!["a".repeat(sailry_protocol::artifact::MAX_VIEW_BYTES)];
+                assert!(
+                    document(&content, json!({}), json!({}), false, vec![]).is_err(),
+                    "rejects missing or oversized views"
+                );
+                content = super::tests::content();
+                content.html = "a".repeat(sailry_protocol::artifact::MAX_HTML_BYTES + 1);
+                assert!(
+                    document(&content, json!({}), json!({}), false, vec![]).is_err(),
+                    "rejects missing or oversized views"
+                );
+            }),
+        ),
+        (
+            "supports_template_tags_and_ignores_raw_text",
+            (|_scenario: &str| {
+                let mut content = content();
+                content.view.as_mut().unwrap().template =
+        "<!DOCTYPE html><!-- <head> --><HTML><HEAD lang=\"en\" data-note=\">\"><style>/* <head> */</style></HEAD><BODY><script>const sample='</body>';</script><main id=\"brief\"></main></BODY></HTML>".into();
+                let page = document(&content, json!({}), json!({}), false, vec![]).unwrap();
+                assert!(page.contains(
+        "<HEAD lang=\"en\" data-note=\">\"><meta http-equiv=\"Content-Security-Policy\""
+            ), "supports template tags and ignores raw text");
+                assert!(
+                    page.contains("const sample='</body>';"),
+                    "supports template tags and ignores raw text"
+                );
+                assert!(
+                    page.contains("window.sailryDocument.mount("),
+                    "supports template tags and ignores raw text"
+                );
+                assert!(
+                    page.contains("</script></BODY>"),
+                    "supports template tags and ignores raw text"
+                );
+                content.view.as_mut().unwrap().template = "<main id=\"brief\"></main>".into();
+                assert!(
+                    document(&content, json!({}), json!({}), false, vec![]).is_err(),
+                    "supports template tags and ignores raw text"
+                );
+            }),
+        ),
+        (
+            "quotes_custom_font_names",
+            (|_scenario: &str| {
+                assert_eq!(
+                    font_family("", "system-ui, sans-serif"),
+                    "system-ui, sans-serif",
+                    "quotes custom font names"
+                );
+                assert_eq!(
+                    font_family(".SystemUIFont", "system-ui, sans-serif"),
+                    "system-ui, sans-serif",
+                    "quotes custom font names"
+                );
+                assert_eq!(
+                    font_family("Example, \"Quoted\" \\ Family\n", "system-ui, sans-serif"),
+                    "\"Example, \\\"Quoted\\\" \\\\ Family\\a \", system-ui, sans-serif",
+                    "quotes custom font names"
+                );
+            }),
+        ),
+        (
+            "exports_fragments_without_template_columns",
+            (|_scenario: &str| {
+                let mut content = content();
+                let view = content.view.as_mut().unwrap();
+                view.template = "<!doctype html><html><head></head><body><aside id=\"contents\"></aside><main id=\"brief\"></main></body></html>".into();
+                view.styles = vec!["body{display:grid;grid-template-columns:220px minmax(0,1fr)}main{width:100%;max-width:1008px;margin:auto}".into()];
+                let original = content.clone();
+                let embedded = document(&content, json!({}), json!({}), false, vec![]).unwrap();
+                assert!(
+                    embedded.contains("grid-template-columns:220px minmax(0,1fr)"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    embedded.contains("<aside id=\"contents\"></aside>"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    !embedded.contains("setProperty('display','block'"),
+                    "exports fragments without template columns"
+                );
+                assert_eq!(
+                    content, original,
+                    "exports fragments without template columns"
+                );
 
-#[test]
-fn reports_synchronous_mount_failure() {
-    let mut content = content();
-    content.view.as_mut().unwrap().scripts =
-        vec!["window.sailryDocument={mount:()=>{throw Error('mount failed')}};".into()];
-    let page = document(&content, json!({}), json!({}), false, vec![]).unwrap();
-    assert!(page.contains("Promise.resolve().then(()=>window.sailryDocument.mount("));
-    assert!(page.contains("()=>window.sailryDocumentPost({kind:'surface_failed'})"));
-}
-
-#[test]
-fn rejects_preview_in_privileged_document() {
-    let mut content = content();
-    content.artifact.kind = sailry_protocol::artifact::Kind::Preview;
-    content.html = "<script>window.ipc.postMessage('submit')</script>".into();
-    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
+                let script = serialize_capture(Some(7), gpui_kit::black());
+                assert!(
+                    script.contains("document.documentElement.cloneNode(true)"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains("const output=clone.querySelector('body')"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains("output.innerHTML=body+"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains("output.style.setProperty('display','block','important')"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains("\\u003cfooter data-sailry-branding style="),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains("margin-top:16px;padding:16px"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains("gap:12px"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains("width=32 height=32"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains("width=80 height=80"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains("padding:8px;background:#fff;box-sizing:content-box"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    script.contains(&super::super::super::theme::rgba(gpui_kit::black())),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    !script.contains("document.body.style"),
+                    "exports fragments without template columns"
+                );
+                assert!(
+                    !script.contains("document.body.innerHTML"),
+                    "exports fragments without template columns"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }
 
 #[gpui_kit::test]
@@ -102,81 +318,6 @@ fn wraps_preview_without_business_bridge(cx: &mut TestAppContext) {
     assert!(!html.contains("sailryDocument"));
     assert!(!html.contains(&content.artifact.session.to_string()));
     assert!(!html.contains("display','block','important'"));
-}
-
-#[test]
-fn rejects_missing_or_oversized_views() {
-    let mut content = content();
-    content.view = None;
-    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
-    content = super::tests::content();
-    content.view.as_mut().unwrap().scripts =
-        vec!["a".repeat(sailry_protocol::artifact::MAX_VIEW_BYTES)];
-    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
-    content = super::tests::content();
-    content.html = "a".repeat(sailry_protocol::artifact::MAX_HTML_BYTES + 1);
-    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
-}
-
-#[test]
-fn supports_template_tags_and_ignores_raw_text() {
-    let mut content = content();
-    content.view.as_mut().unwrap().template =
-        "<!DOCTYPE html><!-- <head> --><HTML><HEAD lang=\"en\" data-note=\">\"><style>/* <head> */</style></HEAD><BODY><script>const sample='</body>';</script><main id=\"brief\"></main></BODY></HTML>".into();
-    let page = document(&content, json!({}), json!({}), false, vec![]).unwrap();
-    assert!(page.contains(
-        "<HEAD lang=\"en\" data-note=\">\"><meta http-equiv=\"Content-Security-Policy\""
-    ));
-    assert!(page.contains("const sample='</body>';"));
-    assert!(page.contains("window.sailryDocument.mount("));
-    assert!(page.contains("</script></BODY>"));
-    content.view.as_mut().unwrap().template = "<main id=\"brief\"></main>".into();
-    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
-}
-
-#[test]
-fn quotes_custom_font_names() {
-    assert_eq!(
-        font_family("", "system-ui, sans-serif"),
-        "system-ui, sans-serif"
-    );
-    assert_eq!(
-        font_family(".SystemUIFont", "system-ui, sans-serif"),
-        "system-ui, sans-serif"
-    );
-    assert_eq!(
-        font_family("Example, \"Quoted\" \\ Family\n", "system-ui, sans-serif"),
-        "\"Example, \\\"Quoted\\\" \\\\ Family\\a \", system-ui, sans-serif"
-    );
-}
-
-#[test]
-fn exports_fragments_without_template_columns() {
-    let mut content = content();
-    let view = content.view.as_mut().unwrap();
-    view.template = "<!doctype html><html><head></head><body><aside id=\"contents\"></aside><main id=\"brief\"></main></body></html>".into();
-    view.styles = vec!["body{display:grid;grid-template-columns:220px minmax(0,1fr)}main{width:100%;max-width:1008px;margin:auto}".into()];
-    let original = content.clone();
-    let embedded = document(&content, json!({}), json!({}), false, vec![]).unwrap();
-    assert!(embedded.contains("grid-template-columns:220px minmax(0,1fr)"));
-    assert!(embedded.contains("<aside id=\"contents\"></aside>"));
-    assert!(!embedded.contains("setProperty('display','block'"));
-    assert_eq!(content, original);
-
-    let script = serialize_capture(Some(7), gpui_kit::black());
-    assert!(script.contains("document.documentElement.cloneNode(true)"));
-    assert!(script.contains("const output=clone.querySelector('body')"));
-    assert!(script.contains("output.innerHTML=body+"));
-    assert!(script.contains("output.style.setProperty('display','block','important')"));
-    assert!(script.contains("\\u003cfooter data-sailry-branding style="));
-    assert!(script.contains("margin-top:16px;padding:16px"));
-    assert!(script.contains("gap:12px"));
-    assert!(script.contains("width=32 height=32"));
-    assert!(script.contains("width=80 height=80"));
-    assert!(script.contains("padding:8px;background:#fff;box-sizing:content-box"));
-    assert!(script.contains(&super::super::super::theme::rgba(gpui_kit::black())));
-    assert!(!script.contains("document.body.style"));
-    assert!(!script.contains("document.body.innerHTML"));
 }
 
 #[gpui_kit::test]

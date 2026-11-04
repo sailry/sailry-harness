@@ -5,23 +5,28 @@ mod cells {
     use super::*;
 
     #[test]
-    fn splits_separators_into_gaps() {
-        assert_eq!(
-            cells("6WP-4T"),
-            vec![
-                Cell::Char('6'),
-                Cell::Char('W'),
-                Cell::Char('P'),
-                Cell::Gap,
-                Cell::Char('4'),
-                Cell::Char('T'),
-            ]
-        );
-    }
-
-    #[test]
-    fn ignores_whitespace() {
-        assert_eq!(cells(" A B "), vec![Cell::Char('A'), Cell::Char('B')]);
+    fn separators_and_whitespace() {
+        for (case, input, expected) in [
+            (
+                "separator",
+                "6WP-4T",
+                vec![
+                    Cell::Char('6'),
+                    Cell::Char('W'),
+                    Cell::Char('P'),
+                    Cell::Gap,
+                    Cell::Char('4'),
+                    Cell::Char('T'),
+                ],
+            ),
+            (
+                "whitespace",
+                " A B ",
+                vec![Cell::Char('A'), Cell::Char('B')],
+            ),
+        ] {
+            assert_eq!(cells(input), expected, "{case}");
+        }
     }
 }
 
@@ -29,20 +34,17 @@ mod host {
     use super::*;
 
     #[test]
-    fn extracts_host_without_path() {
-        assert_eq!(
-            host("https://auth.openai.com/codex/device?x=1").as_deref(),
-            Some("auth.openai.com")
-        );
-        assert_eq!(
-            host("https://www.github.com/login/device").as_deref(),
-            Some("github.com")
-        );
-    }
-
-    #[test]
-    fn rejects_invalid_urls() {
-        assert_eq!(host("not a url"), None);
+    fn valid_and_invalid_urls() {
+        for (input, expected) in [
+            (
+                "https://auth.openai.com/codex/device?x=1",
+                Some("auth.openai.com"),
+            ),
+            ("https://www.github.com/login/device", Some("github.com")),
+            ("not a url", None),
+        ] {
+            assert_eq!(host(input).as_deref(), expected, "{input}");
+        }
     }
 }
 
@@ -50,19 +52,15 @@ mod countdown {
     use super::*;
 
     #[test]
-    fn formats_minutes_and_hours() {
-        assert_eq!(countdown(872_000, 0).as_deref(), Some("14:32"));
-        assert_eq!(countdown(3_723_000, 0).as_deref(), Some("1:02:03"));
-    }
-
-    #[test]
-    fn rounds_partial_seconds_up() {
-        assert_eq!(countdown(1_500, 1_000).as_deref(), Some("00:01"));
-    }
-
-    #[test]
-    fn stops_at_expiry() {
-        assert_eq!(countdown(1_000, 1_000), None);
-        assert_eq!(countdown(1_000, 2_000), None);
+    fn duration_and_expiry() {
+        for (case, deadline, now, expected) in [
+            ("minutes", 872_000, 0, Some("14:32")),
+            ("hours", 3_723_000, 0, Some("1:02:03")),
+            ("partial second", 1_500, 1_000, Some("00:01")),
+            ("at expiry", 1_000, 1_000, None),
+            ("after expiry", 1_000, 2_000, None),
+        ] {
+            assert_eq!(countdown(deadline, now).as_deref(), expected, "{case}");
+        }
     }
 }

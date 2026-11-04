@@ -401,80 +401,113 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn identifies_directory_origins() {
-        assert_eq!(
-            directory_identity("https://skills.sh/example/skills/review"),
-            Some(("https://github.com/example/skills".into(), "review".into()))
-        );
-        for value in [
-            "https://skills.sh.evil/example/skills/review",
-            "http://skills.sh/example/skills/review",
-            "https://skills.sh/example/skills/review?token=secret",
-            "https://skills.sh/example/skills/%2e%2e",
-        ] {
-            assert_eq!(directory_identity(value), None);
-        }
-    }
-
-    #[test]
-    fn matches_canonical_installation_origins() {
-        assert!(same_repository(
-            "https://github.com/example/skills",
-            "https://github.com/example/skills.git"
-        ));
-        assert!(same_repository(
-            "https://github.com/example/skills.git/",
-            "https://github.com/example/skills"
-        ));
-        for source in [
-            "https://example.com/example/skills.git",
-            "https://github.com/example/other.git",
-            "https://github.com/example/skills.git-backup",
-        ] {
-            assert!(!same_repository(
-                source,
-                "https://github.com/example/skills"
-            ));
-        }
-    }
-
-    #[test]
-    fn registry_identity_survives_version_changes() {
-        let mut info: Info = serde_json::from_value(serde_json::json!({
+    fn immutable_origins() {
+        for (scenario, check) in [
+            (
+                "identifies_directory_origins",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        directory_identity("https://skills.sh/example/skills/review"),
+                        Some(("https://github.com/example/skills".into(), "review".into())),
+                        "identifies directory origins"
+                    );
+                    for value in [
+                        "https://skills.sh.evil/example/skills/review",
+                        "http://skills.sh/example/skills/review",
+                        "https://skills.sh/example/skills/review?token=secret",
+                        "https://skills.sh/example/skills/%2e%2e",
+                    ] {
+                        assert_eq!(
+                            directory_identity(value),
+                            None,
+                            "identifies directory origins"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "matches_canonical_installation_origins",
+                (|_scenario: &str| {
+                    assert!(
+                        same_repository(
+                            "https://github.com/example/skills",
+                            "https://github.com/example/skills.git"
+                        ),
+                        "matches canonical installation origins"
+                    );
+                    assert!(
+                        same_repository(
+                            "https://github.com/example/skills.git/",
+                            "https://github.com/example/skills"
+                        ),
+                        "matches canonical installation origins"
+                    );
+                    for source in [
+                        "https://example.com/example/skills.git",
+                        "https://github.com/example/other.git",
+                        "https://github.com/example/skills.git-backup",
+                    ] {
+                        assert!(
+                            !same_repository(source, "https://github.com/example/skills"),
+                            "matches canonical installation origins"
+                        );
+                    }
+                }),
+            ),
+            (
+                "registry_identity_survives_version_changes",
+                (|_scenario: &str| {
+                    let mut info: Info = serde_json::from_value(serde_json::json!({
             "summary": {"name":"registry-skill","revision":1,"digest":"captured",
                 "settings_revision":1,"enabled":true,"version":null,"description":null},
             "icon":null,"extension":null,"settings":null,
             "skill":{"registry":{"namespace":"example","slug":"review","version":"1.0.0",
                 "version_id":"old","content_hash":"hash","package_md5":"md5","archive_sha256":"sha"}}
-        })).unwrap();
-        let mut entry = skillcatalog::Entry {
-            id: "registry-review".into(),
-            package: None,
-            name: "review".into(),
-            display_name: None,
-            icon: None,
-            display_locales: Default::default(),
-            description: None,
-            description_locales: Default::default(),
-            origin: "skillhub.cn".into(),
-            url: None,
-            source: Some(skillcatalog::InstallSource::Registry(
-                sailry_protocol::plugin::skills::RegistrySource {
-                    namespace: Some("example".into()),
-                    slug: "review".into(),
-                    version: Some("2.0.0".into()),
-                },
-            )),
-            bundled: false,
-        };
-        assert!(installed(&entry, &info));
-        let Some(skillcatalog::InstallSource::Registry(source)) = &mut entry.source else {
-            unreachable!()
-        };
-        source.namespace = Some("another".into());
-        assert!(!installed(&entry, &info));
-        info.skill = None;
-        assert!(!installed(&entry, &info));
+                })).unwrap();
+                    let mut entry = skillcatalog::Entry {
+                        id: "registry-review".into(),
+                        package: None,
+                        name: "review".into(),
+                        display_name: None,
+                        icon: None,
+                        display_locales: Default::default(),
+                        description: None,
+                        description_locales: Default::default(),
+                        origin: "skillhub.cn".into(),
+                        url: None,
+                        source: Some(skillcatalog::InstallSource::Registry(
+                            sailry_protocol::plugin::skills::RegistrySource {
+                                namespace: Some("example".into()),
+                                slug: "review".into(),
+                                version: Some("2.0.0".into()),
+                            },
+                        )),
+                        bundled: false,
+                    };
+                    assert!(
+                        installed(&entry, &info),
+                        "registry identity survives version changes"
+                    );
+                    let Some(skillcatalog::InstallSource::Registry(source)) = &mut entry.source
+                    else {
+                        unreachable!()
+                    };
+                    source.namespace = Some("another".into());
+                    assert!(
+                        !installed(&entry, &info),
+                        "registry identity survives version changes"
+                    );
+                    info.skill = None;
+                    assert!(
+                        !installed(&entry, &info),
+                        "registry identity survives version changes"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }
 

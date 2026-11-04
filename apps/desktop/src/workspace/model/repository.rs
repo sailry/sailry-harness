@@ -64,80 +64,134 @@ mod tests {
     use super::*;
 
     #[test]
-    fn idempotent_initialization() {
-        let mut state = State::default();
-        let id = state
-            .save_project(0, None, "Directory", "/preview/directory")
-            .unwrap();
-        let owner = state.project_owner(id).unwrap();
-        let session = state.create_session(owner);
-        let terminal = state.create_terminal(owner);
-        let expected = state.projects[&id].clone();
-        assert_eq!(expected.repository, Repository::Directory);
-        assert!(state.worktrees[&owner.worktree].branch.is_empty());
-        assert_eq!(
-            state.add_worktree(id, "main", "feature", "/preview/new"),
-            Err("git_directory_hint")
-        );
-        state.initialize_repository(id, &expected).unwrap();
-        assert_eq!(state.projects[&id].repository, Repository::Unborn);
-        assert!(!state.projects[&id].trusted);
-        assert_eq!(state.sessions[&session].owner, owner);
-        assert_eq!(state.terminals[&terminal].owner, owner);
-        assert_eq!(state.branch_label(owner), tr("composer_branch_main"));
-        assert_eq!(
-            state.add_worktree(id, "main", "feature", "/preview/new"),
-            Err("git_worktree_requires_commit")
-        );
-        assert_eq!(state.initialize_repository(id, &expected), Ok(()));
-        assert_eq!(state.worktrees.len(), 5);
-    }
-
-    #[test]
-    fn rejects_stale_targets() {
-        let mut state = State::default();
-        let id = state
-            .save_project(1, None, "Directory", "/preview/directory")
-            .unwrap();
-        let expected = state.projects[&id].clone();
-        state
-            .save_project(1, Some((id, &expected)), "Changed", "/preview/changed")
-            .unwrap();
-        assert_eq!(
-            state.initialize_repository(id, &expected),
-            Err("project_changed")
-        );
-        assert_eq!(state.projects[&id].repository, Repository::Directory);
-        let removal = state.project_removal(id).unwrap();
-        state.remove_project(&removal).unwrap();
-        assert_eq!(
-            state.initialize_repository(id, &expected),
-            Err("project_missing")
-        );
-        assert_eq!(state.projects[&0].repository, Repository::Ready);
-    }
-
-    #[test]
-    fn clears_changed_roots() {
-        let mut state = State::default();
-        let id = state
-            .save_project(0, None, "Directory", "/preview/directory")
-            .unwrap();
-        let original = state.projects[&id].clone();
-        state.initialize_repository(id, &original).unwrap();
-        let initialized = state.projects[&id].clone();
-        state
-            .save_project(0, Some((id, &initialized)), "Moved", "/preview/moved")
-            .unwrap();
-        assert_eq!(state.projects[&id].repository, Repository::Directory);
-        assert_ne!(
-            state.projects[&id].active_worktree,
-            initialized.active_worktree
-        );
-        assert!(
-            state.worktrees[&state.projects[&id].active_worktree]
-                .branch
-                .is_empty()
-        );
+    fn initialization_and_staleness() {
+        for (scenario, check) in [
+            (
+                "idempotent_initialization",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    let id = state
+                        .save_project(0, None, "Directory", "/preview/directory")
+                        .unwrap();
+                    let owner = state.project_owner(id).unwrap();
+                    let session = state.create_session(owner);
+                    let terminal = state.create_terminal(owner);
+                    let expected = state.projects[&id].clone();
+                    assert_eq!(
+                        expected.repository,
+                        Repository::Directory,
+                        "idempotent initialization"
+                    );
+                    assert!(
+                        state.worktrees[&owner.worktree].branch.is_empty(),
+                        "idempotent initialization"
+                    );
+                    assert_eq!(
+                        state.add_worktree(id, "main", "feature", "/preview/new"),
+                        Err("git_directory_hint"),
+                        "idempotent initialization"
+                    );
+                    state.initialize_repository(id, &expected).unwrap();
+                    assert_eq!(
+                        state.projects[&id].repository,
+                        Repository::Unborn,
+                        "idempotent initialization"
+                    );
+                    assert!(!state.projects[&id].trusted, "idempotent initialization");
+                    assert_eq!(
+                        state.sessions[&session].owner, owner,
+                        "idempotent initialization"
+                    );
+                    assert_eq!(
+                        state.terminals[&terminal].owner, owner,
+                        "idempotent initialization"
+                    );
+                    assert_eq!(
+                        state.branch_label(owner),
+                        tr("composer_branch_main"),
+                        "idempotent initialization"
+                    );
+                    assert_eq!(
+                        state.add_worktree(id, "main", "feature", "/preview/new"),
+                        Err("git_worktree_requires_commit"),
+                        "idempotent initialization"
+                    );
+                    assert_eq!(
+                        state.initialize_repository(id, &expected),
+                        Ok(()),
+                        "idempotent initialization"
+                    );
+                    assert_eq!(state.worktrees.len(), 5, "idempotent initialization");
+                }) as fn(&str),
+            ),
+            (
+                "rejects_stale_targets",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    let id = state
+                        .save_project(1, None, "Directory", "/preview/directory")
+                        .unwrap();
+                    let expected = state.projects[&id].clone();
+                    state
+                        .save_project(1, Some((id, &expected)), "Changed", "/preview/changed")
+                        .unwrap();
+                    assert_eq!(
+                        state.initialize_repository(id, &expected),
+                        Err("project_changed"),
+                        "rejects stale targets"
+                    );
+                    assert_eq!(
+                        state.projects[&id].repository,
+                        Repository::Directory,
+                        "rejects stale targets"
+                    );
+                    let removal = state.project_removal(id).unwrap();
+                    state.remove_project(&removal).unwrap();
+                    assert_eq!(
+                        state.initialize_repository(id, &expected),
+                        Err("project_missing"),
+                        "rejects stale targets"
+                    );
+                    assert_eq!(
+                        state.projects[&0].repository,
+                        Repository::Ready,
+                        "rejects stale targets"
+                    );
+                }),
+            ),
+            (
+                "clears_changed_roots",
+                (|_scenario: &str| {
+                    let mut state = State::default();
+                    let id = state
+                        .save_project(0, None, "Directory", "/preview/directory")
+                        .unwrap();
+                    let original = state.projects[&id].clone();
+                    state.initialize_repository(id, &original).unwrap();
+                    let initialized = state.projects[&id].clone();
+                    state
+                        .save_project(0, Some((id, &initialized)), "Moved", "/preview/moved")
+                        .unwrap();
+                    assert_eq!(
+                        state.projects[&id].repository,
+                        Repository::Directory,
+                        "clears changed roots"
+                    );
+                    assert_ne!(
+                        state.projects[&id].active_worktree, initialized.active_worktree,
+                        "clears changed roots"
+                    );
+                    assert!(
+                        state.worktrees[&state.projects[&id].active_worktree]
+                            .branch
+                            .is_empty(),
+                        "clears changed roots"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

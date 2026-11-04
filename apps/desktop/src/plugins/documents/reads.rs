@@ -42,35 +42,84 @@ mod tests {
     use sailry_protocol::{ErrorCode, Fault};
 
     #[test]
-    fn superseded_read_preserves_successor() {
-        let scope = CancellationToken::new();
-        let previous = Arc::new(scope.child_token());
-        let current = Arc::new(scope.child_token());
-        let mut reads = Reads::default();
-        let old_sequence = reads.start("file.rs".into(), previous.clone());
-        let sequence = reads.start("file.rs".into(), current.clone());
+    fn scoped_cancellation() {
+        for (scenario, check) in [
+            (
+                "superseded_read_preserves_successor",
+                (|_scenario: &str| {
+                    let scope = CancellationToken::new();
+                    let previous = Arc::new(scope.child_token());
+                    let current = Arc::new(scope.child_token());
+                    let mut reads = Reads::default();
+                    let old_sequence = reads.start("file.rs".into(), previous.clone());
+                    let sequence = reads.start("file.rs".into(), current.clone());
 
-        assert!(previous.is_cancelled());
-        assert!(!scope.is_cancelled());
-        assert!(!reads.current("file.rs", old_sequence));
-        assert!(reads.current("file.rs", sequence));
-        assert!(!current.is_cancelled());
-    }
+                    assert!(
+                        previous.is_cancelled(),
+                        "superseded read preserves successor"
+                    );
+                    assert!(!scope.is_cancelled(), "superseded read preserves successor");
+                    assert!(
+                        !reads.current("file.rs", old_sequence),
+                        "superseded read preserves successor"
+                    );
+                    assert!(
+                        reads.current("file.rs", sequence),
+                        "superseded read preserves successor"
+                    );
+                    assert!(
+                        !current.is_cancelled(),
+                        "superseded read preserves successor"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "closing_invalidates_only_its_read",
+                (|_scenario: &str| {
+                    let mut reads = Reads::default();
+                    let closing = Arc::new(CancellationToken::new());
+                    let remaining = Arc::new(CancellationToken::new());
+                    let closed_sequence = reads.start("closing.rs".into(), closing.clone());
+                    let sequence = reads.start("remaining.rs".into(), remaining.clone());
 
-    #[test]
-    fn closing_invalidates_only_its_read() {
-        let mut reads = Reads::default();
-        let closing = Arc::new(CancellationToken::new());
-        let remaining = Arc::new(CancellationToken::new());
-        let closed_sequence = reads.start("closing.rs".into(), closing.clone());
-        let sequence = reads.start("remaining.rs".into(), remaining.clone());
+                    reads.invalidate("closing.rs");
 
-        reads.invalidate("closing.rs");
+                    assert!(closing.is_cancelled(), "closing invalidates only its read");
+                    assert!(
+                        !reads.current("closing.rs", closed_sequence),
+                        "closing invalidates only its read"
+                    );
+                    assert!(
+                        reads.current("remaining.rs", sequence),
+                        "closing invalidates only its read"
+                    );
+                    assert!(
+                        !remaining.is_cancelled(),
+                        "closing invalidates only its read"
+                    );
+                }),
+            ),
+            (
+                "closing_scope_invalidates_completion",
+                (|_scenario: &str| {
+                    let scope = CancellationToken::new();
+                    let stop = Arc::new(scope.child_token());
+                    let mut reads = Reads::default();
+                    let sequence = reads.start("file.rs".into(), stop.clone());
 
-        assert!(closing.is_cancelled());
-        assert!(!reads.current("closing.rs", closed_sequence));
-        assert!(reads.current("remaining.rs", sequence));
-        assert!(!remaining.is_cancelled());
+                    scope.cancel();
+
+                    assert!(
+                        !reads.current("file.rs", sequence),
+                        "closing scope invalidates completion"
+                    );
+                    assert!(stop.is_cancelled(), "closing scope invalidates completion");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 
     #[tokio::test]
@@ -98,19 +147,6 @@ mod tests {
             assert_eq!(fault.message, "Read failed");
             assert!(!stop.is_cancelled());
         }
-    }
-
-    #[test]
-    fn closing_scope_invalidates_completion() {
-        let scope = CancellationToken::new();
-        let stop = Arc::new(scope.child_token());
-        let mut reads = Reads::default();
-        let sequence = reads.start("file.rs".into(), stop.clone());
-
-        scope.cancel();
-
-        assert!(!reads.current("file.rs", sequence));
-        assert!(stop.is_cancelled());
     }
 
     #[tokio::test]

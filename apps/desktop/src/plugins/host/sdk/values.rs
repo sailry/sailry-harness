@@ -144,72 +144,122 @@ mod tests {
         use super::*;
 
         #[test]
-        fn preserves_plain_codes() {
-            for code in [
-                "configure",
-                "failed",
-                "invalidResponse",
-                "unconfirmed",
-                "timedOut",
+        fn codes_and_exact_values() {
+            for (scenario, check) in [
+                (
+                    "preserves_plain_codes",
+                    (|_scenario: &str| {
+                        for code in [
+                            "configure",
+                            "failed",
+                            "invalidResponse",
+                            "unconfirmed",
+                            "timedOut",
+                        ] {
+                            assert_eq!(error_code(code), code, "preserves plain codes");
+                        }
+                    }) as fn(&str),
+                ),
+                (
+                    "recognizes_native_call_prefixes",
+                    (|_scenario: &str| {
+                        for (method, code) in [
+                            ("resolveModel", "configure"),
+                            ("completeRequest", "invalidResponse"),
+                            ("completeRequest", "unconfirmed"),
+                            ("prepareRequest", "failed"),
+                            ("completeRequest", "timedOut"),
+                        ] {
+                            assert_eq!(
+                                error_code(&format!("`sailry/sdk.{method}`: {code}")),
+                                code,
+                                "recognizes native call prefixes"
+                            );
+                        }
+                    }),
+                ),
+                (
+                    "rejects_unrelated_messages",
+                    (|_scenario: &str| {
+                        for message in [
+                            "",
+                            "request capacity exhausted",
+                            "configure ",
+                            "prefix: configure",
+                            "`other.resolveModel`: configure",
+                            "`sailry/sdk-other.resolveModel`: configure",
+                            "`sailry/sdk.resolveModel` configure",
+                            "`sailry/sdk.resolveModel`:configure",
+                            "Error: `sailry/sdk.resolveModel`: configure",
+                            "`sailry/sdk.`: configure",
+                            "`sailry/sdk.resolve.Model`: configure",
+                            "`sailry/sdk.resolveModel `: configure",
+                            "`sailry/sdk.resolveModel`: unknown",
+                            "`sailry/sdk.resolveModel`: invalidResponse: configure",
+                            "`sailry/sdk.resolveModel`: `sailry/sdk.resolveModel`: configure",
+                        ] {
+                            assert_eq!(
+                                error_code(message),
+                                "failed",
+                                "rejects unrelated messages: {message}"
+                            );
+                        }
+                    }),
+                ),
             ] {
-                assert_eq!(error_code(code), code);
-            }
-        }
-
-        #[test]
-        fn recognizes_native_call_prefixes() {
-            for (method, code) in [
-                ("resolveModel", "configure"),
-                ("completeRequest", "invalidResponse"),
-                ("completeRequest", "unconfirmed"),
-                ("prepareRequest", "failed"),
-                ("completeRequest", "timedOut"),
-            ] {
-                assert_eq!(error_code(&format!("`sailry/sdk.{method}`: {code}")), code);
-            }
-        }
-
-        #[test]
-        fn rejects_unrelated_messages() {
-            for message in [
-                "",
-                "request capacity exhausted",
-                "configure ",
-                "prefix: configure",
-                "`other.resolveModel`: configure",
-                "`sailry/sdk-other.resolveModel`: configure",
-                "`sailry/sdk.resolveModel` configure",
-                "`sailry/sdk.resolveModel`:configure",
-                "Error: `sailry/sdk.resolveModel`: configure",
-                "`sailry/sdk.`: configure",
-                "`sailry/sdk.resolve.Model`: configure",
-                "`sailry/sdk.resolveModel `: configure",
-                "`sailry/sdk.resolveModel`: unknown",
-                "`sailry/sdk.resolveModel`: invalidResponse: configure",
-                "`sailry/sdk.resolveModel`: `sailry/sdk.resolveModel`: configure",
-            ] {
-                assert_eq!(error_code(message), "failed", "{message}");
+                eprintln!("case: {scenario}");
+                check(scenario);
             }
         }
     }
 
     #[test]
-    fn preserves_integer_commands_and_fractional_data() {
-        assert_eq!(decode(&HostValue::Number(12.0)).unwrap().as_u64(), Some(12));
-        assert_eq!(
-            decode(&HostValue::Number(-12.0)).unwrap().as_i64(),
-            Some(-12)
-        );
-        assert_eq!(decode(&HostValue::Number(1.5)).unwrap(), json!(1.5));
-        assert!(decode(&HostValue::Number(f64::NAN)).is_err());
-        assert!(decode(&HostValue::Number(f64::INFINITY)).is_err());
-    }
-
-    #[test]
-    fn revisions_keep_all_bits() {
-        assert_eq!(revision("9223372036854775807").unwrap(), i64::MAX as u64);
-        for value in ["01", "-1", "+1", "1.0", "", "18446744073709551616"] {
-            assert!(revision(value).is_err());
+    fn codes_and_exact_values() {
+        for (scenario, check) in [
+            (
+                "preserves_integer_commands_and_fractional_data",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        decode(&HostValue::Number(12.0)).unwrap().as_u64(),
+                        Some(12),
+                        "preserves integer commands and fractional data"
+                    );
+                    assert_eq!(
+                        decode(&HostValue::Number(-12.0)).unwrap().as_i64(),
+                        Some(-12),
+                        "preserves integer commands and fractional data"
+                    );
+                    assert_eq!(
+                        decode(&HostValue::Number(1.5)).unwrap(),
+                        json!(1.5),
+                        "preserves integer commands and fractional data"
+                    );
+                    assert!(
+                        decode(&HostValue::Number(f64::NAN)).is_err(),
+                        "preserves integer commands and fractional data"
+                    );
+                    assert!(
+                        decode(&HostValue::Number(f64::INFINITY)).is_err(),
+                        "preserves integer commands and fractional data"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "revisions_keep_all_bits",
+                (|_scenario: &str| {
+                    assert_eq!(
+                        revision("9223372036854775807").unwrap(),
+                        i64::MAX as u64,
+                        "revisions keep all bits"
+                    );
+                    for value in ["01", "-1", "+1", "1.0", "", "18446744073709551616"] {
+                        assert!(revision(value).is_err(), "revisions keep all bits");
+                    }
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

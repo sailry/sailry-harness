@@ -1,35 +1,85 @@
 use super::*;
 
 #[test]
-fn renders_centered_local_branding() {
-    let page = Page::new();
-    let html = page.render(Outcome::Connected);
-    assert!(html.contains("data-outcome=\"connected\""));
-    assert!(html.contains("display: grid; place-items: center"));
-    assert!(html.contains("data:image/svg+xml;base64,"));
-    assert!(html.contains("href=\"sailry://return\""));
-    assert!(html.contains("history.replaceState(null, '', location.pathname)"));
-    assert!(html.contains("window.close()"));
-    assert!(html.contains(&escape(&page.titles[0])));
-    assert!(!html.contains("https://"));
-}
-
-#[test]
-fn escapes_localized_copy() {
-    let page = Page {
-        language: "en\" unsafe".into(),
-        titles: std::array::from_fn(|_| "Signed in <safe> & \"quoted\"".into()),
-        descriptions: std::array::from_fn(|_| "Return <safely>".into()),
-        return_label: "Return <Sailry>".into(),
-        close_label: "Close </script>".into(),
-    };
-    let html = page.render(Outcome::Failed);
-    assert!(html.contains("lang=\"en&quot; unsafe\""));
-    assert!(html.contains("Signed in &lt;safe&gt; &amp; &quot;quoted&quot;"));
-    assert!(html.contains("Close &lt;/script&gt;"));
-    assert!(html.contains("Return &lt;safely&gt;"));
-    assert!(!html.contains("Return <Sailry>"));
-    assert!(html.contains("data-outcome=\"failed\""));
+fn branding_and_copy() {
+    for (scenario, check) in [
+        (
+            "renders_centered_local_branding",
+            (|_scenario: &str| {
+                let page = Page::new();
+                let html = page.render(Outcome::Connected);
+                assert!(
+                    html.contains("data-outcome=\"connected\""),
+                    "renders centered local branding"
+                );
+                assert!(
+                    html.contains("display: grid; place-items: center"),
+                    "renders centered local branding"
+                );
+                assert!(
+                    html.contains("data:image/svg+xml;base64,"),
+                    "renders centered local branding"
+                );
+                assert!(
+                    html.contains("href=\"sailry://return\""),
+                    "renders centered local branding"
+                );
+                assert!(
+                    html.contains("history.replaceState(null, '', location.pathname)"),
+                    "renders centered local branding"
+                );
+                assert!(
+                    html.contains("window.close()"),
+                    "renders centered local branding"
+                );
+                assert!(
+                    html.contains(&escape(&page.titles[0])),
+                    "renders centered local branding"
+                );
+                assert!(
+                    !html.contains("https://"),
+                    "renders centered local branding"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "escapes_localized_copy",
+            (|_scenario: &str| {
+                let page = Page {
+                    language: "en\" unsafe".into(),
+                    titles: std::array::from_fn(|_| "Signed in <safe> & \"quoted\"".into()),
+                    descriptions: std::array::from_fn(|_| "Return <safely>".into()),
+                    return_label: "Return <Sailry>".into(),
+                    close_label: "Close </script>".into(),
+                };
+                let html = page.render(Outcome::Failed);
+                assert!(
+                    html.contains("lang=\"en&quot; unsafe\""),
+                    "escapes localized copy"
+                );
+                assert!(
+                    html.contains("Signed in &lt;safe&gt; &amp; &quot;quoted&quot;"),
+                    "escapes localized copy"
+                );
+                assert!(
+                    html.contains("Close &lt;/script&gt;"),
+                    "escapes localized copy"
+                );
+                assert!(
+                    html.contains("Return &lt;safely&gt;"),
+                    "escapes localized copy"
+                );
+                assert!(!html.contains("Return <Sailry>"), "escapes localized copy");
+                assert!(
+                    html.contains("data-outcome=\"failed\""),
+                    "escapes localized copy"
+                );
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
+    }
 }
 
 #[tokio::test]

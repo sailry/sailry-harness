@@ -131,17 +131,99 @@ mod tests {
     use std::{collections::BTreeMap, time::Duration};
 
     #[test]
-    fn distinguishes_rejections_from_system_failures() {
-        for code in [ErrorCode::NotFound, ErrorCode::InvalidRequest] {
-            assert!(expected_failure(code, false));
-            assert!(!expected_failure(code, true));
-        }
-        for code in [
-            ErrorCode::Internal,
-            ErrorCode::Unavailable,
-            ErrorCode::OutcomeUnknown,
+    fn resource_integrity() {
+        for (scenario, check) in [
+            (
+                "distinguishes_rejections_from_system_failures",
+                (|_scenario: &str| {
+                    for code in [ErrorCode::NotFound, ErrorCode::InvalidRequest] {
+                        assert!(
+                            expected_failure(code, false),
+                            "distinguishes rejections from system failures"
+                        );
+                        assert!(
+                            !expected_failure(code, true),
+                            "distinguishes rejections from system failures"
+                        );
+                    }
+                    for code in [
+                        ErrorCode::Internal,
+                        ErrorCode::Unavailable,
+                        ErrorCode::OutcomeUnknown,
+                    ] {
+                        assert!(
+                            !expected_failure(code, false),
+                            "distinguishes rejections from system failures"
+                        );
+                    }
+                }) as fn(&str),
+            ),
+            (
+                "resource_confinement",
+                (|_scenario: &str| {
+                    let runtime = tokio::runtime::Runtime::new().unwrap();
+                    let bundle = bundle();
+                    let expected = bundle.package.clone();
+                    let cache = Cache::create(bundle, &expected, runtime.handle().clone()).unwrap();
+                    let root = cache.root().to_path_buf();
+                    assert!(
+                        fs::read_to_string(root.join("main.js"))
+                            .unwrap()
+                            .starts_with("export { default } from \"./resources/views/"),
+                        "resource confinement"
+                    );
+                    assert_eq!(
+                        cache.images,
+                        BTreeMap::from([(
+                            "images/avatar.svg".into(),
+                            root.join("resources/images/avatar.svg")
+                        )]),
+                        "resource confinement"
+                    );
+                    assert!(
+                        !root.join("gpui-shell.json").exists(),
+                        "resource confinement"
+                    );
+                    assert!(
+                        root.join("resources/gpui-shell.json").exists(),
+                        "resource confinement"
+                    );
+                    drop(cache);
+                    runtime.block_on(async {
+                        tokio::time::timeout(Duration::from_secs(5), async {
+                            while root.exists() {
+                                tokio::time::sleep(Duration::from_millis(10)).await;
+                            }
+                        })
+                        .await
+                        .unwrap();
+                    });
+                }),
+            ),
+            (
+                "rejects_version_and_path_conflicts",
+                (|_scenario: &str| {
+                    let runtime = tokio::runtime::Runtime::new().unwrap();
+                    let mut bundle = bundle();
+                    let mut expected = bundle.package.clone();
+                    expected.digest = "b".repeat(64);
+                    assert!(
+                        Cache::create(bundle.clone(), &expected, runtime.handle().clone()).is_err(),
+                        "rejects version and path conflicts"
+                    );
+                    expected = bundle.package.clone();
+                    bundle
+                        .files
+                        .insert("views".into(), "Not a directory".into());
+                    assert!(
+                        Cache::create(bundle, &expected, runtime.handle().clone()).is_err(),
+                        "rejects version and path conflicts"
+                    );
+                }),
+            ),
         ] {
-            assert!(!expected_failure(code, false));
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 
@@ -171,53 +253,6 @@ mod tests {
             ]),
         }
     }
-
-    #[test]
-    fn resource_confinement() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let bundle = bundle();
-        let expected = bundle.package.clone();
-        let cache = Cache::create(bundle, &expected, runtime.handle().clone()).unwrap();
-        let root = cache.root().to_path_buf();
-        assert!(
-            fs::read_to_string(root.join("main.js"))
-                .unwrap()
-                .starts_with("export { default } from \"./resources/views/")
-        );
-        assert_eq!(
-            cache.images,
-            BTreeMap::from([(
-                "images/avatar.svg".into(),
-                root.join("resources/images/avatar.svg")
-            )])
-        );
-        assert!(!root.join("gpui-shell.json").exists());
-        assert!(root.join("resources/gpui-shell.json").exists());
-        drop(cache);
-        runtime.block_on(async {
-            tokio::time::timeout(Duration::from_secs(5), async {
-                while root.exists() {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            })
-            .await
-            .unwrap();
-        });
-    }
-
-    #[test]
-    fn rejects_version_and_path_conflicts() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let mut bundle = bundle();
-        let mut expected = bundle.package.clone();
-        expected.digest = "b".repeat(64);
-        assert!(Cache::create(bundle.clone(), &expected, runtime.handle().clone()).is_err());
-        expected = bundle.package.clone();
-        bundle
-            .files
-            .insert("views".into(), "Not a directory".into());
-        assert!(Cache::create(bundle, &expected, runtime.handle().clone()).is_err());
-    }
 }
 
 #[cfg(test)]
@@ -238,29 +273,47 @@ mod png {
     }
 
     #[test]
-    fn preserves_transparent_pixels() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let mut image = image::RgbaImage::new(2, 2);
-        image.put_pixel(1, 1, image::Rgba([230, 120, 40, 160]));
-        let mut bytes = std::io::Cursor::new(Vec::new());
-        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
-        let bundle = bundle(STANDARD.encode(bytes.get_ref()));
-        let cache =
-            Cache::create(bundle.clone(), &bundle.package, runtime.handle().clone()).unwrap();
-        let decoded = image::open(&cache.images["art/token.png"])
-            .unwrap()
-            .to_rgba8();
-        assert_eq!(decoded, image);
-    }
-
-    #[test]
-    fn rejects_invalid_encoding_and_non_png_content() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        for encoded in ["====".into(), STANDARD.encode(b"not a PNG")] {
-            let bundle = bundle(encoded);
-            assert!(
-                Cache::create(bundle.clone(), &bundle.package, runtime.handle().clone()).is_err()
-            );
+    fn resource_integrity() {
+        for (scenario, check) in [
+            (
+                "preserves_transparent_pixels",
+                (|_scenario: &str| {
+                    let runtime = tokio::runtime::Runtime::new().unwrap();
+                    let mut image = image::RgbaImage::new(2, 2);
+                    image.put_pixel(1, 1, image::Rgba([230, 120, 40, 160]));
+                    let mut bytes = std::io::Cursor::new(Vec::new());
+                    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+                    let bundle = bundle(STANDARD.encode(bytes.get_ref()));
+                    let cache =
+                        Cache::create(bundle.clone(), &bundle.package, runtime.handle().clone())
+                            .unwrap();
+                    let decoded = image::open(&cache.images["art/token.png"])
+                        .unwrap()
+                        .to_rgba8();
+                    assert_eq!(decoded, image, "preserves transparent pixels");
+                }) as fn(&str),
+            ),
+            (
+                "rejects_invalid_encoding_and_non_png_content",
+                (|_scenario: &str| {
+                    let runtime = tokio::runtime::Runtime::new().unwrap();
+                    for encoded in ["====".into(), STANDARD.encode(b"not a PNG")] {
+                        let bundle = bundle(encoded);
+                        assert!(
+                            Cache::create(
+                                bundle.clone(),
+                                &bundle.package,
+                                runtime.handle().clone()
+                            )
+                            .is_err(),
+                            "rejects invalid encoding and non png content"
+                        );
+                    }
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

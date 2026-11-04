@@ -28,60 +28,124 @@ mod lifecycle {
     use super::*;
 
     #[test]
-    fn closure_cancels_work_and_clears_tabs() {
-        let mut browser = fixture();
-        browser.tabs.push(Tab::empty(1));
-        browser.selected = 1;
-        browser.reload = true;
-        let stop = browser.stop.clone();
-        let lease = browser.lease;
-        browser.close_all();
-        assert!(stop.is_cancelled());
-        assert!(browser.tabs.is_empty());
-        assert!(!browser.mounted.get());
-        assert!(!browser.reload);
-        assert_eq!(browser.selected, 0);
-        assert!(browser.lease > lease);
-        browser.close_all();
-        assert!(browser.tabs.is_empty());
-        assert!(stop.is_cancelled());
-    }
-
-    #[test]
-    fn dropping_cancels_work() {
-        let browser = fixture();
-        let stop = browser.stop.clone();
-        assert!(!stop.is_cancelled());
-        drop(browser);
-        assert!(stop.is_cancelled());
+    fn cancellation_and_scope() {
+        for (scenario, check) in [
+            (
+                "closure_cancels_work_and_clears_tabs",
+                (|_scenario: &str| {
+                    let mut browser = fixture();
+                    browser.tabs.push(Tab::empty(1));
+                    browser.selected = 1;
+                    browser.reload = true;
+                    let stop = browser.stop.clone();
+                    let lease = browser.lease;
+                    browser.close_all();
+                    assert!(stop.is_cancelled(), "closure cancels work and clears tabs");
+                    assert!(
+                        browser.tabs.is_empty(),
+                        "closure cancels work and clears tabs"
+                    );
+                    assert!(
+                        !browser.mounted.get(),
+                        "closure cancels work and clears tabs"
+                    );
+                    assert!(!browser.reload, "closure cancels work and clears tabs");
+                    assert_eq!(browser.selected, 0, "closure cancels work and clears tabs");
+                    assert!(
+                        browser.lease > lease,
+                        "closure cancels work and clears tabs"
+                    );
+                    browser.close_all();
+                    assert!(
+                        browser.tabs.is_empty(),
+                        "closure cancels work and clears tabs"
+                    );
+                    assert!(stop.is_cancelled(), "closure cancels work and clears tabs");
+                }) as fn(&str),
+            ),
+            (
+                "dropping_cancels_work",
+                (|_scenario: &str| {
+                    let browser = fixture();
+                    let stop = browser.stop.clone();
+                    assert!(!stop.is_cancelled(), "dropping cancels work");
+                    drop(browser);
+                    assert!(stop.is_cancelled(), "dropping cancels work");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }
 
 #[test]
-fn destinations() {
-    assert_eq!(
-        destination(" https://example.com "),
-        Some("https://example.com/".into())
-    );
-    assert_eq!(
-        destination("http://localhost:8080/a"),
-        Some("http://localhost:8080/a".into())
-    );
-    assert_eq!(
-        destination("https://example.com/path?q=a"),
-        Some("https://example.com/path?q=a".into())
-    );
-    for invalid in [
-        "",
-        "example.com",
-        "localhost:8080/a",
-        "two words",
-        "/relative/path",
-        "javascript:alert(1)",
-        "file:///tmp/file",
-        "data:text/html,test",
+fn cancellation_and_scope() {
+    for (scenario, check) in [
+        (
+            "destinations",
+            (|_scenario: &str| {
+                assert_eq!(
+                    destination(" https://example.com "),
+                    Some("https://example.com/".into()),
+                    "destinations"
+                );
+                assert_eq!(
+                    destination("http://localhost:8080/a"),
+                    Some("http://localhost:8080/a".into()),
+                    "destinations"
+                );
+                assert_eq!(
+                    destination("https://example.com/path?q=a"),
+                    Some("https://example.com/path?q=a".into()),
+                    "destinations"
+                );
+                for invalid in [
+                    "",
+                    "example.com",
+                    "localhost:8080/a",
+                    "two words",
+                    "/relative/path",
+                    "javascript:alert(1)",
+                    "file:///tmp/file",
+                    "data:text/html,test",
+                ] {
+                    assert!(destination(invalid).is_none(), "destinations");
+                }
+            }) as fn(&str),
+        ),
+        (
+            "controller_actions_cannot_choose_another_scope",
+            (|_scenario: &str| {
+                for kind in ["add", "back", "forward", "reload", "stop"] {
+                    assert!(
+                        serde_json::from_value::<state::Action>(serde_json::json!({"kind":kind}))
+                            .is_ok(),
+                        "controller actions cannot choose another scope"
+                    );
+                    assert!(
+                        serde_json::from_value::<state::Action>(
+                            serde_json::json!({"kind":kind,"session":"another"})
+                        )
+                        .is_err(),
+                        "controller actions cannot choose another scope"
+                    );
+                }
+                for arguments in [
+                    serde_json::json!({"kind":"navigate","url":"https://example.com","node":"another"}),
+                    serde_json::json!({"kind":"select","id":1,"worktree":"another"}),
+                ] {
+                    assert!(
+                        serde_json::from_value::<state::Action>(arguments).is_err(),
+                        "controller actions cannot choose another scope"
+                    );
+                }
+            }),
+        ),
     ] {
-        assert!(destination(invalid).is_none());
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }
 
@@ -131,23 +195,4 @@ fn fixed_shortcuts_reach_webviews(cx: &mut TestAppContext) {
         crate::shortcuts::save("app.search", Some("secondary-alt-shift-j"), cx).unwrap();
         assert_eq!(shortcuts::script(cx), script);
     });
-}
-
-#[test]
-fn controller_actions_cannot_choose_another_scope() {
-    for kind in ["add", "back", "forward", "reload", "stop"] {
-        assert!(serde_json::from_value::<state::Action>(serde_json::json!({"kind":kind})).is_ok());
-        assert!(
-            serde_json::from_value::<state::Action>(
-                serde_json::json!({"kind":kind,"session":"another"})
-            )
-            .is_err()
-        );
-    }
-    for arguments in [
-        serde_json::json!({"kind":"navigate","url":"https://example.com","node":"another"}),
-        serde_json::json!({"kind":"select","id":1,"worktree":"another"}),
-    ] {
-        assert!(serde_json::from_value::<state::Action>(arguments).is_err());
-    }
 }
