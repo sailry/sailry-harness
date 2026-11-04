@@ -10,11 +10,12 @@
 use std::{cell::RefCell, ops::Range, rc::Rc};
 
 use super::inline::{Flat, Offsets, flatten, flatten_with};
+use super::link_text::LinkText;
 use super::style as theme;
 use gpui::{
-    AnyElement, App, BorderStyle, Bounds, CursorStyle, ElementId, FontWeight, Hsla,
-    InteractiveText, ObjectFit, Pixels, Point, SharedString, StyledImage as _, StyledText,
-    TextLayout, TextRun, Window, canvas, div, font, img, point, prelude::*, px, quad, size,
+    AnyElement, App, BorderStyle, Bounds, CursorStyle, ElementId, FontWeight, Hsla, ObjectFit,
+    Pixels, Point, SharedString, StyledImage as _, StyledText, TextLayout, TextRun, Window, canvas,
+    div, font, img, point, prelude::*, px, quad, size,
 };
 use gpui_kit as gpui;
 use gpui_kit::base::TestSupportExt as _;
@@ -1307,6 +1308,7 @@ fn painted_text(
     let offsets = flat.offsets;
     let selected = selected.map(|range| offsets.display(range.start)..offsets.display(range.end));
     let caret = caret.map(|offset| offsets.display(offset));
+    let label = flat.text.clone();
     let styled = StyledText::new(flat.text).with_runs(flat.runs);
     let layout = styled.layout().clone();
 
@@ -1318,8 +1320,12 @@ fn painted_text(
         let on_hover = overlay.on_link_hover.cloned();
         let hover_offsets = offsets.clone();
         let hover_ranges = ranges.clone();
-        InteractiveText::new(SharedString::from(format!("md-text-{ix}-{part:?}")), styled)
-            .on_click(ranges, move |clicked, window, cx| {
+        LinkText::new(
+            SharedString::from(format!("md-text-{ix}-{part:?}")),
+            styled,
+            label,
+            ranges,
+            move |clicked, _, window, cx| {
                 if let Some(url) = urls.get(clicked) {
                     if let Some(on_link) = &on_link {
                         on_link(&SharedString::from(url.clone()), window, cx);
@@ -1327,8 +1333,8 @@ fn painted_text(
                         cx.open_url(url);
                     }
                 }
-            })
-            .on_hover(move |index, _, window, cx| {
+            },
+            move |index, window, cx| {
                 if let Some(on_hover) = &on_hover {
                     on_hover(
                         Cursor::new(ix, part, 0),
@@ -1339,8 +1345,9 @@ fn painted_text(
                         cx,
                     );
                 }
-            })
-            .into_any_element()
+            },
+        )
+        .into_any_element()
     };
 
     // The wash is painted before the text — an earlier sibling is underneath —
