@@ -7,11 +7,7 @@ use crate::{
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, code_index::*};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::BTreeMap,
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 use turso::{params, transaction::TransactionBehavior};
 
 pub(super) const BATCH_SYMBOLS: usize = 512;

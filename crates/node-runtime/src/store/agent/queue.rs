@@ -432,7 +432,7 @@ pub(in crate::store::agent) async fn retained(
     row.get(0).map_err(storage_error)
 }
 
-async fn reorder(
+pub(super) async fn reorder(
     db: &Connection,
     session: SessionId,
     turn: TurnId,

@@ -5,9 +5,11 @@ use goose_agent::{
     operation::{Emitter, Operation, OperationResult, not_applicable},
     subagent::SubagentOperation,
 };
-use goose_provider_types::conversation::Conversation;
+use goose_provider_types::conversation::{Conversation, EffectiveRole, message::Message};
 use sailry_protocol::TurnId;
 use std::sync::Arc;
+
+const OPERATION: &str = "foreground_subagent";
 
 pub(super) struct Foreground {
     pub inner: SubagentOperation<Session>,
@@ -18,7 +20,7 @@ pub(super) struct Foreground {
 #[async_trait]
 impl Operation<Session, Effect> for Foreground {
     fn name(&self) -> &'static str {
-        "foreground_subagent"
+        OPERATION
     }
 
     async fn finalize_cancellation(
@@ -38,9 +40,9 @@ impl Operation<Session, Effect> for Foreground {
         conversation: &Conversation,
         emit: &Emitter,
     ) -> anyhow::Result<OperationResult<Effect>> {
-        if goose_agent::operation::last_effective_role(
-            goose_agent::operation::messages_since_kickoff(conversation)?,
-        )? == goose_provider_types::conversation::EffectiveRole::User
+        let messages = goose_agent::operation::messages_since_kickoff(conversation)?;
+        if goose_agent::operation::last_effective_role(messages)? == EffectiveRole::User
+            && !messages.last().is_some_and(delivers_child)
         {
             return not_applicable();
         }
@@ -67,4 +69,13 @@ impl Operation<Session, Effect> for Foreground {
             result = self.inner.run(session, conversation, emit) => result,
         }
     }
+}
+
+/// GDK delivers each finished foreground child as a user message carrying this
+/// operation's `delivered` or `cancelled` note. Such deliveries are not new user
+/// input, so the remaining children must still be awaited before inference.
+fn delivers_child(message: &Message) -> bool {
+    ["delivered", "cancelled"]
+        .into_iter()
+        .any(|key| message.metadata.operation_note(OPERATION, key).is_some())
 }

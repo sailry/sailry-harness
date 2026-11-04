@@ -707,6 +707,16 @@ pub(super) async fn finish_with(
         super::queue::remove(&transaction, turn, run.session).await?;
     }
     put(&transaction, &run).await?;
+    if incomplete && !consumed {
+        // While running, the task's own row kept its admission position as
+        // guidance attached ahead of the remaining queue. Retain it first.
+        let items = super::queue::read(&transaction, run.session).await?.items;
+        if let Some(first) = items.first().filter(|item| item.turn != turn)
+            && items.iter().any(|item| item.turn == turn)
+        {
+            super::queue::reorder(&transaction, run.session, turn, Some(first.turn)).await?;
+        }
+    }
     let approvals = super::approvals::close(
         &transaction,
         turn,

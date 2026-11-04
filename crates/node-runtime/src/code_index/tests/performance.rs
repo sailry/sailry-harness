@@ -195,7 +195,12 @@ async fn measures_repeated_queries() {
             let start = Instant::now();
             let page = fixture
                 .service
-                .search(fixture.id, fixture.root.clone(), &query, &CancellationToken::new())
+                .search(
+                    fixture.id,
+                    fixture.root.clone(),
+                    &query,
+                    &CancellationToken::new(),
+                )
                 .await
                 .unwrap();
             samples.push(start.elapsed());

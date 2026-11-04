@@ -253,7 +253,9 @@ impl Service {
                 .map(|(path, prior)| {
                     check(&stop)?;
                     check(&node_stop)?;
-                    Ok(inspect(&directory, path, prior, &resources, &control, &stop))
+                    Ok(inspect(
+                        &directory, path, prior, &resources, &control, &stop,
+                    ))
                 })
                 .collect()
         })

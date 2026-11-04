@@ -3,9 +3,9 @@ use sailry_protocol::{ErrorCode, Fault};
 use std::sync::{Arc, Mutex};
 
 /// Elements that never carry readable page content.
-const SKIPPED: [&str; 17] = [
+const SKIPPED: [&str; 16] = [
     "script", "style", "template", "nav", "footer", "aside", "noscript", "iframe", "svg", "canvas",
-    "object", "embed", "form", "button", "select", "textarea", "dialog",
+    "object", "embed", "button", "select", "textarea", "dialog",
 ];
 /// Containers whose ARIA role or visibility can mark page chrome.
 const CONTAINERS: [&str; 8] = ["div", "section", "header", "ul", "ol", "span", "table", "p"];
@@ -56,7 +56,8 @@ pub(super) fn convert(html: &str) -> Result<(Option<String>, String), Fault> {
                         .map(|attribute| attribute.value.trim().to_ascii_lowercase())
                 };
                 let role = attribute("role");
-                if attribute("hidden").is_some()
+                // Inactive tab panels hold alternative content, not chrome.
+                if (attribute("hidden").is_some() && role.as_deref() != Some("tabpanel"))
                     || attribute("aria-hidden").as_deref() == Some("true")
                     || matches!(
                         role.as_deref(),

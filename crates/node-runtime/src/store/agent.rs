@@ -820,11 +820,7 @@ pub(super) fn execute<'a>(
             );
         }),
         Operation::PendingGuidance { recipient, reply } => Box::pin(async move {
-            let _ = reply.send(
-                queue::guidance::pending(&database.connection, recipient)
-                    .await
-                    .map(|pending| pending.is_some()),
-            );
+            let _ = reply.send(runs::guidance::deliverable(&database.connection, recipient).await);
         }),
         Operation::Checkpoint {
             turn,

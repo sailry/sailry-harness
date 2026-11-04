@@ -133,7 +133,10 @@ impl Transport for Local {
 
     fn open(&self, resource: sailry_protocol::StreamId) -> Pending<'_, Result<Stream, Fault>> {
         Box::pin(async move {
-            compatibility::check(compatibility::Peer::LOCAL, compatibility::Peer::of(&*self.handler))?;
+            compatibility::check(
+                compatibility::Peer::LOCAL,
+                compatibility::Peer::of(&*self.handler),
+            )?;
             self.handler.open(self.caller, resource).await
         })
     }
@@ -142,13 +145,19 @@ impl Transport for Local {
     }
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
-            compatibility::check(compatibility::Peer::LOCAL, compatibility::Peer::of(&*self.handler))?;
+            compatibility::check(
+                compatibility::Peer::LOCAL,
+                compatibility::Peer::of(&*self.handler),
+            )?;
             self.handler.dispatch(self.caller, request).await
         })
     }
     fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
         Box::pin(async move {
-            compatibility::check(compatibility::Peer::LOCAL, compatibility::Peer::of(&*self.handler))?;
+            compatibility::check(
+                compatibility::Peer::LOCAL,
+                compatibility::Peer::of(&*self.handler),
+            )?;
             self.handler.subscribe(self.caller, topic).await
         })
     }

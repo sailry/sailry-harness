@@ -336,9 +336,15 @@ pub(super) async fn advance(
                 && let Some((elapsed, first)) = attempt.elapsed_us.zip(attempt.first_token_us)
                 && elapsed > first
             {
-                // Streamed reasoning follows the first token, so it is output here.
                 result.output_us = result.output_us.saturating_add(elapsed - first);
-                result.output_tokens = result.output_tokens.saturating_add(usage.output);
+                // Streamed reasoning follows the first token, so it is output here;
+                // hidden reasoning precedes the first token and is excluded.
+                let output = if attempt.reasoning_streamed {
+                    usage.output
+                } else {
+                    usage.output.saturating_sub(usage.reasoning)
+                };
+                result.output_tokens = result.output_tokens.saturating_add(output);
                 result.output_samples += 1;
             }
             for row in &attempt.categories {

@@ -66,12 +66,12 @@ impl Shell {
                     )
                     .map(|node| {
                         let name = live.name(node);
-                        let mismatch = live
-                            .host_versions
-                            .get(&node)
-                            .and_then(|(protocol, version)| {
-                                sailry_link::check_host(*protocol, version.as_deref()).err()
-                            });
+                        let mismatch =
+                            live.host_versions
+                                .get(&node)
+                                .and_then(|(protocol, version)| {
+                                    sailry_link::check_host(*protocol, version.as_deref()).err()
+                                });
                         let update_host = mismatch.as_ref().is_some_and(|error| {
                             matches!(
                                 error.details,

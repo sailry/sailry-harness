@@ -83,6 +83,9 @@ pub struct Attempt {
     pub usage: Option<Usage>,
     pub cache_reported: bool,
     pub reasoning_reported: bool,
+    /// Reasoning arrived as streamed deltas rather than only as a usage count.
+    #[serde(default)]
+    pub reasoning_streamed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,6 +179,7 @@ mod tests {
         });
         let mut attempt: Attempt = serde_json::from_value(wire).unwrap();
         assert_eq!(attempt.response_us, None);
+        assert!(!attempt.reasoning_streamed);
         attempt.response_us = Some(20);
         attempt.outcome = Outcome::Failed;
         let decoded: Attempt =

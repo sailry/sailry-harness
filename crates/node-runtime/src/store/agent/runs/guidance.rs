@@ -61,20 +61,25 @@ pub(super) async fn claim(
     Ok((inputs, joined))
 }
 
+/// Whether `take` would deliver guidance to `recipient` at its next boundary.
+pub(in crate::store::agent) async fn deliverable(
+    db: &Connection,
+    recipient: TurnId,
+) -> Result<bool, Fault> {
+    let run = get(db, recipient).await?;
+    Ok(run.status == Status::Running
+        && !super::super::queue::read(db, run.session).await?.paused
+        && super::super::queue::guidance::pending(db, recipient)
+            .await?
+            .is_some())
+}
+
 pub(in crate::store::agent) async fn take(
     database: &mut Database,
     recipient: TurnId,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Option<Vec<QueuedMessage>>, Fault> {
-    let run = get(&database.connection, recipient).await?;
-    if run.status != Status::Running
-        || super::super::queue::read(&database.connection, run.session)
-            .await?
-            .paused
-        || super::super::queue::guidance::pending(&database.connection, recipient)
-            .await?
-            .is_none()
-    {
+    if !deliverable(&database.connection, recipient).await? {
         return Ok(None);
     }
     let publication = database.publication.clone();

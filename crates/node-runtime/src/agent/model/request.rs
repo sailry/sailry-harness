@@ -177,6 +177,7 @@ struct State {
     metric: Option<(crate::telemetry::Capture, crate::telemetry::metrics::Model)>,
     cache_reported: bool,
     reasoning_reported: bool,
+    reasoning_streamed: bool,
     payload: observation::Payload,
     stop: CancellationToken,
     lease: Lease,
@@ -247,6 +248,7 @@ impl Capture {
                 }),
                 cache_reported: false,
                 reasoning_reported: false,
+                reasoning_streamed: false,
                 payload: model
                     .sources
                     .capture(system, started)
@@ -263,6 +265,8 @@ impl Capture {
     fn receive(&mut self, message: Option<&Message>, usage: Option<&mut ProviderUsage>) {
         let state = self.state.as_mut().expect("active request");
         mark(&mut state.first_token, message, state.started);
+        state.reasoning_streamed |=
+            message.is_some_and(|message| message.content.iter().any(reasoning));
         if let Some(usage) = usage {
             let stats = usage.stats.get_or_insert_with(Default::default);
             stats
@@ -345,6 +349,7 @@ impl State {
             usage: self.usage,
             cache_reported: self.cache_reported,
             reasoning_reported: self.reasoning_reported,
+            reasoning_streamed: self.reasoning_streamed,
         });
         if let Some(timeline) = self.ingress.agents.timeline(self.request.turn) {
             // Waiting ends at the first token; streamed reasoning, text and
@@ -469,6 +474,17 @@ fn output(content: &MessageContentBlock) -> bool {
         | MessageContentBlock::ActionRequired(_)
         | MessageContentBlock::SystemNotification(_)
         | MessageContentBlock::Error(_) => false,
+    }
+}
+
+/// Streamed reasoning shares the output window measured after the first token.
+fn reasoning(content: &MessageContentBlock) -> bool {
+    match content {
+        MessageContentBlock::Thinking(thinking) => {
+            !thinking.thinking.is_empty() || !thinking.signature.is_empty()
+        }
+        MessageContentBlock::RedactedThinking(thinking) => !thinking.data.is_empty(),
+        _ => false,
     }
 }
 

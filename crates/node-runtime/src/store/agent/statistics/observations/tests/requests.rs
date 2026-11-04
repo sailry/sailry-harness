@@ -27,6 +27,7 @@ fn attempt(index: u64, outcome: Outcome) -> Attempt {
         }),
         cache_reported: true,
         reasoning_reported: true,
+        reasoning_streamed: true,
     }
 }
 
@@ -222,7 +223,11 @@ async fn merges_recovered_attempts_across_rebuilds() {
     let mut cancelled = request.clone();
     cancelled.attempts = vec![attempt(2, Outcome::Cancelled)];
     let mut succeeded = request.clone();
-    succeeded.attempts = vec![attempt(3, Outcome::Succeeded)];
+    // Hidden reasoning precedes the first token, so only visible output counts.
+    succeeded.attempts = vec![Attempt {
+        reasoning_streamed: false,
+        ..attempt(3, Outcome::Succeeded)
+    }];
     let mut snapshot = request.clone();
     snapshot.attempts = vec![attempt(1, Outcome::Failed), attempt(2, Outcome::Cancelled)];
     let phases = Phases {
@@ -310,7 +315,7 @@ async fn merges_recovered_attempts_across_rebuilds() {
     assert_eq!(summary.phases, phases);
     assert_eq!(summary.model_us, 30);
     assert_eq!(summary.output_us, 18);
-    assert_eq!(summary.output_tokens, 12);
+    assert_eq!(summary.output_tokens, 11);
     assert_eq!(summary.output_samples, 3);
     assert_eq!(
         summary.latency,

@@ -1170,3 +1170,70 @@ mod controller {
         assert!(controls.running(active));
     }
 }
+
+async fn position(db: &Connection, turn: TurnId) -> i64 {
+    db.prepare("SELECT position FROM agent_pending WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .unwrap()
+        .get::<i64>(0)
+        .unwrap()
+}
+
+#[tokio::test]
+async fn stop_keeps_unconsumed_input_ahead_of_guidance() {
+    let mut fixture = Fixture::new().await;
+    let held = fixture.queued().await;
+    let active = fixture.queued().await;
+    fixture
+        .database
+        .connection
+        .execute(
+            "UPDATE agent_runs SET ready=0 WHERE turn=?1",
+            [held.to_string()],
+        )
+        .await
+        .unwrap();
+    runs::start(&fixture.database.connection, active)
+        .await
+        .unwrap();
+    let invocation = Box::pin(runs::claim(&mut fixture.database, &fixture.events))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(invocation.turn.id, active);
+    let source = fixture.queued().await;
+    select(&fixture.database.connection, source, active, 1)
+        .await
+        .unwrap();
+    // The running task keeps its admission position behind attached guidance.
+    let db = &fixture.database.connection;
+    assert!(position(db, active).await >= 2);
+    assert!(position(db, source).await < position(db, active).await);
+    let controls = registered(&mut fixture, active).await;
+    runs::stop(&fixture.database.connection, active)
+        .await
+        .unwrap();
+    controls.cancel(active);
+    assert_eq!(
+        finish(
+            &mut fixture,
+            &controls,
+            active,
+            Status::Completed,
+            None,
+            None
+        )
+        .await,
+        Status::Cancelled
+    );
+    let queue = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert!(queue.paused);
+    let turns: Vec<_> = queue.items.iter().map(|item| item.turn).collect();
+    assert_eq!(turns[0], active);
+    assert!(turns.contains(&source) && turns.contains(&held));
+}

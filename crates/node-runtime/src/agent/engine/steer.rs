@@ -52,6 +52,8 @@ impl Operation<Session, Effect> for Steer {
         if !ends_turn(messages) && last_effective_role(messages)? != EffectiveRole::Tool {
             return not_applicable();
         }
+        // Guidance arriving after this point interrupts the next tool batch again.
+        self.ingress.agents.steering(self.invocation.turn.id);
         let Some(inputs) = self.ingress.take_guidance(self.invocation.turn.id).await? else {
             return not_applicable();
         };

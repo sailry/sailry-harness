@@ -66,6 +66,16 @@ mod landmarks {
     }
 
     #[test]
+    fn keeps_page_forms_and_tab_panels() {
+        let (_, text) = convert(
+            "<form id='page'><main><h1>Guide</h1><div role='tabpanel'>npm</div><div role='tabpanel' hidden>pnpm</div></main></form>",
+        )
+        .unwrap();
+        assert!(text.starts_with("# Guide"), "{text}");
+        assert!(text.contains("npm") && text.contains("pnpm"), "{text}");
+    }
+
+    #[test]
     fn falls_back_when_main_is_empty() {
         let (_, text) = convert("<main><div id='root'></div></main><p>Outside</p>").unwrap();
         assert_eq!(text, "Outside");
