@@ -13,72 +13,98 @@ fn package(name: &str, subject: &str) -> plugin::Info {
 }
 
 #[test]
-fn deduplicates_subjects_and_keeps_devices() {
-    let device = NodeId([1; 32]);
-    let packages = [
-        package("first", "helper"),
-        package("second", "helper"),
-        package("other", "another-helper"),
-    ];
-    let entries = directory(device, &packages);
-    assert_eq!(entries.len(), 4);
-    assert!(entries.iter().all(|entry| entry.identity.device == device));
-    let next = NodeId([2; 32]);
-    assert!(
-        directory(next, &packages)
-            .iter()
-            .all(|entry| entry.identity.device == next)
-    );
-    assert_eq!(
-        entries
-            .iter()
-            .filter(|entry| entry.identity.kind == Kind::Accessibility)
-            .count(),
-        2
-    );
-}
-
-#[test]
-fn aggregates_every_subject() {
-    assert_eq!(aggregate([true, true]), Aggregate::Authorized);
-    assert_eq!(aggregate([true, false]), Aggregate::Partial);
-    assert_eq!(aggregate([false, false]), Aggregate::Unauthorized);
-    assert_eq!(aggregate([]), Aggregate::Unauthorized);
-}
-
-#[test]
-fn lifecycle_removes_only_current_contributions() {
-    let mut packages = [
-        package("first", "helper"),
-        package("other", "another-helper"),
-    ];
-    let device = NodeId([1; 32]);
-    packages[0].summary.enabled = false;
-    let enabled = directory(device, &packages);
-    assert_eq!(enabled.len(), 2);
-    assert!(
-        enabled
-            .iter()
-            .all(|entry| entry.identity.subject == "another-helper")
-    );
-    assert_eq!(directory(device, &packages[1..]), enabled);
-    packages[0].summary.enabled = true;
-    assert_eq!(directory(device, &packages).len(), 4);
-}
-
-#[test]
-fn groups_only_supplied_missing_subjects() {
-    let packages = [
-        package("first", "helper"),
-        package("other", "another-helper"),
-    ];
-    let entries = directory(NodeId([1; 32]), &packages);
-    assert_eq!(requests(&entries).len(), 2);
-    assert_eq!(requests(&entries[..2]).len(), 1);
-    assert_eq!(requests(&entries[1..2]).len(), 1);
-    assert!(requests(std::iter::empty()).is_empty());
-    // Deduplication is per invocation; a failed or cancelled request can be retried.
-    assert_eq!(requests(&entries[..2]).len(), 1);
+fn aggregates_scoped_subjects_through_lifecycle() {
+    for (case_name, run) in [
+        (
+            "deduplicates_subjects_and_keeps_devices",
+            (|case_name| {
+                let device = NodeId([1; 32]);
+                let packages = [
+                    package("first", "helper"),
+                    package("second", "helper"),
+                    package("other", "another-helper"),
+                ];
+                let entries = directory(device, &packages);
+                assert_eq!(entries.len(), 4, "{case_name}");
+                assert!(
+                    entries.iter().all(|entry| entry.identity.device == device),
+                    "{case_name}"
+                );
+                let next = NodeId([2; 32]);
+                assert!(
+                    directory(next, &packages)
+                        .iter()
+                        .all(|entry| entry.identity.device == next),
+                    "{case_name}"
+                );
+                assert_eq!(
+                    entries
+                        .iter()
+                        .filter(|entry| entry.identity.kind == Kind::Accessibility)
+                        .count(),
+                    2,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "aggregates_every_subject",
+            (|case_name| {
+                assert_eq!(
+                    aggregate([true, true]),
+                    Aggregate::Authorized,
+                    "{case_name}"
+                );
+                assert_eq!(aggregate([true, false]), Aggregate::Partial, "{case_name}");
+                assert_eq!(
+                    aggregate([false, false]),
+                    Aggregate::Unauthorized,
+                    "{case_name}"
+                );
+                assert_eq!(aggregate([]), Aggregate::Unauthorized, "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "lifecycle_removes_only_current_contributions",
+            (|case_name| {
+                let mut packages = [
+                    package("first", "helper"),
+                    package("other", "another-helper"),
+                ];
+                let device = NodeId([1; 32]);
+                packages[0].summary.enabled = false;
+                let enabled = directory(device, &packages);
+                assert_eq!(enabled.len(), 2, "{case_name}");
+                assert!(
+                    enabled
+                        .iter()
+                        .all(|entry| entry.identity.subject == "another-helper"),
+                    "{case_name}"
+                );
+                assert_eq!(directory(device, &packages[1..]), enabled, "{case_name}");
+                packages[0].summary.enabled = true;
+                assert_eq!(directory(device, &packages).len(), 4, "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "groups_only_supplied_missing_subjects",
+            (|case_name| {
+                let packages = [
+                    package("first", "helper"),
+                    package("other", "another-helper"),
+                ];
+                let entries = directory(NodeId([1; 32]), &packages);
+                assert_eq!(requests(&entries).len(), 2, "{case_name}");
+                assert_eq!(requests(&entries[..2]).len(), 1, "{case_name}");
+                assert_eq!(requests(&entries[1..2]).len(), 1, "{case_name}");
+                assert!(requests(std::iter::empty()).is_empty(), "{case_name}");
+                // Deduplication is per invocation; a failed or cancelled request can be retried.
+                assert_eq!(requests(&entries[..2]).len(), 1, "{case_name}");
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
+    }
 }
 
 #[test]

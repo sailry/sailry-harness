@@ -81,72 +81,135 @@ fn canonical_user_replaces_capture() {
 }
 
 #[test]
-fn rejects_changed_capture_and_private_runs() {
-    let (mut projection, mut snapshot, mut run, _) = fixture();
-    run.input = Some(SentInput {
-        message: "Immutable input".into(),
-        attachments: Vec::new(),
-    });
-    Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    let original = projection.snapshot().unwrap().clone();
-    run.input.as_mut().unwrap().message.text = "Changed input".into();
-    assert!(
-        projection
-            .apply(1, frame(&snapshot, 11, Change::Run(run)))
-            .is_err()
-    );
-    assert_eq!(projection.snapshot().unwrap(), &original);
-    let mut invalid = snapshot.clone();
-    Arc::make_mut(&mut invalid.page).runs[0].kind = RunKind::Compaction;
-    let mut fresh = Projection::new(snapshot.node, snapshot.page.session, 1);
-    assert!(
-        fresh
-            .apply(1, Update::ConversationSnapshot(Box::new(invalid)))
-            .is_err()
-    );
-    let mut invalid = snapshot.clone();
-    Arc::make_mut(&mut invalid.page).runs[0].status = Status::Queued;
-    Arc::make_mut(&mut invalid.page).runs[0].notice = true;
-    let mut fresh = Projection::new(snapshot.node, snapshot.page.session, 1);
-    assert!(
-        fresh
-            .apply(1, Update::ConversationSnapshot(Box::new(invalid)))
-            .is_err()
-    );
-}
-
-#[test]
-fn invalid_user_event_preserves_capture() {
-    let (mut projection, mut snapshot, mut run, _) = fixture();
-    run.input = Some(SentInput {
-        message: "Preserve this input".into(),
-        attachments: Vec::new(),
-    });
-    Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    let entry = Entry {
-        sequence: 0,
-        id: "invalid-user".into(),
-        turn: run.turn,
-        author: "user".into(),
-        branch: String::new(),
-        timestamp_ms: 0,
-        parts: vec![Part::Text("Rejected event".into())],
-        citations: Vec::new(),
-        search_suggestions: None,
-        usage: None,
-    };
-    assert!(
-        projection
-            .apply(1, frame(&snapshot, 11, Change::Entry(entry)))
-            .is_err()
-    );
-    assert_eq!(projection.snapshot().unwrap(), &snapshot);
+fn rejects_changes_without_losing_capture() {
+    for (case_name, run) in [
+        (
+            "rejects_changed_capture_and_private_runs",
+            (|case_name| {
+                let (mut projection, mut snapshot, mut run, _) = fixture();
+                run.input = Some(SentInput {
+                    message: "Immutable input".into(),
+                    attachments: Vec::new(),
+                });
+                Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                let original = projection.snapshot().unwrap().clone();
+                run.input.as_mut().unwrap().message.text = "Changed input".into();
+                assert!(
+                    projection
+                        .apply(1, frame(&snapshot, 11, Change::Run(run)))
+                        .is_err(),
+                    "{case_name}"
+                );
+                assert_eq!(projection.snapshot().unwrap(), &original, "{case_name}");
+                let mut invalid = snapshot.clone();
+                Arc::make_mut(&mut invalid.page).runs[0].kind = RunKind::Compaction;
+                let mut fresh = Projection::new(snapshot.node, snapshot.page.session, 1);
+                assert!(
+                    fresh
+                        .apply(1, Update::ConversationSnapshot(Box::new(invalid)))
+                        .is_err(),
+                    "{case_name}"
+                );
+                let mut invalid = snapshot.clone();
+                Arc::make_mut(&mut invalid.page).runs[0].status = Status::Queued;
+                Arc::make_mut(&mut invalid.page).runs[0].notice = true;
+                let mut fresh = Projection::new(snapshot.node, snapshot.page.session, 1);
+                assert!(
+                    fresh
+                        .apply(1, Update::ConversationSnapshot(Box::new(invalid)))
+                        .is_err(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "invalid_user_event_preserves_capture",
+            (|case_name| {
+                let (mut projection, mut snapshot, mut run, _) = fixture();
+                run.input = Some(SentInput {
+                    message: "Preserve this input".into(),
+                    attachments: Vec::new(),
+                });
+                Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                let entry = Entry {
+                    sequence: 0,
+                    id: "invalid-user".into(),
+                    turn: run.turn,
+                    author: "user".into(),
+                    branch: String::new(),
+                    timestamp_ms: 0,
+                    parts: vec![Part::Text("Rejected event".into())],
+                    citations: Vec::new(),
+                    search_suggestions: None,
+                    usage: None,
+                };
+                assert!(
+                    projection
+                        .apply(1, frame(&snapshot, 11, Change::Entry(entry)))
+                        .is_err(),
+                    "{case_name}"
+                );
+                assert_eq!(projection.snapshot().unwrap(), &snapshot, "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "preserves_queued_child_input_through_claim",
+            (|case_name| {
+                let (mut projection, mut snapshot, mut run, _) = fixture();
+                run.status = Status::Queued;
+                run.input = Some(SentInput {
+                    message: "Independent child task 中文 🙂".into(),
+                    attachments: Vec::new(),
+                });
+                Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                let original = super::super::super::turns::input(
+                    &projection.snapshot().unwrap().page,
+                    run.turn,
+                )
+                .unwrap();
+                run.status = Status::Running;
+                projection
+                    .apply(1, frame(&snapshot, 11, Change::Run(run.clone())))
+                    .unwrap();
+                assert_eq!(
+                    super::super::super::turns::input(
+                        &projection.snapshot().unwrap().page,
+                        run.turn
+                    ),
+                    Some(original.clone()),
+                    "{case_name}"
+                );
+                let mut changed = run;
+                changed.input.as_mut().unwrap().message.text =
+                    "Parent prompt must not replace child input".into();
+                assert!(
+                    projection
+                        .apply(1, frame(&snapshot, 12, Change::Run(changed)))
+                        .is_err(),
+                    "{case_name}"
+                );
+                assert_eq!(
+                    super::super::super::turns::input(
+                        &projection.snapshot().unwrap().page,
+                        snapshot.page.runs[0].turn
+                    ),
+                    Some(original),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
+    }
 }
 
 #[test]
@@ -172,45 +235,6 @@ fn reconnect_restores_capture_with_same_turn() {
     assert_eq!(
         super::super::super::turns::input(&current.page, run.turn),
         run.input
-    );
-}
-
-#[test]
-fn preserves_queued_child_input_through_claim() {
-    let (mut projection, mut snapshot, mut run, _) = fixture();
-    run.status = Status::Queued;
-    run.input = Some(SentInput {
-        message: "Independent child task 中文 🙂".into(),
-        attachments: Vec::new(),
-    });
-    Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    let original =
-        super::super::super::turns::input(&projection.snapshot().unwrap().page, run.turn).unwrap();
-    run.status = Status::Running;
-    projection
-        .apply(1, frame(&snapshot, 11, Change::Run(run.clone())))
-        .unwrap();
-    assert_eq!(
-        super::super::super::turns::input(&projection.snapshot().unwrap().page, run.turn),
-        Some(original.clone())
-    );
-    let mut changed = run;
-    changed.input.as_mut().unwrap().message.text =
-        "Parent prompt must not replace child input".into();
-    assert!(
-        projection
-            .apply(1, frame(&snapshot, 12, Change::Run(changed)))
-            .is_err()
-    );
-    assert_eq!(
-        super::super::super::turns::input(
-            &projection.snapshot().unwrap().page,
-            snapshot.page.runs[0].turn
-        ),
-        Some(original)
     );
 }
 

@@ -92,80 +92,106 @@ void main() {
     }
   });
 
-  test('approvals retain their loaded arguments across deltas', () {
-    final arguments = <String, dynamic>{'command': 'echo exact'};
-    final call = <String, dynamic>{
-      'source': {'entry': 'entry', 'index': 0},
-      'detail_key': 'approval/revision',
-      'detail_state': {'kind': 'ready'},
-      'approval_view': {'unrestricted': false},
-      'detail': {'arguments': arguments, 'result': 'Unneeded output'},
-    };
-    Map<String, dynamic> view(Map<String, dynamic> call) => {
-      'snapshot': {
-        'page': {'session': 'session'},
-      },
-      'calls': [call],
-    };
-    final next = <String, dynamic>{
-      'source': call['source'],
-      'detail_key': call['detail_key'],
-      'detail_state': call['detail_state'],
-      'approval_view': {'unrestricted': true},
-    };
-    final merged = mergeToolDetails(view(call), view(next));
-    final current = (merged['calls'] as List).single as Map<String, dynamic>;
-    final before = jsonEncode(current);
-    expect(current['detail'], same(call['detail']));
-    expect(toolArguments(current, const {}), equals(arguments));
-    expect(current['approval_view'], {'unrestricted': true});
-    expect(detailAllowsDecision(current, 'approve'), isTrue);
-    expect(jsonEncode(current), before);
-  });
-
-  test('questions use their summary without loading output', () {
-    final spec = <String, dynamic>{
-      'prompt': 'Choose an option',
-      'input': {
-        'kind': 'choice',
-        'options': ['First', 'Second'],
-        'multiple': false,
-        'allow_other': true,
-      },
-    };
-    final page = <String, dynamic>{
-      'entries': [
-        {
-          'id': 'entry',
-          'parts': [
-            {'kind': 'text', 'data': 'Before'},
-            {
-              'kind': 'tool_call',
-              'data': {
-                'summary': {'question': spec},
-              },
+  test("reads captured approval arguments and summarized question inputs", () {
+    for (final (caseName, run) in <(String, void Function(String))>[
+      (
+        "approvals retain their loaded arguments across deltas",
+        (caseName) {
+          final arguments = <String, dynamic>{'command': 'echo exact'};
+          final call = <String, dynamic>{
+            'source': {'entry': 'entry', 'index': 0},
+            'detail_key': 'approval/revision',
+            'detail_state': {'kind': 'ready'},
+            'approval_view': {'unrestricted': false},
+            'detail': {'arguments': arguments, 'result': 'Unneeded output'},
+          };
+          Map<String, dynamic> view(Map<String, dynamic> call) => {
+            'snapshot': {
+              'page': {'session': 'session'},
             },
-          ],
+            'calls': [call],
+          };
+          final next = <String, dynamic>{
+            'source': call['source'],
+            'detail_key': call['detail_key'],
+            'detail_state': call['detail_state'],
+            'approval_view': {'unrestricted': true},
+          };
+          final merged = mergeToolDetails(view(call), view(next));
+          final current =
+              (merged['calls'] as List).single as Map<String, dynamic>;
+          final before = jsonEncode(current);
+          expect(current['detail'], same(call['detail']), reason: caseName);
+          expect(
+            toolArguments(current, const {}),
+            equals(arguments),
+            reason: caseName,
+          );
+          expect(current['approval_view'], {
+            'unrestricted': true,
+          }, reason: caseName);
+          expect(
+            detailAllowsDecision(current, 'approve'),
+            isTrue,
+            reason: caseName,
+          );
+          expect(jsonEncode(current), before, reason: caseName);
         },
-      ],
-    };
-    final call = <String, dynamic>{
-      'source': {'entry': 'entry', 'index': 1},
-      'question': {
-        'state': {'kind': 'pending'},
-      },
-      'details': false,
-    };
-    final before = jsonEncode([call, page]);
-    expect(toolArguments(call, page), equals(spec));
-    expect(toolDetail(call), isNull);
-    expect(jsonEncode([call, page]), before);
-    for (final source in [
-      {'entry': 'missing', 'index': 1},
-      {'entry': 'entry', 'index': -1},
-      {'entry': 'entry', 'index': 2},
+      ),
+      (
+        "questions use their summary without loading output",
+        (caseName) {
+          final spec = <String, dynamic>{
+            'prompt': 'Choose an option',
+            'input': {
+              'kind': 'choice',
+              'options': ['First', 'Second'],
+              'multiple': false,
+              'allow_other': true,
+            },
+          };
+          final page = <String, dynamic>{
+            'entries': [
+              {
+                'id': 'entry',
+                'parts': [
+                  {'kind': 'text', 'data': 'Before'},
+                  {
+                    'kind': 'tool_call',
+                    'data': {
+                      'summary': {'question': spec},
+                    },
+                  },
+                ],
+              },
+            ],
+          };
+          final call = <String, dynamic>{
+            'source': {'entry': 'entry', 'index': 1},
+            'question': {
+              'state': {'kind': 'pending'},
+            },
+            'details': false,
+          };
+          final before = jsonEncode([call, page]);
+          expect(toolArguments(call, page), equals(spec), reason: caseName);
+          expect(toolDetail(call), isNull, reason: caseName);
+          expect(jsonEncode([call, page]), before, reason: caseName);
+          for (final source in [
+            {'entry': 'missing', 'index': 1},
+            {'entry': 'entry', 'index': -1},
+            {'entry': 'entry', 'index': 2},
+          ]) {
+            expect(
+              toolArguments({'source': source}, page),
+              isEmpty,
+              reason: caseName,
+            );
+          }
+        },
+      ),
     ]) {
-      expect(toolArguments({'source': source}, page), isEmpty);
+      run(caseName);
     }
   });
 }

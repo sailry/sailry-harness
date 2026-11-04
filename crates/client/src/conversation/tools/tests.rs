@@ -45,51 +45,183 @@ fn missing_details_permit_only_denial() {
 }
 
 #[test]
-fn shares_localized_approval_facts() {
-    let mut page = page();
-    let command = sailry_protocol::tool::LocalText {
-        label: "Run the captured command".into(),
-        locales: [("zh-CN".into(), "运行捕获的命令".into())].into(),
-    };
-    let notice = sailry_protocol::tool::LocalText {
-        label: "Writes outside the worktree".into(),
-        locales: Default::default(),
-    };
-    let Part::ToolCall { summary, .. } =
-        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
-    else {
-        unreachable!()
-    };
-    summary.resolved = Some(display::Resolved {
-        label: Some(command.clone()),
-        input: display::Input {
-            summary: Some(display::Text {
-                text: command.label.clone(),
-                code: true,
-            }),
-            context: Some(display::Text {
-                text: "/project".into(),
-                code: false,
-            }),
-            ..Default::default()
-        },
-        approval: vec![command.clone(), notice.clone()],
-        output: None,
-        status: None,
-        command: None,
-        diagnostics: vec![],
-    });
-    let call = collect(&page).remove(0);
-    let view = call.approval_view(&page);
-    assert_eq!(view.description, Some(command.clone()));
-    assert_eq!(view.prompt, Some(command));
-    assert_eq!(
-        view.description.as_ref().unwrap().label("zh-CN"),
-        "运行捕获的命令"
-    );
-    assert_eq!(view.context.as_deref(), Some("/project"));
-    assert_eq!(view.notices, [notice]);
-    assert!(view.code);
+fn preserves_captured_presentation() {
+    for (case_name, run) in [
+        (
+            "shares_localized_approval_facts",
+            (|case_name| {
+                let mut page = page();
+                let command = sailry_protocol::tool::LocalText {
+                    label: "Run the captured command".into(),
+                    locales: [("zh-CN".into(), "运行捕获的命令".into())].into(),
+                };
+                let notice = sailry_protocol::tool::LocalText {
+                    label: "Writes outside the worktree".into(),
+                    locales: Default::default(),
+                };
+                let Part::ToolCall { summary, .. } =
+                    &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+                else {
+                    unreachable!()
+                };
+                summary.resolved = Some(display::Resolved {
+                    label: Some(command.clone()),
+                    input: display::Input {
+                        summary: Some(display::Text {
+                            text: command.label.clone(),
+                            code: true,
+                        }),
+                        context: Some(display::Text {
+                            text: "/project".into(),
+                            code: false,
+                        }),
+                        ..Default::default()
+                    },
+                    approval: vec![command.clone(), notice.clone()],
+                    output: None,
+                    status: None,
+                    command: None,
+                    diagnostics: vec![],
+                });
+                let call = collect(&page).remove(0);
+                let view = call.approval_view(&page);
+                assert_eq!(view.description, Some(command.clone()), "{case_name}");
+                assert_eq!(view.prompt, Some(command), "{case_name}");
+                assert_eq!(
+                    view.description.as_ref().unwrap().label("zh-CN"),
+                    "运行捕获的命令",
+                    "{case_name}"
+                );
+                assert_eq!(view.context.as_deref(), Some("/project"), "{case_name}");
+                assert_eq!(view.notices, [notice], "{case_name}");
+                assert!(view.code, "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "retains_localized_display_without_a_live_package",
+            (|case_name| {
+                let mut page = page();
+                let label = serde_json::from_value(json!({
+                    "label":"Read", "locales":{"zh-CN":"读取"}
+                }))
+                .unwrap();
+                if let Part::ToolCall { summary, .. } =
+                    &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+                {
+                    summary.resolved = Some(display::Resolved {
+                        label: Some(label),
+                        input: display::Input {
+                            summary: Some(display::Text {
+                                text: "source.rs".into(),
+                                code: true,
+                            }),
+                            ..Default::default()
+                        },
+                        output: None,
+                        approval: vec![],
+                        status: None,
+                        command: None,
+                        diagnostics: vec![],
+                    });
+                }
+                let restored: Page =
+                    serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
+                let calls = collect(&restored);
+                let row = calls[0].row(&restored);
+                assert_eq!(
+                    row.label.as_ref().unwrap().label("zh-CN"),
+                    "读取",
+                    "{case_name}"
+                );
+                assert_eq!(
+                    row.label.as_ref().unwrap().label("en"),
+                    "Read",
+                    "{case_name}"
+                );
+                assert_eq!(
+                    row.detail.as_ref().map(|field| field.text.as_str()),
+                    Some("source.rs"),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "uses_declared_presentation",
+            (|case_name| {
+                let mut page = page();
+                if let Part::ToolCall { presentation, .. } =
+                    &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+                {
+                    *presentation = sailry_protocol::tool::Presentation::Summary;
+                }
+                std::sync::Arc::make_mut(&mut page.entries).push(entry(
+                    2,
+                    page.runs[0].turn,
+                    "",
+                    true,
+                ));
+                assert_eq!(
+                    collect(&page)[0].presentation,
+                    sailry_protocol::tool::Presentation::Summary,
+                    "{case_name}"
+                );
+                let rebuilt: Page =
+                    serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
+                assert_eq!(
+                    collect(&rebuilt)[0].presentation,
+                    collect(&page)[0].presentation,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "preserves_grouping_before_and_after_results",
+            (|case_name| {
+                use sailry_protocol::tool::{Grouping, Presentation};
+                let mut page = page();
+                if let Part::ToolCall { grouping, .. } =
+                    &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+                {
+                    *grouping = Grouping::Standalone;
+                }
+                assert_eq!(
+                    collect(&page)[0].grouping,
+                    Grouping::Standalone,
+                    "{case_name}"
+                );
+                std::sync::Arc::make_mut(&mut page.entries).push(entry(
+                    2,
+                    page.runs[0].turn,
+                    "",
+                    true,
+                ));
+                let call = &collect(&page)[0];
+                assert_eq!(call.grouping, Grouping::Standalone, "{case_name}");
+                assert_eq!(
+                    serde_json::to_value(call).unwrap()["grouping"],
+                    "standalone",
+                    "{case_name}"
+                );
+                if let Part::ToolCall {
+                    grouping,
+                    presentation,
+                    ..
+                } = &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+                {
+                    *grouping = Grouping::Sequence;
+                    *presentation = Presentation::Progress;
+                }
+                std::sync::Arc::make_mut(&mut page.entries).pop();
+                assert_eq!(
+                    collect(&page)[0].grouping,
+                    Grouping::Standalone,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
+    }
 }
 
 fn input_summary(value: Value) -> Box<sailry_protocol::tool::detail::Summary> {
@@ -188,138 +320,166 @@ fn page() -> Page {
 }
 
 #[test]
-fn references_results() {
-    let mut page = page();
-    assert_eq!(collect(&page)[0].state, State::Waiting);
-    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, page.runs[0].turn, "", true));
-    let calls = collect(&page);
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].source.key(), "event-1-0");
-    assert_eq!(calls[0].state, State::Returned);
-    assert!(calls[0].arguments(&page).is_none());
-    assert!(calls[0].result(&page).is_none());
-}
-
-#[test]
-fn retains_localized_display_without_a_live_package() {
-    let mut page = page();
-    let label = serde_json::from_value(json!({
-        "label":"Read", "locales":{"zh-CN":"读取"}
-    }))
-    .unwrap();
-    if let Part::ToolCall { summary, .. } =
-        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
-    {
-        summary.resolved = Some(display::Resolved {
-            label: Some(label),
-            input: display::Input {
-                summary: Some(display::Text {
-                    text: "source.rs".into(),
-                    code: true,
-                }),
-                ..Default::default()
-            },
-            output: None,
-            approval: vec![],
-            status: None,
-            command: None,
-            diagnostics: vec![],
-        });
+fn reduces_execution_transitions() {
+    for (case_name, run) in [
+        (
+            "references_results",
+            (|case_name| {
+                let mut page = page();
+                assert_eq!(collect(&page)[0].state, State::Waiting, "{case_name}");
+                std::sync::Arc::make_mut(&mut page.entries).push(entry(
+                    2,
+                    page.runs[0].turn,
+                    "",
+                    true,
+                ));
+                let calls = collect(&page);
+                assert_eq!(calls.len(), 1, "{case_name}");
+                assert_eq!(calls[0].source.key(), "event-1-0", "{case_name}");
+                assert_eq!(calls[0].state, State::Returned, "{case_name}");
+                assert!(calls[0].arguments(&page).is_none(), "{case_name}");
+                assert!(calls[0].result(&page).is_none(), "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "approval_does_not_imply_execution",
+            (|case_name| {
+                let mut page = page();
+                let approval = sailry_protocol::conversation::Approval {
+                    id: sailry_protocol::ApprovalId::new(),
+                    session: page.session,
+                    turn: page.runs[0].turn,
+                    entry: page.entries[0].id.clone(),
+                    index: 0,
+                    state: sailry_protocol::conversation::ApprovalState::Approved,
+                    source: sailry_protocol::conversation::ApprovalSource::User,
+                    access: None,
+                    startup: None,
+                    ssh: None,
+                    can_remember: false,
+                    prefix: None,
+                    choice: Some(sailry_protocol::conversation::ApprovalChoice::Once),
+                    reason: None,
+                };
+                page.approvals.push(approval.clone());
+                assert_eq!(
+                    collect(&page)[0].approval.as_ref(),
+                    Some(&approval),
+                    "{case_name}"
+                );
+                assert_eq!(collect(&page)[0].state, State::Waiting, "{case_name}");
+                page.runs[0].status = Status::Cancelled;
+                assert_eq!(collect(&page)[0].state, State::Interrupted, "{case_name}");
+                std::sync::Arc::make_mut(&mut page.entries).push(entry(
+                    2,
+                    page.runs[0].turn,
+                    "",
+                    true,
+                ));
+                assert_eq!(collect(&page)[0].state, State::Returned, "{case_name}");
+                page.approvals[0].turn = TurnId::new();
+                assert!(collect(&page)[0].approval.is_none(), "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "distinguishes_denial_and_interruption",
+            (|case_name| {
+                use sailry_protocol::conversation::{Approval, ApprovalSource, ApprovalState};
+                let mut page = page();
+                page.runs[0].status = Status::Interrupted;
+                page.approvals.push(Approval {
+                    id: sailry_protocol::ApprovalId::new(),
+                    session: page.session,
+                    turn: page.runs[0].turn,
+                    entry: page.entries[0].id.clone(),
+                    index: 0,
+                    state: ApprovalState::Interrupted,
+                    source: ApprovalSource::User,
+                    access: None,
+                    startup: None,
+                    ssh: None,
+                    can_remember: false,
+                    prefix: None,
+                    choice: None,
+                    reason: None,
+                });
+                assert_eq!(collect(&page)[0].state, State::NotExecuted, "{case_name}");
+                page.approvals[0].state = ApprovalState::Approved;
+                assert_eq!(collect(&page)[0].state, State::Interrupted, "{case_name}");
+                page.approvals[0].state = ApprovalState::Interrupted;
+                let mut started = entry(2, page.runs[0].turn, "", false);
+                started.parts = vec![Part::Resource(json!({
+                    "type": "tool_started", "id": "call", "name": "read_file"
+                }))];
+                std::sync::Arc::make_mut(&mut page.entries).push(started);
+                assert_eq!(collect(&page)[0].state, State::Interrupted, "{case_name}");
+                std::sync::Arc::make_mut(&mut page.entries).push(entry(
+                    3,
+                    page.runs[0].turn,
+                    "",
+                    true,
+                ));
+                assert_eq!(collect(&page)[0].state, State::Returned, "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "retains_uncertain_calls",
+            (|case_name| {
+                let mut page = page();
+                let turn = page.runs[0].turn;
+                std::sync::Arc::make_mut(&mut page.entries).push(entry(2, turn, "", false));
+                std::sync::Arc::make_mut(&mut page.entries).push(entry(3, turn, "", true));
+                let calls = collect(&page);
+                assert_eq!(calls.len(), 3, "{case_name}");
+                assert!(
+                    calls[..2].iter().all(|call| call.response.is_none()),
+                    "{case_name}"
+                );
+                page.runs[0].status = Status::Cancelled;
+                assert_eq!(collect(&page)[0].state, State::Cancelled, "{case_name}");
+                page.runs[0].status = Status::Completed;
+                assert_eq!(collect(&page)[0].state, State::Interrupted, "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "starts_only_the_matching_call",
+            (|case_name| {
+                let mut page = page();
+                let turn = page.runs[0].turn;
+                let mut queued = entry(2, turn, "", false);
+                if let Part::ToolCall { id, .. } = &mut queued.parts[0] {
+                    *id = Some("later".into());
+                }
+                std::sync::Arc::make_mut(&mut page.entries).push(queued);
+                let mut started = entry(3, turn, "", false);
+                started.parts = vec![Part::Resource(
+                    json!({"type":"tool_started", "id":"call", "name":"read_file"}),
+                )];
+                std::sync::Arc::make_mut(&mut page.entries).push(started);
+                assert_eq!(
+                    collect(&page)
+                        .iter()
+                        .map(|call| call.state)
+                        .collect::<Vec<_>>(),
+                    [State::Running, State::Waiting],
+                    "{case_name}"
+                );
+                std::sync::Arc::make_mut(&mut page.entries).push(entry(4, turn, "", true));
+                assert_eq!(
+                    collect(&page)
+                        .iter()
+                        .map(|call| call.state)
+                        .collect::<Vec<_>>(),
+                    [State::Returned, State::Waiting],
+                    "{case_name}"
+                );
+                page.runs[0].status = Status::Cancelled;
+                assert_eq!(collect(&page)[1].state, State::Cancelled, "{case_name}");
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
     }
-    let restored: Page = serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
-    let calls = collect(&restored);
-    let row = calls[0].row(&restored);
-    assert_eq!(row.label.as_ref().unwrap().label("zh-CN"), "读取");
-    assert_eq!(row.label.as_ref().unwrap().label("en"), "Read");
-    assert_eq!(
-        row.detail.as_ref().map(|field| field.text.as_str()),
-        Some("source.rs")
-    );
-}
-
-#[test]
-fn uses_declared_presentation() {
-    let mut page = page();
-    if let Part::ToolCall { presentation, .. } =
-        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
-    {
-        *presentation = sailry_protocol::tool::Presentation::Summary;
-    }
-    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, page.runs[0].turn, "", true));
-    assert_eq!(
-        collect(&page)[0].presentation,
-        sailry_protocol::tool::Presentation::Summary
-    );
-    let rebuilt: Page = serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
-    assert_eq!(
-        collect(&rebuilt)[0].presentation,
-        collect(&page)[0].presentation
-    );
-}
-
-#[test]
-fn approval_does_not_imply_execution() {
-    let mut page = page();
-    let approval = sailry_protocol::conversation::Approval {
-        id: sailry_protocol::ApprovalId::new(),
-        session: page.session,
-        turn: page.runs[0].turn,
-        entry: page.entries[0].id.clone(),
-        index: 0,
-        state: sailry_protocol::conversation::ApprovalState::Approved,
-        source: sailry_protocol::conversation::ApprovalSource::User,
-        access: None,
-        startup: None,
-        ssh: None,
-        can_remember: false,
-        prefix: None,
-        choice: Some(sailry_protocol::conversation::ApprovalChoice::Once),
-        reason: None,
-    };
-    page.approvals.push(approval.clone());
-    assert_eq!(collect(&page)[0].approval.as_ref(), Some(&approval));
-    assert_eq!(collect(&page)[0].state, State::Waiting);
-    page.runs[0].status = Status::Cancelled;
-    assert_eq!(collect(&page)[0].state, State::Interrupted);
-    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, page.runs[0].turn, "", true));
-    assert_eq!(collect(&page)[0].state, State::Returned);
-    page.approvals[0].turn = TurnId::new();
-    assert!(collect(&page)[0].approval.is_none());
-}
-
-#[test]
-fn distinguishes_denial_and_interruption() {
-    use sailry_protocol::conversation::{Approval, ApprovalSource, ApprovalState};
-    let mut page = page();
-    page.runs[0].status = Status::Interrupted;
-    page.approvals.push(Approval {
-        id: sailry_protocol::ApprovalId::new(),
-        session: page.session,
-        turn: page.runs[0].turn,
-        entry: page.entries[0].id.clone(),
-        index: 0,
-        state: ApprovalState::Interrupted,
-        source: ApprovalSource::User,
-        access: None,
-        startup: None,
-        ssh: None,
-        can_remember: false,
-        prefix: None,
-        choice: None,
-        reason: None,
-    });
-    assert_eq!(collect(&page)[0].state, State::NotExecuted);
-    page.approvals[0].state = ApprovalState::Approved;
-    assert_eq!(collect(&page)[0].state, State::Interrupted);
-    page.approvals[0].state = ApprovalState::Interrupted;
-    let mut started = entry(2, page.runs[0].turn, "", false);
-    started.parts = vec![Part::Resource(json!({
-        "type": "tool_started", "id": "call", "name": "read_file"
-    }))];
-    std::sync::Arc::make_mut(&mut page.entries).push(started);
-    assert_eq!(collect(&page)[0].state, State::Interrupted);
-    std::sync::Arc::make_mut(&mut page.entries).push(entry(3, page.runs[0].turn, "", true));
-    assert_eq!(collect(&page)[0].state, State::Returned);
 }
 
 #[test]
@@ -342,92 +502,97 @@ fn isolates_reused_ids() {
 }
 
 #[test]
-fn retains_unconsumed_answers() {
-    use sailry_protocol::conversation::question::{Answer, Question, State as QuestionState};
-    let mut page = page();
-    std::sync::Arc::make_mut(&mut page.entries)[0].parts[0] = Part::ToolCall {
-        presentation: Default::default(),
-        grouping: Default::default(),
-        id: Some("call".into()),
-        name: "ask_user".into(),
-        summary: input_summary(
-            json!({"prompt": "Describe", "input": {"kind": "text", "multiline": true, "max_bytes": 100}}),
+fn retains_pending_question_answers() {
+    for (case_name, run) in [
+        (
+            "retains_unconsumed_answers",
+            (|case_name| {
+                use sailry_protocol::conversation::question::{
+                    Answer, Question, State as QuestionState,
+                };
+                let mut page = page();
+                std::sync::Arc::make_mut(&mut page.entries)[0].parts[0] = Part::ToolCall {
+                    presentation: Default::default(),
+                    grouping: Default::default(),
+                    id: Some("call".into()),
+                    name: "ask_user".into(),
+                    summary: input_summary(
+                        json!({"prompt": "Describe", "input": {"kind": "text", "multiline": true, "max_bytes": 100}}),
+                    ),
+                };
+                let question = Question {
+                    id: sailry_protocol::QuestionId::new(),
+                    session: page.session,
+                    turn: page.runs[0].turn,
+                    entry: page.entries[0].id.clone(),
+                    index: 0,
+                    state: QuestionState::Answered(Answer::Text("answer".into())),
+                };
+                page.questions.push(question.clone());
+                let calls = collect(&page);
+                assert_eq!(calls[0].question, Some(question), "{case_name}");
+                assert_eq!(
+                    calls[0].question_spec(&page).unwrap().prompt,
+                    "Describe",
+                    "{case_name}"
+                );
+                assert_eq!(calls[0].state, State::Waiting, "{case_name}");
+                page.runs[0].status = Status::Cancelled;
+                assert_eq!(collect(&page)[0].state, State::Interrupted, "{case_name}");
+                page.questions[0].state = QuestionState::Cancelled;
+                assert_eq!(collect(&page)[0].state, State::Cancelled, "{case_name}");
+                page.questions[0].turn = TurnId::new();
+                assert!(collect(&page)[0].question.is_none(), "{case_name}");
+            }) as fn(&str),
         ),
-    };
-    let question = Question {
-        id: sailry_protocol::QuestionId::new(),
-        session: page.session,
-        turn: page.runs[0].turn,
-        entry: page.entries[0].id.clone(),
-        index: 0,
-        state: QuestionState::Answered(Answer::Text("answer".into())),
-    };
-    page.questions.push(question.clone());
-    let calls = collect(&page);
-    assert_eq!(calls[0].question, Some(question));
-    assert_eq!(calls[0].question_spec(&page).unwrap().prompt, "Describe");
-    assert_eq!(calls[0].state, State::Waiting);
-    page.runs[0].status = Status::Cancelled;
-    assert_eq!(collect(&page)[0].state, State::Interrupted);
-    page.questions[0].state = QuestionState::Cancelled;
-    assert_eq!(collect(&page)[0].state, State::Cancelled);
-    page.questions[0].turn = TurnId::new();
-    assert!(collect(&page)[0].question.is_none());
-}
-
-#[test]
-fn started_question_retains_pending_input() {
-    use sailry_protocol::conversation::question::{Question, State as QuestionState};
-    let mut page = page();
-    std::sync::Arc::make_mut(&mut page.entries)[0].parts[0] = Part::ToolCall {
-        presentation: Default::default(),
-        grouping: Default::default(),
-        id: Some("call".into()),
-        name: "ask_user".into(),
-        summary: input_summary(
-            json!({"prompt":"Describe", "input":{"kind":"text", "multiline":true, "max_bytes":100}}),
+        (
+            "started_question_retains_pending_input",
+            (|case_name| {
+                use sailry_protocol::conversation::question::{Question, State as QuestionState};
+                let mut page = page();
+                std::sync::Arc::make_mut(&mut page.entries)[0].parts[0] = Part::ToolCall {
+                    presentation: Default::default(),
+                    grouping: Default::default(),
+                    id: Some("call".into()),
+                    name: "ask_user".into(),
+                    summary: input_summary(
+                        json!({"prompt":"Describe", "input":{"kind":"text", "multiline":true, "max_bytes":100}}),
+                    ),
+                };
+                let question = Question {
+                    id: sailry_protocol::QuestionId::new(),
+                    session: page.session,
+                    turn: page.runs[0].turn,
+                    entry: page.entries[0].id.clone(),
+                    index: 0,
+                    state: QuestionState::Pending,
+                };
+                page.questions.push(question.clone());
+                let admitted = collect(&page);
+                assert_eq!(admitted[0].state, State::Waiting, "{case_name}");
+                assert_eq!(admitted[0].question, Some(question.clone()), "{case_name}");
+                let mut started = entry(2, question.turn, "", false);
+                started.parts = vec![Part::Resource(json!({
+                    "type":"tool_started", "id":"call", "name":"ask_user"
+                }))];
+                std::sync::Arc::make_mut(&mut page.entries).push(started);
+                let calls = collect(&page);
+                assert_eq!(calls.len(), 1, "{case_name}");
+                assert_eq!(calls[0].state, State::Running, "{case_name}");
+                assert_eq!(calls[0].question, Some(question.clone()), "{case_name}");
+                assert_eq!(calls[0].source.entry, question.entry, "{case_name}");
+                assert_eq!(calls[0].source.index, question.index, "{case_name}");
+                assert!(calls[0].response.is_none(), "{case_name}");
+                assert_eq!(
+                    calls[0].question_spec(&page).unwrap().prompt,
+                    "Describe",
+                    "{case_name}"
+                );
+            }) as fn(&str),
         ),
-    };
-    let question = Question {
-        id: sailry_protocol::QuestionId::new(),
-        session: page.session,
-        turn: page.runs[0].turn,
-        entry: page.entries[0].id.clone(),
-        index: 0,
-        state: QuestionState::Pending,
-    };
-    page.questions.push(question.clone());
-    let admitted = collect(&page);
-    assert_eq!(admitted[0].state, State::Waiting);
-    assert_eq!(admitted[0].question, Some(question.clone()));
-    let mut started = entry(2, question.turn, "", false);
-    started.parts = vec![Part::Resource(json!({
-        "type":"tool_started", "id":"call", "name":"ask_user"
-    }))];
-    std::sync::Arc::make_mut(&mut page.entries).push(started);
-    let calls = collect(&page);
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].state, State::Running);
-    assert_eq!(calls[0].question, Some(question.clone()));
-    assert_eq!(calls[0].source.entry, question.entry);
-    assert_eq!(calls[0].source.index, question.index);
-    assert!(calls[0].response.is_none());
-    assert_eq!(calls[0].question_spec(&page).unwrap().prompt, "Describe");
-}
-
-#[test]
-fn retains_uncertain_calls() {
-    let mut page = page();
-    let turn = page.runs[0].turn;
-    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, turn, "", false));
-    std::sync::Arc::make_mut(&mut page.entries).push(entry(3, turn, "", true));
-    let calls = collect(&page);
-    assert_eq!(calls.len(), 3);
-    assert!(calls[..2].iter().all(|call| call.response.is_none()));
-    page.runs[0].status = Status::Cancelled;
-    assert_eq!(collect(&page)[0].state, State::Cancelled);
-    page.runs[0].status = Status::Completed;
-    assert_eq!(collect(&page)[0].state, State::Interrupted);
+    ] {
+        run(case_name);
+    }
 }
 
 #[test]
@@ -471,67 +636,4 @@ fn reuses_calls_during_streaming() {
     let serialized = serde_json::to_value(&view).unwrap();
     assert_eq!(serialized["calls"][0]["response"]["entry"], "event-2");
     assert!(serialized["calls"][0].get("result").is_none());
-}
-
-#[test]
-fn starts_only_the_matching_call() {
-    let mut page = page();
-    let turn = page.runs[0].turn;
-    let mut queued = entry(2, turn, "", false);
-    if let Part::ToolCall { id, .. } = &mut queued.parts[0] {
-        *id = Some("later".into());
-    }
-    std::sync::Arc::make_mut(&mut page.entries).push(queued);
-    let mut started = entry(3, turn, "", false);
-    started.parts = vec![Part::Resource(
-        json!({"type":"tool_started", "id":"call", "name":"read_file"}),
-    )];
-    std::sync::Arc::make_mut(&mut page.entries).push(started);
-    assert_eq!(
-        collect(&page)
-            .iter()
-            .map(|call| call.state)
-            .collect::<Vec<_>>(),
-        [State::Running, State::Waiting]
-    );
-    std::sync::Arc::make_mut(&mut page.entries).push(entry(4, turn, "", true));
-    assert_eq!(
-        collect(&page)
-            .iter()
-            .map(|call| call.state)
-            .collect::<Vec<_>>(),
-        [State::Returned, State::Waiting]
-    );
-    page.runs[0].status = Status::Cancelled;
-    assert_eq!(collect(&page)[1].state, State::Cancelled);
-}
-
-#[test]
-fn preserves_grouping_before_and_after_results() {
-    use sailry_protocol::tool::{Grouping, Presentation};
-    let mut page = page();
-    if let Part::ToolCall { grouping, .. } =
-        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
-    {
-        *grouping = Grouping::Standalone;
-    }
-    assert_eq!(collect(&page)[0].grouping, Grouping::Standalone);
-    std::sync::Arc::make_mut(&mut page.entries).push(entry(2, page.runs[0].turn, "", true));
-    let call = &collect(&page)[0];
-    assert_eq!(call.grouping, Grouping::Standalone);
-    assert_eq!(
-        serde_json::to_value(call).unwrap()["grouping"],
-        "standalone"
-    );
-    if let Part::ToolCall {
-        grouping,
-        presentation,
-        ..
-    } = &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
-    {
-        *grouping = Grouping::Sequence;
-        *presentation = Presentation::Progress;
-    }
-    std::sync::Arc::make_mut(&mut page.entries).pop();
-    assert_eq!(collect(&page)[0].grouping, Grouping::Standalone);
 }

@@ -40,23 +40,24 @@ mod tests {
     }
 
     #[test]
-    fn retains_retry_identity() {
+    fn retains_retries_and_replaces_changed_intents() {
         let mut claim = Claim::default();
         let relay = Relay::new("https://link.example").unwrap();
         let first = identity(claim.request(&relay, "123456"));
-        assert_eq!(first, identity(claim.request(&relay, "123456")));
+        assert_eq!(first, identity(claim.request(&relay, "123456")), "retry");
         let canonical = Relay::new("https://LINK.example:443/").unwrap();
-        assert_eq!(first, identity(claim.request(&canonical, "123456")));
-    }
-
-    #[test]
-    fn resets_for_other_pairing_intents() {
-        let mut claim = Claim::default();
-        let relay = Relay::new("https://link.example").unwrap();
-        let first = identity(claim.request(&relay, "123456"));
+        assert_eq!(
+            first,
+            identity(claim.request(&canonical, "123456")),
+            "canonical origin"
+        );
         let changed = identity(claim.request(&relay, "654321"));
-        assert_ne!(first, changed);
+        assert_ne!(first, changed, "changed code");
         let other = Relay::new("https://other.example").unwrap();
-        assert_ne!(changed, identity(claim.request(&other, "654321")));
+        assert_ne!(
+            changed,
+            identity(claim.request(&other, "654321")),
+            "changed relay"
+        );
     }
 }

@@ -270,44 +270,121 @@ async fn failed_continuation_preserves_existing_clipboard() {
 }
 
 #[test]
-fn invalidates_changed_parts_during_a_read() {
-    let backend = Backend::new();
-    let cache = Cache::default();
-    cache.reconcile(&backend.page(1));
-    let future = futures::future::pending().boxed().shared();
-    cache.values.lock().unwrap().loading.insert(
-        backend.reference.clone(),
-        Reading {
-            id: 1,
-            invalidated: false,
-            future: future.downgrade().unwrap(),
-        },
-    );
-    let mut page = backend.page(1);
-    let Part::ToolResult { summary, .. } =
-        &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
-    else {
-        unreachable!()
-    };
-    summary.revision = "b".repeat(64);
-    cache.reconcile(&page);
-    let detail = Arc::new(serde_json::from_str(&backend.text).unwrap());
-    assert!(!cache.finish(
-        &backend.reference,
-        1,
-        Some(Loaded {
-            detail,
-            bytes: backend.text.len()
-        })
-    ));
-    assert!(
-        cache
-            .values
-            .lock()
-            .unwrap()
-            .get(&backend.reference)
-            .is_none()
-    );
+fn invalidates_reads_and_bounds_cache_metadata() {
+    for (case_name, run) in [
+        (
+            "invalidates_changed_parts_during_a_read",
+            (|case_name| {
+                let backend = Backend::new();
+                let cache = Cache::default();
+                cache.reconcile(&backend.page(1));
+                let future = futures::future::pending().boxed().shared();
+                cache.values.lock().unwrap().loading.insert(
+                    backend.reference.clone(),
+                    Reading {
+                        id: 1,
+                        invalidated: false,
+                        future: future.downgrade().unwrap(),
+                    },
+                );
+                let mut page = backend.page(1);
+                let Part::ToolResult { summary, .. } =
+                    &mut std::sync::Arc::make_mut(&mut page.entries)[0].parts[0]
+                else {
+                    unreachable!()
+                };
+                summary.revision = "b".repeat(64);
+                cache.reconcile(&page);
+                let detail = Arc::new(serde_json::from_str(&backend.text).unwrap());
+                assert!(
+                    !cache.finish(
+                        &backend.reference,
+                        1,
+                        Some(Loaded {
+                            detail,
+                            bytes: backend.text.len()
+                        })
+                    ),
+                    "{case_name}"
+                );
+                assert!(
+                    cache
+                        .values
+                        .lock()
+                        .unwrap()
+                        .get(&backend.reference)
+                        .is_none(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "bounds_revision_metadata_without_cached_sessions",
+            (|case_name| {
+                let backend = Backend::new();
+                let cache = Cache::default();
+                for _ in 0..1000 {
+                    let mut page = backend.page(1);
+                    page.session = SessionId::new();
+                    cache.reconcile(&page);
+                }
+                assert_eq!(
+                    cache.values.lock().unwrap().revisions.len(),
+                    1,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "accounts_for_parsed_container_allocations",
+            (|case_name| {
+                let value = serde_json::Value::Array(vec![serde_json::Value::Null; 4096]);
+                let wire_bytes = serde_json::to_vec(&value).unwrap().len();
+                assert!(
+                    retained_bytes(&value) >= 4096 * std::mem::size_of::<serde_json::Value>(),
+                    "{case_name}"
+                );
+                assert!(retained_bytes(&value) > wire_bytes * 4, "{case_name}");
+                let backend = Backend::new();
+                let cache = Cache::default();
+                cache.values.lock().unwrap().loading.insert(
+                    backend.reference.clone(),
+                    Reading {
+                        id: 1,
+                        invalidated: false,
+                        future: futures::future::pending::<Result<Read, Fault>>()
+                            .boxed()
+                            .shared()
+                            .downgrade()
+                            .unwrap(),
+                    },
+                );
+                let detail = Arc::new(serde_json::from_str(&backend.text).unwrap());
+                assert!(
+                    cache.finish(
+                        &backend.reference,
+                        1,
+                        Some(Loaded {
+                            detail,
+                            bytes: MAX_BYTES + 1
+                        })
+                    ),
+                    "{case_name}"
+                );
+                assert!(
+                    cache
+                        .values
+                        .lock()
+                        .unwrap()
+                        .get(&backend.reference)
+                        .is_none(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
+    }
 }
 
 #[tokio::test]
@@ -381,77 +458,70 @@ async fn rejects_results_from_changed_generation() {
 }
 
 #[test]
-fn bounds_revision_metadata_without_cached_sessions() {
-    let backend = Backend::new();
-    let cache = Cache::default();
-    for _ in 0..1000 {
-        let mut page = backend.page(1);
-        page.session = SessionId::new();
-        cache.reconcile(&page);
+fn supports_callers_without_tokio_context() {
+    for (case_name, run) in [
+        (
+            "reads_without_a_tokio_caller",
+            (|case_name| {
+                let backend = Backend::new();
+                let client = Client::new(backend.clone());
+                let detail =
+                    futures::executor::block_on(client.tool_detail(backend.reference.clone()))
+                        .unwrap();
+                assert_eq!(
+                    detail.arguments["body"],
+                    "Original argument".repeat(10_000),
+                    "{case_name}"
+                );
+                assert!(
+                    client.cached_tool_detail(&backend.reference).is_some(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "panic_cleans_the_inflight_reference",
+            (|case_name| {
+                let backend = Backend::new();
+                *backend.panic_at.lock().unwrap() = Some(0);
+                let client = Client::new(backend.clone());
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    futures::executor::block_on(client.tool_detail(backend.reference.clone()))
+                }));
+                assert!(result.is_err(), "{case_name}");
+                assert!(
+                    client.details.values.lock().unwrap().loading.is_empty(),
+                    "{case_name}"
+                );
+                assert!(
+                    futures::executor::block_on(client.tool_detail(backend.reference.clone()))
+                        .is_ok(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "tracks_without_a_tokio_caller",
+            (|case_name| {
+                let runtime = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let backend = Backend::new();
+                let client = Arc::new(Client::new(backend.clone()));
+                let tracker = Tracker::new(client, runtime.handle().clone());
+                assert!(
+                    tokio::runtime::Handle::try_current().is_err(),
+                    "{case_name}"
+                );
+                tracker.set([backend.reference.clone()]);
+                let state = futures::executor::block_on(tracker.wait(&backend.reference));
+                assert!(matches!(state, State::Ready(_)), "{case_name}");
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
     }
-    assert_eq!(cache.values.lock().unwrap().revisions.len(), 1);
-}
-
-#[test]
-fn accounts_for_parsed_container_allocations() {
-    let value = serde_json::Value::Array(vec![serde_json::Value::Null; 4096]);
-    let wire_bytes = serde_json::to_vec(&value).unwrap().len();
-    assert!(retained_bytes(&value) >= 4096 * std::mem::size_of::<serde_json::Value>());
-    assert!(retained_bytes(&value) > wire_bytes * 4);
-    let backend = Backend::new();
-    let cache = Cache::default();
-    cache.values.lock().unwrap().loading.insert(
-        backend.reference.clone(),
-        Reading {
-            id: 1,
-            invalidated: false,
-            future: futures::future::pending::<Result<Read, Fault>>()
-                .boxed()
-                .shared()
-                .downgrade()
-                .unwrap(),
-        },
-    );
-    let detail = Arc::new(serde_json::from_str(&backend.text).unwrap());
-    assert!(cache.finish(
-        &backend.reference,
-        1,
-        Some(Loaded {
-            detail,
-            bytes: MAX_BYTES + 1
-        })
-    ));
-    assert!(
-        cache
-            .values
-            .lock()
-            .unwrap()
-            .get(&backend.reference)
-            .is_none()
-    );
-}
-
-#[test]
-fn reads_without_a_tokio_caller() {
-    let backend = Backend::new();
-    let client = Client::new(backend.clone());
-    let detail =
-        futures::executor::block_on(client.tool_detail(backend.reference.clone())).unwrap();
-    assert_eq!(detail.arguments["body"], "Original argument".repeat(10_000));
-    assert!(client.cached_tool_detail(&backend.reference).is_some());
-}
-
-#[test]
-fn panic_cleans_the_inflight_reference() {
-    let backend = Backend::new();
-    *backend.panic_at.lock().unwrap() = Some(0);
-    let client = Client::new(backend.clone());
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        futures::executor::block_on(client.tool_detail(backend.reference.clone()))
-    }));
-    assert!(result.is_err());
-    assert!(client.details.values.lock().unwrap().loading.is_empty());
-    assert!(futures::executor::block_on(client.tool_detail(backend.reference.clone())).is_ok());
 }
 
 #[tokio::test]
@@ -565,21 +635,6 @@ async fn retries_then_requires_an_explicit_attempt() {
         State::Ready(_)
     ));
     assert!(tracker.failures().is_empty());
-}
-
-#[test]
-fn tracks_without_a_tokio_caller() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let backend = Backend::new();
-    let client = Arc::new(Client::new(backend.clone()));
-    let tracker = Tracker::new(client, runtime.handle().clone());
-    assert!(tokio::runtime::Handle::try_current().is_err());
-    tracker.set([backend.reference.clone()]);
-    let state = futures::executor::block_on(tracker.wait(&backend.reference));
-    assert!(matches!(state, State::Ready(_)));
 }
 
 #[tokio::test]

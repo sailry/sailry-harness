@@ -100,53 +100,65 @@ mod tests {
     }
 
     #[test]
-    fn orders_creation_and_keeps_standalone() {
-        let active = ProjectId::new();
-        let removed = ProjectId::new();
-        let older = session(1, Some(active));
-        let standalone = session(3, None);
-        let hidden = session(4, Some(removed));
-        let mut archived = session(5, None);
-        archived.archived = true;
-        let mut delegated = session(6, Some(active));
-        delegated.delegation = Some(Box::new(Delegation {
-            session: older.id,
-            turn: TurnId::new(),
-            entry: "delegate".into(),
-            index: 0,
-            role: None,
-        }));
-        let mut snapshot = snapshot();
-        snapshot.projects = vec![project(active)];
-        // Project ordering and click history do not control this input order.
-        snapshot.sessions = vec![
-            older.clone(),
-            archived,
-            hidden,
-            delegated,
-            standalone.clone(),
-        ];
-        assert_eq!(
-            recent(&snapshot)
-                .into_iter()
-                .map(|session| session.id)
-                .collect::<Vec<_>>(),
-            [standalone.id, older.id]
-        );
-    }
-
-    #[test]
-    fn keeps_historical_snapshot_order() {
-        let first = session(0, None);
-        let second = session(0, None);
-        let mut snapshot = snapshot();
-        snapshot.sessions = vec![second.clone(), first.clone()];
-        assert_eq!(
-            recent(&snapshot)
-                .into_iter()
-                .map(|session| session.id)
-                .collect::<Vec<_>>(),
-            [second.id, first.id]
-        );
+    fn preserves_creation_and_historical_snapshot_order() {
+        for (case_name, run) in [
+            (
+                "orders_creation_and_keeps_standalone",
+                (|case_name| {
+                    let active = ProjectId::new();
+                    let removed = ProjectId::new();
+                    let older = session(1, Some(active));
+                    let standalone = session(3, None);
+                    let hidden = session(4, Some(removed));
+                    let mut archived = session(5, None);
+                    archived.archived = true;
+                    let mut delegated = session(6, Some(active));
+                    delegated.delegation = Some(Box::new(Delegation {
+                        session: older.id,
+                        turn: TurnId::new(),
+                        entry: "delegate".into(),
+                        index: 0,
+                        role: None,
+                    }));
+                    let mut snapshot = snapshot();
+                    snapshot.projects = vec![project(active)];
+                    // Project ordering and click history do not control this input order.
+                    snapshot.sessions = vec![
+                        older.clone(),
+                        archived,
+                        hidden,
+                        delegated,
+                        standalone.clone(),
+                    ];
+                    assert_eq!(
+                        recent(&snapshot)
+                            .into_iter()
+                            .map(|session| session.id)
+                            .collect::<Vec<_>>(),
+                        [standalone.id, older.id],
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "keeps_historical_snapshot_order",
+                (|case_name| {
+                    let first = session(0, None);
+                    let second = session(0, None);
+                    let mut snapshot = snapshot();
+                    snapshot.sessions = vec![second.clone(), first.clone()];
+                    assert_eq!(
+                        recent(&snapshot)
+                            .into_iter()
+                            .map(|session| session.id)
+                            .collect::<Vec<_>>(),
+                        [second.id, first.id],
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
+        }
     }
 }

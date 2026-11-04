@@ -77,125 +77,170 @@ fn frame(snapshot: &Snapshot, sequence: u64, change: Change) -> Update {
 }
 
 #[test]
-fn rejects_changed_run_kind() {
-    let (mut projection, snapshot, mut run, _) = fixture();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    run.kind = sailry_protocol::conversation::RunKind::Compaction;
-    assert!(
-        projection
-            .apply(1, frame(&snapshot, 11, Change::Run(run)))
-            .is_err()
-    );
-    assert_eq!(projection.snapshot().unwrap().page, snapshot.page);
-}
-
-#[test]
-fn commits_canonical_output() {
-    let (mut projection, snapshot, mut run, mut draft) = fixture();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    let update = frame(&snapshot, 11, Change::Delta(draft.clone()));
-    assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
-    assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
-    draft.parts = vec![Part::Text("中文🙂".into())];
-    projection
-        .apply(1, frame(&snapshot, 12, Change::Delta(draft.clone())))
-        .unwrap();
-    let view = projection.snapshot().unwrap();
-    assert!(view.page.entries.is_empty());
-    assert_eq!(
-        view.drafts[0].parts,
-        vec![Part::Text("Hello 中文🙂".into())]
-    );
-    assert!(Arc::ptr_eq(&snapshot.page, &view.page));
-    let entry = Entry {
-        sequence: 41,
-        id: draft.id,
-        turn: draft.turn,
-        author: draft.author,
-        branch: draft.branch,
-        timestamp_ms: 1,
-        parts: vec![Part::Text("committed content".into())],
-        citations: vec![],
-        search_suggestions: None,
-        usage: None,
-    };
-    projection
-        .apply(1, frame(&snapshot, 13, Change::Entry(entry.clone())))
-        .unwrap();
-    assert!(projection.snapshot().unwrap().drafts.is_empty());
-    assert_eq!(
-        projection.snapshot().unwrap().page.entries.as_slice(),
-        &[entry]
-    );
-    assert_eq!(projection.live_start(), Some(41));
-    run.status = Status::Completed;
-    projection
-        .apply(1, frame(&snapshot, 14, Change::Run(run.clone())))
-        .unwrap();
-    assert_eq!(projection.snapshot().unwrap().page.runs, vec![run]);
-}
-
-#[test]
-fn recovers_restarted_sequences() {
-    let (mut projection, mut snapshot, _, draft) = fixture();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    assert_eq!(
-        projection
-            .apply(1, frame(&snapshot, 12, Change::Delta(draft.clone())))
-            .unwrap(),
-        Apply::Recover
-    );
-    assert!(projection.snapshot().unwrap().drafts.is_empty());
-    projection.reconnect(2).unwrap();
-    assert_eq!(
-        projection
-            .apply(1, frame(&snapshot, 11, Change::Delta(draft.clone())))
-            .unwrap(),
-        Apply::Ignored
-    );
-    snapshot.sequence = 1;
-    snapshot.drafts.push(draft);
-    assert_eq!(
-        projection
-            .apply(2, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-            .unwrap(),
-        Apply::Applied
-    );
-    assert_eq!(projection.snapshot().unwrap(), &snapshot);
-}
-
-#[test]
-fn validates_frames_and_cancellation() {
-    let (mut projection, snapshot, mut run, draft) = fixture();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    let mut other = snapshot.clone();
-    other.node = NodeId([62; 32]);
-    assert_eq!(
-        projection
-            .apply(1, Update::ConversationSnapshot(Box::new(other)))
-            .unwrap_err()
-            .code,
-        ErrorCode::WrongTarget
-    );
-    projection
-        .apply(1, frame(&snapshot, 11, Change::Delta(draft.clone())))
-        .unwrap();
-    run.status = Status::Cancelled;
-    projection
-        .apply(1, frame(&snapshot, 12, Change::Run(run)))
-        .unwrap();
-    assert!(projection.snapshot().unwrap().drafts.is_empty());
-    assert!(
-        projection
-            .apply(1, frame(&snapshot, 13, Change::Delta(draft)))
-            .is_err()
-    );
+fn validates_canonical_frames_across_generations() {
+    for (case_name, run) in [
+        (
+            "rejects_changed_run_kind",
+            (|case_name| {
+                let (mut projection, snapshot, mut run, _) = fixture();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                run.kind = sailry_protocol::conversation::RunKind::Compaction;
+                assert!(
+                    projection
+                        .apply(1, frame(&snapshot, 11, Change::Run(run)))
+                        .is_err(),
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.snapshot().unwrap().page,
+                    snapshot.page,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "commits_canonical_output",
+            (|case_name| {
+                let (mut projection, snapshot, mut run, mut draft) = fixture();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                let update = frame(&snapshot, 11, Change::Delta(draft.clone()));
+                assert_eq!(
+                    projection.apply(1, update.clone()).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.apply(1, update).unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                draft.parts = vec![Part::Text("中文🙂".into())];
+                projection
+                    .apply(1, frame(&snapshot, 12, Change::Delta(draft.clone())))
+                    .unwrap();
+                let view = projection.snapshot().unwrap();
+                assert!(view.page.entries.is_empty(), "{case_name}");
+                assert_eq!(
+                    view.drafts[0].parts,
+                    vec![Part::Text("Hello 中文🙂".into())],
+                    "{case_name}"
+                );
+                assert!(Arc::ptr_eq(&snapshot.page, &view.page), "{case_name}");
+                let entry = Entry {
+                    sequence: 41,
+                    id: draft.id,
+                    turn: draft.turn,
+                    author: draft.author,
+                    branch: draft.branch,
+                    timestamp_ms: 1,
+                    parts: vec![Part::Text("committed content".into())],
+                    citations: vec![],
+                    search_suggestions: None,
+                    usage: None,
+                };
+                projection
+                    .apply(1, frame(&snapshot, 13, Change::Entry(entry.clone())))
+                    .unwrap();
+                assert!(
+                    projection.snapshot().unwrap().drafts.is_empty(),
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.snapshot().unwrap().page.entries.as_slice(),
+                    &[entry],
+                    "{case_name}"
+                );
+                assert_eq!(projection.live_start(), Some(41), "{case_name}");
+                run.status = Status::Completed;
+                projection
+                    .apply(1, frame(&snapshot, 14, Change::Run(run.clone())))
+                    .unwrap();
+                assert_eq!(
+                    projection.snapshot().unwrap().page.runs,
+                    vec![run],
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "recovers_restarted_sequences",
+            (|case_name| {
+                let (mut projection, mut snapshot, _, draft) = fixture();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                assert_eq!(
+                    projection
+                        .apply(1, frame(&snapshot, 12, Change::Delta(draft.clone())))
+                        .unwrap(),
+                    Apply::Recover,
+                    "{case_name}"
+                );
+                assert!(
+                    projection.snapshot().unwrap().drafts.is_empty(),
+                    "{case_name}"
+                );
+                projection.reconnect(2).unwrap();
+                assert_eq!(
+                    projection
+                        .apply(1, frame(&snapshot, 11, Change::Delta(draft.clone())))
+                        .unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                snapshot.sequence = 1;
+                snapshot.drafts.push(draft);
+                assert_eq!(
+                    projection
+                        .apply(2, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                        .unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                assert_eq!(projection.snapshot().unwrap(), &snapshot, "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "validates_frames_and_cancellation",
+            (|case_name| {
+                let (mut projection, snapshot, mut run, draft) = fixture();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                let mut other = snapshot.clone();
+                other.node = NodeId([62; 32]);
+                assert_eq!(
+                    projection
+                        .apply(1, Update::ConversationSnapshot(Box::new(other)))
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::WrongTarget,
+                    "{case_name}"
+                );
+                projection
+                    .apply(1, frame(&snapshot, 11, Change::Delta(draft.clone())))
+                    .unwrap();
+                run.status = Status::Cancelled;
+                projection
+                    .apply(1, frame(&snapshot, 12, Change::Run(run)))
+                    .unwrap();
+                assert!(
+                    projection.snapshot().unwrap().drafts.is_empty(),
+                    "{case_name}"
+                );
+                assert!(
+                    projection
+                        .apply(1, frame(&snapshot, 13, Change::Delta(draft)))
+                        .is_err(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
+    }
 }

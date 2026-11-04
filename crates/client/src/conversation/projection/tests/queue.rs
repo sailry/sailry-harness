@@ -22,185 +22,240 @@ fn pending() -> Queue {
 }
 
 #[test]
-fn orders_and_recovers() {
-    let (mut projection, snapshot, _, draft) = fixture();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    let mut queue = pending();
-    let update = frame(&snapshot, 11, Change::Queue(queue.clone()));
-    assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
-    assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
-    let page = projection.snapshot().unwrap().page.clone();
-    assert!(Arc::ptr_eq(&snapshot.page.entries, &page.entries));
-    let wire = serde_json::to_value(page.as_ref()).unwrap();
-    assert!(wire["entries"].is_array());
-    let decoded: Page = serde_json::from_value(wire).unwrap();
-    assert_eq!(&decoded, page.as_ref());
-    projection
-        .apply(1, frame(&snapshot, 12, Change::Delta(draft)))
-        .unwrap();
-    assert!(Arc::ptr_eq(&page, &projection.snapshot().unwrap().page));
-    queue.revision = 2;
-    queue.paused = false;
-    assert_eq!(
-        projection
-            .apply(1, frame(&snapshot, 14, Change::Queue(queue.clone())))
-            .unwrap(),
-        Apply::Recover
-    );
-    assert_eq!(projection.snapshot().unwrap().page.queue, page.queue);
-    projection.reconnect(2).unwrap();
-    let mut resumed = snapshot.clone();
-    resumed.sequence = 0;
-    Arc::make_mut(&mut resumed.page).queue = queue.clone();
-    projection
-        .apply(2, Update::ConversationSnapshot(Box::new(resumed)))
-        .unwrap();
-    assert_eq!(projection.snapshot().unwrap().page.queue, queue);
-    assert_eq!(
-        projection
-            .apply(1, frame(&snapshot, 15, Change::Queue(page.queue.clone())))
-            .unwrap(),
-        Apply::Ignored
-    );
-}
-
-#[test]
-fn rejects_inconsistent_revisions() {
-    let (mut projection, mut snapshot, _, _) = fixture();
-    Arc::make_mut(&mut snapshot.page).queue = pending();
-    projection
-        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
-        .unwrap();
-    let original = snapshot.page.queue.clone();
-    let mut stale = original.clone();
-    stale.revision = 0;
-    let mut duplicate = original.clone();
-    duplicate.revision = 2;
-    duplicate.items.push(duplicate.items[0].clone());
-    let mut changed = original.clone();
-    changed.paused = false;
-    let mut content = original.clone();
-    content.revision = 2;
-    content.items[0].preview = "unversioned edit".into();
-    let mut config = original.clone();
-    config.revision = 2;
-    config.items[0].config_revision = 4;
-    let mut kind = original.clone();
-    kind.revision = 2;
-    kind.items[0].revision = 2;
-    kind.items[0].kind = sailry_protocol::conversation::RunKind::Compaction;
-    let mut identity = original.clone();
-    identity.revision = 2;
-    identity.items[0].request = Some(sailry_protocol::RequestId::new());
-    let mut omitted_identity = original.clone();
-    omitted_identity.revision = 2;
-    omitted_identity.items[0].request = None;
-    for invalid in [
-        stale,
-        duplicate,
-        changed,
-        content,
-        config,
-        kind,
-        identity,
-        omitted_identity,
+fn recovers_ordered_revision_checked_items() {
+    for (case_name, run) in [
+        (
+            "orders_and_recovers",
+            (|case_name| {
+                let (mut projection, snapshot, _, draft) = fixture();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                let mut queue = pending();
+                let update = frame(&snapshot, 11, Change::Queue(queue.clone()));
+                assert_eq!(
+                    projection.apply(1, update.clone()).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.apply(1, update).unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                let page = projection.snapshot().unwrap().page.clone();
+                assert!(
+                    Arc::ptr_eq(&snapshot.page.entries, &page.entries),
+                    "{case_name}"
+                );
+                let wire = serde_json::to_value(page.as_ref()).unwrap();
+                assert!(wire["entries"].is_array(), "{case_name}");
+                let decoded: Page = serde_json::from_value(wire).unwrap();
+                assert_eq!(&decoded, page.as_ref(), "{case_name}");
+                projection
+                    .apply(1, frame(&snapshot, 12, Change::Delta(draft)))
+                    .unwrap();
+                assert!(
+                    Arc::ptr_eq(&page, &projection.snapshot().unwrap().page),
+                    "{case_name}"
+                );
+                queue.revision = 2;
+                queue.paused = false;
+                assert_eq!(
+                    projection
+                        .apply(1, frame(&snapshot, 14, Change::Queue(queue.clone())))
+                        .unwrap(),
+                    Apply::Recover,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.snapshot().unwrap().page.queue,
+                    page.queue,
+                    "{case_name}"
+                );
+                projection.reconnect(2).unwrap();
+                let mut resumed = snapshot.clone();
+                resumed.sequence = 0;
+                Arc::make_mut(&mut resumed.page).queue = queue.clone();
+                projection
+                    .apply(2, Update::ConversationSnapshot(Box::new(resumed)))
+                    .unwrap();
+                assert_eq!(
+                    projection.snapshot().unwrap().page.queue,
+                    queue,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection
+                        .apply(1, frame(&snapshot, 15, Change::Queue(page.queue.clone())))
+                        .unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "rejects_inconsistent_revisions",
+            (|case_name| {
+                let (mut projection, mut snapshot, _, _) = fixture();
+                Arc::make_mut(&mut snapshot.page).queue = pending();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                let original = snapshot.page.queue.clone();
+                let mut stale = original.clone();
+                stale.revision = 0;
+                let mut duplicate = original.clone();
+                duplicate.revision = 2;
+                duplicate.items.push(duplicate.items[0].clone());
+                let mut changed = original.clone();
+                changed.paused = false;
+                let mut content = original.clone();
+                content.revision = 2;
+                content.items[0].preview = "unversioned edit".into();
+                let mut config = original.clone();
+                config.revision = 2;
+                config.items[0].config_revision = 4;
+                let mut kind = original.clone();
+                kind.revision = 2;
+                kind.items[0].revision = 2;
+                kind.items[0].kind = sailry_protocol::conversation::RunKind::Compaction;
+                let mut identity = original.clone();
+                identity.revision = 2;
+                identity.items[0].request = Some(sailry_protocol::RequestId::new());
+                let mut omitted_identity = original.clone();
+                omitted_identity.revision = 2;
+                omitted_identity.items[0].request = None;
+                for invalid in [
+                    stale,
+                    duplicate,
+                    changed,
+                    content,
+                    config,
+                    kind,
+                    identity,
+                    omitted_identity,
+                ] {
+                    assert!(
+                        projection
+                            .apply(1, frame(&snapshot, 11, Change::Queue(invalid)))
+                            .is_err(),
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        projection.snapshot().unwrap().page.queue,
+                        original,
+                        "{case_name}"
+                    );
+                }
+                let mut edited = original.clone();
+                edited.revision = 2;
+                edited.items[0].revision = 2;
+                edited.items[0].request = Some(sailry_protocol::RequestId::new());
+                edited.items[0].preview = "edited".into();
+                projection
+                    .apply(1, frame(&snapshot, 11, Change::Queue(edited.clone())))
+                    .unwrap();
+                assert_eq!(
+                    projection.snapshot().unwrap().page.queue,
+                    edited,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "correlates_only_exact_present_request",
+            (|case_name| {
+                let mut queue = pending();
+                let own = queue.items[0].clone();
+                let own_request = own.request.unwrap();
+                let mut foreign = own.clone();
+                foreign.turn = TurnId::new();
+                let foreign_request = sailry_protocol::RequestId::new();
+                foreign.request = Some(foreign_request);
+                let mut historical = own.clone();
+                historical.turn = TurnId::new();
+                historical.request = None;
+                queue.items.insert(0, historical);
+                queue.items.insert(0, foreign.clone());
+                assert_eq!(
+                    super::super::super::turns::pending(&queue, own_request),
+                    Some(&own),
+                    "{case_name}"
+                );
+                assert_eq!(
+                    super::super::super::turns::pending(&queue, foreign_request),
+                    Some(&foreign),
+                    "{case_name}"
+                );
+                assert!(
+                    super::super::super::turns::pending(&queue, sailry_protocol::RequestId::new())
+                        .is_none(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "guides_in_queue_order_until_canonical_input",
+            (|case_name| {
+                let (_, mut snapshot, mut first, _) = fixture();
+                first.status = Status::Queued;
+                first.sequence = 2;
+                first.input = Some(sailry_protocol::conversation::SentInput {
+                    message: "First guide".into(),
+                    attachments: Vec::new(),
+                });
+                let mut second = first.clone();
+                second.turn = TurnId::new();
+                second.sequence = 3;
+                second.input.as_mut().unwrap().message = "Second guide".into();
+                let page = Arc::make_mut(&mut snapshot.page);
+                page.runs.extend([first.clone(), second.clone()]);
+                let mut item = pending().items.remove(0);
+                item.turn = second.turn;
+                item.guidance = Some(page.runs[0].turn);
+                let mut other = item.clone();
+                other.turn = first.turn;
+                page.queue.items = vec![item, other];
+                let selected = super::super::super::turns::guided(page);
+                assert_eq!(
+                    selected.iter().map(|run| run.turn).collect::<Vec<_>>(),
+                    [second.turn, first.turn],
+                    "{case_name}"
+                );
+                assert_eq!(
+                    selected[0].input.as_ref().unwrap().message.text,
+                    "Second guide",
+                    "{case_name}"
+                );
+                std::sync::Arc::make_mut(&mut page.entries).push(Entry {
+                    sequence: 1,
+                    id: "guided-user".into(),
+                    turn: second.turn,
+                    author: "user".into(),
+                    branch: String::new(),
+                    timestamp_ms: 0,
+                    usage: None,
+                    citations: Vec::new(),
+                    search_suggestions: None,
+                    parts: vec![Part::Text("Second guide".into())],
+                });
+                assert_eq!(
+                    super::super::super::turns::guided(page)
+                        .iter()
+                        .map(|run| run.turn)
+                        .collect::<Vec<_>>(),
+                    [first.turn],
+                    "{case_name}"
+                );
+                page.queue.items[1].guidance = None;
+                assert!(
+                    super::super::super::turns::guided(page).is_empty(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
     ] {
-        assert!(
-            projection
-                .apply(1, frame(&snapshot, 11, Change::Queue(invalid)))
-                .is_err()
-        );
-        assert_eq!(projection.snapshot().unwrap().page.queue, original);
+        run(case_name);
     }
-    let mut edited = original.clone();
-    edited.revision = 2;
-    edited.items[0].revision = 2;
-    edited.items[0].request = Some(sailry_protocol::RequestId::new());
-    edited.items[0].preview = "edited".into();
-    projection
-        .apply(1, frame(&snapshot, 11, Change::Queue(edited.clone())))
-        .unwrap();
-    assert_eq!(projection.snapshot().unwrap().page.queue, edited);
-}
-
-#[test]
-fn correlates_only_exact_present_request() {
-    let mut queue = pending();
-    let own = queue.items[0].clone();
-    let own_request = own.request.unwrap();
-    let mut foreign = own.clone();
-    foreign.turn = TurnId::new();
-    let foreign_request = sailry_protocol::RequestId::new();
-    foreign.request = Some(foreign_request);
-    let mut historical = own.clone();
-    historical.turn = TurnId::new();
-    historical.request = None;
-    queue.items.insert(0, historical);
-    queue.items.insert(0, foreign.clone());
-    assert_eq!(
-        super::super::super::turns::pending(&queue, own_request),
-        Some(&own)
-    );
-    assert_eq!(
-        super::super::super::turns::pending(&queue, foreign_request),
-        Some(&foreign)
-    );
-    assert!(
-        super::super::super::turns::pending(&queue, sailry_protocol::RequestId::new()).is_none()
-    );
-}
-
-#[test]
-fn guides_in_queue_order_until_canonical_input() {
-    let (_, mut snapshot, mut first, _) = fixture();
-    first.status = Status::Queued;
-    first.sequence = 2;
-    first.input = Some(sailry_protocol::conversation::SentInput {
-        message: "First guide".into(),
-        attachments: Vec::new(),
-    });
-    let mut second = first.clone();
-    second.turn = TurnId::new();
-    second.sequence = 3;
-    second.input.as_mut().unwrap().message = "Second guide".into();
-    let page = Arc::make_mut(&mut snapshot.page);
-    page.runs.extend([first.clone(), second.clone()]);
-    let mut item = pending().items.remove(0);
-    item.turn = second.turn;
-    item.guidance = Some(page.runs[0].turn);
-    let mut other = item.clone();
-    other.turn = first.turn;
-    page.queue.items = vec![item, other];
-    let selected = super::super::super::turns::guided(page);
-    assert_eq!(
-        selected.iter().map(|run| run.turn).collect::<Vec<_>>(),
-        [second.turn, first.turn]
-    );
-    assert_eq!(
-        selected[0].input.as_ref().unwrap().message.text,
-        "Second guide"
-    );
-    std::sync::Arc::make_mut(&mut page.entries).push(Entry {
-        sequence: 1,
-        id: "guided-user".into(),
-        turn: second.turn,
-        author: "user".into(),
-        branch: String::new(),
-        timestamp_ms: 0,
-        usage: None,
-        citations: Vec::new(),
-        search_suggestions: None,
-        parts: vec![Part::Text("Second guide".into())],
-    });
-    assert_eq!(
-        super::super::super::turns::guided(page)
-            .iter()
-            .map(|run| run.turn)
-            .collect::<Vec<_>>(),
-        [first.turn]
-    );
-    page.queue.items[1].guidance = None;
-    assert!(super::super::super::turns::guided(page).is_empty());
 }

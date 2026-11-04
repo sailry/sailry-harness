@@ -20,84 +20,109 @@ fn returned(summary: Summary) -> Page {
 }
 
 #[test]
-fn distinguishes_errors_uncertainty_and_expected_absence() {
-    for (code, expected, failed, warning, state) in [
-        (ErrorCode::Internal, None, true, false, RowState::Failed),
-        (ErrorCode::Unavailable, None, true, false, RowState::Failed),
-        (ErrorCode::Cancelled, None, false, false, RowState::Failed),
+fn presents_outcomes_and_execution_states() {
+    for (case_name, run) in [
         (
-            ErrorCode::OutcomeUnknown,
-            None,
-            false,
-            true,
-            RowState::Interrupted,
+            "distinguishes_errors_uncertainty_and_expected_absence",
+            (|case_name| {
+                for (code, expected, failed, warning, state) in [
+                    (ErrorCode::Internal, None, true, false, RowState::Failed),
+                    (ErrorCode::Unavailable, None, true, false, RowState::Failed),
+                    (ErrorCode::Cancelled, None, false, false, RowState::Failed),
+                    (
+                        ErrorCode::OutcomeUnknown,
+                        None,
+                        false,
+                        true,
+                        RowState::Interrupted,
+                    ),
+                    (
+                        ErrorCode::NotFound,
+                        Some(sailry_protocol::tool::Expected::FileNotFound),
+                        false,
+                        false,
+                        RowState::Failed,
+                    ),
+                ] {
+                    let page = returned(Summary {
+                        failure: Some(Failure { code: Some(code) }),
+                        diagnostics: true,
+                        expected,
+                        has_details: true,
+                        ..Default::default()
+                    });
+                    let calls = collect(&page);
+                    let row = calls[0].row(&page);
+                    assert_eq!(
+                        (row.failed, row.warning),
+                        (failed, warning),
+                        "{case_name}: {}",
+                        format_args!("{code:?}")
+                    );
+                    assert_eq!(
+                        row.state,
+                        (failed || warning).then_some(state),
+                        "{case_name}"
+                    );
+                    assert!(row.has_details, "{case_name}");
+                }
+            }) as fn(&str),
         ),
         (
-            ErrorCode::NotFound,
-            Some(sailry_protocol::tool::Expected::FileNotFound),
-            false,
-            false,
-            RowState::Failed,
+            "shows_captured_error_in_summary",
+            (|case_name| {
+                let page = returned(Summary {
+                    failure: Some(Failure {
+                        code: Some(ErrorCode::Unavailable),
+                    }),
+                    error: Some("File could not be read".into()),
+                    ..Default::default()
+                });
+                let calls = collect(&page);
+                let row = calls[0].row(&page);
+                assert_eq!(row.state, Some(RowState::Failed), "{case_name}");
+                assert_eq!(
+                    row.detail.unwrap().text,
+                    "File could not be read",
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "preserves_terminal_and_active_states",
+            (|case_name| {
+                let page = page();
+                for (state, code, warning, failed) in [
+                    (
+                        State::Returned,
+                        Some(ErrorCode::OutcomeUnknown),
+                        true,
+                        false,
+                    ),
+                    (State::Returned, Some(ErrorCode::Cancelled), false, false),
+                    (State::Interrupted, None, true, false),
+                    (State::NotExecuted, None, true, false),
+                    (State::Cancelled, None, false, false),
+                    (State::Returned, Some(ErrorCode::Internal), false, true),
+                    (State::Returned, Some(ErrorCode::Unavailable), false, true),
+                    (State::Returned, None, false, false),
+                    (State::Running, None, false, false),
+                ] {
+                    let mut call = collect(&page).remove(0);
+                    call.state = state;
+                    call.failure = code.map(|code| Failure { code: Some(code) });
+                    let row = call.row(&page);
+                    assert_eq!(
+                        (row.warning, row.failed),
+                        (warning, failed),
+                        "{case_name}: {}",
+                        format_args!("{state:?} {code:?}")
+                    );
+                }
+            }) as fn(&str),
         ),
     ] {
-        let page = returned(Summary {
-            failure: Some(Failure { code: Some(code) }),
-            diagnostics: true,
-            expected,
-            has_details: true,
-            ..Default::default()
-        });
-        let calls = collect(&page);
-        let row = calls[0].row(&page);
-        assert_eq!((row.failed, row.warning), (failed, warning), "{code:?}");
-        assert_eq!(row.state, (failed || warning).then_some(state));
-        assert!(row.has_details);
-    }
-}
-
-#[test]
-fn shows_captured_error_in_summary() {
-    let page = returned(Summary {
-        failure: Some(Failure {
-            code: Some(ErrorCode::Unavailable),
-        }),
-        error: Some("File could not be read".into()),
-        ..Default::default()
-    });
-    let calls = collect(&page);
-    let row = calls[0].row(&page);
-    assert_eq!(row.state, Some(RowState::Failed));
-    assert_eq!(row.detail.unwrap().text, "File could not be read");
-}
-
-#[test]
-fn preserves_terminal_and_active_states() {
-    let page = page();
-    for (state, code, warning, failed) in [
-        (
-            State::Returned,
-            Some(ErrorCode::OutcomeUnknown),
-            true,
-            false,
-        ),
-        (State::Returned, Some(ErrorCode::Cancelled), false, false),
-        (State::Interrupted, None, true, false),
-        (State::NotExecuted, None, true, false),
-        (State::Cancelled, None, false, false),
-        (State::Returned, Some(ErrorCode::Internal), false, true),
-        (State::Returned, Some(ErrorCode::Unavailable), false, true),
-        (State::Returned, None, false, false),
-        (State::Running, None, false, false),
-    ] {
-        let mut call = collect(&page).remove(0);
-        call.state = state;
-        call.failure = code.map(|code| Failure { code: Some(code) });
-        let row = call.row(&page);
-        assert_eq!(
-            (row.warning, row.failed),
-            (warning, failed),
-            "{state:?} {code:?}"
-        );
+        run(case_name);
     }
 }
 
@@ -200,33 +225,126 @@ fn retains_hidden_activity_exceptions() {
 }
 
 #[test]
-fn borrows_complete_details_without_snapshot_mutation() {
-    let page = returned(Summary {
-        has_details: true,
-        raw_result: true,
-        ..Default::default()
-    });
-    let original = page.clone();
-    let call = collect(&page).remove(0);
-    assert!(call.result(&page).is_none());
-    let detail = Arc::new(sailry_protocol::tool::detail::Detail {
-        arguments: json!({"path":"source.rs"}),
-        result: Some(json!({"text":"中文 🙂".repeat(50_000)})),
-        resolved: None,
-        content: None,
-        images: vec![],
-    });
-    let hydrated = call.with_detail(detail.clone());
-    assert!(Arc::ptr_eq(hydrated.detail.as_ref().unwrap(), &detail));
-    assert_eq!(hydrated.arguments(&page).unwrap()["path"], "source.rs");
-    assert_eq!(hydrated.result(&page), detail.result.as_ref());
-    assert_eq!(page, original);
-    assert!(
-        serde_json::to_value(hydrated)
-            .unwrap()
-            .get("detail")
-            .is_none()
-    );
+fn retains_disclosure_after_hydration() {
+    for (case_name, run) in
+        [
+            (
+                "borrows_complete_details_without_snapshot_mutation",
+                (|case_name| {
+                    let page = returned(Summary {
+                        has_details: true,
+                        raw_result: true,
+                        ..Default::default()
+                    });
+                    let original = page.clone();
+                    let call = collect(&page).remove(0);
+                    assert!(call.result(&page).is_none(), "{case_name}");
+                    let detail = Arc::new(sailry_protocol::tool::detail::Detail {
+                        arguments: json!({"path":"source.rs"}),
+                        result: Some(json!({"text":"中文 🙂".repeat(50_000)})),
+                        resolved: None,
+                        content: None,
+                        images: vec![],
+                    });
+                    let hydrated = call.with_detail(detail.clone());
+                    assert!(
+                        Arc::ptr_eq(hydrated.detail.as_ref().unwrap(), &detail),
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        hydrated.arguments(&page).unwrap()["path"],
+                        "source.rs",
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        hydrated.result(&page),
+                        detail.result.as_ref(),
+                        "{case_name}"
+                    );
+                    assert_eq!(page, original, "{case_name}");
+                    assert!(
+                        serde_json::to_value(hydrated)
+                            .unwrap()
+                            .get("detail")
+                            .is_none(),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "published_only_content_has_no_empty_disclosure",
+                (|case_name| {
+                    let mut page = returned(Summary {
+                        has_details: false,
+                        published: true,
+                        ..Default::default()
+                    });
+                    let call = collect(&page).remove(0);
+                    let result = json!({"sailry_content":{"version":1,"blocks":[{
+        "kind":"file","path":"index.html","mime":"text/html"
+    }]},"text":"Original HTML"});
+                    let mut detail = sailry_protocol::tool::detail::Detail {
+                        arguments: json!({"path":"index.html"}),
+                        content: Presentation::Content.content(&result),
+                        result: Some(result),
+                        resolved: None,
+                        images: vec![],
+                    };
+                    assert!(!call.details(&page), "{case_name}");
+                    assert!(
+                        !call.with_detail(Arc::new(detail.clone())).details(&page),
+                        "{case_name}"
+                    );
+                    detail.content.as_mut().unwrap().blocks.push(
+                        sailry_protocol::tool::Block::Text(sailry_protocol::tool::Text {
+                            path: "/text".into(),
+                            notices: vec![],
+                        }),
+                    );
+                    let Part::ToolResult { summary, .. } =
+                        &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+                    else {
+                        unreachable!()
+                    };
+                    summary.has_details = true;
+                    assert!(call.details(&page), "{case_name}");
+                    assert!(
+                        call.with_detail(Arc::new(detail)).details(&page),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "keeps_summary_disclosure_after_hydration",
+                (|case_name| {
+                    let page = returned(Summary {
+                        has_details: true,
+                        raw_result: true,
+                        published: true,
+                        ..Default::default()
+                    });
+                    let call = collect(&page).remove(0);
+                    let result = json!({"sailry_content":{"version":1,"blocks":[{
+        "kind":"file","path":"index.html","mime":"text/html"
+    }]},"text":"Original HTML"});
+                    let detail = sailry_protocol::tool::detail::Detail {
+                        arguments: json!({"path":"index.html"}),
+                        content: Presentation::Content.content(&result),
+                        result: Some(result),
+                        resolved: None,
+                        images: vec![],
+                    };
+                    assert!(call.details(&page), "{case_name}");
+                    assert!(
+                        call.with_detail(Arc::new(detail)).details(&page),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+        ]
+    {
+        run(case_name);
+    }
 }
 
 #[test]
@@ -269,68 +387,4 @@ fn uses_captured_child_titles_and_role_names() {
     );
     child.name = Some(" \n ".into());
     assert!(display::child_title(Some(&page), &child).is_none());
-}
-
-#[test]
-fn published_only_content_has_no_empty_disclosure() {
-    let mut page = returned(Summary {
-        has_details: false,
-        published: true,
-        ..Default::default()
-    });
-    let call = collect(&page).remove(0);
-    let result = json!({"sailry_content":{"version":1,"blocks":[{
-        "kind":"file","path":"index.html","mime":"text/html"
-    }]},"text":"Original HTML"});
-    let mut detail = sailry_protocol::tool::detail::Detail {
-        arguments: json!({"path":"index.html"}),
-        content: Presentation::Content.content(&result),
-        result: Some(result),
-        resolved: None,
-        images: vec![],
-    };
-    assert!(!call.details(&page));
-    assert!(!call.with_detail(Arc::new(detail.clone())).details(&page));
-    detail
-        .content
-        .as_mut()
-        .unwrap()
-        .blocks
-        .push(sailry_protocol::tool::Block::Text(
-            sailry_protocol::tool::Text {
-                path: "/text".into(),
-                notices: vec![],
-            },
-        ));
-    let Part::ToolResult { summary, .. } =
-        &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
-    else {
-        unreachable!()
-    };
-    summary.has_details = true;
-    assert!(call.details(&page));
-    assert!(call.with_detail(Arc::new(detail)).details(&page));
-}
-
-#[test]
-fn keeps_summary_disclosure_after_hydration() {
-    let page = returned(Summary {
-        has_details: true,
-        raw_result: true,
-        published: true,
-        ..Default::default()
-    });
-    let call = collect(&page).remove(0);
-    let result = json!({"sailry_content":{"version":1,"blocks":[{
-        "kind":"file","path":"index.html","mime":"text/html"
-    }]},"text":"Original HTML"});
-    let detail = sailry_protocol::tool::detail::Detail {
-        arguments: json!({"path":"index.html"}),
-        content: Presentation::Content.content(&result),
-        result: Some(result),
-        resolved: None,
-        images: vec![],
-    };
-    assert!(call.details(&page));
-    assert!(call.with_detail(Arc::new(detail)).details(&page));
 }

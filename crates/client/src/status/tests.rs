@@ -289,116 +289,136 @@ async fn watches_session_without_resolved_worktree() {
 }
 
 #[test]
-fn prepares_captured_durable_action() {
-    let feed = Feed::new(vec![], vec![]);
-    let client = Client::new(feed.clone());
-    let entry = entry("fixture", "badge", 0);
-    let request = client.prepare_status(&feed.scope, &entry).unwrap();
-    assert_eq!(request.target, feed.node);
-    assert!(request.command.durable());
-    assert_eq!(
-        request.command,
-        Command::CallPlugin {
-            handler: "activate".into(),
-            input: serde_json::json!({"id": "badge"}),
-        }
-    );
-    assert_eq!(
-        request.plugin,
-        Some(Context {
-            invocation: None,
-            turn: None,
-            surface: Surface::Composer,
-            package: entry.package,
-            worktree: feed.scope.worktree,
-            session: feed.scope.session,
-        })
-    );
-}
-
-#[test]
-fn rejects_unavailable_actions() {
-    let feed = Feed::new(vec![], vec![]);
-    let client = Client::new(feed.clone());
-    let entry = entry("fixture", "badge", 0);
-    for changed in [
-        Entry {
-            invoke: None,
-            ..entry.clone()
-        },
-        {
-            let mut changed = entry.clone();
-            changed.declaration.kind = Kind::Popover;
-            changed
-        },
-        {
-            let mut changed = entry.clone();
-            changed.state.visible = false;
-            changed
-        },
-        {
-            let mut changed = entry.clone();
-            changed.state.enabled = false;
-            changed
-        },
-        {
-            let mut changed = entry.clone();
-            changed.declaration.slot = Slot::Context;
-            changed
-        },
-        {
-            let mut changed = entry.clone();
-            changed.state.reply_to = Some(1);
-            changed
-        },
-    ] {
-        assert_eq!(
-            client
-                .prepare_status(&feed.scope, &changed)
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-    }
-    assert_eq!(
-        client
-            .prepare_status(
-                &Scope {
+fn prepares_only_available_scoped_actions() {
+    for (case_name, run) in [
+        (
+            "prepares_captured_durable_action",
+            (|case_name| {
+                let feed = Feed::new(vec![], vec![]);
+                let client = Client::new(feed.clone());
+                let entry = entry("fixture", "badge", 0);
+                let request = client.prepare_status(&feed.scope, &entry).unwrap();
+                assert_eq!(request.target, feed.node, "{case_name}");
+                assert!(request.command.durable(), "{case_name}");
+                assert_eq!(
+                    request.command,
+                    Command::CallPlugin {
+                        handler: "activate".into(),
+                        input: serde_json::json!({"id": "badge"}),
+                    },
+                    "{case_name}"
+                );
+                assert_eq!(
+                    request.plugin,
+                    Some(Context {
+                        invocation: None,
+                        turn: None,
+                        surface: Surface::Composer,
+                        package: entry.package,
+                        worktree: feed.scope.worktree,
+                        session: feed.scope.session,
+                    }),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "rejects_unavailable_actions",
+            (|case_name| {
+                let feed = Feed::new(vec![], vec![]);
+                let client = Client::new(feed.clone());
+                let entry = entry("fixture", "badge", 0);
+                for changed in [
+                    Entry {
+                        invoke: None,
+                        ..entry.clone()
+                    },
+                    {
+                        let mut changed = entry.clone();
+                        changed.declaration.kind = Kind::Popover;
+                        changed
+                    },
+                    {
+                        let mut changed = entry.clone();
+                        changed.state.visible = false;
+                        changed
+                    },
+                    {
+                        let mut changed = entry.clone();
+                        changed.state.enabled = false;
+                        changed
+                    },
+                    {
+                        let mut changed = entry.clone();
+                        changed.declaration.slot = Slot::Context;
+                        changed
+                    },
+                    {
+                        let mut changed = entry.clone();
+                        changed.state.reply_to = Some(1);
+                        changed
+                    },
+                ] {
+                    assert_eq!(
+                        client
+                            .prepare_status(&feed.scope, &changed)
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::InvalidRequest,
+                        "{case_name}"
+                    );
+                }
+                assert_eq!(
+                    client
+                        .prepare_status(
+                            &Scope {
+                                worktree: None,
+                                session: None
+                            },
+                            &entry
+                        )
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::InvalidRequest,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "session_action_requires_resolved_worktree",
+            (|case_name| {
+                let feed = Feed::new(vec![], vec![]);
+                let client = Client::new(feed.clone());
+                let entry = entry("fixture", "badge", 0);
+                let scope = Scope {
                     worktree: None,
-                    session: None
-                },
-                &entry
-            )
-            .unwrap_err()
-            .code,
-        ErrorCode::InvalidRequest
-    );
-}
-
-#[test]
-fn session_action_requires_resolved_worktree() {
-    let feed = Feed::new(vec![], vec![]);
-    let client = Client::new(feed.clone());
-    let entry = entry("fixture", "badge", 0);
-    let scope = Scope {
-        worktree: None,
-        session: feed.scope.session,
-    };
-    assert!(scope.valid());
-    assert_eq!(
-        client.prepare_status(&scope, &entry).unwrap_err().code,
-        ErrorCode::InvalidRequest
-    );
-    assert!(client.prepare_status(&feed.scope, &entry).is_ok());
-    assert!(
-        client
-            .prepare_status(
-                &Scope {
-                    worktree: feed.scope.worktree,
-                    session: None,
-                },
-                &entry,
-            )
-            .is_ok()
-    );
+                    session: feed.scope.session,
+                };
+                assert!(scope.valid(), "{case_name}");
+                assert_eq!(
+                    client.prepare_status(&scope, &entry).unwrap_err().code,
+                    ErrorCode::InvalidRequest,
+                    "{case_name}"
+                );
+                assert!(
+                    client.prepare_status(&feed.scope, &entry).is_ok(),
+                    "{case_name}"
+                );
+                assert!(
+                    client
+                        .prepare_status(
+                            &Scope {
+                                worktree: feed.scope.worktree,
+                                session: None,
+                            },
+                            &entry,
+                        )
+                        .is_ok(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
+    }
 }

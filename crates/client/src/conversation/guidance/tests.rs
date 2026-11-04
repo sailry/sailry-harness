@@ -73,70 +73,99 @@ fn append(page: &mut Page, author: &str) {
 }
 
 #[test]
-fn waits_for_canonical_input_after_claim() {
-    let mut page = page();
-    let turn = page.runs[0].turn;
-    page.runs[0].joined = page.runs[0].guidance;
-    page.runs[0].status = Status::Continued;
-    assert_eq!(project(&page)[&turn], State::Pending);
-    page.queue.items.clear();
-    assert_eq!(project(&page)[&turn], State::Pending);
-    append(&mut page, "assistant");
-    assert_eq!(project(&page)[&turn], State::Pending);
-    append(&mut page, "user");
-    assert_eq!(project(&page)[&turn], State::Delivered);
-}
-
-#[test]
-fn canonical_input_can_precede_claim() {
-    let mut page = page();
-    let turn = page.runs[0].turn;
-    append(&mut page, "user");
-    assert_eq!(project(&page)[&turn], State::Pending);
-    page.runs[0].joined = page.runs[0].guidance;
-    assert_eq!(project(&page)[&turn], State::Delivered);
-}
-
-#[test]
-fn canonical_delivery_survives_stale_queue() {
-    let mut page = page();
-    let turn = page.runs[0].turn;
-    page.runs[0].joined = page.runs[0].guidance;
-    append(&mut page, "user");
-    page.queue.items[0].guidance = None;
-    assert_eq!(project(&page)[&turn], State::Delivered);
-}
-
-#[test]
-fn restored_input_becomes_next_turn() {
-    let mut page = page();
-    let turn = page.runs[0].turn;
-    page.queue.items[0].guidance = None;
-    assert_eq!(project(&page)[&turn], State::NextTurn);
-    page.queue.items.clear();
-    page.runs[0].status = Status::Running;
-    assert_eq!(project(&page)[&turn], State::NextTurn);
-    append(&mut page, "user");
-    assert_eq!(project(&page)[&turn], State::NextTurn);
-}
-
-#[test]
-fn successor_keeps_original_target() {
-    let mut page = page();
-    let turn = page.runs[0].turn;
-    page.queue.items.clear();
-    page.runs[0].status = Status::Continued;
-    page.runs[0].joined = Some(TurnId::new());
-    append(&mut page, "user");
-    assert_eq!(project(&page)[&turn], State::NextTurn);
-}
-
-#[test]
-fn queue_can_precede_run() {
-    let mut page = page();
-    let turn = page.runs[0].turn;
-    page.runs.clear();
-    assert_eq!(project(&page)[&turn], State::Pending);
+fn follows_canonical_delivery_transitions() {
+    type Step = (fn(&mut Page), State);
+    let cases: &[(&str, &[Step])] = &[
+        (
+            "claim before input",
+            &[
+                (
+                    |page| {
+                        page.runs[0].joined = page.runs[0].guidance;
+                        page.runs[0].status = Status::Continued;
+                    },
+                    State::Pending,
+                ),
+                (|page| page.queue.items.clear(), State::Pending),
+                (|page| append(page, "assistant"), State::Pending),
+                (|page| append(page, "user"), State::Delivered),
+            ],
+        ),
+        (
+            "input before claim",
+            &[
+                (|page| append(page, "user"), State::Pending),
+                (
+                    |page| page.runs[0].joined = page.runs[0].guidance,
+                    State::Delivered,
+                ),
+            ],
+        ),
+        (
+            "stale queue",
+            &[(
+                |page| {
+                    page.runs[0].joined = page.runs[0].guidance;
+                    append(page, "user");
+                    page.queue.items[0].guidance = None;
+                },
+                State::Delivered,
+            )],
+        ),
+        (
+            "restored next turn",
+            &[
+                (|page| page.queue.items[0].guidance = None, State::NextTurn),
+                (
+                    |page| {
+                        page.queue.items.clear();
+                        page.runs[0].status = Status::Running;
+                    },
+                    State::NextTurn,
+                ),
+                (|page| append(page, "user"), State::NextTurn),
+            ],
+        ),
+        (
+            "successor retains target",
+            &[(
+                |page| {
+                    page.queue.items.clear();
+                    page.runs[0].status = Status::Continued;
+                    page.runs[0].joined = Some(TurnId::new());
+                    append(page, "user");
+                },
+                State::NextTurn,
+            )],
+        ),
+        (
+            "queue before run",
+            &[(|page| page.runs.clear(), State::Pending)],
+        ),
+        (
+            "reselected recipient",
+            &[(
+                |page| {
+                    // Explicit reselection durably replaces the original target.
+                    let recipient = TurnId::new();
+                    page.runs[0].guidance = Some(recipient);
+                    page.queue.items.clear();
+                    page.runs[0].status = Status::Continued;
+                    page.runs[0].joined = Some(recipient);
+                    append(page, "user");
+                },
+                State::Delivered,
+            )],
+        ),
+    ];
+    for (case, steps) in cases {
+        let mut page = page();
+        let turn = page.runs[0].turn;
+        for (index, (apply, expected)) in steps.iter().enumerate() {
+            apply(&mut page);
+            assert_eq!(project(&page)[&turn], *expected, "{case}, step {index}");
+        }
+    }
 }
 
 #[test]
@@ -179,18 +208,4 @@ fn observer_replacement_refreshes_shared_state() {
         serde_json::to_value(&view).unwrap()["guidance"][turn.to_string()],
         "delivered"
     );
-}
-
-#[test]
-fn reselected_recipient_reports_delivery() {
-    let mut page = page();
-    let turn = page.runs[0].turn;
-    // Explicit reselection durably replaces the original target.
-    let recipient = TurnId::new();
-    page.runs[0].guidance = Some(recipient);
-    page.queue.items.clear();
-    page.runs[0].status = Status::Continued;
-    page.runs[0].joined = Some(recipient);
-    append(&mut page, "user");
-    assert_eq!(project(&page)[&turn], State::Delivered);
 }

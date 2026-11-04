@@ -24,59 +24,85 @@ mod projection {
     use super::*;
 
     #[test]
-    fn retains_snapshot_order() {
-        let first = queued();
-        let second = queued();
-        let mut projection = Projection::default();
-        assert_eq!(
-            projection
-                .apply(vec![second.clone(), first.clone()])
-                .unwrap(),
-            vec![second, first]
-        );
-    }
-
-    #[test]
-    fn ignores_older_task_revisions() {
-        let before = queued();
-        let mut current = before.clone();
-        current.revision = 2;
-        current.state = State::Running {
-            phase: Phase::Inspecting,
-            progress: None,
-        };
-        let mut projection = Projection::default();
-        projection.apply(vec![current.clone()]).unwrap();
-        assert_eq!(projection.apply(vec![before]).unwrap(), vec![current]);
-    }
-
-    #[test]
-    fn does_not_resurrect_removed_rows() {
-        let task = queued();
-        let mut projection = Projection::default();
-        projection.apply(vec![task.clone()]).unwrap();
-        assert!(projection.apply(Vec::new()).unwrap().is_empty());
-        assert!(projection.apply(vec![task]).unwrap().is_empty());
-    }
-
-    #[test]
-    fn validates_the_whole_snapshot() {
-        let task = queued();
-        let mut projection = Projection::default();
-        projection.apply(vec![task.clone()]).unwrap();
-        assert!(projection.apply(vec![task.clone(), task.clone()]).is_err());
-        let mut invalid = task.clone();
-        invalid.revision = 2;
-        invalid.state = State::Running {
-            phase: Phase::Downloading,
-            progress: Some(Progress::Counts {
-                completed: 0,
-                total: 0,
-                bytes_per_second: None,
-            }),
-        };
-        assert!(projection.apply(vec![invalid]).is_err());
-        assert_eq!(projection.tasks[&task.request], task);
+    fn validates_ordered_snapshot_revisions_and_removals() {
+        for (case_name, run) in [
+            (
+                "retains_snapshot_order",
+                (|case_name| {
+                    let first = queued();
+                    let second = queued();
+                    let mut projection = Projection::default();
+                    assert_eq!(
+                        projection
+                            .apply(vec![second.clone(), first.clone()])
+                            .unwrap(),
+                        vec![second, first],
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "ignores_older_task_revisions",
+                (|case_name| {
+                    let before = queued();
+                    let mut current = before.clone();
+                    current.revision = 2;
+                    current.state = State::Running {
+                        phase: Phase::Inspecting,
+                        progress: None,
+                    };
+                    let mut projection = Projection::default();
+                    projection.apply(vec![current.clone()]).unwrap();
+                    assert_eq!(
+                        projection.apply(vec![before]).unwrap(),
+                        vec![current],
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "does_not_resurrect_removed_rows",
+                (|case_name| {
+                    let task = queued();
+                    let mut projection = Projection::default();
+                    projection.apply(vec![task.clone()]).unwrap();
+                    assert!(
+                        projection.apply(Vec::new()).unwrap().is_empty(),
+                        "{case_name}"
+                    );
+                    assert!(
+                        projection.apply(vec![task]).unwrap().is_empty(),
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "validates_the_whole_snapshot",
+                (|case_name| {
+                    let task = queued();
+                    let mut projection = Projection::default();
+                    projection.apply(vec![task.clone()]).unwrap();
+                    assert!(
+                        projection.apply(vec![task.clone(), task.clone()]).is_err(),
+                        "{case_name}"
+                    );
+                    let mut invalid = task.clone();
+                    invalid.revision = 2;
+                    invalid.state = State::Running {
+                        phase: Phase::Downloading,
+                        progress: Some(Progress::Counts {
+                            completed: 0,
+                            total: 0,
+                            bytes_per_second: None,
+                        }),
+                    };
+                    assert!(projection.apply(vec![invalid]).is_err(), "{case_name}");
+                    assert_eq!(projection.tasks[&task.request], task, "{case_name}");
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
+        }
     }
 }
 

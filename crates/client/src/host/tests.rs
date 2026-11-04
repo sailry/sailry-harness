@@ -27,53 +27,68 @@ fn sample(time: u64, started: u64) -> Sample {
 }
 
 #[test]
-fn isolates_reused_pids() {
-    let mut view = View::default();
-    for time in 1..=70 {
-        view.accept(sample(time * 1000, 1)).unwrap();
+fn recovers_samples_and_isolates_process_identity() {
+    for (case_name, run) in [
+        (
+            "isolates_reused_pids",
+            (|case_name| {
+                let mut view = View::default();
+                for time in 1..=70 {
+                    view.accept(sample(time * 1000, 1)).unwrap();
+                }
+                assert_eq!(view.history.len(), HISTORY_LIMIT, "{case_name}");
+                assert_eq!(view.processes[&(1, 1)].len(), HISTORY_LIMIT, "{case_name}");
+                view.accept(sample(71_000, 2)).unwrap();
+                assert_eq!(view.processes.len(), 1, "{case_name}");
+                assert_eq!(view.processes[&(1, 2)].len(), 1, "{case_name}");
+                let mut empty = sample(72_000, 2);
+                empty.processes.clear();
+                view.accept(empty).unwrap();
+                assert!(view.processes.is_empty(), "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "ignores_duplicates_and_breaks_gaps",
+            (|case_name| {
+                let mut view = View::default();
+                view.accept(sample(1000, 1)).unwrap();
+                view.accept(sample(1000, 1)).unwrap();
+                view.accept(sample(500, 1)).unwrap();
+                assert_eq!(view.history.len(), 1, "{case_name}");
+                let mut wrong = sample(2000, 1);
+                wrong.node = NodeId([2; 32]);
+                assert_eq!(
+                    view.accept(wrong).unwrap_err().code,
+                    ErrorCode::WrongTarget,
+                    "{case_name}"
+                );
+                view.accept(sample(10_000, 1)).unwrap();
+                assert_eq!(view.history.len(), 1, "{case_name}");
+                assert_eq!(view.processes[&(1, 1)].len(), 1, "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "preserves_missing_samples",
+            (|case_name| {
+                let mut view = View::default();
+                let mut first = sample(1000, 1);
+                first.network = Some(NetworkRate {
+                    received_bytes_per_sec: 12345,
+                    transmitted_bytes_per_sec: 6789,
+                    received_bytes: 1 << 30,
+                    transmitted_bytes: 1 << 20,
+                });
+                let expected = first.network.clone();
+                view.accept(first).unwrap();
+                view.accept(sample(2000, 1)).unwrap();
+                assert_eq!(view.history[0].network, expected, "{case_name}");
+                assert_eq!(view.history[1].network, None, "{case_name}");
+                assert_eq!(view.sample.as_ref().unwrap().network, None, "{case_name}");
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
     }
-    assert_eq!(view.history.len(), HISTORY_LIMIT);
-    assert_eq!(view.processes[&(1, 1)].len(), HISTORY_LIMIT);
-    view.accept(sample(71_000, 2)).unwrap();
-    assert_eq!(view.processes.len(), 1);
-    assert_eq!(view.processes[&(1, 2)].len(), 1);
-    let mut empty = sample(72_000, 2);
-    empty.processes.clear();
-    view.accept(empty).unwrap();
-    assert!(view.processes.is_empty());
-}
-
-#[test]
-fn ignores_duplicates_and_breaks_gaps() {
-    let mut view = View::default();
-    view.accept(sample(1000, 1)).unwrap();
-    view.accept(sample(1000, 1)).unwrap();
-    view.accept(sample(500, 1)).unwrap();
-    assert_eq!(view.history.len(), 1);
-    let mut wrong = sample(2000, 1);
-    wrong.node = NodeId([2; 32]);
-    assert_eq!(view.accept(wrong).unwrap_err().code, ErrorCode::WrongTarget);
-    view.accept(sample(10_000, 1)).unwrap();
-    assert_eq!(view.history.len(), 1);
-    assert_eq!(view.processes[&(1, 1)].len(), 1);
-}
-
-#[test]
-fn preserves_missing_samples() {
-    let mut view = View::default();
-    let mut first = sample(1000, 1);
-    first.network = Some(NetworkRate {
-        received_bytes_per_sec: 12345,
-        transmitted_bytes_per_sec: 6789,
-        received_bytes: 1 << 30,
-        transmitted_bytes: 1 << 20,
-    });
-    let expected = first.network.clone();
-    view.accept(first).unwrap();
-    view.accept(sample(2000, 1)).unwrap();
-    assert_eq!(view.history[0].network, expected);
-    assert_eq!(view.history[1].network, None);
-    assert_eq!(view.sample.as_ref().unwrap().network, None);
 }
 
 struct Feed {

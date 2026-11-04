@@ -51,194 +51,316 @@ fn event(cursor: u64) -> Update {
 }
 
 #[test]
-fn duplicates_do_not_change_state() {
-    let mut projection = Projection::new(NodeId([1; 32]), 1);
-    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
-    assert_eq!(projection.apply(1, event(1)).unwrap(), Apply::Applied);
-    assert_eq!(projection.apply(1, event(1)).unwrap(), Apply::Ignored);
-    assert_eq!(projection.snapshot().unwrap().defaults.revision, 1);
-}
-
-#[test]
-fn rejects_status_on_node_subscription() {
-    let node = NodeId([1; 32]);
-    let mut projection = Projection::new(node, 1);
-    let initial = snapshot(0);
-    projection
-        .apply(1, Update::Snapshot(initial.clone()))
-        .unwrap();
-    let update = Update::Status(sailry_protocol::plugin::ui::status::Snapshot {
-        node,
-        scope: sailry_protocol::plugin::ui::status::Scope {
-            worktree: None,
-            session: Some(sailry_protocol::SessionId::new()),
-        },
-        entries: vec![],
-        failures: vec![],
-    });
-    assert_eq!(
-        projection.apply(1, update).unwrap_err().code,
-        sailry_protocol::ErrorCode::InvalidRequest
-    );
-    assert_eq!(projection.snapshot(), Some(&initial));
-}
-
-#[test]
-fn snapshot_covers_buffered_events() {
-    let mut state = snapshot(3);
-    state.defaults.revision = 3;
-    let mut projection = Projection::new(state.node, 1);
-    assert_eq!(
-        projection
-            .apply(1, Update::Snapshot(state.clone()))
-            .unwrap(),
-        Apply::Applied
-    );
-    for cursor in 1..=3 {
-        assert_eq!(projection.apply(1, event(cursor)).unwrap(), Apply::Ignored);
-        assert_eq!(projection.snapshot(), Some(&state));
+fn orders_and_deduplicates_shared_cursors() {
+    for (case_name, run) in [
+        (
+            "duplicates_do_not_change_state",
+            (|case_name| {
+                let mut projection = Projection::new(NodeId([1; 32]), 1);
+                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                assert_eq!(
+                    projection.apply(1, event(1)).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.apply(1, event(1)).unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.snapshot().unwrap().defaults.revision,
+                    1,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "snapshot_covers_buffered_events",
+            (|case_name| {
+                let mut state = snapshot(3);
+                state.defaults.revision = 3;
+                let mut projection = Projection::new(state.node, 1);
+                assert_eq!(
+                    projection
+                        .apply(1, Update::Snapshot(state.clone()))
+                        .unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                for cursor in 1..=3 {
+                    assert_eq!(
+                        projection.apply(1, event(cursor)).unwrap(),
+                        Apply::Ignored,
+                        "{case_name}"
+                    );
+                    assert_eq!(projection.snapshot(), Some(&state), "{case_name}");
+                }
+                assert_eq!(
+                    projection.apply(1, event(4)).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.snapshot().unwrap().defaults.revision,
+                    4,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "dispatch_invalidation_advances_shared_cursor",
+            (|case_name| {
+                let mut projection = Projection::new(NodeId([1; 32]), 1);
+                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                let update = Update::Event(EventEnvelope {
+                    node: NodeId([1; 32]),
+                    cursor: 1,
+                    event: Event::DispatchChanged {
+                        packages: vec!["example".into()],
+                    },
+                });
+                assert_eq!(
+                    projection.apply(1, update.clone()).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                assert_eq!(projection.snapshot().unwrap().cursor, 1, "{case_name}");
+                assert_eq!(
+                    projection.apply(1, update).unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.apply(1, event(2)).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "resource_changes_advance_shared_cursor",
+            (|case_name| {
+                let node = NodeId([1; 32]);
+                let mut projection = Projection::new(node, 1);
+                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                for (index, event) in [
+                    Event::LocalModelsChanged { models: vec![] },
+                    Event::LocalModelSettingsChanged { revision: 3 },
+                    Event::TelemetrySettingsChanged { revision: 3 },
+                    Event::KnowledgeCollectionsChanged,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let cursor = index as u64 + 1;
+                    let update = Update::Event(EventEnvelope {
+                        node,
+                        cursor,
+                        event,
+                    });
+                    assert_eq!(
+                        projection.apply(1, update.clone()).unwrap(),
+                        Apply::Applied,
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        projection.snapshot(),
+                        Some(&snapshot(cursor)),
+                        "{case_name}"
+                    );
+                    assert_eq!(
+                        projection.apply(1, update).unwrap(),
+                        Apply::Ignored,
+                        "{case_name}"
+                    );
+                }
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
     }
-    assert_eq!(projection.apply(1, event(4)).unwrap(), Apply::Applied);
-    assert_eq!(projection.snapshot().unwrap().defaults.revision, 4);
 }
 
 #[test]
-fn dispatch_invalidation_advances_shared_cursor() {
-    let mut projection = Projection::new(NodeId([1; 32]), 1);
-    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
-    let update = Update::Event(EventEnvelope {
-        node: NodeId([1; 32]),
-        cursor: 1,
-        event: Event::DispatchChanged {
-            packages: vec!["example".into()],
-        },
-    });
-    assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
-    assert_eq!(projection.snapshot().unwrap().cursor, 1);
-    assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
-    assert_eq!(projection.apply(1, event(2)).unwrap(), Apply::Applied);
-}
-
-#[test]
-fn rejects_unknown_event_updates() {
-    let node = NodeId([1; 32]);
-    let mut projection = Projection::new(node, 1);
-    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
-    let update = serde_json::from_value::<Update>(serde_json::json!({
-        "kind": "event",
-        "data": {
-            "node": node,
-            "cursor": 1,
-            "event": { "kind": "future_event", "data": { "private": "value" } }
-        }
-    }));
-    assert!(update.is_err());
-    assert_eq!(projection.snapshot(), Some(&snapshot(0)));
-    assert_eq!(projection.apply(1, event(1)).unwrap(), Apply::Applied);
-}
-
-#[test]
-fn resource_changes_advance_shared_cursor() {
-    let node = NodeId([1; 32]);
-    let mut projection = Projection::new(node, 1);
-    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
-    for (index, event) in [
-        Event::LocalModelsChanged { models: vec![] },
-        Event::LocalModelSettingsChanged { revision: 3 },
-        Event::TelemetrySettingsChanged { revision: 3 },
-        Event::KnowledgeCollectionsChanged,
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let cursor = index as u64 + 1;
-        let update = Update::Event(EventEnvelope {
-            node,
-            cursor,
-            event,
-        });
-        assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
-        assert_eq!(projection.snapshot(), Some(&snapshot(cursor)));
-        assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
+fn rejects_invalid_subscription_updates() {
+    for (case_name, run) in [
+        (
+            "rejects_status_on_node_subscription",
+            (|case_name| {
+                let node = NodeId([1; 32]);
+                let mut projection = Projection::new(node, 1);
+                let initial = snapshot(0);
+                projection
+                    .apply(1, Update::Snapshot(initial.clone()))
+                    .unwrap();
+                let update = Update::Status(sailry_protocol::plugin::ui::status::Snapshot {
+                    node,
+                    scope: sailry_protocol::plugin::ui::status::Scope {
+                        worktree: None,
+                        session: Some(sailry_protocol::SessionId::new()),
+                    },
+                    entries: vec![],
+                    failures: vec![],
+                });
+                assert_eq!(
+                    projection.apply(1, update).unwrap_err().code,
+                    sailry_protocol::ErrorCode::InvalidRequest,
+                    "{case_name}"
+                );
+                assert_eq!(projection.snapshot(), Some(&initial), "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "rejects_unknown_event_updates",
+            (|case_name| {
+                let node = NodeId([1; 32]);
+                let mut projection = Projection::new(node, 1);
+                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                let update = serde_json::from_value::<Update>(serde_json::json!({
+                    "kind": "event",
+                    "data": {
+                        "node": node,
+                        "cursor": 1,
+                        "event": { "kind": "future_event", "data": { "private": "value" } }
+                    }
+                }));
+                assert!(update.is_err(), "{case_name}");
+                assert_eq!(projection.snapshot(), Some(&snapshot(0)), "{case_name}");
+                assert_eq!(
+                    projection.apply(1, event(1)).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "rejects_foreign_or_stale_snapshots",
+            (|case_name| {
+                let mut projection = Projection::new(NodeId([1; 32]), 1);
+                projection.apply(1, Update::Snapshot(snapshot(2))).unwrap();
+                assert_eq!(
+                    projection.apply(1, Update::Snapshot(snapshot(1))).unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                let mut other = snapshot(3);
+                other.node = NodeId([2; 32]);
+                assert_eq!(
+                    projection
+                        .apply(1, Update::Snapshot(other))
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::WrongTarget,
+                    "{case_name}"
+                );
+                assert_eq!(projection.snapshot().unwrap().cursor, 2, "{case_name}");
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
     }
 }
 
 #[test]
-fn gaps_require_snapshot() {
-    let mut projection = Projection::new(NodeId([1; 32]), 1);
-    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
-    assert_eq!(projection.apply(1, event(2)).unwrap(), Apply::Recover);
-    assert_eq!(projection.apply(1, event(1)).unwrap(), Apply::Recover);
-    projection.apply(1, Update::Snapshot(snapshot(2))).unwrap();
-    assert_eq!(projection.apply(1, event(3)).unwrap(), Apply::Applied);
-}
-
-#[test]
-fn rejects_previous_generation() {
-    let mut projection = Projection::new(NodeId([1; 32]), 1);
-    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
-    projection.reconnect(2).unwrap();
-    assert_eq!(projection.apply(1, event(1)).unwrap(), Apply::Ignored);
-    assert_eq!(
-        projection.apply(1, Update::Snapshot(snapshot(99))).unwrap(),
-        Apply::Ignored
-    );
-    projection.apply(2, Update::Snapshot(snapshot(1))).unwrap();
-    assert_eq!(projection.apply(2, event(2)).unwrap(), Apply::Applied);
-    assert!(projection.reconnect(2).is_err());
-}
-
-#[test]
-fn reconnects_to_restored_node_cursor() {
-    let mut projection = Projection::new(NodeId([1; 32]), 1);
-    let mut current = snapshot(100);
-    current.defaults.revision = 9;
-    projection
-        .apply(1, Update::Snapshot(current.clone()))
-        .unwrap();
-    projection.reconnect(2).unwrap();
-    assert_eq!(
-        projection
-            .apply(1, Update::Snapshot(snapshot(200)))
-            .unwrap(),
-        Apply::Ignored
-    );
-    let mut restored = snapshot(20);
-    restored.defaults.revision = 3;
-    assert_eq!(
-        projection
-            .apply(2, Update::Snapshot(restored.clone()))
-            .unwrap(),
-        Apply::Applied
-    );
-    assert_eq!(projection.snapshot(), Some(&restored));
-    assert_eq!(projection.apply(2, event(21)).unwrap(), Apply::Applied);
-    assert_eq!(projection.snapshot().unwrap().defaults.revision, 21);
-    assert_eq!(
-        projection.apply(2, Update::Snapshot(snapshot(19))).unwrap(),
-        Apply::Ignored
-    );
-    assert_eq!(projection.snapshot().unwrap().cursor, 21);
-}
-
-#[test]
-fn rejects_foreign_or_stale_snapshots() {
-    let mut projection = Projection::new(NodeId([1; 32]), 1);
-    projection.apply(1, Update::Snapshot(snapshot(2))).unwrap();
-    assert_eq!(
-        projection.apply(1, Update::Snapshot(snapshot(1))).unwrap(),
-        Apply::Ignored
-    );
-    let mut other = snapshot(3);
-    other.node = NodeId([2; 32]);
-    assert_eq!(
-        projection
-            .apply(1, Update::Snapshot(other))
-            .unwrap_err()
-            .code,
-        ErrorCode::WrongTarget
-    );
-    assert_eq!(projection.snapshot().unwrap().cursor, 2);
+fn recovers_gaps_and_replaced_generations() {
+    for (case_name, run) in [
+        (
+            "gaps_require_snapshot",
+            (|case_name| {
+                let mut projection = Projection::new(NodeId([1; 32]), 1);
+                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                assert_eq!(
+                    projection.apply(1, event(2)).unwrap(),
+                    Apply::Recover,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.apply(1, event(1)).unwrap(),
+                    Apply::Recover,
+                    "{case_name}"
+                );
+                projection.apply(1, Update::Snapshot(snapshot(2))).unwrap();
+                assert_eq!(
+                    projection.apply(1, event(3)).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "rejects_previous_generation",
+            (|case_name| {
+                let mut projection = Projection::new(NodeId([1; 32]), 1);
+                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection.reconnect(2).unwrap();
+                assert_eq!(
+                    projection.apply(1, event(1)).unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.apply(1, Update::Snapshot(snapshot(99))).unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                projection.apply(2, Update::Snapshot(snapshot(1))).unwrap();
+                assert_eq!(
+                    projection.apply(2, event(2)).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                assert!(projection.reconnect(2).is_err(), "{case_name}");
+            }) as fn(&str),
+        ),
+        (
+            "reconnects_to_restored_node_cursor",
+            (|case_name| {
+                let mut projection = Projection::new(NodeId([1; 32]), 1);
+                let mut current = snapshot(100);
+                current.defaults.revision = 9;
+                projection
+                    .apply(1, Update::Snapshot(current.clone()))
+                    .unwrap();
+                projection.reconnect(2).unwrap();
+                assert_eq!(
+                    projection
+                        .apply(1, Update::Snapshot(snapshot(200)))
+                        .unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                let mut restored = snapshot(20);
+                restored.defaults.revision = 3;
+                assert_eq!(
+                    projection
+                        .apply(2, Update::Snapshot(restored.clone()))
+                        .unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                assert_eq!(projection.snapshot(), Some(&restored), "{case_name}");
+                assert_eq!(
+                    projection.apply(2, event(21)).unwrap(),
+                    Apply::Applied,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.snapshot().unwrap().defaults.revision,
+                    21,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    projection.apply(2, Update::Snapshot(snapshot(19))).unwrap(),
+                    Apply::Ignored,
+                    "{case_name}"
+                );
+                assert_eq!(projection.snapshot().unwrap().cursor, 21, "{case_name}");
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
+    }
 }
 
 #[test]

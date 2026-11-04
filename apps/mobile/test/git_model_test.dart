@@ -23,28 +23,53 @@ Map<String, dynamic> _entry(
 
 void main() {
   group('changeStatus', () {
-    test('maps each side to its letter', () {
-      final entry = _entry('a', staged: 'added', unstaged: 'modified');
-      expect(changeStatus(entry, staged: true), ChangeStatus.added);
-      expect(changeStatus(entry, staged: false), ChangeStatus.modified);
-      expect(
-        changeStatus(_entry('b', unstaged: 'deleted'), staged: false).letter,
-        'D',
-      );
-    });
-
-    test('marks untracked and conflicted entries', () {
-      expect(
-        changeStatus(_entry('a', untracked: true), staged: false),
-        ChangeStatus.untracked,
-      );
-      expect(
-        changeStatus(
-          _entry('b', staged: 'modified', conflicted: true),
-          staged: true,
+    test("maps staged unstaged untracked and conflicted statuses", () {
+      for (final (caseName, run) in <(String, void Function(String))>[
+        (
+          "maps each side to its letter",
+          (caseName) {
+            final entry = _entry('a', staged: 'added', unstaged: 'modified');
+            expect(
+              changeStatus(entry, staged: true),
+              ChangeStatus.added,
+              reason: caseName,
+            );
+            expect(
+              changeStatus(entry, staged: false),
+              ChangeStatus.modified,
+              reason: caseName,
+            );
+            expect(
+              changeStatus(
+                _entry('b', unstaged: 'deleted'),
+                staged: false,
+              ).letter,
+              'D',
+              reason: caseName,
+            );
+          },
         ),
-        ChangeStatus.conflicted,
-      );
+        (
+          "marks untracked and conflicted entries",
+          (caseName) {
+            expect(
+              changeStatus(_entry('a', untracked: true), staged: false),
+              ChangeStatus.untracked,
+              reason: caseName,
+            );
+            expect(
+              changeStatus(
+                _entry('b', staged: 'modified', conflicted: true),
+                staged: true,
+              ),
+              ChangeStatus.conflicted,
+              reason: caseName,
+            );
+          },
+        ),
+      ]) {
+        run(caseName);
+      }
     });
   });
 
@@ -98,119 +123,193 @@ void main() {
   });
 
   group('references', () {
-    test('strip namespaces and match the current branch', () {
-      expect(referenceLabel('heads/main'), 'main');
-      expect(referenceLabel('remotes/origin/main'), 'origin/main');
-      expect(referenceLabel('tags/v1'), 'v1');
-      expect(referenceLabel('stash'), 'stash');
-      expect(isCurrentReference('heads/main', 'main'), isTrue);
-      expect(isCurrentReference('remotes/origin/main', 'main'), isFalse);
-      expect(isCurrentReference('heads/main', null), isFalse);
-      expect(shortHash('0123456789abcdef'), '0123456');
-    });
-
-    test('split local and remote branches', () {
-      final branches = splitBranches([
-        {'name': 'origin/main', 'remote': true},
-        {'name': 'main', 'remote': false},
-      ]);
-      expect(branches.local.single['name'], 'main');
-      expect(branches.remote.single['name'], 'origin/main');
+    test("resolves local and remote reference names", () {
+      for (final (caseName, run) in <(String, void Function(String))>[
+        (
+          "strip namespaces and match the current branch",
+          (caseName) {
+            expect(referenceLabel('heads/main'), 'main', reason: caseName);
+            expect(
+              referenceLabel('remotes/origin/main'),
+              'origin/main',
+              reason: caseName,
+            );
+            expect(referenceLabel('tags/v1'), 'v1', reason: caseName);
+            expect(referenceLabel('stash'), 'stash', reason: caseName);
+            expect(
+              isCurrentReference('heads/main', 'main'),
+              isTrue,
+              reason: caseName,
+            );
+            expect(
+              isCurrentReference('remotes/origin/main', 'main'),
+              isFalse,
+              reason: caseName,
+            );
+            expect(
+              isCurrentReference('heads/main', null),
+              isFalse,
+              reason: caseName,
+            );
+            expect(shortHash('0123456789abcdef'), '0123456', reason: caseName);
+          },
+        ),
+        (
+          "split local and remote branches",
+          (caseName) {
+            final branches = splitBranches([
+              {'name': 'origin/main', 'remote': true},
+              {'name': 'main', 'remote': false},
+            ]);
+            expect(branches.local.single['name'], 'main', reason: caseName);
+            expect(
+              branches.remote.single['name'],
+              'origin/main',
+              reason: caseName,
+            );
+          },
+        ),
+      ]) {
+        run(caseName);
+      }
     });
   });
 
   group('hunkLines', () {
-    test('drops file headers and keeps hunk numbering', () {
-      final rows = hunkLines(
-        'diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n'
-        '@@ -4,2 +4,2 @@\n-old\n+new\n same\n\\ No newline at end of file',
-      );
-      expect(rows.map((row) => row.kind), [
-        'header',
-        'removed',
-        'added',
-        'context',
-      ]);
-      expect((rows[1].before, rows[2].after), (4, 4));
-    });
-
-    test('retains change metadata without hunks', () {
-      for (final (patch, expected) in [
+    test("preserves hunk numbering metadata and file modes", () {
+      for (final (caseName, run) in <(String, void Function(String))>[
         (
-          'diff --git a/run b/run\nold mode 100644\nnew mode 100755\n',
-          ['old mode 100644', 'new mode 100755'],
+          "drops file headers and keeps hunk numbering",
+          (caseName) {
+            final rows = hunkLines(
+              'diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n'
+              '@@ -4,2 +4,2 @@\n-old\n+new\n same\n\\ No newline at end of file',
+            );
+            expect(rows.map((row) => row.kind), [
+              'header',
+              'removed',
+              'added',
+              'context',
+            ], reason: caseName);
+            expect((rows[1].before, rows[2].after), (4, 4), reason: caseName);
+          },
         ),
         (
-          'diff --git a/image.png b/image.png\nindex 123..456 100644\n'
-              'Binary files a/image.png and b/image.png differ\n',
-          ['Binary files a/image.png and b/image.png differ'],
+          "retains change metadata without hunks",
+          (caseName) {
+            for (final (patch, expected) in [
+              (
+                'diff --git a/run b/run\nold mode 100644\nnew mode 100755\n',
+                ['old mode 100644', 'new mode 100755'],
+              ),
+              (
+                'diff --git a/image.png b/image.png\nindex 123..456 100644\n'
+                    'Binary files a/image.png and b/image.png differ\n',
+                ['Binary files a/image.png and b/image.png differ'],
+              ),
+              (
+                'diff --git a/empty b/empty\nnew file mode 100644\n'
+                    'index 0000000..e69de29\n',
+                ['new file mode 100644'],
+              ),
+              (
+                'diff --git a/empty b/empty\ndeleted file mode 100644\n'
+                    'index e69de29..0000000\n',
+                ['deleted file mode 100644'],
+              ),
+              (
+                'diff --git a/old b/new\nsimilarity index 100%\n'
+                    'rename from old\nrename to new\n',
+                ['similarity index 100%', 'rename from old', 'rename to new'],
+              ),
+            ]) {
+              final rows = hunkLines(patch);
+              expect(
+                rows.map((row) => row.text),
+                expected,
+                reason: '$caseName: $patch',
+              );
+              expect(
+                rows.every((row) => row.kind == 'header'),
+                isTrue,
+                reason: caseName,
+              );
+              expect(
+                rows.every((row) => row.before == null && row.after == null),
+                isTrue,
+                reason: caseName,
+              );
+            }
+          },
         ),
         (
-          'diff --git a/empty b/empty\nnew file mode 100644\n'
-              'index 0000000..e69de29\n',
-          ['new file mode 100644'],
-        ),
-        (
-          'diff --git a/empty b/empty\ndeleted file mode 100644\n'
-              'index e69de29..0000000\n',
-          ['deleted file mode 100644'],
-        ),
-        (
-          'diff --git a/old b/new\nsimilarity index 100%\n'
-              'rename from old\nrename to new\n',
-          ['similarity index 100%', 'rename from old', 'rename to new'],
+          "retains modes alongside numbered content changes",
+          (caseName) {
+            final rows = hunkLines(
+              'diff --git a/run b/run\nold mode 100644\nnew mode 100755\n'
+              'index 123..456\n--- a/run\n+++ b/run\n'
+              '@@ -4 +8 @@\n-old\n+new\n',
+            );
+            expect(rows.map((row) => row.text), [
+              'old mode 100644',
+              'new mode 100755',
+              '@@ -4 +8 @@',
+              '-old',
+              '+new',
+            ], reason: caseName);
+            expect(rows.map((row) => row.kind), [
+              'header',
+              'header',
+              'header',
+              'removed',
+              'added',
+            ], reason: caseName);
+            expect((rows[3].before, rows[4].after), (4, 8), reason: caseName);
+          },
         ),
       ]) {
-        final rows = hunkLines(patch);
-        expect(rows.map((row) => row.text), expected, reason: patch);
-        expect(rows.every((row) => row.kind == 'header'), isTrue);
-        expect(
-          rows.every((row) => row.before == null && row.after == null),
-          isTrue,
-        );
+        run(caseName);
       }
-    });
-
-    test('retains modes alongside numbered content changes', () {
-      final rows = hunkLines(
-        'diff --git a/run b/run\nold mode 100644\nnew mode 100755\n'
-        'index 123..456\n--- a/run\n+++ b/run\n'
-        '@@ -4 +8 @@\n-old\n+new\n',
-      );
-      expect(rows.map((row) => row.text), [
-        'old mode 100644',
-        'new mode 100755',
-        '@@ -4 +8 @@',
-        '-old',
-        '+new',
-      ]);
-      expect(rows.map((row) => row.kind), [
-        'header',
-        'header',
-        'header',
-        'removed',
-        'added',
-      ]);
-      expect((rows[3].before, rows[4].after), (4, 8));
     });
   });
 
   group('paths', () {
-    test('split names and keep short directory tails', () {
-      expect(splitPath('a/b/c.dart'), (name: 'c.dart', directory: 'a/b'));
-      expect(splitPath('c.dart'), (name: 'c.dart', directory: ''));
-      expect(shortDirectory('apps/mobile/lib/features'), 'lib/features');
-      expect(shortDirectory('lib'), 'lib');
-      expect(shortDirectory(''), '');
-    });
-
-    test('list breadcrumb ancestors from the root', () {
-      expect(crumbs(''), [(label: '', path: '')]);
-      expect(crumbs('apps/mobile'), [
-        (label: '', path: ''),
-        (label: 'apps', path: 'apps'),
-        (label: 'mobile', path: 'apps/mobile'),
-      ]);
+    test("resolves path tails and breadcrumb ancestors", () {
+      for (final (caseName, run) in <(String, void Function(String))>[
+        (
+          "split names and keep short directory tails",
+          (caseName) {
+            expect(splitPath('a/b/c.dart'), (
+              name: 'c.dart',
+              directory: 'a/b',
+            ), reason: caseName);
+            expect(splitPath('c.dart'), (
+              name: 'c.dart',
+              directory: '',
+            ), reason: caseName);
+            expect(
+              shortDirectory('apps/mobile/lib/features'),
+              'lib/features',
+              reason: caseName,
+            );
+            expect(shortDirectory('lib'), 'lib', reason: caseName);
+            expect(shortDirectory(''), '', reason: caseName);
+          },
+        ),
+        (
+          "list breadcrumb ancestors from the root",
+          (caseName) {
+            expect(crumbs(''), [(label: '', path: '')], reason: caseName);
+            expect(crumbs('apps/mobile'), [
+              (label: '', path: ''),
+              (label: 'apps', path: 'apps'),
+              (label: 'mobile', path: 'apps/mobile'),
+            ], reason: caseName);
+          },
+        ),
+      ]) {
+        run(caseName);
+      }
     });
   });
 }

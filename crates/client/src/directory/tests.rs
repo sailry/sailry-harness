@@ -24,50 +24,66 @@ fn page(start: usize, count: usize, more: bool) -> Directory {
 }
 
 #[test]
-fn appends_only_matching_ordered_pages() {
-    let first = page(0, MAX_DIRECTORY_ENTRIES, true);
-    let combined = append("folder", Some(&first), page(500, 300, false)).unwrap();
-    assert_eq!(combined.entries.len(), 800);
-    assert_eq!(first.entries.len(), 500);
-    assert!(!combined.truncated);
-    assert!(combined.next.is_none());
-    let mut changed = page(500, 300, false);
-    changed.revision = "changed".into();
-    assert_eq!(
-        append("folder", Some(&first), changed).unwrap_err().code,
-        ErrorCode::RevisionConflict
-    );
-    assert_eq!(
-        append("folder", Some(&first), page(499, 300, false))
-            .unwrap_err()
-            .code,
-        ErrorCode::InvalidRequest
-    );
-    assert_eq!(
-        append("different", None, page(0, 300, false))
-            .unwrap_err()
-            .code,
-        ErrorCode::InvalidRequest
-    );
-}
-
-#[test]
-fn rejects_invalid_continuations() {
-    let mut missing = page(0, 3, false);
-    missing.revision.clear();
-    assert!(append("folder", None, missing).is_err());
-    for mut invalid in [page(0, 3, true), page(0, 501, false), page(0, 500, true)] {
-        if let Some(cursor) = invalid.next.as_mut() {
-            cursor.name = "incorrect".into();
-        }
-        assert!(append("folder", None, invalid).is_err());
+fn validates_ordered_pages_and_continuation_identity() {
+    for (case_name, run) in [
+        (
+            "appends_only_matching_ordered_pages",
+            (|case_name| {
+                let first = page(0, MAX_DIRECTORY_ENTRIES, true);
+                let combined = append("folder", Some(&first), page(500, 300, false)).unwrap();
+                assert_eq!(combined.entries.len(), 800, "{case_name}");
+                assert_eq!(first.entries.len(), 500, "{case_name}");
+                assert!(!combined.truncated, "{case_name}");
+                assert!(combined.next.is_none(), "{case_name}");
+                let mut changed = page(500, 300, false);
+                changed.revision = "changed".into();
+                assert_eq!(
+                    append("folder", Some(&first), changed).unwrap_err().code,
+                    ErrorCode::RevisionConflict,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    append("folder", Some(&first), page(499, 300, false))
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::InvalidRequest,
+                    "{case_name}"
+                );
+                assert_eq!(
+                    append("different", None, page(0, 300, false))
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::InvalidRequest,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "rejects_invalid_continuations",
+            (|case_name| {
+                let mut missing = page(0, 3, false);
+                missing.revision.clear();
+                assert!(append("folder", None, missing).is_err(), "{case_name}");
+                for mut invalid in [page(0, 3, true), page(0, 501, false), page(0, 500, true)] {
+                    if let Some(cursor) = invalid.next.as_mut() {
+                        cursor.name = "incorrect".into();
+                    }
+                    assert!(append("folder", None, invalid).is_err(), "{case_name}");
+                }
+                let mut duplicate = page(0, 3, false);
+                duplicate.entries[0].kind = EntryKind::Directory;
+                duplicate.entries[1].name = duplicate.entries[0].name.clone();
+                assert!(append("folder", None, duplicate).is_err(), "{case_name}");
+                let mut unsorted = page(0, 3, false);
+                unsorted.entries.swap(0, 2);
+                assert!(append("folder", None, unsorted).is_err(), "{case_name}");
+                assert!(
+                    append("folder", None, page(0, 0, false)).is_ok(),
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
     }
-    let mut duplicate = page(0, 3, false);
-    duplicate.entries[0].kind = EntryKind::Directory;
-    duplicate.entries[1].name = duplicate.entries[0].name.clone();
-    assert!(append("folder", None, duplicate).is_err());
-    let mut unsorted = page(0, 3, false);
-    unsorted.entries.swap(0, 2);
-    assert!(append("folder", None, unsorted).is_err());
-    assert!(append("folder", None, page(0, 0, false)).is_ok());
 }

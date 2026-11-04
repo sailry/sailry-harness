@@ -53,64 +53,110 @@ fn page(session: SessionId, children: Vec<Child>) -> Page {
 }
 
 #[test]
-fn prefers_active_then_claimed_then_latest() {
-    let parent = SessionId::new();
-    let session = SessionId::new();
-    let mut children: Vec<_> = [
-        (Status::Completed, 2),
-        (Status::Running, 4),
-        (Status::Queued, 5),
-    ]
-    .map(|(status, sequence)| child(parent, session, status, sequence))
-    .into();
-    assert_eq!(selected(&children, session).unwrap().run.sequence, 4);
-    children.reverse();
-    assert_eq!(selected(&children, session).unwrap().run.sequence, 4);
-    children.push(child(parent, session, Status::Stopping, 6));
-    assert_eq!(selected(&children, session).unwrap().run.sequence, 6);
-    children.retain(|child| !active(child.run.status));
-    assert_eq!(selected(&children, session).unwrap().run.sequence, 2);
-    children.push(child(parent, session, Status::Continued, 4));
-    assert_eq!(selected(&children, session).unwrap().run.sequence, 4);
-    children.push(child(parent, session, Status::Cancelled, 6));
-    assert_eq!(selected(&children, session).unwrap().run.sequence, 6);
-    children.retain(|child| child.run.status == Status::Queued);
-    children.push(child(parent, session, Status::Queued, 7));
-    assert_eq!(selected(&children, session).unwrap().run.sequence, 7);
-}
-
-#[test]
-fn keeps_source_associations_and_siblings() {
-    let parent = SessionId::new();
-    let first = child(parent, SessionId::new(), Status::Running, 1);
-    let mut completed = first.clone();
-    completed.run.status = Status::Completed;
-    completed.run.sequence = 2;
-    let mut queued = first.clone();
-    queued.run.status = Status::Queued;
-    queued.run.sequence = 3;
-    let mut sibling = first.clone();
-    sibling.run.session = SessionId::new();
-    sibling.run.sequence = 4;
-    let mut other = first.clone();
-    other.origin.entry = "another-spawn".into();
-    other.run.sequence = 10;
-    let page = page(
-        parent,
-        vec![first.clone(), completed, queued, sibling, other],
-    );
-    let references = associated(&page, first.origin.turn, "spawn", 0);
-    assert_eq!(
-        references.iter().map(|item| item.index).collect::<Vec<_>>(),
-        [0, 3]
-    );
-    let other = associated(&page, first.origin.turn, "another-spawn", 0);
-    assert_eq!(other[0].index, 4);
-    assert!(associated(&page, first.origin.turn, "spawn", 1).is_empty());
-    let view = project(&page);
-    assert_eq!(view.sessions[&first.run.session].index, 4);
-    assert_eq!(running(&page.children, Some(parent)).len(), 2);
-    assert!(running(&page.children, None).is_empty());
+fn preserves_selected_sources_and_siblings() {
+    for (case_name, run) in [
+        (
+            "prefers_active_then_claimed_then_latest",
+            (|case_name| {
+                let parent = SessionId::new();
+                let session = SessionId::new();
+                let mut children: Vec<_> = [
+                    (Status::Completed, 2),
+                    (Status::Running, 4),
+                    (Status::Queued, 5),
+                ]
+                .map(|(status, sequence)| child(parent, session, status, sequence))
+                .into();
+                assert_eq!(
+                    selected(&children, session).unwrap().run.sequence,
+                    4,
+                    "{case_name}"
+                );
+                children.reverse();
+                assert_eq!(
+                    selected(&children, session).unwrap().run.sequence,
+                    4,
+                    "{case_name}"
+                );
+                children.push(child(parent, session, Status::Stopping, 6));
+                assert_eq!(
+                    selected(&children, session).unwrap().run.sequence,
+                    6,
+                    "{case_name}"
+                );
+                children.retain(|child| !active(child.run.status));
+                assert_eq!(
+                    selected(&children, session).unwrap().run.sequence,
+                    2,
+                    "{case_name}"
+                );
+                children.push(child(parent, session, Status::Continued, 4));
+                assert_eq!(
+                    selected(&children, session).unwrap().run.sequence,
+                    4,
+                    "{case_name}"
+                );
+                children.push(child(parent, session, Status::Cancelled, 6));
+                assert_eq!(
+                    selected(&children, session).unwrap().run.sequence,
+                    6,
+                    "{case_name}"
+                );
+                children.retain(|child| child.run.status == Status::Queued);
+                children.push(child(parent, session, Status::Queued, 7));
+                assert_eq!(
+                    selected(&children, session).unwrap().run.sequence,
+                    7,
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
+            "keeps_source_associations_and_siblings",
+            (|case_name| {
+                let parent = SessionId::new();
+                let first = child(parent, SessionId::new(), Status::Running, 1);
+                let mut completed = first.clone();
+                completed.run.status = Status::Completed;
+                completed.run.sequence = 2;
+                let mut queued = first.clone();
+                queued.run.status = Status::Queued;
+                queued.run.sequence = 3;
+                let mut sibling = first.clone();
+                sibling.run.session = SessionId::new();
+                sibling.run.sequence = 4;
+                let mut other = first.clone();
+                other.origin.entry = "another-spawn".into();
+                other.run.sequence = 10;
+                let page = page(
+                    parent,
+                    vec![first.clone(), completed, queued, sibling, other],
+                );
+                let references = associated(&page, first.origin.turn, "spawn", 0);
+                assert_eq!(
+                    references.iter().map(|item| item.index).collect::<Vec<_>>(),
+                    [0, 3],
+                    "{case_name}"
+                );
+                let other = associated(&page, first.origin.turn, "another-spawn", 0);
+                assert_eq!(other[0].index, 4, "{case_name}");
+                assert!(
+                    associated(&page, first.origin.turn, "spawn", 1).is_empty(),
+                    "{case_name}"
+                );
+                let view = project(&page);
+                assert_eq!(view.sessions[&first.run.session].index, 4, "{case_name}");
+                assert_eq!(
+                    running(&page.children, Some(parent)).len(),
+                    2,
+                    "{case_name}"
+                );
+                assert!(running(&page.children, None).is_empty(), "{case_name}");
+            }) as fn(&str),
+        ),
+    ] {
+        run(case_name);
+    }
 }
 
 fn snapshot(child: &Child, project: Option<ProjectId>) -> Snapshot {

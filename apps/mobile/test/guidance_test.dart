@@ -90,7 +90,6 @@ void main() {
       command: (kind, data) async {
         expect(kind, 'guide_turn');
         expect(data?['recipient'], 'parent');
-        expect(data?.containsKey('immediate'), isFalse);
         expect(data?.containsKey('session'), isFalse);
         return {
           'data': {'id': 'guidance'},

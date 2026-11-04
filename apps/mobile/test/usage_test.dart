@@ -38,170 +38,256 @@ Map<String, dynamic> modelGroup(
 
 void main() {
   group('query', () {
-    test('ends a day range at the next local midnight', () {
-      final query = usageQuery(UsageRange.month, DateTime.utc(2026, 10, 20, 9));
-      final end = DateTime.utc(2026, 10, 21).millisecondsSinceEpoch;
-      expect(query['end_ms'], end);
-      expect(query['start_ms'], end - 30 * 24 * _hour);
-      expect(query['utc_offset_minutes'], 0);
-      expect(query['dimension'], 'model');
-      expect(query['projects'], isEmpty);
-    });
-
-    test('ends 24 hours at the next half hour', () {
-      final query = usageQuery(
-        UsageRange.day,
-        DateTime.utc(2026, 10, 20, 9, 10),
-        dimension: 'project',
-        project: 'p1',
-      );
-      final end = DateTime.utc(2026, 10, 20, 9, 30).millisecondsSinceEpoch;
-      expect(query['end_ms'], end);
-      expect(query['start_ms'], end - 24 * _hour);
-      expect(query['dimension'], 'project');
-      expect(query['projects'], ['p1']);
-    });
-
-    test('aligns to the device offset', () {
-      final now = DateTime(2026, 10, 20, 9, 10);
-      final query = usageQuery(UsageRange.week, now);
-      expect(query['utc_offset_minutes'], now.timeZoneOffset.inMinutes);
-      expect(
-        DateTime.fromMillisecondsSinceEpoch(query['end_ms'] as int),
-        DateTime(2026, 10, 21),
-      );
+    test("aligns query ranges and device offsets", () {
+      for (final (caseName, run) in <(String, void Function(String))>[
+        (
+          "ends a day range at the next local midnight",
+          (caseName) {
+            final query = usageQuery(
+              UsageRange.month,
+              DateTime.utc(2026, 10, 20, 9),
+            );
+            final end = DateTime.utc(2026, 10, 21).millisecondsSinceEpoch;
+            expect(query['end_ms'], end, reason: caseName);
+            expect(query['start_ms'], end - 30 * 24 * _hour, reason: caseName);
+            expect(query['utc_offset_minutes'], 0, reason: caseName);
+            expect(query['dimension'], 'model', reason: caseName);
+            expect(query['projects'], isEmpty, reason: caseName);
+          },
+        ),
+        (
+          "ends 24 hours at the next half hour",
+          (caseName) {
+            final query = usageQuery(
+              UsageRange.day,
+              DateTime.utc(2026, 10, 20, 9, 10),
+              dimension: 'project',
+              project: 'p1',
+            );
+            final end = DateTime.utc(
+              2026,
+              10,
+              20,
+              9,
+              30,
+            ).millisecondsSinceEpoch;
+            expect(query['end_ms'], end, reason: caseName);
+            expect(query['start_ms'], end - 24 * _hour, reason: caseName);
+            expect(query['dimension'], 'project', reason: caseName);
+            expect(query['projects'], ['p1'], reason: caseName);
+          },
+        ),
+        (
+          "aligns to the device offset",
+          (caseName) {
+            final now = DateTime(2026, 10, 20, 9, 10);
+            final query = usageQuery(UsageRange.week, now);
+            expect(
+              query['utc_offset_minutes'],
+              now.timeZoneOffset.inMinutes,
+              reason: caseName,
+            );
+            expect(
+              DateTime.fromMillisecondsSinceEpoch(query['end_ms'] as int),
+              DateTime(2026, 10, 21),
+              reason: caseName,
+            );
+          },
+        ),
+      ]) {
+        run(caseName);
+      }
     });
   });
 
   group('format', () {
-    test('compacts and groups counts', () {
-      expect(compact(null), isNull);
-      expect(compact(999), '999');
-      expect(compact(1000), '1.0k');
-      expect(compact(48612904), '48.6M');
-      expect(grouped(48612904), '48,612,904');
-      expect(grouped(12), '12');
-    });
-
-    test('truncates amounts to cents', () {
-      expect(amount(38429999), '38.42');
-      expect(amount(1234), '0.00');
-    });
-
-    test('derives speed from timed output', () {
-      expect(tokenSpeed({'elapsed_us': 2000000, 'output_tokens': 84}), '42.0');
-      expect(tokenSpeed({'elapsed_us': 0, 'output_tokens': 84}), isNull);
-      expect(tokenSpeed(null), isNull);
+    test("compacts counts costs and measured speed", () {
+      for (final (actual, expected, reason) in <(Object?, Object?, String)>[
+        (compact(null), isNull, "compacts and groups counts"),
+        (compact(999), '999', "compacts and groups counts"),
+        (compact(1000), '1.0k', "compacts and groups counts"),
+        (compact(48612904), '48.6M', "compacts and groups counts"),
+        (grouped(48612904), '48,612,904', "compacts and groups counts"),
+        (grouped(12), '12', "compacts and groups counts"),
+        (amount(38429999), '38.42', "truncates amounts to cents"),
+        (amount(1234), '0.00', "truncates amounts to cents"),
+        (
+          tokenSpeed({'elapsed_us': 2000000, 'output_tokens': 84}),
+          '42.0',
+          "derives speed from timed output",
+        ),
+        (
+          tokenSpeed({'elapsed_us': 0, 'output_tokens': 84}),
+          isNull,
+          "derives speed from timed output",
+        ),
+        (tokenSpeed(null), isNull, "derives speed from timed output"),
+      ]) {
+        expect(actual, expected, reason: reason);
+      }
     });
   });
 
   group('overview', () {
-    test('caps cache at input and marks partial cost', () {
-      final overview = UsageOverview({
-        'responses': 4,
-        'tokens': {
-          'input': 100,
-          'cached_input': 140,
-          'output': 20,
-          'reasoning': 5,
-        },
-        'cost': {'usd_micros': 1500000, 'responses': 3},
-        'generation': {'elapsed_us': 1000000, 'output_tokens': 20},
-      });
-      expect(overview.tokens!.parts, [100, 0, 20]);
-      expect(overview.total, 120);
-      expect(overview.reasoning, 5);
-      expect(overview.hit, 100);
-      expect(overview.cost, '1.50');
-      expect(overview.partial, isTrue);
-      expect(overview.speed, '20.0');
-    });
-
-    test('keeps unknown tokens and cost', () {
-      final overview = UsageOverview({'responses': 2});
-      expect(overview.total, isNull);
-      expect(overview.hit, isNull);
-      expect(overview.cost, isNull);
-      expect(overview.partial, isFalse);
-      expect(overview.shares, [null, null, null]);
+    test("preserves partial and unknown overview values", () {
+      for (final (caseName, run) in <(String, void Function(String))>[
+        (
+          "caps cache at input and marks partial cost",
+          (caseName) {
+            final overview = UsageOverview({
+              'responses': 4,
+              'tokens': {
+                'input': 100,
+                'cached_input': 140,
+                'output': 20,
+                'reasoning': 5,
+              },
+              'cost': {'usd_micros': 1500000, 'responses': 3},
+              'generation': {'elapsed_us': 1000000, 'output_tokens': 20},
+            });
+            expect(overview.tokens!.parts, [100, 0, 20], reason: caseName);
+            expect(overview.total, 120, reason: caseName);
+            expect(overview.reasoning, 5, reason: caseName);
+            expect(overview.hit, 100, reason: caseName);
+            expect(overview.cost, '1.50', reason: caseName);
+            expect(overview.partial, isTrue, reason: caseName);
+            expect(overview.speed, '20.0', reason: caseName);
+          },
+        ),
+        (
+          "keeps unknown tokens and cost",
+          (caseName) {
+            final overview = UsageOverview({'responses': 2});
+            expect(overview.total, isNull, reason: caseName);
+            expect(overview.hit, isNull, reason: caseName);
+            expect(overview.cost, isNull, reason: caseName);
+            expect(overview.partial, isFalse, reason: caseName);
+            expect(overview.shares, [null, null, null], reason: caseName);
+          },
+        ),
+      ]) {
+        run(caseName);
+      }
     });
   });
 
   group('buckets', () {
-    test('groups days into Monday weeks at the offset', () {
-      // Local days at UTC+8 start at 16:00 UTC on the previous day.
-      final days = [
-        for (var day = 0; day < 9; day++)
-          point(
-            DateTime.utc(2026, 9, 18 + day, 16),
-            responses: day == 0 ? 1 : 0,
-            tokens: day == 0 ? usage(100, 40, 20) : null,
-          ),
-      ];
-      final daily = usageBuckets(days, UsageUnit.day, 480);
-      expect(daily.length, 9);
-      expect(daily.first.start, DateTime.utc(2026, 9, 19));
-      expect(daily.first.tokens!.parts, [40, 60, 20]);
-      expect(daily.last.tokens!.total, 0);
-      final weekly = usageBuckets(days, UsageUnit.week, 480);
-      expect(weekly.length, 2);
-      expect(weekly.first.start, DateTime.utc(2026, 9, 14));
-      expect(weekly.first.first, DateTime.utc(2026, 9, 19));
-      expect(weekly.first.last, DateTime.utc(2026, 9, 20));
-      expect(weekly.last.start, DateTime.utc(2026, 9, 21));
-      expect(weekly.first.tokens!.total, 120);
-    });
-
-    test('marks responses without tokens unknown', () {
-      final buckets = usageBuckets(
-        [
-          point(DateTime.utc(2026, 9, 21), responses: 1),
-          point(
-            DateTime.utc(2026, 9, 22),
-            responses: 1,
-            tokens: usage(1, 0, 1),
-          ),
-        ],
-        UsageUnit.week,
-        0,
-      );
-      expect(buckets.single.tokens, isNull);
-    });
-
-    test('labels three-hour marks and recent days', () {
-      final hours = usageBuckets(
-        [
-          for (var slot = 0; slot < 8; slot++)
-            point(
-              DateTime.utc(2026, 9, 21, 2).add(Duration(minutes: 30 * slot)),
-            ),
-        ],
-        UsageUnit.halfHour,
-        0,
-      );
-      expect(usageLabels(hours, UsageUnit.halfHour), [
-        '',
-        '',
-        '03:00',
-        '',
-        '',
-        '',
-        '',
-        '',
-      ]);
-      expect(
-        usageHeading(hours[2], UsageUnit.halfHour),
-        '2026-09-21 03:00–03:30',
-      );
-      final days = usageBuckets(
-        [for (var day = 1; day <= 14; day++) point(DateTime.utc(2026, 9, day))],
-        UsageUnit.day,
-        0,
-      );
-      final labels = usageLabels(days, UsageUnit.day);
-      expect(labels.last, '9/14');
-      expect(labels[11], '9/12');
-      expect(labels[12], '');
+    test("groups timed buckets and preserves unknown values", () {
+      for (final (caseName, run) in <(String, void Function(String))>[
+        (
+          "groups days into Monday weeks at the offset",
+          (caseName) {
+            // Local days at UTC+8 start at 16:00 UTC on the previous day.
+            final days = [
+              for (var day = 0; day < 9; day++)
+                point(
+                  DateTime.utc(2026, 9, 18 + day, 16),
+                  responses: day == 0 ? 1 : 0,
+                  tokens: day == 0 ? usage(100, 40, 20) : null,
+                ),
+            ];
+            final daily = usageBuckets(days, UsageUnit.day, 480);
+            expect(daily.length, 9, reason: caseName);
+            expect(
+              daily.first.start,
+              DateTime.utc(2026, 9, 19),
+              reason: caseName,
+            );
+            expect(daily.first.tokens!.parts, [40, 60, 20], reason: caseName);
+            expect(daily.last.tokens!.total, 0, reason: caseName);
+            final weekly = usageBuckets(days, UsageUnit.week, 480);
+            expect(weekly.length, 2, reason: caseName);
+            expect(
+              weekly.first.start,
+              DateTime.utc(2026, 9, 14),
+              reason: caseName,
+            );
+            expect(
+              weekly.first.first,
+              DateTime.utc(2026, 9, 19),
+              reason: caseName,
+            );
+            expect(
+              weekly.first.last,
+              DateTime.utc(2026, 9, 20),
+              reason: caseName,
+            );
+            expect(
+              weekly.last.start,
+              DateTime.utc(2026, 9, 21),
+              reason: caseName,
+            );
+            expect(weekly.first.tokens!.total, 120, reason: caseName);
+          },
+        ),
+        (
+          "marks responses without tokens unknown",
+          (caseName) {
+            final buckets = usageBuckets(
+              [
+                point(DateTime.utc(2026, 9, 21), responses: 1),
+                point(
+                  DateTime.utc(2026, 9, 22),
+                  responses: 1,
+                  tokens: usage(1, 0, 1),
+                ),
+              ],
+              UsageUnit.week,
+              0,
+            );
+            expect(buckets.single.tokens, isNull, reason: caseName);
+          },
+        ),
+        (
+          "labels three-hour marks and recent days",
+          (caseName) {
+            final hours = usageBuckets(
+              [
+                for (var slot = 0; slot < 8; slot++)
+                  point(
+                    DateTime.utc(
+                      2026,
+                      9,
+                      21,
+                      2,
+                    ).add(Duration(minutes: 30 * slot)),
+                  ),
+              ],
+              UsageUnit.halfHour,
+              0,
+            );
+            expect(usageLabels(hours, UsageUnit.halfHour), [
+              '',
+              '',
+              '03:00',
+              '',
+              '',
+              '',
+              '',
+              '',
+            ], reason: caseName);
+            expect(
+              usageHeading(hours[2], UsageUnit.halfHour),
+              '2026-09-21 03:00–03:30',
+              reason: caseName,
+            );
+            final days = usageBuckets(
+              [
+                for (var day = 1; day <= 14; day++)
+                  point(DateTime.utc(2026, 9, day)),
+              ],
+              UsageUnit.day,
+              0,
+            );
+            final labels = usageLabels(days, UsageUnit.day);
+            expect(labels.last, '9/14', reason: caseName);
+            expect(labels[11], '9/12', reason: caseName);
+            expect(labels[12], '', reason: caseName);
+          },
+        ),
+      ]) {
+        run(caseName);
+      }
     });
 
     test('rounds the axis to four divisions', () {
@@ -256,51 +342,79 @@ void main() {
       modelGroup('openai-provider-id', 'sol', tokens: usage(60, 30, 20)),
     ];
 
-    test('lists models with provider notes', () {
-      final rows = usageRows(groups, UsageBreakdown.model, unassigned: '-');
-      expect(rows.map((row) => row.name), ['opus', 'sol', 'haiku']);
-      expect(rows.first.note, 'Anthropic');
-      expect(rows[1].note, 'openai-p');
-      expect(rows.first.cost, '2.00+');
-      expect(rows.last.cost, '0.50');
-      expect(rows.first.hit, 50);
-      expect(rows.first.share, 50);
-    });
-
-    test('sums providers from model groups', () {
-      final rows = usageRows(groups, UsageBreakdown.provider, unassigned: '-');
-      expect(rows.length, 2);
-      expect(rows.first.name, 'Anthropic');
-      expect(rows.first.total, 160);
-      expect(rows.first.responses, 3);
-      expect(rows.first.cost, '2.50+');
-      expect(rows.last.cost, isNull);
-    });
-
-    test('names project owners', () {
-      final rows = usageRows(
-        [
-          {
-            'key': {'kind': 'project', 'data': 'project-id'},
-            'metrics': {'responses': 1, 'tokens': usage(10, 0, 0)},
+    test("aggregates models providers and project owners", () {
+      for (final (caseName, run) in <(String, void Function(String))>[
+        (
+          "lists models with provider notes",
+          (caseName) {
+            final rows = usageRows(
+              groups,
+              UsageBreakdown.model,
+              unassigned: '-',
+            );
+            expect(rows.map((row) => row.name), [
+              'opus',
+              'sol',
+              'haiku',
+            ], reason: caseName);
+            expect(rows.first.note, 'Anthropic', reason: caseName);
+            expect(rows[1].note, 'openai-p', reason: caseName);
+            expect(rows.first.cost, '2.00+', reason: caseName);
+            expect(rows.last.cost, '0.50', reason: caseName);
+            expect(rows.first.hit, 50, reason: caseName);
+            expect(rows.first.share, 50, reason: caseName);
           },
-          {
-            'key': {'kind': 'session', 'data': 's1'},
-            'metrics': {'responses': 1, 'tokens': usage(5, 0, 0)},
+        ),
+        (
+          "sums providers from model groups",
+          (caseName) {
+            final rows = usageRows(
+              groups,
+              UsageBreakdown.provider,
+              unassigned: '-',
+            );
+            expect(rows.length, 2, reason: caseName);
+            expect(rows.first.name, 'Anthropic', reason: caseName);
+            expect(rows.first.total, 160, reason: caseName);
+            expect(rows.first.responses, 3, reason: caseName);
+            expect(rows.first.cost, '2.50+', reason: caseName);
+            expect(rows.last.cost, isNull, reason: caseName);
           },
-          {
-            'key': {'kind': 'session', 'data': 's2'},
-            'metrics': {'responses': 1, 'tokens': usage(7, 0, 0)},
+        ),
+        (
+          "names project owners",
+          (caseName) {
+            final rows = usageRows(
+              [
+                {
+                  'key': {'kind': 'project', 'data': 'project-id'},
+                  'metrics': {'responses': 1, 'tokens': usage(10, 0, 0)},
+                },
+                {
+                  'key': {'kind': 'session', 'data': 's1'},
+                  'metrics': {'responses': 1, 'tokens': usage(5, 0, 0)},
+                },
+                {
+                  'key': {'kind': 'session', 'data': 's2'},
+                  'metrics': {'responses': 1, 'tokens': usage(7, 0, 0)},
+                },
+                ...groups,
+              ],
+              UsageBreakdown.project,
+              projects: {'project-id': 'Sailry'},
+              unassigned: 'Unassigned',
+            );
+            expect(rows.map((row) => row.name), [
+              'Unassigned',
+              'Sailry',
+            ], reason: caseName);
+            expect(rows.first.total, 12, reason: caseName);
+            expect(rows.first.responses, 2, reason: caseName);
           },
-          ...groups,
-        ],
-        UsageBreakdown.project,
-        projects: {'project-id': 'Sailry'},
-        unassigned: 'Unassigned',
-      );
-      expect(rows.map((row) => row.name), ['Unassigned', 'Sailry']);
-      expect(rows.first.total, 12);
-      expect(rows.first.responses, 2);
+        ),
+      ]) {
+        run(caseName);
+      }
     });
   });
 }

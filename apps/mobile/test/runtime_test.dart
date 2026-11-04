@@ -219,91 +219,102 @@ String address(String id) => jsonEncode({'id': id});
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   group('host removal', () {
-    test('forgets offline hosts and releases subscriptions', () async {
-      final owner = Owner();
-      final firstChannel = Channel();
-      final secondChannel = Channel();
-      final snapshot = <String, dynamic>{
-        'sessions': [
-          {'id': 'saved-session'},
-        ],
-        'projects': [
-          {'id': 'saved-project'},
-        ],
-      };
-      final first = HostConnection.test(
-        id: 'first',
-        label: 'Offline host',
-        address: address('first'),
-        connected: false,
-        snapshot: snapshot,
-        connection: firstChannel,
-      );
-      final second = HostConnection.test(
-        id: 'second',
-        label: 'Other host',
-        address: address('second'),
-        connection: secondChannel,
-      );
-      final session = AppSession.test(
-        hosts: [first, second],
-        controller: owner,
-      );
-      final watching = first.watch();
-      await Future<void>.value();
-      await session.removeHost(first);
-      await watching;
-      expect(owner.forgotten, [address('first')]);
-      expect(session.hosts, [second]);
-      expect(session.selectedHost, same(second));
-      expect(firstChannel.subscription.closes, 1);
-      expect(firstChannel.subscription.disposals, 1);
-      expect(firstChannel.closes, 1);
-      expect(firstChannel.disposals, 1);
-      expect(firstChannel.requests, isEmpty);
-      expect(first.snapshot, same(snapshot));
-      expect(secondChannel.closes, 0);
-      await session.removeHost(second);
-      expect(session.hosts, isEmpty);
-      expect(session.selectedHost, isNull);
-      expect(session.controller, same(owner));
-      expect(session.ready, isTrue);
-      expect(owner.closes, 0);
-      await session.close();
-      session.dispose();
-      expect(firstChannel.closes, 1);
-      expect(secondChannel.closes, 1);
-    });
-
-    test('coalesces requests and preserves changed selection', () async {
-      final pending = Completer<void>();
-      final owner = Owner()..pendingForget = pending.future;
-      final channel = Channel();
-      final first = HostConnection.test(
-        id: 'first',
-        label: 'First',
-        address: address('first'),
-        connection: channel,
-      );
-      final second = HostConnection.test(id: 'second', label: 'Second');
-      final session = AppSession.test(
-        hosts: [first, second],
-        controller: owner,
-      );
-      final removing = session.removeHost(first);
-      final repeated = session.removeHost(first);
-      await owner.forgetStarted.future;
-      expect(owner.forgotten, [address('first')]);
-      expect(session.hosts, [first, second]);
-      expect(channel.closes, 0);
-      session.selectHost(second.id);
-      pending.complete();
-      await Future.wait([removing, repeated]);
-      expect(session.hosts, [second]);
-      expect(session.selectedHost, same(second));
-      expect(channel.closes, 1);
-      await session.close();
-      session.dispose();
+    test("removes hosts without losing selection or subscriptions", () async {
+      for (final (caseName, run) in <(String, Future<void> Function(String))>[
+        (
+          "forgets offline hosts and releases subscriptions",
+          (caseName) async {
+            final owner = Owner();
+            final firstChannel = Channel();
+            final secondChannel = Channel();
+            final snapshot = <String, dynamic>{
+              'sessions': [
+                {'id': 'saved-session'},
+              ],
+              'projects': [
+                {'id': 'saved-project'},
+              ],
+            };
+            final first = HostConnection.test(
+              id: 'first',
+              label: 'Offline host',
+              address: address('first'),
+              connected: false,
+              snapshot: snapshot,
+              connection: firstChannel,
+            );
+            final second = HostConnection.test(
+              id: 'second',
+              label: 'Other host',
+              address: address('second'),
+              connection: secondChannel,
+            );
+            final session = AppSession.test(
+              hosts: [first, second],
+              controller: owner,
+            );
+            final watching = first.watch();
+            await Future<void>.value();
+            await session.removeHost(first);
+            await watching;
+            expect(owner.forgotten, [address('first')], reason: caseName);
+            expect(session.hosts, [second], reason: caseName);
+            expect(session.selectedHost, same(second), reason: caseName);
+            expect(firstChannel.subscription.closes, 1, reason: caseName);
+            expect(firstChannel.subscription.disposals, 1, reason: caseName);
+            expect(firstChannel.closes, 1, reason: caseName);
+            expect(firstChannel.disposals, 1, reason: caseName);
+            expect(firstChannel.requests, isEmpty, reason: caseName);
+            expect(first.snapshot, same(snapshot), reason: caseName);
+            expect(secondChannel.closes, 0, reason: caseName);
+            await session.removeHost(second);
+            expect(session.hosts, isEmpty, reason: caseName);
+            expect(session.selectedHost, isNull, reason: caseName);
+            expect(session.controller, same(owner), reason: caseName);
+            expect(session.ready, isTrue, reason: caseName);
+            expect(owner.closes, 0, reason: caseName);
+            await session.close();
+            session.dispose();
+            expect(firstChannel.closes, 1, reason: caseName);
+            expect(secondChannel.closes, 1, reason: caseName);
+          },
+        ),
+        (
+          "coalesces requests and preserves changed selection",
+          (caseName) async {
+            final pending = Completer<void>();
+            final owner = Owner()..pendingForget = pending.future;
+            final channel = Channel();
+            final first = HostConnection.test(
+              id: 'first',
+              label: 'First',
+              address: address('first'),
+              connection: channel,
+            );
+            final second = HostConnection.test(id: 'second', label: 'Second');
+            final session = AppSession.test(
+              hosts: [first, second],
+              controller: owner,
+            );
+            final removing = session.removeHost(first);
+            final repeated = session.removeHost(first);
+            await owner.forgetStarted.future;
+            expect(owner.forgotten, [address('first')], reason: caseName);
+            expect(session.hosts, [first, second], reason: caseName);
+            expect(channel.closes, 0, reason: caseName);
+            session.selectHost(second.id);
+            pending.complete();
+            await Future.wait([removing, repeated]);
+            expect(session.hosts, [second], reason: caseName);
+            expect(session.selectedHost, same(second), reason: caseName);
+            expect(channel.closes, 1, reason: caseName);
+            await session.close();
+            session.dispose();
+          },
+        ),
+      ]) {
+        await run(caseName);
+      }
     });
 
     test('retains host when persistence fails', () async {
@@ -338,102 +349,118 @@ void main() {
       session.dispose();
     });
 
-    test('pairing waits for pending removal', () async {
-      for (final usePin in [false, true]) {
-        final pending = Completer<void>();
-        final previous = Channel();
-        final replacement = Channel();
-        final owner = Owner()
-          ..pendingForget = pending.future
-          ..connecting = (_) async => replacement;
-        final host = HostConnection.test(
-          id: 'paired',
-          label: 'Host',
-          address: address('paired'),
-          connection: previous,
-        );
-        final session = AppSession.test(hosts: [host], controller: owner);
-        final removing = session.removeHost(host);
-        await owner.forgetStarted.future;
-        final pairing = usePin
-            ? session.pairPin('123456')
-            : session.pair('invitation');
-        await Future<void>.value();
-        expect(owner.pairStarted.isCompleted, isFalse);
-        expect(session.hosts, [host]);
-        pending.complete();
-        await removing;
-        final paired = await pairing;
-        expect(paired, isNot(same(host)));
-        expect(paired.connection, same(replacement));
-        expect(session.hosts, [paired]);
-        expect(session.selectedHost, same(paired));
-        expect(previous.closes, 1);
-        expect(replacement.closes, 0);
-        await session.close();
-        session.dispose();
+    test("serializes pairing removal and handle cleanup", () async {
+      for (final (caseName, run) in <(String, Future<void> Function(String))>[
+        (
+          "pairing waits for pending removal",
+          (caseName) async {
+            for (final usePin in [false, true]) {
+              final pending = Completer<void>();
+              final previous = Channel();
+              final replacement = Channel();
+              final owner = Owner()
+                ..pendingForget = pending.future
+                ..connecting = (_) async => replacement;
+              final host = HostConnection.test(
+                id: 'paired',
+                label: 'Host',
+                address: address('paired'),
+                connection: previous,
+              );
+              final session = AppSession.test(hosts: [host], controller: owner);
+              final removing = session.removeHost(host);
+              await owner.forgetStarted.future;
+              final pairing = usePin
+                  ? session.pairPin('123456')
+                  : session.pair('invitation');
+              await Future<void>.value();
+              expect(owner.pairStarted.isCompleted, isFalse, reason: caseName);
+              expect(session.hosts, [host], reason: caseName);
+              pending.complete();
+              await removing;
+              final paired = await pairing;
+              expect(paired, isNot(same(host)), reason: caseName);
+              expect(paired.connection, same(replacement), reason: caseName);
+              expect(session.hosts, [paired], reason: caseName);
+              expect(session.selectedHost, same(paired), reason: caseName);
+              expect(previous.closes, 1, reason: caseName);
+              expect(replacement.closes, 0, reason: caseName);
+              await session.close();
+              session.dispose();
+            }
+          },
+        ),
+        (
+          "pairing waits for previous handle cleanup",
+          (caseName) async {
+            final pending = Completer<void>();
+            final previous = Channel()..pendingClose = pending.future;
+            final replacement = Channel();
+            final owner = Owner()..connecting = (_) async => replacement;
+            final host = HostConnection.test(
+              id: 'paired',
+              label: 'Host',
+              address: address('paired'),
+              connection: previous,
+            );
+            final session = AppSession.test(hosts: [host], controller: owner);
+            final removing = session.removeHost(host);
+            await previous.closeStarted.future;
+            expect(session.hosts, isEmpty, reason: caseName);
+            final pairing = session.pairPin('123456');
+            expect(session.removeHost(host), same(removing), reason: caseName);
+            await Future<void>.value();
+            expect(owner.pairStarted.isCompleted, isFalse, reason: caseName);
+            pending.complete();
+            await removing;
+            final paired = await pairing;
+            await session.removeHost(host);
+            expect(session.hosts, [paired], reason: caseName);
+            expect(replacement.closes, 0, reason: caseName);
+            expect(owner.forgotten, [address('paired')], reason: caseName);
+            await session.removeHost(paired);
+            expect(owner.forgotten, [
+              address('paired'),
+              address('paired'),
+            ], reason: caseName);
+            expect(session.hosts, isEmpty, reason: caseName);
+            expect(session.selectedHost, isNull, reason: caseName);
+            expect(replacement.closes, 1, reason: caseName);
+            await session.close();
+            session.dispose();
+          },
+        ),
+        (
+          "removal follows an active pairing",
+          (caseName) async {
+            final pending = Completer<String>();
+            final channel = Channel();
+            final owner = Owner()..pendingPair = pending.future;
+            final host = HostConnection.test(
+              id: 'paired',
+              label: 'Host',
+              address: address('paired'),
+              connection: channel,
+            );
+            final session = AppSession.test(hosts: [host], controller: owner);
+            final pairing = session.pair('invitation');
+            await owner.pairStarted.future;
+            final removing = session.removeHost(host);
+            await Future<void>.value();
+            expect(owner.forgotten, isEmpty, reason: caseName);
+            pending.complete(address('paired'));
+            expect(await pairing, same(host), reason: caseName);
+            await removing;
+            expect(session.hosts, isEmpty, reason: caseName);
+            expect(owner.forgotten, [address('paired')], reason: caseName);
+            expect(channel.closes, 1, reason: caseName);
+            await session.close();
+            session.dispose();
+          },
+        ),
+      ]) {
+        await run(caseName);
       }
-    });
-
-    test('pairing waits for previous handle cleanup', () async {
-      final pending = Completer<void>();
-      final previous = Channel()..pendingClose = pending.future;
-      final replacement = Channel();
-      final owner = Owner()..connecting = (_) async => replacement;
-      final host = HostConnection.test(
-        id: 'paired',
-        label: 'Host',
-        address: address('paired'),
-        connection: previous,
-      );
-      final session = AppSession.test(hosts: [host], controller: owner);
-      final removing = session.removeHost(host);
-      await previous.closeStarted.future;
-      expect(session.hosts, isEmpty);
-      final pairing = session.pairPin('123456');
-      expect(session.removeHost(host), same(removing));
-      await Future<void>.value();
-      expect(owner.pairStarted.isCompleted, isFalse);
-      pending.complete();
-      await removing;
-      final paired = await pairing;
-      await session.removeHost(host);
-      expect(session.hosts, [paired]);
-      expect(replacement.closes, 0);
-      expect(owner.forgotten, [address('paired')]);
-      await session.removeHost(paired);
-      expect(owner.forgotten, [address('paired'), address('paired')]);
-      expect(session.hosts, isEmpty);
-      expect(session.selectedHost, isNull);
-      expect(replacement.closes, 1);
-      await session.close();
-      session.dispose();
-    });
-
-    test('removal follows an active pairing', () async {
-      final pending = Completer<String>();
-      final channel = Channel();
-      final owner = Owner()..pendingPair = pending.future;
-      final host = HostConnection.test(
-        id: 'paired',
-        label: 'Host',
-        address: address('paired'),
-        connection: channel,
-      );
-      final session = AppSession.test(hosts: [host], controller: owner);
-      final pairing = session.pair('invitation');
-      await owner.pairStarted.future;
-      final removing = session.removeHost(host);
-      await Future<void>.value();
-      expect(owner.forgotten, isEmpty);
-      pending.complete(address('paired'));
-      expect(await pairing, same(host));
-      await removing;
-      expect(session.hosts, isEmpty);
-      expect(owner.forgotten, [address('paired')]);
-      expect(channel.closes, 1);
-      await session.close();
-      session.dispose();
     });
 
     test('closing during removal releases each handle once', () async {
@@ -461,117 +488,140 @@ void main() {
     });
   });
 
-  test('startup failure releases hosts and speech', () async {
-    final old = Channel();
-    final fresh = Channel();
-    final failed = Owner()
-      ..addresses.addAll([address('first'), address('second')]);
-    failed.connecting = (value) async {
-      if (value == address('second')) throw StateError('peer failed');
-      return old;
-    };
-    final successful = Owner()
-      ..addresses.add(address('first'))
-      ..connecting = (_) async => fresh;
-    final speech = <QuietSpeech>[];
-    var attempts = 0;
-    final session = AppSession.test(
-      ready: false,
-      initialize: () async {},
-      openController: (_, _) async => attempts++ == 0 ? failed : successful,
-      createSpeech: (path) {
-        final value = QuietSpeech(path);
-        speech.add(value);
-        return value;
-      },
-    );
-    await session.start(path: '/isolated/controller');
-    expect(session.ready, isFalse);
-    expect(session.error, isNotNull);
-    expect(session.hosts, isEmpty);
-    expect(session.controller, isNull);
-    expect(old.closes, 1);
-    expect(old.disposals, 1);
-    expect(failed.closes, 1);
-    expect(failed.disposals, 1);
-    expect(speech.single.disposed, isTrue);
-    await session.start(path: '/isolated/controller');
-    expect(session.ready, isTrue);
-    expect(session.error, isNull);
-    expect(session.hosts.single.connection, same(fresh));
-    await session.close();
-    session.dispose();
-    expect(fresh.closes, 1);
-    expect(fresh.disposals, 1);
-    expect(successful.closes, 1);
-    expect(speech.last.disposed, isTrue);
-  });
-  test('close releases a late controller', () async {
-    final entered = Completer<void>();
-    final opening = Completer<Controller>();
-    final owner = Owner();
-    final session = AppSession.test(
-      ready: false,
-      initialize: () async {},
-      openController: (_, _) {
-        entered.complete();
-        return opening.future;
-      },
-    );
-    final starting = session.start(path: '/isolated/controller');
-    await entered.future;
-    await session.close();
-    opening.complete(owner);
-    await starting;
-    expect(owner.closes, 1);
-    expect(owner.disposals, 1);
-    expect(session.ready, isFalse);
-    expect(session.hosts, isEmpty);
-    session.dispose();
-  });
-  test('close during peer loading prevents readiness', () async {
-    final peers = Completer<List<String>>();
-    final owner = Owner()..pendingPeers = peers.future;
-    final entered = Completer<void>();
-    final session = AppSession.test(
-      ready: false,
-      initialize: () async {},
-      openController: (_, _) async => owner,
-      createSpeech: (path) {
-        entered.complete();
-        return QuietSpeech(path);
-      },
-    );
-    final starting = session.start(path: '/isolated/controller');
-    await entered.future;
-    await session.close();
-    peers.complete([]);
-    await starting;
-    expect(session.ready, isFalse);
-    expect(session.controller, isNull);
-    expect(owner.closes, 1);
-    expect(owner.disposals, 1);
-    session.dispose();
-  });
-  test('close releases a late subscription', () async {
-    final opening = Completer<Updates>();
-    final channel = Channel()..pendingWatch = opening.future;
-    final host = HostConnection.test(
-      id: 'node',
-      label: 'Node',
-      connection: channel,
-      command: (_, _) async => {},
-    );
-    final watching = host.watch();
-    await host.close();
-    opening.complete(channel.subscription);
-    await watching;
-    expect(channel.closes, 1);
-    expect(channel.disposals, 1);
-    expect(channel.subscription.closes, 1);
-    expect(channel.subscription.disposals, 1);
-    expect(channel.subscription.reads, 0);
-    host.dispose();
+  test("releases failed and late startup handles", () async {
+    for (final (caseName, run) in <(String, Future<void> Function(String))>[
+      (
+        "startup failure releases hosts and speech",
+        (caseName) async {
+          final old = Channel();
+          final fresh = Channel();
+          final failed = Owner()
+            ..addresses.addAll([address('first'), address('second')]);
+          failed.connecting = (value) async {
+            if (value == address('second')) throw StateError('peer failed');
+            return old;
+          };
+          final successful = Owner()
+            ..addresses.add(address('first'))
+            ..connecting = (_) async => fresh;
+          final speech = <QuietSpeech>[];
+          var attempts = 0;
+          final session = AppSession.test(
+            ready: false,
+            initialize: () async {},
+            openController: (_, _) async =>
+                attempts++ == 0 ? failed : successful,
+            createSpeech: (path) {
+              final value = QuietSpeech(path);
+              speech.add(value);
+              return value;
+            },
+          );
+          await session.start(path: '/isolated/controller');
+          expect(session.ready, isFalse, reason: caseName);
+          expect(session.error, isNotNull, reason: caseName);
+          expect(session.hosts, isEmpty, reason: caseName);
+          expect(session.controller, isNull, reason: caseName);
+          expect(old.closes, 1, reason: caseName);
+          expect(old.disposals, 1, reason: caseName);
+          expect(failed.closes, 1, reason: caseName);
+          expect(failed.disposals, 1, reason: caseName);
+          expect(speech.single.disposed, isTrue, reason: caseName);
+          await session.start(path: '/isolated/controller');
+          expect(session.ready, isTrue, reason: caseName);
+          expect(session.error, isNull, reason: caseName);
+          expect(
+            session.hosts.single.connection,
+            same(fresh),
+            reason: caseName,
+          );
+          await session.close();
+          session.dispose();
+          expect(fresh.closes, 1, reason: caseName);
+          expect(fresh.disposals, 1, reason: caseName);
+          expect(successful.closes, 1, reason: caseName);
+          expect(speech.last.disposed, isTrue, reason: caseName);
+        },
+      ),
+      (
+        "close releases a late controller",
+        (caseName) async {
+          final entered = Completer<void>();
+          final opening = Completer<Controller>();
+          final owner = Owner();
+          final session = AppSession.test(
+            ready: false,
+            initialize: () async {},
+            openController: (_, _) {
+              entered.complete();
+              return opening.future;
+            },
+          );
+          final starting = session.start(path: '/isolated/controller');
+          await entered.future;
+          await session.close();
+          opening.complete(owner);
+          await starting;
+          expect(owner.closes, 1, reason: caseName);
+          expect(owner.disposals, 1, reason: caseName);
+          expect(session.ready, isFalse, reason: caseName);
+          expect(session.hosts, isEmpty, reason: caseName);
+          session.dispose();
+        },
+      ),
+      (
+        "close during peer loading prevents readiness",
+        (caseName) async {
+          final peers = Completer<List<String>>();
+          final owner = Owner()..pendingPeers = peers.future;
+          final entered = Completer<void>();
+          final session = AppSession.test(
+            ready: false,
+            initialize: () async {},
+            openController: (_, _) async => owner,
+            createSpeech: (path) {
+              entered.complete();
+              return QuietSpeech(path);
+            },
+          );
+          final starting = session.start(path: '/isolated/controller');
+          await entered.future;
+          await session.close();
+          peers.complete([]);
+          await starting;
+          expect(session.ready, isFalse, reason: caseName);
+          expect(session.controller, isNull, reason: caseName);
+          expect(owner.closes, 1, reason: caseName);
+          expect(owner.disposals, 1, reason: caseName);
+          session.dispose();
+        },
+      ),
+      (
+        "close releases a late subscription",
+        (caseName) async {
+          final opening = Completer<Updates>();
+          final channel = Channel()..pendingWatch = opening.future;
+          final host = HostConnection.test(
+            id: 'node',
+            label: 'Node',
+            connection: channel,
+            command: (_, _) async => {},
+          );
+          final watching = host.watch();
+          await host.close();
+          opening.complete(channel.subscription);
+          await watching;
+          expect(channel.closes, 1, reason: caseName);
+          expect(channel.disposals, 1, reason: caseName);
+          expect(channel.subscription.closes, 1, reason: caseName);
+          expect(channel.subscription.disposals, 1, reason: caseName);
+          expect(channel.subscription.reads, 0, reason: caseName);
+          host.dispose();
+        },
+      ),
+    ]) {
+      await run(caseName);
+    }
   });
 
   test('selection restarts a stopped watcher', () async {
@@ -628,148 +678,191 @@ void main() {
     }
   });
 
-  test('typed faults survive channel closure', () async {
-    final fault = {
-      'code': 'version_mismatch',
-      'message': 'Product versions differ',
-    };
-    final channel = Channel();
-    channel.subscription
-      ..initial = jsonEncode({'connected': false, 'error': fault})
-      ..failure = 'channel closed';
-    final host = HostConnection.test(
-      id: 'host',
-      label: 'Host',
-      connection: channel,
-      command: (_, _) async => {},
-    );
-    await host.watch();
-    expect(host.error, fault);
-    expect(channel.watches, 1);
-    channel.pendingWatch = Future.value(
-      Subscription()..failure = 'channel closed',
-    );
-    await host.watch();
-    expect(host.error, 'channel closed');
-    final invalid = const FormatException('Invalid snapshot');
-    channel.pendingWatch = Future.value(
-      Subscription()
-        ..initial = jsonEncode({'connected': false, 'error': fault})
-        ..failure = invalid,
-    );
-    await host.watch();
-    expect(host.error, same(invalid));
-    expect(channel.watches, 3);
-    await host.close();
-    host.dispose();
-  });
-
-  test('uncertain commands await explicit retry', () async {
-    final channel = Channel()..uncertain = true;
-    final host = HostConnection.test(
-      id: 'node',
-      label: 'Node',
-      connection: channel,
-      command: (_, _) async => {},
-    );
-    await expectLater(
-      host.execute('stable-request'),
-      throwsA(
-        isA<CommandFailure>()
-            .having((error) => error.code, 'code', 'outcome_unknown')
-            .having((error) => error.request, 'request', 'stable-request'),
+  test("preserves typed failures and uncertain requests", () async {
+    for (final (caseName, run) in <(String, Future<void> Function(String))>[
+      (
+        "typed faults survive channel closure",
+        (caseName) async {
+          final fault = {
+            'code': 'version_mismatch',
+            'message': 'Product versions differ',
+          };
+          final channel = Channel();
+          channel.subscription
+            ..initial = jsonEncode({'connected': false, 'error': fault})
+            ..failure = 'channel closed';
+          final host = HostConnection.test(
+            id: 'host',
+            label: 'Host',
+            connection: channel,
+            command: (_, _) async => {},
+          );
+          await host.watch();
+          expect(host.error, fault, reason: caseName);
+          expect(channel.watches, 1, reason: caseName);
+          channel.pendingWatch = Future.value(
+            Subscription()..failure = 'channel closed',
+          );
+          await host.watch();
+          expect(host.error, 'channel closed', reason: caseName);
+          final invalid = const FormatException('Invalid snapshot');
+          channel.pendingWatch = Future.value(
+            Subscription()
+              ..initial = jsonEncode({'connected': false, 'error': fault})
+              ..failure = invalid,
+          );
+          await host.watch();
+          expect(host.error, same(invalid), reason: caseName);
+          expect(channel.watches, 3, reason: caseName);
+          await host.close();
+          host.dispose();
+        },
       ),
-    );
-    expect(channel.requests, ['stable-request']);
-    await Future<void>.value();
-    expect(channel.requests.length, 1);
-    await host.close();
-    host.dispose();
-  });
-  test('known pre-admission faults retain their code', () async {
-    for (final code in ['unavailable', 'invalid_request']) {
-      final channel = Channel()
-        ..response = jsonEncode({
-          'Err': {'code': code, 'message': 'Not sent'},
-        });
-      final host = HostConnection.test(
-        id: 'node',
-        label: 'Node',
-        connection: channel,
-        command: (_, _) async => {},
-      );
-      await expectLater(
-        host.execute('stable-request'),
-        throwsA(
-          isA<CommandFailure>()
-              .having((error) => error.code, 'code', code)
-              .having((error) => error.request, 'request', 'stable-request'),
-        ),
-      );
-      expect(channel.requests, ['stable-request']);
-      await host.close();
-      host.dispose();
+      (
+        "uncertain commands await explicit retry",
+        (caseName) async {
+          final channel = Channel()..uncertain = true;
+          final host = HostConnection.test(
+            id: 'node',
+            label: 'Node',
+            connection: channel,
+            command: (_, _) async => {},
+          );
+          await expectLater(
+            host.execute('stable-request'),
+            throwsA(
+              isA<CommandFailure>()
+                  .having((error) => error.code, 'code', 'outcome_unknown')
+                  .having(
+                    (error) => error.request,
+                    'request',
+                    'stable-request',
+                  ),
+            ),
+            reason: caseName,
+          );
+          expect(channel.requests, ['stable-request'], reason: caseName);
+          await Future<void>.value();
+          expect(channel.requests.length, 1, reason: caseName);
+          await host.close();
+          host.dispose();
+        },
+      ),
+      (
+        "known pre-admission faults retain their code",
+        (caseName) async {
+          for (final code in ['unavailable', 'invalid_request']) {
+            final channel = Channel()
+              ..response = jsonEncode({
+                'Err': {'code': code, 'message': 'Not sent'},
+              });
+            final host = HostConnection.test(
+              id: 'node',
+              label: 'Node',
+              connection: channel,
+              command: (_, _) async => {},
+            );
+            await expectLater(
+              host.execute('stable-request'),
+              throwsA(
+                isA<CommandFailure>()
+                    .having((error) => error.code, 'code', code)
+                    .having(
+                      (error) => error.request,
+                      'request',
+                      'stable-request',
+                    ),
+              ),
+              reason: caseName,
+            );
+            expect(channel.requests, ['stable-request'], reason: caseName);
+            await host.close();
+            host.dispose();
+          }
+        },
+      ),
+    ]) {
+      await run(caseName);
     }
   });
-  test('shared speech initialization and late disposal', () async {
-    final opening = Completer<SpeechInput>();
-    final entered = Completer<void>();
-    final input = Speech();
-    var opens = 0;
-    final speech = SpeechController(
-      '/isolated/speech',
-      preferences: Preferences(),
-      open: (_) {
-        opens++;
-        if (!entered.isCompleted) entered.complete();
-        return opening.future;
-      },
-    );
-    final checking = speech.check();
-    final downloading = speech.download();
-    await entered.future;
-    speech.dispose();
-    opening.complete(input);
-    await Future.wait([checking, downloading]);
-    expect(opens, 1);
-    expect(input.cancels, 1);
-    expect(input.disposals, 1);
-    expect(input.downloads, 0);
-  });
-  test('early speech cancellation prevents download', () async {
-    final opening = Completer<SpeechInput>();
-    final input = Speech();
-    final speech = SpeechController(
-      '/isolated/speech',
-      preferences: Preferences(),
-      open: (_) => opening.future,
-    );
-    final downloading = speech.download();
-    await speech.cancel();
-    opening.complete(input);
-    await downloading;
-    expect(input.downloads, 0);
-    expect(speech.downloading, isFalse);
-    speech.dispose();
-    await Future<void>.value();
-  });
-  test('speech preferences resist stale reads', () async {
-    final loading = Completer<bool?>();
-    final preferences = Preferences()..pendingEnabled = loading.future;
-    final speech = SpeechController(
-      '/isolated/speech',
-      preferences: preferences,
-      open: (_) async => Speech(),
-    );
-    final checking = speech.check();
-    await speech.setEnabled(false);
-    loading.complete(true);
-    await checking;
-    expect(speech.enabled, isFalse);
-    expect(preferences.enabled, isFalse);
-    speech.dispose();
-    await Future<void>.value();
-  });
+
+  test(
+    "coordinates speech initialization cancellation and preferences",
+    () async {
+      for (final (caseName, run) in <(String, Future<void> Function(String))>[
+        (
+          "shared speech initialization and late disposal",
+          (caseName) async {
+            final opening = Completer<SpeechInput>();
+            final entered = Completer<void>();
+            final input = Speech();
+            var opens = 0;
+            final speech = SpeechController(
+              '/isolated/speech',
+              preferences: Preferences(),
+              open: (_) {
+                opens++;
+                if (!entered.isCompleted) entered.complete();
+                return opening.future;
+              },
+            );
+            final checking = speech.check();
+            final downloading = speech.download();
+            await entered.future;
+            speech.dispose();
+            opening.complete(input);
+            await Future.wait([checking, downloading]);
+            expect(opens, 1, reason: caseName);
+            expect(input.cancels, 1, reason: caseName);
+            expect(input.disposals, 1, reason: caseName);
+            expect(input.downloads, 0, reason: caseName);
+          },
+        ),
+        (
+          "early speech cancellation prevents download",
+          (caseName) async {
+            final opening = Completer<SpeechInput>();
+            final input = Speech();
+            final speech = SpeechController(
+              '/isolated/speech',
+              preferences: Preferences(),
+              open: (_) => opening.future,
+            );
+            final downloading = speech.download();
+            await speech.cancel();
+            opening.complete(input);
+            await downloading;
+            expect(input.downloads, 0, reason: caseName);
+            expect(speech.downloading, isFalse, reason: caseName);
+            speech.dispose();
+            await Future<void>.value();
+          },
+        ),
+        (
+          "speech preferences resist stale reads",
+          (caseName) async {
+            final loading = Completer<bool?>();
+            final preferences = Preferences()..pendingEnabled = loading.future;
+            final speech = SpeechController(
+              '/isolated/speech',
+              preferences: preferences,
+              open: (_) async => Speech(),
+            );
+            final checking = speech.check();
+            await speech.setEnabled(false);
+            loading.complete(true);
+            await checking;
+            expect(speech.enabled, isFalse, reason: caseName);
+            expect(preferences.enabled, isFalse, reason: caseName);
+            speech.dispose();
+            await Future<void>.value();
+          },
+        ),
+      ]) {
+        await run(caseName);
+      }
+    },
+  );
 
   test('bounded speech failures stop on disposal', () {
     fakeAsync((clock) {
@@ -806,79 +899,93 @@ void main() {
     });
   });
 
-  test('pairing trims input and reuses trusted peers', () async {
-    final channel = Channel();
-    var connections = 0;
-    final owner = Owner()
-      ..connecting = (_) async {
-        connections++;
-        return channel;
-      };
-    final session = AppSession.test(controller: owner);
-    final first = await session.pair('  invitation  ');
-    expect(owner.ticket, 'invitation');
-    final repeated = await session.pairPin(' 012345 ');
-    expect(owner.pin, '012345');
-    expect(owner.origin, '');
-    expect(repeated, same(first));
-    expect(session.hosts.single, same(first));
-    expect(session.selectedHost, same(first));
-    expect(connections, 1);
-    await session.close();
-    session.dispose();
-    expect(channel.closes, 1);
-    expect(channel.disposals, 1);
-  });
-
-  test('pairing restarts an ended subscription', () async {
-    final opening = Completer<Updates>();
-    final channel = Channel()..pendingWatch = opening.future;
-    final owner = Owner()..connecting = (_) async => channel;
-    final session = AppSession.test(controller: owner);
-    final host = await session.pair('invitation');
-    opening.completeError(StateError('subscription ended'));
-    await Future<void>.value();
-    expect(host.connected, isFalse);
-    expect(host.error, isNotNull);
-    expect(channel.watches, 1);
-    channel.pendingWatch = null;
-    channel.subscription.initial = jsonEncode({
-      'connected': true,
-      'snapshot': {'sessions': []},
-    });
-    expect(await session.pairPin('123456'), same(host));
-    await Future<void>.value();
-    expect(channel.watches, 2);
-    expect(host.connected, isTrue);
-    expect(host.error, isNull);
-    expect(await session.pairPin('123456'), same(host));
-    expect(channel.watches, 2);
-    await session.close();
-    session.dispose();
-  });
-
-  test('pairing failures propagate without registering a peer', () async {
-    final owner = Owner();
-    final session = AppSession.test(controller: owner);
-    for (final message in [
-      'Unavailable: certificate validation failed',
-      'NotFound: pairing code is unavailable',
+  test("pairs trusted peers and recovers subscription failures", () async {
+    for (final (caseName, run) in <(String, Future<void> Function(String))>[
+      (
+        "pairing trims input and reuses trusted peers",
+        (caseName) async {
+          final channel = Channel();
+          var connections = 0;
+          final owner = Owner()
+            ..connecting = (_) async {
+              connections++;
+              return channel;
+            };
+          final session = AppSession.test(controller: owner);
+          final first = await session.pair('  invitation  ');
+          expect(owner.ticket, 'invitation', reason: caseName);
+          final repeated = await session.pairPin(' 012345 ');
+          expect(owner.pin, '012345', reason: caseName);
+          expect(owner.origin, '', reason: caseName);
+          expect(repeated, same(first), reason: caseName);
+          expect(session.hosts.single, same(first), reason: caseName);
+          expect(session.selectedHost, same(first), reason: caseName);
+          expect(connections, 1, reason: caseName);
+          await session.close();
+          session.dispose();
+          expect(channel.closes, 1, reason: caseName);
+          expect(channel.disposals, 1, reason: caseName);
+        },
+      ),
+      (
+        "pairing restarts an ended subscription",
+        (caseName) async {
+          final opening = Completer<Updates>();
+          final channel = Channel()..pendingWatch = opening.future;
+          final owner = Owner()..connecting = (_) async => channel;
+          final session = AppSession.test(controller: owner);
+          final host = await session.pair('invitation');
+          opening.completeError(StateError('subscription ended'));
+          await Future<void>.value();
+          expect(host.connected, isFalse, reason: caseName);
+          expect(host.error, isNotNull, reason: caseName);
+          expect(channel.watches, 1, reason: caseName);
+          channel.pendingWatch = null;
+          channel.subscription.initial = jsonEncode({
+            'connected': true,
+            'snapshot': {'sessions': []},
+          });
+          expect(await session.pairPin('123456'), same(host), reason: caseName);
+          await Future<void>.value();
+          expect(channel.watches, 2, reason: caseName);
+          expect(host.connected, isTrue, reason: caseName);
+          expect(host.error, isNull, reason: caseName);
+          expect(await session.pairPin('123456'), same(host), reason: caseName);
+          expect(channel.watches, 2, reason: caseName);
+          await session.close();
+          session.dispose();
+        },
+      ),
+      (
+        "pairing failures propagate without registering a peer",
+        (caseName) async {
+          final owner = Owner();
+          final session = AppSession.test(controller: owner);
+          for (final message in [
+            'Unavailable: certificate validation failed',
+            'NotFound: pairing code is unavailable',
+          ]) {
+            owner.pairingError = message;
+            await expectLater(
+              session.pairPin(' 123456 '),
+              throwsA(
+                isA<StateError>().having(
+                  (error) => error.message,
+                  'message',
+                  message,
+                ),
+              ),
+              reason: caseName,
+            );
+            expect(owner.pin, '123456', reason: caseName);
+            expect(session.hosts, isEmpty, reason: caseName);
+          }
+          await session.close();
+          session.dispose();
+        },
+      ),
     ]) {
-      owner.pairingError = message;
-      await expectLater(
-        session.pairPin(' 123456 '),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            message,
-          ),
-        ),
-      );
-      expect(owner.pin, '123456');
-      expect(session.hosts, isEmpty);
+      await run(caseName);
     }
-    await session.close();
-    session.dispose();
   });
 }

@@ -72,41 +72,54 @@ mod extent {
     use super::*;
 
     #[test]
-    fn recent_view_reads_partial_turns_on_request() {
-        let (snapshot, older, _) = partial_view();
-        assert!(!Extent::Recent.needs_more(&snapshot));
-        assert_eq!(partial(&snapshot), Some(older.turn));
-        assert_eq!(
-            Extent::from(&snapshot),
-            Extent::Partial {
-                turn: 2,
-                entry: Some(5)
-            }
-        );
-    }
-
-    #[test]
-    fn restores_loaded_partial_range() {
-        let (mut snapshot, older, newer) = partial_view();
-        let extent = Extent::Partial {
-            turn: 2,
-            entry: Some(5),
-        };
-        assert!(!extent.needs_more(&snapshot));
-        // After resubscription only the newest entries of the partial turn remain.
-        Arc::make_mut(&mut snapshot.page).entries = vec![entry(&older, 6), entry(&newer, 7)].into();
-        assert!(extent.needs_more(&snapshot));
-        // A newer partial turn was complete before and must be completed again.
-        let (mut snapshot, _, newer) = partial_view();
-        snapshot.missing.push(newer.turn);
-        assert!(extent.needs_more(&snapshot));
-    }
-
-    #[test]
-    fn search_targets_complete_partial_turns() {
-        let (snapshot, _, _) = partial_view();
-        assert!(Extent::Through(2).needs_more(&snapshot));
-        assert!(!Extent::Through(3).needs_more(&snapshot));
-        assert!(Extent::All.needs_more(&snapshot));
+    fn restores_and_expands_requested_partial_ranges() {
+        for (case_name, run) in [
+            (
+                "recent_view_reads_partial_turns_on_request",
+                (|case_name| {
+                    let (snapshot, older, _) = partial_view();
+                    assert!(!Extent::Recent.needs_more(&snapshot), "{case_name}");
+                    assert_eq!(partial(&snapshot), Some(older.turn), "{case_name}");
+                    assert_eq!(
+                        Extent::from(&snapshot),
+                        Extent::Partial {
+                            turn: 2,
+                            entry: Some(5)
+                        },
+                        "{case_name}"
+                    );
+                }) as fn(&str),
+            ),
+            (
+                "restores_loaded_partial_range",
+                (|case_name| {
+                    let (mut snapshot, older, newer) = partial_view();
+                    let extent = Extent::Partial {
+                        turn: 2,
+                        entry: Some(5),
+                    };
+                    assert!(!extent.needs_more(&snapshot), "{case_name}");
+                    // After resubscription only the newest entries of the partial turn remain.
+                    Arc::make_mut(&mut snapshot.page).entries =
+                        vec![entry(&older, 6), entry(&newer, 7)].into();
+                    assert!(extent.needs_more(&snapshot), "{case_name}");
+                    // A newer partial turn was complete before and must be completed again.
+                    let (mut snapshot, _, newer) = partial_view();
+                    snapshot.missing.push(newer.turn);
+                    assert!(extent.needs_more(&snapshot), "{case_name}");
+                }) as fn(&str),
+            ),
+            (
+                "search_targets_complete_partial_turns",
+                (|case_name| {
+                    let (snapshot, _, _) = partial_view();
+                    assert!(Extent::Through(2).needs_more(&snapshot), "{case_name}");
+                    assert!(!Extent::Through(3).needs_more(&snapshot), "{case_name}");
+                    assert!(Extent::All.needs_more(&snapshot), "{case_name}");
+                }) as fn(&str),
+            ),
+        ] {
+            run(case_name);
+        }
     }
 }
