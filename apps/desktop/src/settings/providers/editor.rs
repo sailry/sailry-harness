@@ -77,7 +77,7 @@ pub(super) fn open(
     window.open_dialog(cx, move |dialog, window, cx| {
         let configure = editor.read(cx).flow.step == flow::Step::Configure;
         let desired = match editor.read(cx).flow.step {
-            flow::Step::Brand => super::brands::WIDTH,
+            flow::Step::Brand => px(560.),
             flow::Step::Method => px(540.),
             flow::Step::Configure => px(760.),
         };
@@ -528,9 +528,9 @@ impl Editor {
 }
 
 impl Render for Editor {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.flow.step != flow::Step::Configure {
-            return self.choices(window, cx).into_any_element();
+            return self.choices(cx).into_any_element();
         }
         let preset = self.preset;
         let real = self.binding.is_some();

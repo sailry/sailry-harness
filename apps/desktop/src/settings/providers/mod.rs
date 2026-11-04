@@ -1,4 +1,5 @@
 mod brands;
+pub(crate) use brands::Choice;
 mod catalog;
 pub(super) mod compaction;
 pub(super) mod contributions;
@@ -43,24 +44,23 @@ use gpui_kit::*;
 pub(crate) type ReturnTo = std::rc::Rc<dyn Fn(&mut Window, &mut App)>;
 
 impl Workspace {
-    pub(crate) fn provider_matrix(
+    pub(crate) fn provider_picker(
         entries: Option<&[sailry_protocol::conversation::presets::Entry]>,
-        width: Pixels,
-        select: impl Fn(String, &mut Window, &mut App) + 'static,
+        select: impl Fn(Choice, &mut Window, &mut App) + 'static,
     ) -> AnyElement {
-        brands::matrix(entries, width, false, select)
+        brands::picker(entries, false, select)
     }
 
     pub(crate) fn add_provider(
         owner: Entity<Self>,
-        brand: Option<String>,
+        choice: Option<Choice>,
         return_to: Option<ReturnTo>,
         window: &mut Window,
         cx: &mut App,
     ) {
         let editor = editor::open(owner, None, return_to, window, cx);
-        if let Some(brand) = brand {
-            editor.update(cx, |editor, cx| editor.choose_brand(brand, window, cx));
+        if let Some(choice) = choice {
+            editor.update(cx, |editor, cx| editor.choose(choice, window, cx));
         }
     }
 

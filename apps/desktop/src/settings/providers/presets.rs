@@ -295,6 +295,11 @@ pub(super) fn authentication(entry: &Entry) -> Authentication {
     }
 }
 
+/// Account and plugin sign-in methods, as opposed to API connections.
+pub(super) fn login(entry: &Entry) -> bool {
+    authentication(entry) != Authentication::ApiKey
+}
+
 pub(super) fn custom_endpoint(entry: &Entry, route: &Route) -> bool {
     entry.source != Source::Builtin || route.endpoint.is_empty()
 }

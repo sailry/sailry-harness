@@ -4,7 +4,7 @@ use crate::{
     backend::Services,
     preferences,
     preview::Page,
-    settings::{ReturnTo, Section, Workspace},
+    settings::{ProviderChoice, ReturnTo, Section, Workspace},
     shell::Shell,
     tr,
 };
@@ -50,7 +50,7 @@ impl Shell {
 
     fn welcome_provider(
         &mut self,
-        brand: String,
+        choice: ProviderChoice,
         return_to: ReturnTo,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -79,7 +79,7 @@ impl Shell {
         });
         Workspace::add_provider(
             self.settings.clone(),
-            Some(brand),
+            Some(choice),
             Some(return_to),
             window,
             cx,
@@ -109,7 +109,7 @@ fn show(guide: Entity<Guide>, window: &mut Window, cx: &mut App) {
     });
 }
 
-fn launch(guide: Entity<Guide>, brand: String, window: &mut Window, cx: &mut App) {
+fn launch(guide: Entity<Guide>, choice: ProviderChoice, window: &mut Window, cx: &mut App) {
     let shell = guide.read(cx).shell.clone();
     let resume = guide.clone();
     let return_to = Rc::new(move |window: &mut Window, cx: &mut App| {
@@ -126,7 +126,7 @@ fn launch(guide: Entity<Guide>, brand: String, window: &mut Window, cx: &mut App
     preferences::mark_welcome_seen(cx);
     window.close_dialog(cx);
     let _ = shell.update(cx, |shell, cx| {
-        shell.welcome_provider(brand, return_to.clone(), window, cx)
+        shell.welcome_provider(choice, return_to.clone(), window, cx)
     });
 }
 
@@ -164,8 +164,7 @@ impl Guide {
 }
 
 impl Render for Guide {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let width = (window.viewport_size().width - px(48.)).min(WIDTH);
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let guide = cx.entity().downgrade();
         v_flex()
             .id("welcome-guide")
@@ -202,14 +201,14 @@ impl Render for Guide {
             .child(
                 div()
                     .w_full()
+                    .px_9()
                     .pt(px(35.))
                     .pb(px(40.))
-                    .child(Workspace::provider_matrix(
+                    .child(Workspace::provider_picker(
                         self.entries.as_deref(),
-                        width,
-                        move |brand, window, cx| {
+                        move |choice, window, cx| {
                             if let Some(guide) = guide.upgrade() {
-                                launch(guide, brand, window, cx);
+                                launch(guide, choice, window, cx);
                             }
                         },
                     )),

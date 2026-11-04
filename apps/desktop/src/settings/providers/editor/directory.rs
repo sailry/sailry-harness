@@ -136,12 +136,10 @@ impl Editor {
                         {
                             editor.preset = presets::kind(entry, route);
                         }
-                        if let Some(brand) = editor.flow.requested.take() {
-                            if presets::groups(&editor.directory)
-                                .iter()
-                                .any(|(key, _)| *key == brand)
+                        if let Some(choice) = editor.flow.requested.take() {
+                            if super::super::brands::resolve(&editor.directory, &choice).is_some()
                             {
-                                editor.choose_brand(brand, window, cx);
+                                editor.choose(choice, window, cx);
                             } else {
                                 editor.report_error("provider_preset_unavailable", window, cx);
                             }
