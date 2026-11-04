@@ -182,6 +182,23 @@ async fn isolates_http_receipts_and_clears_retries() {
 }
 
 #[tokio::test]
+async fn keeps_first_output_until_next_request() {
+    let started = Instant::now();
+    let payload = Sources::default().capture("", started);
+    assert_eq!(payload.first_output(), None);
+    payload.output(started + std::time::Duration::from_millis(3));
+    payload.output(started + std::time::Duration::from_millis(9));
+    assert_eq!(payload.first_output(), Some(3_000));
+    let observed = payload.scope(async { current() }).await.unwrap();
+    observed.output(started);
+    assert_eq!(payload.first_output(), Some(3_000));
+    // A retry's prepared body starts a new attempt without the old delta.
+    payload.scope(async { prepared(Some("{}")) }).await;
+    assert_eq!(payload.first_output(), None);
+    assert!(current().is_none());
+}
+
+#[tokio::test]
 async fn classifies_only_prepared_plugin_body() {
     let sources = Sources::default();
     sources.replace(Vec::new());

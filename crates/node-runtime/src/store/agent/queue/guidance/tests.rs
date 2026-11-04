@@ -1237,3 +1237,27 @@ async fn stop_keeps_unconsumed_input_ahead_of_guidance() {
     assert_eq!(turns[0], active);
     assert!(turns.contains(&source) && turns.contains(&held));
 }
+
+#[tokio::test]
+async fn reselection_replaces_original_target() {
+    let mut fixture = Fixture::new().await;
+    let active = fixture.queued().await;
+    runs::start(&fixture.database.connection, active)
+        .await
+        .unwrap();
+    Box::pin(runs::claim(&mut fixture.database, &fixture.events))
+        .await
+        .unwrap()
+        .unwrap();
+    let source = fixture.queued().await;
+    let db = &fixture.database.connection;
+    // A held input previously selected for a recipient that has since ended.
+    let mut run = runs::get(db, source).await.unwrap();
+    run.guidance = Some(TurnId::new());
+    runs::put(db, &run).await.unwrap();
+    select(db, source, active, 1).await.unwrap();
+    assert_eq!(runs::get(db, source).await.unwrap().guidance, Some(active));
+    let queue = read(db, fixture.session).await.unwrap();
+    let item = queue.items.iter().find(|item| item.turn == source).unwrap();
+    assert_eq!(item.guidance, Some(active));
+}

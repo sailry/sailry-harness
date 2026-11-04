@@ -285,6 +285,100 @@ async fn stops_at_incompatible_capture() {
 }
 
 #[tokio::test]
+async fn stops_at_selected_agent() {
+    use sailry_protocol::conversation::{
+        Input,
+        reference::{Reference, Target},
+    };
+    let mut fixture = Fixture::new().await;
+    let (active, first) = admitted(&mut fixture).await;
+    let second = controller::guide(&mut fixture, active, "Compatible guidance").await;
+    let session = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    let roles = crate::store::sessions::roles::read(
+        &fixture.database.connection,
+        fixture.session,
+        session.revision,
+    )
+    .await
+    .unwrap();
+    let Output::QueuedTurn(selected) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::QueueTurn {
+            session: fixture.session,
+            expected_revision: session.revision,
+            message: Input {
+                text: "Inspect with the selected agent".into(),
+                attachments: Vec::new(),
+                references: vec![Reference {
+                    target: Target::Agent(roles.profiles[0].reference()),
+                    label: roles.profiles[0].key.clone(),
+                }],
+            },
+        },
+    )
+    .await
+    else {
+        panic!("turn expected")
+    };
+    runs::start(&fixture.database.connection, selected.id)
+        .await
+        .unwrap();
+    runs::stop(&fixture.database.connection, active)
+        .await
+        .unwrap();
+    Box::pin(runs::finish(
+        &mut fixture.database,
+        active,
+        Status::Cancelled,
+        None,
+        &fixture.events,
+    ))
+    .await
+    .unwrap();
+    let successor = Box::pin(runs::claim(&mut fixture.database, &fixture.events))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(successor.turn.id, first);
+    assert_eq!(
+        successor
+            .followups
+            .iter()
+            .map(|input| input.turn.id)
+            .collect::<Vec<_>>(),
+        [second]
+    );
+    let run = runs::get(&fixture.database.connection, selected.id)
+        .await
+        .unwrap();
+    assert_eq!(run.status, Status::Queued);
+    assert_eq!(run.joined, None);
+    append(&mut fixture, &successor).await;
+    Box::pin(runs::finish(
+        &mut fixture.database,
+        first,
+        Status::Completed,
+        None,
+        &fixture.events,
+    ))
+    .await
+    .unwrap();
+    let next = Box::pin(runs::claim(&mut fixture.database, &fixture.events))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(next.turn.id, selected.id);
+    assert!(next.followups.is_empty());
+    assert_eq!(
+        next.message.selected_role(),
+        Some(roles.profiles[0].reference())
+    );
+}
+
+#[tokio::test]
 async fn keeps_pause_without_pending_guidance() {
     let mut fixture = Fixture::new().await;
     let (active, source) = admitted(&mut fixture).await;

@@ -31,6 +31,21 @@ pub fn check_host(protocol: Option<u16>, version: Option<&str>) -> Result<(), Fa
     check(Peer::LOCAL, Peer { protocol, version })
 }
 
+/// Whether a Host's product release precedes this controller's. This offers
+/// a Host update only; connection admission depends on [`check_host`].
+pub fn host_outdated(version: Option<&str>) -> bool {
+    older(PRODUCT_VERSION, version)
+}
+
+fn older(controller: &str, host: Option<&str>) -> bool {
+    let parse = |version: &str| semver::Version::parse(version).ok();
+    match (parse(controller), host.and_then(parse)) {
+        (Some(controller), Some(host)) => host.cmp_precedence(&controller) == Ordering::Less,
+        // An unknown release cannot be ordered; protocol checks still apply.
+        _ => false,
+    }
+}
+
 pub(crate) fn check(controller: Peer<'_>, host: Peer<'_>) -> Result<(), Fault> {
     let unverified = controller.protocol.is_none() || host.protocol.is_none();
     let (update_host, message) = match (controller.protocol, host.protocol) {
@@ -77,6 +92,17 @@ mod tests {
             version: None,
         };
         assert!(check(peer(Some(1), "invalid"), unknown).is_ok());
+    }
+
+    #[test]
+    fn orders_host_releases_by_precedence() {
+        assert!(older("0.1.2", Some("0.1.0")));
+        assert!(older("0.1.0", Some("0.1.0-alpha.3")));
+        assert!(!older("0.1.0", Some("0.1.0+build")));
+        assert!(!older("0.1.0", Some("0.1.2")));
+        assert!(!older("0.1.0", Some("invalid")));
+        assert!(!older("0.1.0", None));
+        assert!(!older("invalid", Some("0.1.0")));
     }
 
     #[test]

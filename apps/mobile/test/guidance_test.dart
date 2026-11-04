@@ -57,6 +57,33 @@ void main() {
     expect(draft.attachments, isEmpty);
   });
 
+  test('observed guidance does not return after rewind', () async {
+    final completion = Completer<Map<String, dynamic>>();
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      command: (kind, data) => completion.future,
+    );
+    final draft = TurnDraft(host: host, session: 'session', text: 'Focus');
+    addTearDown(draft.dispose);
+    addTearDown(host.dispose);
+    final sending = draft.send(9, recipient: recipient);
+    // An unadmitted preview has no identity to reconcile yet.
+    draft.observe({'other': <String, dynamic>{}});
+    expect(draft.guidance?.text, 'Focus');
+    completion.complete({
+      'data': {'id': 'guidance'},
+    });
+    await sending;
+    draft.observe({});
+    expect(draft.guidance?.turn, 'guidance');
+    draft.observe({'guidance': <String, dynamic>{}});
+    expect(draft.guidance, isNull);
+    // A rewind removes the turn from the projection; nothing is revived.
+    draft.observe({});
+    expect(draft.guidance, isNull);
+  });
+
   test('send now explicitly requests interruption', () async {
     final host = HostConnection.test(
       id: 'host',

@@ -1318,20 +1318,30 @@ async fn queues_changed_execution_and_permissions() {
         }
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
         release.cancel();
-        let page = finished(
-            &fixture.client,
-            fixture.session.id,
-            inputs.last().unwrap().id,
-        )
-        .await;
+        // Each change starts its own successor; inputs sharing a capture merge into it.
+        let last = &inputs[inputs.len() - 2];
+        let page = finished(&fixture.client, fixture.session.id, last.id).await;
         assert_eq!(status(&page, active.id), Status::Completed);
         assert!(page.queue.items.is_empty());
-        for turn in inputs {
-            let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
-            assert_eq!(run.status, Status::Completed);
-            assert_eq!(run.joined, None);
+        for pair in inputs.chunks(2) {
+            let run = |turn: TurnId| page.runs.iter().find(|run| run.turn == turn).unwrap();
+            let successor = run(pair[0].id);
+            assert_eq!(successor.status, Status::Completed);
+            assert_eq!(successor.joined, None);
+            let merged = run(pair[1].id);
+            assert_eq!(merged.status, Status::Continued);
+            assert_eq!(merged.joined, Some(pair[0].id));
         }
-        assert_eq!(fixture.server.requests.lock().unwrap().len(), 7);
+        let requests = fixture.server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 4);
+        for (request, change) in requests[1..]
+            .iter()
+            .zip(["output", "capabilities", "permission"])
+        {
+            let body = request.to_string();
+            assert!(body.contains(&format!("Queued input after {change}")));
+            assert!(body.contains(&format!("Direct input after {change}")));
+        }
         fixture.close().await;
     }
 }

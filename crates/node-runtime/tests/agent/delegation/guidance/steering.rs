@@ -196,33 +196,22 @@ async fn marker(files: &mut dyn sailry_link::Subscription, path: &std::path::Pat
     .expect("held command marker deadline");
 }
 
+/// Foreground commands are absent from the background inventory. The held
+/// shell is the gate's only reader, so a non-blocking writer observes its exit.
 #[cfg(unix)]
-async fn cancelled_command(
-    fixture: &Fixture,
-    updates: &mut dyn sailry_link::Subscription,
-    active: TurnId,
-) {
-    use sailry_protocol::process::{Outcome, Status};
+async fn terminated(gate: &std::path::Path) {
+    use std::os::unix::fs::OpenOptionsExt;
     tokio::time::timeout(COMPLETION_BUDGET, async {
         loop {
-            let Output::Commands(commands) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::ListCommands {
-                    session: fixture.session.id,
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("command inventory expected")
-            };
-            if let Some(command) = commands.iter().find(|command| command.turn == active)
-                && matches!(command.status, Status::Finished(_))
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(gate)
             {
-                assert_eq!(commands.len(), 1);
-                assert_eq!(command.status, Status::Finished(Outcome::Cancelled));
-                return;
+                Err(error) if error.raw_os_error() == Some(libc::ENXIO) => return,
+                Err(error) => panic!("command gate unavailable: {error}"),
+                Ok(_) => tokio::time::sleep(Duration::from_millis(20)).await,
             }
-            updates.next().await.unwrap();
         }
     })
     .await
@@ -281,11 +270,6 @@ async fn immediate_interrupt_keeps_parent_and_child() {
             .await
             .unwrap();
         files.next().await.unwrap();
-        let mut command_updates = transport
-            .subscribe(Topic::Commands(fixture.session.id))
-            .await
-            .unwrap();
-        command_updates.next().await.unwrap();
         let active = fixture
             .push("Keep the child while interrupting the parent tool")
             .await;
@@ -361,7 +345,7 @@ async fn immediate_interrupt_keeps_parent_and_child() {
             std::fs::read(fixture.root().join("steering.marker")).unwrap(),
             b"x"
         );
-        cancelled_command(&fixture, command_updates.as_mut(), active.id).await;
+        terminated(&fixture.root().join("steering.gate")).await;
         answer(&fixture, question.id).await;
         release.cancel();
         let page = finished(&fixture.client, fixture.session.id, active.id).await;
@@ -414,7 +398,6 @@ async fn immediate_interrupt_keeps_parent_and_child() {
         );
         assert!(page.queue.items.is_empty());
         drop(files);
-        drop(command_updates);
         fixture.close().await;
     }
 }

@@ -180,3 +180,17 @@ fn observer_replacement_refreshes_shared_state() {
         "delivered"
     );
 }
+
+#[test]
+fn reselected_recipient_reports_delivery() {
+    let mut page = page();
+    let turn = page.runs[0].turn;
+    // Explicit reselection durably replaces the original target.
+    let recipient = TurnId::new();
+    page.runs[0].guidance = Some(recipient);
+    page.queue.items.clear();
+    page.runs[0].status = Status::Continued;
+    page.runs[0].joined = Some(recipient);
+    append(&mut page, "user");
+    assert_eq!(project(&page)[&turn], State::Delivered);
+}

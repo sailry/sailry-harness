@@ -48,6 +48,11 @@ pub(super) async fn claim(
         }
         let turn = item.turn;
         let input = super::super::queue::message(db, turn).await?;
+        // Selected-role dispatch reads only the primary message, so a selected
+        // agent starts its own turn instead of joining a successor.
+        if !boundary && input.message.selected_role().is_some() {
+            break;
+        }
         capture(db, &input.turn, false, &input.message).await?;
         run.joined = Some(primary.turn);
         run.status = Status::Continued;

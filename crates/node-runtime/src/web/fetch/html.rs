@@ -48,17 +48,8 @@ pub(super) fn convert(html: &str) -> Result<(Option<String>, String), Fault> {
         .add_handler(
             CONTAINERS.to_vec(),
             move |handlers: &dyn Handlers, element: Element| {
-                let attribute = |name: &str| {
-                    element
-                        .attrs
-                        .iter()
-                        .find(|attribute| &*attribute.name.local == name)
-                        .map(|attribute| attribute.value.trim().to_ascii_lowercase())
-                };
-                let role = attribute("role");
-                // Inactive tab panels hold alternative content, not chrome.
-                if (attribute("hidden").is_some() && role.as_deref() != Some("tabpanel"))
-                    || attribute("aria-hidden").as_deref() == Some("true")
+                let role = attribute(&element, "role");
+                if hidden(&element)
                     || matches!(
                         role.as_deref(),
                         Some("navigation" | "banner" | "contentinfo" | "complementary" | "search")
@@ -76,6 +67,10 @@ pub(super) fn convert(html: &str) -> Result<(Option<String>, String), Fault> {
         .add_handler(
             vec!["main"],
             move |handlers: &dyn Handlers, element: Element| {
+                // An inactive view must not replace the visible page.
+                if hidden(&element) {
+                    return None;
+                }
                 let result = handlers.fallback(element);
                 keep(&main, result.as_ref());
                 result
@@ -84,6 +79,9 @@ pub(super) fn convert(html: &str) -> Result<(Option<String>, String), Fault> {
         .add_handler(
             vec!["article"],
             move |handlers: &dyn Handlers, element: Element| {
+                if hidden(&element) {
+                    return None;
+                }
                 let result = handlers.fallback(element);
                 if let Some(result) = &result {
                     articles
@@ -110,6 +108,22 @@ pub(super) fn convert(html: &str) -> Result<(Option<String>, String), Fault> {
         .filter(|text| !text.is_empty())
         .unwrap_or(markdown);
     Ok((title, content))
+}
+
+fn attribute(element: &Element<'_>, name: &str) -> Option<String> {
+    element
+        .attrs
+        .iter()
+        .find(|attribute| &*attribute.name.local == name)
+        .map(|attribute| attribute.value.trim().to_ascii_lowercase())
+}
+
+/// Hidden content is not rendered, except inactive tab panels, which hold
+/// alternative page content rather than chrome.
+fn hidden(element: &Element<'_>) -> bool {
+    (attribute(element, "hidden").is_some()
+        && attribute(element, "role").as_deref() != Some("tabpanel"))
+        || attribute(element, "aria-hidden").as_deref() == Some("true")
 }
 
 fn keep(captured: &Mutex<Captured>, result: Option<&htmd::element_handler::HandlerResult>) {

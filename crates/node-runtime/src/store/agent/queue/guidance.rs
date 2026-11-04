@@ -205,7 +205,9 @@ pub(super) async fn select(
             "guidance belongs to another execution scope",
         ));
     }
-    if source.guidance.is_none() {
+    // An explicit selection replaces an earlier target so delivery projects
+    // against the recipient that consumes it. Automatic successors keep it.
+    if source.guidance != Some(target.turn) {
         source.guidance = Some(target.turn);
         runs::put(db, &source).await?;
     }

@@ -131,6 +131,16 @@ class TurnDraft extends ChangeNotifier {
     }
   }
 
+  /// Retires the optimistic preview once the projected [guidance] shows its
+  /// admitted turn, so a later rewind or replacement cannot revive it.
+  ///
+  /// Unadmitted and uncertain submissions stay visible. This does not notify:
+  /// the observed projection already hides the preview.
+  void observe(Map<String, dynamic> guidance) {
+    final turn = _guidance?.turn;
+    if (turn != null && guidance.containsKey(turn)) _guidance = null;
+  }
+
   void _admitted(Map<String, dynamic> output) {
     final captured = _guidance;
     if (captured == null) return;

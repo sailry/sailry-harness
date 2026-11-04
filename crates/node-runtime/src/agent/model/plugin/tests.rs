@@ -203,6 +203,45 @@ fn joins_calls_and_keeps_unknown_usage() {
 }
 
 #[test]
+fn marks_buffered_deltas_as_output() {
+    let reasoning = |text: Option<&str>, replay: Option<&str>| Delta::Reasoning {
+        text: text.map(Into::into),
+        replay: replay.map(Into::into),
+    };
+    for delta in [
+        reasoning(Some("Plan"), None),
+        reasoning(None, Some("signature")),
+        Delta::ToolCall {
+            index: 0,
+            id: Some("call".into()),
+            name: None,
+            arguments_delta: None,
+        },
+        Delta::Text { text: "A".into() },
+    ] {
+        assert!(response::output(&delta));
+    }
+    for delta in [
+        reasoning(None, None),
+        reasoning(Some(""), Some("")),
+        Delta::Text {
+            text: String::new(),
+        },
+        Delta::Usage {
+            input_tokens: Some(1),
+            output_tokens: None,
+            cached_input_tokens: None,
+            reasoning_tokens: None,
+        },
+        Delta::Finish {
+            reason: Finish::Stop,
+        },
+    ] {
+        assert!(!response::output(&delta));
+    }
+}
+
+#[test]
 fn retains_optional_reasoning_counts() {
     for tokens in [None, Some(0), Some(2)] {
         let mut output = response::Accumulator::default();

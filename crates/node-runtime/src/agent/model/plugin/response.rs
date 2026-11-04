@@ -166,6 +166,19 @@ impl Accumulator {
     }
 }
 
+/// Any generated content delta marks the time to first token.
+pub(super) fn output(delta: &Delta) -> bool {
+    match delta {
+        Delta::Text { text } => !text.is_empty(),
+        Delta::Reasoning { text, replay } => {
+            text.as_deref().is_some_and(|text| !text.is_empty())
+                || replay.as_deref().is_some_and(|replay| !replay.is_empty())
+        }
+        Delta::ToolCall { .. } => true,
+        Delta::Usage { .. } | Delta::Finish { .. } | Delta::Error { .. } => false,
+    }
+}
+
 pub(super) fn http_class(status: u16) -> Class {
     match status {
         401 => Class::Authentication,

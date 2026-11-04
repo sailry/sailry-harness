@@ -76,6 +76,18 @@ mod landmarks {
     }
 
     #[test]
+    fn skips_hidden_main_and_article() {
+        let (_, text) =
+            convert("<main hidden><p>Inactive view</p></main><main><p>Active view</p></main>")
+                .unwrap();
+        assert_eq!(text, "Active view");
+        let (_, text) =
+            convert("<p>Visible body</p><article aria-hidden='true'><p>Hidden story</p></article>")
+                .unwrap();
+        assert_eq!(text, "Visible body");
+    }
+
+    #[test]
     fn falls_back_when_main_is_empty() {
         let (_, text) = convert("<main><div id='root'></div></main><p>Outside</p>").unwrap();
         assert_eq!(text, "Outside");

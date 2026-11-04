@@ -11,7 +11,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use sailry_protocol::{Fault, NodeId, Output, Receipt, Request, Topic, Update};
 use tokio::sync::oneshot;
 
-pub use compatibility::{PRODUCT_VERSION, check_host};
+pub use compatibility::{PRODUCT_VERSION, check_host, host_outdated};
 pub use connection::{ConnectionInfo, Route};
 pub use identity::Identity;
 pub use iroh::EndpointAddr;

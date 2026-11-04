@@ -265,6 +265,7 @@ impl Capture {
     fn receive(&mut self, message: Option<&Message>, usage: Option<&mut ProviderUsage>) {
         let state = self.state.as_mut().expect("active request");
         mark(&mut state.first_token, message, state.started);
+        earliest(&mut state.first_token, state.payload.first_output());
         state.reasoning_streamed |=
             message.is_some_and(|message| message.content.iter().any(reasoning));
         if let Some(usage) = usage {
@@ -327,6 +328,9 @@ impl State {
         error: Option<&ProviderError>,
     ) -> Result<(), ProviderError> {
         let elapsed = self.started.elapsed();
+        // Raw output may precede every emitted block, e.g. when cancelled
+        // during buffered reasoning or tool arguments.
+        earliest(&mut self.first_token, self.payload.first_output());
         let outcome = if self.stop.is_cancelled() {
             Outcome::Cancelled
         } else {
@@ -451,10 +455,21 @@ fn finish_span(
     }
 }
 
-/// Records the time to first token at the first streamed output delta.
+/// Records the time to first token at the first streamed output message.
+///
+/// GDK streams text deltas but buffers reasoning until its block ends and tool
+/// calls until completion, so this is only a fallback for transports that do
+/// not report their raw deltas through [`earliest`].
 fn mark(first: &mut Option<u64>, message: Option<&Message>, started: Instant) {
     if first.is_none() && message.is_some_and(|message| message.content.iter().any(output)) {
         *first = Some(micros(started.elapsed()));
+    }
+}
+
+/// Prefers a raw output delta observed before the stream emitted its block.
+fn earliest(first: &mut Option<u64>, observed: Option<u64>) {
+    if let Some(observed) = observed {
+        *first = Some(first.map_or(observed, |first| first.min(observed)));
     }
 }
 
@@ -563,6 +578,38 @@ mod tests {
             assert_eq!(marks[0], None);
             assert!(marks[1].is_some());
             assert_eq!(marks[2], marks[1]);
+        }
+
+        #[test]
+        fn prefers_raw_delta_before_buffered_block() {
+            let mut first = None;
+            earliest(&mut first, None);
+            assert_eq!(first, None);
+            // Reasoning arrived at 2 ms; its complete block was emitted at 900 ms.
+            first = Some(900_000);
+            earliest(&mut first, Some(2_000));
+            assert_eq!(first, Some(2_000));
+            // A later observation never moves an earlier first token.
+            earliest(&mut first, Some(5_000));
+            assert_eq!(first, Some(2_000));
+        }
+
+        #[tokio::test]
+        async fn keeps_raw_delta_for_tool_only_response() {
+            let started = Instant::now() - Duration::from_millis(50);
+            let payload = observation::Sources::default().capture("", started);
+            // The package decoder saw tool arguments 10 ms in; the complete
+            // call reaches the stream only at completion.
+            payload.output(started + Duration::from_millis(10));
+            let call = Message::assistant().with_tool_request(
+                "call",
+                Ok(rmcp::model::CallToolRequestParams::new("read_file")),
+            );
+            let mut first = None;
+            mark(&mut first, Some(&call), started);
+            assert!(first.is_some_and(|value| value >= 50_000));
+            earliest(&mut first, payload.first_output());
+            assert_eq!(first, Some(10_000));
         }
     }
 

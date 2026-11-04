@@ -187,6 +187,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
         final statisticsError = value['statistics_error'];
         final previousStatisticsError = _view.value['statistics_error'];
         _view.value = mergeToolDetails(_view.value, value);
+        _submission.observe(object(_view.value['guidance']));
         if (statisticsError != null &&
             jsonEncode(statisticsError) !=
                 jsonEncode(previousStatisticsError)) {
@@ -263,6 +264,8 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   }
 
   void _rebuild() {
+    // Admission may complete after the projection already showed the turn.
+    _submission.observe(object(_view.value['guidance']));
     setState(() {});
     _artifactActions.changed();
   }

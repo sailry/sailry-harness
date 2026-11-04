@@ -148,6 +148,8 @@ impl GdkProvider for Model {
         let (sender, receiver) = mpsc::channel(1);
         let cancelled = stop.clone();
         let model = config.model_name.clone();
+        // Decoding continues on its own task, outside the request scope.
+        let observed = super::observation::current();
         tokio::spawn(async move {
             let mut accumulator = response::Accumulator::default();
             let result = produce(
@@ -160,6 +162,7 @@ impl GdkProvider for Model {
                     credentials: &credentials,
                     stop: &cancelled,
                     sender: &sender,
+                    observed: observed.as_ref(),
                 },
                 &mut accumulator,
             )
@@ -238,6 +241,7 @@ struct StreamContext<'a> {
     credentials: &'a Credentials,
     stop: &'a CancellationToken,
     sender: &'a mpsc::Sender<Result<response::Chunk, ProviderError>>,
+    observed: Option<&'a super::observation::Payload>,
 }
 
 async fn produce(
@@ -257,6 +261,7 @@ async fn produce(
             _ = context.stop.cancelled() => return Err(response::fault(transport::cancelled())),
             next = bytes.next() => next,
         };
+        let arrived = std::time::Instant::now();
         let done = next.is_none();
         let chunk = next
             .transpose()
@@ -284,6 +289,13 @@ async fn produce(
             .await
             .map_err(response::translation)?;
         state = decoded.state;
+        // The accumulator buffers reasoning and tool arguments into complete
+        // blocks; time to first token belongs to the raw delta.
+        if let Some(observed) = context.observed
+            && decoded.deltas.iter().any(response::output)
+        {
+            observed.output(arrived);
+        }
         for output in accumulator.push(decoded.deltas, &context.credentials.secrets)? {
             if context.sender.send(Ok(output)).await.is_err() {
                 return Err(response::fault(transport::cancelled()));

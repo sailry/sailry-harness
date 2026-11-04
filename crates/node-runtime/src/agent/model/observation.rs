@@ -67,6 +67,7 @@ impl Sources {
             complete: false,
             started,
             http: None,
+            first_output_us: None,
             diagnostic: None,
         })))
     }
@@ -82,6 +83,8 @@ struct State {
     complete: bool,
     started: Instant,
     http: Option<Http>,
+    /// The first decoded output delta, before any block buffering.
+    first_output_us: Option<u64>,
     diagnostic: Option<(crate::logging::Context, u64)>,
 }
 
@@ -115,6 +118,27 @@ impl Payload {
         (state.categories.clone(), state.complete, state.http)
     }
 
+    /// The earliest raw output delta of the latest prepared request, if a
+    /// Sailry transport observed one.
+    pub(super) fn first_output(&self) -> Option<u64> {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .first_output_us
+    }
+
+    /// Records raw output that arrived at `at`, before the stream buffers it
+    /// into complete reasoning or tool-call blocks.
+    pub(super) fn output(&self, at: Instant) {
+        let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if state.first_output_us.is_none() {
+            state.first_output_us = Some(
+                u64::try_from(at.saturating_duration_since(state.started).as_micros())
+                    .unwrap_or(u64::MAX),
+            );
+        }
+    }
+
     fn prepared(&self, body: &serde_json::Value) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         if let Some((identity, attempt)) = &mut state.diagnostic {
@@ -123,6 +147,7 @@ impl Payload {
         }
         // A later prepared request must not inherit a previous retry's receipt.
         state.http = None;
+        state.first_output_us = None;
         let sources = if categories::retains_system(body, state.system) {
             state.sources.as_ref()
         } else {
@@ -160,6 +185,11 @@ pub(super) fn prepared(body: Option<&str>) {
         let body = body.and_then(|body| serde_json::from_str(body).ok());
         payload.prepared(body.as_ref().unwrap_or(&serde_json::Value::Null));
     });
+}
+
+/// The request scope, for transport work that continues on a spawned task.
+pub(super) fn current() -> Option<Payload> {
+    CURRENT.try_with(Clone::clone).ok()
 }
 
 /// Only Sailry's package transport exposes actual response headers here.
