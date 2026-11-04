@@ -93,9 +93,9 @@ mod worksheets {
         }
         {
             for dimension in ["ref='A1:A1'", "ref=\"A1\"", "ref=\"A1:A1\""] {
-                cases.push(("bounds blank rows with dimensions", (&format!(
+                cases.push(("bounds blank rows with dimensions", format!(
                     "<worksheet><dimension {dimension}/><sheetData><row r='1'><c r='A1'><v>1</v></c></row><row r='50001'/></sheetData></worksheet>"
-                )).to_owned(), Err(LARGE)));
+                ), Err(LARGE)));
             }
             cases.push(("bounds blank rows with dimensions", ("<worksheet><dimension ref='A1'/><sheetData><row r='50001'/></sheetData></worksheet>").to_owned(), Err(LARGE)));
         }
@@ -110,11 +110,7 @@ mod worksheets {
                         "<worksheet><hyperlinks><hyperlink ref='{reference}'/></hyperlinks></worksheet>"
                     ),
                 ] {
-                    cases.push((
-                        "bounds absolute coordinates",
-                        (&text).to_owned(),
-                        Err(LARGE),
-                    ));
+                    cases.push(("bounds absolute coordinates", text, Err(LARGE)));
                 }
             }
             cases.push(("bounds absolute coordinates", ("<worksheet><sheetData><row r='1048577'><c><v>1</v></c></row></sheetData></worksheet>").to_owned(), Err(LARGE)));
@@ -128,9 +124,9 @@ mod worksheets {
         }
         {
             for attribute in ["x:r", "R"] {
-                cases.push(("rejects row attribute aliases", (&format!(
+                cases.push(("rejects row attribute aliases", format!(
                     "<worksheet xmlns:x='urn:test'><sheetData><row r='1'><c><v>1</v></c></row><row {attribute}='50001'><c><v>2</v></c></row></sheetData></worksheet>"
-                )).to_owned(), Err(FAILED)));
+                ), Err(FAILED)));
             }
         }
         {
@@ -143,7 +139,7 @@ mod worksheets {
             for reference in ["A0", "B2:A1", "A1:B2:C3", "1A"] {
                 cases.push((
                     "rejects invalid coordinates",
-                    (&format!("<worksheet><dimension ref='{reference}'/></worksheet>")).to_owned(),
+                    format!("<worksheet><dimension ref='{reference}'/></worksheet>"),
                     Err(FAILED),
                 ));
             }
@@ -282,7 +278,7 @@ mod charts {
             let text = "<chart><numCache><ptCount val='50000'/><pt idx='49999'><v>1e-20</v></pt></numCache></chart>";
             cases.push((
                 "accepts bounded point indexes",
-                (&declared("custom/chart.part", CHART, text)).to_owned(),
+                declared("custom/chart.part", CHART, text),
                 Ok(()),
             ));
         }
@@ -290,7 +286,7 @@ mod charts {
             let text = "<chart><plotArea><barChart><ser><val><numRef><numCache><pt idx='0'><v>1</v></pt><pt idx='1'><v>2</v></pt></numCache></numRef></val></ser><ser><val><numRef><numCache><pt idx='0'><v>3</v></pt><pt idx='1'><v>4</v></pt></numCache></numRef></val></ser></barChart></plotArea></chart>";
             cases.push((
                 "accepts ordinary multi series",
-                (&declared("custom/chart.part", CHART, text)).to_owned(),
+                declared("custom/chart.part", CHART, text),
                 Ok(()),
             ));
         }
@@ -302,17 +298,16 @@ mod charts {
             );
             cases.push((
                 "bounds sparse cache domains",
-                (&declared("custom/chart.part", CHART, &text)).to_owned(),
+                declared("custom/chart.part", CHART, &text),
                 Err(LARGE),
             ));
             let text = "<chart><numCache><pt idx='49999'><v>1</v></pt></numCache></chart>";
             cases.push((
                 "bounds sparse cache domains",
-                (&archive(&[
+                archive(&[
                     ("ppt/charts/first.xml", text),
                     ("ppt/charts/second.xml", text),
-                ]))
-                    .to_owned(),
+                ]),
                 Err(LARGE),
             ));
         }
@@ -324,15 +319,15 @@ mod charts {
                 );
                 cases.push((
                     "uses missing index fallbacks",
-                    (&declared("custom/chart.part", CHART, &text)).to_owned(),
+                    declared("custom/chart.part", CHART, &text),
                     result,
                 ));
             }
-            cases.push(("uses missing index fallbacks", (&declared(
+            cases.push(("uses missing index fallbacks", declared(
                     "custom/chart.part",
                     CHART,
                     "<chart><multiLvlStrCache><lvl><pt idx='49998'><v>First</v></pt></lvl><lvl><pt idx='49999'><v>Unused</v></pt></lvl></multiLvlStrCache><numCache><pt><v>1</v></pt></numCache></chart>"
-                )).to_owned(), Ok(())));
+                ), Ok(())));
         }
         {
             let text = "<chart><numCache><pt idx='50000'><v>1</v></pt></numCache></chart>";
@@ -340,22 +335,17 @@ mod charts {
                 declared("custom/chart.part", CHART, text),
                 linked("custom/chart.part", "chart", text),
             ] {
-                cases.push((
-                    "rejects sparse custom parts",
-                    (&bytes).to_owned(),
-                    Err(LARGE),
-                ));
+                cases.push(("rejects sparse custom parts", bytes, Err(LARGE)));
             }
         }
         {
             cases.push((
                 "rejects large declared counts",
-                (&declared(
+                declared(
                     "custom/chart.part",
                     CHART,
                     "<chart><numCache><ptCount val='50001'/></numCache></chart>",
-                ))
-                    .to_owned(),
+                ),
                 Err(LARGE),
             ));
         }
@@ -366,7 +356,7 @@ mod charts {
             );
             cases.push((
                 "bounds actual point counts",
-                (&declared("custom/chart.part", CHART, &text)).to_owned(),
+                declared("custom/chart.part", CHART, &text),
                 Err(LARGE),
             ));
         }
