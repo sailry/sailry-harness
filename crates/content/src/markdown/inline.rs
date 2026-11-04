@@ -288,7 +288,7 @@ impl Flat {
         let mut runs = Vec::new();
         let mut input = 0;
         let mut next = inserts.into_iter().peekable();
-        for run in &self.runs {
+        for (position, run) in self.runs.iter().enumerate() {
             let end = input + run.len;
             while next.peek().is_some_and(|(at, _, _)| *at <= end) {
                 let (at, kind, index) = next.next().unwrap();
@@ -315,12 +315,19 @@ impl Flat {
                     Inset::Link => icons[index] = range,
                     Inset::CodeStart => code[index].start = range.start,
                 }
+                // A span's start is reached at the end of the run before it, whose
+                // font sets a different inset width than the span's own.
+                let style = if kind == Inset::CodeStart && at == end {
+                    self.runs.get(position + 1).unwrap_or(run)
+                } else {
+                    run
+                };
                 runs.push(TextRun {
                     len: spacer.len(),
                     color: gpui_kit::transparent_black(),
                     underline: None,
                     strikethrough: None,
-                    ..run.clone()
+                    ..style.clone()
                 });
             }
             if input < end {
