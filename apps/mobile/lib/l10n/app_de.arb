@@ -1,10 +1,5 @@
 {
   "@@locale": "de",
-  "guidancePending": "Ausstehend",
-  "guidanceDelivered": "Zugestellt",
-  "guidanceNextTurn": "Nächste Runde",
-  "guidanceSendNow": "Jetzt senden",
-  "guidanceGuide": "Anweisen",
   "guidanceWithdraw": "Anweisung zurückziehen",
   "updatesVersion": "Version",
   "updatesCheck": "Nach Updates suchen",

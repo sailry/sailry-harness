@@ -1,10 +1,5 @@
 {
   "@@locale": "zh",
-  "guidancePending": "待送达",
-  "guidanceDelivered": "已送达",
-  "guidanceNextTurn": "转为下一回合",
-  "guidanceSendNow": "立即发送",
-  "guidanceGuide": "引导",
   "guidanceWithdraw": "撤回引导",
   "updatesVersion": "版本",
   "updatesCheck": "检查更新",

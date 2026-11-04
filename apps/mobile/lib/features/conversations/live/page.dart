@@ -306,10 +306,9 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
     showToast(context, failureLabel(error, translate: context.tr));
   }
 
-  Future<void> _send({bool immediate = false, bool queue = false}) async {
+  Future<void> _send() async {
     if (_historyBusy || _historyPending != null) return;
     final recipient = runningRecipient(_page);
-    if (immediate && recipient == null) return;
     try {
       await _submission.send(
         _session['revision'] as int,
@@ -319,8 +318,6 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                 turn: recipient['turn'] as String,
                 revision: recipient['revision'] as int,
               ),
-        immediate: immediate,
-        queue: queue,
       );
     } catch (error) {
       _failure(error);
@@ -420,7 +417,6 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
             view['connected'] == true &&
             _error == null;
         final queue = object(_page['queue']);
-        final recipient = runningRecipient(_page);
         final outgoing = _submission.guidance;
         final delegated = _session['delegation'] != null;
         final fault = object(view['error']);
@@ -769,12 +765,6 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                     onVoice: _voice,
                     onStop: _stop,
                     onSend: _send,
-                    onSendNow: recipient == null
-                        ? null
-                        : () => _send(immediate: true),
-                    onQueue: recipient == null
-                        ? null
-                        : () => _send(queue: true),
                     priority: objects(queue['items']).isEmpty
                         ? null
                         : QueueSummary(queue: queue, onOpen: _queue),

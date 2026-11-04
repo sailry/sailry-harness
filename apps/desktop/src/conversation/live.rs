@@ -37,7 +37,6 @@ mod documents;
 mod draft;
 mod export;
 mod forks;
-mod guidance;
 mod loading;
 mod location;
 mod messages;

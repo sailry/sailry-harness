@@ -21,7 +21,7 @@ pub(super) struct Panel {
     guidance: Arc<BTreeMap<TurnId, sailry_client::conversation::guidance::State>>,
     connected: bool,
     guidance_blocked: bool,
-    deferred_guide: Option<(TurnId, u64, bool)>,
+    deferred_guide: Option<(TurnId, u64)>,
     guidance_pending: Rc<Cell<bool>>,
     edit_pending: Rc<Cell<bool>>,
     editing: Option<Editing>,

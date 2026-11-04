@@ -121,19 +121,6 @@ impl View {
                     .when(!self.compact_composer, |bar| bar.child(self.model_menu(cx)))
                     .when(self.sidebar, |bar| bar.child(self.model_spacer(cx)))
                     .child(self.dictation_controls(cx))
-                    .when(self.recipient().is_some() && text, |bar| {
-                        bar.child(
-                            Button::new("live-send-now")
-                                .ghost()
-                                .small()
-                                .rounded_full()
-                                .label(tr("guidance_send_now"))
-                                .disabled(busy || !self.connected() || !self.attachments.sendable())
-                                .on_click(
-                                    cx.listener(|view, _, window, cx| view.send_now(window, cx)),
-                                ),
-                        )
-                    })
                     // An executing turn keeps its Stop action during dictation.
                     .when(active || !dictating, |bar| {
                         bar.child(
@@ -227,20 +214,6 @@ impl View {
                     cx.propagate();
                 }
             })
-            .on_action(cx.listener(|view, _: &IndentInline, window, cx| {
-                if view.readonly()
-                    || !view.has_input(cx)
-                    || view.input.update(cx, |input, cx| {
-                        input.marked_text_range(window, cx).is_some()
-                    })
-                {
-                    cx.propagate();
-                    return;
-                }
-                view.send_draft(Delivery::Queue, window, cx);
-                cx.stop_propagation();
-                window.prevent_default();
-            }))
             .child(
                 gpui_kit::component::input::Textarea::new(&self.input)
                     .appearance(false)

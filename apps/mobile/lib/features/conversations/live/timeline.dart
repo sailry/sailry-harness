@@ -30,7 +30,6 @@ import 'references.dart';
 import 'turn_actions.dart';
 import 'turn_changes.dart';
 import 'files.dart';
-import 'guidance.dart';
 import 'artifacts.dart';
 import 'publications.dart';
 import 'transcript_alignment.dart';
@@ -386,11 +385,6 @@ class _LiveTimelineState extends State<LiveTimeline> {
                   ? null
                   : () => onTurnAction('edit', run['turn'] as String),
               text: input.text,
-              status: object(view['guidance'])[run['turn']] == null
-                  ? null
-                  : GuidanceStatus(
-                      state: object(view['guidance'])[run['turn']],
-                    ),
               attachment: input.attachments.isEmpty && input.references.isEmpty
                   ? null
                   : Column(

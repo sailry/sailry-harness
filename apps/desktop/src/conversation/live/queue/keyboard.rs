@@ -13,7 +13,6 @@ pub(super) fn next(queue: &Queue, recipient: Option<TurnId>) -> Option<Command> 
             turn: item.turn,
             recipient,
             expected_revision: item.revision,
-            immediate: false,
         },
         None => Command::SendQueuedTurn {
             turn: item.turn,
@@ -61,7 +60,7 @@ mod tests {
         };
         assert!(matches!(
             next(&queue, Some(recipient)),
-            Some(Command::GuideQueuedTurn { turn, recipient: actual, expected_revision: 4, immediate: false })
+            Some(Command::GuideQueuedTurn { turn, recipient: actual, expected_revision: 4 })
                 if turn == first.turn && actual == recipient
         ));
         let mut reordered = queue.clone();

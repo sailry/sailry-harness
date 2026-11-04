@@ -13,7 +13,6 @@ async fn measures_admission() {
                     recipient: active.id,
                     expected_revision: active.revision,
                     message: format!("Retain guidance input {index}").into(),
-                    immediate: false,
                 }))
                 .await
                 .unwrap();

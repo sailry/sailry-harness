@@ -840,12 +840,11 @@ model result collection consumes the exact source execution; controller polling
 does not. Command summaries and bounded output tails survive restart, while
 complete output remains available only while its process cache entry is retained.
 
-Guidance is durably admitted before execution. By default the current model response
-and tool batch finish before the next model request. Foreground child observation
-wakes for guidance without cancelling the child. Explicit immediate delivery cancels
-the current tool batch using its own cancellation token; the parent task, future
-operations and running children keep their owners. Interrupted calls retain their
-identities and report uncertain side effects without automatic replay. The steer
+Controllers have one send action. Input sent while a task runs is durably admitted
+as guidance for that task and joins it at the next model boundary; the current
+model response and tool batch always finish first, and guidance never cancels
+them. Foreground child observation and `wait_agent` yield to pending guidance
+without cancelling the child. Stop is the only interruption. The steer
 Operation appends selected user inputs in FIFO order through the same EffectHandler;
 it retains the task and Stop owner and uses the current captured prompt and tool
 owners for the next inference. Each guidance input keeps
@@ -858,8 +857,10 @@ Natural completion advances the queue automatically. Undelivered guidance and th
 contiguous compatible queue suffix become one successor with distinct input owners.
 Stopping a main task with pending guidance permits that successor; stopping without
 guidance, explicit queue pause, failed preparation and restart retain a paused queue.
-Client derives pending, delivered and next-turn guidance states from canonical input
-and queue records for both Desktop and Mobile.
+Pending guidance appears only in the queue tray, marked by color rather than a
+status label, until its canonical user entry places it in the timeline. Finished
+turn headers show their duration; color carries failure. Desktop and Mobile derive
+this from the shared Client projection.
 
 Successful main-session planning completion ends execution and retains a pending
 review in the same durable history, even after a plain answer; a new user input

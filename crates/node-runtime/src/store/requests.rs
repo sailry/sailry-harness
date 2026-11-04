@@ -85,21 +85,10 @@ impl Ingress {
                 sailry_protocol::Command::SaveSearchSettings(_)
             );
             let (reply, guidance_completion) = match &request.command {
-                sailry_protocol::Command::GuideTurn {
-                    recipient,
-                    immediate,
-                    ..
-                }
-                | sailry_protocol::Command::GuideQueuedTurn {
-                    recipient,
-                    immediate,
-                    ..
-                } => {
+                sailry_protocol::Command::GuideTurn { recipient, .. }
+                | sailry_protocol::Command::GuideQueuedTurn { recipient, .. } => {
                     let (sender, response) = oneshot::channel();
-                    (
-                        sender,
-                        Some((reply, response, *recipient, *immediate, request.id)),
-                    )
+                    (sender, Some((reply, response, *recipient, request.id)))
                 }
                 _ => (reply, None),
             };
@@ -139,7 +128,7 @@ impl Ingress {
                     .dispatch_with(caller, *request, reply, events, access)
                     .await;
             }
-            if let Some((reply, response, recipient, immediate, id)) = guidance_completion {
+            if let Some((reply, response, recipient, id)) = guidance_completion {
                 match response.await {
                     Ok(Ok(admission)) => {
                         let (sender, completion) = oneshot::channel();
@@ -158,8 +147,6 @@ impl Ingress {
                                 output,
                                 recipient,
                                 id,
-                                immediate,
-                                events,
                             )
                             .await
                         {

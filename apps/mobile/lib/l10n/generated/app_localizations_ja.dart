@@ -9,21 +9,6 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
-  String get guidancePending => '送信待ち';
-
-  @override
-  String get guidanceDelivered => '送信済み';
-
-  @override
-  String get guidanceNextTurn => '次のターンへ';
-
-  @override
-  String get guidanceSendNow => '今すぐ送信';
-
-  @override
-  String get guidanceGuide => '指示';
-
-  @override
   String get guidanceWithdraw => '指示を取り消す';
 
   @override

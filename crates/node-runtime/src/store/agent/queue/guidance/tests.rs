@@ -985,7 +985,6 @@ mod controller {
                 recipient: active,
                 expected_revision: revision,
                 message: text.into(),
-                immediate: false,
             },
         )
         .await

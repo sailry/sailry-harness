@@ -9,21 +9,6 @@ class AppLocalizationsRu extends AppLocalizations {
   AppLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
-  String get guidancePending => 'Ожидает доставки';
-
-  @override
-  String get guidanceDelivered => 'Доставлено';
-
-  @override
-  String get guidanceNextTurn => 'Следующим ходом';
-
-  @override
-  String get guidanceSendNow => 'Отправить сейчас';
-
-  @override
-  String get guidanceGuide => 'Направить';
-
-  @override
   String get guidanceWithdraw => 'Отозвать указание';
 
   @override

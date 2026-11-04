@@ -63,7 +63,6 @@ impl Operation<Session, Effect> for Tools {
         while let Ok(event) = events.try_recv() {
             emit.emit(event);
         }
-        self.controls.settle_tools(self.turn);
         result
     }
 }

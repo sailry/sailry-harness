@@ -40,7 +40,6 @@ void main() {
     expect(sent, {
       'recipient': 'parent',
       'expected_revision': 4,
-      'immediate': false,
       'message': {
         'text': 'Focus here',
         'attachments': ['file'],
@@ -84,14 +83,15 @@ void main() {
     expect(draft.guidance, isNull);
   });
 
-  test('send now explicitly requests interruption', () async {
+  test('running input joins the active turn', () async {
     final host = HostConnection.test(
       id: 'host',
       label: 'Host',
       command: (kind, data) async {
         expect(kind, 'guide_turn');
-        expect(data?['immediate'], isTrue);
         expect(data?['recipient'], 'parent');
+        expect(data?.containsKey('immediate'), isFalse);
+        expect(data?.containsKey('session'), isFalse);
         return {
           'data': {'id': 'guidance'},
         };
@@ -100,27 +100,8 @@ void main() {
     final draft = TurnDraft(host: host, session: 'session', text: 'Focus here');
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
-    await draft.send(9, recipient: recipient, immediate: true);
+    await draft.send(9, recipient: recipient);
     expect(draft.input.text, isEmpty);
-  });
-
-  test('queue keeps session revision and independent input', () async {
-    final host = HostConnection.test(
-      id: 'host',
-      label: 'Host',
-      command: (kind, data) async {
-        expect(kind, 'queue_turn');
-        expect(data?['expected_revision'], 9);
-        expect(data?.containsKey('recipient'), isFalse);
-        expect(data?.containsKey('immediate'), isFalse);
-        return {};
-      },
-    );
-    final draft = TurnDraft(host: host, session: 'session', text: 'Later');
-    addTearDown(draft.dispose);
-    addTearDown(host.dispose);
-    await draft.send(9, recipient: recipient, queue: true);
-    expect(draft.guidance, isNull);
   });
 
   test('rejected guidance retains the complete draft', () async {
@@ -139,7 +120,7 @@ void main() {
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
     await expectLater(
-      draft.send(9, recipient: recipient, immediate: true),
+      draft.send(9, recipient: recipient),
       throwsA(isA<CommandFailure>()),
     );
     expect(draft.input.text, 'Focus here');
@@ -172,7 +153,7 @@ void main() {
     );
     expect(draft.guidance?.text, 'Focus here');
     expect(draft.input.text, 'Focus here');
-    await draft.send(10, recipient: recipient, immediate: true);
+    await draft.send(10, recipient: recipient);
     expect(sends, 1);
     expect(await draft.check(), isTrue);
     expect(connection.requests, ['original']);

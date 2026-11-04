@@ -69,16 +69,6 @@ impl View {
         self.send_draft(delivery, window, cx);
     }
 
-    pub(super) fn send_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(run) = self.recipient() else { return };
-        let delivery = Delivery::Guide {
-            recipient: run.turn,
-            revision: run.revision,
-            immediate: true,
-        };
-        self.send_draft(delivery, window, cx);
-    }
-
     pub(super) fn send_draft(
         &mut self,
         delivery: Delivery,
@@ -90,19 +80,16 @@ impl View {
         }) {
             return;
         }
-        if delivery != Delivery::Queue {
-            if let Some((mode, _)) =
-                references::commands::leading_mode(&self.input.read(cx).value())
-                && mode != self.current_mode()
-            {
-                self.select_mode(mode, window, cx);
-                return;
-            }
-            let text = self.input.read(cx).value().to_string();
-            if references::commands::leading(&text).is_some_and(|(name, _, _)| name == "compact") {
-                self.compact_context(compaction::focus(&text), window, cx);
-                return;
-            }
+        if let Some((mode, _)) = references::commands::leading_mode(&self.input.read(cx).value())
+            && mode != self.current_mode()
+        {
+            self.select_mode(mode, window, cx);
+            return;
+        }
+        let text = self.input.read(cx).value().to_string();
+        if references::commands::leading(&text).is_some_and(|(name, _, _)| name == "compact") {
+            self.compact_context(compaction::focus(&text), window, cx);
+            return;
         }
         if self.readonly()
             || self.busy()
@@ -129,12 +116,6 @@ impl View {
         }
         self.references.dismiss();
         self.show_outgoing(message.clone(), cx);
-        if delivery == Delivery::Queue {
-            if let Some(outgoing) = &mut self.outgoing {
-                outgoing.queued = true;
-            }
-            self.sync_rows(cx);
-        }
         self.capture_submission(delivery, window, cx);
         if (self.session.is_none() && self.binding.worktree.is_none())
             || !self.prepare_attachments(message.clone(), window, cx)

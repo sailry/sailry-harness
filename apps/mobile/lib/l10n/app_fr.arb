@@ -1,10 +1,5 @@
 {
   "@@locale": "fr",
-  "guidancePending": "En attente",
-  "guidanceDelivered": "Transmis",
-  "guidanceNextTurn": "Tour suivant",
-  "guidanceSendNow": "Envoyer maintenant",
-  "guidanceGuide": "Guider",
   "guidanceWithdraw": "Retirer la consigne",
   "updatesVersion": "Version",
   "updatesCheck": "Vérifier les mises à jour",

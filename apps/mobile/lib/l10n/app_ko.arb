@@ -1,10 +1,5 @@
 {
   "@@locale": "ko",
-  "guidancePending": "전달 대기",
-  "guidanceDelivered": "전달됨",
-  "guidanceNextTurn": "다음 턴으로",
-  "guidanceSendNow": "지금 보내기",
-  "guidanceGuide": "지침 보내기",
   "guidanceWithdraw": "지침 철회",
   "updatesVersion": "버전",
   "updatesCheck": "업데이트 확인",

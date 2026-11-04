@@ -182,14 +182,8 @@ impl View {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        // Pending input stays in the queue tray until its canonical entry arrives.
         let mut selected: BTreeSet<_> = rows.iter().copied().collect();
-        if let Some(snapshot) = &self.history.snapshot {
-            for run in sailry_client::conversation::turns::guided(&snapshot.page) {
-                if selected.insert(run.turn) {
-                    rows.push(run.turn);
-                }
-            }
-        }
         if let Some(outgoing) = &self.outgoing
             && !outgoing.turn.is_some_and(|turn| selected.contains(&turn))
         {

@@ -141,7 +141,6 @@ async fn removed_guidance_keeps_running_recipient() {
     let request = Request::new(
         fixture.database.node,
         Command::GuideTurn {
-            immediate: false,
             recipient: child.turn.id,
             expected_revision: child.turn.revision,
             message: "Change direction".into(),
@@ -177,7 +176,6 @@ async fn retained_direction_reports_paused() {
     let request = Request::new(
         fixture.database.node,
         Command::GuideTurn {
-            immediate: false,
             recipient: child.turn.id,
             expected_revision: child.turn.revision,
             message: "Change direction".into(),

@@ -39,7 +39,6 @@ async fn guided(fixture: &Fixture, invocation: &Invocation) -> TurnId {
         .unwrap();
     let Output::QueuedTurn(turn) = client
         .execute(client.prepare(Command::GuideTurn {
-            immediate: false,
             recipient: invocation.turn.id,
             expected_revision: state.run.revision,
             message: "Continue the admitted child".into(),

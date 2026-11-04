@@ -11,7 +11,7 @@ pub(super) fn separate(command: &Command, queue: &Queue) -> bool {
 }
 
 fn take(
-    intent: &mut Option<(TurnId, u64, bool)>,
+    intent: &mut Option<(TurnId, u64)>,
     queue: &Queue,
     recipient: Option<TurnId>,
     blocked: bool,
@@ -19,14 +19,14 @@ fn take(
     if blocked {
         return Ok(None);
     }
-    let Some((turn, revision, immediate)) = intent.take() else {
+    let Some((turn, revision)) = intent.take() else {
         return Ok(None);
     };
     let recipient = recipient.ok_or("queue_changed")?;
     if !queue.items.iter().any(|item| {
         item.turn == turn
             && item.revision == revision
-            && (item.guidance.is_none() || immediate && item.guidance == Some(recipient))
+            && (item.guidance.is_none() || item.guidance == Some(recipient))
     }) {
         return Err("queue_changed");
     }
@@ -34,7 +34,6 @@ fn take(
         turn,
         recipient,
         expected_revision: revision,
-        immediate,
     }))
 }
 
@@ -175,7 +174,6 @@ mod tests {
             turn: queue.items[0].turn,
             recipient: TurnId::new(),
             expected_revision: queue.items[0].revision,
-            immediate: false,
         };
         // Captured capabilities can differ even with the same session revision.
         for revision in [1, 2] {
@@ -193,7 +191,6 @@ mod tests {
             turn,
             recipient,
             expected_revision: queue.items[0].revision,
-            immediate: false,
         };
         for change in [
             "guided",

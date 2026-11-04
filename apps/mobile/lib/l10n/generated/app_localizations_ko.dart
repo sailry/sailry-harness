@@ -9,21 +9,6 @@ class AppLocalizationsKo extends AppLocalizations {
   AppLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
-  String get guidancePending => '전달 대기';
-
-  @override
-  String get guidanceDelivered => '전달됨';
-
-  @override
-  String get guidanceNextTurn => '다음 턴으로';
-
-  @override
-  String get guidanceSendNow => '지금 보내기';
-
-  @override
-  String get guidanceGuide => '지침 보내기';
-
-  @override
   String get guidanceWithdraw => '지침 철회';
 
   @override

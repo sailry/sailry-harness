@@ -1482,8 +1482,6 @@ chat_child_summary: "%{complete} завершено · %{failed} не удало
 chat_child_readonly: "%{role}"
 chat_child_unavailable: "Подсессия недоступна; попробуйте еще раз"
 chat_child_guide: "Направить"
-chat_queue_guide: "Направить"
-queue_guided: "Следующим"
 queue_guidance_separate: "Другие настройки; добавлено в очередь отдельно"
 queue_withdraw: "Отозвать"
 subagent_running: "Выполняется"

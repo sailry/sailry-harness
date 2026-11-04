@@ -44,8 +44,6 @@ class TurnDraft extends ChangeNotifier {
     int revision, {
     String? message,
     ({String turn, int revision})? recipient,
-    bool immediate = false,
-    bool queue = false,
   }) async {
     final composer = message == null;
     final text = message ?? input.text;
@@ -53,24 +51,17 @@ class TurnDraft extends ChangeNotifier {
     if (sending || pending != null || !host.connected) return;
     if (composer && text.trim().isEmpty && files.isEmpty) return;
     _sending = true;
-    _guidance = recipient == null || queue
+    _guidance = recipient == null
         ? null
         : (turn: null, text: text, attachments: files);
     notifyListeners();
     try {
       final output = await host.command(
-        queue
-            ? 'queue_turn'
-            : recipient == null
-            ? 'submit_turn'
-            : 'guide_turn',
+        recipient == null ? 'submit_turn' : 'guide_turn',
         {
-          if (recipient == null || queue) 'session': session,
-          if (recipient != null && !queue) 'recipient': recipient.turn,
-          'expected_revision': !queue && recipient != null
-              ? recipient.revision
-              : revision,
-          if (recipient != null && !queue) 'immediate': immediate,
+          if (recipient == null) 'session': session,
+          if (recipient != null) 'recipient': recipient.turn,
+          'expected_revision': recipient?.revision ?? revision,
           'message': {
             'text': text,
             'attachments': files.map((item) => item.attachment['id']).toList(),

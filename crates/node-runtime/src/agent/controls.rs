@@ -12,10 +12,6 @@ struct Active {
     stop: CancellationToken,
     runner: CancellationToken,
     tools: CancellationToken,
-    /// A tool batch holds `tools` until it settles.
-    batch: bool,
-    /// Immediate guidance arrived while no tool batch was running.
-    interrupted: bool,
     guidance: Arc<Notify>,
     guided: std::collections::BTreeSet<sailry_protocol::RequestId>,
     operations: usize,
@@ -60,8 +56,6 @@ impl Controls {
                 session,
                 runner: stop.child_token(),
                 tools: stop.child_token(),
-                batch: false,
-                interrupted: false,
                 guidance: Arc::default(),
                 guided: Default::default(),
                 stop,
@@ -214,50 +208,20 @@ impl Controls {
             .map(|active| active.guidance.clone())
     }
 
-    /// Returns the token for the next tool batch. Immediate guidance received
-    /// while the model was still responding interrupts that batch, as it would
-    /// have interrupted a batch already running.
+    /// Tool batches end with the turn's stop owner; guidance never cancels them.
     pub(crate) fn tool_token(&self, turn: TurnId) -> Option<CancellationToken> {
-        let mut runs = self.active.lock().unwrap();
-        let active = runs.get_mut(&turn)?;
-        if std::mem::take(&mut active.interrupted) {
-            active.tools.cancel();
-        }
-        active.batch = true;
-        Some(active.tools.clone())
+        self.active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .map(|active| active.tools.clone())
     }
 
-    /// Gives later operations a fresh token once an interrupted batch settles.
-    pub(crate) fn settle_tools(&self, turn: TurnId) {
-        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
-            active.batch = false;
-            if active.tools.is_cancelled() && !active.stop.is_cancelled() {
-                active.tools = active.stop.child_token();
-            }
-        }
-    }
-
-    /// Clears a pending interruption once queued guidance reaches delivery.
-    pub(crate) fn steering(&self, turn: TurnId) {
-        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
-            active.interrupted = false;
-        }
-    }
-
-    pub(crate) fn guidance(
-        &self,
-        turn: TurnId,
-        request: sailry_protocol::RequestId,
-        immediate: bool,
-    ) -> bool {
+    /// Wakes waits that yield to newly admitted input at the next boundary.
+    pub(crate) fn guidance(&self, turn: TurnId, request: sailry_protocol::RequestId) -> bool {
         if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
             if !active.guided.insert(request) {
                 return false;
-            }
-            if immediate {
-                let previous = std::mem::replace(&mut active.tools, active.stop.child_token());
-                previous.cancel();
-                active.interrupted = !active.batch;
             }
             active.guidance.notify_waiters();
             return true;

@@ -9,21 +9,6 @@ class AppLocalizationsPt extends AppLocalizations {
   AppLocalizationsPt([String locale = 'pt']) : super(locale);
 
   @override
-  String get guidancePending => 'Pendente';
-
-  @override
-  String get guidanceDelivered => 'Entregue';
-
-  @override
-  String get guidanceNextTurn => 'Próximo turno';
-
-  @override
-  String get guidanceSendNow => 'Enviar agora';
-
-  @override
-  String get guidanceGuide => 'Orientar';
-
-  @override
   String get guidanceWithdraw => 'Retirar orientação';
 
   @override

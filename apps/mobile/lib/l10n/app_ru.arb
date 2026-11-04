@@ -1,10 +1,5 @@
 {
   "@@locale": "ru",
-  "guidancePending": "Ожидает доставки",
-  "guidanceDelivered": "Доставлено",
-  "guidanceNextTurn": "Следующим ходом",
-  "guidanceSendNow": "Отправить сейчас",
-  "guidanceGuide": "Направить",
   "guidanceWithdraw": "Отозвать указание",
   "updatesVersion": "Версия",
   "updatesCheck": "Проверка на наличие обновлений",

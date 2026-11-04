@@ -371,7 +371,6 @@ async fn admits_guidance_after_the_recipient_finishes() {
         &mut fixture.database,
         &fixture.events,
         Command::GuideTurn {
-            immediate: false,
             recipient: recipient.id,
             expected_revision: recipient.revision,
             message: "Continue after the recipient".into(),

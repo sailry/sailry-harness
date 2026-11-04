@@ -1,10 +1,5 @@
 {
   "@@locale": "en",
-  "guidancePending": "Pending",
-  "guidanceDelivered": "Delivered",
-  "guidanceNextTurn": "Next turn",
-  "guidanceSendNow": "Send now",
-  "guidanceGuide": "Guide",
   "guidanceWithdraw": "Withdraw guidance",
   "updatesVersion": "Version",
   "updatesCheck": "Check for updates",

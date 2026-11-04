@@ -1,14 +1,14 @@
 use sailry_protocol::{Command, SessionId, TurnId, conversation::Input};
 
+/// One send action: idle input starts a turn; input sent while a task runs
+/// joins it at the next model boundary.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::conversation::live) enum Delivery {
     #[default]
     Submit,
-    Queue,
     Guide {
         recipient: TurnId,
         revision: u64,
-        immediate: bool,
     },
 }
 
@@ -17,7 +17,6 @@ impl Delivery {
         recipient.map_or(Self::Submit, |(recipient, revision)| Self::Guide {
             recipient,
             revision,
-            immediate: false,
         })
     }
 
@@ -33,20 +32,13 @@ impl Delivery {
                 expected_revision: revision,
                 message,
             },
-            Self::Queue => Command::QueueTurn {
-                session,
-                expected_revision: revision,
-                message,
-            },
             Self::Guide {
                 recipient,
                 revision,
-                immediate,
             } => Command::GuideTurn {
                 recipient,
                 expected_revision: revision,
                 message,
-                immediate,
             },
         }
     }
@@ -76,39 +68,8 @@ mod tests {
         };
         assert!(matches!(
             delivery.command(SessionId::new(), 9, message.clone()),
-            Command::GuideTurn { recipient: actual, expected_revision: 4, message: input, immediate: false }
+            Command::GuideTurn { recipient: actual, expected_revision: 4, message: input }
                 if actual == recipient && input == message
-        ));
-    }
-
-    #[test]
-    fn explicit_send_requests_interruption() {
-        let recipient = TurnId::new();
-        let command = Delivery::Guide {
-            recipient,
-            revision: 4,
-            immediate: true,
-        }
-        .command(SessionId::new(), 9, "Focus here".into());
-        assert!(matches!(
-            command,
-            Command::GuideTurn { recipient: actual, expected_revision: 4, immediate: true, .. }
-                if actual == recipient
-        ));
-    }
-
-    #[test]
-    fn queues_idle_input_with_attachments() {
-        let session = SessionId::new();
-        let message = Input {
-            text: String::new(),
-            attachments: vec![sailry_protocol::AttachmentId::new()],
-            references: Vec::new(),
-        };
-        assert!(matches!(
-            Delivery::Queue.command(session, 3, message.clone()),
-            Command::QueueTurn { session: actual, expected_revision: 3, message: input }
-                if actual == session && input == message
         ));
     }
 }

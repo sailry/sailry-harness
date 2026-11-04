@@ -395,7 +395,6 @@ async fn retains_capability_across_guidance_and_notices() {
         &mut fixture.database,
         &fixture.events,
         Command::GuideTurn {
-            immediate: false,
             recipient: owner,
             expected_revision: 1,
             message: "Continue this task".into(),

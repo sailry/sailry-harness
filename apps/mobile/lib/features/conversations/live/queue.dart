@@ -301,22 +301,6 @@ class _LiveQueueState extends State<LiveQueue> {
                           ),
                         ),
                         if (!widget.delegated &&
-                            recipient != null &&
-                            item['notice'] != true &&
-                            item['kind'] == 'task' &&
-                            item['guidance'] == null)
-                          TextButton(
-                            onPressed: enabled
-                                ? () => _run('guide_queued_turn', {
-                                    'turn': item['turn'],
-                                    'recipient': recipient['turn'],
-                                    'expected_revision': item['revision'],
-                                    'immediate': false,
-                                  })
-                                : null,
-                            child: Text(context.tr('guidanceGuide')),
-                          ),
-                        if (!widget.delegated &&
                             index > 0 &&
                             item['notice'] != true &&
                             item['guidance'] == null &&
@@ -349,13 +333,10 @@ class _LiveQueueState extends State<LiveQueue> {
                                           item['kind'] == 'task')
                                         'recipient': recipient['turn'],
                                       'expected_revision': item['revision'],
-                                      if (recipient != null &&
-                                          item['kind'] == 'task')
-                                        'immediate': true,
                                     },
                                   )
                                 : null,
-                            child: Text(context.tr('guidanceSendNow')),
+                            child: Text(context.tr('send')),
                           ),
                       ],
                     ),

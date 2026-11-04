@@ -22,14 +22,12 @@ impl View {
 }
 
 impl Panel {
-    fn guidance_state(&self, turn: TurnId) -> Option<sailry_client::conversation::guidance::State> {
-        let submitting = self.deferred_guide.is_some_and(|(selected, _, _)| selected == turn)
+    fn guided(&self, turn: TurnId) -> bool {
+        self.deferred_guide.is_some_and(|(selected, _)| selected == turn)
             || self.retry.as_ref().is_some_and(|attempt| {
                 matches!(attempt.request.command, Command::GuideQueuedTurn { turn: selected, .. } if selected == turn)
-            });
-        submitting
-            .then_some(sailry_client::conversation::guidance::State::Pending)
-            .or_else(|| self.guidance.get(&turn).copied())
+            })
+            || self.guidance.get(&turn) == Some(&sailry_client::conversation::guidance::State::Pending)
     }
 
     fn items(&self) -> impl Iterator<Item = &Pending> {
@@ -88,16 +86,8 @@ impl Panel {
                         .is_some_and(|target| Some(target) != recipient),
             )
             .debug_selector(move || format!("queue-send-{turn}"))
-            .tooltip(tr(if recipient.is_some() {
-                "guidance_send_now"
-            } else {
-                "queue_send_now"
-            }))
-            .accessibility_label(tr(if recipient.is_some() {
-                "guidance_send_now"
-            } else {
-                "queue_send_now"
-            }))
+            .tooltip(tr("queue_send_now"))
+            .accessibility_label(tr("queue_send_now"))
             .on_click(cx.listener(move |panel, _, window, cx| {
                 cx.stop_propagation();
                 panel.execute(
@@ -106,7 +96,6 @@ impl Panel {
                             turn,
                             recipient,
                             expected_revision: revision,
-                            immediate: true,
                         },
                         None => Command::SendQueuedTurn {
                             turn,
@@ -117,42 +106,6 @@ impl Panel {
                     cx,
                 );
             }));
-        let guide = recipient.map(|recipient| {
-                Button::new(format!("live-queue-guide-{turn}"))
-                    .rounded_full()
-                    .ghost()
-                    .small()
-                    .icon(IconName::Redo2)
-                    .tooltip(tr(if item.guidance.is_some() {
-                        "queue_guided"
-                    } else {
-                        "chat_queue_guide"
-                    }))
-                    .accessibility_label(tr("chat_queue_guide"))
-                    .loading(
-                        self.deferred_guide
-                            .is_some_and(|(selected, _, _)| selected == turn)
-                            || self.retry.as_ref().is_some_and(|attempt| {
-                                matches!(attempt.request.command, Command::GuideQueuedTurn { turn: selected, .. } if selected == turn)
-                            }),
-                    )
-                    .disabled(!self.connected || item.guidance.is_some())
-                    .debug_selector(move || format!("queue-guide-{turn}"))
-                    .on_click(cx.listener(move |panel, _, window, cx| {
-                        cx.stop_propagation();
-                        panel.execute(
-                            Command::GuideQueuedTurn {
-                                turn,
-                                recipient,
-                                expected_revision: revision,
-                                immediate: false,
-                            },
-                            window,
-                            cx,
-                        );
-                    }))
-                    .into_any_element()
-            });
         let remove = self
             .remove_button(turn, revision, cx)
             .disabled(self.blocked() || item.guidance.is_some());
@@ -185,19 +138,14 @@ impl Panel {
             label(item),
             !item.attachments.is_empty(),
             !self.child && !item.notice,
-            self.guidance_state(turn)
-                .map(|state| {
-                    gpui_kit::component::label::Label::new(guidance::label(state))
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .into_any_element()
-                })
+            // Input joining the running turn is marked by color, not copy.
+            self.guided(turn)
+                .then(|| guided_icon(cx))
                 .into_iter()
                 .chain(
                     (!item.notice && item.kind == sailry_protocol::conversation::RunKind::Task)
                         .then_some(edit.into_any_element()),
                 )
-                .chain(guide)
                 .chain(withdraw)
                 .chain((!self.child && !item.notice).then_some(send.into_any_element()))
                 .chain([remove.into_any_element()]),
@@ -380,12 +328,10 @@ impl Render for Panel {
                         .children(self.outgoing.clone().map(|text| {
                             let actions = [
                                 ("edit", IconName::Replace, "queue_edit"),
-                                ("guide", IconName::Redo2, "chat_queue_guide"),
                                 ("send", IconName::ArrowUp, "queue_send_now"),
                                 ("delete", IconName::Delete, "queue_delete"),
                             ]
                             .into_iter()
-                            .filter(|(action, _, _)| *action != "guide" || self.recipient.is_some())
                             .map(|(action, icon, label)| {
                                 Button::new(format!("queue-outgoing-{action}"))
                                     .rounded_full()
@@ -404,14 +350,7 @@ impl Render for Panel {
                                 text,
                                 self.outgoing_attached,
                                 self.outgoing_guidance
-                                    .then(|| {
-                                        gpui_kit::component::label::Label::new(guidance::label(
-                                            sailry_client::conversation::guidance::State::Pending,
-                                        ))
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .into_any_element()
-                                    })
+                                    .then(|| guided_icon(cx))
                                     .into_iter()
                                     .chain(actions),
                                 cx,
@@ -421,6 +360,13 @@ impl Render for Panel {
                 )
             })
     }
+}
+
+fn guided_icon(cx: &App) -> AnyElement {
+    Icon::new(IconName::Redo2)
+        .small()
+        .text_color(cx.theme().primary)
+        .into_any_element()
 }
 
 pub(super) fn label(item: &Pending) -> SharedString {

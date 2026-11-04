@@ -114,36 +114,6 @@ abstract class AppLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
   ];
 
-  /// No description provided for @guidancePending.
-  ///
-  /// In en, this message translates to:
-  /// **'Pending'**
-  String get guidancePending;
-
-  /// No description provided for @guidanceDelivered.
-  ///
-  /// In en, this message translates to:
-  /// **'Delivered'**
-  String get guidanceDelivered;
-
-  /// No description provided for @guidanceNextTurn.
-  ///
-  /// In en, this message translates to:
-  /// **'Next turn'**
-  String get guidanceNextTurn;
-
-  /// No description provided for @guidanceSendNow.
-  ///
-  /// In en, this message translates to:
-  /// **'Send now'**
-  String get guidanceSendNow;
-
-  /// No description provided for @guidanceGuide.
-  ///
-  /// In en, this message translates to:
-  /// **'Guide'**
-  String get guidanceGuide;
-
   /// No description provided for @guidanceWithdraw.
   ///
   /// In en, this message translates to:

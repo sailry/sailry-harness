@@ -1,13 +1,11 @@
 use super::*;
 
 pub(in crate::store) async fn deliver(
-    database: &mut Database,
+    database: &Database,
     controls: &crate::agent::Controls,
     output: &Output,
     recipient: TurnId,
     request: RequestId,
-    immediate: bool,
-    events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     let selected = match output {
         Output::QueuedTurn(turn) => read(&database.connection, turn.session)
@@ -28,30 +26,6 @@ pub(in crate::store) async fn deliver(
     if !selected {
         return Ok(());
     }
-    let mut calls = Vec::new();
-    if immediate {
-        let mut query = database
-            .connection
-            .prepare("SELECT call,body FROM agent_questions WHERE turn=?1")
-            .await
-            .map_err(storage_error)?;
-        let mut rows = query
-            .query([recipient.to_string()])
-            .await
-            .map_err(storage_error)?;
-        while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let body: Vec<u8> = row.get(1).map_err(storage_error)?;
-            let question: question::Question =
-                serde_json::from_slice(&body).map_err(storage_error)?;
-            if question.state == question::State::Pending {
-                calls.push(row.get::<String>(0).map_err(storage_error)?);
-            }
-        }
-    }
-    if controls.guidance(recipient, request, immediate) {
-        for call in calls {
-            super::super::elicitation::cancel(database, recipient, &call, events).await?;
-        }
-    }
+    controls.guidance(recipient, request);
     Ok(())
 }
