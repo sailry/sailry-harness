@@ -55,6 +55,7 @@ DOCS = {
     "services/pairing-relay/README.md", "tests/fixtures/README.md",
     "COMMERCIAL.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
     "docs/models.md", "docs/hosts.md", "docs/projects.md",
+    ".github/pull_request_template.md",
 }
 # These release tools have source fixtures and do not change compiled product inputs.
 SOURCE_ONLY = {
@@ -109,7 +110,7 @@ def select_paths(paths):
     fixtures = {f"scripts/tests/{name}.py": set() if owner == "shared" else {owner}
                 for owner, names in FIXTURES.items() for name in names}
     for path in paths:
-        if (path in DOCS or path.startswith(("third_party_licenses/", "assets/readme/"))
+        if (path in DOCS or path.startswith(("third_party_licenses/", "assets/readme/", ".github/ISSUE_TEMPLATE/"))
                 or (path.startswith("sdk/") and path.endswith(".md"))):
             continue
         if path in SOURCE_ONLY:
