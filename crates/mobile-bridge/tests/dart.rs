@@ -115,18 +115,21 @@ fn controls_a_real_node() {
 
 fn command(script: &str, directory: &std::path::Path, ticket: &str) -> std::process::Command {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let executable = std::env::current_exe().unwrap();
-    let library =
-        executable
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(if cfg!(target_os = "macos") {
-                "libsailry_mobile_bridge.dylib"
-            } else {
-                "libsailry_mobile_bridge.so"
-            });
+    let library = std::env::var_os("SAILRY_BRIDGE_LIBRARY")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::current_exe()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join(if cfg!(target_os = "macos") {
+                    "libsailry_mobile_bridge.dylib"
+                } else {
+                    "libsailry_mobile_bridge.so"
+                })
+        });
     let mut command = std::process::Command::new("dart");
     command
         .args(["run", &format!("bin/{script}")])

@@ -413,8 +413,8 @@ Future<Fixture> create(
     (call) => call['id'] == 'ffi-title',
   );
   check(
-    title['hidden'] == true && title['details'] == false,
-    'successful hidden maintenance has no activity row',
+    title['hidden'] == false && title['details'] == false,
+    'successful title updates retain an ordinary activity row',
   );
   final response = call['response'];
   final entry = (complete['snapshot']['page']['entries'] as List).singleWhere(

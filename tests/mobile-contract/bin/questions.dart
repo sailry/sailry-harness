@@ -266,6 +266,8 @@ Future<void> main() async {
   }).timeout(const Duration(seconds: 10));
   final closed = (cancelled['calls'] as List).single;
   final result = (await detail(connection, closed))['result'];
+  const interruptionMessage =
+      'tool call was interrupted; its outcome may be unknown; do not replay it automatically';
   check(
     closed['state'] == 'returned' &&
         closed['question']['state']['kind'] == 'cancelled' &&
@@ -274,13 +276,10 @@ Future<void> main() async {
         canonicalJson(result) ==
             canonicalJson({
               'code': -32603,
-              'message': 'question was cancelled',
-              'data': {
-                'code': 'invalid_request',
-                'message': 'question was cancelled',
-              },
+              'message': interruptionMessage,
+              'data': {'code': 'cancelled', 'message': interruptionMessage},
             }),
-    'stop retains the cancellation fault and closes the question',
+    'stop retains the cancellation fault and closes the question: ${canonicalJson(result)}',
   );
   await reject(stopped['id'], text('too late'), 'conflict');
   await close();

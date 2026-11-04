@@ -299,17 +299,17 @@ Future<void> main() async {
   );
   final interruptedCall = call(stopped, 0);
   final interruption = (await detail(connection, interruptedCall))['result'];
+  const interruptionMessage =
+      'tool call was interrupted; its outcome may be unknown; do not replay it automatically';
   check(
     interruptedCall['state'] == 'returned' &&
         canonicalJson(interruption) ==
             canonicalJson({
-              'isError': true,
-              'error': {
-                'code': 'cancelled',
-                'message': 'plugin tool was cancelled',
-              },
+              'code': -32603,
+              'message': interruptionMessage,
+              'data': {'code': 'cancelled', 'message': interruptionMessage},
             }),
-    'stop retains the interrupted outcome without claiming success',
+    'stop retains the interrupted outcome without claiming success: ${canonicalJson(interruption)}',
   );
   check(
     interruptedCall['approval']['state'] == 'approved',
