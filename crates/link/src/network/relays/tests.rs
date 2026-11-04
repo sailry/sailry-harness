@@ -229,9 +229,42 @@ async fn handshakes_and_preserves_local_and_remote_access() {
 }
 
 #[tokio::test]
-async fn cancelled_probe_restores_the_previous_network() {
+async fn rolls_back_cancelled_updates() {
+    use futures::FutureExt;
     let relay = RelayFixture::start().await;
     let link = relay.link(Arc::new(Echo(StreamId::new()))).await;
+    for (case_name, future) in [
+        (
+            "cancelled_probe_restores_the_previous_network",
+            cancelled_probe_restores_the_previous_network(
+                &relay,
+                &link,
+                "cancelled_probe_restores_the_previous_network",
+            )
+            .boxed(),
+        ),
+        (
+            "rollback_survives_a_dropped_caller",
+            rollback_survives_a_dropped_caller(&relay, &link, "rollback_survives_a_dropped_caller")
+                .boxed(),
+        ),
+    ] {
+        std::panic::AssertUnwindSafe(future)
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!("step: {case_name}");
+                std::panic::resume_unwind(error)
+            });
+    }
+    link.close().await.unwrap();
+}
+
+async fn cancelled_probe_restores_the_previous_network(
+    relay: &RelayFixture,
+    link: &Link,
+    case_name: &str,
+) {
     link.handle().online().await.unwrap();
     let stop = CancellationToken::new();
     let token = stop.clone();
@@ -246,10 +279,11 @@ async fn cancelled_probe_restores_the_previous_network() {
     });
     tokio::time::sleep(Duration::from_millis(150)).await;
     stop.cancel();
-    assert!(probe.await.unwrap().is_err());
+    assert!(probe.await.unwrap().is_err(), "{case_name}");
     assert_eq!(
         link.handle().relay_selection().unwrap(),
-        Some(relay.selection.clone())
+        Some(relay.selection.clone()),
+        "{case_name}"
     );
     link.handle().online().await.unwrap();
     assert_eq!(
@@ -260,15 +294,12 @@ async fn cancelled_probe_restores_the_previous_network() {
             .unwrap()
             .urls::<Vec<_>>()
             .iter()
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        "{case_name}"
     );
-    link.close().await.unwrap();
 }
 
-#[tokio::test]
-async fn rollback_survives_a_dropped_caller() {
-    let relay = RelayFixture::start().await;
-    let link = relay.link(Arc::new(Echo(StreamId::new()))).await;
+async fn rollback_survives_a_dropped_caller(relay: &RelayFixture, link: &Link, case_name: &str) {
     link.handle().online().await.unwrap();
     let stop = CancellationToken::new();
     let token = stop.clone();
@@ -295,7 +326,8 @@ async fn rollback_survives_a_dropped_caller() {
     let update = link.handle.core.relay_update.lock().await;
     assert_eq!(
         link.handle().relay_selection().unwrap(),
-        Some(relay.selection.clone())
+        Some(relay.selection.clone()),
+        "{case_name}"
     );
     drop(update);
     tokio::time::timeout(
@@ -307,7 +339,6 @@ async fn rollback_survives_a_dropped_caller() {
     .await
     .unwrap()
     .unwrap();
-    link.close().await.unwrap();
 }
 
 #[tokio::test]
