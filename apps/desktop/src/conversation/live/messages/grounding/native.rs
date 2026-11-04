@@ -126,7 +126,7 @@ impl Render for ResultView {
                             answer(&self.entry),
                         )
                         .link_hover_underline(true)
-                        .on_link_click(|url, _, cx| {
+                        .on_link_click(|url, _, _, cx| {
                             if destination(url) {
                                 cx.open_url(url);
                             }

@@ -13,9 +13,9 @@ use super::inline::{Flat, Offsets, flatten, flatten_with};
 use super::link_text::LinkText;
 use super::style as theme;
 use gpui::{
-    AnyElement, App, BorderStyle, Bounds, CursorStyle, ElementId, FontWeight, Hsla, ObjectFit,
-    Pixels, Point, SharedString, StyledImage as _, StyledText, TextLayout, TextRun, Window, canvas,
-    div, font, img, point, prelude::*, px, quad, size,
+    AnyElement, App, BorderStyle, Bounds, CursorStyle, ElementId, FontWeight, Hsla, Modifiers,
+    ObjectFit, Pixels, Point, SharedString, StyledImage as _, StyledText, TextLayout, TextRun,
+    Window, canvas, div, font, img, point, prelude::*, px, quad, size,
 };
 use gpui_kit as gpui;
 use gpui_kit::base::TestSupportExt as _;
@@ -75,13 +75,15 @@ const TABLE_CELL_PADDING: f32 = 12.0;
 const TABLE_DIVIDER: f32 = 1.0;
 
 /// Links are delegated to the owning surface so citations and file links can
-/// use application navigation instead of opening an external browser.
-pub type OnLink = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
+/// use application navigation instead of opening an external browser. The
+/// click's modifiers let the surface choose an external opening.
+pub type OnLink = Rc<dyn Fn(&SharedString, Modifiers, &mut Window, &mut App)>;
 /// Standalone file links may be replaced by the owning surface.
 pub type OnFile = Rc<dyn Fn(usize, &str, &str, &App) -> Option<AnyElement>>;
 /// Image resources are resolved by the owning surface.
 pub type OnImage = Rc<dyn Fn(&str, &[&str], usize, &App) -> AnyElement>;
-pub type OnMathLink = std::sync::Arc<dyn Fn(&SharedString, &mut Window, &mut App) + Send + Sync>;
+pub type OnMathLink =
+    std::sync::Arc<dyn Fn(&SharedString, Modifiers, &mut Window, &mut App) + Send + Sync>;
 pub type OnLinkHover = Rc<dyn Fn(Cursor, Option<usize>, &mut Window, &mut App)>;
 
 /// Source-mapped draft decorations; never part of the document or its history.
@@ -1325,10 +1327,10 @@ fn painted_text(
             styled,
             label,
             ranges,
-            move |clicked, _, window, cx| {
+            move |clicked, modifiers, window, cx| {
                 if let Some(url) = urls.get(clicked) {
                     if let Some(on_link) = &on_link {
-                        on_link(&SharedString::from(url.clone()), window, cx);
+                        on_link(&SharedString::from(url.clone()), modifiers, window, cx);
                     } else {
                         cx.open_url(url);
                     }
@@ -1914,9 +1916,9 @@ fn bookmark(
             .text_color(theme.text)
             .cursor(CursorStyle::PointingHand)
             .hover(|el| el.bg(theme.element_active))
-            .on_click(move |_, window, cx| {
+            .on_click(move |event, window, cx| {
                 if let Some(on_link) = &on_link {
-                    on_link(&open.clone().into(), window, cx);
+                    on_link(&open.clone().into(), event.modifiers(), window, cx);
                 } else {
                     cx.open_url(&open);
                 }
@@ -1999,9 +2001,9 @@ fn bookmark(
         .bg(theme.surface_card)
         .cursor(CursorStyle::PointingHand)
         .hover(|el| el.bg(theme.element_hover))
-        .on_click(move |_, window, cx| {
+        .on_click(move |event, window, cx| {
             if let Some(on_link) = &on_link {
-                on_link(&open.clone().into(), window, cx);
+                on_link(&open.clone().into(), event.modifiers(), window, cx);
             } else {
                 cx.open_url(&open);
             }

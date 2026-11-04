@@ -131,6 +131,31 @@ fn scoped_targets() {
             }),
         ),
         (
+            "recovers_editor_line_forms",
+            (|_scenario: &str| {
+                for (link, line) in [
+                    ("src/main.rs:42:7", Some(42)),
+                    ("src/main.rs#L42-L50", Some(42)),
+                    ("src/main.rs#L42-50", Some(42)),
+                    ("src/main.rs#L42C7", Some(42)),
+                    ("README.md#Licensing", None),
+                ] {
+                    let path = link.split([':', '#']).next().unwrap();
+                    assert_eq!(parse(link), Some((path, line)), "{link}");
+                }
+                assert_eq!(
+                    resolve("/project/src/main.rs:42:7", "/project"),
+                    Some(Target::Workspace {
+                        path: "src/main.rs".into(),
+                        line: Some(42)
+                    }),
+                );
+                for link in ["a.rs#L42x", "a.rs:3:4#L5"] {
+                    assert_eq!(parse(link), None, "{link}");
+                }
+            }),
+        ),
+        (
             "rejects_invalid_targets",
             (|_scenario: &str| {
                 for path in [

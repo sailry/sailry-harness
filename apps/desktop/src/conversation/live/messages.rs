@@ -25,6 +25,7 @@ mod notices;
 mod retry;
 mod user;
 mod work;
+use crate::conversation::links::Mode;
 use blocks::Block;
 pub(super) use user::{Editing, sent_input};
 
@@ -236,17 +237,19 @@ impl View {
                         Button::new(format!("image-source-{url}"))
                             .link()
                             .label(url.to_owned())
-                            .on_click(move |_, _, cx| {
+                            .on_click(move |event, _, cx| {
+                                let mode = Mode::of(event.modifiers(), cx);
                                 let _ = owner.update(cx, |_, cx| {
-                                    cx.emit(Event::Link(worktree, link.clone()));
+                                    cx.emit(Event::Link(worktree, link.clone(), mode));
                                 });
                             }),
                     )
                     .into_any_element()
             })
-            .on_link_click(move |link, _, cx| {
+            .on_link_click(move |link, modifiers, _, cx| {
+                let mode = Mode::of(modifiers, cx);
                 let _ = owner.update(cx, |_, cx| {
-                    cx.emit(Event::Link(worktree, link.clone()));
+                    cx.emit(Event::Link(worktree, link.clone(), mode));
                 });
             })
     }

@@ -18,7 +18,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, Focusable as _, IntoElement,
-    MouseButton, Pixels, Point, SharedString, Window, div, point, prelude::*, px,
+    Modifiers, MouseButton, Pixels, Point, SharedString, Window, div, point, prelude::*, px,
 };
 use std::{ops::Range, rc::Rc};
 
@@ -131,8 +131,8 @@ impl State {
     pub(super) fn link_click(&self, cx: &mut Context<Self>) -> OnLink {
         let owner = cx.weak_entity();
         Rc::new(
-            move |url: &SharedString, window: &mut Window, cx: &mut App| {
-                if window.modifiers().secondary(cx) {
+            move |url: &SharedString, modifiers: Modifiers, window: &mut Window, cx: &mut App| {
+                if modifiers.secondary(cx) {
                     let url = url.to_string();
                     let _ = owner.update(cx, |state, cx| state.open_link(&url, window, cx));
                 }
@@ -143,7 +143,9 @@ impl State {
     pub(super) fn open_link(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
         let url = SharedString::from(url.to_owned());
         if let Some(handler) = self.on_link.clone() {
-            handler(&url, window, cx);
+            // The platform modifier is the editor's open gesture, not a request
+            // to leave the application.
+            handler(&url, Modifiers::default(), window, cx);
         } else if url.contains("://") || url.starts_with("mailto:") {
             cx.open_url(&url);
         }

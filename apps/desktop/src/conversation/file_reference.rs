@@ -84,28 +84,46 @@ fn parts(link: &str) -> Option<(&str, Option<usize>)> {
     let (target, fragment) = link
         .split_once('#')
         .map_or((link, None), |(path, part)| (path, Some(part)));
-    let mut line = match fragment.and_then(|part| part.strip_prefix('L')) {
-        Some(value) => Some(parse_line(value)?),
+    // `#L12`, `#L12-L20` and `#L12C4` name a line; `#Licensing` is a heading.
+    let mut line = match fragment
+        .and_then(|part| part.strip_prefix('L'))
+        .filter(|value| value.starts_with(|c: char| c.is_ascii_digit() || c == '-'))
+    {
+        Some(value) => {
+            let end = value
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(value.len());
+            if !(value[end..].is_empty() || value[end..].starts_with(['-', 'C'])) {
+                return None;
+            }
+            Some(parse_line(&value[..end])?)
+        }
         None => None,
     };
     let target = target.split('?').next()?;
-    let target = if let Some((path, suffix)) = target.rsplit_once(':') {
-        if !suffix.is_empty() && suffix.bytes().all(|value| value.is_ascii_digit()) {
+    let target = match target.rsplit_once(':') {
+        Some((path, suffix)) if digits(suffix) => {
             if line.is_some() {
                 return None;
             }
+            // `path:line:column` keeps the line.
+            let (path, suffix) = match path.rsplit_once(':') {
+                Some((file, value)) if digits(value) => (file, value),
+                _ => (path, suffix),
+            };
             line = Some(parse_line(suffix)?);
             path
-        } else {
-            target
         }
-    } else {
-        target
+        _ => target,
     };
     if target.is_empty() || target.contains('\0') {
         return None;
     }
     Some((target, line))
+}
+
+fn digits(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|value| value.is_ascii_digit())
 }
 
 fn parse_line(value: &str) -> Option<usize> {

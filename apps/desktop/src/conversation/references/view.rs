@@ -270,7 +270,12 @@ impl Shell {
                                 return;
                             }
                             if let Some(path) = &file {
-                                shell.open_conversation_link(path.clone().into(), window, cx);
+                                shell.open_conversation_link(
+                                    path.clone().into(),
+                                    crate::conversation::links::Mode::Internal,
+                                    window,
+                                    cx,
+                                );
                             } else if directory {
                                 shell.open_resource_panel(preview::Page::Files, window, cx);
                             }

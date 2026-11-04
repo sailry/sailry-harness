@@ -101,7 +101,11 @@ pub(crate) enum Event {
     /// Opens Settings › Teams for the execution Node.
     TeamSettings(NodeId),
     DictationSettings,
-    Link(Option<WorktreeId>, SharedString),
+    Link(
+        Option<WorktreeId>,
+        SharedString,
+        crate::conversation::links::Mode,
+    ),
     Subagent(SessionId),
     Session(SessionId),
     Host(NodeId),
