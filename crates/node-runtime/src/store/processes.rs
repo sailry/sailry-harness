@@ -406,16 +406,32 @@ impl Worker {
                     _ => {}
                 }
             }
+            let promoted =
+                matches!(result, Ok(Output::CommandStarted(_))) && !execution.launch.background;
+            let reply = if promoted {
+                // Storage replies only after committing the receipt that
+                // registers the background record; completion waits for it.
+                let (reply, committed) = oneshot::channel();
+                let caller = execution.reply;
+                tokio::spawn(async move {
+                    if let Ok(response) = committed.await {
+                        let _ = caller.send(response);
+                    }
+                    let _ = open.send(());
+                });
+                reply
+            } else {
+                drop(open);
+                execution.reply
+            };
             let _ = completed
                 .send(Job::Executed(Box::new(Completed {
                     caller: execution.caller,
                     request: execution.request,
                     result,
-                    reply: execution.reply,
+                    reply,
                 })))
                 .await;
-            // A promoted command reports completion only after this receipt.
-            let _ = open.send(());
         });
         Ok(())
     }

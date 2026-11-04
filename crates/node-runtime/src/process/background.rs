@@ -29,6 +29,8 @@ struct Entry {
     input: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
     explicit: bool,
     background: bool,
+    /// A foreground command handed to the background; it has no live capture.
+    promoted: bool,
     retained: Arc<super::output::Retained>,
     accessed: std::time::Instant,
 }
@@ -189,6 +191,7 @@ impl Commands {
                 input: Some(input),
                 explicit: false,
                 background: true,
+                promoted: false,
                 retained: retained.clone(),
                 accessed: std::time::Instant::now(),
             },
@@ -325,6 +328,7 @@ impl Commands {
                 input: None,
                 explicit: false,
                 background: false,
+                promoted: false,
                 retained: retained.clone(),
                 accessed: std::time::Instant::now(),
             },
@@ -366,6 +370,7 @@ impl Commands {
                 .get_mut(&id)
                 .filter(|entry| entry.info.status == Status::Running)?;
             entry.background = true;
+            entry.promoted = true;
             entry.stop = stop;
             entry.task = Some(task);
             entry.accessed = std::time::Instant::now();
@@ -449,15 +454,26 @@ impl Commands {
     }
 
     pub fn read(&self, session: SessionId, id: RequestId) -> Result<Snapshot, Fault> {
-        let mut entries = self.entries.lock().unwrap();
-        let entry = entries
-            .get_mut(&id)
-            .filter(|entry| entry.info.session == session)
-            .ok_or_else(missing)?;
-        entry.accessed = std::time::Instant::now();
-        let (stdout, stderr) = entry.output.borrow().clone();
+        let (info, retained, captured) = {
+            let mut entries = self.entries.lock().unwrap();
+            let entry = entries
+                .get_mut(&id)
+                .filter(|entry| entry.info.session == session)
+                .ok_or_else(missing)?;
+            entry.accessed = std::time::Instant::now();
+            let live =
+                entry.promoted && matches!(entry.info.status, Status::Running | Status::Stopping);
+            (
+                entry.info.clone(),
+                live.then(|| entry.retained.clone()),
+                entry.output.borrow().clone(),
+            )
+        };
+        // A promoted command's foreground capture is only filled at exit, so
+        // a running snapshot shows the recent tail of its retained output.
+        let (stdout, stderr) = retained.map_or(captured, |retained| retained.recent());
         Ok(Snapshot {
-            info: entry.info.clone(),
+            info,
             stdout,
             stderr,
         })

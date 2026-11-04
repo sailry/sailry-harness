@@ -159,6 +159,18 @@ mod promotion {
             command: &str,
             promotion: impl std::future::Future<Output = ()>,
         ) -> Result<Output, Fault> {
+            let (open, gate) = oneshot::channel();
+            let _ = open.send(());
+            self.held(command, promotion, gate).await
+        }
+
+        /// Runs with a completion gate the test opens, like an uncommitted receipt.
+        async fn held(
+            &self,
+            command: &str,
+            promotion: impl std::future::Future<Output = ()>,
+            gate: oneshot::Receiver<()>,
+        ) -> Result<Output, Fault> {
             let launch = Launch {
                 profile: Some(self.profile.path().to_owned()),
                 root: self.root.path().canonicalize().unwrap(),
@@ -174,8 +186,6 @@ mod promotion {
             let retained = self
                 .commands
                 .retain(self.id, self.session, TurnId::new(), &launch);
-            let (open, gate) = oneshot::channel();
-            let _ = open.send(());
             foreground(
                 launch,
                 self.id,
@@ -258,6 +268,10 @@ mod promotion {
         })
         .await
         .expect("promoted output is not readable");
+        // The snapshot read shows live output instead of an empty capture.
+        let snapshot = fixture.commands.read(fixture.session, fixture.id).unwrap();
+        assert_eq!(snapshot.info.status, Status::Running);
+        assert_eq!(snapshot.stdout.text, "started");
         let finished = tokio::time::timeout(Duration::from_secs(10), fixture.finished.recv())
             .await
             .expect("promoted completion was not reported")
@@ -290,5 +304,42 @@ mod promotion {
             Status::Finished(Outcome::Cancelled)
         );
         assert!(finished.explicit);
+    }
+
+    #[tokio::test]
+    async fn holds_completion_until_receipt() {
+        let mut fixture = Fixture::new();
+        let (open, gate) = oneshot::channel();
+        let output = fixture
+            .held(
+                "sleep 1; printf done",
+                tokio::time::sleep(Duration::from_millis(200)),
+                gate,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(output, Output::CommandStarted(_)));
+        // The process exits before the background record exists.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(fixture.finished.try_recv().is_err());
+        assert_eq!(
+            fixture
+                .commands
+                .read(fixture.session, fixture.id)
+                .unwrap()
+                .info
+                .status,
+            Status::Running
+        );
+        open.send(()).unwrap();
+        let finished = tokio::time::timeout(Duration::from_secs(5), fixture.finished.recv())
+            .await
+            .expect("held completion was lost")
+            .unwrap();
+        assert_eq!(
+            finished.snapshot.info.status,
+            Status::Finished(Outcome::Exited(0))
+        );
+        assert_eq!(finished.snapshot.stdout.text, "done");
     }
 }

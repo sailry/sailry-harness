@@ -324,6 +324,17 @@ impl Stream {
         })
     }
 
+    /// The most recent bytes, trimmed to whole UTF-8 characters.
+    fn recent(&self) -> sailry_protocol::process::Capture {
+        let (_, start) = super::edges(&self.tail, 0, TAIL);
+        let bytes = &self.tail[start..];
+        sailry_protocol::process::Capture {
+            text: String::from_utf8_lossy(bytes).into_owned(),
+            truncated: self.total > bytes.len() as u64,
+            invalid_utf8: std::str::from_utf8(bytes).is_err(),
+        }
+    }
+
     fn preview(&self) -> Option<serde_json::Value> {
         if self.total <= (64 * 1024) as u64 {
             return None;
@@ -424,6 +435,19 @@ impl Retained {
             .lock()
             .unwrap()
             .page(info, stream, offset, limit)
+    }
+
+    /// Bounded live output for a command whose capture fills only at exit.
+    pub(crate) fn recent(
+        &self,
+    ) -> (
+        sailry_protocol::process::Capture,
+        sailry_protocol::process::Capture,
+    ) {
+        (
+            self.stdout.lock().unwrap().recent(),
+            self.stderr.lock().unwrap().recent(),
+        )
     }
 
     pub(crate) fn preview(&self, id: RequestId) -> Option<serde_json::Value> {
