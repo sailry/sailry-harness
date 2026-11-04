@@ -16,7 +16,7 @@ async fn pending(fixture: &Fixture, previous: Option<QuestionId>) -> (Page, Ques
             if let Some(question) = page.questions.iter().find(|question| {
                 question.state == question::State::Pending && Some(question.id) != previous
             }) {
-                return (page.clone(), question.clone());
+                return (Page::clone(page), question.clone());
             }
             assert!(
                 !page.runs.iter().any(|run| run.status == Status::Failed),

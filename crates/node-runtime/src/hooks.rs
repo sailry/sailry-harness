@@ -128,7 +128,7 @@ impl Binding {
         // The durable marker precedes native launch. A crash leaves an uncertain
         // receipt; neither Node recovery nor a repeated callback replays it.
         self.ingress.claim_hook(self.turn, phase, ordinal).await?;
-        let stop = self
+        let tools = self
             .ingress
             .agents
             .begin_operation(self.turn)
@@ -141,6 +141,13 @@ impl Binding {
         let lease = Lease {
             controls: self.ingress.agents.clone(),
             turn: self.turn,
+        };
+        // Immediate guidance interrupts only the tool batch; other hooks stop
+        // with the turn.
+        let stop = if tool.is_some() {
+            tools
+        } else {
+            self.stop.clone()
         };
         let binding = self.clone();
         let tool = tool.map(str::to_owned);

@@ -175,9 +175,11 @@ async fn checks_only_on_request() {
 async fn freezes_server_choices() {
     for remote in [false, true] {
         let native = alias("native", "read");
+        // The model sees and calls the exposed name; records keep the alias.
+        let exposed = peer::exposed("native", "read");
         let model = Server::available_tools(vec![
             ("tool_search".into(), json!({"query":native,"limit":1})),
-            (native.clone(), json!({})),
+            (exposed.clone(), json!({})),
         ])
         .await;
         let fixture = process::Fixture::packages(remote, &model, &[]).await;
@@ -221,14 +223,14 @@ async fn freezes_server_choices() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .all(|tool| tool["function"]["name"] != native)
+                    .all(|tool| tool["function"]["name"] != exposed)
             );
             assert!(
                 requests[1]["tools"]
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|tool| tool["function"]["name"] == native)
+                    .any(|tool| tool["function"]["name"] == exposed)
             );
         }
         let previous = model.requests.lock().unwrap().len();
@@ -242,7 +244,7 @@ async fn freezes_server_choices() {
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .all(|tool| tool["function"]["name"] != native)
+                    .all(|tool| tool["function"]["name"] != exposed)
             );
         }
         let data = fixture.node.profile().join("plugins/data/example");

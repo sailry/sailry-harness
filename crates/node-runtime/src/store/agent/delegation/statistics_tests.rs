@@ -39,9 +39,15 @@ async fn append(
     mut event: canonical::Record,
 ) {
     event.turn = turn;
-    history::append(&mut fixture.database, session, turn, event, &fixture.events)
-        .await
-        .unwrap();
+    Box::pin(history::append(
+        &mut fixture.database,
+        session,
+        turn,
+        event,
+        &fixture.events,
+    ))
+    .await
+    .unwrap();
 }
 
 async fn metrics(fixture: &Fixture, session: SessionId) -> Statistics {
@@ -80,10 +86,14 @@ async fn follows_visible_delegations_without_duplication() {
     let Output::QueuedTurn(guidance) = execute(&mut fixture, request).await.unwrap() else {
         panic!("guided turn expected")
     };
-    let inputs = runs::guidance::take(&mut fixture.database, child.turn.id, &fixture.events)
-        .await
-        .unwrap()
-        .unwrap();
+    let inputs = Box::pin(runs::guidance::take(
+        &mut fixture.database,
+        child.turn.id,
+        &fixture.events,
+    ))
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(inputs[0].turn.id, guidance.id);
     let input = message(
         "user",
@@ -101,17 +111,17 @@ async fn follows_visible_delegations_without_duplication() {
     )
     .await;
     finish(&mut fixture, child.turn.id).await;
-    let consumed = super::super::background::consume_child(
+    let consumed = Box::pin(super::super::background::consume_child(
         &fixture.database.connection,
         first,
         child.turn.session,
         child.turn.id,
-    )
+    ))
     .await
     .unwrap();
     assert_eq!(consumed.len(), 1);
     finish(&mut fixture, first).await;
-    let Output::Session(fork) = command(
+    let Output::Session(fork) = Box::pin(command(
         &mut fixture.database,
         &fixture.events,
         Command::ForkConversation {
@@ -119,7 +129,7 @@ async fn follows_visible_delegations_without_duplication() {
             through: first,
             expected_revision: 1,
         },
-    )
+    ))
     .await
     else {
         panic!("fork expected")

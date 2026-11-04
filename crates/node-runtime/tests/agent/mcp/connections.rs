@@ -140,13 +140,15 @@ async fn orders_concurrent_servers() {
         .unwrap()
         .iter()
         .filter_map(|tool| tool["function"]["name"].as_str())
-        .filter(|name| name.starts_with("mcp_"))
+        .filter(|name| name.starts_with("mcp__"))
         .map(str::to_owned)
         .collect();
     // The catalog presents tools by name, independent of connection completion.
     let mut expected: Vec<_> = ["alpha", "zeta"]
         .into_iter()
-        .flat_map(|server| ["read", "write", "hold", "fail"].map(|tool| alias(server, tool)))
+        .flat_map(|server| {
+            ["read", "write", "hold", "fail"].map(|tool| peer::exposed(server, tool))
+        })
         .collect();
     expected.sort();
     assert_eq!(loaded, expected);

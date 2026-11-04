@@ -142,7 +142,7 @@ async fn tools() {
                 tools,
                 BTreeSet::from([
                     "read_note".into(),
-                    mcp,
+                    peer::exposed("notes", "read"),
                     "ask_user".into(),
                     "set_session_title".into(),
                     "read_tool_output".into(),

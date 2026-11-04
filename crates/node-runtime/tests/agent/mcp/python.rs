@@ -65,7 +65,7 @@ async fn launches_the_bundled_interpreter() {
             })
             .collect();
         assert!(
-            names.contains(&alias("native", "read").as_str()),
+            names.contains(&peer::exposed("native", "read").as_str()),
             "MCP tools: {names:?}; fixture trace: {trace}"
         );
         let returned = results(&fixture.client, &page).await;

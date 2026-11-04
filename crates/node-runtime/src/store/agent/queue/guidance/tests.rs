@@ -52,7 +52,7 @@ async fn take(
     controls: &Controls,
 ) -> Option<Vec<sailry_protocol::conversation::QueuedMessage>> {
     let (reply, mut response) = oneshot::channel();
-    crate::store::agent::execute(
+    Box::pin(crate::store::agent::execute(
         &mut fixture.database,
         Operation::TakeGuidance {
             recipient: active,
@@ -60,7 +60,7 @@ async fn take(
         },
         &fixture.events,
         controls,
-    )
+    ))
     .await;
     response.try_recv().unwrap().unwrap()
 }
@@ -74,7 +74,7 @@ async fn finish(
     owner: Option<CancellationToken>,
 ) -> Status {
     let (reply, mut response) = oneshot::channel();
-    crate::store::agent::execute(
+    Box::pin(crate::store::agent::execute(
         &mut fixture.database,
         Operation::Finish {
             turn: active,
@@ -86,7 +86,7 @@ async fn finish(
         },
         &fixture.events,
         controls,
-    )
+    ))
     .await;
     response.try_recv().unwrap().unwrap()
 }
@@ -126,7 +126,7 @@ async fn resumes_without_ending_the_task() {
     let (active, source) = admitted(&mut fixture).await;
     let controls = registered(&mut fixture, active).await;
     let (reply, mut response) = oneshot::channel();
-    crate::store::agent::execute(
+    Box::pin(crate::store::agent::execute(
         &mut fixture.database,
         Operation::TakeGuidance {
             recipient: active,
@@ -134,7 +134,7 @@ async fn resumes_without_ending_the_task() {
         },
         &fixture.events,
         &controls,
-    )
+    ))
     .await;
     let inputs = response.try_recv().unwrap().unwrap().unwrap();
     assert_eq!(inputs.len(), 1);
@@ -190,7 +190,7 @@ async fn restores_only_unconsumed_inputs() {
             .unwrap();
         let controls = registered(&mut fixture, active).await;
         let (reply, mut response) = oneshot::channel();
-        crate::store::agent::execute(
+        Box::pin(crate::store::agent::execute(
             &mut fixture.database,
             Operation::TakeGuidance {
                 recipient: active,
@@ -198,7 +198,7 @@ async fn restores_only_unconsumed_inputs() {
             },
             &fixture.events,
             &controls,
-        )
+        ))
         .await;
         response.try_recv().unwrap().unwrap().unwrap();
         if consumed {

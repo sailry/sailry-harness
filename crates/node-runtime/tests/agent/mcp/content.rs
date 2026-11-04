@@ -75,10 +75,11 @@ async fn restores() {
                     .map(|tool| tool["function"]["name"].as_str().unwrap().to_owned())
                     .collect::<Vec<_>>()
             };
+            let exposed = peer::exposed("reports", "report");
             assert!(names(&requests[0]).contains(&"tool_search".into()));
-            assert!(!names(&requests[0]).contains(&alias));
+            assert!(!names(&requests[0]).contains(&exposed));
             assert!(
-                names(&requests[1]).contains(&alias),
+                names(&requests[1]).contains(&exposed),
                 "captured MCP tool was not discovered after removal: {page:?}"
             );
             assert_eq!(requests[1]["tools"], requests[2]["tools"]);

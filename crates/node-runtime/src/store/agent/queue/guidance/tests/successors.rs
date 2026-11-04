@@ -18,13 +18,13 @@ async fn append(fixture: &mut Fixture, invocation: &Invocation) {
             }],
         );
         event.turn = turn;
-        crate::store::agent::history::append(
+        Box::pin(crate::store::agent::history::append(
             &mut fixture.database,
             fixture.session,
             turn,
             event,
             &fixture.events,
-        )
+        ))
         .await
         .unwrap();
     }
@@ -39,6 +39,16 @@ async fn batches_remaining_inputs_in_order() {
             let second = controller::guide(&mut fixture, active, "Second guidance").await;
             let third = controller::guide(&mut fixture, active, "Third guidance").await;
             let waiting = fixture.queued().await;
+            // Only inputs the user sent join the successor; held items stay queued.
+            fixture
+                .database
+                .connection
+                .execute(
+                    "UPDATE agent_runs SET ready=1 WHERE turn=?1",
+                    [waiting.to_string()],
+                )
+                .await
+                .unwrap();
             let turns = [first, second, third, waiting];
             let mut captures = Vec::new();
             for turn in turns {
@@ -83,8 +93,8 @@ async fn batches_remaining_inputs_in_order() {
                 queue.items.iter().map(|item| item.turn).collect::<Vec<_>>(),
                 turns
             );
-            assert!(queue.items[..3].iter().all(|item| item.ready));
-            let successor = runs::claim(&mut fixture.database, &fixture.events)
+            assert!(queue.items.iter().all(|item| item.ready));
+            let successor = Box::pin(runs::claim(&mut fixture.database, &fixture.events))
                 .await
                 .unwrap()
                 .unwrap();
@@ -124,23 +134,23 @@ async fn batches_remaining_inputs_in_order() {
                     .is_empty()
             );
             assert!(
-                runs::claim(&mut fixture.database, &fixture.events)
+                Box::pin(runs::claim(&mut fixture.database, &fixture.events))
                     .await
                     .unwrap()
                     .is_none()
             );
             append(&mut fixture, &successor).await;
-            runs::finish(
+            Box::pin(runs::finish(
                 &mut fixture.database,
                 first,
                 Status::Completed,
                 None,
                 &fixture.events,
-            )
+            ))
             .await
             .unwrap();
             assert!(
-                runs::claim(&mut fixture.database, &fixture.events)
+                Box::pin(runs::claim(&mut fixture.database, &fixture.events))
                     .await
                     .unwrap()
                     .is_none()
@@ -206,16 +216,16 @@ async fn stops_at_incompatible_capture() {
     runs::stop(&fixture.database.connection, active)
         .await
         .unwrap();
-    runs::finish(
+    Box::pin(runs::finish(
         &mut fixture.database,
         active,
         Status::Cancelled,
         None,
         &fixture.events,
-    )
+    ))
     .await
     .unwrap();
-    let successor = runs::claim(&mut fixture.database, &fixture.events)
+    let successor = Box::pin(runs::claim(&mut fixture.database, &fixture.events))
         .await
         .unwrap()
         .unwrap();
@@ -239,16 +249,16 @@ async fn stops_at_incompatible_capture() {
         [incompatible, following]
     );
     append(&mut fixture, &successor).await;
-    runs::finish(
+    Box::pin(runs::finish(
         &mut fixture.database,
         first,
         Status::Completed,
         None,
         &fixture.events,
-    )
+    ))
     .await
     .unwrap();
-    let next = runs::claim(&mut fixture.database, &fixture.events)
+    let next = Box::pin(runs::claim(&mut fixture.database, &fixture.events))
         .await
         .unwrap()
         .unwrap();
@@ -256,16 +266,16 @@ async fn stops_at_incompatible_capture() {
     assert!(next.followups.is_empty());
     assert_eq!(next.turn.config.effort, Effort::High);
     append(&mut fixture, &next).await;
-    runs::finish(
+    Box::pin(runs::finish(
         &mut fixture.database,
         incompatible,
         Status::Completed,
         None,
         &fixture.events,
-    )
+    ))
     .await
     .unwrap();
-    let last = runs::claim(&mut fixture.database, &fixture.events)
+    let last = Box::pin(runs::claim(&mut fixture.database, &fixture.events))
         .await
         .unwrap()
         .unwrap();
@@ -288,13 +298,13 @@ async fn keeps_pause_without_pending_guidance() {
     runs::stop(&fixture.database.connection, active)
         .await
         .unwrap();
-    runs::finish(
+    Box::pin(runs::finish(
         &mut fixture.database,
         active,
         Status::Completed,
         None,
         &fixture.events,
-    )
+    ))
     .await
     .unwrap();
     let queue = read(&fixture.database.connection, fixture.session)
@@ -303,7 +313,7 @@ async fn keeps_pause_without_pending_guidance() {
     assert!(queue.paused);
     assert_eq!(queue.items[0].turn, waiting);
     assert!(
-        runs::claim(&mut fixture.database, &fixture.events)
+        Box::pin(runs::claim(&mut fixture.database, &fixture.events))
             .await
             .unwrap()
             .is_none()
@@ -331,13 +341,13 @@ async fn respects_pause_after_stop() {
         },
     )
     .await;
-    runs::finish(
+    Box::pin(runs::finish(
         &mut fixture.database,
         active,
         Status::Completed,
         None,
         &fixture.events,
-    )
+    ))
     .await
     .unwrap();
     let queue = read(&fixture.database.connection, fixture.session)
@@ -347,7 +357,7 @@ async fn respects_pause_after_stop() {
     assert_eq!(queue.items[0].turn, source);
     assert_eq!(queue.items[0].guidance, None);
     assert!(
-        runs::claim(&mut fixture.database, &fixture.events)
+        Box::pin(runs::claim(&mut fixture.database, &fixture.events))
             .await
             .unwrap()
             .is_none()
@@ -365,13 +375,13 @@ async fn resume_preserves_cancelled_outcome() {
         .await
         .unwrap();
     assert_eq!(
-        runs::finish(
+        Box::pin(runs::finish(
             &mut fixture.database,
             active,
             Status::Completed,
             None,
             &fixture.events
-        )
+        ))
         .await
         .unwrap(),
         Status::Cancelled

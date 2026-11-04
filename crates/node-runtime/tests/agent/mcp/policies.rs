@@ -629,7 +629,7 @@ async fn preserves_discovered_annotations() {
                     !tool["function"]["name"]
                         .as_str()
                         .unwrap()
-                        .starts_with("mcp_example_desktop_")
+                        .starts_with("mcp__desktop__")
                 }));
                 let tools = requests[names.len()]["tools"].as_array().unwrap();
                 let discovered = tools
@@ -637,11 +637,12 @@ async fn preserves_discovered_annotations() {
                     .filter(|tool| {
                         tool["function"]["name"]
                             .as_str()
-                            .is_some_and(|name| name.starts_with("mcp_example_desktop_"))
+                            .is_some_and(|name| name.starts_with("mcp__desktop__"))
                     })
                     .count();
                 assert_eq!(discovered, if platform == "mac" { 10 } else { 9 });
-                assert!(tools.iter().any(|tool| tool["function"]["name"] == alias
+                let exposed = peer::exposed("desktop", "get_app_state");
+                assert!(tools.iter().any(|tool| tool["function"]["name"] == exposed
                     && tool["function"]["parameters"]["properties"]["value"]["type"] == "string"));
             }
             fixture.node.shutdown().await.unwrap();

@@ -49,6 +49,10 @@ async fn preserves_readonly_execution() {
         assert!(!data.join("effects").exists());
         let requests = model.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 3);
+        let visible: std::collections::BTreeSet<_> = ["read", "write", "fail", "hold"]
+            .into_iter()
+            .map(|name| peer::exposed("native", name))
+            .collect();
         let initial = requests[0]["tools"].as_array().unwrap();
         assert!(
             initial
@@ -58,7 +62,7 @@ async fn preserves_readonly_execution() {
         assert!(
             initial
                 .iter()
-                .all(|tool| !expected.contains(tool["function"]["name"].as_str().unwrap()))
+                .all(|tool| !visible.contains(tool["function"]["name"].as_str().unwrap()))
         );
         for request in &requests[1..] {
             let names: Vec<_> = request["tools"]
@@ -67,9 +71,11 @@ async fn preserves_readonly_execution() {
                 .iter()
                 .map(|tool| tool["function"]["name"].as_str().unwrap())
                 .collect();
-            assert!(names.contains(&alias("native", "read").as_str()));
-            for name in ["write", "fail", "hold"] {
-                assert!(names.contains(&alias("native", name).as_str()));
+            for name in &visible {
+                assert!(
+                    names.contains(&name.as_str()),
+                    "{name} missing from {names:?}"
+                );
             }
         }
         assert_eq!(requests[1]["tools"], requests[2]["tools"]);

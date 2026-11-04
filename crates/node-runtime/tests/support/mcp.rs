@@ -26,6 +26,23 @@ pub fn package_alias(package: &str, server: &str, name: &str) -> String {
     format!("mcp_{label}_{}", &hash.finalize().to_hex()[..24])
 }
 
+/// The model-visible name of an MCP tool without a collision or length suffix.
+pub fn exposed(server: &str, name: &str) -> String {
+    let sanitize = |label: &str| -> String {
+        label
+            .chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+                    character
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    };
+    format!("mcp__{}__{}", sanitize(server), sanitize(name))
+}
+
 pub fn config(test: &str, mode: &str) -> Value {
     let executable = std::env::current_exe().unwrap();
     json!({"type": "stdio", "command": executable.file_name().unwrap().to_str().unwrap(),

@@ -35,6 +35,7 @@ pub(super) async fn claim(
         let mut run = get(db, item.turn).await?;
         if !boundary
             && (run.kind != RunKind::Task
+                || !item.ready
                 || run.notice
                 || run.continuation.is_some()
                 || run.status != Status::Queued

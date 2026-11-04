@@ -165,7 +165,7 @@ async fn refreshes_next_input() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|tool| tool["function"]["name"] == alias("native", "read"))
+                    .any(|tool| tool["function"]["name"] == peer::exposed("native", "read"))
             }));
         }
         fixture.node.shutdown().await.unwrap();

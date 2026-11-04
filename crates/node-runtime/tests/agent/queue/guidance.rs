@@ -2,7 +2,9 @@ use super::*;
 use sailry_link::CancellationToken;
 use serde_json::json;
 
+#[path = "guidance/steering.rs"]
 mod steering;
+#[path = "guidance/timing.rs"]
 mod timing;
 
 async fn held(fixture: &Fixture, message: Input) -> QueuedTurn {
