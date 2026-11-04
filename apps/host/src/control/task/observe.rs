@@ -15,7 +15,7 @@ use tokio::{
 };
 
 enum Event {
-    View(SessionId, TurnId, View),
+    View(SessionId, TurnId, Box<View>),
     Failed(Fault),
 }
 
@@ -71,7 +71,11 @@ impl Observers {
         self.tasks.spawn(async move {
             while receiver.changed().await.is_ok() {
                 let view = receiver.borrow_and_update().clone();
-                if sender.send(Event::View(session, turn, view)).await.is_err() {
+                if sender
+                    .send(Event::View(session, turn, Box::new(view)))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -109,7 +113,7 @@ pub(super) async fn wait(
             event = events.recv() => event.ok_or_else(|| Fault::new(ErrorCode::Unavailable, "conversation observation closed"))?,
         };
         let (source, current, view) = match event {
-            Event::View(source, current, view) => (source, current, view),
+            Event::View(source, current, view) => (source, current, *view),
             Event::Failed(error) => return Err(error),
         };
         if let Some(error) = &view.error

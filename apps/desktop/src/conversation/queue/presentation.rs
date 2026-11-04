@@ -44,8 +44,6 @@ pub(in crate::conversation) fn row(
     key: SharedString,
     label: SharedString,
     attached: bool,
-    draggable: bool,
-    joining: bool,
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
@@ -55,9 +53,9 @@ pub(in crate::conversation) fn row(
         label,
         FrameOptions {
             attached,
-            draggable,
+            draggable: true,
             drag_enabled: true,
-            joining,
+            joining: false,
         },
         actions,
         cx,
