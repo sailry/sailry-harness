@@ -277,10 +277,103 @@ class Revisions(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             actual = dict(line.split("=", 1) for line in output.read_text().splitlines())
-            self.assertEqual(actual, ci.outputs(ci.LANES))
+            self.assertEqual(actual, {**ci.outputs(ci.LANES), "mode": "full",
+                                      "light_linux": "false", "light_macos": "false"})
+
+
+class Modes(unittest.TestCase):
+    def mode(self, payload, event="pull_request"):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "event.json"
+            path.write_text(json.dumps(payload))
+            return ci.event_mode(event, path)
+
+    def request(self, action="synchronize", draft=False, labels=(), label=None):
+        payload = {"action": action, "pull_request": {"draft": draft, "labels": [{"name": name} for name in labels]}}
+        if label is not None:
+            payload["label"] = {"name": label}
+        return payload
+
+    def test_maps_pull_request_state(self):
+        full = ci.FULL_LABEL
+        for payload, expected in (
+            (self.request(), "light"),
+            (self.request("opened"), "light"),
+            (self.request("reopened", labels=["bug"]), "light"),
+            (self.request("ready_for_review"), "light"),
+            (self.request(labels=[full]), "full"),
+            (self.request("ready_for_review", labels=[full]), "full"),
+            (self.request("labeled", labels=[full], label=full), "full"),
+            (self.request("labeled", labels=[full, "bug"], label="bug"), "skip"),
+            (self.request("labeled", labels=["bug"], label="bug"), "skip"),
+            (self.request(draft=True), "skip"),
+            (self.request(draft=True, labels=[full]), "skip"),
+            (self.request("labeled", draft=True, labels=[full], label=full), "skip"),
+        ):
+            with self.subTest(payload=payload):
+                self.assertEqual(self.mode(payload), expected)
+
+    def test_other_events_and_unreadable_state_are_full(self):
+        for event in ("push", "workflow_dispatch", None):
+            self.assertEqual(ci.event_mode(event, None), "full")
+        for payload in ({}, {"pull_request": {"labels": []}}, {"pull_request": {"draft": False}},
+                        {"action": "labeled", "pull_request": {"draft": False, "labels": []}}):
+            with self.subTest(payload=payload):
+                self.assertEqual(self.mode(payload), "full")
+        self.assertEqual(ci.event_mode("pull_request", None), "full")
+
+    def test_deferred_runs_select_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "event.json"
+            path.write_text(json.dumps(self.request(draft=True)))
+            with patch.object(ci, "select_event") as select:
+                result = ci.select_outputs("pull_request", path)
+            select.assert_not_called()
+            self.assertEqual(result, {**ci.outputs(set()), "mode": "skip",
+                                      "light_linux": "false", "light_macos": "false"})
+
+    def test_light_outputs_follow_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "event.json"
+            path.write_text(json.dumps(self.request()))
+            for selected, linux, macos in (({"host"}, "true", "false"), ({"desktop"}, "true", "true"),
+                                           ({"services"}, "false", "false"), (set(), "false", "false")):
+                with self.subTest(selected=selected), patch.object(ci, "select_event", return_value=selected):
+                    result = ci.select_outputs("pull_request", path)
+                    self.assertEqual(result, {**ci.outputs(selected), "mode": "light",
+                                              "light_linux": linux, "light_macos": macos})
 
 
 class Lint(unittest.TestCase):
+    def test_splits_packages_by_platform(self):
+        linux, macos = ci.lint_packages(ci.LANES, "linux"), ci.lint_packages(ci.LANES, "macos")
+        self.assertEqual(sorted(linux + macos), ci.lint_packages(ci.LANES))
+        self.assertEqual(macos, sorted(ci.MACOS_LINT))
+        self.assertIn("sailry-node-runtime", linux)
+        self.assertIn("sailry-host", linux)
+        self.assertEqual(ci.lint_packages({"shared"}, "macos"), ["sailry-speech"])
+        self.assertEqual(ci.lint_packages({"desktop"}, "linux"), [])
+        command = ci.lint_command(ci.outputs(ci.LANES), "2", "linux")
+        self.assertEqual(command[command.index("--features") + 1], "sailry-node-runtime/test-support")
+        self.assertEqual(command[command.index("--all-targets"):],
+                         ["--all-targets", "--jobs", "2", "--", "-D", "warnings"])
+        self.assertIsNone(ci.lint_command(ci.outputs({"desktop"}), None, "linux"))
+        with self.assertRaises(ValueError):
+            ci.lint_command(ci.outputs({"desktop"}), None, "windows")
+        with patch.object(ci.subprocess, "run") as run, patch("builtins.print"):
+            self.assertEqual(ci.lint(ci.outputs({"desktop"}), system="linux"), 0)
+            run.assert_not_called()
+
+    def test_reads_lane_scope_with_mode(self):
+        scope = {**ci.outputs({"host"}), "mode": "light", "light_linux": "true", "light_macos": "false"}
+        for argv, system in ((["ci.py", "lint"], None), (["ci.py", "lint", "linux"], "linux")):
+            with self.subTest(argv=argv), patch.dict(os.environ, {"CHECK_SCOPE": json.dumps(scope)}), \
+                    patch.object(sys, "argv", argv), patch.object(ci, "lint", return_value=0) as lint:
+                with self.assertRaises(SystemExit) as outcome:
+                    ci.main()
+                self.assertEqual(outcome.exception.code, 0)
+                lint.assert_called_once_with(ci.outputs({"host"}), system=system)
+
     def test_selects_existing_package_union(self):
         self.assertEqual(ci.lint_packages(set()), [])
         self.assertEqual(ci.lint_packages({"host"}), ["sailry-host"])

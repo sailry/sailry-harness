@@ -75,6 +75,12 @@ LINT_PACKAGES = {
     "host": ("sailry-host",),
     "mobile": ("sailry-mobile-bridge",),
 }
+# Pull requests compile and lint on Linux; these packages have no Linux build in Checks.
+MACOS_LINT = {"sailry-speech", "sailry-content", "sailry-desktop", "sailry-mobile-bridge"}
+# Full selection on pull requests; drafts and other labels defer to the next run.
+FULL_LABEL = "full-ci"
+MODES = {"full", "light", "skip"}
+LIGHT_JOBS = {"light_linux": "linux", "light_macos": "macos"}
 # Fresh-Node suites contend on full-sync storage; higher concurrency exceeds Link receipt deadlines.
 CI_TEST_THREADS = "4"
 # Node is also exercised by Desktop and Mobile's real-Node contract fixtures.
@@ -176,8 +182,50 @@ def select_event(event, event_path, root=ROOT):
         return set(LANES)
 
 
-def lint_packages(selected):
-    return sorted({package for lane in selected for package in LINT_PACKAGES.get(lane, ())})
+def event_mode(event, event_path):
+    """Full, light or skipped coverage for this event."""
+    if event != "pull_request":
+        return "full"
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+        request = payload["pull_request"]
+        labels = {label["name"] for label in request["labels"]}
+        if request["draft"] is True:
+            return "skip"
+        if payload.get("action") == "labeled" and payload["label"]["name"] != FULL_LABEL:
+            return "skip"
+        return "full" if FULL_LABEL in labels else "light"
+    except (OSError, ValueError, KeyError, TypeError):
+        print("Pull request state unavailable; running all checks", file=sys.stderr)
+        return "full"
+
+
+def select_outputs(event, event_path, root=ROOT):
+    mode = event_mode(event, event_path)
+    selected = set() if mode == "skip" else select_event(event, event_path, root)
+    jobs = light_jobs(selected, mode)
+    return {**outputs(selected), "mode": mode, **{name: str(name in jobs).lower() for name in LIGHT_JOBS}}
+
+
+def light_jobs(selected, mode):
+    """Pull request lint jobs; Linux also checks formatting for every Rust change."""
+    if mode != "light" or not lint_packages(selected):
+        return set()
+    return {"light_linux", *(["light_macos"] if lint_packages(selected, "macos") else [])}
+
+
+def lint_packages(selected, system=None):
+    packages = {package for lane in selected for package in LINT_PACKAGES.get(lane, ())}
+    if system == "macos":
+        packages &= MACOS_LINT
+    elif system == "linux":
+        packages -= MACOS_LINT
+    return sorted(packages)
+
+
+def lane_scope(scope):
+    """Lane values from the Source outputs, which also carry the coverage mode."""
+    return {lane: scope.get(lane) for lane in LANES} if isinstance(scope, dict) else scope
 
 
 def package_arguments(packages):
@@ -188,22 +236,30 @@ def package_arguments(packages):
     return arguments
 
 
-def lint_command(selection, jobs):
+def lint_command(selection, jobs, system=None):
     if (not isinstance(selection, dict) or set(selection) != LANES
             or any(value not in {"true", "false"} for value in selection.values())):
         raise ValueError("Missing lint selection")
     if jobs is not None and not re.fullmatch(r"[1-9][0-9]*", jobs):
         raise ValueError("Invalid lint job count")
-    packages = lint_packages({lane for lane in LANES if selection[lane] == "true"})
+    if system not in {None, *LIGHT_JOBS.values()}:
+        raise ValueError("Invalid lint platform")
+    packages = lint_packages({lane for lane in LANES if selection[lane] == "true"}, system)
     if not packages:
+        if system:
+            # Linux also formats; Desktop-only changes have no Linux lint packages.
+            return None
         raise ValueError("No Rust packages selected")
     command = ["cargo", "clippy", "--locked", *package_arguments(packages)]
     command.extend(["--all-targets", *(["--jobs", jobs] if jobs else []), "--", "-D", "warnings"])
     return command
 
 
-def lint(selection, jobs=None):
-    command = lint_command(selection, jobs)
+def lint(selection, jobs=None, system=None):
+    command = lint_command(selection, jobs, system)
+    if command is None:
+        print(f"No {system} lint packages selected")
+        return 0
     environment = parser_environment(ROOT, None, libraries=False)
     return subprocess.run(command, env=environment, check=False).returncode
 
@@ -559,8 +615,9 @@ def native_cache_key(root, target, mode):
 def require_results(results, product=None):
     required = PRODUCTS[product] if product else LANES
     jobs = {name for name, lanes in CHECK_JOBS.items() if lanes & required}
+    light = set() if product else set(LIGHT_JOBS)
     if not isinstance(results, dict) or any(not isinstance(results.get(job), dict)
-                                           for job in {"source", "lint", *jobs}):
+                                           for job in {"source", "lint", *jobs, *light}):
         raise ValueError("Missing check results")
     source = results["source"]
     if source.get("result") != "success":
@@ -568,9 +625,32 @@ def require_results(results, product=None):
     selection = source.get("outputs", {})
     if not isinstance(selection, dict) or any(selection.get(lane) not in ("true", "false") for lane in LANES):
         raise ValueError("Missing check selection")
+    mode = selection.get("mode")
+    if mode not in MODES:
+        raise ValueError("Missing check mode")
+    if product and mode != "full":
+        raise ValueError("Product readiness requires full checks")
     selected = {lane for lane in LANES if selection[lane] == "true"}
     if product and not required <= selected:
         raise ValueError("Product prerequisites were not selected")
+    if mode == "skip" and selected:
+        raise ValueError("Deferred checks selected product lanes")
+
+    def require(name, accepted):
+        result = results[name].get("result")
+        if result not in accepted:
+            raise ValueError(f"{name}: required check did not pass ({result})")
+
+    # Recompute rather than trust the Source outputs that gate these jobs.
+    needed = light_jobs(selected, mode)
+    for name in sorted(light):
+        require(name, {"success"} if name in needed else {"skipped"})
+    if mode != "full":
+        for name in sorted({"lint", *jobs} - {"services"}):
+            require(name, {"skipped"})
+        if "services" in jobs:
+            require("services", {"success"} if "services" in selected else {"success", "skipped"})
+        return mode
     lint = results["lint"].get("result")
     if lint not in ({"success"} if lint_packages(selected) else {"success", "skipped"}):
         raise ValueError("lint: required check did not pass")
@@ -579,6 +659,7 @@ def require_results(results, product=None):
         needed = bool(CHECK_JOBS[name] & selected)
         if result not in ({"success"} if needed or product else {"success", "skipped"}):
             raise ValueError(f"{name}: required check did not pass ({result})")
+    return mode
 
 
 def cache_sources(mode, workspace, home):
@@ -621,7 +702,7 @@ def main():
         raise SystemExit(local(sys.argv[2:]))
     elif len(sys.argv) == 3 and sys.argv[1] == "check":
         try:
-            selection = (json.loads(os.environ.get("CHECK_SCOPE", json.dumps(outputs(LANES))))
+            selection = (lane_scope(json.loads(os.environ.get("CHECK_SCOPE", json.dumps(outputs(LANES)))))
                          if sys.argv[2] in {"lint", "shared", "shared-databases"} else None)
             raise SystemExit(run_check(sys.argv[2], selection=selection))
         except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
@@ -636,15 +717,18 @@ def main():
         print(key)
     elif sys.argv[1:] == ["cache-usage"]:
         cache_usage()
-    elif sys.argv[1:] == ["lint"]:
+    elif sys.argv[1:] == ["lint"] or (len(sys.argv) == 3 and sys.argv[1] == "lint"
+                                       and sys.argv[2] in LIGHT_JOBS.values()):
         try:
-            raise SystemExit(lint(json.loads(os.environ["CHECK_SCOPE"])))
+            system = sys.argv[2] if len(sys.argv) == 3 else None
+            raise SystemExit(lint(lane_scope(json.loads(os.environ["CHECK_SCOPE"])), system=system))
         except (ValueError, KeyError) as error:
             raise SystemExit(str(error)) from error
     elif sys.argv[1:] == ["select"]:
-        selection = outputs(select_event(os.getenv("GITHUB_EVENT_NAME"), os.getenv("GITHUB_EVENT_PATH")))
+        selection = select_outputs(os.getenv("GITHUB_EVENT_NAME"), os.getenv("GITHUB_EVENT_PATH"))
         with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as target:
             target.writelines(f"{key}={value}\n" for key, value in selection.items())
+        print(f"Check mode: {selection['mode']}")
         print("Selected checks: " + ", ".join(lane for lane in sorted(LANES) if selection[lane] == "true"))
     elif len(sys.argv) == 4 and sys.argv[1] in {"speech-key", "native-key"}:
         try:
@@ -662,15 +746,18 @@ def main():
     ):
         try:
             results = json.loads(os.environ["CHECK_RESULTS"])
-            require_results(results, sys.argv[2] if len(sys.argv) == 3 else None)
+            mode = require_results(results, sys.argv[2] if len(sys.argv) == 3 else None)
         except (ValueError, KeyError) as error:
             raise SystemExit(str(error)) from error
         for name, job in results.items():
             print(f"{name}: {job['result']}")
-        print(f"{sys.argv[2].title()} ready" if len(sys.argv) == 3 else "Checks passed")
+        if len(sys.argv) == 3:
+            print(f"{sys.argv[2].title()} ready")
+        else:
+            print("Checks deferred" if mode == "skip" else "Checks passed")
     else:
         raise SystemExit(
-            "Usage: ci.py local [fast|affected] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint|report [desktop|host|mobile]|fixtures <owner>|"
+            "Usage: ci.py local [fast|affected] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint [linux|macos]|report [desktop|host|mobile]|fixtures <owner>|"
             "speech-key|native-key <target> <shared|static>"
         )
 

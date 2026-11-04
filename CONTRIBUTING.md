@@ -215,6 +215,29 @@ manual dispatch reruns it without changing the required coverage. A newer run fo
 the same ref cancels superseded work. Reuse verified results while their relevant
 inputs remain unchanged.
 
+`scripts/ci.py select` chooses the coverage mode from the event:
+
+| Event | Coverage |
+|---|---|
+| Push to `main`, manual dispatch | Full checks for the affected lanes |
+| Pull request with the `full-ci` label | Full checks for the affected lanes |
+| Other ready pull requests | Source, pairing service and light Rust lint |
+| Draft pull request, or another label added | Source only; checks are deferred |
+
+Light lint checks formatting and runs strict `cargo clippy --all-targets` for the
+affected packages without running tests. Packages that Checks already builds on
+Linux use one Ubuntu job; speech, content, Desktop and the mobile bridge use one
+macOS job. Light lint also runs the Host and Mobile source fixtures on Linux and
+the Desktop source fixtures on macOS. It does not lint macOS-only code in packages
+checked on Linux, and it does not establish product readiness. Adding `full-ci`
+starts full checks; other labels do not cancel or repeat the current checks.
+Marking a draft ready for review starts its checks.
+
+A deferred run reports `Checks deferred` rather than `Checks passed`, so the
+required check stays pending instead of passing. A pull request run superseded
+on the same commit reports `Checks passed` as failed rather than skipped; its
+replacement then reports the result.
+
 Native validation runs strict Rust checks, backend local/remote integration,
 Desktop logic and service-contract tests, and production-feature checks on Apple
 silicon with an explicit Xcode SDK. Intel packaging and compilation run in the
@@ -224,7 +247,7 @@ contracts against isolated real Nodes. Android builds an ARM64 release
 APK and checks its native libraries; iOS builds an unsigned application. Both
 mobile builds check the Rust dependency boundary. Actions and toolchains are
 pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
-job to succeed; skipped or cancelled jobs
+job selected by the coverage mode to succeed; skipped or cancelled jobs
 do not establish acceptance. Signed release packaging builds exact version tags;
 Mobile also accepts an explicitly selected, checked main commit.
 
@@ -253,8 +276,8 @@ failures are not retried. Hung tests fail after five 60-second timeout periods.
 Unit tests precede production-feature checks; the lifecycle suite builds its own
 required application executable. JUnit reports remain separate and include
 individual test durations.
-Checks uses four macOS jobs: lint, shared Node with Host lifecycle, Desktop, and
-Mobile with conditional Dart FFI and iOS phases. Node-only changes run Dart FFI
+Full checks use four macOS jobs: lint, shared Node with Host lifecycle, Desktop, and
+Mobile with conditional Dart FFI and iOS phases; light lint uses at most one. Node-only changes run Dart FFI
 contracts without rebuilding iOS.
 Backend and Desktop share downloaded dependency sources, with backend as the
 cache producer; Mobile reuses that source cache. Sccache caches eligible library
