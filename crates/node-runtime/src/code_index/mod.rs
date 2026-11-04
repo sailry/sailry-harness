@@ -309,13 +309,14 @@ impl Service {
                 .observe(self.watches.clone(), self.node, id, stop)
                 .await?;
             let index = worktree.index().await?;
-            let report = if let Ok(mut progress) = worktree.sync.try_lock() {
+            let mut held = worktree.sync.try_lock().ok();
+            let report = if let Some(progress) = held.as_mut() {
                 self.synchronize(
                     &worktree,
                     index,
                     self.resources().await?,
                     stop,
-                    &mut progress,
+                    progress,
                     sync::Limits::default(),
                 )
                 .await?
@@ -326,6 +327,27 @@ impl Service {
             };
             let scoped = report.scoped(query.path.as_deref());
             let mut page = index.search(query, stop).await?;
+            // Watch events carry no paths, so a bounded scan can still return
+            // files changed outside the Agent. Matched files are re-read before
+            // their revisions reach revision-checked line reads.
+            let mut progress = match held {
+                Some(progress) => progress,
+                None => {
+                    tokio::select! {biased; _=stop.cancelled()=>return Err(cancelled()),guard=worktree.sync.lock()=>guard}
+                }
+            };
+            let paths = page
+                .symbols
+                .iter()
+                .map(|symbol| symbol.path.clone())
+                .collect();
+            if self
+                .refresh(&worktree, index, &mut progress, paths, stop)
+                .await?
+            {
+                page = index.search(query, stop).await?;
+            }
+            drop(progress);
             page.visited = report.visited;
             page.skipped = scoped.skipped;
             page.partial |= scoped.partial;

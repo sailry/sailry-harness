@@ -263,6 +263,71 @@ impl Service {
         .map_err(error)?
     }
 
+    /// Re-reads the files named by a result page under the sync lock and
+    /// replaces changed ones, so returned revisions match disk even when a
+    /// path-less watch event has not reached them in the scan cursor.
+    pub(super) async fn refresh(
+        &self,
+        worktree: &Arc<Worktree>,
+        index: &index::Index,
+        progress: &mut Progress,
+        paths: BTreeSet<String>,
+        stop: &CancellationToken,
+    ) -> Result<bool, Fault> {
+        if paths.is_empty() {
+            return Ok(false);
+        }
+        let resources = self.resources().await?;
+        progress.records.load(index).await?;
+        let files = paths
+            .into_iter()
+            .map(|path| {
+                let prior = prior(progress.records.entries.get(&path));
+                (path, prior)
+            })
+            .collect::<Vec<_>>();
+        let names = files
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>();
+        let results = self
+            .read(
+                worktree,
+                open(worktree).await?,
+                files,
+                resources.clone(),
+                stop,
+                Instant::now() + Duration::from_secs(10),
+            )
+            .await?;
+        let mut changes = Vec::new();
+        for (path, result) in names.into_iter().zip(results) {
+            match result {
+                Ok(Some(file)) => changes.push(file),
+                Ok(None) => {}
+                Err(fault)
+                    if matches!(fault.code, ErrorCode::Cancelled | ErrorCode::NotConfigured) =>
+                {
+                    return Err(fault);
+                }
+                // The scan resumes files left by the refresh budget.
+                Err(fault) if fault.code == ErrorCode::Busy => {}
+                Err(_) => changes.push(Parsed::omitted(path, Status::Invalid)),
+            }
+        }
+        let Some(revision) = index
+            .replace(&changes, &resources.fingerprint, stop)
+            .await?
+        else {
+            return Ok(false);
+        };
+        for file in &changes {
+            progress.records.insert(file, &resources.fingerprint);
+        }
+        progress.records.advance(revision);
+        Ok(true)
+    }
+
     pub(super) async fn synchronize(
         &self,
         worktree: &Arc<Worktree>,

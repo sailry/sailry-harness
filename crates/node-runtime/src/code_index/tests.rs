@@ -166,6 +166,49 @@ async fn replaces_native_fts_and_metadata_together() {
     assert_eq!(outline.index_revision, current.index_revision);
 }
 
+#[tokio::test]
+async fn refreshes_matched_files_changed_outside_the_scan() {
+    let fixture = Fixture::new();
+    fixture.write("main.rs", "pub fn shared() {}\n");
+    fixture.search().await;
+    let edited = "pub fn shared() {\n    let _ = 1;\n}\n";
+    // No path-bearing change: the scan cursor has not seen this edit.
+    fixture.write("main.rs", edited);
+    let worktree = fixture
+        .service
+        .worktree(fixture.id, fixture.root.clone())
+        .unwrap();
+    let index = worktree.index().await.unwrap();
+    let query = Search {
+        query: "shared".into(),
+        ..Default::default()
+    };
+    let stop = CancellationToken::new();
+    let current = blake3::hash(edited.as_bytes()).to_hex().to_string();
+    let stale = index.search(&query, &stop).await.unwrap();
+    assert_ne!(stale.symbols[0].file_revision, current);
+    let mut progress = worktree.sync.lock().await;
+    let paths = BTreeSet::from(["main.rs".to_owned()]);
+    assert!(
+        fixture
+            .service
+            .refresh(&worktree, index, &mut progress, paths.clone(), &stop)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !fixture
+            .service
+            .refresh(&worktree, index, &mut progress, paths, &stop)
+            .await
+            .unwrap(),
+        "unchanged files are not replaced again"
+    );
+    drop(progress);
+    let page = index.search(&query, &stop).await.unwrap();
+    assert_eq!(page.symbols[0].file_revision, current);
+}
+
 #[test]
 fn scopes_cancellation_and_catches_early_delivery() {
     let queries = Arc::new(Queries::default());
