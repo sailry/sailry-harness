@@ -81,6 +81,24 @@ pub(in crate::store) async fn command_started(
     else {
         return Ok(None);
     };
+    register(
+        db,
+        request,
+        *turn,
+        description.as_deref().unwrap_or(command),
+        *follow_up,
+    )
+    .await
+}
+
+async fn register(
+    db: &Connection,
+    request: &Request,
+    turn: TurnId,
+    title: &str,
+    follow_up: bool,
+) -> Result<Option<Task>, Fault> {
+    let turn = &turn;
     let id = format!("command:{}", request.id);
     let run = runs::get(db, *turn).await?;
     if let Some(record) = get(db, &id).await? {
@@ -97,10 +115,10 @@ pub(in crate::store) async fn command_started(
         run.session,
         *turn,
         Kind::Command { id: request.id },
-        preview(description.as_deref().unwrap_or(command), 200),
+        preview(title, 200),
         now(),
     );
-    record.follow_up = *follow_up;
+    record.follow_up = follow_up;
     save(db, &mut record).await?;
     Ok(Some(record.task))
 }
@@ -374,11 +392,30 @@ pub(in crate::store) async fn finish_request(
     result: &Result<Output, Fault>,
 ) -> Result<Option<Task>, Fault> {
     let Command::RunCommand {
-        background: true, ..
-    } = request.command
+        turn,
+        command,
+        description,
+        background,
+        ..
+    } = &request.command
     else {
         return Ok(None);
     };
+    if !background {
+        // A long foreground command moved to the background for guidance; its
+        // later completion follows up like an explicit background command.
+        if matches!(result, Ok(Output::CommandStarted(_))) {
+            return register(
+                db,
+                request,
+                *turn,
+                description.as_deref().unwrap_or(command),
+                true,
+            )
+            .await;
+        }
+        return Ok(None);
+    }
     if matches!(result, Ok(Output::CommandStarted(_))) {
         return Ok(None);
     }

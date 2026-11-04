@@ -352,6 +352,68 @@ impl Commands {
         }
     }
 
+    /// Hands a still-running foreground command to the session's background
+    /// commands. The process keeps running under `stop`, now owned by the entry.
+    pub(crate) fn promote(
+        &self,
+        id: RequestId,
+        stop: CancellationToken,
+        task: JoinHandle<()>,
+    ) -> Option<Info> {
+        let info = {
+            let mut entries = self.entries.lock().unwrap();
+            let entry = entries
+                .get_mut(&id)
+                .filter(|entry| entry.info.status == Status::Running)?;
+            entry.background = true;
+            entry.stop = stop;
+            entry.task = Some(task);
+            entry.accessed = std::time::Instant::now();
+            entry.info.clone()
+        };
+        self.changes.send_replace(());
+        Some(info)
+    }
+
+    /// Settles a promoted command and reports it like any background completion.
+    pub(crate) fn complete(
+        &self,
+        id: RequestId,
+        result: Result<&sailry_protocol::process::Completion, &Fault>,
+        closed: &CancellationToken,
+    ) {
+        self.finish(id, result);
+        let watch = {
+            let mut entries = self.entries.lock().unwrap();
+            let Some(entry) = entries.get_mut(&id).filter(|entry| entry.background) else {
+                return;
+            };
+            if let Some((_, _, root, git)) = &entry.watch {
+                git.invalidate(root);
+            }
+            entry.task.take();
+            if !closed.is_cancelled()
+                && let Some(sink) = self.sink.get()
+            {
+                let (stdout, stderr) = entry.output.borrow().clone();
+                let _ = sink.send(Finished {
+                    snapshot: Snapshot {
+                        info: entry.info.clone(),
+                        stdout,
+                        stderr,
+                    },
+                    elapsed_ms: result.ok().map(|completion| completion.elapsed_ms),
+                    explicit: entry.explicit,
+                });
+            }
+            entry.watch.take()
+        };
+        self.changes.send_replace(());
+        if let Some((worktree, code, _, _)) = watch {
+            code.changed(worktree, None);
+        }
+    }
+
     pub(crate) fn retained(
         &self,
         session: SessionId,

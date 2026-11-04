@@ -7,6 +7,15 @@ use serde_json::{Value, json};
 
 const NOTICE: &str = "This command ran in the workspace sandbox: network access is disabled, writes are limited to the worktree and temporary directories, and existing Git metadata and managed child worktrees are protected. macOS also blocks new .git paths. Git writes, including git init, git add and git commit, require access=\"unrestricted\" under the current permission policy. If sandbox restrictions caused the failure, inspect any partial changes before requesting unrestricted access to retry. Unrestricted access does not override operating-system permissions.";
 
+const PROMOTED: &str = "The user sent a new message while this command was running. The command was moved to the background and is still running; use the command read and stop tools with this id to check it. Its completion is reported automatically.";
+
+/// Explains a foreground command that moved to the background for guidance.
+pub(super) fn promoted(output: &Output, value: &mut Value, foreground: bool) {
+    if foreground && matches!(output, Output::CommandStarted(_)) {
+        value["data"]["notice"] = json!(PROMOTED);
+    }
+}
+
 /// Freeze model preview metadata at this tool return, independent of later reads.
 pub(super) async fn retain(
     commands: &crate::process::background::Commands,

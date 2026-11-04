@@ -844,7 +844,10 @@ Controllers have one send action. Input sent while a task runs is durably admitt
 as guidance for that task and joins it at the next model boundary; the current
 model response and tool batch always finish first, and guidance never cancels
 them. Foreground child observation and `wait_agent` yield to pending guidance
-without cancelling the child. Stop is the only interruption. The steer
+without cancelling the child. A foreground command that has run for 30 seconds
+while guidance is pending moves to the session's background commands instead of
+being stopped; its tool call returns the command id and its completion follows up
+like an explicit background command. Stop is the only interruption. The steer
 Operation appends selected user inputs in FIFO order through the same EffectHandler;
 it retains the task and Stop owner and uses the current captured prompt and tool
 owners for the next inference. Each guidance input keeps

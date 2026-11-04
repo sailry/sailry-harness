@@ -146,10 +146,125 @@ pub(super) struct Worker {
     code: Arc<crate::code_index::Service>,
     plugins: crate::plugins::Host,
     git: crate::git::Git,
+    ingress: std::sync::Weak<super::Ingress>,
+}
+
+/// A foreground command running this long moves to the background once the
+/// turn has pending guidance, so the guidance reaches the next model boundary.
+const GUIDANCE_PROMOTION: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Resolves when the turn has guidance waiting for its next boundary.
+async fn guidance(ingress: &std::sync::Weak<super::Ingress>, turn: TurnId) {
+    let Some(notice) = ingress
+        .upgrade()
+        .and_then(|ingress| ingress.agents.guidance_notice(turn))
+    else {
+        return std::future::pending().await;
+    };
+    loop {
+        let notified = notice.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        let pending = match ingress.upgrade() {
+            Some(ingress) => ingress.pending_guidance(turn).await.unwrap_or(false),
+            None => false,
+        };
+        if pending {
+            return;
+        }
+        notified.await;
+    }
+}
+
+/// Runs a foreground command. Without pending guidance it behaves exactly like
+/// a direct execution; once `promotion` resolves (guidance after
+/// `GUIDANCE_PROMOTION`) the process continues as a background command
+/// instead of being stopped.
+#[allow(clippy::too_many_arguments)]
+async fn foreground(
+    launch: Launch,
+    id: RequestId,
+    environment: Arc<Environment>,
+    commands: Arc<process::background::Commands>,
+    retained: Arc<process::output::Retained>,
+    stop: CancellationToken,
+    closed: CancellationToken,
+    promotion: impl std::future::Future<Output = ()>,
+    gate: oneshot::Receiver<()>,
+) -> Result<Output, Fault> {
+    // The process owns its own token so promotion can detach it from the turn.
+    let own = CancellationToken::new();
+    let (done, mut outcome) = oneshot::channel();
+    let (promoted, settle) = oneshot::channel::<()>();
+    let task = {
+        let own = own.clone();
+        let closed = closed.clone();
+        let commands = commands.clone();
+        tokio::spawn(async move {
+            let result = AssertUnwindSafe(process::execute_retained(
+                launch,
+                &environment,
+                &own,
+                &closed,
+                retained,
+            ))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| {
+                Err(Fault::new(
+                    ErrorCode::OutcomeUnknown,
+                    "command execution failed; inspect the target before retrying",
+                ))
+            });
+            match done.send(result) {
+                Ok(()) => {}
+                Err(result) => {
+                    // Promoted: the tool already returned. Report completion only
+                    // after the receipt that registered the background record.
+                    let _ = settle.await;
+                    let _ = gate.await;
+                    commands.complete(id, result.as_ref(), &closed);
+                }
+            }
+        })
+    };
+    let forward = async {
+        stop.cancelled().await;
+        own.cancel();
+        std::future::pending::<()>().await
+    };
+    tokio::select! {
+        biased;
+        result = &mut outcome => return result.unwrap_or_else(|_| Err(Fault::new(
+            ErrorCode::OutcomeUnknown,
+            "command execution failed; inspect the target before retrying",
+        ))).map(Output::CommandResult),
+        _ = forward => unreachable!(),
+        _ = promotion => {}
+    }
+    // Close the race with a completion that arrived while promoting.
+    outcome.close();
+    if let Ok(result) = outcome.try_recv() {
+        return result.map(Output::CommandResult);
+    }
+    match commands.promote(id, own, task) {
+        Some(info) => {
+            let _ = promoted.send(());
+            Ok(Output::CommandStarted(info))
+        }
+        None => Err(Fault::new(
+            ErrorCode::OutcomeUnknown,
+            "command state changed while moving it to the background; inspect it before retrying",
+        )),
+    }
 }
 
 impl Worker {
-    pub fn new(runtime: Handle, completed: mpsc::Sender<Job>, ingress: &super::Ingress) -> Self {
+    pub fn new(
+        runtime: Handle,
+        completed: mpsc::Sender<Job>,
+        ingress: &Arc<super::Ingress>,
+    ) -> Self {
         Self {
             pending: 0,
             code: ingress.code_index.clone(),
@@ -161,6 +276,7 @@ impl Worker {
             closed: ingress.closed.clone(),
             agents: ingress.agents.clone(),
             environment: ingress.environment.clone(),
+            ingress: Arc::downgrade(ingress),
         }
     }
 
@@ -183,6 +299,8 @@ impl Worker {
         let agents = self.agents.clone();
         let plugins = self.plugins.clone();
         let git = self.git.clone();
+        let ingress = self.ingress.clone();
+        let (open, gate) = oneshot::channel();
         self.runtime.spawn(async move {
             let mut execution = execution;
             let root = execution.launch.launch.root.clone();
@@ -243,15 +361,31 @@ impl Worker {
                     turn,
                     &execution.launch.launch,
                 );
-                let result = process::execute_retained(
+                let output = foreground(
                     execution.launch.launch,
-                    &environment,
-                    &stop,
-                    &closed,
+                    execution.request.id,
+                    environment,
+                    commands.clone(),
                     retained,
+                    stop,
+                    closed,
+                    async {
+                        tokio::time::sleep(GUIDANCE_PROMOTION).await;
+                        guidance(&ingress, turn).await;
+                    },
+                    gate,
                 )
                 .await;
-                result.map(Output::CommandResult)
+                if let Ok(Output::CommandStarted(info)) = &output {
+                    commands.watch(
+                        info.id,
+                        execution.launch.worktree,
+                        code,
+                        root.clone(),
+                        git.clone(),
+                    );
+                }
+                output
             };
             let result = AssertUnwindSafe(operation)
                 .catch_unwind()
@@ -262,7 +396,7 @@ impl Worker {
                         "command execution failed; inspect the target before retrying",
                     ))
                 });
-            if !execution.launch.background {
+            if !execution.launch.background && !matches!(result, Ok(Output::CommandStarted(_))) {
                 git.invalidate(&root);
                 match &result {
                     Ok(Output::CommandResult(completion)) => {
@@ -280,6 +414,8 @@ impl Worker {
                     reply: execution.reply,
                 })))
                 .await;
+            // A promoted command reports completion only after this receipt.
+            let _ = open.send(());
         });
         Ok(())
     }

@@ -366,6 +366,13 @@ impl HostOperation {
                 ..
             }
         );
+        let foreground = matches!(
+            request.command,
+            Command::RunCommand {
+                background: false,
+                ..
+            }
+        );
         let command_record = match &request.command {
             Command::RunCommand {
                 background: false, ..
@@ -418,6 +425,7 @@ impl HostOperation {
                 connections::annotate(self, &output, &mut value).await?;
             }
             commands::annotate(&output, &mut value, workspace);
+            commands::promoted(&output, &mut value, foreground);
             if let Some((session, id)) = command_record {
                 commands::retain(&self.ingress.commands, session, id, &output, &mut value).await;
             }

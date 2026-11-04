@@ -121,3 +121,174 @@ async fn resolves_the_admitted_worktree() {
         sailry_protocol::process::Access::Workspace
     );
 }
+
+#[cfg(unix)]
+mod promotion {
+    use super::super::*;
+    use sailry_protocol::process::{Access, Outcome, OutputStream, Status};
+    use std::time::Duration;
+
+    struct Fixture {
+        root: tempfile::TempDir,
+        profile: tempfile::TempDir,
+        commands: Arc<process::background::Commands>,
+        finished: mpsc::UnboundedReceiver<process::background::Finished>,
+        session: SessionId,
+        id: RequestId,
+        stop: CancellationToken,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let commands = Arc::new(process::background::Commands::default());
+            let (sink, finished) = mpsc::unbounded_channel();
+            commands.set_sink(sink);
+            Self {
+                root: tempfile::tempdir().unwrap(),
+                profile: tempfile::tempdir().unwrap(),
+                commands,
+                finished,
+                session: SessionId::new(),
+                id: RequestId::new(),
+                stop: CancellationToken::new(),
+            }
+        }
+
+        async fn run(
+            &self,
+            command: &str,
+            promotion: impl std::future::Future<Output = ()>,
+        ) -> Result<Output, Fault> {
+            let launch = Launch {
+                profile: Some(self.profile.path().to_owned()),
+                root: self.root.path().canonicalize().unwrap(),
+                command: command.into(),
+                access: Access::Workspace,
+                pty: false,
+                cwd: String::new(),
+                timeout_ms: 30_000,
+                inputs: None,
+                scratch: None,
+                python: None,
+            };
+            let retained = self
+                .commands
+                .retain(self.id, self.session, TurnId::new(), &launch);
+            let (open, gate) = oneshot::channel();
+            let _ = open.send(());
+            foreground(
+                launch,
+                self.id,
+                Arc::new(Environment::ambient()),
+                self.commands.clone(),
+                retained,
+                self.stop.clone(),
+                CancellationToken::new(),
+                promotion,
+                gate,
+            )
+            .await
+        }
+    }
+
+    #[tokio::test]
+    async fn completes_without_guidance() {
+        let fixture = Fixture::new();
+        let output = fixture
+            .run("printf ok", std::future::pending())
+            .await
+            .unwrap();
+        let Output::CommandResult(completion) = output else {
+            panic!("foreground command was promoted: {output:?}");
+        };
+        assert_eq!(completion.outcome, Outcome::Exited(0));
+        assert_eq!(completion.stdout.text, "ok");
+        assert!(fixture.commands.list(fixture.session).is_empty());
+    }
+
+    #[tokio::test]
+    async fn stop_before_guidance_cancels() {
+        let fixture = Fixture::new();
+        let stop = fixture.stop.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            stop.cancel();
+        });
+        let output = fixture
+            .run("sleep 30", std::future::pending())
+            .await
+            .unwrap();
+        let Output::CommandResult(completion) = output else {
+            panic!("foreground command was promoted: {output:?}");
+        };
+        assert_eq!(completion.outcome, Outcome::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn promotes_running_command_on_guidance() {
+        let mut fixture = Fixture::new();
+        let output = fixture
+            .run(
+                "printf started; sleep 2; printf done",
+                tokio::time::sleep(Duration::from_millis(500)),
+            )
+            .await
+            .unwrap();
+        let Output::CommandStarted(info) = output else {
+            panic!("command was not promoted: {output:?}");
+        };
+        assert_eq!(info.id, fixture.id);
+        assert_eq!(info.status, Status::Running);
+        let listed = fixture.commands.list(fixture.session);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, fixture.id);
+        // The turn's tool stop no longer owns the promoted process.
+        fixture.stop.cancel();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let page = fixture
+                    .commands
+                    .page(fixture.session, fixture.id, OutputStream::Stdout, 0, 1024)
+                    .unwrap();
+                if page.text == "started" {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("promoted output is not readable");
+        let finished = tokio::time::timeout(Duration::from_secs(10), fixture.finished.recv())
+            .await
+            .expect("promoted completion was not reported")
+            .unwrap();
+        assert_eq!(finished.snapshot.info.id, fixture.id);
+        assert_eq!(
+            finished.snapshot.info.status,
+            Status::Finished(Outcome::Exited(0))
+        );
+        assert_eq!(finished.snapshot.stdout.text, "starteddone");
+        assert!(!finished.explicit);
+        fixture.commands.close().await;
+    }
+
+    #[tokio::test]
+    async fn promoted_command_stops_explicitly() {
+        let mut fixture = Fixture::new();
+        let output = fixture
+            .run("sleep 30", tokio::time::sleep(Duration::from_millis(200)))
+            .await
+            .unwrap();
+        assert!(matches!(output, Output::CommandStarted(_)));
+        fixture.commands.stop(fixture.session, fixture.id).unwrap();
+        let finished = tokio::time::timeout(Duration::from_secs(10), fixture.finished.recv())
+            .await
+            .expect("stopped command did not finish")
+            .unwrap();
+        assert_eq!(
+            finished.snapshot.info.status,
+            Status::Finished(Outcome::Cancelled)
+        );
+        assert!(finished.explicit);
+    }
+}
