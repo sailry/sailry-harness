@@ -1,35 +1,83 @@
 use super::*;
 
 #[test]
-fn compares_platform_baselines() {
-    for version in ["13.3", "13.3.1", "14.0"] {
-        assert!(at_least(version, (13, 3)));
+fn preserves_inference_contracts() {
+    for (scenario, check) in [
+        (
+            "compares_platform_baselines",
+            (|scenario: &'static str| {
+                for version in ["13.3", "13.3.1", "14.0"] {
+                    assert!(at_least(version, (13, 3)), "{scenario}");
+                }
+                for version in ["13.2", "12.7", "invalid", "13"] {
+                    assert!(!at_least(version, (13, 3)), "{scenario}");
+                }
+                assert!(at_least("2.34", (2, 34)), "{scenario}");
+                assert!(!at_least("2.33", (2, 34)), "{scenario}");
+                assert!(!at_least("2.34", (2, 38)), "{scenario}");
+                assert!(at_least("2.38", (2, 38)), "{scenario}");
+                assert!(at_least("2.39", (2, 38)), "{scenario}");
+            }) as fn(&'static str),
+        ),
+        (
+            "rejects_unpinned_manifest_before_loading",
+            (|scenario: &'static str| {
+                let directory = tempfile::tempdir().unwrap();
+                std::fs::write(
+                    directory.path().join("llama-runtime.json"),
+                    serde_json::json!({
+                        "version":1,"target":target().unwrap(),"build":"different","files":[]
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+                assert!(
+                    matches!(verify(directory.path()), Err(Error::Unavailable(_))),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "retains_loader_cause",
+            (|scenario: &'static str| {
+                let directory = tempfile::tempdir().unwrap();
+                let path = directory.path().join("invalid-native-image");
+                std::fs::write(&path, b"invalid native image fixture").unwrap();
+                let error = library(&path).err().unwrap();
+                let Error::Library(loader) = &error else {
+                    panic!("{scenario}: native loader error required");
+                };
+                let source = std::error::Error::source(loader).unwrap().to_string();
+                assert!(!source.is_empty(), "{scenario}");
+                assert!(reason(error).contains(&source), "{scenario}");
+            }),
+        ),
+        (
+            "retries_package_failures",
+            (|scenario: &'static str| {
+                let directory = tempfile::tempdir().unwrap();
+                let cache = Mutex::new(None);
+                let first = cached(&cache, || open(directory.path(), &Mutex::new(None)))
+                    .err()
+                    .unwrap();
+                assert!(matches!(first, Error::Unavailable(_)), "{scenario}");
+                std::fs::write(manifest(directory.path()), b"invalid manifest").unwrap();
+                let mut inspected = false;
+                let second = cached(&cache, || {
+                    inspected = true;
+                    open(directory.path(), &Mutex::new(None))
+                })
+                .err()
+                .unwrap();
+                assert!(inspected, "{scenario}");
+                assert_ne!(second.to_string(), first.to_string(), "{scenario}");
+                assert!(cache.lock().unwrap().is_none(), "{scenario}");
+            }),
+        ),
+    ] {
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-    for version in ["13.2", "12.7", "invalid", "13"] {
-        assert!(!at_least(version, (13, 3)));
-    }
-    assert!(at_least("2.34", (2, 34)));
-    assert!(!at_least("2.33", (2, 34)));
-    assert!(!at_least("2.34", (2, 38)));
-    assert!(at_least("2.38", (2, 38)));
-    assert!(at_least("2.39", (2, 38)));
-}
-
-#[test]
-fn rejects_unpinned_manifest_before_loading() {
-    let directory = tempfile::tempdir().unwrap();
-    std::fs::write(
-        directory.path().join("llama-runtime.json"),
-        serde_json::json!({
-            "version":1,"target":target().unwrap(),"build":"different","files":[]
-        })
-        .to_string(),
-    )
-    .unwrap();
-    assert!(matches!(
-        verify(directory.path()),
-        Err(Error::Unavailable(_))
-    ));
 }
 
 #[cfg(target_os = "macos")]
@@ -86,41 +134,6 @@ fn loads_scored_cpu_backend() {
         }
         .is_null()
     );
-}
-
-#[test]
-fn retains_loader_cause() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("invalid-native-image");
-    std::fs::write(&path, b"invalid native image fixture").unwrap();
-    let error = library(&path).err().unwrap();
-    let Error::Library(loader) = &error else {
-        panic!("native loader error required");
-    };
-    let source = std::error::Error::source(loader).unwrap().to_string();
-    assert!(!source.is_empty());
-    assert!(reason(error).contains(&source));
-}
-
-#[test]
-fn retries_package_failures() {
-    let directory = tempfile::tempdir().unwrap();
-    let cache = Mutex::new(None);
-    let first = cached(&cache, || open(directory.path(), &Mutex::new(None)))
-        .err()
-        .unwrap();
-    assert!(matches!(first, Error::Unavailable(_)));
-    std::fs::write(manifest(directory.path()), b"invalid manifest").unwrap();
-    let mut inspected = false;
-    let second = cached(&cache, || {
-        inspected = true;
-        open(directory.path(), &Mutex::new(None))
-    })
-    .err()
-    .unwrap();
-    assert!(inspected);
-    assert_ne!(second.to_string(), first.to_string());
-    assert!(cache.lock().unwrap().is_none());
 }
 
 #[test]

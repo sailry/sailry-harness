@@ -3,73 +3,304 @@ use crate::tool::Display;
 use serde_json::json;
 
 #[test]
-fn declared_json_preserves_business_values() {
-    let package: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../plugins/wecom/plugin.json"
-    )))
-    .unwrap();
-    let display: Display = serde_json::from_value(
-        package["extensions"]["dev.sailry.platform"]["tools"][0]["display"].clone(),
-    )
-    .unwrap();
-    assert!(display.valid());
-    let preview = display.output.unwrap().preview.unwrap();
-    for data in [
-        json!({"id":"business-id","node":[119,14,79],"text":"字面 内容 🙂\n"}),
-        json!([1, "two", null]),
-        json!("text"),
-        json!(12),
-        json!(true),
-        Value::Null,
+fn preserves_wire_and_validation() {
+    for (scenario, check) in [
+        (
+            "declared_json_preserves_business_values",
+            (|scenario: &'static str| {
+                let package: Value = serde_json::from_str(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../plugins/wecom/plugin.json"
+                )))
+                .unwrap();
+                let display: Display = serde_json::from_value(
+                    package["extensions"]["dev.sailry.platform"]["tools"][0]["display"].clone(),
+                )
+                .unwrap();
+                assert!(display.valid(), "{scenario}");
+                let preview = display.output.unwrap().preview.unwrap();
+                for data in [
+                    json!({"id":"business-id","node":[119,14,79],"text":"字面 内容 🙂\n"}),
+                    json!([1, "two", null]),
+                    json!("text"),
+                    json!(12),
+                    json!(true),
+                    Value::Null,
+                ] {
+                    let result = json!({"data":data,"untrusted":true});
+                    let original = result.clone();
+                    for action in ["discover", "describe"] {
+                        assert!(
+                            !preview.visible(&json!({"action":action}), &result),
+                            "{scenario}"
+                        );
+                        assert!(
+                            preview
+                                .render(&json!({"action":action}), &result)
+                                .is_empty(),
+                            "{scenario}"
+                        );
+                    }
+                    let args = json!({"action":"invoke"});
+                    assert!(preview.deferred(), "{scenario}");
+                    assert!(preview.visible(&args, &result), "{scenario}");
+                    assert_eq!(
+                        serde_json::from_str::<Value>(&preview.render(&args, &result)).unwrap(),
+                        data,
+                        "{scenario}"
+                    );
+                    assert_eq!(result, original, "{scenario}");
+                }
+                let plain: Output = serde_json::from_value(
+                    json!({"preview":{"parts":[{"value":{"source":"result","path":"/data"}}]}}),
+                )
+                .unwrap();
+                assert!(
+                    !plain
+                        .preview
+                        .as_ref()
+                        .unwrap()
+                        .visible(&Value::Null, &json!({"data":{"id":"kept"}})),
+                    "{scenario}"
+                );
+                assert!(
+                    plain
+                        .preview
+                        .unwrap()
+                        .render(&Value::Null, &json!({"data":{"id":"kept"}}))
+                        .is_empty(),
+                    "{scenario}"
+                );
+            }) as fn(&'static str),
+        ),
+        (
+            "json_format_requires_a_value_selector",
+            (|scenario: &'static str| {
+                for part in [
+                    json!({"text":"text","format":"json"}),
+                    json!({"value":{"source":"result","path":"/data"},"format":"unsupported"}),
+                ] {
+                    let output =
+                        serde_json::from_value::<Output>(json!({"preview":{"parts":[part]}}));
+                    assert!(output.is_err() || !output.unwrap().valid(), "{scenario}");
+                }
+            }),
+        ),
+        (
+            "reads_original_large_output_and_joined_rows",
+            (|scenario: &'static str| {
+                let text = "Literal <script> **text** 完整内容 🙂\n".repeat(16_000);
+                let result = json!({"kind":"office_content","data":{"sections":[{"text":text},{"text":"last"}]}});
+                let original = result.clone();
+                let projection = display("read_office").output.unwrap();
+                assert_eq!(
+                    projection.preview.unwrap().render(&Value::Null, &result),
+                    format!("{text}\n\nlast"),
+                    "{scenario}"
+                );
+                assert_eq!(result, original, "{scenario}");
+                for (name, result, expected) in [
+                    (
+                        "list_directory",
+                        json!({"data":{"entries":[{"name":"目录","kind":"directory"},{"name":"file.txt","kind":"file"}],"truncated":false,"unsupported_names":0}}),
+                        "目录/\nfile.txt",
+                    ),
+                    (
+                        "search_files",
+                        json!({"data":{"matches":[{"path":"目录/a.txt","line_number":42,"line":"  match\t"}]}}),
+                        "目录/a.txt:42    match\t",
+                    ),
+                ] {
+                    let projection = display(name).output.unwrap();
+                    assert_eq!(
+                        projection.preview.unwrap().render(&Value::Null, &result),
+                        expected,
+                        "{scenario}: {name}"
+                    );
+                }
+            }),
+        ),
+        (
+            "preserves_partial_notices_and_literal_inputs",
+            (|scenario: &'static str| {
+                let search = display("search_files").output.unwrap();
+                let result = json!({"data":{"matches":[{"path":"one"},{"path":"one"},{"path":"two"}],"truncated":true,"skipped":1}});
+                assert_eq!(
+                    search.notices(&Value::Null, &result, "zh-CN"),
+                    ["仅显示部分结果"],
+                    "{scenario}"
+                );
+                assert_eq!(
+                    search.paths.unwrap().read(&Value::Null, &result),
+                    ["one", "one", "two"],
+                    "{scenario}"
+                );
+                let read = display("read_file").output.unwrap();
+                for (offset, next_offset, partial) in [
+                    (0, None, false),
+                    (0, Some(1), true),
+                    (2, Some(3), true),
+                    (2, None, true),
+                ] {
+                    let line = "\t<literal> 中文\r\n";
+                    let result = serde_json::to_value(crate::Output::FileLines(crate::FileLines {
+                        path: "file.txt".into(),
+                        lines: vec![crate::FileLine {
+                            number: offset + 1,
+                            text: line.into(),
+                        }],
+                        size: ((offset + 1 + usize::from(next_offset.is_some())) * line.len())
+                            as u64,
+                        revision: "a".repeat(64),
+                        offset,
+                        next_offset,
+                    }))
+                    .unwrap();
+                    assert_eq!(
+                        read.notices(&Value::Null, &result, "en"),
+                        if partial {
+                            vec!["Partial results".to_owned()]
+                        } else {
+                            Vec::new()
+                        },
+                        "{scenario}: offset={offset}, next_offset={next_offset:?}",
+                    );
+                    assert_eq!(
+                        read.preview.as_ref().unwrap().render(&Value::Null, &result),
+                        format!("{}: {line}", offset + 1),
+                        "{scenario}"
+                    );
+                }
+                let args =
+                    json!({"path":"file.txt","text":"\t<literal>\n","expected_revision":null});
+                let body = display("write_file").output.unwrap().body.unwrap();
+                assert_eq!(
+                    body.text.read(&args, &Value::Null).unwrap(),
+                    "\t<literal>\n",
+                    "{scenario}"
+                );
+                let diff = body.diff.unwrap();
+                assert_eq!(diff.format, Format::Checkpoint, "{scenario}");
+                assert!(diff.when.is_none(), "{scenario}");
+            }),
+        ),
+        (
+            "missing_condition_values_compare_as_null",
+            (|scenario: &'static str| {
+                let condition: Condition = serde_json::from_value(json!({"any":[{
+                    "value":{"source":"arguments","path":"/expected_revision"},"equals":null
+                }]}))
+                .unwrap();
+                assert!(
+                    condition.matches(&json!({"expected_revision":null}), &Value::Null),
+                    "{scenario}"
+                );
+                assert!(
+                    condition.matches(&json!({"text":"new"}), &Value::Null),
+                    "{scenario}"
+                );
+                assert!(
+                    !condition.matches(&json!({"expected_revision":"current"}), &Value::Null),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "prompts_interpolate_once_and_use_captured_arguments",
+            (|scenario: &'static str| {
+                let display = display("write_file");
+                for (revision, expected) in [
+                    (Value::Null, "创建 目录/%{path}.pdf"),
+                    (json!("current"), "覆盖 目录/%{path}.pdf"),
+                ] {
+                    let args = json!({"path":"目录/%{path}.pdf","expected_revision":revision});
+                    assert_eq!(
+                        display
+                            .approval
+                            .iter()
+                            .find_map(|prompt| prompt.render(&args, "zh-CN"))
+                            .unwrap(),
+                        expected,
+                        "{scenario}"
+                    );
+                }
+            }),
+        ),
+        (
+            "rejects_ambiguous_and_nested_projection_recipes",
+            (|scenario: &'static str| {
+                for value in [
+                    json!({"preview":{"parts":[{"text":"x","value":{"source":"result","path":"/text"}}]}}),
+                    json!({"preview":{"parts":[{"value":{"source":"item","path":""}}]}}),
+                    json!({"preview":{"parts":[{"value":{"source":"result","path":"/bad~2"}}]}}),
+                    json!({"notices":[{"message":{"label":"notice"},"when":{"any":[]}}]}),
+                    json!({"preview":{"parts":[{"rows":{"value":{"source":"result","path":"/rows"},"separator":"\n","text":{"parts":[{"rows":{"value":{"source":"item","path":"/nested"},"separator":"\n","text":{"parts":[{"text":"x"}]}}}]}}}]}}),
+                ] {
+                    let projection: Output = serde_json::from_value(value).unwrap();
+                    assert!(!projection.valid(), "{scenario}");
+                }
+                let prompt: Prompt = serde_json::from_value(
+                json!({"message":{"label":"%{path}"},"values":{"path":{"source":"result","path":"/path"}}}),
+            )
+            .unwrap();
+                assert!(
+                    !prompt.valid(),
+                    "{scenario}: approval prompts cannot depend on later results"
+                );
+            }),
+        ),
+        (
+            "renders_status_columns_and_bounded_commits",
+            (|scenario: &'static str| {
+                let package: Value = serde_json::from_str(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../plugins/git/plugin.json"
+                )))
+                .unwrap();
+                let tools = package["extensions"]["dev.sailry.platform"]["tools"]
+                    .as_array()
+                    .unwrap();
+                let projection = |name| {
+                    let display: Display = serde_json::from_value(
+                        tools.iter().find(|tool| tool["name"] == name).unwrap()["display"].clone(),
+                    )
+                    .unwrap();
+                    assert!(display.valid(), "{scenario}");
+                    display.output.unwrap()
+                };
+                let result = json!({"data":{"entries":[
+                {"path":"conflict","conflicted":true,"untracked":false,"staged":"modified","unstaged":"deleted"},
+                {"path":"new","conflicted":false,"untracked":true,"staged":null,"unstaged":null},
+                {"path":"资料.txt","conflicted":false,"untracked":false,"staged":"added","unstaged":"modified"},
+                {"path":"gone","conflicted":false,"untracked":false,"staged":null,"unstaged":"deleted"}
+            ],"truncated":false,"omitted_paths":0}});
+                assert_eq!(
+                    projection("git_status")
+                        .preview
+                        .unwrap()
+                        .render(&Value::Null, &result),
+                    "UU  conflict\n??  new\nAM  资料.txt\n D  gone",
+                    "{scenario}"
+                );
+                let log = json!({"data":{"entries":[{"id":"0123456789abcdef","author":"Author","message":"literal\nmessage","truncated":true}],"truncated":false,"references_truncated":false}});
+                let output = projection("git_log");
+                assert_eq!(
+                    output.preview.as_ref().unwrap().render(&Value::Null, &log),
+                    "0123456789ab  Author\nliteral\nmessage",
+                    "{scenario}"
+                );
+                assert_eq!(
+                    output.notices(&Value::Null, &log, "en"),
+                    ["Partial results"],
+                    "{scenario}"
+                );
+                let prompt: Prompt = serde_json::from_value(json!({"message":{"label":"prompt"},"when":{"all":[{"value":{"source":"result","path":"/value"},"equals":true}]}})).unwrap();
+                assert!(!prompt.valid(), "{scenario}");
+            }),
+        ),
     ] {
-        let result = json!({"data":data,"untrusted":true});
-        let original = result.clone();
-        for action in ["discover", "describe"] {
-            assert!(!preview.visible(&json!({"action":action}), &result));
-            assert!(
-                preview
-                    .render(&json!({"action":action}), &result)
-                    .is_empty()
-            );
-        }
-        let args = json!({"action":"invoke"});
-        assert!(preview.deferred());
-        assert!(preview.visible(&args, &result));
-        assert_eq!(
-            serde_json::from_str::<Value>(&preview.render(&args, &result)).unwrap(),
-            data
-        );
-        assert_eq!(result, original);
-    }
-    let plain: Output = serde_json::from_value(
-        json!({"preview":{"parts":[{"value":{"source":"result","path":"/data"}}]}}),
-    )
-    .unwrap();
-    assert!(
-        !plain
-            .preview
-            .as_ref()
-            .unwrap()
-            .visible(&Value::Null, &json!({"data":{"id":"kept"}}))
-    );
-    assert!(
-        plain
-            .preview
-            .unwrap()
-            .render(&Value::Null, &json!({"data":{"id":"kept"}}))
-            .is_empty()
-    );
-}
-
-#[test]
-fn json_format_requires_a_value_selector() {
-    for part in [
-        json!({"text":"text","format":"json"}),
-        json!({"value":{"source":"result","path":"/data"},"format":"unsupported"}),
-    ] {
-        let output = serde_json::from_value::<Output>(json!({"preview":{"parts":[part]}}));
-        assert!(output.is_err() || !output.unwrap().valid());
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }
 
@@ -86,191 +317,4 @@ fn display(name: &str) -> Display {
     let display: Display = serde_json::from_value(value).unwrap();
     assert!(display.valid(), "{name}");
     display
-}
-
-#[test]
-fn reads_original_large_output_and_joined_rows() {
-    let text = "Literal <script> **text** 完整内容 🙂\n".repeat(16_000);
-    let result =
-        json!({"kind":"office_content","data":{"sections":[{"text":text},{"text":"last"}]}});
-    let original = result.clone();
-    let projection = display("read_office").output.unwrap();
-    assert_eq!(
-        projection.preview.unwrap().render(&Value::Null, &result),
-        format!("{text}\n\nlast")
-    );
-    assert_eq!(result, original);
-    for (name, result, expected) in [
-        (
-            "list_directory",
-            json!({"data":{"entries":[{"name":"目录","kind":"directory"},{"name":"file.txt","kind":"file"}],"truncated":false,"unsupported_names":0}}),
-            "目录/\nfile.txt",
-        ),
-        (
-            "search_files",
-            json!({"data":{"matches":[{"path":"目录/a.txt","line_number":42,"line":"  match\t"}]}}),
-            "目录/a.txt:42    match\t",
-        ),
-    ] {
-        let projection = display(name).output.unwrap();
-        assert_eq!(
-            projection.preview.unwrap().render(&Value::Null, &result),
-            expected,
-            "{name}"
-        );
-    }
-}
-
-#[test]
-fn preserves_partial_notices_and_literal_inputs() {
-    let search = display("search_files").output.unwrap();
-    let result = json!({"data":{"matches":[{"path":"one"},{"path":"one"},{"path":"two"}],"truncated":true,"skipped":1}});
-    assert_eq!(
-        search.notices(&Value::Null, &result, "zh-CN"),
-        ["仅显示部分结果"]
-    );
-    assert_eq!(
-        search.paths.unwrap().read(&Value::Null, &result),
-        ["one", "one", "two"]
-    );
-    let read = display("read_file").output.unwrap();
-    for (offset, next_offset, partial) in [
-        (0, None, false),
-        (0, Some(1), true),
-        (2, Some(3), true),
-        (2, None, true),
-    ] {
-        let line = "\t<literal> 中文\r\n";
-        let result = serde_json::to_value(crate::Output::FileLines(crate::FileLines {
-            path: "file.txt".into(),
-            lines: vec![crate::FileLine {
-                number: offset + 1,
-                text: line.into(),
-            }],
-            size: ((offset + 1 + usize::from(next_offset.is_some())) * line.len()) as u64,
-            revision: "a".repeat(64),
-            offset,
-            next_offset,
-        }))
-        .unwrap();
-        assert_eq!(
-            read.notices(&Value::Null, &result, "en"),
-            if partial {
-                vec!["Partial results".to_owned()]
-            } else {
-                Vec::new()
-            },
-            "offset={offset}, next_offset={next_offset:?}",
-        );
-        assert_eq!(
-            read.preview.as_ref().unwrap().render(&Value::Null, &result),
-            format!("{}: {line}", offset + 1),
-        );
-    }
-    let args = json!({"path":"file.txt","text":"\t<literal>\n","expected_revision":null});
-    let body = display("write_file").output.unwrap().body.unwrap();
-    assert_eq!(
-        body.text.read(&args, &Value::Null).unwrap(),
-        "\t<literal>\n"
-    );
-    let diff = body.diff.unwrap();
-    assert_eq!(diff.format, Format::Checkpoint);
-    assert!(diff.when.is_none());
-}
-
-#[test]
-fn missing_condition_values_compare_as_null() {
-    let condition: Condition = serde_json::from_value(json!({"any":[{
-        "value":{"source":"arguments","path":"/expected_revision"},"equals":null
-    }]}))
-    .unwrap();
-    assert!(condition.matches(&json!({"expected_revision":null}), &Value::Null));
-    assert!(condition.matches(&json!({"text":"new"}), &Value::Null));
-    assert!(!condition.matches(&json!({"expected_revision":"current"}), &Value::Null));
-}
-
-#[test]
-fn prompts_interpolate_once_and_use_captured_arguments() {
-    let display = display("write_file");
-    for (revision, expected) in [
-        (Value::Null, "创建 目录/%{path}.pdf"),
-        (json!("current"), "覆盖 目录/%{path}.pdf"),
-    ] {
-        let args = json!({"path":"目录/%{path}.pdf","expected_revision":revision});
-        assert_eq!(
-            display
-                .approval
-                .iter()
-                .find_map(|prompt| prompt.render(&args, "zh-CN"))
-                .unwrap(),
-            expected
-        );
-    }
-}
-
-#[test]
-fn rejects_ambiguous_and_nested_projection_recipes() {
-    for value in [
-        json!({"preview":{"parts":[{"text":"x","value":{"source":"result","path":"/text"}}]}}),
-        json!({"preview":{"parts":[{"value":{"source":"item","path":""}}]}}),
-        json!({"preview":{"parts":[{"value":{"source":"result","path":"/bad~2"}}]}}),
-        json!({"notices":[{"message":{"label":"notice"},"when":{"any":[]}}]}),
-        json!({"preview":{"parts":[{"rows":{"value":{"source":"result","path":"/rows"},"separator":"\n","text":{"parts":[{"rows":{"value":{"source":"item","path":"/nested"},"separator":"\n","text":{"parts":[{"text":"x"}]}}}]}}}]}}),
-    ] {
-        let projection: Output = serde_json::from_value(value).unwrap();
-        assert!(!projection.valid());
-    }
-    let prompt: Prompt = serde_json::from_value(
-        json!({"message":{"label":"%{path}"},"values":{"path":{"source":"result","path":"/path"}}}),
-    )
-    .unwrap();
-    assert!(
-        !prompt.valid(),
-        "approval prompts cannot depend on later results"
-    );
-}
-
-#[test]
-fn renders_status_columns_and_bounded_commits() {
-    let package: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../plugins/git/plugin.json"
-    )))
-    .unwrap();
-    let tools = package["extensions"]["dev.sailry.platform"]["tools"]
-        .as_array()
-        .unwrap();
-    let projection = |name| {
-        let display: Display = serde_json::from_value(
-            tools.iter().find(|tool| tool["name"] == name).unwrap()["display"].clone(),
-        )
-        .unwrap();
-        assert!(display.valid());
-        display.output.unwrap()
-    };
-    let result = json!({"data":{"entries":[
-        {"path":"conflict","conflicted":true,"untracked":false,"staged":"modified","unstaged":"deleted"},
-        {"path":"new","conflicted":false,"untracked":true,"staged":null,"unstaged":null},
-        {"path":"资料.txt","conflicted":false,"untracked":false,"staged":"added","unstaged":"modified"},
-        {"path":"gone","conflicted":false,"untracked":false,"staged":null,"unstaged":"deleted"}
-    ],"truncated":false,"omitted_paths":0}});
-    assert_eq!(
-        projection("git_status")
-            .preview
-            .unwrap()
-            .render(&Value::Null, &result),
-        "UU  conflict\n??  new\nAM  资料.txt\n D  gone"
-    );
-    let log = json!({"data":{"entries":[{"id":"0123456789abcdef","author":"Author","message":"literal\nmessage","truncated":true}],"truncated":false,"references_truncated":false}});
-    let output = projection("git_log");
-    assert_eq!(
-        output.preview.as_ref().unwrap().render(&Value::Null, &log),
-        "0123456789ab  Author\nliteral\nmessage"
-    );
-    assert_eq!(
-        output.notices(&Value::Null, &log, "en"),
-        ["Partial results"]
-    );
-    let prompt: Prompt = serde_json::from_value(json!({"message":{"label":"prompt"},"when":{"all":[{"value":{"source":"result","path":"/value"},"equals":true}]}})).unwrap();
-    assert!(!prompt.valid());
 }

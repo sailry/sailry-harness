@@ -224,64 +224,79 @@ mod configuration {
     }
 
     #[test]
-    fn ignores_unknown_fields() {
-        let mut body = value();
-        let expected: SessionConfig = serde_json::from_value(body.clone()).unwrap();
-        body["unused"] = json!({"nested": [1, 2, 3]});
-        assert_eq!(
-            serde_json::from_value::<SessionConfig>(body).unwrap(),
-            expected
-        );
-    }
-
-    #[test]
-    fn defaults_only_optional_choices() {
-        let config: SessionConfig = serde_json::from_value(value()).unwrap();
-        assert_eq!(config.effort, Effort::Default);
-        assert!(config.options.is_empty());
-        assert!(config.assistant.is_none());
-        assert!(config.resource.is_none());
-        assert!(config.credential.is_none());
-    }
-
-    #[test]
-    fn preserves_package_options() {
-        let mut body = value();
-        body["options"] = json!({"example":{"enabled":true}});
-        let config: SessionConfig = serde_json::from_value(body).unwrap();
-        assert_eq!(config.options["example"]["enabled"], json!(true));
-        let copied: SessionConfig =
-            serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
-        assert_eq!(copied, config);
-    }
-
-    #[test]
-    fn requires_execution_choices() {
-        for field in ["provider", "model", "mode", "permission"] {
-            let mut body = value();
-            body.as_object_mut().unwrap().remove(field);
-            assert!(
-                serde_json::from_value::<SessionConfig>(body).is_err(),
-                "accepted missing {field}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_malformed_choices() {
-        for (field, invalid) in [
-            ("provider", json!("invalid")),
-            ("model", json!(0)),
-            ("effort", json!("automatic")),
-            ("mode", json!("automatic")),
-            ("permission", json!("automatic")),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "ignores_unknown_fields",
+                (|scenario: &'static str| {
+                    let mut body = value();
+                    let expected: SessionConfig = serde_json::from_value(body.clone()).unwrap();
+                    body["unused"] = json!({"nested": [1, 2, 3]});
+                    assert_eq!(
+                        serde_json::from_value::<SessionConfig>(body).unwrap(),
+                        expected,
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "defaults_only_optional_choices",
+                (|scenario: &'static str| {
+                    let config: SessionConfig = serde_json::from_value(value()).unwrap();
+                    assert_eq!(config.effort, Effort::Default, "{scenario}");
+                    assert!(config.options.is_empty(), "{scenario}");
+                    assert!(config.assistant.is_none(), "{scenario}");
+                    assert!(config.resource.is_none(), "{scenario}");
+                    assert!(config.credential.is_none(), "{scenario}");
+                }),
+            ),
+            (
+                "preserves_package_options",
+                (|scenario: &'static str| {
+                    let mut body = value();
+                    body["options"] = json!({"example":{"enabled":true}});
+                    let config: SessionConfig = serde_json::from_value(body).unwrap();
+                    assert_eq!(
+                        config.options["example"]["enabled"],
+                        json!(true),
+                        "{scenario}"
+                    );
+                    let copied: SessionConfig =
+                        serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+                    assert_eq!(copied, config, "{scenario}");
+                }),
+            ),
+            (
+                "rejects_missing_or_malformed_choices",
+                (|scenario: &'static str| {
+                    let mut cases = Vec::new();
+                    for field in ["provider", "model", "mode", "permission"] {
+                        let mut body = value();
+                        body.as_object_mut().unwrap().remove(field);
+                        cases.push((format!("missing {field}"), body));
+                    }
+                    for (field, invalid) in [
+                        ("provider", json!("invalid")),
+                        ("model", json!(0)),
+                        ("effort", json!("automatic")),
+                        ("mode", json!("automatic")),
+                        ("permission", json!("automatic")),
+                    ] {
+                        let mut body = value();
+                        body[field] = invalid;
+                        cases.push((format!("malformed {field}"), body));
+                    }
+                    for (case, body) in cases {
+                        assert!(
+                            serde_json::from_value::<SessionConfig>(body).is_err(),
+                            "{scenario}: {case}"
+                        );
+                    }
+                }),
+            ),
         ] {
-            let mut body = value();
-            body[field] = invalid;
-            assert!(
-                serde_json::from_value::<SessionConfig>(body).is_err(),
-                "accepted malformed {field}"
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

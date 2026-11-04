@@ -572,113 +572,120 @@ mod tests {
     use crate::markdown::{doc::MarkSpan, with_ranges};
 
     #[test]
-    fn preserves_formula_content_and_literal_dollars() {
-        for source in [
-            "**Equation** $\\frac{x}{2}$ and $y$",
-            "$$\n\\sum_{i=1}^{n} i\n$$",
-            "Escaped \\$x\\$ remains text",
+    fn preserves_document_behavior() {
+        for (scenario, check) in [
+            (
+                "round_trips_source_meaning",
+                (|scenario: &'static str| {
+                    for (case, source, exact) in [
+                        (
+                            "inline formula",
+                            "**Equation** $\\frac{x}{2}$ and $y$",
+                            false,
+                        ),
+                        ("block formula", "$$\n\\sum_{i=1}^{n} i\n$$", false),
+                        ("literal dollars", "Escaped \\$x\\$ remains text", false),
+                        (
+                            "HTML marks",
+                            "Press <kbd>Ctrl</kbd> and H<sub>2</sub>O x<sup>2</sup> <mark>hot</mark> <u>under</u> <span style=\"color: #c00\">red</span>",
+                            true,
+                        ),
+                        (
+                            "HTML block",
+                            "<div align=\"center\">\n  <b>Hi</b>\n</div>",
+                            true,
+                        ),
+                        (
+                            "mixed markup",
+                            "Plain **bold _nested_** and [linked text](<notes/My File.md>) plus `code`",
+                            false,
+                        ),
+                    ] {
+                        let original = with_ranges(source).doc;
+                        let serialized = original
+                            .blocks
+                            .iter()
+                            .map(block)
+                            .collect::<Vec<_>>()
+                            .join("\n\n");
+                        if exact {
+                            assert_eq!(serialized, source, "{scenario}: {case}: spelling");
+                        }
+                        assert_eq!(
+                            with_ranges(&serialized).doc,
+                            original,
+                            "{scenario}: {case}: meaning"
+                        );
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "round_trips_literal_blocks",
+                (|scenario: &'static str| {
+                    for (case, value) in [
+                        (
+                            "block markers",
+                            Block::new(BlockKind::Paragraph(Text::plain(
+                                "# title\n> quote\n1. item\n+ item\n---\nname_value and &amp; <tag>",
+                            ))),
+                        ),
+                        (
+                            "embedded fences",
+                            Block::new(BlockKind::Code {
+                                language: Some("rust".into()),
+                                code: Text::plain("let ticks = \"```\";\n\n"),
+                            }),
+                        ),
+                        (
+                            "table alignment",
+                            Block::new(BlockKind::Table {
+                                align: vec![Align::Left, Align::Right],
+                                header: vec![Text::plain("Name"), Text::plain("Value")],
+                                rows: vec![vec![Text::plain("left|right"), Text::plain("中文")]],
+                            }),
+                        ),
+                    ] {
+                        assert_eq!(
+                            with_ranges(&block(&value)).doc.blocks,
+                            vec![value],
+                            "{scenario}: {case}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "round_trips_inline_spans",
+                (|scenario: &'static str| {
+                    for (case, source, mark) in [
+                        ("code ticks", "`tick`", Mark::Code),
+                        ("code padding", "  padded  ", Mark::Code),
+                        ("code space", " ", Mark::Code),
+                        (
+                            "link edge spaces",
+                            "  linked text  ",
+                            Mark::Link("notes.md".into()),
+                        ),
+                    ] {
+                        let value = Text {
+                            text: source.into(),
+                            marks: vec![MarkSpan {
+                                range: 0..source.len(),
+                                mark,
+                            }],
+                        };
+                        let spelled = text(&value);
+                        let parsed = with_ranges(&spelled).doc;
+                        assert_eq!(
+                            parsed.blocks[0].text_at(crate::markdown::Part::Body),
+                            Some(&value),
+                            "{scenario}: {case}: {spelled:?}"
+                        );
+                    }
+                }),
+            ),
         ] {
-            let original = with_ranges(source).doc;
-            let serialized = original
-                .blocks
-                .iter()
-                .map(block)
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            assert_eq!(with_ranges(&serialized).doc, original, "{source}");
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn spells_html_marks_and_blocks() {
-        for source in [
-            "Press <kbd>Ctrl</kbd> and H<sub>2</sub>O x<sup>2</sup> <mark>hot</mark> <u>under</u> <span style=\"color: #c00\">red</span>",
-            "<div align=\"center\">\n  <b>Hi</b>\n</div>",
-        ] {
-            let original = with_ranges(source).doc;
-            let serialized = original
-                .blocks
-                .iter()
-                .map(block)
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            assert_eq!(serialized, source);
-            assert_eq!(with_ranges(&serialized).doc, original, "{source}");
-        }
-    }
-
-    #[test]
-    fn preserves_mixed_inline_meaning() {
-        let original = with_ranges(
-            "Plain **bold _nested_** and [linked text](<notes/My File.md>) plus `code`",
-        )
-        .doc;
-        let source = block(&original.blocks[0]);
-        assert_eq!(with_ranges(&source).doc, original);
-    }
-
-    #[test]
-    fn protects_literal_block_markers() {
-        let value = Block::new(BlockKind::Paragraph(Text::plain(
-            "# title\n> quote\n1. item\n+ item\n---\nname_value and &amp; <tag>",
-        )));
-        let result = with_ranges(&block(&value)).doc;
-        assert_eq!(result.blocks, vec![value]);
-    }
-
-    #[test]
-    fn keeps_code_with_embedded_fences() {
-        let value = Block::new(BlockKind::Code {
-            language: Some("rust".into()),
-            code: Text::plain("let ticks = \"```\";\n\n"),
-        });
-        assert_eq!(with_ranges(&block(&value)).doc.blocks, vec![value]);
-    }
-
-    #[test]
-    fn preserves_inline_code() {
-        for source in ["`tick`", "  padded  ", " "] {
-            let value = Text {
-                text: source.into(),
-                marks: vec![MarkSpan {
-                    range: 0..source.len(),
-                    mark: Mark::Code,
-                }],
-            };
-            let spelled = text(&value);
-            let parsed = with_ranges(&spelled).doc;
-            assert_eq!(
-                parsed.blocks[0].text_at(crate::markdown::Part::Body),
-                Some(&value),
-                "{spelled:?}",
-            );
-        }
-    }
-
-    #[test]
-    fn keeps_table_cells_and_alignment() {
-        let value = Block::new(BlockKind::Table {
-            align: vec![Align::Left, Align::Right],
-            header: vec![Text::plain("Name"), Text::plain("Value")],
-            rows: vec![vec![Text::plain("left|right"), Text::plain("中文")]],
-        });
-        assert_eq!(with_ranges(&block(&value)).doc.blocks, vec![value]);
-    }
-
-    #[test]
-    fn keeps_link_label_edge_spaces() {
-        let label = "  linked text  ";
-        let value = Text {
-            text: label.into(),
-            marks: vec![MarkSpan {
-                range: 0..label.len(),
-                mark: Mark::Link("notes.md".into()),
-            }],
-        };
-        let parsed = with_ranges(&text(&value)).doc;
-        assert_eq!(
-            parsed.blocks[0].text_at(crate::markdown::Part::Body),
-            Some(&value),
-        );
     }
 }

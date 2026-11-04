@@ -142,51 +142,79 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bounds() {
-        let mut declaration = Declaration {
-            id: "assistant".into(),
-            resource: Resource::Plugin,
-            tools: vec![Tool::Plugin {
-                name: "read_note".into(),
-                server: None,
-            }],
-            context: "Help with the plugin's notes".into(),
-        };
-        assert!(valid(&[declaration.clone()]));
-        assert!(!valid(&[declaration.clone(), declaration.clone()]));
-        declaration.tools.push(declaration.tools[0].clone());
-        assert!(!declaration.valid());
-        declaration.tools.clear();
-        declaration.context = "x".repeat(16 * 1024 + 1);
-        assert!(!declaration.valid());
-        declaration.context.clear();
-        declaration.id = "../other".into();
-        assert!(!declaration.valid());
-    }
-
-    #[test]
-    fn scopes() {
-        let database = connection::Resource::Database(crate::DatabaseId::new());
-        assert!(Resource::Plugin.matches(None, None));
-        assert!(!Resource::Plugin.matches(None, Some(database)));
-        assert!(Resource::Database.matches(None, Some(database)));
-        assert!(!Resource::Ssh.matches(None, Some(database)));
-        assert!(!Resource::Workspace.matches(None, None));
-        assert!(Resource::Workspace.matches(Some(ProjectId::new()), None));
-    }
-
-    #[test]
-    fn package_tools_are_explicit() {
-        let value = serde_json::json!({"kind":"package","package":"files","name":"read_file"});
-        let tool: Tool = serde_json::from_value(value.clone()).unwrap();
-        assert!(tool.valid());
-        for package in ["", "../files", "Files", "files--tools", "files."] {
-            let mut invalid = value.clone();
-            invalid["package"] = package.into();
-            assert!(!serde_json::from_value::<Tool>(invalid).unwrap().valid());
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "bounds",
+                (|scenario: &'static str| {
+                    let mut declaration = Declaration {
+                        id: "assistant".into(),
+                        resource: Resource::Plugin,
+                        tools: vec![Tool::Plugin {
+                            name: "read_note".into(),
+                            server: None,
+                        }],
+                        context: "Help with the plugin's notes".into(),
+                    };
+                    assert!(valid(&[declaration.clone()]), "{scenario}");
+                    assert!(
+                        !valid(&[declaration.clone(), declaration.clone()]),
+                        "{scenario}"
+                    );
+                    declaration.tools.push(declaration.tools[0].clone());
+                    assert!(!declaration.valid(), "{scenario}");
+                    declaration.tools.clear();
+                    declaration.context = "x".repeat(16 * 1024 + 1);
+                    assert!(!declaration.valid(), "{scenario}");
+                    declaration.context.clear();
+                    declaration.id = "../other".into();
+                    assert!(!declaration.valid(), "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "scopes",
+                (|scenario: &'static str| {
+                    let database = connection::Resource::Database(crate::DatabaseId::new());
+                    assert!(Resource::Plugin.matches(None, None), "{scenario}");
+                    assert!(
+                        !Resource::Plugin.matches(None, Some(database)),
+                        "{scenario}"
+                    );
+                    assert!(
+                        Resource::Database.matches(None, Some(database)),
+                        "{scenario}"
+                    );
+                    assert!(!Resource::Ssh.matches(None, Some(database)), "{scenario}");
+                    assert!(!Resource::Workspace.matches(None, None), "{scenario}");
+                    assert!(
+                        Resource::Workspace.matches(Some(ProjectId::new()), None),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "package_tools_are_explicit",
+                (|scenario: &'static str| {
+                    let value =
+                        serde_json::json!({"kind":"package","package":"files","name":"read_file"});
+                    let tool: Tool = serde_json::from_value(value.clone()).unwrap();
+                    assert!(tool.valid(), "{scenario}");
+                    for package in ["", "../files", "Files", "files--tools", "files."] {
+                        let mut invalid = value.clone();
+                        invalid["package"] = package.into();
+                        assert!(
+                            !serde_json::from_value::<Tool>(invalid).unwrap().valid(),
+                            "{scenario}"
+                        );
+                    }
+                    let mut mcp = value;
+                    mcp["server"] = "files".into();
+                    assert!(serde_json::from_value::<Tool>(mcp).is_err(), "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let mut mcp = value;
-        mcp["server"] = "files".into();
-        assert!(serde_json::from_value::<Tool>(mcp).is_err());
     }
 }

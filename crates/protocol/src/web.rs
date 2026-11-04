@@ -40,25 +40,46 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn defaults_offsets_and_rejects_credentials() {
-        let request: Request =
-            serde_json::from_value(json!({"url":"https://example.com/"})).unwrap();
-        assert_eq!(request.offset, 0);
-        for extra in ["headers", "method", "credential"] {
-            let value = json!({"url":"https://example.com/", extra:"private"});
-            assert!(serde_json::from_value::<Request>(value).is_err());
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "defaults_offsets_and_rejects_credentials",
+                (|scenario: &'static str| {
+                    let request: Request =
+                        serde_json::from_value(json!({"url":"https://example.com/"})).unwrap();
+                    assert_eq!(request.offset, 0, "{scenario}");
+                    for extra in ["headers", "method", "credential"] {
+                        let value = json!({"url":"https://example.com/", extra:"private"});
+                        assert!(
+                            serde_json::from_value::<Request>(value).is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    assert!(
+                        serde_json::from_value::<Request>(
+                            json!({"url":"https://example.com/", "offset":-1})
+                        )
+                        .is_err(),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "uses_read_only_actions",
+                (|scenario: &'static str| {
+                    let operation = crate::tool::Operation::FetchWeb;
+                    assert!(operation.read_only(), "{scenario}");
+                    assert_eq!(
+                        operation.action(),
+                        Some(crate::plugin::Action::ReadWeb),
+                        "{scenario}"
+                    );
+                    assert!(crate::plugin::Action::ReadWeb.read_only(), "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert!(
-            serde_json::from_value::<Request>(json!({"url":"https://example.com/", "offset":-1}))
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn uses_read_only_actions() {
-        let operation = crate::tool::Operation::FetchWeb;
-        assert!(operation.read_only());
-        assert_eq!(operation.action(), Some(crate::plugin::Action::ReadWeb));
-        assert!(crate::plugin::Action::ReadWeb.read_only());
     }
 }

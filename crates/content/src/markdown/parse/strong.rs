@@ -109,49 +109,70 @@ mod tests {
     };
 
     #[test]
-    fn recovers_prose_and_preserves_source_ranges() {
-        for source in [
-            "**未测试项： **界面颜色",
-            "**未测试项：**界面颜色",
-            "before **label: **after",
+    fn preserves_document_behavior() {
+        for (scenario, check) in [
+            (
+                "recovers_prose_and_preserves_source_ranges",
+                (|scenario: &'static str| {
+                    for source in [
+                        "**未测试项： **界面颜色",
+                        "**未测试项：**界面颜色",
+                        "before **label: **after",
+                    ] {
+                        let parsed = with_ranges(source);
+                        let text = parsed.doc.blocks[0]
+                            .text_at(Part::Body)
+                            .unwrap_or_else(|| panic!("{scenario}: paragraph expected: {source}"));
+                        assert!(!text.text.contains("**"), "{scenario}");
+                        assert!(
+                            text.marks.iter().any(|span| span.mark == Mark::Bold),
+                            "{scenario}"
+                        );
+                        assert_eq!(
+                            &source[parsed.block_ranges[0].clone()],
+                            source,
+                            "{scenario}"
+                        );
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "keeps_code_escapes_and_unfinished_markers_literal",
+                (|scenario: &'static str| {
+                    for source in [
+                        r"\*\*label: \*\*",
+                        "`**label: **`",
+                        "**unfinished",
+                        "before ****",
+                        "before ** ** after",
+                    ] {
+                        let parsed = with_ranges(source);
+                        let text = parsed.doc.blocks[0]
+                            .text_at(Part::Body)
+                            .unwrap_or_else(|| panic!("{scenario}: paragraph expected: {source}"));
+                        assert!(
+                            text.marks.iter().all(|span| span.mark != Mark::Bold),
+                            "{scenario}: {source}"
+                        );
+                        assert!(text.text.contains('*'), "{scenario}");
+                    }
+                    for source in ["****", "** **"] {
+                        let parsed = with_ranges(source);
+                        assert!(
+                            matches!(parsed.doc.blocks[0].kind, BlockKind::Rule),
+                            "{scenario}"
+                        );
+                    }
+                    let parsed = with_ranges("```text\n**label: **\n```\n");
+                    let BlockKind::Code { code, .. } = &parsed.doc.blocks[0].kind else {
+                        panic!("{scenario}: code block expected")
+                    };
+                    assert!(code.text.contains("**label: **"), "{scenario}");
+                }),
+            ),
         ] {
-            let parsed = with_ranges(source);
-            let text = parsed.doc.blocks[0]
-                .text_at(Part::Body)
-                .unwrap_or_else(|| panic!("paragraph expected: {source}"));
-            assert!(!text.text.contains("**"));
-            assert!(text.marks.iter().any(|span| span.mark == Mark::Bold));
-            assert_eq!(&source[parsed.block_ranges[0].clone()], source);
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn keeps_code_escapes_and_unfinished_markers_literal() {
-        for source in [
-            r"\*\*label: \*\*",
-            "`**label: **`",
-            "**unfinished",
-            "before ****",
-            "before ** ** after",
-        ] {
-            let parsed = with_ranges(source);
-            let text = parsed.doc.blocks[0]
-                .text_at(Part::Body)
-                .unwrap_or_else(|| panic!("paragraph expected: {source}"));
-            assert!(
-                text.marks.iter().all(|span| span.mark != Mark::Bold),
-                "{source}"
-            );
-            assert!(text.text.contains('*'));
-        }
-        for source in ["****", "** **"] {
-            let parsed = with_ranges(source);
-            assert!(matches!(parsed.doc.blocks[0].kind, BlockKind::Rule));
-        }
-        let parsed = with_ranges("```text\n**label: **\n```\n");
-        let BlockKind::Code { code, .. } = &parsed.doc.blocks[0].kind else {
-            panic!("code block expected")
-        };
-        assert!(code.text.contains("**label: **"));
     }
 }

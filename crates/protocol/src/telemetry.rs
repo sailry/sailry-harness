@@ -55,40 +55,59 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn defaults_to_enabled_anonymous_choices() {
-        let settings: Settings = serde_json::from_value(json!({})).unwrap();
-        assert_eq!(settings.revision, 0);
-        assert!(settings.errors);
-        assert!(settings.metrics);
-        assert_eq!(settings.installation_id.get_version_num(), 4);
-        settings.validate().unwrap();
-        let value = serde_json::to_value(&settings).unwrap();
-        assert_eq!(serde_json::from_value::<Settings>(value).unwrap(), settings);
-    }
-
-    #[test]
-    fn rejects_invalid_identity_and_values() {
-        for value in [
-            json!({"errors":"yes"}),
-            json!({"metrics":null}),
-            json!({"installation_id":"invalid"}),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "defaults_to_enabled_anonymous_choices",
+                (|scenario: &'static str| {
+                    let settings: Settings = serde_json::from_value(json!({})).unwrap();
+                    assert_eq!(settings.revision, 0, "{scenario}");
+                    assert!(settings.errors, "{scenario}");
+                    assert!(settings.metrics, "{scenario}");
+                    assert_eq!(settings.installation_id.get_version_num(), 4, "{scenario}");
+                    settings.validate().unwrap();
+                    let value = serde_json::to_value(&settings).unwrap();
+                    assert_eq!(
+                        serde_json::from_value::<Settings>(value).unwrap(),
+                        settings,
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "rejects_invalid_identity_and_values",
+                (|scenario: &'static str| {
+                    for value in [
+                        json!({"errors":"yes"}),
+                        json!({"metrics":null}),
+                        json!({"installation_id":"invalid"}),
+                    ] {
+                        assert!(
+                            serde_json::from_value::<Settings>(value).is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    let mut settings = Settings {
+                        installation_id: Uuid::nil(),
+                        ..Settings::default()
+                    };
+                    assert!(settings.validate().is_err(), "{scenario}");
+                    settings.installation_id = Uuid::new_v4();
+                    settings.revision = i64::MAX as u64 + 1;
+                    assert!(settings.validate().is_err(), "{scenario}");
+                    assert!(
+                        serde_json::from_value::<Update>(json!({
+                            "revision":0,"errors":false,"metrics":false,
+                            "installation_id":Uuid::new_v4()
+                        }))
+                        .is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
         ] {
-            assert!(serde_json::from_value::<Settings>(value).is_err());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let mut settings = Settings {
-            installation_id: Uuid::nil(),
-            ..Settings::default()
-        };
-        assert!(settings.validate().is_err());
-        settings.installation_id = Uuid::new_v4();
-        settings.revision = i64::MAX as u64 + 1;
-        assert!(settings.validate().is_err());
-        assert!(
-            serde_json::from_value::<Update>(json!({
-                "revision":0,"errors":false,"metrics":false,
-                "installation_id":Uuid::new_v4()
-            }))
-            .is_err()
-        );
     }
 }

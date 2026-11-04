@@ -123,32 +123,51 @@ mod tests {
     }
 
     #[test]
-    fn preserves_integer_decimal_unicode_and_binary_cells() {
-        let result = json!({"columns":["large","small","decimal","text","null","bytes"],"rows":[[
-            {"value":i64::MAX},{"value":i64::MIN},{"value":"1234567890.12345678901234567890"},{"value":"资料 🙂"},{},{"value":[0,127,255]}
-        ]],"truncated":true});
-        let table = projection().render(&Value::Null, &result).unwrap();
-        assert_eq!(
-            table.rows[0],
-            [
-                "9223372036854775807",
-                "-9223372036854775808",
-                "1234567890.12345678901234567890",
-                "资料 🙂",
-                "NULL",
-                "007fff"
-            ]
-        );
-        assert!(table.truncated);
-        assert_eq!(result["rows"][0][0]["value"].as_i64(), Some(i64::MAX));
-    }
-
-    #[test]
-    fn malformed_cells_preserve_raw_values() {
-        let result = json!({"columns":["binary"],"rows":[[{"value":[256]}]]});
-        assert!(projection().render(&Value::Null, &result).is_none());
-        let mut projection = projection();
-        projection.cell.value = "/invalid~2".into();
-        assert!(!projection.valid());
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "preserves_integer_decimal_unicode_and_binary_cells",
+                (|scenario: &'static str| {
+                    let result = json!({"columns":["large","small","decimal","text","null","bytes"],"rows":[[
+                    {"value":i64::MAX},{"value":i64::MIN},{"value":"1234567890.12345678901234567890"},{"value":"资料 🙂"},{},{"value":[0,127,255]}
+                ]],"truncated":true});
+                    let table = projection().render(&Value::Null, &result).unwrap();
+                    assert_eq!(
+                        table.rows[0],
+                        [
+                            "9223372036854775807",
+                            "-9223372036854775808",
+                            "1234567890.12345678901234567890",
+                            "资料 🙂",
+                            "NULL",
+                            "007fff"
+                        ],
+                        "{scenario}"
+                    );
+                    assert!(table.truncated, "{scenario}");
+                    assert_eq!(
+                        result["rows"][0][0]["value"].as_i64(),
+                        Some(i64::MAX),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "malformed_cells_preserve_raw_values",
+                (|scenario: &'static str| {
+                    let result = json!({"columns":["binary"],"rows":[[{"value":[256]}]]});
+                    assert!(
+                        projection().render(&Value::Null, &result).is_none(),
+                        "{scenario}"
+                    );
+                    let mut projection = projection();
+                    projection.cell.value = "/invalid~2".into();
+                    assert!(!projection.valid(), "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

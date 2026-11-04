@@ -224,65 +224,86 @@ pub struct Page {
 mod tests {
     use super::*;
     #[test]
-    fn defaults_missing_passphrase_state() {
-        let settings: Settings = serde_json::from_value(serde_json::json!({
-            "revision": 0,
-            "destination": null,
-            "credentials_configured": false,
-        }))
-        .unwrap();
-        assert_eq!(settings, Settings::default());
-        let update: Update = serde_json::from_value(serde_json::json!({
-            "settings": settings,
-            "identity": {"kind":"keep"},
-            "secret": {"kind":"keep"},
-            "session_token": {"kind":"keep"},
-        }))
-        .unwrap();
-        assert_eq!(update.passphrase, SecretUpdate::Keep);
-    }
-    #[test]
-    fn preserves_omitted_defaults() {
-        let original = serde_json::json!({"revision":0,"destination":null,"credentials_configured":false,"passphrase_configured":false});
-        let settings: Settings = serde_json::from_value(original.clone()).unwrap();
-        assert!(settings.online_enabled);
-        assert!(settings.schedule.is_none());
-        assert_eq!(serde_json::to_value(settings).unwrap(), original);
-        let command: crate::Command = serde_json::from_value(serde_json::json!({"kind":"restore_backup","data":{"id":"fixture","expected_revision":0,"target":"/restored","passphrase":null}})).unwrap();
-        assert!(
-            serde_json::to_value(&command).unwrap()["data"]
-                .get("location")
-                .is_none()
-        );
-        assert!(matches!(
-            command,
-            crate::Command::RestoreBackup {
-                location: Location::Online,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn validates_storage_targets() {
-        let mut destination = Destination {
-            kind: Kind::S3,
-            endpoint: "https://s3.example.com".into(),
-            root: "profiles/backups".into(),
-            bucket: "bucket".into(),
-            region: "us-east-1".into(),
-        };
-        destination.validate().unwrap();
-        for endpoint in [
-            "https://user:secret@s3.example.com",
-            "file:///tmp/backup",
-            "https://s3.example.com?token=secret",
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "defaults_missing_passphrase_state",
+                (|scenario: &'static str| {
+                    let settings: Settings = serde_json::from_value(serde_json::json!({
+                        "revision": 0,
+                        "destination": null,
+                        "credentials_configured": false,
+                    }))
+                    .unwrap();
+                    assert_eq!(settings, Settings::default(), "{scenario}");
+                    let update: Update = serde_json::from_value(serde_json::json!({
+                        "settings": settings,
+                        "identity": {"kind":"keep"},
+                        "secret": {"kind":"keep"},
+                        "session_token": {"kind":"keep"},
+                    }))
+                    .unwrap();
+                    assert_eq!(update.passphrase, SecretUpdate::Keep, "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "preserves_omitted_defaults",
+                (|scenario: &'static str| {
+                    let original = serde_json::json!({"revision":0,"destination":null,"credentials_configured":false,"passphrase_configured":false});
+                    let settings: Settings = serde_json::from_value(original.clone()).unwrap();
+                    assert!(settings.online_enabled, "{scenario}");
+                    assert!(settings.schedule.is_none(), "{scenario}");
+                    assert_eq!(
+                        serde_json::to_value(settings).unwrap(),
+                        original,
+                        "{scenario}"
+                    );
+                    let command: crate::Command = serde_json::from_value(serde_json::json!({"kind":"restore_backup","data":{"id":"fixture","expected_revision":0,"target":"/restored","passphrase":null}})).unwrap();
+                    assert!(
+                        serde_json::to_value(&command).unwrap()["data"]
+                            .get("location")
+                            .is_none(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        matches!(
+                            command,
+                            crate::Command::RestoreBackup {
+                                location: Location::Online,
+                                ..
+                            }
+                        ),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "validates_storage_targets",
+                (|scenario: &'static str| {
+                    let mut destination = Destination {
+                        kind: Kind::S3,
+                        endpoint: "https://s3.example.com".into(),
+                        root: "profiles/backups".into(),
+                        bucket: "bucket".into(),
+                        region: "us-east-1".into(),
+                    };
+                    destination.validate().unwrap();
+                    for endpoint in [
+                        "https://user:secret@s3.example.com",
+                        "file:///tmp/backup",
+                        "https://s3.example.com?token=secret",
+                    ] {
+                        destination.endpoint = endpoint.into();
+                        assert!(destination.validate().is_err(), "{scenario}");
+                    }
+                    destination.endpoint = "https://s3.example.com".into();
+                    destination.root = "profiles/../private".into();
+                    assert!(destination.validate().is_err(), "{scenario}");
+                }),
+            ),
         ] {
-            destination.endpoint = endpoint.into();
-            assert!(destination.validate().is_err());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        destination.endpoint = "https://s3.example.com".into();
-        destination.root = "profiles/../private".into();
-        assert!(destination.validate().is_err());
     }
 }

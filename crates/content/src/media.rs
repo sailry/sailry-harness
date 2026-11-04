@@ -40,53 +40,73 @@ mod tests {
     use image::ImageFormat;
 
     #[test]
-    fn recognizes_formats() {
-        for (extension, format) in [
-            ("png", ImageFormat::Png),
-            ("jpg", ImageFormat::Jpeg),
-            ("jpeg", ImageFormat::Jpeg),
-            ("gif", ImageFormat::Gif),
-            ("webp", ImageFormat::WebP),
-            ("tif", ImageFormat::Tiff),
-            ("tiff", ImageFormat::Tiff),
-            ("bmp", ImageFormat::Bmp),
+    fn preserves_document_behavior() {
+        for (scenario, check) in [
+            (
+                "recognizes_formats",
+                (|scenario: &'static str| {
+                    for (extension, format) in [
+                        ("png", ImageFormat::Png),
+                        ("jpg", ImageFormat::Jpeg),
+                        ("jpeg", ImageFormat::Jpeg),
+                        ("gif", ImageFormat::Gif),
+                        ("webp", ImageFormat::WebP),
+                        ("tif", ImageFormat::Tiff),
+                        ("tiff", ImageFormat::Tiff),
+                        ("bmp", ImageFormat::Bmp),
+                    ] {
+                        assert_eq!(
+                            file_format(&format!("images/photo.{extension}")),
+                            Some(format),
+                            "{scenario}"
+                        );
+                        assert_eq!(
+                            file_format(&format!(
+                                "images/photo.{}",
+                                extension.to_ascii_uppercase()
+                            )),
+                            Some(format),
+                            "{scenario}"
+                        );
+                    }
+                    for path in ["photo", "photo.svg", "photo.pdf", "photo.png/data"] {
+                        assert_eq!(file_format(path), None, "{scenario}: {path}");
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "detects_svg_paths",
+                (|scenario: &'static str| {
+                    assert!(is_svg("output/a.svg"), "{scenario}");
+                    assert!(is_svg("output/A.SVG"), "{scenario}");
+                    for path in ["a.svgz", "svg", "a.svg/b", "a.png"] {
+                        assert!(!is_svg(path), "{scenario}: {path}");
+                    }
+                }),
+            ),
+            (
+                "validates_svg_bytes",
+                (|scenario: &'static str| {
+                    let ok = br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>"#;
+                    assert_eq!(validate_svg(ok), Ok(()), "{scenario}");
+                    let oversized = vec![b' '; MAX_SVG_BYTES + 1];
+                    assert_eq!(validate_svg(&oversized), Err("too large"), "{scenario}");
+                    assert!(validate_svg(b"<svg").is_err(), "{scenario}");
+                    for hostile in [
+                        r#"<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>"#,
+                        r#"<svg xmlns="http://www.w3.org/2000/svg"><image href="file:///etc/passwd"/></svg>"#,
+                        r#"<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(http://x/y)"/></svg>"#,
+                    ] {
+                        assert!(
+                            validate_svg(hostile.as_bytes()).is_err(),
+                            "{scenario}: {hostile}"
+                        );
+                    }
+                }),
+            ),
         ] {
-            assert_eq!(
-                file_format(&format!("images/photo.{extension}")),
-                Some(format)
-            );
-            assert_eq!(
-                file_format(&format!("images/photo.{}", extension.to_ascii_uppercase())),
-                Some(format)
-            );
-        }
-        for path in ["photo", "photo.svg", "photo.pdf", "photo.png/data"] {
-            assert_eq!(file_format(path), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn detects_svg_paths() {
-        assert!(is_svg("output/a.svg"));
-        assert!(is_svg("output/A.SVG"));
-        for path in ["a.svgz", "svg", "a.svg/b", "a.png"] {
-            assert!(!is_svg(path), "{path}");
-        }
-    }
-
-    #[test]
-    fn validates_svg_bytes() {
-        let ok = br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>"#;
-        assert_eq!(validate_svg(ok), Ok(()));
-        let oversized = vec![b' '; MAX_SVG_BYTES + 1];
-        assert_eq!(validate_svg(&oversized), Err("too large"));
-        assert!(validate_svg(b"<svg").is_err());
-        for hostile in [
-            r#"<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>"#,
-            r#"<svg xmlns="http://www.w3.org/2000/svg"><image href="file:///etc/passwd"/></svg>"#,
-            r#"<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(http://x/y)"/></svg>"#,
-        ] {
-            assert!(validate_svg(hostile.as_bytes()).is_err(), "{hostile}");
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

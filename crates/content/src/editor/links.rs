@@ -540,47 +540,80 @@ mod tests {
     }
 
     #[test]
-    fn address_accepts_single_urls() {
-        assert!(address("https://example.com/a?b=c"));
-        assert!(address("mailto:team@example.com"));
-        assert!(!address("https://"));
-        assert!(!address("docs/node.md"));
-        assert!(!address("see https://example.com"));
+    fn preserves_document_behavior() {
+        for (scenario, check) in [
+            (
+                "address_accepts_single_urls",
+                (|scenario: &'static str| {
+                    assert!(address("https://example.com/a?b=c"), "{scenario}");
+                    assert!(address("mailto:team@example.com"), "{scenario}");
+                    assert!(!address("https://"), "{scenario}");
+                    assert!(!address("docs/node.md"), "{scenario}");
+                    assert!(!address("see https://example.com"), "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "finds_caret_link",
+                (|scenario: &'static str| {
+                    let doc = parse("see [docs](a.md)");
+                    assert_eq!(
+                        under(&doc, Cursor::new(0, Part::Body, 6)),
+                        Some((4..8, "a.md".to_owned())),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        under(&doc, Cursor::new(0, Part::Body, 1)),
+                        None,
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 
     mod set_link {
         use super::*;
 
         #[test]
-        fn links_selected_text() {
-            let mut doc = parse("read the docs");
-            set_link(&mut doc, select(9, 13), Some("docs/node.md"));
-            assert_eq!(linked(&doc), vec![(9..13, "docs/node.md".to_owned())]);
+        fn edits_selected_addresses() {
+            for (case, source, range, address, expected, text) in [
+                (
+                    "new",
+                    "read the docs",
+                    9..13,
+                    Some("docs/node.md"),
+                    vec![(9..13, "docs/node.md".to_owned())],
+                    "read the docs",
+                ),
+                (
+                    "replace",
+                    "[docs](a.md)",
+                    0..4,
+                    Some("b.md"),
+                    vec![(0..4, "b.md".to_owned())],
+                    "docs",
+                ),
+                (
+                    "remove",
+                    "[docs](a.md) here",
+                    0..4,
+                    None,
+                    vec![],
+                    "docs here",
+                ),
+            ] {
+                let mut doc = parse(source);
+                set_link(&mut doc, select(range.start, range.end), address);
+                assert_eq!(linked(&doc), expected, "{case}: links");
+                assert_eq!(
+                    doc.blocks[0].text_at(Part::Body).unwrap().text,
+                    text,
+                    "{case}: text"
+                );
+            }
         }
-
-        #[test]
-        fn replaces_existing_address() {
-            let mut doc = parse("[docs](a.md)");
-            set_link(&mut doc, select(0, 4), Some("b.md"));
-            assert_eq!(linked(&doc), vec![(0..4, "b.md".to_owned())]);
-        }
-
-        #[test]
-        fn removes_link_keeping_text() {
-            let mut doc = parse("[docs](a.md) here");
-            set_link(&mut doc, select(0, 4), None);
-            assert!(linked(&doc).is_empty());
-            assert_eq!(doc.blocks[0].text_at(Part::Body).unwrap().text, "docs here");
-        }
-    }
-
-    #[test]
-    fn finds_caret_link() {
-        let doc = parse("see [docs](a.md)");
-        assert_eq!(
-            under(&doc, Cursor::new(0, Part::Body, 6)),
-            Some((4..8, "a.md".to_owned()))
-        );
-        assert_eq!(under(&doc, Cursor::new(0, Part::Body, 1)), None);
     }
 }

@@ -54,61 +54,82 @@ fn paths(tensor: &[u8]) -> Vec<Vec<u8>> {
 }
 
 #[test]
-fn rejects_external_references_in_every_container() {
-    for tensor in [
-        field(13, &[]),
-        vec![0x70, 1],
-        vec![0x70, 1, 0x70, 0],
-        vec![0x70, 0, 0x70, 1],
+fn preserves_asset_contracts() {
+    for (scenario, check) in [
+        (
+            "rejects_external_references_in_every_container",
+            (|scenario: &'static str| {
+                for tensor in [
+                    field(13, &[]),
+                    vec![0x70, 1],
+                    vec![0x70, 1, 0x70, 0],
+                    vec![0x70, 0, 0x70, 1],
+                ] {
+                    for payload in paths(&tensor) {
+                        let error = check(&root(&payload)).unwrap_err();
+                        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{scenario}");
+                        assert!(
+                            error.to_string().contains("external tensor data"),
+                            "{scenario}"
+                        );
+                    }
+                }
+            }) as fn(&'static str),
+        ),
+        (
+            "does_not_interpret_weight_bytes_as_metadata",
+            (|_scenario: &'static str| {
+                let raw = field(9, &[0x6a, 0, 0x70, 1, 0x70, 0]);
+                for payload in paths(&raw) {
+                    check(&root(&payload)).unwrap();
+                }
+            }),
+        ),
+        (
+            "validates_owned_file_without_external_reads",
+            (|scenario: &'static str| {
+                let directory = tempfile::tempdir().unwrap();
+                let path = directory.path().join("model.onnx");
+                std::fs::write(&path, root(&field(7, &field(5, &field(9, b"weights"))))).unwrap();
+                validate(&path).unwrap();
+                let external = [field(1, b"location"), field(2, b"../outside")].concat();
+                std::fs::write(&path, root(&field(7, &field(5, &field(13, &external))))).unwrap();
+                let error = validate(&path).unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{scenario}");
+                assert!(
+                    error.to_string().contains("external tensor data"),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "rejects_malformed_and_deep_metadata",
+            (|scenario: &'static str| {
+                for bytes in [
+                    vec![],
+                    vec![0],
+                    vec![0x3a, 0x80],
+                    root(&field(7, &[0x2a, 0xff, 0xff])),
+                ] {
+                    assert_eq!(
+                        check(&bytes).unwrap_err().kind(),
+                        io::ErrorKind::InvalidData,
+                        "{scenario}"
+                    );
+                }
+                let mut graph = Vec::new();
+                for _ in 0..64 {
+                    graph = attributes(&field(6, &graph));
+                }
+                assert_eq!(
+                    check(&field(7, &graph)).unwrap_err().kind(),
+                    io::ErrorKind::InvalidData,
+                    "{scenario}"
+                );
+            }),
+        ),
     ] {
-        for payload in paths(&tensor) {
-            let error = check(&root(&payload)).unwrap_err();
-            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-            assert!(error.to_string().contains("external tensor data"));
-        }
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-}
-
-#[test]
-fn does_not_interpret_weight_bytes_as_metadata() {
-    let raw = field(9, &[0x6a, 0, 0x70, 1, 0x70, 0]);
-    for payload in paths(&raw) {
-        check(&root(&payload)).unwrap();
-    }
-}
-
-#[test]
-fn validates_owned_file_without_external_reads() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("model.onnx");
-    std::fs::write(&path, root(&field(7, &field(5, &field(9, b"weights"))))).unwrap();
-    validate(&path).unwrap();
-    let external = [field(1, b"location"), field(2, b"../outside")].concat();
-    std::fs::write(&path, root(&field(7, &field(5, &field(13, &external))))).unwrap();
-    let error = validate(&path).unwrap_err();
-    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-    assert!(error.to_string().contains("external tensor data"));
-}
-
-#[test]
-fn rejects_malformed_and_deep_metadata() {
-    for bytes in [
-        vec![],
-        vec![0],
-        vec![0x3a, 0x80],
-        root(&field(7, &[0x2a, 0xff, 0xff])),
-    ] {
-        assert_eq!(
-            check(&bytes).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
-    }
-    let mut graph = Vec::new();
-    for _ in 0..64 {
-        graph = attributes(&field(6, &graph));
-    }
-    assert_eq!(
-        check(&field(7, &graph)).unwrap_err().kind(),
-        io::ErrorKind::InvalidData
-    );
 }

@@ -268,119 +268,149 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn preserves_supported_identifiers() {
-        for (name, action) in [
-            ("files.read", Action::ReadFiles),
-            ("models.read", Action::ReadModels),
-            ("decisions.run", Action::RunDecisions),
-            ("models.install", Action::InstallModels),
-            ("models.generate", Action::GenerateText),
-            ("knowledge.read", Action::ReadKnowledge),
-            ("knowledge.write", Action::WriteKnowledge),
-            ("conversation.message.read", Action::ReadMessage),
-            ("code.index.read", Action::ReadCodeIndex),
-            ("code.index.settings.read", Action::ReadCodeIndexSettings),
-            ("code.index.settings.write", Action::SaveCodeIndexSettings),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "preserves_supported_identifiers",
+                (|scenario: &'static str| {
+                    for (name, action) in [
+                        ("files.read", Action::ReadFiles),
+                        ("models.read", Action::ReadModels),
+                        ("decisions.run", Action::RunDecisions),
+                        ("models.install", Action::InstallModels),
+                        ("models.generate", Action::GenerateText),
+                        ("knowledge.read", Action::ReadKnowledge),
+                        ("knowledge.write", Action::WriteKnowledge),
+                        ("conversation.message.read", Action::ReadMessage),
+                        ("code.index.read", Action::ReadCodeIndex),
+                        ("code.index.settings.read", Action::ReadCodeIndexSettings),
+                        ("code.index.settings.write", Action::SaveCodeIndexSettings),
+                    ] {
+                        assert_eq!(
+                            serde_json::to_value(&action).unwrap(),
+                            json!(name),
+                            "{scenario}"
+                        );
+                        assert_eq!(
+                            serde_json::from_value::<Action>(json!(name)).unwrap(),
+                            action,
+                            "{scenario}"
+                        );
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "rejects_unknown_or_malformed_identifiers",
+                (|scenario: &'static str| {
+                    for (case, value) in [
+                        ("unknown", json!("unknown.action")),
+                        ("retired decision", json!("models.decide")),
+                        ("null", json!(null)),
+                        ("number", json!(1)),
+                        ("boolean", json!(true)),
+                        ("array", json!([])),
+                        ("object", json!({"files.read":true})),
+                    ] {
+                        assert!(
+                            serde_json::from_value::<Action>(value).is_err(),
+                            "{scenario}: {case}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "excludes_unknown_identifiers_from_authoring",
+                (|scenario: &'static str| {
+                    let schema = serde_json::to_value(schemars::schema_for!(Action)).unwrap();
+                    let variants = schema["oneOf"].as_array().unwrap();
+                    assert_eq!(variants.len(), 2, "{scenario}");
+                    assert_eq!(variants[0]["type"], "string", "{scenario}");
+                    let names = variants[0]["enum"].as_array().unwrap();
+                    assert!(names.contains(&json!("files.read")), "{scenario}");
+                    assert!(names.contains(&json!("models.read")), "{scenario}");
+                    assert!(names.contains(&json!("models.install")), "{scenario}");
+                    assert!(names.contains(&json!("models.generate")), "{scenario}");
+                    assert!(names.contains(&json!("knowledge.read")), "{scenario}");
+                    assert!(names.contains(&json!("knowledge.write")), "{scenario}");
+                    assert!(names.contains(&json!("code.index.read")), "{scenario}");
+                    for name in [
+                        "code.read",
+                        "code.manage",
+                        "code.settings.read",
+                        "code.settings.write",
+                    ] {
+                        assert!(!names.contains(&json!(name)), "{scenario}");
+                        let action: Action = serde_json::from_value(json!(name)).unwrap();
+                        assert!(!action.current(), "{scenario}");
+                    }
+                    assert!(!names.contains(&json!("unknown.action")), "{scenario}");
+                    assert!(!names.contains(&json!("Unsupported")), "{scenario}");
+                    assert!(!names.is_empty(), "{scenario}");
+                    for name in names {
+                        assert!(
+                            serde_json::from_value::<Action>(name.clone()).is_ok(),
+                            "{scenario}"
+                        );
+                    }
+                    assert_eq!(variants[1]["type"], "string", "{scenario}");
+                    assert_eq!(variants[1]["const"], "sessions.start", "{scenario}");
+                    assert_eq!(
+                        variants[1]["description"],
+                        "Host-wide creation; does not grant access to existing conversations.",
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::from_value::<Action>(variants[1]["const"].clone()).unwrap(),
+                        Action::StartSessions,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "keeps_access_distinct_from_read_only",
+                (|scenario: &'static str| {
+                    let schema = serde_json::to_value(schemars::schema_for!(Action)).unwrap();
+                    for name in schema["oneOf"][0]["enum"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .chain(std::iter::once(&schema["oneOf"][1]["const"]))
+                    {
+                        let action: Action = serde_json::from_value(name.clone()).unwrap();
+                        assert_eq!(
+                            action.access() == Access::Read,
+                            action.read_only(),
+                            "{scenario}: {name}"
+                        );
+                    }
+                    assert_eq!(Action::ReadFiles.access(), Access::Read, "{scenario}");
+                    assert!(Action::ReadFiles.read_only(), "{scenario}");
+                    assert_eq!(Action::WriteFiles.access(), Access::Modify, "{scenario}");
+                    assert!(!Action::WriteFiles.read_only(), "{scenario}");
+                    assert_eq!(
+                        Action::ControlConversation.access(),
+                        Access::Operate,
+                        "{scenario}"
+                    );
+                    assert!(!Action::ControlConversation.read_only(), "{scenario}");
+                    assert_eq!(
+                        Action::InspectCredentials.access(),
+                        Access::Operate,
+                        "{scenario}"
+                    );
+                    assert!(!Action::InspectCredentials.read_only(), "{scenario}");
+                }),
+            ),
+            (
+                "installation_is_not_read_only",
+                (|scenario: &'static str| {
+                    assert!(Action::ReadModels.read_only(), "{scenario}");
+                    assert!(!Action::InstallModels.read_only(), "{scenario}");
+                }),
+            ),
         ] {
-            assert_eq!(serde_json::to_value(&action).unwrap(), json!(name));
-            assert_eq!(
-                serde_json::from_value::<Action>(json!(name)).unwrap(),
-                action
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn rejects_unknown_identifiers() {
-        for name in ["unknown.action", "models.decide"] {
-            assert!(serde_json::from_value::<Action>(json!(name)).is_err());
-        }
-    }
-
-    #[test]
-    fn rejects_malformed_identifiers() {
-        for value in [
-            json!(null),
-            json!(1),
-            json!(true),
-            json!([]),
-            json!({"files.read": true}),
-        ] {
-            assert!(serde_json::from_value::<Action>(value).is_err());
-        }
-    }
-
-    #[test]
-    fn excludes_unknown_identifiers_from_authoring() {
-        let schema = serde_json::to_value(schemars::schema_for!(Action)).unwrap();
-        let variants = schema["oneOf"].as_array().unwrap();
-        assert_eq!(variants.len(), 2);
-        assert_eq!(variants[0]["type"], "string");
-        let names = variants[0]["enum"].as_array().unwrap();
-        assert!(names.contains(&json!("files.read")));
-        assert!(names.contains(&json!("models.read")));
-        assert!(names.contains(&json!("models.install")));
-        assert!(names.contains(&json!("models.generate")));
-        assert!(names.contains(&json!("knowledge.read")));
-        assert!(names.contains(&json!("knowledge.write")));
-        assert!(names.contains(&json!("code.index.read")));
-        for name in [
-            "code.read",
-            "code.manage",
-            "code.settings.read",
-            "code.settings.write",
-        ] {
-            assert!(!names.contains(&json!(name)));
-            let action: Action = serde_json::from_value(json!(name)).unwrap();
-            assert!(!action.current());
-        }
-        assert!(!names.contains(&json!("unknown.action")));
-        assert!(!names.contains(&json!("Unsupported")));
-        assert!(!names.is_empty());
-        for name in names {
-            assert!(serde_json::from_value::<Action>(name.clone()).is_ok());
-        }
-        assert_eq!(variants[1]["type"], "string");
-        assert_eq!(variants[1]["const"], "sessions.start");
-        assert_eq!(
-            variants[1]["description"],
-            "Host-wide creation; does not grant access to existing conversations."
-        );
-        assert_eq!(
-            serde_json::from_value::<Action>(variants[1]["const"].clone()).unwrap(),
-            Action::StartSessions
-        );
-    }
-
-    #[test]
-    fn keeps_access_distinct_from_read_only() {
-        let schema = serde_json::to_value(schemars::schema_for!(Action)).unwrap();
-        for name in schema["oneOf"][0]["enum"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .chain(std::iter::once(&schema["oneOf"][1]["const"]))
-        {
-            let action: Action = serde_json::from_value(name.clone()).unwrap();
-            assert_eq!(
-                action.access() == Access::Read,
-                action.read_only(),
-                "{name}"
-            );
-        }
-        assert_eq!(Action::ReadFiles.access(), Access::Read);
-        assert!(Action::ReadFiles.read_only());
-        assert_eq!(Action::WriteFiles.access(), Access::Modify);
-        assert!(!Action::WriteFiles.read_only());
-        assert_eq!(Action::ControlConversation.access(), Access::Operate);
-        assert!(!Action::ControlConversation.read_only());
-        assert_eq!(Action::InspectCredentials.access(), Access::Operate);
-        assert!(!Action::InspectCredentials.read_only());
-    }
-
-    #[test]
-    fn installation_is_not_read_only() {
-        assert!(Action::ReadModels.read_only());
-        assert!(!Action::InstallModels.read_only());
     }
 }

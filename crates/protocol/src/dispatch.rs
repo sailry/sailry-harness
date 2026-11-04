@@ -201,25 +201,39 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn timing_preserves_wire_variants() {
-        for value in [
-            json!({"kind":"once","data":{"at_ms":123}}),
-            json!({"kind":"every","data":{"anchor_ms":123,"interval_ms":1000}}),
-            json!({"kind":"weekly","data":{"timezone":"Asia/Shanghai","weekdays":[1,2,3,4,5],"hour":9,"minute":0}}),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "timing_preserves_wire_variants",
+                (|scenario: &'static str| {
+                    for value in [
+                        json!({"kind":"once","data":{"at_ms":123}}),
+                        json!({"kind":"every","data":{"anchor_ms":123,"interval_ms":1000}}),
+                        json!({"kind":"weekly","data":{"timezone":"Asia/Shanghai","weekdays":[1,2,3,4,5],"hour":9,"minute":0}}),
+                    ] {
+                        let timing: Timing = serde_json::from_value(value.clone()).unwrap();
+                        assert_eq!(serde_json::to_value(timing).unwrap(), value, "{scenario}");
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "rejects_unknown_timing_fields",
+                (|scenario: &'static str| {
+                    for value in [
+                        json!({"kind":"weekly","data":{"timezone":"UTC","weekdays":[1],"hour":9,"minute":0,"at_ms":1}}),
+                        json!({"kind":"weekly","data":{"weekdays":[1],"hour":9,"minute":0}}),
+                        json!({"kind":"weekly","data":{"timezone":"UTC","weekdays":[1],"hour":9,"minute":0},"next_ms":1}),
+                    ] {
+                        assert!(
+                            serde_json::from_value::<Timing>(value).is_err(),
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
         ] {
-            let timing: Timing = serde_json::from_value(value.clone()).unwrap();
-            assert_eq!(serde_json::to_value(timing).unwrap(), value);
-        }
-    }
-
-    #[test]
-    fn rejects_unknown_timing_fields() {
-        for value in [
-            json!({"kind":"weekly","data":{"timezone":"UTC","weekdays":[1],"hour":9,"minute":0,"at_ms":1}}),
-            json!({"kind":"weekly","data":{"weekdays":[1],"hour":9,"minute":0}}),
-            json!({"kind":"weekly","data":{"timezone":"UTC","weekdays":[1],"hour":9,"minute":0},"next_ms":1}),
-        ] {
-            assert!(serde_json::from_value::<Timing>(value).is_err());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

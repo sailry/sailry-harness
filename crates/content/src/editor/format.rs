@@ -365,137 +365,177 @@ mod tests {
     }
 
     #[test]
-    fn reads_quotes_and_callouts_from_containers() {
-        let doc = parse("> quoted\n\n> [!NOTE]\n> noted\n\n| a |\n| - |\n| b |");
-        assert_eq!(
-            kinds(&doc),
-            vec![Some(Kind::Quote), Some(Kind::Callout), None]
-        );
+    fn preserves_document_behavior() {
+        for (scenario, check) in [
+            (
+                "reads_quotes_and_callouts_from_containers",
+                (|scenario: &'static str| {
+                    let doc = parse("> quoted\n\n> [!NOTE]\n> noted\n\n| a |\n| - |\n| b |");
+                    assert_eq!(
+                        kinds(&doc),
+                        vec![Some(Kind::Quote), Some(Kind::Callout), None],
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "snippets_place_caret_inside_body",
+                (|scenario: &'static str| {
+                    for insert in [
+                        Insert::Table,
+                        Insert::Image,
+                        Insert::Rule,
+                        Insert::Code,
+                        Insert::Mermaid,
+                        Insert::Math,
+                        Insert::Chart,
+                        Insert::Html,
+                    ] {
+                        let (body, caret) = insert.snippet();
+                        assert!(caret <= body.len(), "{scenario}: {insert:?}");
+                        assert!(body.is_char_boundary(caret), "{scenario}: {insert:?}");
+                    }
+                    let (chart, caret) = Insert::Chart.snippet();
+                    let json = chart[caret..].strip_suffix("\n```").unwrap();
+                    assert!(
+                        sailry_protocol::chart::Chart::parse(json).is_some(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "mapped_conversion_preserves_literal_code",
+                (|scenario: &'static str| {
+                    for (source, range, kind) in [
+                        (
+                            "```python\n# comment\nprint(1)\n```",
+                            0..32,
+                            Kind::Paragraph,
+                        ),
+                        (
+                            "```python\n# comment\nprint(1)\n```",
+                            15..15,
+                            Kind::Heading(2),
+                        ),
+                        ("> quoted\n> continued", 3..8, Kind::Heading(2)),
+                        ("- first\n- second", 2..15, Kind::Ordered),
+                        (
+                            "- first\n  - nested\n- second",
+                            0..usize::MAX,
+                            Kind::Ordered,
+                        ),
+                        ("5. first\n- second", 10..usize::MAX, Kind::Ordered),
+                        ("- first\n3. second", 2..3, Kind::Ordered),
+                    ] {
+                        let before = parse(source);
+                        let map = super::super::source::Map::new(source, &before);
+                        let selection = Selection::new(
+                            map.cursor(range.start, &before),
+                            map.cursor(range.end.min(source.len()), &before),
+                        );
+                        let mut after = before.clone();
+                        convert(&mut after, selection, kind);
+                        let patch = map
+                            .patch(source, &before, &after)
+                            .expect("converted block patch");
+                        let mut updated = source.to_owned();
+                        updated.replace_range(patch.range, &patch.text);
+                        assert_eq!(parse(&updated), after, "{scenario}: {source} -> {updated}");
+                        if source.starts_with("```python") {
+                            assert!(updated.contains("comment"), "{scenario}");
+                            assert!(
+                                after.blocks[0]
+                                    .text_at(Part::Body)
+                                    .unwrap()
+                                    .text
+                                    .starts_with("# comment"),
+                                "{scenario}"
+                            );
+                            assert!(
+                                !matches!(parse(&updated).blocks[0].kind, BlockKind::Code { .. }),
+                                "{scenario}"
+                            );
+                        }
+                    }
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 
     mod retype {
         use super::*;
 
         #[test]
-        fn converts_paragraph_to_heading() {
-            let mut doc = parse("title");
-            retype(&mut doc, 0, Kind::Heading(2));
-            assert!(matches!(
-                &doc.blocks[0].kind,
-                BlockKind::Heading { level: 2, text } if text.text == "title"
-            ));
-        }
-
-        #[test]
-        fn leaves_quote_for_paragraph() {
-            let mut doc = parse("> quoted");
-            retype(&mut doc, 0, Kind::Paragraph);
-            assert_eq!(kinds(&doc), vec![Some(Kind::Paragraph)]);
-            assert!(doc.blocks[0].containers.is_empty());
-        }
-
-        #[test]
-        fn makes_callout_from_paragraph() {
-            let mut doc = parse("plain");
-            retype(&mut doc, 0, Kind::Callout);
-            assert!(matches!(
-                &doc.blocks[0].kind,
-                BlockKind::Quote { kind: Some(QuoteKind::Note), text } if text.text == "plain"
-            ));
-        }
-
-        #[test]
-        fn lists_keep_text() {
-            let mut doc = parse("item");
-            retype(&mut doc, 0, Kind::Task);
-            assert!(matches!(
-                &doc.blocks[0].kind,
-                BlockKind::Task { checked: false, text } if text.text == "item"
-            ));
-            retype(&mut doc, 0, Kind::Paragraph);
-            assert_eq!(kinds(&doc), vec![Some(Kind::Paragraph)]);
-        }
-
-        #[test]
-        fn ignores_tables() {
-            let mut doc = parse("| a |\n| - |\n| b |");
-            let before = doc.clone();
-            retype(&mut doc, 0, Kind::Heading(1));
-            assert_eq!(doc, before);
-        }
-    }
-
-    #[test]
-    fn snippets_place_caret_inside_body() {
-        for insert in [
-            Insert::Table,
-            Insert::Image,
-            Insert::Rule,
-            Insert::Code,
-            Insert::Mermaid,
-            Insert::Math,
-            Insert::Chart,
-            Insert::Html,
-        ] {
-            let (body, caret) = insert.snippet();
-            assert!(caret <= body.len(), "{insert:?}");
-            assert!(body.is_char_boundary(caret), "{insert:?}");
-        }
-        let (chart, caret) = Insert::Chart.snippet();
-        let json = chart[caret..].strip_suffix("\n```").unwrap();
-        assert!(sailry_protocol::chart::Chart::parse(json).is_some());
-    }
-
-    #[test]
-    fn mapped_conversion_preserves_literal_code() {
-        for (source, range, kind) in [
-            (
-                "```python\n# comment\nprint(1)\n```",
-                0..32,
-                Kind::Paragraph,
-            ),
-            (
-                "```python\n# comment\nprint(1)\n```",
-                15..15,
-                Kind::Heading(2),
-            ),
-            ("> quoted\n> continued", 3..8, Kind::Heading(2)),
-            ("- first\n- second", 2..15, Kind::Ordered),
-            (
-                "- first\n  - nested\n- second",
-                0..usize::MAX,
-                Kind::Ordered,
-            ),
-            ("5. first\n- second", 10..usize::MAX, Kind::Ordered),
-            ("- first\n3. second", 2..3, Kind::Ordered),
-        ] {
-            let before = parse(source);
-            let map = super::super::source::Map::new(source, &before);
-            let selection = Selection::new(
-                map.cursor(range.start, &before),
-                map.cursor(range.end.min(source.len()), &before),
-            );
-            let mut after = before.clone();
-            convert(&mut after, selection, kind);
-            let patch = map
-                .patch(source, &before, &after)
-                .expect("converted block patch");
-            let mut updated = source.to_owned();
-            updated.replace_range(patch.range, &patch.text);
-            assert_eq!(parse(&updated), after, "{source} -> {updated}");
-            if source.starts_with("```python") {
-                assert!(updated.contains("comment"));
-                assert!(
-                    after.blocks[0]
-                        .text_at(Part::Body)
-                        .unwrap()
-                        .text
-                        .starts_with("# comment")
-                );
-                assert!(!matches!(
-                    parse(&updated).blocks[0].kind,
-                    BlockKind::Code { .. }
-                ));
+        fn preserves_document_behavior() {
+            for (scenario, check) in [
+                (
+                    "converts_paragraph_to_heading",
+                    (|scenario: &'static str| {
+                        let mut doc = parse("title");
+                        retype(&mut doc, 0, Kind::Heading(2));
+                        assert!(
+                            matches!(
+                                &doc.blocks[0].kind,
+                                BlockKind::Heading { level: 2, text } if text.text == "title"
+                            ),
+                            "{scenario}"
+                        );
+                    }) as fn(&'static str),
+                ),
+                (
+                    "leaves_quote_for_paragraph",
+                    (|scenario: &'static str| {
+                        let mut doc = parse("> quoted");
+                        retype(&mut doc, 0, Kind::Paragraph);
+                        assert_eq!(kinds(&doc), vec![Some(Kind::Paragraph)], "{scenario}");
+                        assert!(doc.blocks[0].containers.is_empty(), "{scenario}");
+                    }),
+                ),
+                (
+                    "makes_callout_from_paragraph",
+                    (|scenario: &'static str| {
+                        let mut doc = parse("plain");
+                        retype(&mut doc, 0, Kind::Callout);
+                        assert!(
+                            matches!(
+                                &doc.blocks[0].kind,
+                                BlockKind::Quote { kind: Some(QuoteKind::Note), text } if text.text == "plain"
+                            ),
+                            "{scenario}"
+                        );
+                    }),
+                ),
+                (
+                    "lists_keep_text",
+                    (|scenario: &'static str| {
+                        let mut doc = parse("item");
+                        retype(&mut doc, 0, Kind::Task);
+                        assert!(
+                            matches!(
+                                &doc.blocks[0].kind,
+                                BlockKind::Task { checked: false, text } if text.text == "item"
+                            ),
+                            "{scenario}"
+                        );
+                        retype(&mut doc, 0, Kind::Paragraph);
+                        assert_eq!(kinds(&doc), vec![Some(Kind::Paragraph)], "{scenario}");
+                    }),
+                ),
+                (
+                    "ignores_tables",
+                    (|scenario: &'static str| {
+                        let mut doc = parse("| a |\n| - |\n| b |");
+                        let before = doc.clone();
+                        retype(&mut doc, 0, Kind::Heading(1));
+                        assert_eq!(doc, before, "{scenario}");
+                    }),
+                ),
+            ] {
+                eprintln!("case: {scenario}");
+                check(scenario);
             }
         }
     }

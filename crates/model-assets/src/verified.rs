@@ -212,7 +212,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preserves_marker_identity() {
+    fn tracks_marker_and_asset_lifecycle() {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().canonicalize().unwrap();
         fs::write(path.join("model.onnx"), b"model").unwrap();
@@ -224,54 +224,53 @@ mod tests {
         }];
         let before = candidate(&path, &files).unwrap();
         for marker in ["a".repeat(64), "b".repeat(64)] {
-            assert_eq!(mark(&path, &files, &marker, &before).unwrap(), before);
-            assert_eq!(verified(&path, &files, Some(&marker)).unwrap(), before);
+            assert_eq!(
+                mark(&path, &files, &marker, &before).unwrap(),
+                before,
+                "{marker}: mark identity"
+            );
+            assert_eq!(
+                verified(&path, &files, Some(&marker)).unwrap(),
+                before,
+                "{marker}: verified identity"
+            );
         }
-        assert!(stamp(&path, &files, Some(&"a".repeat(64))).is_none());
-    }
-
-    #[test]
-    fn recognizes_recorded_identity() {
-        let temporary = tempfile::tempdir().unwrap();
-        let path = temporary.path().canonicalize().unwrap();
-        fs::write(path.join("model.onnx"), b"model").unwrap();
-        let hash = format!("{:x}", Sha256::digest(b"model"));
-        let files = [File {
-            name: "model.onnx",
-            size: 5,
-            sha256: &hash,
-        }];
+        assert!(
+            stamp(&path, &files, Some(&"a".repeat(64))).is_none(),
+            "previous marker invalidated"
+        );
         let marker = "a".repeat(64);
-        let before = candidate(&path, &files).unwrap();
-        assert_eq!(mark(&path, &files, &marker, &before).unwrap(), before);
-        assert!(recorded(&path, &marker, &before));
-        assert!(!recorded(&path, &"b".repeat(64), &before));
+        assert_eq!(
+            mark(&path, &files, &marker, &before).unwrap(),
+            before,
+            "restore marker"
+        );
+        assert!(recorded(&path, &marker, &before), "recorded marker");
+        assert!(
+            !recorded(&path, &"b".repeat(64), &before),
+            "different marker"
+        );
         fs::remove_file(path.join(RECEIPT)).unwrap();
-        assert!(!recorded(&path, &marker, &before));
-        assert_eq!(verified(&path, &files, Some(&marker)), Some(before.clone()));
-        assert!(recorded(&path, &marker, &before));
+        assert!(!recorded(&path, &marker, &before), "missing receipt");
+        assert_eq!(
+            verified(&path, &files, Some(&marker)),
+            Some(before.clone()),
+            "rebuild receipt"
+        );
+        assert!(recorded(&path, &marker, &before), "rebuilt receipt");
         fs::write(path.join("model.onnx"), b"other").unwrap();
         let after = candidate(&path, &files).unwrap();
-        assert_ne!(after, before);
-        assert!(!recorded(&path, &marker, &after));
-    }
-
-    #[test]
-    fn rejects_changed_assets() {
-        let temporary = tempfile::tempdir().unwrap();
-        let path = temporary.path().canonicalize().unwrap();
-        fs::write(path.join("model.onnx"), b"model").unwrap();
-        let hash = format!("{:x}", Sha256::digest(b"model"));
-        let files = [File {
-            name: "model.onnx",
-            size: 5,
-            sha256: &hash,
-        }];
-        let before = candidate(&path, &files).unwrap();
-        fs::write(path.join("model.onnx"), b"other").unwrap();
-        assert!(mark(&path, &files, "receipt", &before).is_err());
+        assert_ne!(after, before, "changed identity");
+        assert!(
+            !recorded(&path, &marker, &after),
+            "changed asset invalidates receipt"
+        );
+        assert!(
+            mark(&path, &files, "receipt", &before).is_err(),
+            "changed asset cannot be marked"
+        );
         fs::write(path.join("model.onnx"), b"shorter").unwrap();
-        assert!(candidate(&path, &files).is_none());
+        assert!(candidate(&path, &files).is_none(), "changed size");
     }
 
     #[cfg(unix)]

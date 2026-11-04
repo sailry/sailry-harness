@@ -74,53 +74,71 @@ mod tests {
     use super::*;
 
     #[test]
-    fn keeps_exact_team_revisions() {
-        for kind in ["start_session", "set_session_team"] {
-            let mut value =
-                json!({"kind":kind,"data":{"team":{"id":"fixture","revision":"9007199254740993"}}});
-            command(&mut value).unwrap();
-            assert_eq!(
-                value["data"]["team"]["revision"],
-                json!(9_007_199_254_740_993_u64)
-            );
-            for revision in [
-                json!(9_007_199_254_740_993_u64),
-                json!("01"),
-                json!(-1),
-                json!(1.5),
-            ] {
-                value["data"]["team"]["revision"] = revision;
-                assert!(command(&mut value).is_err());
-            }
-            value["data"]["team"]["revision"] = Value::Null;
-            command(&mut value).unwrap();
-            assert!(value["data"]["team"]["revision"].is_null());
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "keeps_exact_team_revisions",
+                (|scenario: &'static str| {
+                    for kind in ["start_session", "set_session_team"] {
+                        let mut value = json!({"kind":kind,"data":{"team":{"id":"fixture","revision":"9007199254740993"}}});
+                        command(&mut value).unwrap();
+                        assert_eq!(
+                            value["data"]["team"]["revision"],
+                            json!(9_007_199_254_740_993_u64),
+                            "{scenario}"
+                        );
+                        for revision in [
+                            json!(9_007_199_254_740_993_u64),
+                            json!("01"),
+                            json!(-1),
+                            json!(1.5),
+                        ] {
+                            value["data"]["team"]["revision"] = revision;
+                            assert!(command(&mut value).is_err(), "{scenario}");
+                        }
+                        value["data"]["team"]["revision"] = Value::Null;
+                        command(&mut value).unwrap();
+                        assert!(value["data"]["team"]["revision"].is_null(), "{scenario}");
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "normalizes_callback_selections",
+                (|scenario: &'static str| {
+                    let mut value = json!({"kind":"dispatch","data":{"action":{"kind":"save_handler","data":{"callback":{"command":{"kind":"start_session","data":{"team":{"revision":"9007199254740993"}}}}}}}});
+                    command(&mut value).unwrap();
+                    assert_eq!(
+                        value.pointer("/data/action/data/callback/command/data/team/revision"),
+                        Some(&json!(9_007_199_254_740_993_u64)),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "retains_association_ownership",
+                (|scenario: &'static str| {
+                    let mut value = json!({"kind":"task","id":"daily"});
+                    association(&mut value, "fixture").unwrap();
+                    assert_eq!(
+                        value,
+                        json!({"namespace":"fixture","kind":"task","id":"daily"}),
+                        "{scenario}"
+                    );
+                    association(&mut value, "fixture").unwrap();
+                    assert_eq!(
+                        association(&mut value, "other").unwrap_err().code,
+                        crate::ErrorCode::PermissionDenied,
+                        "{scenario}"
+                    );
+                    assert!(
+                        association(&mut Value::Null, "fixture").is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn normalizes_callback_selections() {
-        let mut value = json!({"kind":"dispatch","data":{"action":{"kind":"save_handler","data":{"callback":{"command":{"kind":"start_session","data":{"team":{"revision":"9007199254740993"}}}}}}}});
-        command(&mut value).unwrap();
-        assert_eq!(
-            value.pointer("/data/action/data/callback/command/data/team/revision"),
-            Some(&json!(9_007_199_254_740_993_u64))
-        );
-    }
-
-    #[test]
-    fn retains_association_ownership() {
-        let mut value = json!({"kind":"task","id":"daily"});
-        association(&mut value, "fixture").unwrap();
-        assert_eq!(
-            value,
-            json!({"namespace":"fixture","kind":"task","id":"daily"})
-        );
-        association(&mut value, "fixture").unwrap();
-        assert_eq!(
-            association(&mut value, "other").unwrap_err().code,
-            crate::ErrorCode::PermissionDenied
-        );
-        assert!(association(&mut Value::Null, "fixture").is_err());
     }
 }

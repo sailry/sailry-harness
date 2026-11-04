@@ -232,48 +232,71 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn defaults_server_availability() {
-        let server: super::super::Mcp = serde_json::from_value(json!({
-            "name": "service", "transport": "stdio"
-        }))
-        .unwrap();
-        assert!(server.allowed);
-        assert_eq!(server.availability, Availability::Available);
-        let mut value = serde_json::to_value(&server).unwrap();
-        value["allowed"] = false.into();
-        value["availability"] = "server_disabled".into();
-        let disabled: super::super::Mcp = serde_json::from_value(value.clone()).unwrap();
-        assert!(!disabled.allowed);
-        assert_eq!(disabled.availability, Availability::ServerDisabled);
-        assert_eq!(serde_json::to_value(disabled).unwrap(), value);
-        assert_eq!(crate::VERSION, 1);
-    }
-
-    #[test]
-    fn preserves_optional_policies() {
-        for mut value in [
-            json!({"type":"stdio","command":"${SAILRY_COMPUTER_USE}"}),
-            json!({"type":"streamable-http","url":"https://example.test/mcp"}),
-            json!({"type":"sse","url":"https://example.test/events"}),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "defaults_server_availability",
+                (|scenario: &'static str| {
+                    let server: super::super::Mcp = serde_json::from_value(json!({
+                        "name": "service", "transport": "stdio"
+                    }))
+                    .unwrap();
+                    assert!(server.allowed, "{scenario}");
+                    assert_eq!(server.availability, Availability::Available, "{scenario}");
+                    let mut value = serde_json::to_value(&server).unwrap();
+                    value["allowed"] = false.into();
+                    value["availability"] = "server_disabled".into();
+                    let disabled: super::super::Mcp =
+                        serde_json::from_value(value.clone()).unwrap();
+                    assert!(!disabled.allowed, "{scenario}");
+                    assert_eq!(
+                        disabled.availability,
+                        Availability::ServerDisabled,
+                        "{scenario}"
+                    );
+                    assert_eq!(serde_json::to_value(disabled).unwrap(), value, "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "preserves_optional_policies",
+                (|scenario: &'static str| {
+                    for mut value in [
+                        json!({"type":"stdio","command":"${SAILRY_COMPUTER_USE}"}),
+                        json!({"type":"streamable-http","url":"https://example.test/mcp"}),
+                        json!({"type":"sse","url":"https://example.test/events"}),
+                    ] {
+                        let server: Server = serde_json::from_value(value.clone()).unwrap();
+                        assert_eq!(server.options(), Options::default(), "{scenario}");
+                        value["exclusive"] = true.into();
+                        value["keep_images"] = 3.into();
+                        value["reuse"] = false.into();
+                        let server: Server = serde_json::from_value(value.clone()).unwrap();
+                        assert_eq!(
+                            server.options(),
+                            Options {
+                                exclusive: true,
+                                keep_images: Some(3),
+                                reuse: false
+                            },
+                            "{scenario}"
+                        );
+                        let encoded = serde_json::to_value(&server).unwrap();
+                        assert_eq!(
+                            serde_json::from_value::<Server>(encoded).unwrap(),
+                            server,
+                            "{scenario}"
+                        );
+                        value["keep_images"] = (-1).into();
+                        assert!(
+                            serde_json::from_value::<Server>(value).is_err(),
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
         ] {
-            let server: Server = serde_json::from_value(value.clone()).unwrap();
-            assert_eq!(server.options(), Options::default());
-            value["exclusive"] = true.into();
-            value["keep_images"] = 3.into();
-            value["reuse"] = false.into();
-            let server: Server = serde_json::from_value(value.clone()).unwrap();
-            assert_eq!(
-                server.options(),
-                Options {
-                    exclusive: true,
-                    keep_images: Some(3),
-                    reuse: false
-                }
-            );
-            let encoded = serde_json::to_value(&server).unwrap();
-            assert_eq!(serde_json::from_value::<Server>(encoded).unwrap(), server);
-            value["keep_images"] = (-1).into();
-            assert!(serde_json::from_value::<Server>(value).is_err());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

@@ -107,74 +107,107 @@ mod tests {
     use super::*;
 
     #[test]
-    fn keeps_order_and_marks() {
-        let doc = expand(
-            super::super::with_ranges("**Before** ![First](one.png) then ![Second](two.jpg) after")
-                .doc,
-        );
-        assert_eq!(doc.blocks.len(), 5);
-        let BlockKind::Paragraph(text) = &doc.blocks[0].kind else {
-            panic!("text expected")
-        };
-        assert_eq!(text.text, "Before ");
-        assert_eq!(text.marks[0].range, 0..6);
-        assert!(matches!(&doc.blocks[1].kind, BlockKind::Image { url, .. } if url == "one.png"));
-        assert!(matches!(&doc.blocks[3].kind, BlockKind::Image { url, .. } if url == "two.jpg"));
-    }
-
-    #[test]
-    fn shows_file_links() {
-        let doc = expand(
-            super::super::with_ranges(
-                "Done: [Download](output.png) [Website](https://example.test/photo.png)",
-            )
-            .doc,
-        );
-        assert_eq!(doc.blocks.len(), 3);
-        assert!(matches!(&doc.blocks[1].kind, BlockKind::Image { url, .. } if url == "output.png"));
-        let BlockKind::Paragraph(text) = &doc.blocks[2].kind else {
-            panic!("text expected")
-        };
-        assert!(matches!(&text.marks[0].mark, Mark::Link(url) if url.starts_with("https://")));
-    }
-
-    #[test]
-    fn groups_only_adjacent_pictures() {
-        let doc = expand(
-            super::super::with_ranges(
-                "![First](one.png) ![Second](two.png)\n\nBetween\n\n![Third](three.png)",
-            )
-            .doc,
-        );
-        assert_eq!(end(&doc, 0), 2);
-        assert_eq!(end(&doc, 2), 3);
-        assert_eq!(end(&doc, 3), 4);
-        assert!(matches!(&doc.blocks[0].kind, BlockKind::Image { alt, .. } if alt.text == "First"));
-        assert!(
-            matches!(&doc.blocks[1].kind, BlockKind::Image { alt, .. } if alt.text == "Second")
-        );
-    }
-
-    #[test]
-    fn preserves_container_boundaries() {
-        let doc = expand(
-            super::super::with_ranges(
-                "> ![First](one.png)\n>\n> ![Second](two.png)\n\n![Outside](three.png)",
-            )
-            .doc,
-        );
-        assert_eq!(end(&doc, 0), 1);
-        assert_eq!(end(&doc, 1), 2);
-        assert_eq!(end(&doc, 2), 3);
-    }
-
-    #[test]
-    fn keeps_separate_quotes_distinct() {
-        let doc =
-            expand(super::super::with_ranges("> ![First](one.png)\n\n> ![Second](two.png)").doc);
-        assert_eq!(doc.blocks.len(), 2);
-        assert_eq!(doc.blocks[0].containers, doc.blocks[1].containers);
-        assert_eq!(end(&doc, 0), 1);
-        assert_eq!(end(&doc, 1), 2);
+    fn preserves_document_behavior() {
+        for (scenario, check) in [
+            (
+                "keeps_order_and_marks",
+                (|scenario: &'static str| {
+                    let doc = expand(
+                        super::super::with_ranges(
+                            "**Before** ![First](one.png) then ![Second](two.jpg) after",
+                        )
+                        .doc,
+                    );
+                    assert_eq!(doc.blocks.len(), 5, "{scenario}");
+                    let BlockKind::Paragraph(text) = &doc.blocks[0].kind else {
+                        panic!("{scenario}: text expected")
+                    };
+                    assert_eq!(text.text, "Before ", "{scenario}");
+                    assert_eq!(text.marks[0].range, 0..6, "{scenario}");
+                    assert!(
+                        matches!(&doc.blocks[1].kind, BlockKind::Image { url, .. } if url == "one.png"),
+                        "{scenario}"
+                    );
+                    assert!(
+                        matches!(&doc.blocks[3].kind, BlockKind::Image { url, .. } if url == "two.jpg"),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "shows_file_links",
+                (|scenario: &'static str| {
+                    let doc = expand(
+                    super::super::with_ranges(
+                        "Done: [Download](output.png) [Website](https://example.test/photo.png)",
+                    )
+                    .doc,
+                );
+                    assert_eq!(doc.blocks.len(), 3, "{scenario}");
+                    assert!(
+                        matches!(&doc.blocks[1].kind, BlockKind::Image { url, .. } if url == "output.png"),
+                        "{scenario}"
+                    );
+                    let BlockKind::Paragraph(text) = &doc.blocks[2].kind else {
+                        panic!("{scenario}: text expected")
+                    };
+                    assert!(
+                        matches!(&text.marks[0].mark, Mark::Link(url) if url.starts_with("https://")),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "groups_only_adjacent_pictures",
+                (|scenario: &'static str| {
+                    for (case, source, ends) in [
+                        (
+                            "prose boundary",
+                            "![First](one.png) ![Second](two.png)\n\nBetween\n\n![Third](three.png)",
+                            vec![(0, 2), (2, 3), (3, 4)],
+                        ),
+                        (
+                            "quote boundary",
+                            "> ![First](one.png)\n>\n> ![Second](two.png)\n\n![Outside](three.png)",
+                            vec![(0, 1), (1, 2), (2, 3)],
+                        ),
+                        (
+                            "separate quotes",
+                            "> ![First](one.png)\n\n> ![Second](two.png)",
+                            vec![(0, 1), (1, 2)],
+                        ),
+                    ] {
+                        let doc = expand(super::super::with_ranges(source).doc);
+                        for (start, expected) in ends {
+                            assert_eq!(
+                                end(&doc, start),
+                                expected,
+                                "{scenario}: {case}: group at {start}"
+                            );
+                        }
+                        if case == "prose boundary" {
+                            assert!(
+                                matches!(&doc.blocks[0].kind, BlockKind::Image { alt, .. } if alt.text == "First"),
+                                "{scenario}: {case}: first caption"
+                            );
+                            assert!(
+                                matches!(&doc.blocks[1].kind, BlockKind::Image { alt, .. } if alt.text == "Second"),
+                                "{scenario}: {case}: second caption"
+                            );
+                        }
+                        if case == "separate quotes" {
+                            assert_eq!(doc.blocks.len(), 2, "{scenario}: {case}: block count");
+                            assert_eq!(
+                                doc.blocks[0].containers, doc.blocks[1].containers,
+                                "{scenario}: {case}: same container kinds"
+                            );
+                        }
+                    }
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

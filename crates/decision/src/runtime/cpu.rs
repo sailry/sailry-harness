@@ -46,51 +46,69 @@ mod tests {
     use super::*;
 
     #[test]
-    fn scores_only_locked_cpu_variants() {
-        let names = [
-            "libggml-cpu-x64.so",
-            "libggml-cpu-haswell.so",
-            "ggml-cpu-zen4.dll",
-            "libggml-cuda.so",
-            "llama.dll",
-            "../libggml-cpu-external.so",
-        ];
-        let variants = names
-            .into_iter()
-            .filter(|name| variant(name))
-            .map(String::from)
-            .collect::<Vec<_>>();
-        let selected = best(&variants, |name| {
-            Ok(match name {
-                "libggml-cpu-x64.so" => 1,
-                "libggml-cpu-haswell.so" => 8,
-                "ggml-cpu-zen4.dll" => 0,
-                _ => panic!("unlocked backend was scored"),
-            })
-        })
-        .unwrap();
-        assert_eq!(selected, "libggml-cpu-haswell.so");
-    }
-
-    #[test]
-    fn skips_unsupported_or_unloadable_variants() {
-        let variants = ["unsupported", "unloadable", "portable"].map(String::from);
-        assert_eq!(
-            best(&variants, |name| match name {
-                "unsupported" => Ok(0),
-                "unloadable" => Err(Error::Unavailable("dependency is missing".into())),
-                _ => Ok(1),
-            })
-            .unwrap(),
-            "portable"
-        );
-        assert!(matches!(
-            best(&variants[..1], |_| Ok(0)),
-            Err(Error::Unavailable(message)) if message == "no compatible CPU backend is available"
-        ));
-        assert!(matches!(
-            best(&variants[1..2], |_| Err(Error::Unavailable("dependency is missing".into()))),
-            Err(Error::Unavailable(message)) if message == "dependency is missing"
-        ));
+    fn preserves_inference_contracts() {
+        for (scenario, check) in [
+            (
+                "scores_only_locked_cpu_variants",
+                (|scenario: &'static str| {
+                    let names = [
+                        "libggml-cpu-x64.so",
+                        "libggml-cpu-haswell.so",
+                        "ggml-cpu-zen4.dll",
+                        "libggml-cuda.so",
+                        "llama.dll",
+                        "../libggml-cpu-external.so",
+                    ];
+                    let variants = names
+                        .into_iter()
+                        .filter(|name| variant(name))
+                        .map(String::from)
+                        .collect::<Vec<_>>();
+                    let selected = best(&variants, |name| {
+                        Ok(match name {
+                            "libggml-cpu-x64.so" => 1,
+                            "libggml-cpu-haswell.so" => 8,
+                            "ggml-cpu-zen4.dll" => 0,
+                            _ => panic!("{scenario}: unlocked backend was scored"),
+                        })
+                    })
+                    .unwrap();
+                    assert_eq!(selected, "libggml-cpu-haswell.so", "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "skips_unsupported_or_unloadable_variants",
+                (|scenario: &'static str| {
+                    let variants = ["unsupported", "unloadable", "portable"].map(String::from);
+                    assert_eq!(
+                        best(&variants, |name| match name {
+                            "unsupported" => Ok(0),
+                            "unloadable" => Err(Error::Unavailable("dependency is missing".into())),
+                            _ => Ok(1),
+                        })
+                        .unwrap(),
+                        "portable",
+                        "{scenario}"
+                    );
+                    assert!(
+                        matches!(
+                            best(&variants[..1], |_| Ok(0)),
+                            Err(Error::Unavailable(message)) if message == "no compatible CPU backend is available"
+                        ),
+                        "{scenario}"
+                    );
+                    assert!(
+                        matches!(
+                            best(&variants[1..2], |_| Err(Error::Unavailable("dependency is missing".into()))),
+                            Err(Error::Unavailable(message)) if message == "dependency is missing"
+                        ),
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

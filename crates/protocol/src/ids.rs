@@ -86,30 +86,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_nil_wire_identifier() {
-        assert!(
-            serde_json::from_str::<RequestId>("\"00000000-0000-0000-0000-000000000000\"").is_err()
-        );
-    }
-
-    #[test]
-    fn identity_round_trip() {
-        let id = RequestId::new();
-        assert_eq!(
-            serde_json::from_str::<RequestId>(&serde_json::to_string(&id).unwrap()).unwrap(),
-            id
-        );
-    }
-
-    #[test]
-    fn displays_complete_public_identity() {
-        let node = NodeId(std::array::from_fn(|index| index as u8));
-        assert_eq!(
-            node.to_string(),
-            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        );
-        let wire = serde_json::to_value(node).unwrap();
-        assert_eq!(wire, serde_json::json!((0..32).collect::<Vec<_>>()));
-        assert_eq!(serde_json::from_value::<NodeId>(wire).unwrap(), node);
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "rejects_nil_wire_identifier",
+                (|scenario: &'static str| {
+                    assert!(
+                        serde_json::from_str::<RequestId>(
+                            "\"00000000-0000-0000-0000-000000000000\""
+                        )
+                        .is_err(),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "identity_round_trip",
+                (|scenario: &'static str| {
+                    let id = RequestId::new();
+                    assert_eq!(
+                        serde_json::from_str::<RequestId>(&serde_json::to_string(&id).unwrap())
+                            .unwrap(),
+                        id,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "displays_complete_public_identity",
+                (|scenario: &'static str| {
+                    let node = NodeId(std::array::from_fn(|index| index as u8));
+                    assert_eq!(
+                        node.to_string(),
+                        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                        "{scenario}"
+                    );
+                    let wire = serde_json::to_value(node).unwrap();
+                    assert_eq!(
+                        wire,
+                        serde_json::json!((0..32).collect::<Vec<_>>()),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::from_value::<NodeId>(wire).unwrap(),
+                        node,
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

@@ -349,137 +349,175 @@ mod tests {
     use super::*;
 
     #[test]
-    fn confines_plugin_drafts_to_captured_sources() {
-        let draft: Draft =
-            serde_json::from_str(r#"{"name":"Notes","source":{"kind":"worktree","path":"notes"}}"#)
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "confines_plugin_drafts_to_captured_sources",
+                (|scenario: &'static str| {
+                    let draft: Draft = serde_json::from_str(
+                        r#"{"name":"Notes","source":{"kind":"worktree","path":"notes"}}"#,
+                    )
+                    .unwrap();
+                    assert!(draft.clone().into_definition(None).is_err(), "{scenario}");
+                    let worktree = WorktreeId::new();
+                    let definition = draft.into_definition(Some(worktree)).unwrap();
+                    assert_eq!(
+                        definition.source,
+                        Source::Worktree {
+                            worktree,
+                            path: "notes".into()
+                        },
+                        "{scenario}"
+                    );
+                    assert!(definition.shared_with.is_empty(), "{scenario}");
+                    for value in [
+                        serde_json::json!({"name":"Notes","source":{"kind":"directory","path":"/tmp"}}),
+                        serde_json::json!({"name":"Notes","source":{"kind":"file","path":"/tmp/note"}}),
+                        serde_json::json!({"name":"Notes","source":{"kind":"worktree","path":"notes","worktree":worktree}}),
+                        serde_json::json!({"name":"Notes","source":{"kind":"storage","scope":"node","prefix":"","owner":"other"}}),
+                        serde_json::json!({"name":"Notes","source":{"kind":"storage","scope":"node","prefix":""},"shared_with":["other"]}),
+                    ] {
+                        assert!(
+                            serde_json::from_value::<Draft>(value).is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    let draft: Draft = serde_json::from_str(
+                    r#"{"name":"Notes","source":{"kind":"storage","scope":"conversation","prefix":"notes/"}}"#,
+                ).unwrap();
+                    let definition = draft.into_definition(None).unwrap();
+                    assert_eq!(
+                        definition.source,
+                        Source::Storage {
+                            scope: Scope::Conversation,
+                            prefix: "notes/".into()
+                        },
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "preserves_explicit_filters_and_rejects_unknown_fields",
+                (|scenario: &'static str| {
+                    let query: Query = serde_json::from_str(r#"{"query":"local source"}"#).unwrap();
+                    assert_eq!(query.mode, Mode::Hybrid, "{scenario}");
+                    assert_eq!(query.limit, DEFAULT_LIMIT, "{scenario}");
+                    query.validate().unwrap();
+                    assert!(
+                        serde_json::from_str::<Query>(r#"{"query":"local","owner":"other"}"#)
+                            .is_err(),
+                        "{scenario}"
+                    );
+                    let mut expanded = query.clone();
+                    expanded.limit = u16::MAX;
+                    expanded.offset = 10_001;
+                    expanded.query = "q".repeat(8193);
+                    expanded.tags = vec!["tag".repeat(129); 33];
+                    expanded.validate().unwrap();
+                    let mut invalid = query.clone();
+                    invalid.limit = 0;
+                    assert!(invalid.validate().is_err(), "{scenario}");
+                    let mut invalid = query;
+                    invalid.modified_after_ms = Some(20);
+                    invalid.modified_before_ms = Some(10);
+                    assert!(invalid.validate().is_err(), "{scenario}");
+                }),
+            ),
+            (
+                "keeps_source_positions_separate_from_answer_offsets",
+                (|scenario: &'static str| {
+                    let mut citation = Citation {
+                        collection: KnowledgeId::new(),
+                        chunk: "1".repeat(64),
+                        revision: "2".repeat(64),
+                        path: "report.xlsx".into(),
+                        position: Position::Cells {
+                            sheet: "Data".into(),
+                            start: "A1".into(),
+                            end: "B5".into(),
+                        },
+                        link: String::new(),
+                    };
+                    citation.link = citation.url();
+                    let json = serde_json::to_string(&citation).unwrap();
+                    assert_eq!(
+                        serde_json::from_str::<Citation>(&json).unwrap(),
+                        citation,
+                        "{scenario}"
+                    );
+                    assert!(json.contains("sailry-knowledge://"), "{scenario}");
+                    assert!(!citation.link.contains("report.xlsx"), "{scenario}");
+                }),
+            ),
+            (
+                "validates_citation_identity_and_page_bounds",
+                (|scenario: &'static str| {
+                    let valid = CitationRequest {
+                        context: false,
+                        collection: KnowledgeId::new(),
+                        chunk: "1".repeat(64),
+                        revision: "2".repeat(64),
+                        offset: 0,
+                        limit: 64 * 1024,
+                    };
+                    valid.validate().unwrap();
+                    let mut invalid = valid.clone();
+                    invalid.chunk = "../private".into();
+                    assert!(invalid.validate().is_err(), "{scenario}");
+                    invalid = valid.clone();
+                    invalid.revision = "A".repeat(64);
+                    assert!(invalid.validate().is_err(), "{scenario}");
+                    invalid = valid.clone();
+                    invalid.limit += 1;
+                    invalid.validate().unwrap();
+                    invalid.limit = 0;
+                    assert!(invalid.validate().is_err(), "{scenario}");
+                    let mut value = serde_json::to_value(valid).unwrap();
+                    value["path"] = serde_json::json!("/private/source");
+                    assert!(
+                        serde_json::from_value::<CitationRequest>(value).is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "defaults_optional_collection_bindings",
+                (|scenario: &'static str| {
+                    let definition: Definition = serde_json::from_str(
+                    r#"{"name":"Notes","source":{"kind":"storage","scope":"node","prefix":""}}"#,
+                )
                 .unwrap();
-        assert!(draft.clone().into_definition(None).is_err());
-        let worktree = WorktreeId::new();
-        let definition = draft.into_definition(Some(worktree)).unwrap();
-        assert_eq!(
-            definition.source,
-            Source::Worktree {
-                worktree,
-                path: "notes".into()
-            }
-        );
-        assert!(definition.shared_with.is_empty());
-        for value in [
-            serde_json::json!({"name":"Notes","source":{"kind":"directory","path":"/tmp"}}),
-            serde_json::json!({"name":"Notes","source":{"kind":"file","path":"/tmp/note"}}),
-            serde_json::json!({"name":"Notes","source":{"kind":"worktree","path":"notes","worktree":worktree}}),
-            serde_json::json!({"name":"Notes","source":{"kind":"storage","scope":"node","prefix":"","owner":"other"}}),
-            serde_json::json!({"name":"Notes","source":{"kind":"storage","scope":"node","prefix":""},"shared_with":["other"]}),
+                    assert_eq!(definition.model, None, "{scenario}");
+                    assert!(definition.globs.is_empty(), "{scenario}");
+                    definition.validate().unwrap();
+                    let mut invalid = definition.clone();
+                    invalid.globs = vec!["**/*.md".into()];
+                    assert!(invalid.validate().is_err(), "{scenario}");
+                    assert!(serde_json::from_str::<Definition>(r#"{"name":"Notes","source":{"kind":"storage","scope":"node","prefix":""},"owner":"other"}"#).is_err(), "{scenario}");
+                    let command = crate::Command::CreateKnowledgeCollection {
+                        definition,
+                        plugin: None,
+                    };
+                    assert!(command.durable(), "{scenario}");
+                    assert!(
+                        !crate::Command::ListKnowledgeCollections.durable(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        !crate::Command::ReadLocalModelSettings.durable(),
+                        "{scenario}"
+                    );
+                    let encoded = serde_json::to_string(&command).unwrap();
+                    assert_eq!(
+                        serde_json::from_str::<crate::Command>(&encoded).unwrap(),
+                        command,
+                        "{scenario}"
+                    );
+                }),
+            ),
         ] {
-            assert!(serde_json::from_value::<Draft>(value).is_err());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let draft: Draft = serde_json::from_str(
-            r#"{"name":"Notes","source":{"kind":"storage","scope":"conversation","prefix":"notes/"}}"#,
-        ).unwrap();
-        let definition = draft.into_definition(None).unwrap();
-        assert_eq!(
-            definition.source,
-            Source::Storage {
-                scope: Scope::Conversation,
-                prefix: "notes/".into()
-            }
-        );
-    }
-
-    #[test]
-    fn preserves_explicit_filters_and_rejects_unknown_fields() {
-        let query: Query = serde_json::from_str(r#"{"query":"local source"}"#).unwrap();
-        assert_eq!(query.mode, Mode::Hybrid);
-        assert_eq!(query.limit, DEFAULT_LIMIT);
-        query.validate().unwrap();
-        assert!(serde_json::from_str::<Query>(r#"{"query":"local","owner":"other"}"#).is_err());
-        let mut expanded = query.clone();
-        expanded.limit = u16::MAX;
-        expanded.offset = 10_001;
-        expanded.query = "q".repeat(8193);
-        expanded.tags = vec!["tag".repeat(129); 33];
-        expanded.validate().unwrap();
-        let mut invalid = query.clone();
-        invalid.limit = 0;
-        assert!(invalid.validate().is_err());
-        let mut invalid = query;
-        invalid.modified_after_ms = Some(20);
-        invalid.modified_before_ms = Some(10);
-        assert!(invalid.validate().is_err());
-    }
-
-    #[test]
-    fn keeps_source_positions_separate_from_answer_offsets() {
-        let mut citation = Citation {
-            collection: KnowledgeId::new(),
-            chunk: "1".repeat(64),
-            revision: "2".repeat(64),
-            path: "report.xlsx".into(),
-            position: Position::Cells {
-                sheet: "Data".into(),
-                start: "A1".into(),
-                end: "B5".into(),
-            },
-            link: String::new(),
-        };
-        citation.link = citation.url();
-        let json = serde_json::to_string(&citation).unwrap();
-        assert_eq!(serde_json::from_str::<Citation>(&json).unwrap(), citation);
-        assert!(json.contains("sailry-knowledge://"));
-        assert!(!citation.link.contains("report.xlsx"));
-    }
-
-    #[test]
-    fn validates_citation_identity_and_page_bounds() {
-        let valid = CitationRequest {
-            context: false,
-            collection: KnowledgeId::new(),
-            chunk: "1".repeat(64),
-            revision: "2".repeat(64),
-            offset: 0,
-            limit: 64 * 1024,
-        };
-        valid.validate().unwrap();
-        let mut invalid = valid.clone();
-        invalid.chunk = "../private".into();
-        assert!(invalid.validate().is_err());
-        invalid = valid.clone();
-        invalid.revision = "A".repeat(64);
-        assert!(invalid.validate().is_err());
-        invalid = valid.clone();
-        invalid.limit += 1;
-        invalid.validate().unwrap();
-        invalid.limit = 0;
-        assert!(invalid.validate().is_err());
-        let mut value = serde_json::to_value(valid).unwrap();
-        value["path"] = serde_json::json!("/private/source");
-        assert!(serde_json::from_value::<CitationRequest>(value).is_err());
-    }
-
-    #[test]
-    fn defaults_optional_collection_bindings() {
-        let definition: Definition = serde_json::from_str(
-            r#"{"name":"Notes","source":{"kind":"storage","scope":"node","prefix":""}}"#,
-        )
-        .unwrap();
-        assert_eq!(definition.model, None);
-        assert!(definition.globs.is_empty());
-        definition.validate().unwrap();
-        let mut invalid = definition.clone();
-        invalid.globs = vec!["**/*.md".into()];
-        assert!(invalid.validate().is_err());
-        assert!(serde_json::from_str::<Definition>(r#"{"name":"Notes","source":{"kind":"storage","scope":"node","prefix":""},"owner":"other"}"#).is_err());
-        let command = crate::Command::CreateKnowledgeCollection {
-            definition,
-            plugin: None,
-        };
-        assert!(command.durable());
-        assert!(!crate::Command::ListKnowledgeCollections.durable());
-        assert!(!crate::Command::ReadLocalModelSettings.durable());
-        let encoded = serde_json::to_string(&command).unwrap();
-        assert_eq!(
-            serde_json::from_str::<crate::Command>(&encoded).unwrap(),
-            command
-        );
     }
 }

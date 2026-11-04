@@ -170,62 +170,75 @@ mod server_options {
     use super::*;
 
     #[test]
-    fn preserves_network_and_tunnel_options() {
-        for connection in [
-            Connection::Network {
-                engine: Engine::Postgres,
-                host: "database.internal".into(),
-                port: 5432,
-                database: "project".into(),
-                username: "reader".into(),
-                tls: Tls::Require,
-            },
-            Connection::Ssh {
-                engine: Engine::Postgres,
-                host: "database.internal".into(),
-                port: 5432,
-                database: "project".into(),
-                username: "reader".into(),
-                tls: Tls::Require,
-                ssh: crate::SshId::new(),
-            },
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "preserves_network_and_tunnel_options",
+                (|scenario: &'static str| {
+                    for connection in [
+                        Connection::Network {
+                            engine: Engine::Postgres,
+                            host: "database.internal".into(),
+                            port: 5432,
+                            database: "project".into(),
+                            username: "reader".into(),
+                            tls: Tls::Require,
+                        },
+                        Connection::Ssh {
+                            engine: Engine::Postgres,
+                            host: "database.internal".into(),
+                            port: 5432,
+                            database: "project".into(),
+                            username: "reader".into(),
+                            tls: Tls::Require,
+                            ssh: crate::SshId::new(),
+                        },
+                    ] {
+                        let options = connection.server().unwrap();
+                        assert_eq!(options.host, "database.internal", "{scenario}");
+                        assert_eq!(options.port, 5432, "{scenario}");
+                        assert_eq!(options.database, "project", "{scenario}");
+                        assert_eq!(options.username, "reader", "{scenario}");
+                        assert_eq!(options.tls, Tls::Require, "{scenario}");
+                        assert!(options.socket.is_none(), "{scenario}");
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "socket_disables_network_tls",
+                (|scenario: &'static str| {
+                    let connection = Connection::Socket {
+                        engine: Engine::Mysql,
+                        path: "/tmp/database.sock".into(),
+                        port: 3306,
+                        database: "project".into(),
+                        username: "reader".into(),
+                    };
+                    let options = connection.server().unwrap();
+                    assert_eq!(options.host, "localhost", "{scenario}");
+                    assert_eq!(options.port, 3306, "{scenario}");
+                    assert_eq!(options.database, "project", "{scenario}");
+                    assert_eq!(options.username, "reader", "{scenario}");
+                    assert_eq!(options.socket, Some("/tmp/database.sock"), "{scenario}");
+                    assert_eq!(options.tls, Tls::Disable, "{scenario}");
+                }),
+            ),
+            (
+                "sqlite_has_no_server_options",
+                (|scenario: &'static str| {
+                    assert!(
+                        Connection::Sqlite {
+                            path: "database.sqlite".into()
+                        }
+                        .server()
+                        .is_none(),
+                        "{scenario}"
+                    );
+                }),
+            ),
         ] {
-            let options = connection.server().unwrap();
-            assert_eq!(options.host, "database.internal");
-            assert_eq!(options.port, 5432);
-            assert_eq!(options.database, "project");
-            assert_eq!(options.username, "reader");
-            assert_eq!(options.tls, Tls::Require);
-            assert!(options.socket.is_none());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn socket_disables_network_tls() {
-        let connection = Connection::Socket {
-            engine: Engine::Mysql,
-            path: "/tmp/database.sock".into(),
-            port: 3306,
-            database: "project".into(),
-            username: "reader".into(),
-        };
-        let options = connection.server().unwrap();
-        assert_eq!(options.host, "localhost");
-        assert_eq!(options.port, 3306);
-        assert_eq!(options.database, "project");
-        assert_eq!(options.username, "reader");
-        assert_eq!(options.socket, Some("/tmp/database.sock"));
-        assert_eq!(options.tls, Tls::Disable);
-    }
-
-    #[test]
-    fn sqlite_has_no_server_options() {
-        assert!(
-            Connection::Sqlite {
-                path: "database.sqlite".into()
-            }
-            .server()
-            .is_none()
-        );
     }
 }

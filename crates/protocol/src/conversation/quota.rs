@@ -36,33 +36,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn expires_without_estimating_refill() {
-        let window = Window {
-            used_basis_points: 4_250,
-            reset_at_ms: Some(100),
-        };
-        assert!(window.available_at(99));
-        assert!(!window.available_at(100));
-        assert!(!window.available_at(101));
-        assert_eq!(window.used_basis_points, 4_250);
-    }
-
-    #[test]
-    fn preserves_observations_without_reset() {
-        let window = Window {
-            used_basis_points: 0,
-            reset_at_ms: None,
-        };
-        assert!(window.available_at(u64::MAX));
-    }
-
-    #[test]
-    fn preserves_overage_without_negative_remaining() {
-        let window = Window {
-            used_basis_points: 10_050,
-            reset_at_ms: None,
-        };
-        assert_eq!(window.remaining_basis_points(), 0);
-        assert_eq!(window.used_basis_points, 10_050);
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "expires_without_estimating_refill",
+                (|scenario: &'static str| {
+                    let window = Window {
+                        used_basis_points: 4_250,
+                        reset_at_ms: Some(100),
+                    };
+                    assert!(window.available_at(99), "{scenario}");
+                    assert!(!window.available_at(100), "{scenario}");
+                    assert!(!window.available_at(101), "{scenario}");
+                    assert_eq!(window.used_basis_points, 4_250, "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "preserves_observations_without_reset",
+                (|scenario: &'static str| {
+                    let window = Window {
+                        used_basis_points: 0,
+                        reset_at_ms: None,
+                    };
+                    assert!(window.available_at(u64::MAX), "{scenario}");
+                }),
+            ),
+            (
+                "preserves_overage_without_negative_remaining",
+                (|scenario: &'static str| {
+                    let window = Window {
+                        used_basis_points: 10_050,
+                        reset_at_ms: None,
+                    };
+                    assert_eq!(window.remaining_basis_points(), 0, "{scenario}");
+                    assert_eq!(window.used_basis_points, 10_050, "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

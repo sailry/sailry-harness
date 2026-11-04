@@ -132,60 +132,75 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_unrecorded_latency() {
-        let mut wire = serde_json::to_value(Summary::default()).unwrap();
-        wire.as_object_mut().unwrap().remove("latency");
-        let summary: Summary = serde_json::from_value(wire).unwrap();
-        assert_eq!(summary.latency, Latency::default());
-        let latency = Latency {
-            response_us: Some(0),
-            first_token_us: Some(20),
-            waiting_us: None,
-            elapsed_us: Some(u64::MAX),
-        };
-        assert_eq!(
-            serde_json::from_value::<Latency>(serde_json::to_value(&latency).unwrap()).unwrap(),
-            latency
-        );
-        assert_eq!(
-            serde_json::from_value::<Latency>(serde_json::json!({})).unwrap(),
-            Latency::default()
-        );
-    }
-
-    #[test]
-    fn defaults_unprojected_turn_index() {
-        let wire = serde_json::json!({
-            "id": "call", "turn": TurnId::new(), "model": "fixture",
-            "context_limit": null, "timestamp_ms": 1, "boundary": null,
-            "attempts": []
-        });
-        let mut request: Request = serde_json::from_value(wire).unwrap();
-        assert_eq!(request.turn_index, None);
-        request.turn_index = Some(u64::MAX);
-        let decoded: Request =
-            serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
-        assert_eq!(decoded, request);
-    }
-
-    #[test]
-    fn defaults_unrecorded_response_time() {
-        let wire = serde_json::json!({
-            "index": 1, "transport": "http", "reused": false,
-            "headers_us": null, "first_token_us": 40, "elapsed_us": 50,
-            "status": null, "outcome": "succeeded", "categories": [],
-            "complete_context": true, "usage": null,
-            "cache_reported": false, "reasoning_reported": false
-        });
-        let mut attempt: Attempt = serde_json::from_value(wire).unwrap();
-        assert_eq!(attempt.response_us, None);
-        assert!(!attempt.reasoning_streamed);
-        attempt.response_us = Some(20);
-        attempt.outcome = Outcome::Failed;
-        let decoded: Attempt =
-            serde_json::from_value(serde_json::to_value(&attempt).unwrap()).unwrap();
-        assert_eq!(decoded, attempt);
-        assert_eq!(decoded.headers_us, None);
-        assert_eq!(decoded.outcome, Outcome::Failed);
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "defaults_unrecorded_latency",
+                (|scenario: &'static str| {
+                    let mut wire = serde_json::to_value(Summary::default()).unwrap();
+                    wire.as_object_mut().unwrap().remove("latency");
+                    let summary: Summary = serde_json::from_value(wire).unwrap();
+                    assert_eq!(summary.latency, Latency::default(), "{scenario}");
+                    let latency = Latency {
+                        response_us: Some(0),
+                        first_token_us: Some(20),
+                        waiting_us: None,
+                        elapsed_us: Some(u64::MAX),
+                    };
+                    assert_eq!(
+                        serde_json::from_value::<Latency>(serde_json::to_value(&latency).unwrap())
+                            .unwrap(),
+                        latency,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::from_value::<Latency>(serde_json::json!({})).unwrap(),
+                        Latency::default(),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "defaults_unprojected_turn_index",
+                (|scenario: &'static str| {
+                    let wire = serde_json::json!({
+                        "id": "call", "turn": TurnId::new(), "model": "fixture",
+                        "context_limit": null, "timestamp_ms": 1, "boundary": null,
+                        "attempts": []
+                    });
+                    let mut request: Request = serde_json::from_value(wire).unwrap();
+                    assert_eq!(request.turn_index, None, "{scenario}");
+                    request.turn_index = Some(u64::MAX);
+                    let decoded: Request =
+                        serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+                    assert_eq!(decoded, request, "{scenario}");
+                }),
+            ),
+            (
+                "defaults_unrecorded_response_time",
+                (|scenario: &'static str| {
+                    let wire = serde_json::json!({
+                        "index": 1, "transport": "http", "reused": false,
+                        "headers_us": null, "first_token_us": 40, "elapsed_us": 50,
+                        "status": null, "outcome": "succeeded", "categories": [],
+                        "complete_context": true, "usage": null,
+                        "cache_reported": false, "reasoning_reported": false
+                    });
+                    let mut attempt: Attempt = serde_json::from_value(wire).unwrap();
+                    assert_eq!(attempt.response_us, None, "{scenario}");
+                    assert!(!attempt.reasoning_streamed, "{scenario}");
+                    attempt.response_us = Some(20);
+                    attempt.outcome = Outcome::Failed;
+                    let decoded: Attempt =
+                        serde_json::from_value(serde_json::to_value(&attempt).unwrap()).unwrap();
+                    assert_eq!(decoded, attempt, "{scenario}");
+                    assert_eq!(decoded.headers_us, None, "{scenario}");
+                    assert_eq!(decoded.outcome, Outcome::Failed, "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

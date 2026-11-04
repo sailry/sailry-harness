@@ -85,290 +85,382 @@ fn write_table(path: &Path, rows: usize, dimension: usize, values: &[f32]) {
 }
 
 #[test]
-fn preserves_frequency_and_filters_unknown() {
-    let (_directory, mut engine) = fixture();
-    let vectors = engine
-        .encode(&["alpha alpha beta missing", "東京", "", "missing"])
-        .unwrap();
-    assert_eq!(vectors.len(), 4);
-    assert!(
-        vectors
-            .iter()
-            .all(|vector| vector.len() == engine.dimension())
-    );
-    let expected = 5.0f32.sqrt();
-    assert!((vectors[0][0] - 2.0 / expected).abs() < 1e-6);
-    assert!((vectors[0][1] - 1.0 / expected).abs() < 1e-6);
-    assert!(vectors[0][2..].iter().all(|value| *value == 0.0));
-    assert_eq!(vectors[1][2], 1.0);
-    assert!(vectors[2..].iter().flatten().all(|value| *value == 0.0));
-}
+fn preserves_encoder_contracts() {
+    for (scenario, check) in [
+        (
+            "static_encoding_preserves_inputs_and_offsets",
+            (|scenario: &'static str| {
+                let (directory, mut engine) = fixture();
+                let vectors = engine
+                    .encode(&["alpha alpha beta missing", "東京", "", "missing"])
+                    .unwrap();
+                assert_eq!(vectors.len(), 4, "{scenario}: frequency: output count");
+                assert!(
+                    vectors
+                        .iter()
+                        .all(|vector| vector.len() == engine.dimension()),
+                    "{scenario}: frequency: dimensions"
+                );
+                let expected = 5.0f32.sqrt();
+                assert!(
+                    (vectors[0][0] - 2.0 / expected).abs() < 1e-6,
+                    "{scenario}: frequency: repeated token"
+                );
+                assert!(
+                    (vectors[0][1] - 1.0 / expected).abs() < 1e-6,
+                    "{scenario}: frequency: single token"
+                );
+                assert!(
+                    vectors[0][2..].iter().all(|value| *value == 0.0),
+                    "{scenario}: frequency: unused dimensions"
+                );
+                assert_eq!(vectors[1][2], 1.0, "{scenario}: frequency: Unicode token");
+                assert!(
+                    vectors[2..].iter().flatten().all(|value| *value == 0.0),
+                    "{scenario}: frequency: unknown and empty inputs"
+                );
 
-#[test]
-fn loads_non_catalog_static_dimension() {
-    let (directory, _) = fixture();
-    let values = [
-        10., 0., 0., 1., 0., 0., 0., 1., 0., 0., 0., 1., 100., 0., 0., 100., 0., 0.,
-    ];
-    write_table(&directory.path().join("model.safetensors"), 6, 3, &values);
-    let mut engine =
-        Engine::load_format(Format::Static { dimension: 3 }, directory.path()).unwrap();
-    assert_eq!(engine.dimension(), 3);
-    let vectors = engine.encode(&["alpha beta", "missing"]).unwrap();
-    assert!((vectors[0][0] - 0.5f32.sqrt()).abs() < 1e-6);
-    assert!((vectors[0][1] - 0.5f32.sqrt()).abs() < 1e-6);
-    assert_eq!(vectors[1], [0., 0., 0.]);
-}
+                let text = "東京 alpha";
+                let offsets = engine.offsets(text).unwrap();
+                assert_eq!(
+                    offsets,
+                    vec![(0, 6), (7, 12)],
+                    "{scenario}: offsets: UTF-8 spans"
+                );
+                assert_eq!(
+                    &text[offsets[0].0..offsets[0].1],
+                    "東京",
+                    "{scenario}: offsets: Unicode text"
+                );
+                let oversized = vec!["alpha"; MAX_INPUT_TOKENS + 1].join(" ");
+                assert_eq!(
+                    engine.offsets(&oversized).unwrap().len(),
+                    MAX_INPUT_TOKENS + 1,
+                    "{scenario}: offsets: no truncation"
+                );
+                assert!(
+                    matches!(engine.encode(&[&oversized]), Err(Error::TooLong)),
+                    "{scenario}: offsets: encoding limit"
+                );
+                let at_limit = vec!["alpha"; MAX_INPUT_TOKENS].join(" ");
+                assert_eq!(
+                    engine.encode(&[&at_limit]).unwrap()[0][0],
+                    1.0,
+                    "{scenario}: offsets: exact limit"
+                );
 
-#[test]
-fn prepends_inputs_by_purpose_without_changing_offsets() {
-    use sailry_protocol::models::{Asset, Hub, Source};
-    let (directory, _) = fixture();
-    let source = Source {
-        hub: Hub::HuggingFace,
-        repository: "fixture/prefix-encoder".into(),
-        revision: "a".repeat(40),
-    };
-    let definition = Definition {
-        source: source.clone(),
-        name: "Prefix encoder".into(),
-        license: "MIT".into(),
-        format: Format::Static {
-            dimension: ModelId::PotionMulti.descriptor().dimension as u16,
-        },
-        query_prefix: Some("alpha ".into()),
-        document_prefix: Some("beta ".into()),
-        assets: ["config.json", "tokenizer.json", "model.safetensors"]
-            .into_iter()
-            .map(|name| Asset {
-                source: source.clone(),
-                path: name.into(),
-                name: name.into(),
-                bytes: 1,
-                sha256: "b".repeat(64),
-            })
-            .collect(),
-    };
-    let mut engine = Engine::load_definition(&definition, directory.path()).unwrap();
-    assert_eq!(engine.offsets("東京").unwrap(), [(0, 6)]);
-    let query = engine
-        .encode_for(Input::Query, &["東京"])
-        .unwrap()
-        .remove(0);
-    let document = engine
-        .encode_for(Input::Document, &["東京"])
-        .unwrap()
-        .remove(0);
-    let expected = 0.5f32.sqrt();
-    assert!((query[0] - expected).abs() < 1e-6);
-    assert_eq!(query[1], 0.);
-    assert!((query[2] - expected).abs() < 1e-6);
-    assert_eq!(document[0], 0.);
-    assert!((document[1] - expected).abs() < 1e-6);
-    assert!((document[2] - expected).abs() < 1e-6);
-    assert_eq!(engine.encode(&["東京"]).unwrap()[0], document);
-    let at_limit = vec!["alpha"; MAX_INPUT_TOKENS].join(" ");
-    assert_eq!(engine.offsets(&at_limit).unwrap().len(), MAX_INPUT_TOKENS);
-    assert!(matches!(
-        engine.encode_for(Input::Query, &[&at_limit]),
-        Err(Error::TooLong)
-    ));
-    let mut oversized = definition;
-    oversized.document_prefix = Some("x ".repeat(257));
-    assert!(
-        matches!(Engine::load_definition(&oversized, directory.path()), Err(Error::Invalid(message)) if message.contains("256 content tokens"))
-    );
-}
-
-#[test]
-fn rejects_unsupported_embedding_formats() {
-    let directory = tempfile::tempdir().unwrap();
-    for format in [
-        Format::SenseVoice {},
-        Format::Static { dimension: 0 },
-        Format::Transformer {
-            dimension: 4097,
-            pooling: Pooling::Mean,
-            token_types: false,
-        },
+                drop(engine);
+                let values = [
+                    10., 0., 0., 1., 0., 0., 0., 1., 0., 0., 0., 1., 100., 0., 0., 100., 0., 0.,
+                ];
+                write_table(&directory.path().join("model.safetensors"), 6, 3, &values);
+                let mut engine =
+                    Engine::load_format(Format::Static { dimension: 3 }, directory.path()).unwrap();
+                assert_eq!(engine.dimension(), 3, "{scenario}: custom dimension");
+                let vectors = engine.encode(&["alpha beta", "missing"]).unwrap();
+                assert!(
+                    (vectors[0][0] - 0.5f32.sqrt()).abs() < 1e-6,
+                    "{scenario}: custom dimension: alpha"
+                );
+                assert!(
+                    (vectors[0][1] - 0.5f32.sqrt()).abs() < 1e-6,
+                    "{scenario}: custom dimension: beta"
+                );
+                assert_eq!(
+                    vectors[1],
+                    [0., 0., 0.],
+                    "{scenario}: custom dimension: unknown"
+                );
+            }) as fn(&'static str),
+        ),
+        (
+            "prepends_inputs_by_purpose_without_changing_offsets",
+            (|scenario: &'static str| {
+                use sailry_protocol::models::{Asset, Hub, Source};
+                let (directory, _) = fixture();
+                let source = Source {
+                    hub: Hub::HuggingFace,
+                    repository: "fixture/prefix-encoder".into(),
+                    revision: "a".repeat(40),
+                };
+                let definition = Definition {
+                    source: source.clone(),
+                    name: "Prefix encoder".into(),
+                    license: "MIT".into(),
+                    format: Format::Static {
+                        dimension: ModelId::PotionMulti.descriptor().dimension as u16,
+                    },
+                    query_prefix: Some("alpha ".into()),
+                    document_prefix: Some("beta ".into()),
+                    assets: ["config.json", "tokenizer.json", "model.safetensors"]
+                        .into_iter()
+                        .map(|name| Asset {
+                            source: source.clone(),
+                            path: name.into(),
+                            name: name.into(),
+                            bytes: 1,
+                            sha256: "b".repeat(64),
+                        })
+                        .collect(),
+                };
+                let mut engine = Engine::load_definition(&definition, directory.path()).unwrap();
+                assert_eq!(engine.offsets("東京").unwrap(), [(0, 6)], "{scenario}");
+                let query = engine
+                    .encode_for(Input::Query, &["東京"])
+                    .unwrap()
+                    .remove(0);
+                let document = engine
+                    .encode_for(Input::Document, &["東京"])
+                    .unwrap()
+                    .remove(0);
+                let expected = 0.5f32.sqrt();
+                assert!((query[0] - expected).abs() < 1e-6, "{scenario}");
+                assert_eq!(query[1], 0., "{scenario}");
+                assert!((query[2] - expected).abs() < 1e-6, "{scenario}");
+                assert_eq!(document[0], 0., "{scenario}");
+                assert!((document[1] - expected).abs() < 1e-6, "{scenario}");
+                assert!((document[2] - expected).abs() < 1e-6, "{scenario}");
+                assert_eq!(engine.encode(&["東京"]).unwrap()[0], document, "{scenario}");
+                let at_limit = vec!["alpha"; MAX_INPUT_TOKENS].join(" ");
+                assert_eq!(
+                    engine.offsets(&at_limit).unwrap().len(),
+                    MAX_INPUT_TOKENS,
+                    "{scenario}"
+                );
+                assert!(
+                    matches!(
+                        engine.encode_for(Input::Query, &[&at_limit]),
+                        Err(Error::TooLong)
+                    ),
+                    "{scenario}"
+                );
+                let mut oversized = definition;
+                oversized.document_prefix = Some("x ".repeat(257));
+                assert!(
+                    matches!(Engine::load_definition(&oversized, directory.path()), Err(Error::Invalid(message)) if message.contains("256 content tokens")),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "rejects_unsupported_embedding_formats",
+            (|scenario: &'static str| {
+                let directory = tempfile::tempdir().unwrap();
+                for format in [
+                    Format::SenseVoice {},
+                    Format::Static { dimension: 0 },
+                    Format::Transformer {
+                        dimension: 4097,
+                        pooling: Pooling::Mean,
+                        token_types: false,
+                    },
+                ] {
+                    assert!(
+                        matches!(
+                            Engine::load_format(format, directory.path()),
+                            Err(Error::Invalid(_))
+                        ),
+                        "{scenario}"
+                    );
+                }
+            }),
+        ),
+        (
+            "filters_declared_unigram_unknown",
+            (|scenario: &'static str| {
+                let directory = tempfile::tempdir().unwrap();
+                let model = tokenizers::models::unigram::Unigram::from(
+                    vec![
+                        ("alpha".into(), -1.0),
+                        ("[UNK]".into(), -1.0),
+                        ("beta".into(), -1.0),
+                    ],
+                    Some(1),
+                    false,
+                )
+                .unwrap();
+                let mut tokenizer = Tokenizer::new(model);
+                tokenizer.with_pre_tokenizer(Some(WhitespaceSplit));
+                tokenizer
+                    .save(directory.path().join("tokenizer.json"), false)
+                    .unwrap();
+                fs::write(
+                    directory.path().join("config.json"),
+                    br#"{"normalize":true}"#,
+                )
+                .unwrap();
+                let dimension = ModelId::PotionMulti.descriptor().dimension;
+                let mut values = vec![0.0f32; 3 * dimension];
+                values[0] = 1.0;
+                values[dimension + 2] = 100.0;
+                values[2 * dimension + 1] = 1.0;
+                write_table(
+                    &directory.path().join("model.safetensors"),
+                    3,
+                    dimension,
+                    &values,
+                );
+                let mut engine = Engine::load(ModelId::PotionMulti, directory.path()).unwrap();
+                let encoded = engine
+                    .tokenizer
+                    .encode("alpha missing beta", false)
+                    .unwrap();
+                assert!(encoded.get_ids().contains(&1), "{scenario}");
+                let vectors = engine
+                    .encode(&["alpha missing beta", "missing", ""])
+                    .unwrap();
+                let expected = 0.5f32.sqrt();
+                assert!((vectors[0][0] - expected).abs() < 1e-6, "{scenario}");
+                assert!((vectors[0][1] - expected).abs() < 1e-6, "{scenario}");
+                assert!(
+                    vectors[0][2..].iter().all(|value| *value == 0.0),
+                    "{scenario}"
+                );
+                assert!(
+                    vectors[1..].iter().flatten().all(|value| *value == 0.0),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "bounds_private_workers",
+            (|scenario: &'static str| {
+                let pool = pool::create().unwrap();
+                let available = std::thread::available_parallelism().map_or(1, usize::from);
+                assert_eq!(
+                    pool.current_num_threads(),
+                    (available / 2).clamp(1, 4),
+                    "{scenario}"
+                );
+                pool.install(|| {
+                    use rayon::prelude::*;
+                    let threads = (0..128)
+                        .into_par_iter()
+                        .map(|_| rayon::current_num_threads())
+                        .collect::<Vec<_>>();
+                    assert!(
+                        threads
+                            .iter()
+                            .all(|count| *count == pool.current_num_threads()),
+                        "{scenario}"
+                    );
+                });
+            }),
+        ),
+        (
+            "rejects_invalid_table_layout",
+            (|scenario: &'static str| {
+                let directory = tempfile::tempdir().unwrap();
+                let path = directory.path().join("weights");
+                fs::write(&path, (1024u64 * 1024 + 1).to_le_bytes()).unwrap();
+                assert!(
+                    matches!(table::Table::load(&path, None), Err(Error::Invalid(_))),
+                    "{scenario}"
+                );
+                write_table(&path, 2, 2, &[0.0, 1.0, 2.0]);
+                assert!(
+                    matches!(table::Table::load(&path, None), Err(Error::Invalid(_))),
+                    "{scenario}"
+                );
+                write_table(&path, 2, 2, &[0.0, 1.0, 2.0, 3.0]);
+                let mut table = table::Table::load(&path, Some(0)).unwrap();
+                assert!(
+                    matches!(table.mean(&[2]), Err(Error::Invalid(_))),
+                    "{scenario}"
+                );
+                assert!(
+                    matches!(table::Table::load(&path, Some(2)), Err(Error::Invalid(_))),
+                    "{scenario}"
+                );
+                write_table(&path, 1, 1, &[f32::NAN]);
+                assert!(
+                    matches!(
+                        table::Table::load(&path, None).unwrap().mean(&[0]),
+                        Err(Error::Invalid(_))
+                    ),
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "normalization_is_finite",
+            (|scenario: &'static str| {
+                let mut vector = [3.0f32, 4.0];
+                normalize(&mut vector).unwrap();
+                assert!((vector[0] - 0.6).abs() < 1e-6, "{scenario}");
+                assert!((vector[1] - 0.8).abs() < 1e-6, "{scenario}");
+                normalize(&mut [0.0, 0.0]).unwrap();
+                assert!(
+                    matches!(normalize(&mut [f32::INFINITY]), Err(Error::Invalid(_))),
+                    "{scenario}"
+                );
+                let mut vector = [f32::MAX, f32::MAX];
+                normalize(&mut vector).unwrap();
+                assert!(vector.iter().all(|value| value.is_finite()), "{scenario}");
+            }),
+        ),
+        (
+            "catalog_is_pinned",
+            (|scenario: &'static str| {
+                for model in catalog::MODELS {
+                    assert_eq!(model.revision.len(), 40, "{scenario}");
+                    assert!(
+                        model.revision.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                        "{scenario}"
+                    );
+                    assert_eq!(model.assets.len(), 3, "{scenario}");
+                    for asset in model.assets {
+                        assert_eq!(asset.sha256.len(), 64, "{scenario}");
+                        assert!(
+                            asset.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                            "{scenario}"
+                        );
+                        assert!(asset.bytes > 0, "{scenario}");
+                        let revision = asset
+                            .source
+                            .map_or(model.revision, |source| source.revision);
+                        assert_eq!(revision.len(), 40, "{scenario}");
+                        assert!(
+                            revision.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                            "{scenario}"
+                        );
+                        assert!(model.url(asset).contains(revision), "{scenario}");
+                        assert!(!asset.name.contains('/'), "{scenario}");
+                    }
+                }
+            }),
+        ),
+        (
+            "keeps_converted_graph_source_separate",
+            (|scenario: &'static str| {
+                let model = ModelId::BgeSmallZh.descriptor();
+                let asset = model
+                    .assets
+                    .iter()
+                    .find(|asset| asset.name == "model.onnx")
+                    .unwrap();
+                assert_eq!(
+                    model.url(asset),
+                    "https://huggingface.co/Xenova/bge-small-zh-v1.5/resolve/75c43b069aac4d136ba6bc1122f995fedcfd2781/onnx/model.onnx",
+                    "{scenario}"
+                );
+                assert_eq!(
+                    model.url_at(asset, "https://mirror.example/"),
+                    "https://mirror.example/Xenova/bge-small-zh-v1.5/resolve/75c43b069aac4d136ba6bc1122f995fedcfd2781/onnx/model.onnx",
+                    "{scenario}"
+                );
+                assert!(model.url(&model.assets[0]).contains(
+                "BAAI/bge-small-zh-v1.5/resolve/7999e1d3359715c523056ef9478215996d62a620/config.json"
+            ), "{scenario}");
+                let model = ModelId::GraniteMulti.descriptor();
+                assert!(
+                    model.url(&model.assets[2]).ends_with("/onnx/model.onnx"),
+                    "{scenario}"
+                );
+            }),
+        ),
     ] {
-        assert!(matches!(
-            Engine::load_format(format, directory.path()),
-            Err(Error::Invalid(_))
-        ));
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-}
-
-#[test]
-fn filters_declared_unigram_unknown() {
-    let directory = tempfile::tempdir().unwrap();
-    let model = tokenizers::models::unigram::Unigram::from(
-        vec![
-            ("alpha".into(), -1.0),
-            ("[UNK]".into(), -1.0),
-            ("beta".into(), -1.0),
-        ],
-        Some(1),
-        false,
-    )
-    .unwrap();
-    let mut tokenizer = Tokenizer::new(model);
-    tokenizer.with_pre_tokenizer(Some(WhitespaceSplit));
-    tokenizer
-        .save(directory.path().join("tokenizer.json"), false)
-        .unwrap();
-    fs::write(
-        directory.path().join("config.json"),
-        br#"{"normalize":true}"#,
-    )
-    .unwrap();
-    let dimension = ModelId::PotionMulti.descriptor().dimension;
-    let mut values = vec![0.0f32; 3 * dimension];
-    values[0] = 1.0;
-    values[dimension + 2] = 100.0;
-    values[2 * dimension + 1] = 1.0;
-    write_table(
-        &directory.path().join("model.safetensors"),
-        3,
-        dimension,
-        &values,
-    );
-    let mut engine = Engine::load(ModelId::PotionMulti, directory.path()).unwrap();
-    let encoded = engine
-        .tokenizer
-        .encode("alpha missing beta", false)
-        .unwrap();
-    assert!(encoded.get_ids().contains(&1));
-    let vectors = engine
-        .encode(&["alpha missing beta", "missing", ""])
-        .unwrap();
-    let expected = 0.5f32.sqrt();
-    assert!((vectors[0][0] - expected).abs() < 1e-6);
-    assert!((vectors[0][1] - expected).abs() < 1e-6);
-    assert!(vectors[0][2..].iter().all(|value| *value == 0.0));
-    assert!(vectors[1..].iter().flatten().all(|value| *value == 0.0));
-}
-
-#[test]
-fn keeps_offsets_without_truncation() {
-    let (_directory, mut engine) = fixture();
-    let text = "東京 alpha";
-    let offsets = engine.offsets(text).unwrap();
-    assert_eq!(offsets, vec![(0, 6), (7, 12)]);
-    assert_eq!(&text[offsets[0].0..offsets[0].1], "東京");
-    let oversized = vec!["alpha"; MAX_INPUT_TOKENS + 1].join(" ");
-    assert_eq!(
-        engine.offsets(&oversized).unwrap().len(),
-        MAX_INPUT_TOKENS + 1
-    );
-    assert!(matches!(engine.encode(&[&oversized]), Err(Error::TooLong)));
-    let at_limit = vec!["alpha"; MAX_INPUT_TOKENS].join(" ");
-    assert_eq!(engine.encode(&[&at_limit]).unwrap()[0][0], 1.0);
-}
-
-#[test]
-fn bounds_private_workers() {
-    let pool = pool::create().unwrap();
-    let available = std::thread::available_parallelism().map_or(1, usize::from);
-    assert_eq!(pool.current_num_threads(), (available / 2).clamp(1, 4));
-    pool.install(|| {
-        use rayon::prelude::*;
-        let threads = (0..128)
-            .into_par_iter()
-            .map(|_| rayon::current_num_threads())
-            .collect::<Vec<_>>();
-        assert!(
-            threads
-                .iter()
-                .all(|count| *count == pool.current_num_threads())
-        );
-    });
-}
-
-#[test]
-fn rejects_invalid_table_layout() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("weights");
-    fs::write(&path, (1024u64 * 1024 + 1).to_le_bytes()).unwrap();
-    assert!(matches!(
-        table::Table::load(&path, None),
-        Err(Error::Invalid(_))
-    ));
-    write_table(&path, 2, 2, &[0.0, 1.0, 2.0]);
-    assert!(matches!(
-        table::Table::load(&path, None),
-        Err(Error::Invalid(_))
-    ));
-    write_table(&path, 2, 2, &[0.0, 1.0, 2.0, 3.0]);
-    let mut table = table::Table::load(&path, Some(0)).unwrap();
-    assert!(matches!(table.mean(&[2]), Err(Error::Invalid(_))));
-    assert!(matches!(
-        table::Table::load(&path, Some(2)),
-        Err(Error::Invalid(_))
-    ));
-    write_table(&path, 1, 1, &[f32::NAN]);
-    assert!(matches!(
-        table::Table::load(&path, None).unwrap().mean(&[0]),
-        Err(Error::Invalid(_))
-    ));
-}
-
-#[test]
-fn normalization_is_finite() {
-    let mut vector = [3.0f32, 4.0];
-    normalize(&mut vector).unwrap();
-    assert!((vector[0] - 0.6).abs() < 1e-6);
-    assert!((vector[1] - 0.8).abs() < 1e-6);
-    normalize(&mut [0.0, 0.0]).unwrap();
-    assert!(matches!(
-        normalize(&mut [f32::INFINITY]),
-        Err(Error::Invalid(_))
-    ));
-    let mut vector = [f32::MAX, f32::MAX];
-    normalize(&mut vector).unwrap();
-    assert!(vector.iter().all(|value| value.is_finite()));
-}
-
-#[test]
-fn catalog_is_pinned() {
-    for model in catalog::MODELS {
-        assert_eq!(model.revision.len(), 40);
-        assert!(model.revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
-        assert_eq!(model.assets.len(), 3);
-        for asset in model.assets {
-            assert_eq!(asset.sha256.len(), 64);
-            assert!(asset.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()));
-            assert!(asset.bytes > 0);
-            let revision = asset
-                .source
-                .map_or(model.revision, |source| source.revision);
-            assert_eq!(revision.len(), 40);
-            assert!(revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
-            assert!(model.url(asset).contains(revision));
-            assert!(!asset.name.contains('/'));
-        }
-    }
-}
-
-#[test]
-fn keeps_converted_graph_source_separate() {
-    let model = ModelId::BgeSmallZh.descriptor();
-    let asset = model
-        .assets
-        .iter()
-        .find(|asset| asset.name == "model.onnx")
-        .unwrap();
-    assert_eq!(
-        model.url(asset),
-        "https://huggingface.co/Xenova/bge-small-zh-v1.5/resolve/75c43b069aac4d136ba6bc1122f995fedcfd2781/onnx/model.onnx"
-    );
-    assert_eq!(
-        model.url_at(asset, "https://mirror.example/"),
-        "https://mirror.example/Xenova/bge-small-zh-v1.5/resolve/75c43b069aac4d136ba6bc1122f995fedcfd2781/onnx/model.onnx"
-    );
-    assert!(model.url(&model.assets[0]).contains(
-        "BAAI/bge-small-zh-v1.5/resolve/7999e1d3359715c523056ef9478215996d62a620/config.json"
-    ));
-    let model = ModelId::GraniteMulti.descriptor();
-    assert!(model.url(&model.assets[2]).ends_with("/onnx/model.onnx"));
 }

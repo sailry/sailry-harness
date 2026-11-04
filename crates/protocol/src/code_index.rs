@@ -134,89 +134,118 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn defaults_to_bounded_search() {
-        let search: Search = serde_json::from_value(json!({})).unwrap();
-        assert_eq!(search, Search::default());
-        assert_eq!(search.limit, 20);
-    }
-
-    #[test]
-    fn preserves_utf8_coordinates() {
-        let range = Range {
-            start_byte: 3,
-            end_byte: 9,
-            start_line: 0,
-            start_column: 3,
-            end_line: 0,
-            end_column: 9,
-        };
-        let value = serde_json::to_value(&range).unwrap();
-        assert_eq!(value["start_column"], 3);
-        assert_eq!(value["end_byte"], 9);
-        assert_eq!(serde_json::from_value::<Range>(value).unwrap(), range);
-    }
-
-    #[test]
-    fn queries_use_shared_read_commands() {
-        let worktree = crate::WorktreeId::new();
-        for command in [
-            crate::Command::SearchCode {
-                worktree,
-                query: Search::default(),
-            },
-            crate::Command::OutlineCode {
-                worktree,
-                path: "src/中文.rs".into(),
-            },
-            crate::Command::ReadFileLines {
-                worktree,
-                path: "src/中文.rs".into(),
-                offset: 1,
-                limit: 20,
-                expected_revision: Some("a".repeat(64)),
-            },
-            crate::Command::CancelCodeIndexQuery {
-                request: crate::RequestId::new(),
-            },
-            crate::Command::ReadCodeIndexSettings,
-        ] {
-            assert!(!command.durable());
-            assert_eq!(
-                serde_json::from_value::<crate::Command>(serde_json::to_value(&command).unwrap())
-                    .unwrap(),
-                command
-            );
-        }
-        assert_eq!(crate::VERSION, 1);
-    }
-
-    #[test]
-    fn declares_current_read_capabilities() {
-        use crate::{plugin::Action, tool::Operation};
-        for (name, operation, action) in [
-            ("code.search", Operation::SearchCode, Action::ReadCodeIndex),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
             (
-                "code.outline",
-                Operation::OutlineCode,
-                Action::ReadCodeIndex,
+                "defaults_to_bounded_search",
+                (|scenario: &'static str| {
+                    let search: Search = serde_json::from_value(json!({})).unwrap();
+                    assert_eq!(search, Search::default(), "{scenario}");
+                    assert_eq!(search.limit, 20, "{scenario}");
+                }) as fn(&'static str),
             ),
             (
-                "files.read_lines",
-                Operation::ReadFileLines,
-                Action::ReadFiles,
+                "preserves_utf8_coordinates",
+                (|scenario: &'static str| {
+                    let range = Range {
+                        start_byte: 3,
+                        end_byte: 9,
+                        start_line: 0,
+                        start_column: 3,
+                        end_line: 0,
+                        end_column: 9,
+                    };
+                    let value = serde_json::to_value(&range).unwrap();
+                    assert_eq!(value["start_column"], 3, "{scenario}");
+                    assert_eq!(value["end_byte"], 9, "{scenario}");
+                    assert_eq!(
+                        serde_json::from_value::<Range>(value).unwrap(),
+                        range,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "queries_use_shared_read_commands",
+                (|scenario: &'static str| {
+                    let worktree = crate::WorktreeId::new();
+                    for command in [
+                        crate::Command::SearchCode {
+                            worktree,
+                            query: Search::default(),
+                        },
+                        crate::Command::OutlineCode {
+                            worktree,
+                            path: "src/中文.rs".into(),
+                        },
+                        crate::Command::ReadFileLines {
+                            worktree,
+                            path: "src/中文.rs".into(),
+                            offset: 1,
+                            limit: 20,
+                            expected_revision: Some("a".repeat(64)),
+                        },
+                        crate::Command::CancelCodeIndexQuery {
+                            request: crate::RequestId::new(),
+                        },
+                        crate::Command::ReadCodeIndexSettings,
+                    ] {
+                        assert!(!command.durable(), "{scenario}");
+                        assert_eq!(
+                            serde_json::from_value::<crate::Command>(
+                                serde_json::to_value(&command).unwrap()
+                            )
+                            .unwrap(),
+                            command,
+                            "{scenario}"
+                        );
+                    }
+                    assert_eq!(crate::VERSION, 1, "{scenario}");
+                }),
+            ),
+            (
+                "declares_current_read_capabilities",
+                (|scenario: &'static str| {
+                    use crate::{plugin::Action, tool::Operation};
+                    for (name, operation, action) in [
+                        ("code.search", Operation::SearchCode, Action::ReadCodeIndex),
+                        (
+                            "code.outline",
+                            Operation::OutlineCode,
+                            Action::ReadCodeIndex,
+                        ),
+                        (
+                            "files.read_lines",
+                            Operation::ReadFileLines,
+                            Action::ReadFiles,
+                        ),
+                    ] {
+                        assert_eq!(
+                            serde_json::to_value(operation).unwrap(),
+                            json!(name),
+                            "{scenario}"
+                        );
+                        assert_eq!(
+                            serde_json::from_value::<Operation>(json!(name)).unwrap(),
+                            operation,
+                            "{scenario}"
+                        );
+                        assert_eq!(operation.action(), Some(action), "{scenario}");
+                        assert!(operation.current(), "{scenario}");
+                        assert!(operation.read_only(), "{scenario}");
+                    }
+                    let service = crate::plugin::Service::CodeIndex;
+                    assert!(service.current(), "{scenario}");
+                    assert_eq!(
+                        serde_json::to_value(service).unwrap(),
+                        json!("code_index"),
+                        "{scenario}"
+                    );
+                }),
             ),
         ] {
-            assert_eq!(serde_json::to_value(operation).unwrap(), json!(name));
-            assert_eq!(
-                serde_json::from_value::<Operation>(json!(name)).unwrap(),
-                operation
-            );
-            assert_eq!(operation.action(), Some(action));
-            assert!(operation.current());
-            assert!(operation.read_only());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let service = crate::plugin::Service::CodeIndex;
-        assert!(service.current());
-        assert_eq!(serde_json::to_value(service).unwrap(), json!("code_index"));
     }
 }

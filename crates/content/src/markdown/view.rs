@@ -577,20 +577,32 @@ mod tests {
     use core::prelude::v1::test;
 
     #[test]
-    fn selects_unicode_words_and_emoji() {
-        let doc = parse("Hello é 👩‍💻 world");
-        let cursor = Cursor::new(0, Part::Body, "Hello é ".len());
-        assert_eq!(
-            super::super::selectable::copied(&doc, word(&doc, cursor)),
-            "👩‍💻"
-        );
-    }
-
-    #[test]
-    fn scrolls_only_at_viewport_edges() {
-        assert_eq!(edge_delta(150., 100., 200.), 0.);
-        assert!(edge_delta(105., 100., 200.) < 0.);
-        assert!(edge_delta(195., 100., 200.) > 0.);
-        assert_eq!(edge_delta(500., 100., 200.), 24.);
+    fn preserves_document_behavior() {
+        for (scenario, check) in [
+            (
+                "selects_unicode_words_and_emoji",
+                (|scenario: &'static str| {
+                    let doc = parse("Hello é 👩‍💻 world");
+                    let cursor = Cursor::new(0, Part::Body, "Hello é ".len());
+                    assert_eq!(
+                        super::super::selectable::copied(&doc, word(&doc, cursor)),
+                        "👩‍💻",
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "scrolls_only_at_viewport_edges",
+                (|scenario: &'static str| {
+                    assert_eq!(edge_delta(150., 100., 200.), 0., "{scenario}");
+                    assert!(edge_delta(105., 100., 200.) < 0., "{scenario}");
+                    assert!(edge_delta(195., 100., 200.) > 0., "{scenario}");
+                    assert_eq!(edge_delta(500., 100., 200.), 24., "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

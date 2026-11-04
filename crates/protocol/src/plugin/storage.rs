@@ -244,164 +244,219 @@ mod tests {
         use super::*;
 
         #[test]
-        fn requires_explicit_collection_opt_in() {
-            let plain: Collection =
-                serde_json::from_value(json!({"scope":"node","prefix":"entries/","schema":true}))
+        fn preserves_wire_and_validation() {
+            for (scenario, check) in [
+                (
+                    "requires_explicit_collection_opt_in",
+                    (|scenario: &'static str| {
+                        let plain: Collection = serde_json::from_value(
+                            json!({"scope":"node","prefix":"entries/","schema":true}),
+                        )
+                        .unwrap();
+                        assert!(plain.index.is_none(), "{scenario}");
+                        let opted: Collection = serde_json::from_value(
+                        json!({"scope":"node","prefix":"entries/","schema":true,"index":{"semantic":true}}),
+                    )
                     .unwrap();
-            assert!(plain.index.is_none());
-            let opted: Collection = serde_json::from_value(
-                json!({"scope":"node","prefix":"entries/","schema":true,"index":{"semantic":true}}),
-            )
-            .unwrap();
-            assert!(opted.index.unwrap().semantic);
-            let defaults: DeclarationIndex = serde_json::from_value(json!({})).unwrap();
-            assert!(!defaults.semantic);
-        }
-
-        #[test]
-        fn preserves_original_query_and_keyword_defaults() {
-            let search: Search =
-                serde_json::from_value(json!({"terms":["sorted","terms"]})).unwrap();
-            assert_eq!(search.mode, Mode::Keyword);
-            assert!(search.query.is_none());
-            let search: Search =
-                serde_json::from_value(json!({"query":"  Original order! 東京  ","mode":"hybrid"}))
-                    .unwrap();
-            assert_eq!(search.query.as_deref(), Some("  Original order! 東京  "));
-            assert!(search.terms.is_empty());
-            assert_eq!(search.mode, Mode::Hybrid);
-            let page: SearchPage =
-                serde_json::from_value(json!({"entries":[],"next":null,"now_ms":1})).unwrap();
-            assert_eq!(page.mode, Mode::Keyword);
-            assert!(!page.indexing);
-        }
-
-        #[test]
-        fn confines_sources_to_key_and_json_pointer() {
-            for pointer in ["", "/bodies/a~1b~0c/body", "/東京/body"] {
-                assert!(
-                    Source {
-                        key: "page".into(),
-                        pointer: pointer.into()
-                    }
-                    .valid()
-                );
+                        assert!(opted.index.unwrap().semantic, "{scenario}");
+                        let defaults: DeclarationIndex = serde_json::from_value(json!({})).unwrap();
+                        assert!(!defaults.semantic, "{scenario}");
+                    }) as fn(&'static str),
+                ),
+                (
+                    "preserves_original_query_and_keyword_defaults",
+                    (|scenario: &'static str| {
+                        let search: Search =
+                            serde_json::from_value(json!({"terms":["sorted","terms"]})).unwrap();
+                        assert_eq!(search.mode, Mode::Keyword, "{scenario}");
+                        assert!(search.query.is_none(), "{scenario}");
+                        let search: Search = serde_json::from_value(
+                            json!({"query":"  Original order! 東京  ","mode":"hybrid"}),
+                        )
+                        .unwrap();
+                        assert_eq!(
+                            search.query.as_deref(),
+                            Some("  Original order! 東京  "),
+                            "{scenario}"
+                        );
+                        assert!(search.terms.is_empty(), "{scenario}");
+                        assert_eq!(search.mode, Mode::Hybrid, "{scenario}");
+                        let page: SearchPage =
+                            serde_json::from_value(json!({"entries":[],"next":null,"now_ms":1}))
+                                .unwrap();
+                        assert_eq!(page.mode, Mode::Keyword, "{scenario}");
+                        assert!(!page.indexing, "{scenario}");
+                    }),
+                ),
+                (
+                    "confines_sources_to_key_and_json_pointer",
+                    (|scenario: &'static str| {
+                        for pointer in ["", "/bodies/a~1b~0c/body", "/東京/body"] {
+                            assert!(
+                                Source {
+                                    key: "page".into(),
+                                    pointer: pointer.into()
+                                }
+                                .valid(),
+                                "{scenario}"
+                            );
+                        }
+                        for pointer in ["body", "#/body", "/bad~", "/bad~2", "/bad\0"] {
+                            assert!(
+                                !Source {
+                                    key: "page".into(),
+                                    pointer: pointer.into()
+                                }
+                                .valid(),
+                                "{scenario}"
+                            );
+                        }
+                        assert!(
+                            !Source {
+                                key: String::new(),
+                                pointer: String::new()
+                            }
+                            .valid(),
+                            "{scenario}"
+                        );
+                        assert!(
+                            serde_json::from_value::<Source>(
+                                json!({"key":"page","pointer":"/body","namespace":"other"})
+                            )
+                            .is_err(),
+                            "{scenario}"
+                        );
+                        let index: Index = serde_json::from_value(json!({"fields":["Raw title","keywords"],"tags":[],"order":1,"source":{"key":"page","pointer":"/body"}})).unwrap();
+                        assert_eq!(index.source.unwrap().pointer, "/body", "{scenario}");
+                    }),
+                ),
+            ] {
+                eprintln!("case: {scenario}");
+                check(scenario);
             }
-            for pointer in ["body", "#/body", "/bad~", "/bad~2", "/bad\0"] {
-                assert!(
-                    !Source {
-                        key: "page".into(),
-                        pointer: pointer.into()
-                    }
-                    .valid()
-                );
-            }
-            assert!(
-                !Source {
-                    key: String::new(),
-                    pointer: String::new()
-                }
-                .valid()
-            );
-            assert!(
-                serde_json::from_value::<Source>(
-                    json!({"key":"page","pointer":"/body","namespace":"other"})
-                )
-                .is_err()
-            );
-            let index: Index = serde_json::from_value(json!({"fields":["Raw title","keywords"],"tags":[],"order":1,"source":{"key":"page","pointer":"/body"}})).unwrap();
-            assert_eq!(index.source.unwrap().pointer, "/body");
         }
     }
 
     #[test]
-    fn isolates_collection_selectors() {
-        let declaration = |collections| Declaration { collections };
-        let exact = Collection {
-            scope: Scope::Node,
-            key: Some("entry".into()),
-            prefix: None,
-            schema: json!(true),
-            index: None,
-        };
-        let prefix = Collection {
-            scope: Scope::Node,
-            key: None,
-            prefix: Some("entry/".into()),
-            schema: json!({}),
-            index: None,
-        };
-        assert!(declaration(vec![exact.clone(), prefix.clone()]).valid());
-        assert!(exact.matches(Scope::Node, "entry"));
-        assert!(!exact.matches(Scope::Conversation, "entry"));
-        assert!(prefix.matches(Scope::Node, "entry/one"));
-        assert!(!prefix.matches(Scope::Node, "entry"));
-        assert!(!declaration(vec![exact.clone(), exact.clone()]).valid());
-        assert!(
-            !declaration(vec![
-                Collection {
-                    key: Some("entry/one".into()),
-                    ..exact.clone()
-                },
-                prefix.clone()
-            ])
-            .valid()
-        );
-        assert!(
-            !declaration(vec![Collection {
-                prefix: Some("entry".into()),
-                ..exact.clone()
-            }])
-            .valid()
-        );
-        assert!(
-            !declaration(vec![Collection {
-                key: None,
-                prefix: Some(String::new()),
-                ..exact.clone()
-            }])
-            .valid()
-        );
-        assert!(!declaration(vec![exact; MAX_COLLECTIONS + 1]).valid());
-        assert!(
-            declaration(vec![
-                prefix.clone(),
-                Collection {
-                    scope: Scope::Conversation,
-                    ..prefix
-                }
-            ])
-            .valid()
-        );
-    }
-
-    #[test]
-    fn command_durability() {
-        assert!(
-            !Command::ReadPluginConversationValue {
-                key: "state".into()
-            }
-            .durable()
-        );
-        assert!(
-            Command::WritePluginConversationValue {
-                key: "state".into(),
-                value: json!(null),
-                expected_revision: 0
-            }
-            .durable()
-        );
-        assert!(
-            Command::RemovePluginConversationValue {
-                key: "state".into(),
-                expected_revision: 1
-            }
-            .durable()
-        );
-        assert_eq!(serde_json::to_value(Scope::Node).unwrap(), json!("node"));
-        assert_eq!(
-            serde_json::to_value(Scope::Conversation).unwrap(),
-            json!("conversation")
-        );
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "isolates_collection_selectors",
+                (|scenario: &'static str| {
+                    let declaration = |collections| Declaration { collections };
+                    let exact = Collection {
+                        scope: Scope::Node,
+                        key: Some("entry".into()),
+                        prefix: None,
+                        schema: json!(true),
+                        index: None,
+                    };
+                    let prefix = Collection {
+                        scope: Scope::Node,
+                        key: None,
+                        prefix: Some("entry/".into()),
+                        schema: json!({}),
+                        index: None,
+                    };
+                    assert!(
+                        declaration(vec![exact.clone(), prefix.clone()]).valid(),
+                        "{scenario}"
+                    );
+                    assert!(exact.matches(Scope::Node, "entry"), "{scenario}");
+                    assert!(!exact.matches(Scope::Conversation, "entry"), "{scenario}");
+                    assert!(prefix.matches(Scope::Node, "entry/one"), "{scenario}");
+                    assert!(!prefix.matches(Scope::Node, "entry"), "{scenario}");
+                    assert!(
+                        !declaration(vec![exact.clone(), exact.clone()]).valid(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        !declaration(vec![
+                            Collection {
+                                key: Some("entry/one".into()),
+                                ..exact.clone()
+                            },
+                            prefix.clone()
+                        ])
+                        .valid(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        !declaration(vec![Collection {
+                            prefix: Some("entry".into()),
+                            ..exact.clone()
+                        }])
+                        .valid(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        !declaration(vec![Collection {
+                            key: None,
+                            prefix: Some(String::new()),
+                            ..exact.clone()
+                        }])
+                        .valid(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        !declaration(vec![exact; MAX_COLLECTIONS + 1]).valid(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        declaration(vec![
+                            prefix.clone(),
+                            Collection {
+                                scope: Scope::Conversation,
+                                ..prefix
+                            }
+                        ])
+                        .valid(),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "command_durability",
+                (|scenario: &'static str| {
+                    assert!(
+                        !Command::ReadPluginConversationValue {
+                            key: "state".into()
+                        }
+                        .durable(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        Command::WritePluginConversationValue {
+                            key: "state".into(),
+                            value: json!(null),
+                            expected_revision: 0
+                        }
+                        .durable(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        Command::RemovePluginConversationValue {
+                            key: "state".into(),
+                            expected_revision: 1
+                        }
+                        .durable(),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::to_value(Scope::Node).unwrap(),
+                        json!("node"),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::to_value(Scope::Conversation).unwrap(),
+                        json!("conversation"),
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

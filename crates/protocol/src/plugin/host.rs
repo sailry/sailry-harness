@@ -129,97 +129,111 @@ mod tests {
     use super::*;
 
     #[test]
-    fn confines_modules_and_exports() {
-        let manifest = Manifest {
-            entry: "dev.sailry.platform/host/main.js".into(),
-            resources: vec!["dev.sailry.platform/host/main.js".into()],
-            handlers: vec!["run".into()],
-            read_only: Vec::new(),
-            turn: None,
-            commands: Vec::new(),
-            status: None,
-        };
-        assert!(manifest.valid());
-        for path in [
-            "../main.js",
-            "/main.js",
-            "sailry/sdk.js",
-            "dev.sailry.platform/host/data.json",
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "confines_modules_and_exports",
+                (|scenario: &'static str| {
+                    let manifest = Manifest {
+                        entry: "dev.sailry.platform/host/main.js".into(),
+                        resources: vec!["dev.sailry.platform/host/main.js".into()],
+                        handlers: vec!["run".into()],
+                        read_only: Vec::new(),
+                        turn: None,
+                        commands: Vec::new(),
+                        status: None,
+                    };
+                    assert!(manifest.valid(), "{scenario}");
+                    for path in [
+                        "../main.js",
+                        "/main.js",
+                        "sailry/sdk.js",
+                        "dev.sailry.platform/host/data.json",
+                    ] {
+                        let mut changed = manifest.clone();
+                        changed.entry = path.into();
+                        changed.resources = vec![path.into()];
+                        assert!(!changed.valid(), "{scenario}");
+                    }
+                    for names in [vec![], vec!["run", "run"], vec!["1run"], vec!["a.b"]] {
+                        let mut changed = manifest.clone();
+                        changed.handlers = names.into_iter().map(str::to_owned).collect();
+                        assert!(!changed.valid(), "{scenario}");
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "commands_and_terminal_callbacks_require_declared_exports",
+                (|scenario: &'static str| {
+                    let mut manifest = Manifest {
+                        entry: "dev.sailry.platform/host/main.js".into(),
+                        resources: vec!["dev.sailry.platform/host/main.js".into()],
+                        handlers: vec!["run".into()],
+                        read_only: Vec::new(),
+                        turn: Some(Turn {
+                            initialize: "run".into(),
+                            before_model: None,
+                            after_turn: Some("run".into()),
+                        }),
+                        commands: vec![Command {
+                            name: "task".into(),
+                            handler: "run".into(),
+                        }],
+                        status: None,
+                    };
+                    assert!(manifest.valid(), "{scenario}");
+                    manifest.commands.push(manifest.commands[0].clone());
+                    assert!(!manifest.valid(), "{scenario}");
+                    manifest.commands.pop();
+                    for name in ["/task", "Task", "task name", ""] {
+                        manifest.commands[0].name = name.into();
+                        assert!(!manifest.valid(), "{scenario}");
+                    }
+                    manifest.commands[0].name = "task".into();
+                    manifest.commands[0].handler = "missing".into();
+                    assert!(!manifest.valid(), "{scenario}");
+                    manifest.commands[0].handler = "run".into();
+                    manifest.turn.as_mut().unwrap().after_turn = Some("missing".into());
+                    assert!(!manifest.valid(), "{scenario}");
+                }),
+            ),
+            (
+                "read_exports_require_unique_declared_handlers",
+                (|scenario: &'static str| {
+                    let mut manifest: Manifest = serde_json::from_value(serde_json::json!({
+                    "entry":"dev.sailry.platform/main.js", "resources":["dev.sailry.platform/main.js"],
+                    "handlers":["read", "write"]
+                }))
+                .unwrap();
+                    assert!(manifest.read_only.is_empty(), "{scenario}");
+                    assert!(manifest.status.is_none(), "{scenario}");
+                    for handlers in [vec!["read"], vec!["read", "write"]] {
+                        manifest.read_only = handlers.into_iter().map(str::to_owned).collect();
+                        assert!(manifest.valid(), "{scenario}");
+                    }
+                    for handlers in [vec!["missing"], vec!["read", "read"]] {
+                        manifest.read_only = handlers.into_iter().map(str::to_owned).collect();
+                        assert!(!manifest.valid(), "{scenario}");
+                    }
+                    let read = crate::Command::ReadPluginCallback {
+                        handler: "read".into(),
+                        input: serde_json::json!({}),
+                    };
+                    assert!(!read.durable(), "{scenario}");
+                    assert!(
+                        crate::Command::CallPlugin {
+                            handler: "read".into(),
+                            input: serde_json::json!({})
+                        }
+                        .durable(),
+                        "{scenario}"
+                    );
+                }),
+            ),
         ] {
-            let mut changed = manifest.clone();
-            changed.entry = path.into();
-            changed.resources = vec![path.into()];
-            assert!(!changed.valid());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        for names in [vec![], vec!["run", "run"], vec!["1run"], vec!["a.b"]] {
-            let mut changed = manifest.clone();
-            changed.handlers = names.into_iter().map(str::to_owned).collect();
-            assert!(!changed.valid());
-        }
-    }
-
-    #[test]
-    fn commands_and_terminal_callbacks_require_declared_exports() {
-        let mut manifest = Manifest {
-            entry: "dev.sailry.platform/host/main.js".into(),
-            resources: vec!["dev.sailry.platform/host/main.js".into()],
-            handlers: vec!["run".into()],
-            read_only: Vec::new(),
-            turn: Some(Turn {
-                initialize: "run".into(),
-                before_model: None,
-                after_turn: Some("run".into()),
-            }),
-            commands: vec![Command {
-                name: "task".into(),
-                handler: "run".into(),
-            }],
-            status: None,
-        };
-        assert!(manifest.valid());
-        manifest.commands.push(manifest.commands[0].clone());
-        assert!(!manifest.valid());
-        manifest.commands.pop();
-        for name in ["/task", "Task", "task name", ""] {
-            manifest.commands[0].name = name.into();
-            assert!(!manifest.valid());
-        }
-        manifest.commands[0].name = "task".into();
-        manifest.commands[0].handler = "missing".into();
-        assert!(!manifest.valid());
-        manifest.commands[0].handler = "run".into();
-        manifest.turn.as_mut().unwrap().after_turn = Some("missing".into());
-        assert!(!manifest.valid());
-    }
-    #[test]
-    fn read_exports_require_unique_declared_handlers() {
-        let mut manifest: Manifest = serde_json::from_value(serde_json::json!({
-            "entry":"dev.sailry.platform/main.js", "resources":["dev.sailry.platform/main.js"],
-            "handlers":["read", "write"]
-        }))
-        .unwrap();
-        assert!(manifest.read_only.is_empty());
-        assert!(manifest.status.is_none());
-        for handlers in [vec!["read"], vec!["read", "write"]] {
-            manifest.read_only = handlers.into_iter().map(str::to_owned).collect();
-            assert!(manifest.valid());
-        }
-        for handlers in [vec!["missing"], vec!["read", "read"]] {
-            manifest.read_only = handlers.into_iter().map(str::to_owned).collect();
-            assert!(!manifest.valid());
-        }
-        let read = crate::Command::ReadPluginCallback {
-            handler: "read".into(),
-            input: serde_json::json!({}),
-        };
-        assert!(!read.durable());
-        assert!(
-            crate::Command::CallPlugin {
-                handler: "read".into(),
-                input: serde_json::json!({})
-            }
-            .durable()
-        );
     }
 
     mod status {
@@ -237,60 +251,77 @@ mod tests {
         }
 
         #[test]
-        fn exports_respect_read_only_boundary() {
-            let mut manifest = manifest();
-            assert!(manifest.valid());
-            manifest.status.as_mut().unwrap().invoke = Some("invoke".into());
-            assert!(manifest.valid());
-            for read in ["invoke", "missing"] {
-                manifest.status.as_mut().unwrap().read = read.into();
-                assert!(!manifest.valid());
-            }
-            manifest.status.as_mut().unwrap().read = "read".into();
-            for invoke in ["read", "missing"] {
-                manifest.status.as_mut().unwrap().invoke = Some(invoke.into());
-                assert!(!manifest.valid());
-            }
-        }
-
-        #[test]
-        fn changes_are_unique_and_bounded() {
-            let mut manifest = manifest();
-            for changes in [
-                vec![],
-                vec![Change::Package],
-                vec![Change::Package, Change::Conversation, Change::Repository],
+        fn preserves_wire_and_validation() {
+            for (scenario, check) in [
+                (
+                    "exports_respect_read_only_boundary",
+                    (|scenario: &'static str| {
+                        let mut manifest = manifest();
+                        assert!(manifest.valid(), "{scenario}");
+                        manifest.status.as_mut().unwrap().invoke = Some("invoke".into());
+                        assert!(manifest.valid(), "{scenario}");
+                        for read in ["invoke", "missing"] {
+                            manifest.status.as_mut().unwrap().read = read.into();
+                            assert!(!manifest.valid(), "{scenario}");
+                        }
+                        manifest.status.as_mut().unwrap().read = "read".into();
+                        for invoke in ["read", "missing"] {
+                            manifest.status.as_mut().unwrap().invoke = Some(invoke.into());
+                            assert!(!manifest.valid(), "{scenario}");
+                        }
+                    }) as fn(&'static str),
+                ),
+                (
+                    "changes_are_unique_and_bounded",
+                    (|scenario: &'static str| {
+                        let mut manifest = manifest();
+                        for changes in [
+                            vec![],
+                            vec![Change::Package],
+                            vec![Change::Package, Change::Conversation, Change::Repository],
+                        ] {
+                            manifest.status.as_mut().unwrap().changes = changes;
+                            assert!(manifest.valid(), "{scenario}");
+                        }
+                        for changes in [
+                            vec![Change::Conversation, Change::Conversation],
+                            vec![
+                                Change::Package,
+                                Change::Conversation,
+                                Change::Repository,
+                                Change::Package,
+                            ],
+                        ] {
+                            manifest.status.as_mut().unwrap().changes = changes;
+                            assert!(!manifest.valid(), "{scenario}");
+                        }
+                        assert_eq!(
+                            serde_json::to_value([
+                                Change::Package,
+                                Change::Conversation,
+                                Change::Repository
+                            ])
+                            .unwrap(),
+                            serde_json::json!(["package", "conversation", "repository"]),
+                            "{scenario}"
+                        );
+                    }),
+                ),
+                (
+                    "schema_exposes_host_declaration",
+                    (|scenario: &'static str| {
+                        let schema = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
+                        assert!(schema["properties"].get("status").is_some(), "{scenario}");
+                        let schema = serde_json::to_value(schemars::schema_for!(Status)).unwrap();
+                        assert_eq!(schema["properties"]["read"]["type"], "string", "{scenario}");
+                        for property in ["invoke", "changes"] {
+                            assert!(schema["properties"].get(property).is_some(), "{scenario}");
+                        }
+                    }),
+                ),
             ] {
-                manifest.status.as_mut().unwrap().changes = changes;
-                assert!(manifest.valid());
-            }
-            for changes in [
-                vec![Change::Conversation, Change::Conversation],
-                vec![
-                    Change::Package,
-                    Change::Conversation,
-                    Change::Repository,
-                    Change::Package,
-                ],
-            ] {
-                manifest.status.as_mut().unwrap().changes = changes;
-                assert!(!manifest.valid());
-            }
-            assert_eq!(
-                serde_json::to_value([Change::Package, Change::Conversation, Change::Repository])
-                    .unwrap(),
-                serde_json::json!(["package", "conversation", "repository"])
-            );
-        }
-
-        #[test]
-        fn schema_exposes_host_declaration() {
-            let schema = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
-            assert!(schema["properties"].get("status").is_some());
-            let schema = serde_json::to_value(schemars::schema_for!(Status)).unwrap();
-            assert_eq!(schema["properties"]["read"]["type"], "string");
-            for property in ["invoke", "changes"] {
-                assert!(schema["properties"].get(property).is_some());
+                eprintln!("case: {scenario}");
+                check(scenario);
             }
         }
     }

@@ -168,127 +168,168 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_supported_apis() {
-        for (authentication, api) in [
-            (Authentication::ChatGpt, ModelApi::Responses),
-            (Authentication::ChatGptOAuth, ModelApi::Responses),
-            (Authentication::ClaudeOAuth, ModelApi::Anthropic),
-            (Authentication::Copilot, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::ChatCompletions),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "defaults_match_supported_apis",
+                (|scenario: &'static str| {
+                    for (authentication, api) in [
+                        (Authentication::ChatGpt, ModelApi::Responses),
+                        (Authentication::ChatGptOAuth, ModelApi::Responses),
+                        (Authentication::ClaudeOAuth, ModelApi::Anthropic),
+                        (Authentication::Copilot, ModelApi::Responses),
+                        (Authentication::Copilot, ModelApi::ChatCompletions),
+                    ] {
+                        let options = Options::defaults(authentication).unwrap();
+                        options.validate(authentication, api).unwrap();
+                        assert_eq!(
+                            serde_json::from_value::<Options>(
+                                serde_json::to_value(&options).unwrap()
+                            )
+                            .unwrap(),
+                            options,
+                            "{scenario}"
+                        );
+                    }
+                    assert!(
+                        Options::defaults(Authentication::ApiKey).is_none(),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "validates_catalog_overrides",
+                (|scenario: &'static str| {
+                    let mut options = Options::defaults(Authentication::ChatGptOAuth).unwrap();
+                    assert_eq!(
+                        options.catalog_version(),
+                        Some(DEFAULT_CATALOG_VERSION),
+                        "{scenario}"
+                    );
+                    let Options::ChatGptOAuth {
+                        catalog_version, ..
+                    } = &mut options
+                    else {
+                        unreachable!()
+                    };
+                    *catalog_version = Some("0.161.0".into());
+                    options
+                        .validate(Authentication::ChatGptOAuth, ModelApi::Responses)
+                        .unwrap();
+                    assert_eq!(options.catalog_version(), Some("0.161.0"), "{scenario}");
+                    assert_eq!(
+                        serde_json::from_value::<Options>(serde_json::to_value(&options).unwrap())
+                            .unwrap(),
+                        options,
+                        "{scenario}"
+                    );
+                    for version in [
+                        "",
+                        "v0.161",
+                        "0.161",
+                        "0.161.0\r\nx-header: injected",
+                        "0.161.0.1",
+                    ] {
+                        let Options::ChatGptOAuth {
+                            catalog_version, ..
+                        } = &mut options
+                        else {
+                            unreachable!()
+                        };
+                        *catalog_version = Some(version.into());
+                        assert!(
+                            options
+                                .validate(Authentication::ChatGptOAuth, ModelApi::Responses)
+                                .is_err(),
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "keeps_login_contracts_distinct",
+                (|scenario: &'static str| {
+                    let siwc = Options::defaults(Authentication::ChatGpt).unwrap();
+                    let device = Options::defaults(Authentication::ChatGptOAuth).unwrap();
+                    assert_eq!(siwc.catalog_version(), None, "{scenario}");
+                    assert_eq!(
+                        device.catalog_version(),
+                        Some(DEFAULT_CATALOG_VERSION),
+                        "{scenario}"
+                    );
+                    assert!(
+                        siwc.validate(Authentication::ChatGptOAuth, ModelApi::Responses)
+                            .is_err(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        device
+                            .validate(Authentication::ChatGpt, ModelApi::Responses)
+                            .is_err(),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::to_value(Authentication::ChatGpt).unwrap(),
+                        "chat_gpt",
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::to_value(Authentication::ChatGptOAuth).unwrap(),
+                        "chat_gpt_oauth",
+                        "{scenario}"
+                    );
+                    let claude = Options::defaults(Authentication::ClaudeOAuth).unwrap();
+                    assert_eq!(claude.user_agent(), DEFAULT_CLAUDE_AGENT, "{scenario}");
+                    assert_eq!(claude.catalog_version(), None, "{scenario}");
+                    assert_eq!(
+                        serde_json::to_value(Authentication::ClaudeOAuth).unwrap(),
+                        "claude_oauth",
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::to_value(&claude).unwrap()["kind"],
+                        "claude_oauth",
+                        "{scenario}"
+                    );
+                    assert!(
+                        claude
+                            .validate(Authentication::ClaudeOAuth, ModelApi::Responses)
+                            .is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "rejects_mismatched_or_control_values",
+                (|scenario: &'static str| {
+                    let mut options = Options::defaults(Authentication::ChatGpt).unwrap();
+                    assert!(
+                        options
+                            .validate(Authentication::Copilot, ModelApi::Responses)
+                            .is_err(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        options
+                            .validate(Authentication::ChatGpt, ModelApi::ChatCompletions)
+                            .is_err(),
+                        "{scenario}"
+                    );
+                    let Options::ChatGpt { user_agent, .. } = &mut options else {
+                        unreachable!()
+                    };
+                    *user_agent = "Sailry\r\nAuthorization: secret".into();
+                    assert!(
+                        options
+                            .validate(Authentication::ChatGpt, ModelApi::Responses)
+                            .is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
         ] {
-            let options = Options::defaults(authentication).unwrap();
-            options.validate(authentication, api).unwrap();
-            assert_eq!(
-                serde_json::from_value::<Options>(serde_json::to_value(&options).unwrap()).unwrap(),
-                options
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert!(Options::defaults(Authentication::ApiKey).is_none());
-    }
-
-    #[test]
-    fn validates_catalog_overrides() {
-        let mut options = Options::defaults(Authentication::ChatGptOAuth).unwrap();
-        assert_eq!(options.catalog_version(), Some(DEFAULT_CATALOG_VERSION));
-        let Options::ChatGptOAuth {
-            catalog_version, ..
-        } = &mut options
-        else {
-            unreachable!()
-        };
-        *catalog_version = Some("0.161.0".into());
-        options
-            .validate(Authentication::ChatGptOAuth, ModelApi::Responses)
-            .unwrap();
-        assert_eq!(options.catalog_version(), Some("0.161.0"));
-        assert_eq!(
-            serde_json::from_value::<Options>(serde_json::to_value(&options).unwrap()).unwrap(),
-            options
-        );
-        for version in [
-            "",
-            "v0.161",
-            "0.161",
-            "0.161.0\r\nx-header: injected",
-            "0.161.0.1",
-        ] {
-            let Options::ChatGptOAuth {
-                catalog_version, ..
-            } = &mut options
-            else {
-                unreachable!()
-            };
-            *catalog_version = Some(version.into());
-            assert!(
-                options
-                    .validate(Authentication::ChatGptOAuth, ModelApi::Responses)
-                    .is_err()
-            );
-        }
-    }
-
-    #[test]
-    fn keeps_login_contracts_distinct() {
-        let siwc = Options::defaults(Authentication::ChatGpt).unwrap();
-        let device = Options::defaults(Authentication::ChatGptOAuth).unwrap();
-        assert_eq!(siwc.catalog_version(), None);
-        assert_eq!(device.catalog_version(), Some(DEFAULT_CATALOG_VERSION));
-        assert!(
-            siwc.validate(Authentication::ChatGptOAuth, ModelApi::Responses)
-                .is_err()
-        );
-        assert!(
-            device
-                .validate(Authentication::ChatGpt, ModelApi::Responses)
-                .is_err()
-        );
-        assert_eq!(
-            serde_json::to_value(Authentication::ChatGpt).unwrap(),
-            "chat_gpt"
-        );
-        assert_eq!(
-            serde_json::to_value(Authentication::ChatGptOAuth).unwrap(),
-            "chat_gpt_oauth"
-        );
-        let claude = Options::defaults(Authentication::ClaudeOAuth).unwrap();
-        assert_eq!(claude.user_agent(), DEFAULT_CLAUDE_AGENT);
-        assert_eq!(claude.catalog_version(), None);
-        assert_eq!(
-            serde_json::to_value(Authentication::ClaudeOAuth).unwrap(),
-            "claude_oauth"
-        );
-        assert_eq!(
-            serde_json::to_value(&claude).unwrap()["kind"],
-            "claude_oauth"
-        );
-        assert!(
-            claude
-                .validate(Authentication::ClaudeOAuth, ModelApi::Responses)
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn rejects_mismatched_or_control_values() {
-        let mut options = Options::defaults(Authentication::ChatGpt).unwrap();
-        assert!(
-            options
-                .validate(Authentication::Copilot, ModelApi::Responses)
-                .is_err()
-        );
-        assert!(
-            options
-                .validate(Authentication::ChatGpt, ModelApi::ChatCompletions)
-                .is_err()
-        );
-        let Options::ChatGpt { user_agent, .. } = &mut options else {
-            unreachable!()
-        };
-        *user_agent = "Sailry\r\nAuthorization: secret".into();
-        assert!(
-            options
-                .validate(Authentication::ChatGpt, ModelApi::Responses)
-                .is_err()
-        );
     }
 }

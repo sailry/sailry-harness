@@ -619,49 +619,95 @@ mod initial_tests {
     }
 
     #[test]
-    fn accepts_contained_effects() {
-        for handler in [
-            json!({"name":"search","parameters":{"type":"object"},"read_only":true}),
-            json!({"name":"save","parameters":{"type":"object"},"flow":{"operations":["storage.transaction"]}}),
-            json!({"name":"read","parameters":{"type":"object"},"operation":"storage.get"}),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "admits_only_contained_effects",
+                (|scenario: &'static str| {
+                    for (case, handler, valid) in [
+                        (
+                            "read-only handler",
+                            json!({"name":"search","parameters":{"type":"object"},"read_only":true}),
+                            true,
+                        ),
+                        (
+                            "storage flow",
+                            json!({"name":"save","parameters":{"type":"object"},"flow":{"operations":["storage.transaction"]}}),
+                            true,
+                        ),
+                        (
+                            "storage operation",
+                            json!({"name":"read","parameters":{"type":"object"},"operation":"storage.get"}),
+                            true,
+                        ),
+                        (
+                            "undeclared effects",
+                            json!({"name":"plain","parameters":{"type":"object"}}),
+                            false,
+                        ),
+                        (
+                            "file write flow",
+                            json!({"name":"write","parameters":{"type":"object"},"flow":{"operations":["storage.transaction","files.write"]}}),
+                            false,
+                        ),
+                        (
+                            "network operation",
+                            json!({"name":"fetch","parameters":{"type":"object"},"read_only":true,"operation":"http.request"}),
+                            false,
+                        ),
+                        (
+                            "process flow",
+                            json!({"name":"run","parameters":{"type":"object"},"flow":{"operations":["process.run"]}}),
+                            false,
+                        ),
+                        (
+                            "file read operation",
+                            json!({"name":"read","parameters":{"type":"object"},"read_only":true,"operation":"files.read"}),
+                            false,
+                        ),
+                    ] {
+                        assert_eq!(tool(handler).valid(), valid, "{scenario}: {case}");
+                    }
+                    for (case, value, valid) in [
+                        (
+                            "native storage",
+                            json!({"name":"get","operation":"storage.get","initial":true}),
+                            true,
+                        ),
+                        (
+                            "remote server",
+                            json!({"name":"remote","server":"docs","initial":true}),
+                            false,
+                        ),
+                    ] {
+                        let declaration: Declaration = serde_json::from_value(value).unwrap();
+                        assert_eq!(declaration.valid(), valid, "{scenario}: {case}");
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "defaults_to_deferred",
+                (|scenario: &'static str| {
+                    let value = json!({"name":"search","description":"Search","handler":{"name":"search","parameters":{"type":"object"},"read_only":true}});
+                    let declaration: Declaration = serde_json::from_value(value.clone()).unwrap();
+                    assert!(!declaration.initial, "{scenario}");
+                    assert_eq!(
+                        serde_json::to_value(&declaration).unwrap().get("initial"),
+                        None,
+                        "{scenario}"
+                    );
+                    let mut value = value;
+                    value["initial"] = json!("true");
+                    assert!(
+                        serde_json::from_value::<Declaration>(value).is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
         ] {
-            assert!(tool(handler).valid());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let native: Declaration =
-            serde_json::from_value(json!({"name":"get","operation":"storage.get","initial":true}))
-                .unwrap();
-        assert!(native.valid());
-    }
-
-    #[test]
-    fn rejects_external_effects() {
-        for handler in [
-            json!({"name":"plain","parameters":{"type":"object"}}),
-            json!({"name":"write","parameters":{"type":"object"},"flow":{"operations":["storage.transaction","files.write"]}}),
-            json!({"name":"fetch","parameters":{"type":"object"},"read_only":true,"operation":"http.request"}),
-            json!({"name":"run","parameters":{"type":"object"},"flow":{"operations":["process.run"]}}),
-            json!({"name":"read","parameters":{"type":"object"},"read_only":true,"operation":"files.read"}),
-        ] {
-            assert!(!tool(handler).valid());
-        }
-        let server: Declaration =
-            serde_json::from_value(json!({"name":"remote","server":"docs","initial":true}))
-                .unwrap();
-        assert!(!server.valid());
-    }
-
-    #[test]
-    fn defaults_to_deferred() {
-        let value = json!({"name":"search","description":"Search","handler":{"name":"search","parameters":{"type":"object"},"read_only":true}});
-        let declaration: Declaration = serde_json::from_value(value.clone()).unwrap();
-        assert!(!declaration.initial);
-        assert_eq!(
-            serde_json::to_value(&declaration).unwrap().get("initial"),
-            None
-        );
-        let mut value = value;
-        value["initial"] = json!("true");
-        assert!(serde_json::from_value::<Declaration>(value).is_err());
     }
 }
 
@@ -690,180 +736,228 @@ mod flow_tests {
     use serde_json::json;
 
     #[test]
-    fn knowledge_preserves_read_and_write_grants() {
-        for (name, operation, action, read_only) in [
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
             (
-                "knowledge.query",
-                Operation::KnowledgeQuery,
-                Action::ReadKnowledge,
-                true,
+                "knowledge_preserves_read_and_write_grants",
+                (|scenario: &'static str| {
+                    for (name, operation, action, read_only) in [
+                        (
+                            "knowledge.query",
+                            Operation::KnowledgeQuery,
+                            Action::ReadKnowledge,
+                            true,
+                        ),
+                        (
+                            "knowledge.read",
+                            Operation::KnowledgeRead,
+                            Action::ReadKnowledge,
+                            true,
+                        ),
+                        (
+                            "knowledge.collections",
+                            Operation::KnowledgeCollections,
+                            Action::ReadKnowledge,
+                            true,
+                        ),
+                        (
+                            "knowledge.create",
+                            Operation::KnowledgeCreate,
+                            Action::WriteKnowledge,
+                            false,
+                        ),
+                        (
+                            "knowledge.rebuild",
+                            Operation::KnowledgeRebuild,
+                            Action::WriteKnowledge,
+                            false,
+                        ),
+                        (
+                            "knowledge.remove",
+                            Operation::KnowledgeRemove,
+                            Action::WriteKnowledge,
+                            false,
+                        ),
+                    ] {
+                        assert_eq!(
+                            serde_json::from_value::<Operation>(json!(name)).unwrap(),
+                            operation,
+                            "{scenario}"
+                        );
+                        assert_eq!(operation.action(), Some(action.clone()), "{scenario}");
+                        assert_eq!(operation.read_only(), read_only, "{scenario}");
+                        assert_eq!(action.read_only(), read_only, "{scenario}");
+                        let declaration: Declaration =
+                            serde_json::from_value(json!({"name":"knowledge","operation":name}))
+                                .unwrap();
+                        assert!(declaration.valid(), "{scenario}");
+                    }
+                }) as fn(&'static str),
             ),
             (
-                "knowledge.read",
-                Operation::KnowledgeRead,
-                Action::ReadKnowledge,
-                true,
+                "child_control_requires_native_tools",
+                (|scenario: &'static str| {
+                    for (name, operation, read_only) in [
+                        ("agents.guide", Operation::GuideAgent, false),
+                        ("agents.wait", Operation::WaitAgent, true),
+                    ] {
+                        assert_eq!(
+                            serde_json::from_value::<Operation>(json!(name)).unwrap(),
+                            operation,
+                            "{scenario}"
+                        );
+                        assert_eq!(
+                            operation.action(),
+                            Some(Action::DelegateAgents),
+                            "{scenario}"
+                        );
+                        assert_eq!(operation.read_only(), read_only, "{scenario}");
+                        let direct: Declaration =
+                            serde_json::from_value(json!({"name":"child","operation":name}))
+                                .unwrap();
+                        assert!(direct.valid(), "{scenario}");
+                        for handler in [
+                            json!({"name":"child","parameters":{"type":"object"},"operation":name}),
+                            json!({"name":"child","parameters":{"type":"object"},"flow":{"operations":[name]}}),
+                        ] {
+                            let declaration: Declaration = serde_json::from_value(
+                            json!({"name":"child","description":"Control a child","handler":handler}),
+                        )
+                        .unwrap();
+                            assert!(!declaration.valid(), "{scenario}");
+                        }
+                    }
+                }),
             ),
             (
-                "knowledge.collections",
-                Operation::KnowledgeCollections,
-                Action::ReadKnowledge,
-                true,
+                "rejects_unknown_operations",
+                (|scenario: &'static str| {
+                    assert!(
+                        serde_json::from_value::<Operation>(json!("future.operation")).is_err(),
+                        "{scenario}"
+                    );
+                    for value in [
+                        json!({"name":"fixture","operation":"future.operation"}),
+                        json!({"name":"fixture","description":"Fixture","handler":{"name":"fixture","parameters":{"type":"object"},"operation":"future.operation"}}),
+                        json!({"name":"fixture","description":"Fixture","handler":{"name":"fixture","parameters":{"type":"object"},"flow":{"operations":["files.read","future.operation"]}}}),
+                    ] {
+                        assert!(
+                            serde_json::from_value::<Declaration>(value).is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    assert!(
+                        serde_json::from_value::<Operation>(json!(1)).is_err(),
+                        "{scenario}"
+                    );
+                }),
             ),
             (
-                "knowledge.create",
-                Operation::KnowledgeCreate,
-                Action::WriteKnowledge,
-                false,
+                "extra_metadata_preserves_supported_operations",
+                (|scenario: &'static str| {
+                    let value = json!({"name":"fixture","description":"Fixture","presentation":"details","future_metadata":true,"handler":{"name":"fixture","parameters":{"type":"object"},"future_metadata":{},"flow":{"operations":["files.read"],"future_metadata":[]}}});
+                    let declaration: Declaration = serde_json::from_value(value).unwrap();
+                    assert!(declaration.valid(), "{scenario}");
+                    assert_eq!(
+                        declaration.presentation,
+                        Presentation::Details,
+                        "{scenario}"
+                    );
+                    for value in [json!(true), json!("future_presentation")] {
+                        assert!(
+                            serde_json::from_value::<Presentation>(value).is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    let schema = serde_json::to_value(schemars::schema_for!(Operation)).unwrap();
+                    assert_eq!(schema["type"], "string", "{scenario}");
+                    let names = schema["enum"].as_array().unwrap();
+                    assert!(!names.is_empty(), "{scenario}");
+                    assert!(names.contains(&json!("files.read")), "{scenario}");
+                    assert!(!names.contains(&json!("Unsupported")), "{scenario}");
+                    for name in names {
+                        assert!(
+                            serde_json::from_value::<Operation>(name.clone()).is_ok(),
+                            "{scenario}"
+                        );
+                    }
+                }),
             ),
             (
-                "knowledge.rebuild",
-                Operation::KnowledgeRebuild,
-                Action::WriteKnowledge,
-                false,
+                "validates_declared_operations_and_platforms",
+                (|scenario: &'static str| {
+                    let value = json!({"name":"choose","description":"Select an offered action","handler":{"name":"choose","parameters":{"type":"object"},"flow":{"operations":["computer.read","computer.control"]}},"platforms":["macos"],"platform_descriptions":{"macos":"Select a window action"}});
+                    let declaration: Declaration = serde_json::from_value(value.clone()).unwrap();
+                    assert!(declaration.valid(), "{scenario}");
+                    assert!(declaration.available_on("macos"), "{scenario}");
+                    assert!(!declaration.available_on("linux"), "{scenario}");
+                    assert_eq!(
+                        declaration.description_on("macos"),
+                        Some("Select a window action"),
+                        "{scenario}"
+                    );
+                    for change in [
+                        json!([]),
+                        json!(["computer.read", "computer.read"]),
+                        json!(["settings.read"]),
+                        json!(["files.write"]),
+                    ] {
+                        let mut malformed = value.clone();
+                        malformed["handler"]["flow"]["operations"] = change;
+                        assert!(
+                            serde_json::from_value::<Declaration>(malformed)
+                                .map_or(true, |declaration| !declaration.valid()),
+                            "{scenario}"
+                        );
+                    }
+                    let mut conflicting = value;
+                    conflicting["handler"]["operation"] = json!("computer.read");
+                    assert!(
+                        !serde_json::from_value::<Declaration>(conflicting)
+                            .unwrap()
+                            .valid(),
+                        "{scenario}"
+                    );
+                }),
             ),
             (
-                "knowledge.remove",
-                Operation::KnowledgeRemove,
-                Action::WriteKnowledge,
-                false,
-            ),
-        ] {
-            assert_eq!(
-                serde_json::from_value::<Operation>(json!(name)).unwrap(),
-                operation
-            );
-            assert_eq!(operation.action(), Some(action.clone()));
-            assert_eq!(operation.read_only(), read_only);
-            assert_eq!(action.read_only(), read_only);
-            let declaration: Declaration =
-                serde_json::from_value(json!({"name":"knowledge","operation":name})).unwrap();
-            assert!(declaration.valid());
-        }
-    }
-
-    #[test]
-    fn child_control_requires_native_tools() {
-        for (name, operation, read_only) in [
-            ("agents.guide", Operation::GuideAgent, false),
-            ("agents.wait", Operation::WaitAgent, true),
-        ] {
-            assert_eq!(
-                serde_json::from_value::<Operation>(json!(name)).unwrap(),
-                operation
-            );
-            assert_eq!(operation.action(), Some(Action::DelegateAgents));
-            assert_eq!(operation.read_only(), read_only);
-            let direct: Declaration =
-                serde_json::from_value(json!({"name":"child","operation":name})).unwrap();
-            assert!(direct.valid());
-            for handler in [
-                json!({"name":"child","parameters":{"type":"object"},"operation":name}),
-                json!({"name":"child","parameters":{"type":"object"},"flow":{"operations":[name]}}),
-            ] {
-                let declaration: Declaration = serde_json::from_value(
-                    json!({"name":"child","description":"Control a child","handler":handler}),
-                )
+                "preserves_handler_platforms",
+                (|scenario: &'static str| {
+                    let extension: crate::plugin::Extension = serde_json::from_value(json!({
+                    "api_version":"v1",
+                    "instructions":"Fixture instructions",
+                    "tools":[
+                        {"name":"read","description":"Read fixture","handler":{
+                            "name":"read","parameters":{"type":"object"},"operation":"computer.read"
+                        }},
+                        {"name":"open","description":"Open fixture","platforms":["macos"],"handler":{
+                            "name":"open","parameters":{"type":"object"},"operation":"computer.control"
+                        }}
+                    ]
+                }))
                 .unwrap();
-                assert!(!declaration.valid());
-            }
-        }
-    }
-
-    #[test]
-    fn rejects_unknown_operations() {
-        assert!(serde_json::from_value::<Operation>(json!("future.operation")).is_err());
-        for value in [
-            json!({"name":"fixture","operation":"future.operation"}),
-            json!({"name":"fixture","description":"Fixture","handler":{"name":"fixture","parameters":{"type":"object"},"operation":"future.operation"}}),
-            json!({"name":"fixture","description":"Fixture","handler":{"name":"fixture","parameters":{"type":"object"},"flow":{"operations":["files.read","future.operation"]}}}),
+                    assert_eq!(extension.tools.len(), 2, "{scenario}");
+                    assert!(extension.tools.iter().all(Declaration::valid), "{scenario}");
+                    assert!(
+                        extension
+                            .instructions
+                            .as_ref()
+                            .is_some_and(|instructions| !instructions.is_empty()),
+                        "{scenario}"
+                    );
+                    let open = extension
+                        .tools
+                        .iter()
+                        .find(|tool| tool.name == "open")
+                        .unwrap();
+                    assert!(open.available_on("macos"), "{scenario}");
+                    assert!(!open.available_on("windows"), "{scenario}");
+                }),
+            ),
         ] {
-            assert!(serde_json::from_value::<Declaration>(value).is_err());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert!(serde_json::from_value::<Operation>(json!(1)).is_err());
-    }
-
-    #[test]
-    fn extra_metadata_preserves_supported_operations() {
-        let value = json!({"name":"fixture","description":"Fixture","presentation":"details","future_metadata":true,"handler":{"name":"fixture","parameters":{"type":"object"},"future_metadata":{},"flow":{"operations":["files.read"],"future_metadata":[]}}});
-        let declaration: Declaration = serde_json::from_value(value).unwrap();
-        assert!(declaration.valid());
-        assert_eq!(declaration.presentation, Presentation::Details);
-        for value in [json!(true), json!("future_presentation")] {
-            assert!(serde_json::from_value::<Presentation>(value).is_err());
-        }
-        let schema = serde_json::to_value(schemars::schema_for!(Operation)).unwrap();
-        assert_eq!(schema["type"], "string");
-        let names = schema["enum"].as_array().unwrap();
-        assert!(!names.is_empty());
-        assert!(names.contains(&json!("files.read")));
-        assert!(!names.contains(&json!("Unsupported")));
-        for name in names {
-            assert!(serde_json::from_value::<Operation>(name.clone()).is_ok());
-        }
-    }
-    #[test]
-    fn validates_declared_operations_and_platforms() {
-        let value = json!({"name":"choose","description":"Select an offered action","handler":{"name":"choose","parameters":{"type":"object"},"flow":{"operations":["computer.read","computer.control"]}},"platforms":["macos"],"platform_descriptions":{"macos":"Select a window action"}});
-        let declaration: Declaration = serde_json::from_value(value.clone()).unwrap();
-        assert!(declaration.valid());
-        assert!(declaration.available_on("macos"));
-        assert!(!declaration.available_on("linux"));
-        assert_eq!(
-            declaration.description_on("macos"),
-            Some("Select a window action")
-        );
-        for change in [
-            json!([]),
-            json!(["computer.read", "computer.read"]),
-            json!(["settings.read"]),
-            json!(["files.write"]),
-        ] {
-            let mut malformed = value.clone();
-            malformed["handler"]["flow"]["operations"] = change;
-            assert!(
-                serde_json::from_value::<Declaration>(malformed)
-                    .map_or(true, |declaration| !declaration.valid())
-            );
-        }
-        let mut conflicting = value;
-        conflicting["handler"]["operation"] = json!("computer.read");
-        assert!(
-            !serde_json::from_value::<Declaration>(conflicting)
-                .unwrap()
-                .valid()
-        );
-    }
-    #[test]
-    fn preserves_handler_platforms() {
-        let extension: crate::plugin::Extension = serde_json::from_value(json!({
-            "api_version":"v1",
-            "instructions":"Fixture instructions",
-            "tools":[
-                {"name":"read","description":"Read fixture","handler":{
-                    "name":"read","parameters":{"type":"object"},"operation":"computer.read"
-                }},
-                {"name":"open","description":"Open fixture","platforms":["macos"],"handler":{
-                    "name":"open","parameters":{"type":"object"},"operation":"computer.control"
-                }}
-            ]
-        }))
-        .unwrap();
-        assert_eq!(extension.tools.len(), 2);
-        assert!(extension.tools.iter().all(Declaration::valid));
-        assert!(
-            extension
-                .instructions
-                .as_ref()
-                .is_some_and(|instructions| !instructions.is_empty())
-        );
-        let open = extension
-            .tools
-            .iter()
-            .find(|tool| tool.name == "open")
-            .unwrap();
-        assert!(open.available_on("macos"));
-        assert!(!open.available_on("windows"));
     }
 }
 

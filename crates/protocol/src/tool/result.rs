@@ -65,26 +65,44 @@ mod tests {
     use super::*;
     use serde_json::json;
     #[test]
-    fn preserves_diagnostics_and_authoritative_error() {
-        let value = json!({"isError":true,"error":{"code":"unavailable","message":"failed"},
-            "sailry_result":{"version":1,"diagnostics":[{"text":"full\ntrace","error":false}],"status":{"label":"Done"}}});
-        let display = ResultDisplay::from_value(&value).unwrap();
-        assert_eq!(display.diagnostics[0].text, "full\ntrace");
-        assert_eq!(value["isError"], true);
-        assert_eq!(value["error"]["message"], "failed");
-    }
-    #[test]
-    fn rejects_invalid_markers() {
-        for marker in [
-            json!({"version":2,"diagnostics":[]}),
-            json!({"version":1,"diagnostics":[{"text":"x","error":"no"}]}),
-            json!({"version":1,"diagnostics":[],"extra":true}),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "preserves_diagnostics_and_authoritative_error",
+                (|scenario: &'static str| {
+                    let value = json!({"isError":true,"error":{"code":"unavailable","message":"failed"},
+                    "sailry_result":{"version":1,"diagnostics":[{"text":"full\ntrace","error":false}],"status":{"label":"Done"}}});
+                    let display = ResultDisplay::from_value(&value).unwrap();
+                    assert_eq!(display.diagnostics[0].text, "full\ntrace", "{scenario}");
+                    assert_eq!(value["isError"], true, "{scenario}");
+                    assert_eq!(value["error"]["message"], "failed", "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "rejects_invalid_markers",
+                (|scenario: &'static str| {
+                    for marker in [
+                        json!({"version":2,"diagnostics":[]}),
+                        json!({"version":1,"diagnostics":[{"text":"x","error":"no"}]}),
+                        json!({"version":1,"diagnostics":[],"extra":true}),
+                    ] {
+                        assert!(
+                            ResultDisplay::from_value(&json!({"sailry_result":marker})).is_none(),
+                            "{scenario}"
+                        );
+                    }
+                    assert!(
+                        ResultDisplay::from_value(
+                            &json!({"sailry_result":{"version":1,"diagnostics":[]}})
+                        )
+                        .is_some(),
+                        "{scenario}"
+                    );
+                }),
+            ),
         ] {
-            assert!(ResultDisplay::from_value(&json!({"sailry_result":marker})).is_none());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert!(
-            ResultDisplay::from_value(&json!({"sailry_result":{"version":1,"diagnostics":[]}}))
-                .is_some()
-        );
     }
 }

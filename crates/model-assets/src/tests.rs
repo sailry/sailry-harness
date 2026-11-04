@@ -264,35 +264,94 @@ async fn independent_urls_preserve_flat_targets() {
 }
 
 #[test]
-fn rejects_partial_and_changed_files() {
-    let directory = directory();
-    let path = directory.path().join("model");
-    let checksum = checksum(b"model");
-    let files = [File {
-        name: "model",
-        size: 5,
-        sha256: &checksum,
-    }];
-    for (bytes, valid) in [
-        (b"mod".as_slice(), false),
-        (b"other".as_slice(), false),
-        (b"model".as_slice(), true),
+fn preserves_asset_contracts() {
+    for (scenario, check) in [
+        (
+            "rejects_partial_and_changed_files",
+            (|scenario: &'static str| {
+                let directory = directory();
+                let path = directory.path().join("model");
+                let checksum = checksum(b"model");
+                let files = [File {
+                    name: "model",
+                    size: 5,
+                    sha256: &checksum,
+                }];
+                for (bytes, valid) in [
+                    (b"mod".as_slice(), false),
+                    (b"other".as_slice(), false),
+                    (b"model".as_slice(), true),
+                ] {
+                    std::fs::write(&path, bytes).unwrap();
+                    assert_eq!(ready(directory.path(), &files), valid, "{scenario}");
+                }
+            }) as fn(&'static str),
+        ),
+        (
+            "excludes_cached_download_bytes",
+            (|scenario: &'static str| {
+                let progress = super::progress(750, 1000, 250, Duration::from_secs(2));
+                assert_eq!(progress.percent, 75., "{scenario}");
+                assert_eq!(progress.bytes_per_second, 125., "{scenario}");
+                assert_eq!(
+                    super::progress(1000, 1000, 0, Duration::ZERO).percent,
+                    99.,
+                    "{scenario}"
+                );
+                assert_eq!(
+                    super::progress(1000, 1000, 0, Duration::ZERO).bytes_per_second,
+                    0.,
+                    "{scenario}"
+                );
+            }),
+        ),
+        (
+            "rejects_unsafe_names_and_duplicate_targets",
+            (|scenario: &'static str| {
+                let checksum = checksum(b"model");
+                for name in [
+                    "",
+                    "../model",
+                    "/model",
+                    "a/b",
+                    "a\\b",
+                    "model:stream",
+                    "CON",
+                    "COM1.bin",
+                    "model.",
+                ] {
+                    assert_eq!(
+                        validate(&[File {
+                            name,
+                            size: 5,
+                            sha256: &checksum
+                        }]),
+                        Err(Error::InvalidAsset),
+                        "{scenario}"
+                    );
+                }
+                assert_eq!(
+                    validate(&[
+                        File {
+                            name: "model",
+                            size: 5,
+                            sha256: &checksum
+                        },
+                        File {
+                            name: "MODEL",
+                            size: 5,
+                            sha256: &checksum
+                        }
+                    ]),
+                    Err(Error::InvalidAsset),
+                    "{scenario}"
+                );
+            }),
+        ),
     ] {
-        std::fs::write(&path, bytes).unwrap();
-        assert_eq!(ready(directory.path(), &files), valid);
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
-}
-
-#[test]
-fn excludes_cached_download_bytes() {
-    let progress = super::progress(750, 1000, 250, Duration::from_secs(2));
-    assert_eq!(progress.percent, 75.);
-    assert_eq!(progress.bytes_per_second, 125.);
-    assert_eq!(super::progress(1000, 1000, 0, Duration::ZERO).percent, 99.);
-    assert_eq!(
-        super::progress(1000, 1000, 0, Duration::ZERO).bytes_per_second,
-        0.
-    );
 }
 
 #[tokio::test]
@@ -612,46 +671,6 @@ async fn refuses_symlinked_directories_and_files() {
     }
     assert_eq!(server.requests.load(Ordering::SeqCst), 0);
     assert_eq!(std::fs::read(target).unwrap(), b"model");
-}
-
-#[test]
-fn rejects_unsafe_names_and_duplicate_targets() {
-    let checksum = checksum(b"model");
-    for name in [
-        "",
-        "../model",
-        "/model",
-        "a/b",
-        "a\\b",
-        "model:stream",
-        "CON",
-        "COM1.bin",
-        "model.",
-    ] {
-        assert_eq!(
-            validate(&[File {
-                name,
-                size: 5,
-                sha256: &checksum
-            }]),
-            Err(Error::InvalidAsset)
-        );
-    }
-    assert_eq!(
-        validate(&[
-            File {
-                name: "model",
-                size: 5,
-                sha256: &checksum
-            },
-            File {
-                name: "MODEL",
-                size: 5,
-                sha256: &checksum
-            }
-        ]),
-        Err(Error::InvalidAsset)
-    );
 }
 
 #[tokio::test]

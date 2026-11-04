@@ -281,221 +281,263 @@ mod tests {
     use super::*;
 
     #[test]
-    fn edit_requires_a_revision() {
-        let mut value = serde_json::json!({
-            "kind":"edit_file", "data": {"worktree":crate::WorktreeId::new(),"path":"file","old_text":"before","new_text":"after"}
-        });
-        assert!(serde_json::from_value::<crate::Command>(value.clone()).is_err());
-        value["data"]["expected_revision"] = "0".repeat(64).into();
-        let command: crate::Command = serde_json::from_value(value.clone()).unwrap();
-        assert_eq!(serde_json::to_value(&command).unwrap(), value);
-        assert!(command.durable());
-        assert_eq!(
-            serde_json::from_value::<crate::Command>(serde_json::to_value(&command).unwrap())
-                .unwrap(),
-            command
-        );
-    }
-
-    #[test]
-    fn roundtrips_batch_edits_and_mutations() {
-        let worktree = crate::WorktreeId::new();
-        for command in [
-            crate::Command::EditFile {
-                worktree,
-                path: "file".into(),
-                old_text: None,
-                new_text: None,
-                replace_all: false,
-                edits: Some(vec![FileEdit {
-                    old_text: "old".into(),
-                    new_text: "new".into(),
-                    replace_all: true,
-                }]),
-                expected_revision: "a".repeat(64),
-            },
-            crate::Command::DeleteFile {
-                worktree,
-                path: "file".into(),
-                expected_revision: "a".repeat(64),
-            },
-            crate::Command::MoveFile {
-                worktree,
-                from: "file".into(),
-                to: "new".into(),
-                expected_revision: "a".repeat(64),
-            },
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "edit_requires_a_revision",
+                (|scenario: &'static str| {
+                    let mut value = serde_json::json!({
+                        "kind":"edit_file", "data": {"worktree":crate::WorktreeId::new(),"path":"file","old_text":"before","new_text":"after"}
+                    });
+                    assert!(
+                        serde_json::from_value::<crate::Command>(value.clone()).is_err(),
+                        "{scenario}"
+                    );
+                    value["data"]["expected_revision"] = "0".repeat(64).into();
+                    let command: crate::Command = serde_json::from_value(value.clone()).unwrap();
+                    assert_eq!(serde_json::to_value(&command).unwrap(), value, "{scenario}");
+                    assert!(command.durable(), "{scenario}");
+                    assert_eq!(
+                        serde_json::from_value::<crate::Command>(
+                            serde_json::to_value(&command).unwrap()
+                        )
+                        .unwrap(),
+                        command,
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "roundtrips_batch_edits_and_mutations",
+                (|scenario: &'static str| {
+                    let worktree = crate::WorktreeId::new();
+                    for command in [
+                        crate::Command::EditFile {
+                            worktree,
+                            path: "file".into(),
+                            old_text: None,
+                            new_text: None,
+                            replace_all: false,
+                            edits: Some(vec![FileEdit {
+                                old_text: "old".into(),
+                                new_text: "new".into(),
+                                replace_all: true,
+                            }]),
+                            expected_revision: "a".repeat(64),
+                        },
+                        crate::Command::DeleteFile {
+                            worktree,
+                            path: "file".into(),
+                            expected_revision: "a".repeat(64),
+                        },
+                        crate::Command::MoveFile {
+                            worktree,
+                            from: "file".into(),
+                            to: "new".into(),
+                            expected_revision: "a".repeat(64),
+                        },
+                    ] {
+                        assert!(command.durable(), "{scenario}");
+                        assert_eq!(
+                            serde_json::from_value::<crate::Command>(
+                                serde_json::to_value(&command).unwrap()
+                            )
+                            .unwrap(),
+                            command,
+                            "{scenario}"
+                        );
+                    }
+                    for operation in [
+                        crate::tool::Operation::DeleteFile,
+                        crate::tool::Operation::MoveFile,
+                        crate::tool::Operation::CreateDirectory,
+                    ] {
+                        assert!(!operation.read_only(), "{scenario}");
+                        assert_eq!(
+                            operation.action(),
+                            Some(crate::plugin::Action::WriteFiles),
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "paged_reads_and_discovery_are_read_only",
+                (|scenario: &'static str| {
+                    for command in [
+                        crate::Command::ReadFileLines {
+                            worktree: crate::WorktreeId::new(),
+                            path: "file".into(),
+                            offset: 0,
+                            limit: 200,
+                            expected_revision: None,
+                        },
+                        crate::Command::FindFiles {
+                            worktree: crate::WorktreeId::new(),
+                            globs: vec!["**/*.rs".into()],
+                            path: String::new(),
+                            limit: MAX_FIND_MATCHES,
+                            offset: 0,
+                        },
+                    ] {
+                        assert!(!command.durable(), "{scenario}");
+                        assert_eq!(
+                            serde_json::from_value::<crate::Command>(
+                                serde_json::to_value(&command).unwrap()
+                            )
+                            .unwrap(),
+                            command,
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "search_defaults_and_mode_payloads",
+                (|scenario: &'static str| {
+                    let options: FileSearch =
+                        serde_json::from_value(serde_json::json!({"query":"needle"})).unwrap();
+                    assert_eq!(options.limit, MAX_SEARCH_MATCHES, "{scenario}");
+                    assert_eq!(options.mode, SearchMode::Content, "{scenario}");
+                    assert_eq!(options.context, 0, "{scenario}");
+                    assert!(options.path.is_empty(), "{scenario}");
+                    assert!(
+                        serde_json::from_value::<FileSearch>(
+                            serde_json::json!({"query":"needle","mode":"unknown"})
+                        )
+                        .is_err(),
+                        "{scenario}"
+                    );
+                    for (mode, field) in [
+                        (SearchMode::Content, "matches"),
+                        (SearchMode::Files, "paths"),
+                        (SearchMode::Count, "counts"),
+                    ] {
+                        let result = SearchResults {
+                            mode,
+                            ..Default::default()
+                        };
+                        let value = serde_json::to_value(&result).unwrap();
+                        assert_eq!(value[field], serde_json::json!([]), "{scenario}");
+                        for other in ["matches", "paths", "counts"]
+                            .into_iter()
+                            .filter(|other| *other != field)
+                        {
+                            assert!(value.get(other).is_none(), "{scenario}");
+                        }
+                        assert_eq!(
+                            serde_json::from_value::<SearchResults>(value).unwrap(),
+                            result,
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
+            (
+                "download_requires_source_identity",
+                (|scenario: &'static str| {
+                    let mut value = serde_json::json!({
+                        "stream": crate::StreamId::new(),
+                        "worktree": crate::WorktreeId::new(),
+                        "path": "file",
+                        "size": 0,
+                        "revision": "original"
+                    });
+                    assert!(
+                        serde_json::from_value::<FileDownload>(value.clone()).is_err(),
+                        "{scenario}"
+                    );
+                    value["stamp"] = "identity".into();
+                    let download: FileDownload = serde_json::from_value(value).unwrap();
+                    let command = crate::Command::TrashFile {
+                        worktree: download.worktree,
+                        path: download.path,
+                        expected_revision: download.revision,
+                        expected_stamp: download.stamp,
+                    };
+                    assert!(command.durable(), "{scenario}");
+                    let encoded = serde_json::to_value(&command).unwrap();
+                    assert_eq!(encoded["kind"], "trash_file", "{scenario}");
+                    assert_eq!(
+                        serde_json::from_value::<crate::Command>(encoded).unwrap(),
+                        command,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "transfers_bind_both_roots",
+                (|scenario: &'static str| {
+                    for (case, command) in [
+                        (
+                            "copy_entry_to",
+                            crate::Command::CopyEntryTo {
+                                source: crate::WorktreeId::new(),
+                                worktree: crate::WorktreeId::new(),
+                                from: "资料/file".into(),
+                                to: "copy".into(),
+                            },
+                        ),
+                        (
+                            "move_entry_to",
+                            crate::Command::MoveEntryTo {
+                                source: crate::WorktreeId::new(),
+                                worktree: crate::WorktreeId::new(),
+                                from: "file".into(),
+                                to: "file".into(),
+                            },
+                        ),
+                    ] {
+                        assert!(command.durable(), "{scenario}: {case}: durability");
+                        let encoded = serde_json::to_value(&command).unwrap();
+                        assert_eq!(encoded["kind"], case, "{scenario}: {case}: wire kind");
+                        assert_ne!(
+                            encoded["data"]["source"], encoded["data"]["worktree"],
+                            "{scenario}: {case}: distinct roots"
+                        );
+                        assert_eq!(
+                            serde_json::from_value::<crate::Command>(encoded.clone()).unwrap(),
+                            command,
+                            "{scenario}: {case}: round trip"
+                        );
+                        let mut missing = encoded;
+                        missing["data"].as_object_mut().unwrap().remove("source");
+                        assert!(
+                            serde_json::from_value::<crate::Command>(missing).is_err(),
+                            "{scenario}: {case}: source required"
+                        );
+                    }
+                }),
+            ),
+            (
+                "first_page_requires_revision",
+                (|scenario: &'static str| {
+                    let command: crate::Command = serde_json::from_value(serde_json::json!({
+                    "kind": "list_directory", "data": { "worktree": crate::WorktreeId::new(), "path": "" }
+                }))
+                .unwrap();
+                    assert!(
+                        matches!(command, crate::Command::ListDirectory { after: None, .. }),
+                        "{scenario}"
+                    );
+                    assert!(!command.durable(), "{scenario}");
+                    let mut value = serde_json::json!({
+                        "path": "", "entries": [], "truncated": true, "unsupported_names": 0
+                    });
+                    assert!(
+                        serde_json::from_value::<Directory>(value.clone()).is_err(),
+                        "{scenario}"
+                    );
+                    value["revision"] = "directory".into();
+                    let directory: Directory = serde_json::from_value(value).unwrap();
+                    assert!(directory.next.is_none(), "{scenario}");
+                    assert_eq!(directory.revision, "directory", "{scenario}");
+                    assert!(directory.truncated, "{scenario}");
+                }),
+            ),
         ] {
-            assert!(command.durable());
-            assert_eq!(
-                serde_json::from_value::<crate::Command>(serde_json::to_value(&command).unwrap())
-                    .unwrap(),
-                command
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        for operation in [
-            crate::tool::Operation::DeleteFile,
-            crate::tool::Operation::MoveFile,
-            crate::tool::Operation::CreateDirectory,
-        ] {
-            assert!(!operation.read_only());
-            assert_eq!(operation.action(), Some(crate::plugin::Action::WriteFiles));
-        }
-    }
-
-    #[test]
-    fn paged_reads_and_discovery_are_read_only() {
-        for command in [
-            crate::Command::ReadFileLines {
-                worktree: crate::WorktreeId::new(),
-                path: "file".into(),
-                offset: 0,
-                limit: 200,
-                expected_revision: None,
-            },
-            crate::Command::FindFiles {
-                worktree: crate::WorktreeId::new(),
-                globs: vec!["**/*.rs".into()],
-                path: String::new(),
-                limit: MAX_FIND_MATCHES,
-                offset: 0,
-            },
-        ] {
-            assert!(!command.durable());
-            assert_eq!(
-                serde_json::from_value::<crate::Command>(serde_json::to_value(&command).unwrap())
-                    .unwrap(),
-                command
-            );
-        }
-    }
-
-    #[test]
-    fn search_defaults_and_mode_payloads() {
-        let options: FileSearch =
-            serde_json::from_value(serde_json::json!({"query":"needle"})).unwrap();
-        assert_eq!(options.limit, MAX_SEARCH_MATCHES);
-        assert_eq!(options.mode, SearchMode::Content);
-        assert_eq!(options.context, 0);
-        assert!(options.path.is_empty());
-        assert!(
-            serde_json::from_value::<FileSearch>(
-                serde_json::json!({"query":"needle","mode":"unknown"})
-            )
-            .is_err()
-        );
-        for (mode, field) in [
-            (SearchMode::Content, "matches"),
-            (SearchMode::Files, "paths"),
-            (SearchMode::Count, "counts"),
-        ] {
-            let result = SearchResults {
-                mode,
-                ..Default::default()
-            };
-            let value = serde_json::to_value(&result).unwrap();
-            assert_eq!(value[field], serde_json::json!([]));
-            for other in ["matches", "paths", "counts"]
-                .into_iter()
-                .filter(|other| *other != field)
-            {
-                assert!(value.get(other).is_none());
-            }
-            assert_eq!(
-                serde_json::from_value::<SearchResults>(value).unwrap(),
-                result
-            );
-        }
-    }
-
-    #[test]
-    fn download_requires_source_identity() {
-        let mut value = serde_json::json!({
-            "stream": crate::StreamId::new(),
-            "worktree": crate::WorktreeId::new(),
-            "path": "file",
-            "size": 0,
-            "revision": "original"
-        });
-        assert!(serde_json::from_value::<FileDownload>(value.clone()).is_err());
-        value["stamp"] = "identity".into();
-        let download: FileDownload = serde_json::from_value(value).unwrap();
-        let command = crate::Command::TrashFile {
-            worktree: download.worktree,
-            path: download.path,
-            expected_revision: download.revision,
-            expected_stamp: download.stamp,
-        };
-        assert!(command.durable());
-        let encoded = serde_json::to_value(&command).unwrap();
-        assert_eq!(encoded["kind"], "trash_file");
-        assert_eq!(
-            serde_json::from_value::<crate::Command>(encoded).unwrap(),
-            command
-        );
-    }
-
-    #[test]
-    fn copy_has_distinct_durable_identity() {
-        let command = crate::Command::CopyEntryTo {
-            source: crate::WorktreeId::new(),
-            worktree: crate::WorktreeId::new(),
-            from: "资料/file".into(),
-            to: "copy".into(),
-        };
-        assert!(command.durable());
-        let encoded = serde_json::to_value(&command).unwrap();
-        assert_eq!(encoded["kind"], "copy_entry_to");
-        assert_ne!(encoded["data"]["source"], encoded["data"]["worktree"]);
-        assert_eq!(
-            serde_json::from_value::<crate::Command>(encoded.clone()).unwrap(),
-            command
-        );
-        let mut missing = encoded;
-        missing["data"].as_object_mut().unwrap().remove("source");
-        assert!(serde_json::from_value::<crate::Command>(missing).is_err());
-    }
-
-    #[test]
-    fn move_binds_both_roots() {
-        let command = crate::Command::MoveEntryTo {
-            source: crate::WorktreeId::new(),
-            worktree: crate::WorktreeId::new(),
-            from: "file".into(),
-            to: "file".into(),
-        };
-        assert!(command.durable());
-        let encoded = serde_json::to_value(&command).unwrap();
-        assert_eq!(encoded["kind"], "move_entry_to");
-        assert_ne!(encoded["data"]["source"], encoded["data"]["worktree"]);
-        assert_eq!(
-            serde_json::from_value::<crate::Command>(encoded.clone()).unwrap(),
-            command
-        );
-        let mut missing = encoded;
-        missing["data"].as_object_mut().unwrap().remove("source");
-        assert!(serde_json::from_value::<crate::Command>(missing).is_err());
-    }
-
-    #[test]
-    fn first_page_requires_revision() {
-        let command: crate::Command = serde_json::from_value(serde_json::json!({
-            "kind": "list_directory", "data": { "worktree": crate::WorktreeId::new(), "path": "" }
-        }))
-        .unwrap();
-        assert!(matches!(
-            command,
-            crate::Command::ListDirectory { after: None, .. }
-        ));
-        assert!(!command.durable());
-        let mut value = serde_json::json!({
-            "path": "", "entries": [], "truncated": true, "unsupported_names": 0
-        });
-        assert!(serde_json::from_value::<Directory>(value.clone()).is_err());
-        value["revision"] = "directory".into();
-        let directory: Directory = serde_json::from_value(value).unwrap();
-        assert!(directory.next.is_none());
-        assert_eq!(directory.revision, "directory");
-        assert!(directory.truncated);
     }
 }

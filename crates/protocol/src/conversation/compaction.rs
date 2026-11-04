@@ -124,29 +124,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preserves_optional_failure_cause() {
-        let mut value = serde_json::json!({
-            "type": "compaction_failure",
-            "failure": {"source":"manual", "stage":"request", "reason":"rate_limited",
-                "continued":false, "status":429}
-        });
-        assert_eq!(Failure::from_resource(&value).unwrap().cause, None);
-        value["failure"]["cause"] = "Request rate exceeded".into();
-        let failure = Failure::from_resource(&value).unwrap();
-        assert_eq!(failure.cause.as_deref(), Some("Request rate exceeded"));
-        assert_eq!(failure.resource(), value);
-    }
-
-    #[test]
-    fn round_trips_progress() {
-        let progress = Progress { started_ms: 1_700 };
-        assert_eq!(
-            Progress::from_resource(&progress.resource()),
-            Some(progress)
-        );
-        assert_eq!(
-            Progress::from_resource(&serde_json::json!({"type":"compaction_failure"})),
-            None
-        );
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "preserves_optional_failure_cause",
+                (|scenario: &'static str| {
+                    let mut value = serde_json::json!({
+                        "type": "compaction_failure",
+                        "failure": {"source":"manual", "stage":"request", "reason":"rate_limited",
+                            "continued":false, "status":429}
+                    });
+                    assert_eq!(
+                        Failure::from_resource(&value).unwrap().cause,
+                        None,
+                        "{scenario}"
+                    );
+                    value["failure"]["cause"] = "Request rate exceeded".into();
+                    let failure = Failure::from_resource(&value).unwrap();
+                    assert_eq!(
+                        failure.cause.as_deref(),
+                        Some("Request rate exceeded"),
+                        "{scenario}"
+                    );
+                    assert_eq!(failure.resource(), value, "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "round_trips_progress",
+                (|scenario: &'static str| {
+                    let progress = Progress { started_ms: 1_700 };
+                    assert_eq!(
+                        Progress::from_resource(&progress.resource()),
+                        Some(progress),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        Progress::from_resource(&serde_json::json!({"type":"compaction_failure"})),
+                        None,
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
+        }
     }
 }

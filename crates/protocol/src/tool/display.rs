@@ -194,168 +194,195 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn reserves_aliases_for_captured_display() {
-        let mut declaration: super::super::Declaration = serde_json::from_value(json!({
-            "name":"run", "display":{"label":"Run","input":{"summary":{"path":"/command","format":"command"}}}
-        })).unwrap();
-        assert!(declaration.valid());
-        declaration.display.as_mut().unwrap().aliases.push(Alias {
-            path: "/node/home".into(),
-            kind: AliasKind::Home,
-        });
-        assert!(declaration.display.as_ref().unwrap().valid());
-        assert!(!declaration.valid());
-        let input: Input =
-            serde_json::from_value(json!({"content":{"path":"/command","format":"command"}}))
-                .unwrap();
-        assert!(!input.valid());
-    }
-
-    #[test]
-    fn defaults_to_summary_and_reserves_raw_inspection() {
-        let mut declaration: super::super::Declaration = serde_json::from_value(json!({
-            "name":"read", "display":{"label":"Read"}
-        }))
-        .unwrap();
-        assert_eq!(
-            declaration.presentation,
-            super::super::Presentation::Summary
-        );
-        declaration.display.as_mut().unwrap().raw_result = true;
-        assert!(declaration.display.as_ref().unwrap().valid());
-        assert!(!declaration.valid());
-        declaration.display.as_mut().unwrap().raw_result = false;
-        for presentation in ["hidden", "details", "content", "progress"] {
-            let mut value = serde_json::to_value(&declaration).unwrap();
-            value["presentation"] = json!(presentation);
-            let declaration: super::super::Declaration = serde_json::from_value(value).unwrap();
-            assert!(declaration.valid());
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "reserves_aliases_for_captured_display",
+                (|scenario: &'static str| {
+                    let mut declaration: super::super::Declaration = serde_json::from_value(json!({
+                    "name":"run", "display":{"label":"Run","input":{"summary":{"path":"/command","format":"command"}}}
+                })).unwrap();
+                    assert!(declaration.valid(), "{scenario}");
+                    declaration.display.as_mut().unwrap().aliases.push(Alias {
+                        path: "/node/home".into(),
+                        kind: AliasKind::Home,
+                    });
+                    assert!(declaration.display.as_ref().unwrap().valid(), "{scenario}");
+                    assert!(!declaration.valid(), "{scenario}");
+                    let input: Input = serde_json::from_value(
+                        json!({"content":{"path":"/command","format":"command"}}),
+                    )
+                    .unwrap();
+                    assert!(!input.valid(), "{scenario}");
+                }) as fn(&'static str),
+            ),
+            (
+                "defaults_to_summary_and_reserves_raw_inspection",
+                (|scenario: &'static str| {
+                    let mut declaration: super::super::Declaration =
+                        serde_json::from_value(json!({
+                            "name":"read", "display":{"label":"Read"}
+                        }))
+                        .unwrap();
+                    assert_eq!(
+                        declaration.presentation,
+                        super::super::Presentation::Summary,
+                        "{scenario}"
+                    );
+                    declaration.display.as_mut().unwrap().raw_result = true;
+                    assert!(declaration.display.as_ref().unwrap().valid(), "{scenario}");
+                    assert!(!declaration.valid(), "{scenario}");
+                    declaration.display.as_mut().unwrap().raw_result = false;
+                    for presentation in ["hidden", "details", "content", "progress"] {
+                        let mut value = serde_json::to_value(&declaration).unwrap();
+                        value["presentation"] = json!(presentation);
+                        let declaration: super::super::Declaration =
+                            serde_json::from_value(value).unwrap();
+                        assert!(declaration.valid(), "{scenario}");
+                    }
+                }),
+            ),
+            (
+                "reads_original_fields",
+                (|scenario: &'static str| {
+                    let display: Display = serde_json::from_value(json!({
+                        "label":"Run", "input":{
+                            "summary":{"path":"/command", "code":true},
+                            "context":{"path":"/cwd", "omit":["."]},
+                            "content":{"path":"/escaped~1key/~0value"}
+                        }
+                    }))
+                    .unwrap();
+                    assert!(display.valid(), "{scenario}");
+                    let input = display.input.unwrap();
+                    let args = json!({"command":"first\nsecond", "cwd":".", "escaped/key":{"~value":"完整内容 🙂"}});
+                    assert_eq!(
+                        input.summary.unwrap().read(&args),
+                        Some("first\nsecond"),
+                        "{scenario}"
+                    );
+                    assert_eq!(input.context.unwrap().read(&args), None, "{scenario}");
+                    assert_eq!(
+                        input.content.unwrap().read(&args),
+                        Some("完整内容 🙂"),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "reserves_format_and_result_paths_for_summaries",
+                (|scenario: &'static str| {
+                    for (case, selector) in [
+                        (
+                            "session format",
+                            json!({"path":"/session","format":"session"}),
+                        ),
+                        (
+                            "result path",
+                            json!({"path":"/source/value","result_path":"/data/path"}),
+                        ),
+                    ] {
+                        for field in ["summary", "content", "context", "target"] {
+                            let input: Input =
+                                serde_json::from_value(json!({field: selector})).unwrap();
+                            assert_eq!(
+                                input.valid(),
+                                field == "summary",
+                                "{scenario}: {case}: {field}"
+                            );
+                            if case == "session format" && field == "summary" {
+                                assert_eq!(
+                                    input.summary.unwrap().format,
+                                    Some(InputFormat::Session),
+                                    "{scenario}: {case}: decoded format"
+                                );
+                            }
+                        }
+                    }
+                    for path in ["", "data/path", "/~", "/~2", "/bad\npath"] {
+                        let input: Input = serde_json::from_value(
+                            json!({"summary":{"path":"/source/value","result_path":path}}),
+                        )
+                        .unwrap();
+                        assert!(!input.valid(), "{scenario}: result path: {path:?}");
+                    }
+                }),
+            ),
+            (
+                "reserves_names_for_captured_summaries",
+                (|scenario: &'static str| {
+                    let mut declaration: super::super::Declaration =
+                        serde_json::from_value(json!({
+                            "name": "run", "display": {"label": "Run", "input": {
+                                "summary": {"path": "/connection", "format": "connection"}
+                            }}
+                        }))
+                        .unwrap();
+                    assert!(declaration.valid(), "{scenario}");
+                    let captured = serde_json::to_value(&declaration).unwrap();
+                    assert!(
+                        captured["display"]["input"]["summary"]
+                            .get("names")
+                            .is_none(),
+                        "{scenario}"
+                    );
+                    declaration
+                        .display
+                        .as_mut()
+                        .unwrap()
+                        .input
+                        .as_mut()
+                        .unwrap()
+                        .summary
+                        .as_mut()
+                        .unwrap()
+                        .names
+                        .insert("connection-id".into(), "Build host".into());
+                    assert!(declaration.display.as_ref().unwrap().valid(), "{scenario}");
+                    assert!(!declaration.valid(), "{scenario}");
+                    for field in ["context", "target", "content"] {
+                        let input: Input = serde_json::from_value(json!({field: {
+                            "path": "/connection", "names": {"connection-id": "Build host"}
+                        }}))
+                        .unwrap();
+                        assert!(!input.valid(), "{scenario}");
+                    }
+                }),
+            ),
+            (
+                "rejects_invalid_selectors",
+                (|scenario: &'static str| {
+                    for path in ["", "command", "/~", "/~2", "/bad\npath"] {
+                        let field = Field {
+                            path: path.into(),
+                            code: false,
+                            omit: vec![],
+                            format: None,
+                            result_path: None,
+                            names: BTreeMap::new(),
+                        };
+                        assert!(!field.valid(), "{scenario}: {path:?}");
+                    }
+                    let field = Field {
+                        path: "/command".into(),
+                        code: false,
+                        omit: vec![],
+                        format: None,
+                        result_path: None,
+                        names: BTreeMap::new(),
+                    };
+                    assert!(
+                        field
+                            .read(&json!({"command":{"text":"not a string"}}))
+                            .is_none(),
+                        "{scenario}"
+                    );
+                    assert!(field.read(&json!({"command":"  "})).is_none(), "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn reads_original_fields() {
-        let display: Display = serde_json::from_value(json!({
-            "label":"Run", "input":{
-                "summary":{"path":"/command", "code":true},
-                "context":{"path":"/cwd", "omit":["."]},
-                "content":{"path":"/escaped~1key/~0value"}
-            }
-        }))
-        .unwrap();
-        assert!(display.valid());
-        let input = display.input.unwrap();
-        let args =
-            json!({"command":"first\nsecond", "cwd":".", "escaped/key":{"~value":"完整内容 🙂"}});
-        assert_eq!(input.summary.unwrap().read(&args), Some("first\nsecond"));
-        assert_eq!(input.context.unwrap().read(&args), None);
-        assert_eq!(input.content.unwrap().read(&args), Some("完整内容 🙂"));
-    }
-
-    #[test]
-    fn reserves_session_format_for_summaries() {
-        let input: Input = serde_json::from_value(json!({
-            "summary": {"path": "/session", "format": "session"}
-        }))
-        .unwrap();
-        assert!(input.valid());
-        assert_eq!(input.summary.unwrap().format, Some(InputFormat::Session));
-        for field in ["content", "context", "target"] {
-            let input: Input = serde_json::from_value(json!({
-                field: {"path": "/session", "format": "session"}
-            }))
-            .unwrap();
-            assert!(!input.valid());
-        }
-    }
-
-    #[test]
-    fn reserves_result_paths_for_summaries() {
-        let input: Input = serde_json::from_value(json!({
-            "summary": {"path": "/source/value", "result_path": "/data/path"}
-        }))
-        .unwrap();
-        assert!(input.valid());
-        for field in ["content", "context", "target"] {
-            let input: Input = serde_json::from_value(json!({
-                field: {"path": "/source/value", "result_path": "/data/path"}
-            }))
-            .unwrap();
-            assert!(!input.valid());
-        }
-        for path in ["", "data/path", "/~", "/~2", "/bad\npath"] {
-            let input: Input = serde_json::from_value(json!({
-                "summary": {"path": "/source/value", "result_path": path}
-            }))
-            .unwrap();
-            assert!(!input.valid());
-        }
-    }
-
-    #[test]
-    fn reserves_names_for_captured_summaries() {
-        let mut declaration: super::super::Declaration = serde_json::from_value(json!({
-            "name": "run", "display": {"label": "Run", "input": {
-                "summary": {"path": "/connection", "format": "connection"}
-            }}
-        }))
-        .unwrap();
-        assert!(declaration.valid());
-        let captured = serde_json::to_value(&declaration).unwrap();
-        assert!(
-            captured["display"]["input"]["summary"]
-                .get("names")
-                .is_none()
-        );
-        declaration
-            .display
-            .as_mut()
-            .unwrap()
-            .input
-            .as_mut()
-            .unwrap()
-            .summary
-            .as_mut()
-            .unwrap()
-            .names
-            .insert("connection-id".into(), "Build host".into());
-        assert!(declaration.display.as_ref().unwrap().valid());
-        assert!(!declaration.valid());
-        for field in ["context", "target", "content"] {
-            let input: Input = serde_json::from_value(json!({field: {
-                "path": "/connection", "names": {"connection-id": "Build host"}
-            }}))
-            .unwrap();
-            assert!(!input.valid());
-        }
-    }
-
-    #[test]
-    fn rejects_invalid_selectors() {
-        for path in ["", "command", "/~", "/~2", "/bad\npath"] {
-            let field = Field {
-                path: path.into(),
-                code: false,
-                omit: vec![],
-                format: None,
-                result_path: None,
-                names: BTreeMap::new(),
-            };
-            assert!(!field.valid(), "{path:?}");
-        }
-        let field = Field {
-            path: "/command".into(),
-            code: false,
-            omit: vec![],
-            format: None,
-            result_path: None,
-            names: BTreeMap::new(),
-        };
-        assert!(
-            field
-                .read(&json!({"command":{"text":"not a string"}}))
-                .is_none()
-        );
-        assert!(field.read(&json!({"command":"  "})).is_none());
     }
 }

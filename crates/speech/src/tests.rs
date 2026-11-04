@@ -1,44 +1,56 @@
 use super::*;
 
 #[test]
-fn resampling_preserves_duration() {
-    for rate in [8000, 16000, 22050, 44100, 48000, 96000] {
-        let mut sampler = Sampler::new(rate);
-        let mut samples = vec![];
-        for _ in 0..rate {
-            sampler.push(0.25, |sample| samples.push(sample));
-        }
-        assert_eq!(samples.len(), SAMPLE_RATE as usize);
-        assert!(samples.iter().all(|sample| (sample - 0.25).abs() < 0.0001));
-    }
-}
-
-#[test]
-fn skips_silent_audio() {
-    assert_eq!(
-        transcribe(
-            std::path::Path::new("missing"),
-            &vec![0.; 16000],
-            SAMPLE_RATE,
-            Language::Auto
-        )
-        .unwrap(),
-        ""
-    );
-}
-
-#[test]
-fn rejects_invalid_audio() {
-    let path = std::path::Path::new("missing");
-    for (audio, rate) in [
-        (vec![0.], 0),
-        (vec![f32::NAN], SAMPLE_RATE),
-        (vec![0.; MAX_SAMPLES + 1], SAMPLE_RATE),
+fn preserves_audio_contracts() {
+    for (scenario, check) in [
+        (
+            "resampling_preserves_duration",
+            (|scenario: &'static str| {
+                for rate in [8000, 16000, 22050, 44100, 48000, 96000] {
+                    let mut sampler = Sampler::new(rate);
+                    let mut samples = vec![];
+                    for _ in 0..rate {
+                        sampler.push(0.25, |sample| samples.push(sample));
+                    }
+                    assert_eq!(samples.len(), SAMPLE_RATE as usize, "{scenario}");
+                    assert!(
+                        samples.iter().all(|sample| (sample - 0.25).abs() < 0.0001),
+                        "{scenario}"
+                    );
+                }
+            }) as fn(&'static str),
+        ),
+        (
+            "handles_silent_or_invalid_audio",
+            (|scenario: &'static str| {
+                let path = std::path::Path::new("missing");
+                for (case, audio, rate, expected) in [
+                    ("silence", vec![0.; 16000], SAMPLE_RATE, Ok(String::new())),
+                    ("zero rate", vec![0.], 0, Err(Error::InvalidAudio)),
+                    (
+                        "not finite",
+                        vec![f32::NAN],
+                        SAMPLE_RATE,
+                        Err(Error::InvalidAudio),
+                    ),
+                    (
+                        "too long",
+                        vec![0.; MAX_SAMPLES + 1],
+                        SAMPLE_RATE,
+                        Err(Error::InvalidAudio),
+                    ),
+                ] {
+                    assert_eq!(
+                        transcribe(path, &audio, rate, Language::Auto),
+                        expected,
+                        "{scenario}: {case}"
+                    );
+                }
+            }),
+        ),
     ] {
-        assert_eq!(
-            transcribe(path, &audio, rate, Language::Auto),
-            Err(Error::InvalidAudio)
-        );
+        eprintln!("case: {scenario}");
+        check(scenario);
     }
 }
 

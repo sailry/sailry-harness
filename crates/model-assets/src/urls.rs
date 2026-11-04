@@ -76,40 +76,54 @@ mod tests {
     }
 
     #[test]
-    fn preserves_remote_paths_and_mirrors() {
-        assert_eq!(
-            url(
-                &asset(Hub::HuggingFace),
-                Some("https://mirror.example/cache/")
-            )
-            .unwrap()
-            .as_str(),
-            format!(
-                "https://mirror.example/cache/org/model/resolve/{}/onnx/model.int8.onnx",
-                "a".repeat(40)
-            )
-        );
-        let url = url(&asset(Hub::ModelScope), Some("https://ignored.example")).unwrap();
-        assert_eq!(url.host_str(), Some("modelscope.cn"));
-        assert_eq!(url.path(), "/api/v1/models/org/model/repo");
-        assert_eq!(
-            url.query_pairs().collect::<Vec<_>>(),
-            vec![
-                ("Revision".into(), "a".repeat(40).into()),
-                ("FilePath".into(), "onnx/model.int8.onnx".into())
-            ]
-        );
-    }
-
-    #[test]
-    fn rejects_unpinned_and_escaping_assets() {
-        for path in ["../model.onnx", "/model.onnx", "onnx\\model.onnx", ""] {
-            let mut asset = asset(Hub::HuggingFace);
-            asset.path = path.into();
-            assert_eq!(url(&asset, None), Err(Error::InvalidAsset));
+    fn preserves_asset_contracts() {
+        for (scenario, check) in [
+            (
+                "preserves_remote_paths_and_mirrors",
+                (|scenario: &'static str| {
+                    assert_eq!(
+                        url(
+                            &asset(Hub::HuggingFace),
+                            Some("https://mirror.example/cache/")
+                        )
+                        .unwrap()
+                        .as_str(),
+                        format!(
+                            "https://mirror.example/cache/org/model/resolve/{}/onnx/model.int8.onnx",
+                            "a".repeat(40)
+                        ),
+                        "{scenario}"
+                    );
+                    let url =
+                        url(&asset(Hub::ModelScope), Some("https://ignored.example")).unwrap();
+                    assert_eq!(url.host_str(), Some("modelscope.cn"), "{scenario}");
+                    assert_eq!(url.path(), "/api/v1/models/org/model/repo", "{scenario}");
+                    assert_eq!(
+                        url.query_pairs().collect::<Vec<_>>(),
+                        vec![
+                            ("Revision".into(), "a".repeat(40).into()),
+                            ("FilePath".into(), "onnx/model.int8.onnx".into())
+                        ],
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "rejects_unpinned_and_escaping_assets",
+                (|scenario: &'static str| {
+                    for path in ["../model.onnx", "/model.onnx", "onnx\\model.onnx", ""] {
+                        let mut asset = asset(Hub::HuggingFace);
+                        asset.path = path.into();
+                        assert_eq!(url(&asset, None), Err(Error::InvalidAsset), "{scenario}");
+                    }
+                    let mut asset = asset(Hub::HuggingFace);
+                    asset.source.revision = "main".into();
+                    assert_eq!(url(&asset, None), Err(Error::InvalidAsset), "{scenario}");
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        let mut asset = asset(Hub::HuggingFace);
-        asset.source.revision = "main".into();
-        assert_eq!(url(&asset, None), Err(Error::InvalidAsset));
     }
 }

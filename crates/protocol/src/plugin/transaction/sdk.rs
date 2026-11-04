@@ -234,342 +234,406 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nested_team_revisions() {
-        let revision = 9_007_199_254_740_993_u64;
-        let handler = json!({
-            "name":"run","revision":"0","enabled":true,"source":{"package":"fixture","topic":"tick"},"queue":"tasks",
-            "callback":{"scope":{"worktree":null,"session":null},"completion":"turn","bindings":{},
-                "command":{"kind":"start_session","data":{"project":null,"worktree":null,"config":null,"title":"Task", "message":{"text":"Run","attachments":[]},
-                    "execution":"team","team":{"id":crate::TeamId::new(),"revision":revision.to_string()}}}}
-        });
-        let operations =
-            decode(json!([{"kind":"dispatch","data":{"kind":"save_handler","data":handler}}]))
-                .unwrap();
-        let Operation::Dispatch(dispatch::Command::SaveHandler(handler)) = &operations[0] else {
-            panic!("handler expected")
-        };
-        let Command::StartSession(start) = &*handler.callback.command else {
-            panic!("start expected")
-        };
-        assert_eq!(start.team.unwrap().revision, Some(revision));
-        for result in [
-            dispatch::Output::Handler(handler.clone()),
-            dispatch::Output::Handlers(vec![handler.clone()]),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "nested_team_revisions",
+                (|scenario: &'static str| {
+                    let revision = 9_007_199_254_740_993_u64;
+                    let handler = json!({
+                        "name":"run","revision":"0","enabled":true,"source":{"package":"fixture","topic":"tick"},"queue":"tasks",
+                        "callback":{"scope":{"worktree":null,"session":null},"completion":"turn","bindings":{},
+                            "command":{"kind":"start_session","data":{"project":null,"worktree":null,"config":null,"title":"Task", "message":{"text":"Run","attachments":[]},
+                                "execution":"team","team":{"id":crate::TeamId::new(),"revision":revision.to_string()}}}}
+                    });
+                    let operations = decode(
+                        json!([{"kind":"dispatch","data":{"kind":"save_handler","data":handler}}]),
+                    )
+                    .unwrap();
+                    let Operation::Dispatch(dispatch::Command::SaveHandler(handler)) =
+                        &operations[0]
+                    else {
+                        panic!("{scenario}: handler expected")
+                    };
+                    let Command::StartSession(start) = &*handler.callback.command else {
+                        panic!("{scenario}: start expected")
+                    };
+                    assert_eq!(start.team.unwrap().revision, Some(revision), "{scenario}");
+                    for result in [
+                        dispatch::Output::Handler(handler.clone()),
+                        dispatch::Output::Handlers(vec![handler.clone()]),
+                    ] {
+                        let value = output(Output::Dispatch(result));
+                        let record = if value["data"]["kind"] == "handlers" {
+                            assert_eq!(value["data"]["data"][0]["revision"], 0, "{scenario}");
+                            &value["data"]["data"][0]
+                        } else {
+                            assert_eq!(value["data"]["data"]["revision"], "0", "{scenario}");
+                            &value["data"]["data"]
+                        };
+                        assert_eq!(
+                            record["callback"]["command"]["data"]["team"]["revision"],
+                            revision.to_string(),
+                            "{scenario}"
+                        );
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "session_team_revisions",
+                (|scenario: &'static str| {
+                    use crate::*;
+                    let revision = 9_007_199_254_740_993_u64;
+                    let team = team::Profile {
+                        id: TeamId::new(),
+                        revision,
+                        key: "fixture".into(),
+                        name: "Fixture".into(),
+                        appearance: None,
+                        description: String::new(),
+                        model: None,
+                        instructions: String::new(),
+                        members: vec![],
+                    };
+                    let session = Session {
+                        id: SessionId::new(),
+                        association: None,
+                        creation_order: 1,
+                        archived: false,
+                        activity: Default::default(),
+                        project: None,
+                        worktree: WorktreeId::new(),
+                        revision,
+                        config: SessionConfig {
+                            features: Default::default(),
+                            assistant: None,
+                            resource: None,
+                            provider: ProviderId::new(),
+                            model: "fixture".into(),
+                            effort: Effort::Default,
+                            mode: WorkMode::Code,
+                            options: Default::default(),
+                            permission: Permission::Ask,
+                            credential: None,
+                        },
+                        roles: role::Snapshot {
+                            team: Some(team.reference()),
+                            ..Default::default()
+                        },
+                        profile: None,
+                        fork: None,
+                        delegation: None,
+                    };
+                    let single = output(Output::Session(session.clone()));
+                    assert_eq!(
+                        single["data"]["revision"],
+                        revision.to_string(),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        single["data"]["roles"]["team"]["revision"],
+                        revision.to_string(),
+                        "{scenario}"
+                    );
+                    let page = output(Output::AssociatedSessions(
+                        conversation::AssociatedSessions {
+                            sessions: vec![session],
+                            next_before: None,
+                        },
+                    ));
+                    assert_eq!(page["data"]["sessions"][0], single["data"], "{scenario}");
+                    let catalog = output(Output::Teams(vec![team.clone()]));
+                    assert_eq!(
+                        catalog["data"][0]["revision"],
+                        revision.to_string(),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        output(Output::Team(team))["data"],
+                        catalog["data"][0],
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "installations_keep_exact_revisions",
+                (|scenario: &'static str| {
+                    let task = crate::installation::Task {
+                        request: crate::RequestId::new(),
+                        revision: 9_007_199_254_740_993,
+                        resource: crate::installation::Resource::Model {
+                            kind: crate::models::Kind::Ocr,
+                            id: "fixture".into(),
+                        },
+                        state: crate::installation::State::Queued,
+                    };
+                    let value = output(Output::Installations(vec![task]));
+                    assert_eq!(
+                        value["data"][0]["revision"], "9007199254740993",
+                        "{scenario}"
+                    );
+                    assert_eq!(value["data"][0]["target"], "node", "{scenario}");
+                }),
+            ),
+            (
+                "queue_revisions",
+                (|scenario: &'static str| {
+                    use crate::conversation::{History, Page, Queue, QueueUpdate};
+
+                    let session = crate::SessionId::new();
+                    let revision = 9007199254740993;
+                    let operations = decode(json!([{"kind":"queue_pause","data":{
+                        "session":session,"expected_revision":revision.to_string(),"paused":false
+                    }}]))
+                    .unwrap();
+                    let package = super::super::super::Reference {
+                        name: "example".into(),
+                        digest: "a".repeat(64),
+                        settings_revision: 0,
+                    };
+                    assert_eq!(
+                        operations[0].command(&package),
+                        Command::SetQueuePaused {
+                            session,
+                            expected_revision: revision,
+                            paused: false,
+                        },
+                        "{scenario}"
+                    );
+                    for invalid in [
+                        json!(9007199254740992u64),
+                        json!("01"),
+                        json!("-1"),
+                        json!("18446744073709551616"),
+                        json!(1.5),
+                    ] {
+                        assert!(
+                            decode(json!([{"kind":"queue_pause","data":{
+                                "session":session,"expected_revision":invalid,"paused":false
+                            }}]))
+                            .is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    let queue = Queue {
+                        revision,
+                        paused: true,
+                        items: vec![],
+                    };
+                    let history = output(Output::Conversation(History {
+                        sequence: 0,
+                        page: Page {
+                            session,
+                            revision: 1,
+                            entries: vec![].into(),
+                            runs: vec![],
+                            queue: queue.clone(),
+                            approvals: vec![],
+                            questions: vec![],
+                            children: vec![],
+                            background: vec![],
+                            next_before: None,
+                        },
+                        missing: vec![],
+                    }));
+                    assert_eq!(
+                        history["data"]["page"]["queue"]["revision"], "9007199254740993",
+                        "{scenario}"
+                    );
+                    assert_eq!(history["data"]["page"]["revision"], 1, "{scenario}");
+                    let update = Output::Queue(QueueUpdate {
+                        session,
+                        queue,
+                        runs: vec![],
+                    });
+                    assert_eq!(
+                        output(update.clone())["data"]["queue"]["revision"],
+                        "9007199254740993",
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        output(Output::PluginTransaction(vec![update]))["data"][0]["data"]["queue"]
+                            ["revision"],
+                        "9007199254740993",
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "revisions_remain_exact",
+                (|scenario: &'static str| {
+                    let operations = decode(json!([
+                    {"kind":"write","data":{"key":"item","value":{},"expected_revision":"9007199254740993"}},
+                    {"kind":"dispatch","data":{"kind":"save_schedule","data":{"id":crate::ScheduleId::new(),"revision":"9007199254740993","enabled":true,"topic":"tasks","payload":null,"timing":{"kind":"once","data":{"at_ms":1}},"next_ms":null}}}
+                ])).unwrap();
+                    assert!(
+                        matches!(
+                            operations[0],
+                            Operation::Write {
+                                expected_revision: 9007199254740993,
+                                ..
+                            }
+                        ),
+                        "{scenario}"
+                    );
+                    assert!(
+                        matches!(&operations[1], Operation::Dispatch(dispatch::Command::SaveSchedule(schedule)) if schedule.revision == 9007199254740993),
+                        "{scenario}"
+                    );
+                    for revision in [
+                        json!(9007199254740992u64),
+                        json!("01"),
+                        json!("-1"),
+                        json!("1.0"),
+                        json!("18446744073709551616"),
+                        json!(1.5),
+                    ] {
+                        assert!(
+                        decode(
+                            json!([{"kind":"remove","data":{"key":"item","expected_revision":revision}}])
+                        )
+                        .is_err(), "{scenario}");
+                    }
+                    let output = output(Output::PluginTransaction(vec![
+                        Output::PluginValue(super::super::super::storage::Entry {
+                            key: "item".into(),
+                            revision: 9007199254740993,
+                            value: json!(true),
+                            present: true,
+                        }),
+                        Output::Dispatch(dispatch::Output::Schedule(dispatch::Schedule {
+                            id: crate::ScheduleId::new(),
+                            revision: 9007199254740993,
+                            enabled: true,
+                            topic: "tasks".into(),
+                            payload: Value::Null,
+                            timing: dispatch::Timing::Once { at_ms: 1 },
+                            next_ms: None,
+                        })),
+                    ]));
+                    assert_eq!(
+                        output["data"][0]["data"]["revision"], "9007199254740993",
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        output["data"][1]["data"]["data"]["revision"], "9007199254740993",
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "rejects_nontransactional_operations",
+                (|scenario: &'static str| {
+                    for operations in [
+                        json!([]),
+                        json!([{"kind":"call_plugin","data":{"handler":"run","input":null}}]),
+                        json!([{"kind":"dispatch","data":{"kind":"list_handlers"}}]),
+                    ] {
+                        assert!(decode(operations).is_err(), "{scenario}");
+                    }
+                }),
+            ),
+            (
+                "indexed_values_share_the_exact_revision_boundary",
+                (|scenario: &'static str| {
+                    let operations=decode(json!([{"kind":"index","data":{"key":"item","value":{},"index":{"fields":["title","body"],"tags":["opaque"],"order":1},"expected_revision":"9007199254740993"}}])).unwrap();
+                    assert!(
+                        matches!(
+                            operations[0],
+                            Operation::Index {
+                                expected_revision: 9007199254740993,
+                                ..
+                            }
+                        ),
+                        "{scenario}"
+                    );
+                    let page = output(Output::PluginSearch(
+                        super::super::super::storage::SearchPage {
+                            entries: vec![super::super::super::storage::Entry {
+                                key: "item".into(),
+                                revision: 9007199254740993,
+                                value: json!({}),
+                                present: true,
+                            }],
+                            next: None,
+                            now_ms: 1,
+                            mode: super::super::super::storage::Mode::Keyword,
+                            indexing: false,
+                        },
+                    ));
+                    assert_eq!(
+                        page["data"]["entries"][0]["revision"], "9007199254740993",
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "conversation_revisions",
+                (|scenario: &'static str| {
+                    let operations = decode(json!([
+                    {"kind":"conversation_write","data":{"key":"state","value":{"phase":"initial"},"expected_revision":"9007199254740993"}},
+                    {"kind":"conversation_remove","data":{"key":"state","expected_revision":"9007199254740994"}}
+                ])).unwrap();
+                    assert!(
+                        matches!(
+                            operations[0],
+                            Operation::ConversationWrite {
+                                expected_revision: 9007199254740993,
+                                ..
+                            }
+                        ),
+                        "{scenario}"
+                    );
+                    assert!(
+                        matches!(
+                            operations[1],
+                            Operation::ConversationRemove {
+                                expected_revision: 9007199254740994,
+                                ..
+                            }
+                        ),
+                        "{scenario}"
+                    );
+                    let value = output(Output::PluginConversationValue(
+                        super::super::super::storage::ConversationEntry {
+                            key: "state".into(),
+                            revision: 9007199254740993,
+                            value: Value::Null,
+                            present: false,
+                            restored: true,
+                        },
+                    ));
+                    assert_eq!(value["data"]["revision"], "9007199254740993", "{scenario}");
+                    assert_eq!(value["data"]["restored"], true, "{scenario}");
+                    assert_eq!(value["data"]["present"], false, "{scenario}");
+                }),
+            ),
+            (
+                "continuation_scopes",
+                (|scenario: &'static str| {
+                    let session = crate::SessionId::new();
+                    let mut operation = json!({"kind":"continue","data":{
+                        "session":session,"after":null,"message":{"text":"Continue","references":[],"attachments":[]},
+                        "key":"state","expected_revision":"1"
+                    }});
+                    assert!(decode(json!([operation.clone()])).is_err(), "{scenario}");
+                    operation["data"]["scope"] = json!("conversation");
+                    let operations = decode(json!([operation])).unwrap();
+                    assert!(
+                        matches!(
+                            operations[0],
+                            Operation::Continue {
+                                scope: super::super::super::storage::Scope::Conversation,
+                                ..
+                            }
+                        ),
+                        "{scenario}"
+                    );
+                }),
+            ),
         ] {
-            let value = output(Output::Dispatch(result));
-            let record = if value["data"]["kind"] == "handlers" {
-                assert_eq!(value["data"]["data"][0]["revision"], 0);
-                &value["data"]["data"][0]
-            } else {
-                assert_eq!(value["data"]["data"]["revision"], "0");
-                &value["data"]["data"]
-            };
-            assert_eq!(
-                record["callback"]["command"]["data"]["team"]["revision"],
-                revision.to_string()
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-    }
-
-    #[test]
-    fn session_team_revisions() {
-        use crate::*;
-        let revision = 9_007_199_254_740_993_u64;
-        let team = team::Profile {
-            id: TeamId::new(),
-            revision,
-            key: "fixture".into(),
-            name: "Fixture".into(),
-            appearance: None,
-            description: String::new(),
-            model: None,
-            instructions: String::new(),
-            members: vec![],
-        };
-        let session = Session {
-            id: SessionId::new(),
-            association: None,
-            creation_order: 1,
-            archived: false,
-            activity: Default::default(),
-            project: None,
-            worktree: WorktreeId::new(),
-            revision,
-            config: SessionConfig {
-                features: Default::default(),
-                assistant: None,
-                resource: None,
-                provider: ProviderId::new(),
-                model: "fixture".into(),
-                effort: Effort::Default,
-                mode: WorkMode::Code,
-                options: Default::default(),
-                permission: Permission::Ask,
-                credential: None,
-            },
-            roles: role::Snapshot {
-                team: Some(team.reference()),
-                ..Default::default()
-            },
-            profile: None,
-            fork: None,
-            delegation: None,
-        };
-        let single = output(Output::Session(session.clone()));
-        assert_eq!(single["data"]["revision"], revision.to_string());
-        assert_eq!(
-            single["data"]["roles"]["team"]["revision"],
-            revision.to_string()
-        );
-        let page = output(Output::AssociatedSessions(
-            conversation::AssociatedSessions {
-                sessions: vec![session],
-                next_before: None,
-            },
-        ));
-        assert_eq!(page["data"]["sessions"][0], single["data"]);
-        let catalog = output(Output::Teams(vec![team.clone()]));
-        assert_eq!(catalog["data"][0]["revision"], revision.to_string());
-        assert_eq!(output(Output::Team(team))["data"], catalog["data"][0]);
-    }
-
-    #[test]
-    fn installations_keep_exact_revisions() {
-        let task = crate::installation::Task {
-            request: crate::RequestId::new(),
-            revision: 9_007_199_254_740_993,
-            resource: crate::installation::Resource::Model {
-                kind: crate::models::Kind::Ocr,
-                id: "fixture".into(),
-            },
-            state: crate::installation::State::Queued,
-        };
-        let value = output(Output::Installations(vec![task]));
-        assert_eq!(value["data"][0]["revision"], "9007199254740993");
-        assert_eq!(value["data"][0]["target"], "node");
-    }
-
-    #[test]
-    fn queue_revisions() {
-        use crate::conversation::{History, Page, Queue, QueueUpdate};
-
-        let session = crate::SessionId::new();
-        let revision = 9007199254740993;
-        let operations = decode(json!([{"kind":"queue_pause","data":{
-            "session":session,"expected_revision":revision.to_string(),"paused":false
-        }}]))
-        .unwrap();
-        let package = super::super::super::Reference {
-            name: "example".into(),
-            digest: "a".repeat(64),
-            settings_revision: 0,
-        };
-        assert_eq!(
-            operations[0].command(&package),
-            Command::SetQueuePaused {
-                session,
-                expected_revision: revision,
-                paused: false,
-            }
-        );
-        for invalid in [
-            json!(9007199254740992u64),
-            json!("01"),
-            json!("-1"),
-            json!("18446744073709551616"),
-            json!(1.5),
-        ] {
-            assert!(
-                decode(json!([{"kind":"queue_pause","data":{
-                    "session":session,"expected_revision":invalid,"paused":false
-                }}]))
-                .is_err()
-            );
-        }
-        let queue = Queue {
-            revision,
-            paused: true,
-            items: vec![],
-        };
-        let history = output(Output::Conversation(History {
-            sequence: 0,
-            page: Page {
-                session,
-                revision: 1,
-                entries: vec![].into(),
-                runs: vec![],
-                queue: queue.clone(),
-                approvals: vec![],
-                questions: vec![],
-                children: vec![],
-                background: vec![],
-                next_before: None,
-            },
-            missing: vec![],
-        }));
-        assert_eq!(
-            history["data"]["page"]["queue"]["revision"],
-            "9007199254740993"
-        );
-        assert_eq!(history["data"]["page"]["revision"], 1);
-        let update = Output::Queue(QueueUpdate {
-            session,
-            queue,
-            runs: vec![],
-        });
-        assert_eq!(
-            output(update.clone())["data"]["queue"]["revision"],
-            "9007199254740993"
-        );
-        assert_eq!(
-            output(Output::PluginTransaction(vec![update]))["data"][0]["data"]["queue"]["revision"],
-            "9007199254740993"
-        );
-    }
-
-    #[test]
-    fn revisions_remain_exact() {
-        let operations = decode(json!([
-            {"kind":"write","data":{"key":"item","value":{},"expected_revision":"9007199254740993"}},
-            {"kind":"dispatch","data":{"kind":"save_schedule","data":{"id":crate::ScheduleId::new(),"revision":"9007199254740993","enabled":true,"topic":"tasks","payload":null,"timing":{"kind":"once","data":{"at_ms":1}},"next_ms":null}}}
-        ])).unwrap();
-        assert!(matches!(
-            operations[0],
-            Operation::Write {
-                expected_revision: 9007199254740993,
-                ..
-            }
-        ));
-        assert!(
-            matches!(&operations[1], Operation::Dispatch(dispatch::Command::SaveSchedule(schedule)) if schedule.revision == 9007199254740993)
-        );
-        for revision in [
-            json!(9007199254740992u64),
-            json!("01"),
-            json!("-1"),
-            json!("1.0"),
-            json!("18446744073709551616"),
-            json!(1.5),
-        ] {
-            assert!(
-                decode(
-                    json!([{"kind":"remove","data":{"key":"item","expected_revision":revision}}])
-                )
-                .is_err()
-            );
-        }
-        let output = output(Output::PluginTransaction(vec![
-            Output::PluginValue(super::super::super::storage::Entry {
-                key: "item".into(),
-                revision: 9007199254740993,
-                value: json!(true),
-                present: true,
-            }),
-            Output::Dispatch(dispatch::Output::Schedule(dispatch::Schedule {
-                id: crate::ScheduleId::new(),
-                revision: 9007199254740993,
-                enabled: true,
-                topic: "tasks".into(),
-                payload: Value::Null,
-                timing: dispatch::Timing::Once { at_ms: 1 },
-                next_ms: None,
-            })),
-        ]));
-        assert_eq!(output["data"][0]["data"]["revision"], "9007199254740993");
-        assert_eq!(
-            output["data"][1]["data"]["data"]["revision"],
-            "9007199254740993"
-        );
-    }
-
-    #[test]
-    fn rejects_nontransactional_operations() {
-        for operations in [
-            json!([]),
-            json!([{"kind":"call_plugin","data":{"handler":"run","input":null}}]),
-            json!([{"kind":"dispatch","data":{"kind":"list_handlers"}}]),
-        ] {
-            assert!(decode(operations).is_err());
-        }
-    }
-
-    #[test]
-    fn indexed_values_share_the_exact_revision_boundary() {
-        let operations=decode(json!([{"kind":"index","data":{"key":"item","value":{},"index":{"fields":["title","body"],"tags":["opaque"],"order":1},"expected_revision":"9007199254740993"}}])).unwrap();
-        assert!(matches!(
-            operations[0],
-            Operation::Index {
-                expected_revision: 9007199254740993,
-                ..
-            }
-        ));
-        let page = output(Output::PluginSearch(
-            super::super::super::storage::SearchPage {
-                entries: vec![super::super::super::storage::Entry {
-                    key: "item".into(),
-                    revision: 9007199254740993,
-                    value: json!({}),
-                    present: true,
-                }],
-                next: None,
-                now_ms: 1,
-                mode: super::super::super::storage::Mode::Keyword,
-                indexing: false,
-            },
-        ));
-        assert_eq!(page["data"]["entries"][0]["revision"], "9007199254740993");
-    }
-
-    #[test]
-    fn conversation_revisions() {
-        let operations = decode(json!([
-            {"kind":"conversation_write","data":{"key":"state","value":{"phase":"initial"},"expected_revision":"9007199254740993"}},
-            {"kind":"conversation_remove","data":{"key":"state","expected_revision":"9007199254740994"}}
-        ])).unwrap();
-        assert!(matches!(
-            operations[0],
-            Operation::ConversationWrite {
-                expected_revision: 9007199254740993,
-                ..
-            }
-        ));
-        assert!(matches!(
-            operations[1],
-            Operation::ConversationRemove {
-                expected_revision: 9007199254740994,
-                ..
-            }
-        ));
-        let value = output(Output::PluginConversationValue(
-            super::super::super::storage::ConversationEntry {
-                key: "state".into(),
-                revision: 9007199254740993,
-                value: Value::Null,
-                present: false,
-                restored: true,
-            },
-        ));
-        assert_eq!(value["data"]["revision"], "9007199254740993");
-        assert_eq!(value["data"]["restored"], true);
-        assert_eq!(value["data"]["present"], false);
-    }
-
-    #[test]
-    fn continuation_scopes() {
-        let session = crate::SessionId::new();
-        let mut operation = json!({"kind":"continue","data":{
-            "session":session,"after":null,"message":{"text":"Continue","references":[],"attachments":[]},
-            "key":"state","expected_revision":"1"
-        }});
-        assert!(decode(json!([operation.clone()])).is_err());
-        operation["data"]["scope"] = json!("conversation");
-        let operations = decode(json!([operation])).unwrap();
-        assert!(matches!(
-            operations[0],
-            Operation::Continue {
-                scope: super::super::super::storage::Scope::Conversation,
-                ..
-            }
-        ));
     }
 }

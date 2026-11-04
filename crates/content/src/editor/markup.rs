@@ -107,33 +107,55 @@ mod tests {
         use super::*;
 
         #[test]
-        fn adds_delimiters_around_selection() {
-            let edit = wrap("say hello", 4..9, Style::Bold).unwrap();
-            assert_eq!(edit.range, 4..9);
-            assert_eq!(edit.text, "**hello**");
-            assert_eq!(edit.selection, 6..11);
-        }
-
-        #[test]
-        fn removes_surrounding_delimiters() {
-            let edit = wrap("say **hello**", 6..11, Style::Bold).unwrap();
-            assert_eq!(edit.range, 4..13);
-            assert_eq!(edit.text, "hello");
-            assert_eq!(edit.selection, 4..9);
-        }
-
-        #[test]
-        fn removes_selected_delimiters() {
-            let edit = wrap("say ~~hello~~", 4..13, Style::Strike).unwrap();
-            assert_eq!(edit.text, "hello");
-            assert_eq!(edit.selection, 4..9);
-        }
-
-        #[test]
-        fn places_caret_inside_empty_pair() {
-            let edit = wrap("ab", 1..1, Style::Code).unwrap();
-            assert_eq!(edit.text, "``");
-            assert_eq!(edit.selection, 2..2);
+        fn edits_delimiters_and_selection() {
+            for (case, source, range, style, expected) in [
+                (
+                    "add",
+                    "say hello",
+                    4..9,
+                    Style::Bold,
+                    Edit {
+                        range: 4..9,
+                        text: "**hello**".into(),
+                        selection: 6..11,
+                    },
+                ),
+                (
+                    "surrounding",
+                    "say **hello**",
+                    6..11,
+                    Style::Bold,
+                    Edit {
+                        range: 4..13,
+                        text: "hello".into(),
+                        selection: 4..9,
+                    },
+                ),
+                (
+                    "selected",
+                    "say ~~hello~~",
+                    4..13,
+                    Style::Strike,
+                    Edit {
+                        range: 4..13,
+                        text: "hello".into(),
+                        selection: 4..9,
+                    },
+                ),
+                (
+                    "empty",
+                    "ab",
+                    1..1,
+                    Style::Code,
+                    Edit {
+                        range: 1..1,
+                        text: "``".into(),
+                        selection: 2..2,
+                    },
+                ),
+            ] {
+                assert_eq!(wrap(source, range, style).unwrap(), expected, "{case}");
+            }
         }
     }
 
@@ -151,32 +173,66 @@ mod tests {
         use super::*;
 
         #[test]
-        fn separates_block_with_blank_lines() {
-            let edit = place("first\nnext", 5, Insert::Rule);
-            assert_eq!(edit.range, 5..5);
-            assert_eq!(edit.text, "\n\n---\n");
-        }
-
-        #[test]
-        fn caret_inside_code() {
-            let edit = place("", 0, Insert::Code);
-            assert_eq!(edit.text, "```\n\n```");
-            assert_eq!(edit.selection, 4..4);
-        }
-
-        #[test]
-        fn reuses_existing_blank_lines() {
-            let edit = place("a\n\n", 3, Insert::Math);
-            assert_eq!(edit.text, "$$\n\n$$");
-            assert_eq!(edit.selection, 6..6);
-        }
-
-        #[test]
-        fn inserts_three_column_table() {
-            let edit = place("", 0, Insert::Table);
-            let rows: Vec<_> = edit.text.lines().collect();
-            assert_eq!(rows.len(), 4);
-            assert!(rows.iter().all(|row| row.matches('|').count() == 4));
+        fn preserves_document_behavior() {
+            for (scenario, check) in [
+                (
+                    "spells_blocks_and_places_carets",
+                    (|scenario: &'static str| {
+                        for (case, source, at, insert, expected) in [
+                            (
+                                "separation",
+                                "first\nnext",
+                                5,
+                                Insert::Rule,
+                                Edit {
+                                    range: 5..5,
+                                    text: "\n\n---\n".into(),
+                                    selection: 10..10,
+                                },
+                            ),
+                            (
+                                "code",
+                                "",
+                                0,
+                                Insert::Code,
+                                Edit {
+                                    range: 0..0,
+                                    text: "```\n\n```".into(),
+                                    selection: 4..4,
+                                },
+                            ),
+                            (
+                                "existing blank lines",
+                                "a\n\n",
+                                3,
+                                Insert::Math,
+                                Edit {
+                                    range: 3..3,
+                                    text: "$$\n\n$$".into(),
+                                    selection: 6..6,
+                                },
+                            ),
+                        ] {
+                            assert_eq!(place(source, at, insert), expected, "{scenario}: {case}");
+                        }
+                    }) as fn(&'static str),
+                ),
+                (
+                    "inserts_three_column_table",
+                    (|scenario: &'static str| {
+                        let edit = place("", 0, Insert::Table);
+                        let rows: Vec<_> = edit.text.lines().collect();
+                        assert_eq!(rows.len(), 4, "{scenario}");
+                        assert!(
+                            rows.iter().all(|row| row.matches('|').count() == 4),
+                            "{scenario}"
+                        );
+                    }),
+                ),
+            ] {
+                eprintln!("case: {scenario}");
+                check(scenario);
+            }
         }
     }
 }

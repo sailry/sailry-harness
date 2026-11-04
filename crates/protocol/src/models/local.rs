@@ -117,83 +117,103 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fills_missing_choices_and_preserves_explicit_disable() {
-        let mut settings:Settings = serde_json::from_str(r#"{"revision":4,"mirror":null,"choices":{"embedding":{"enabled":false,"model":null}}}"#).unwrap();
-        settings.fill_defaults();
-        assert_eq!(settings.selected(Kind::Embedding), None);
-        assert_eq!(
-            settings.choice(Kind::Ocr),
-            Choice {
-                enabled: true,
-                model: None
-            }
-        );
-        assert_eq!(
-            Settings::default().selected(Kind::Embedding),
-            Some(DEFAULT_EMBEDDING)
-        );
-        assert_eq!(
-            settings.choice(Kind::Decision),
-            Choice {
-                enabled: true,
-                model: None
-            }
-        );
-        assert_eq!(Settings::default().selected(Kind::Decision), None);
-        settings.validate().unwrap();
-    }
-
-    #[test]
-    fn excludes_transient_progress_from_catalog_state() {
-        let previous =
-            serde_json::json!({"kind":"downloading", "percent":42, "bytes_per_second":1024});
-        let state: State = serde_json::from_value(previous).unwrap();
-        assert_eq!(state, State::Downloading);
-        assert_eq!(
-            serde_json::to_value(state).unwrap(),
-            serde_json::json!({"kind":"downloading"})
-        );
-    }
-
-    #[test]
-    fn validates_node_kinds_ids_and_https_mirror() {
-        for mirror in [
-            "http://example.invalid",
-            "https://user:secret@example.invalid",
-            "https://example.invalid?query=1",
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "fills_missing_choices_and_preserves_explicit_disable",
+                (|scenario: &'static str| {
+                    let mut settings:Settings = serde_json::from_str(r#"{"revision":4,"mirror":null,"choices":{"embedding":{"enabled":false,"model":null}}}"#).unwrap();
+                    settings.fill_defaults();
+                    assert_eq!(settings.selected(Kind::Embedding), None, "{scenario}");
+                    assert_eq!(
+                        settings.choice(Kind::Ocr),
+                        Choice {
+                            enabled: true,
+                            model: None
+                        },
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        Settings::default().selected(Kind::Embedding),
+                        Some(DEFAULT_EMBEDDING),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        settings.choice(Kind::Decision),
+                        Choice {
+                            enabled: true,
+                            model: None
+                        },
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        Settings::default().selected(Kind::Decision),
+                        None,
+                        "{scenario}"
+                    );
+                    settings.validate().unwrap();
+                }) as fn(&'static str),
+            ),
+            (
+                "excludes_transient_progress_from_catalog_state",
+                (|scenario: &'static str| {
+                    let previous = serde_json::json!({"kind":"downloading", "percent":42, "bytes_per_second":1024});
+                    let state: State = serde_json::from_value(previous).unwrap();
+                    assert_eq!(state, State::Downloading, "{scenario}");
+                    assert_eq!(
+                        serde_json::to_value(state).unwrap(),
+                        serde_json::json!({"kind":"downloading"}),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "validates_node_kinds_ids_and_https_mirror",
+                (|scenario: &'static str| {
+                    for mirror in [
+                        "http://example.invalid",
+                        "https://user:secret@example.invalid",
+                        "https://example.invalid?query=1",
+                    ] {
+                        assert!(
+                            Settings {
+                                mirror: Some(mirror.into()),
+                                ..Settings::default()
+                            }
+                            .validate()
+                            .is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    Settings {
+                        mirror: Some("https://models.example.invalid/cache".into()),
+                        ..Settings::default()
+                    }
+                    .validate()
+                    .unwrap();
+                    let mut settings = Settings::default();
+                    settings.choices.insert(
+                        Kind::Ocr,
+                        Choice {
+                            enabled: true,
+                            model: Some("../outside".into()),
+                        },
+                    );
+                    assert!(settings.validate().is_err(), "{scenario}");
+                    settings.choices.remove(&Kind::Ocr);
+                    settings.choices.insert(
+                        Kind::Speech,
+                        Choice {
+                            enabled: true,
+                            model: None,
+                        },
+                    );
+                    assert!(settings.validate().is_err(), "{scenario}");
+                }),
+            ),
         ] {
-            assert!(
-                Settings {
-                    mirror: Some(mirror.into()),
-                    ..Settings::default()
-                }
-                .validate()
-                .is_err()
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        Settings {
-            mirror: Some("https://models.example.invalid/cache".into()),
-            ..Settings::default()
-        }
-        .validate()
-        .unwrap();
-        let mut settings = Settings::default();
-        settings.choices.insert(
-            Kind::Ocr,
-            Choice {
-                enabled: true,
-                model: Some("../outside".into()),
-            },
-        );
-        assert!(settings.validate().is_err());
-        settings.choices.remove(&Kind::Ocr);
-        settings.choices.insert(
-            Kind::Speech,
-            Choice {
-                enabled: true,
-                model: None,
-            },
-        );
-        assert!(settings.validate().is_err());
     }
 }

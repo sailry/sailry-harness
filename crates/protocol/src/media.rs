@@ -80,74 +80,106 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn package_operations_match_their_resource_grants() {
-        use crate::{
-            plugin,
-            tool::{Declaration, Operation},
-        };
-        let manifest: serde_json::Value =
-            serde_json::from_str(include_str!("../../../plugins/media/plugin.json")).unwrap();
-        let extension: plugin::Extension =
-            serde_json::from_value(manifest["extensions"]["dev.sailry.platform"].clone()).unwrap();
-        assert_eq!(extension.tools.len(), 3);
-        assert!(extension.tools.iter().all(Declaration::valid));
-        for (name, operation, read_only) in [
-            ("inspect_image", Operation::InspectMedia, true),
-            ("generate_image", Operation::GenerateImage, false),
-            ("generate_video", Operation::GenerateVideo, false),
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "package_operations_match_their_resource_grants",
+                (|scenario: &'static str| {
+                    use crate::{
+                        plugin,
+                        tool::{Declaration, Operation},
+                    };
+                    let manifest: serde_json::Value =
+                        serde_json::from_str(include_str!("../../../plugins/media/plugin.json"))
+                            .unwrap();
+                    let extension: plugin::Extension = serde_json::from_value(
+                        manifest["extensions"]["dev.sailry.platform"].clone(),
+                    )
+                    .unwrap();
+                    assert_eq!(extension.tools.len(), 3, "{scenario}");
+                    assert!(extension.tools.iter().all(Declaration::valid), "{scenario}");
+                    for (name, operation, read_only) in [
+                        ("inspect_image", Operation::InspectMedia, true),
+                        ("generate_image", Operation::GenerateImage, false),
+                        ("generate_video", Operation::GenerateVideo, false),
+                    ] {
+                        let declaration = extension
+                            .tools
+                            .iter()
+                            .find(|tool| tool.name == name)
+                            .unwrap();
+                        assert_eq!(
+                            declaration.handler.as_ref().unwrap().operation,
+                            Some(operation),
+                            "{scenario}"
+                        );
+                        assert!(
+                            extension.actions.contains(&operation.action().unwrap()),
+                            "{scenario}"
+                        );
+                        assert_eq!(operation.read_only(), read_only, "{scenario}");
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "distinguishes_automatic_fallback_and_disabled",
+                (|scenario: &'static str| {
+                    let binding = Binding {
+                        provider: ProviderId::new(),
+                        model: "image-model".into(),
+                    };
+                    let settings = Settings {
+                        revision: 7,
+                        bindings: [(Kind::Image, None), (Kind::Vision, Some(binding.clone()))]
+                            .into_iter()
+                            .collect(),
+                    };
+                    let value = serde_json::to_value(&settings).unwrap();
+                    assert_eq!(
+                        value["bindings"]["image"],
+                        serde_json::Value::Null,
+                        "{scenario}"
+                    );
+                    assert!(value["bindings"].get("video").is_none(), "{scenario}");
+                    assert_eq!(
+                        value["bindings"]["vision"],
+                        serde_json::to_value(binding).unwrap(),
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::from_value::<Settings>(value).unwrap(),
+                        settings,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::to_value(Generation::ImageTool).unwrap(),
+                        "image_tool",
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "sources_are_exclusive_and_actions_are_typed",
+                (|scenario: &'static str| {
+                    let value = json!({"action":"inspect","prompt":"Describe","source":{"kind":"path","value":"image.png"}});
+                    let action: Action = serde_json::from_value(value.clone()).unwrap();
+                    assert_eq!(action.kind(), Kind::Vision, "{scenario}");
+                    assert_eq!(serde_json::to_value(action).unwrap(), value, "{scenario}");
+                    for value in [
+                        json!({"action":"inspect","prompt":"Describe","source":{"kind":"path","value":"image.png","attachment":"extra"}}),
+                        json!({"action":"image","prompt":"Create","path":"image.png","model":"override"}),
+                        json!({"action":"video","prompt":"Create","path":"video.mp4","source":{"kind":"path","value":"input.png"}}),
+                    ] {
+                        assert!(
+                            serde_json::from_value::<Action>(value).is_err(),
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
         ] {
-            let declaration = extension
-                .tools
-                .iter()
-                .find(|tool| tool.name == name)
-                .unwrap();
-            assert_eq!(
-                declaration.handler.as_ref().unwrap().operation,
-                Some(operation)
-            );
-            assert!(extension.actions.contains(&operation.action().unwrap()));
-            assert_eq!(operation.read_only(), read_only);
-        }
-    }
-
-    #[test]
-    fn distinguishes_automatic_fallback_and_disabled() {
-        let binding = Binding {
-            provider: ProviderId::new(),
-            model: "image-model".into(),
-        };
-        let settings = Settings {
-            revision: 7,
-            bindings: [(Kind::Image, None), (Kind::Vision, Some(binding.clone()))]
-                .into_iter()
-                .collect(),
-        };
-        let value = serde_json::to_value(&settings).unwrap();
-        assert_eq!(value["bindings"]["image"], serde_json::Value::Null);
-        assert!(value["bindings"].get("video").is_none());
-        assert_eq!(
-            value["bindings"]["vision"],
-            serde_json::to_value(binding).unwrap()
-        );
-        assert_eq!(serde_json::from_value::<Settings>(value).unwrap(), settings);
-        assert_eq!(
-            serde_json::to_value(Generation::ImageTool).unwrap(),
-            "image_tool"
-        );
-    }
-
-    #[test]
-    fn sources_are_exclusive_and_actions_are_typed() {
-        let value = json!({"action":"inspect","prompt":"Describe","source":{"kind":"path","value":"image.png"}});
-        let action: Action = serde_json::from_value(value.clone()).unwrap();
-        assert_eq!(action.kind(), Kind::Vision);
-        assert_eq!(serde_json::to_value(action).unwrap(), value);
-        for value in [
-            json!({"action":"inspect","prompt":"Describe","source":{"kind":"path","value":"image.png","attachment":"extra"}}),
-            json!({"action":"image","prompt":"Create","path":"image.png","model":"override"}),
-            json!({"action":"video","prompt":"Create","path":"video.mp4","source":{"kind":"path","value":"input.png"}}),
-        ] {
-            assert!(serde_json::from_value::<Action>(value).is_err());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

@@ -431,204 +431,229 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn validates_fixed_callback_address() {
-        let callback: Callback = serde_json::from_value(json!({
-            "path":"/auth/callback", "port":1455,
-            "redirect_uri":"http://localhost:1455/auth/callback",
-            "manual":true, "allow_localhost":true
-        }))
-        .unwrap();
-        assert!(callback.valid());
-        for redirect in [
-            "http://localhost:1456/auth/callback",
-            "http://localhost:1455/other",
-            "http://remote.test:1455/auth/callback",
-            "http://localhost:1455/auth/callback?extra=value",
-            "http://user@localhost:1455/auth/callback",
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "validates_fixed_callback_address",
+                (|scenario: &'static str| {
+                    let callback: Callback = serde_json::from_value(json!({
+                        "path":"/auth/callback", "port":1455,
+                        "redirect_uri":"http://localhost:1455/auth/callback",
+                        "manual":true, "allow_localhost":true
+                    }))
+                    .unwrap();
+                    assert!(callback.valid(), "{scenario}");
+                    for redirect in [
+                        "http://localhost:1456/auth/callback",
+                        "http://localhost:1455/other",
+                        "http://remote.test:1455/auth/callback",
+                        "http://localhost:1455/auth/callback?extra=value",
+                        "http://user@localhost:1455/auth/callback",
+                    ] {
+                        let mut invalid = callback.clone();
+                        invalid.redirect_uri = Some(redirect.into());
+                        assert!(!invalid.valid(), "{scenario}");
+                    }
+                    let mut invalid = callback.clone();
+                    invalid.port = Some(0);
+                    assert!(!invalid.valid(), "{scenario}");
+                    invalid = callback;
+                    invalid.allow_localhost = false;
+                    assert!(!invalid.valid(), "{scenario}");
+                    let random: Callback = serde_json::from_value(
+                        json!({"path":"/auth/callback", "redirect_uri":null, "manual":false}),
+                    )
+                    .unwrap();
+                    assert!(random.valid(), "{scenario}");
+                    assert_eq!(random.port, None, "{scenario}");
+                    assert!(
+                        serde_json::to_value(random).unwrap().get("port").is_none(),
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "validates_private_script_declarations",
+                (|scenario: &'static str| {
+                    let declaration:Declaration=serde_json::from_value(json!({
+                    "id":"account","authentication":"chat_gpt_oauth","display":{"label":"Account"},
+                    "flow":{"kind":"script","script":{"entry":"dev.sailry.platform/auth.js"},"handler":"authorize",
+                        "requests":{"token":{"url":"https://issuer.example/token"}},"callback":null,"issuer":"https://issuer.example"}
+                })).unwrap();
+                    assert!(declaration.valid(), "{scenario}");
+                    assert!(
+                        !serde_json::to_value(&declaration)
+                            .unwrap()
+                            .as_object()
+                            .unwrap()
+                            .contains_key("token"),
+                        "{scenario}"
+                    );
+                    for authentication in [
+                        crate::Authentication::ApiKey,
+                        crate::Authentication::Copilot,
+                        crate::Authentication::Plugin,
+                    ] {
+                        let mut invalid = declaration.clone();
+                        invalid.authentication = Some(authentication);
+                        assert!(!invalid.valid(), "{scenario}");
+                    }
+                    let mut invalid = declaration.clone();
+                    if let Flow::Script { requests, .. } = &mut invalid.flow {
+                        requests.get_mut("token").unwrap().url = "https://{host}/token".into();
+                    }
+                    assert!(!invalid.valid(), "{scenario}");
+                    let mut plugin = declaration.clone();
+                    plugin.authentication = None;
+                    assert!(!plugin.valid(), "{scenario}");
+                    plugin.token = Some(Mapping {
+                        account_label: None,
+                        access: "/access".into(),
+                        refresh: None,
+                        expires_in: None,
+                        extra: BTreeMap::new(),
+                    });
+                    plugin.inject = vec![Injection {
+                        header: "Authorization".into(),
+                        template: "Bearer {access}".into(),
+                    }];
+                    assert!(plugin.valid(), "{scenario}");
+                }),
+            ),
+            (
+                "preserves_omitted_alias_fields",
+                (|scenario: &'static str| {
+                    let document = json!({"id":"account","display":{"label":"Account"},"flow":{"kind":"token_exchange","token":{"url":"https://example.test/token"}},"token":{"access":"/access","refresh":null,"expires_in":null},"inject":[{"header":"Authorization","template":"Bearer {access}"}]});
+                    let declaration: Declaration = serde_json::from_value(document).unwrap();
+                    assert!(declaration.authentication.is_none(), "{scenario}");
+                    assert!(declaration.valid(), "{scenario}");
+                    assert!(
+                        serde_json::to_value(declaration)
+                            .unwrap()
+                            .get("authentication")
+                            .is_none(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "bounds_native_resource_declarations",
+                (|scenario: &'static str| {
+                    for authentication in ["chat_gpt", "chat_gpt_oauth", "claude_oauth"] {
+                        let resource: Resource = serde_json::from_value(json!({"authentication":authentication,"requests":{"usage":{"url":"https://example.invalid/usage","query":{"after":"{input.after}"}}}})).unwrap();
+                        assert!(resource.valid(), "{scenario}");
+                        let mut invalid = resource.clone();
+                        invalid
+                            .requests
+                            .get_mut("usage")
+                            .unwrap()
+                            .headers
+                            .insert("X-Input".into(), "{input.header}".into());
+                        assert!(!invalid.valid(), "{scenario}");
+                    }
+                    for authentication in ["api_key", "copilot", "plugin"] {
+                        let resource: Resource = serde_json::from_value(json!({"authentication":authentication,"requests":{"usage":{"url":"https://example.invalid/usage"}}})).unwrap();
+                        assert!(!resource.valid(), "{scenario}");
+                    }
+                    let extension: crate::plugin::Extension =
+                        serde_json::from_value(json!({"api_version":"v1"})).unwrap();
+                    assert!(extension.model_resources.is_empty(), "{scenario}");
+                    assert!(
+                        serde_json::to_value(extension)
+                            .unwrap()
+                            .get("model_resources")
+                            .is_none(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "keeps_resource_urls_and_headers_fixed",
+                (|scenario: &'static str| {
+                    let mut declaration:Declaration=serde_json::from_value(json!({"id":"example","display":{"label":"Example"},"flow":{"kind":"token_exchange","token":{"url":"https://example.invalid/token"}},"token":{"access":"/access","refresh":null,"expires_in":null},"inject":[{"header":"Authorization","template":"Bearer {access}"}],"requests":{"status":{"url":"https://example.invalid/status","query":{"after":"{input.after}"}}}})).unwrap();
+                    assert!(declaration.valid(), "{scenario}");
+                    declaration
+                        .requests
+                        .get_mut("status")
+                        .unwrap()
+                        .headers
+                        .insert("X-Input".into(), "{input.header}".into());
+                    assert!(!declaration.valid(), "{scenario}");
+                    declaration
+                        .requests
+                        .get_mut("status")
+                        .unwrap()
+                        .headers
+                        .clear();
+                    declaration.requests.get_mut("status").unwrap().url =
+                        "https://{input.host}/status".into();
+                    assert!(!declaration.valid(), "{scenario}");
+                    declaration.requests.clear();
+                    if let Flow::TokenExchange { token } = &mut declaration.flow {
+                        token.headers.insert("X-Refresh".into(), "{refresh}".into());
+                    }
+                    assert!(
+                        declaration.valid(),
+                        "{scenario}: authentication retains its private template contract"
+                    );
+                }),
+            ),
+            (
+                "keeps_mutation_endpoints_fixed",
+                (|scenario: &'static str| {
+                    let mut declaration: Declaration = serde_json::from_value(json!({
+                    "id":"example","display":{"label":"Example"},
+                    "flow":{"kind":"token_exchange","token":{"url":"https://example.invalid/token"}},
+                    "token":{"access":"/access","refresh":null,"expires_in":null},
+                    "inject":[{"header":"Authorization","template":"Bearer {access}"}],
+                    "mutations":{"claim":{"url":"https://example.invalid/claim","method":"POST","body":{"kind":"json","value":{"day":"{input.day}"}}}}
+                })).unwrap();
+                    assert!(declaration.requests.is_empty(), "{scenario}");
+                    assert!(declaration.valid(), "{scenario}");
+                    declaration
+                        .mutations
+                        .get_mut("claim")
+                        .unwrap()
+                        .headers
+                        .insert("X-Input".into(), "{input.header}".into());
+                    assert!(!declaration.valid(), "{scenario}");
+                    declaration
+                        .mutations
+                        .get_mut("claim")
+                        .unwrap()
+                        .headers
+                        .clear();
+                    declaration.mutations.get_mut("claim").unwrap().url =
+                        "https://{input.host}/claim".into();
+                    assert!(!declaration.valid(), "{scenario}");
+                }),
+            ),
+            (
+                "preserves_uncached_endpoint_shape",
+                (|scenario: &'static str| {
+                    let value = json!({"url":"https://example.test/usage","method":"GET","headers":{},"query":{},"body":null});
+                    let endpoint: Endpoint = serde_json::from_value(value.clone()).unwrap();
+                    assert!(endpoint.valid(), "{scenario}");
+                    assert_eq!(serde_json::to_value(endpoint).unwrap(), value, "{scenario}");
+                    for ttl in [1, 60000, 180000, 900000] {
+                        let endpoint: Endpoint = serde_json::from_value(
+                            json!({"url":"https://example.test/usage","cache_ttl_ms":ttl}),
+                        )
+                        .unwrap();
+                        assert!(endpoint.valid(), "{scenario}");
+                    }
+                    for ttl in [0, 900001] {
+                        let endpoint: Endpoint = serde_json::from_value(
+                            json!({"url":"https://example.test/usage","cache_ttl_ms":ttl}),
+                        )
+                        .unwrap();
+                        assert!(!endpoint.valid(), "{scenario}");
+                    }
+                }),
+            ),
         ] {
-            let mut invalid = callback.clone();
-            invalid.redirect_uri = Some(redirect.into());
-            assert!(!invalid.valid());
-        }
-        let mut invalid = callback.clone();
-        invalid.port = Some(0);
-        assert!(!invalid.valid());
-        invalid = callback;
-        invalid.allow_localhost = false;
-        assert!(!invalid.valid());
-        let random: Callback = serde_json::from_value(
-            json!({"path":"/auth/callback", "redirect_uri":null, "manual":false}),
-        )
-        .unwrap();
-        assert!(random.valid());
-        assert_eq!(random.port, None);
-        assert!(serde_json::to_value(random).unwrap().get("port").is_none());
-    }
-
-    #[test]
-    fn validates_private_script_declarations() {
-        let declaration:Declaration=serde_json::from_value(json!({
-            "id":"account","authentication":"chat_gpt_oauth","display":{"label":"Account"},
-            "flow":{"kind":"script","script":{"entry":"dev.sailry.platform/auth.js"},"handler":"authorize",
-                "requests":{"token":{"url":"https://issuer.example/token"}},"callback":null,"issuer":"https://issuer.example"}
-        })).unwrap();
-        assert!(declaration.valid());
-        assert!(
-            !serde_json::to_value(&declaration)
-                .unwrap()
-                .as_object()
-                .unwrap()
-                .contains_key("token")
-        );
-        for authentication in [
-            crate::Authentication::ApiKey,
-            crate::Authentication::Copilot,
-            crate::Authentication::Plugin,
-        ] {
-            let mut invalid = declaration.clone();
-            invalid.authentication = Some(authentication);
-            assert!(!invalid.valid());
-        }
-        let mut invalid = declaration.clone();
-        if let Flow::Script { requests, .. } = &mut invalid.flow {
-            requests.get_mut("token").unwrap().url = "https://{host}/token".into();
-        }
-        assert!(!invalid.valid());
-        let mut plugin = declaration.clone();
-        plugin.authentication = None;
-        assert!(!plugin.valid());
-        plugin.token = Some(Mapping {
-            account_label: None,
-            access: "/access".into(),
-            refresh: None,
-            expires_in: None,
-            extra: BTreeMap::new(),
-        });
-        plugin.inject = vec![Injection {
-            header: "Authorization".into(),
-            template: "Bearer {access}".into(),
-        }];
-        assert!(plugin.valid());
-    }
-
-    #[test]
-    fn preserves_omitted_alias_fields() {
-        let document = json!({"id":"account","display":{"label":"Account"},"flow":{"kind":"token_exchange","token":{"url":"https://example.test/token"}},"token":{"access":"/access","refresh":null,"expires_in":null},"inject":[{"header":"Authorization","template":"Bearer {access}"}]});
-        let declaration: Declaration = serde_json::from_value(document).unwrap();
-        assert!(declaration.authentication.is_none());
-        assert!(declaration.valid());
-        assert!(
-            serde_json::to_value(declaration)
-                .unwrap()
-                .get("authentication")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn bounds_native_resource_declarations() {
-        for authentication in ["chat_gpt", "chat_gpt_oauth", "claude_oauth"] {
-            let resource: Resource = serde_json::from_value(json!({"authentication":authentication,"requests":{"usage":{"url":"https://example.invalid/usage","query":{"after":"{input.after}"}}}})).unwrap();
-            assert!(resource.valid());
-            let mut invalid = resource.clone();
-            invalid
-                .requests
-                .get_mut("usage")
-                .unwrap()
-                .headers
-                .insert("X-Input".into(), "{input.header}".into());
-            assert!(!invalid.valid());
-        }
-        for authentication in ["api_key", "copilot", "plugin"] {
-            let resource: Resource = serde_json::from_value(json!({"authentication":authentication,"requests":{"usage":{"url":"https://example.invalid/usage"}}})).unwrap();
-            assert!(!resource.valid());
-        }
-        let extension: crate::plugin::Extension =
-            serde_json::from_value(json!({"api_version":"v1"})).unwrap();
-        assert!(extension.model_resources.is_empty());
-        assert!(
-            serde_json::to_value(extension)
-                .unwrap()
-                .get("model_resources")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn keeps_resource_urls_and_headers_fixed() {
-        let mut declaration:Declaration=serde_json::from_value(json!({"id":"example","display":{"label":"Example"},"flow":{"kind":"token_exchange","token":{"url":"https://example.invalid/token"}},"token":{"access":"/access","refresh":null,"expires_in":null},"inject":[{"header":"Authorization","template":"Bearer {access}"}],"requests":{"status":{"url":"https://example.invalid/status","query":{"after":"{input.after}"}}}})).unwrap();
-        assert!(declaration.valid());
-        declaration
-            .requests
-            .get_mut("status")
-            .unwrap()
-            .headers
-            .insert("X-Input".into(), "{input.header}".into());
-        assert!(!declaration.valid());
-        declaration
-            .requests
-            .get_mut("status")
-            .unwrap()
-            .headers
-            .clear();
-        declaration.requests.get_mut("status").unwrap().url = "https://{input.host}/status".into();
-        assert!(!declaration.valid());
-        declaration.requests.clear();
-        if let Flow::TokenExchange { token } = &mut declaration.flow {
-            token.headers.insert("X-Refresh".into(), "{refresh}".into());
-        }
-        assert!(
-            declaration.valid(),
-            "authentication retains its private template contract"
-        );
-    }
-
-    #[test]
-    fn keeps_mutation_endpoints_fixed() {
-        let mut declaration: Declaration = serde_json::from_value(json!({
-            "id":"example","display":{"label":"Example"},
-            "flow":{"kind":"token_exchange","token":{"url":"https://example.invalid/token"}},
-            "token":{"access":"/access","refresh":null,"expires_in":null},
-            "inject":[{"header":"Authorization","template":"Bearer {access}"}],
-            "mutations":{"claim":{"url":"https://example.invalid/claim","method":"POST","body":{"kind":"json","value":{"day":"{input.day}"}}}}
-        })).unwrap();
-        assert!(declaration.requests.is_empty());
-        assert!(declaration.valid());
-        declaration
-            .mutations
-            .get_mut("claim")
-            .unwrap()
-            .headers
-            .insert("X-Input".into(), "{input.header}".into());
-        assert!(!declaration.valid());
-        declaration
-            .mutations
-            .get_mut("claim")
-            .unwrap()
-            .headers
-            .clear();
-        declaration.mutations.get_mut("claim").unwrap().url = "https://{input.host}/claim".into();
-        assert!(!declaration.valid());
-    }
-    #[test]
-    fn preserves_uncached_endpoint_shape() {
-        let value = json!({"url":"https://example.test/usage","method":"GET","headers":{},"query":{},"body":null});
-        let endpoint: Endpoint = serde_json::from_value(value.clone()).unwrap();
-        assert!(endpoint.valid());
-        assert_eq!(serde_json::to_value(endpoint).unwrap(), value);
-        for ttl in [1, 60000, 180000, 900000] {
-            let endpoint: Endpoint = serde_json::from_value(
-                json!({"url":"https://example.test/usage","cache_ttl_ms":ttl}),
-            )
-            .unwrap();
-            assert!(endpoint.valid());
-        }
-        for ttl in [0, 900001] {
-            let endpoint: Endpoint = serde_json::from_value(
-                json!({"url":"https://example.test/usage","cache_ttl_ms":ttl}),
-            )
-            .unwrap();
-            assert!(!endpoint.valid());
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

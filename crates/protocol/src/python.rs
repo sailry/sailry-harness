@@ -63,52 +63,69 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_public_or_local_indexes() {
-        for index in [
-            "https://pypi.org/simple",
-            "https://pypi.tuna.tsinghua.edu.cn/simple",
-            "http://localhost:8080/simple",
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "accepts_public_or_local_indexes",
+                (|_scenario: &'static str| {
+                    for index in [
+                        "https://pypi.org/simple",
+                        "https://pypi.tuna.tsinghua.edu.cn/simple",
+                        "http://localhost:8080/simple",
+                    ] {
+                        Settings {
+                            index: Some(index.into()),
+                            ..Settings::default()
+                        }
+                        .validate()
+                        .unwrap();
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "info_round_trips",
+                (|scenario: &'static str| {
+                    let info = Info {
+                        settings: Settings {
+                            revision: 2,
+                            index: Some("https://pypi.org/simple".into()),
+                        },
+                        version: "3.12.13".into(),
+                    };
+                    let value = serde_json::to_value(&info).unwrap();
+                    assert_eq!(value["version"], "3.12.13", "{scenario}");
+                    assert_eq!(value["settings"]["revision"], 2, "{scenario}");
+                    assert_eq!(
+                        serde_json::from_value::<Info>(value).unwrap(),
+                        info,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "rejects_credentials_and_invalid_urls",
+                (|scenario: &'static str| {
+                    for index in [
+                        "file:///tmp/wheels",
+                        "https://user:password@pypi.org/simple",
+                        "https://pypi.org/simple?token=value",
+                        "https://pypi.org/simple#fragment",
+                    ] {
+                        assert!(
+                            Settings {
+                                index: Some(index.into()),
+                                ..Settings::default()
+                            }
+                            .validate()
+                            .is_err(),
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
         ] {
-            Settings {
-                index: Some(index.into()),
-                ..Settings::default()
-            }
-            .validate()
-            .unwrap();
-        }
-    }
-
-    #[test]
-    fn info_round_trips() {
-        let info = Info {
-            settings: Settings {
-                revision: 2,
-                index: Some("https://pypi.org/simple".into()),
-            },
-            version: "3.12.13".into(),
-        };
-        let value = serde_json::to_value(&info).unwrap();
-        assert_eq!(value["version"], "3.12.13");
-        assert_eq!(value["settings"]["revision"], 2);
-        assert_eq!(serde_json::from_value::<Info>(value).unwrap(), info);
-    }
-
-    #[test]
-    fn rejects_credentials_and_invalid_urls() {
-        for index in [
-            "file:///tmp/wheels",
-            "https://user:password@pypi.org/simple",
-            "https://pypi.org/simple?token=value",
-            "https://pypi.org/simple#fragment",
-        ] {
-            assert!(
-                Settings {
-                    index: Some(index.into()),
-                    ..Settings::default()
-                }
-                .validate()
-                .is_err()
-            );
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

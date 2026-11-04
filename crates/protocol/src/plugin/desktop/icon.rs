@@ -157,47 +157,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_names() {
-        for name in NAMES.lines() {
-            assert!(Icon::Name(format!("reicon:{name}")).valid());
-        }
-        for name in ["", "folder", "reicon:unknown", "reicon:../folder"] {
-            assert!(!Icon::Name(name.into()).valid());
-        }
-    }
-
-    #[test]
-    fn self_contained_vectors() {
-        let shape = r#"<path d="M4 12h16" stroke="currentColor"/>"#;
-        let svg = |content: &str| {
-            format!(
-                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">{content}</svg>"#
-            )
-        };
-        assert!(valid_svg(&svg(shape)));
-        for content in [
-            "",
-            "<script/>",
-            "<image href='file:///tmp/x'/>",
-            "<use href='https://example.invalid/icon.svg'/>",
-            "<style/>",
-            "<foreignObject/>",
-            "<path onload='run()'/>",
-            "<path fill='url(https://example.invalid)'/>",
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "catalog_names",
+                (|scenario: &'static str| {
+                    for name in NAMES.lines() {
+                        assert!(Icon::Name(format!("reicon:{name}")).valid(), "{scenario}");
+                    }
+                    for name in ["", "folder", "reicon:unknown", "reicon:../folder"] {
+                        assert!(!Icon::Name(name.into()).valid(), "{scenario}");
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "self_contained_vectors",
+                (|scenario: &'static str| {
+                    let shape = r#"<path d="M4 12h16" stroke="currentColor"/>"#;
+                    let svg = |content: &str| {
+                        format!(
+                            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">{content}</svg>"#
+                        )
+                    };
+                    assert!(valid_svg(&svg(shape)), "{scenario}");
+                    for content in [
+                        "",
+                        "<script/>",
+                        "<image href='file:///tmp/x'/>",
+                        "<use href='https://example.invalid/icon.svg'/>",
+                        "<style/>",
+                        "<foreignObject/>",
+                        "<path onload='run()'/>",
+                        "<path fill='url(https://example.invalid)'/>",
+                    ] {
+                        assert!(!valid_svg(&svg(content)), "{scenario}: accepted {content}");
+                    }
+                    assert!(
+                        !valid_svg(&svg(shape).replace("0 0 24 24", "0 0 0 24")),
+                        "{scenario}"
+                    );
+                    assert!(
+                        !valid_svg(&svg(shape).replace("0 0 24 24", "0 0 NaN 24")),
+                        "{scenario}"
+                    );
+                    assert!(!valid_svg(&svg(&shape.repeat(1024))), "{scenario}");
+                    assert!(
+                        !valid_svg(
+                            "<!DOCTYPE svg [<!ENTITY icon 'x'>]><svg viewBox='0 0 24 24'>&icon;</svg>"
+                        ),
+                        "{scenario}"
+                    );
+                    let value = Icon::Svg { svg: svg(shape) };
+                    assert_eq!(
+                        serde_json::from_value::<Icon>(serde_json::to_value(&value).unwrap())
+                            .unwrap(),
+                        value,
+                        "{scenario}"
+                    );
+                    assert!(
+                        serde_json::from_str::<Icon>(r#"{"svg":"x","url":"x"}"#).is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
         ] {
-            assert!(!valid_svg(&svg(content)), "accepted {content}");
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        assert!(!valid_svg(&svg(shape).replace("0 0 24 24", "0 0 0 24")));
-        assert!(!valid_svg(&svg(shape).replace("0 0 24 24", "0 0 NaN 24")));
-        assert!(!valid_svg(&svg(&shape.repeat(1024))));
-        assert!(!valid_svg(
-            "<!DOCTYPE svg [<!ENTITY icon 'x'>]><svg viewBox='0 0 24 24'>&icon;</svg>"
-        ));
-        let value = Icon::Svg { svg: svg(shape) };
-        assert_eq!(
-            serde_json::from_value::<Icon>(serde_json::to_value(&value).unwrap()).unwrap(),
-            value
-        );
-        assert!(serde_json::from_str::<Icon>(r#"{"svg":"x","url":"x"}"#).is_err());
     }
 }

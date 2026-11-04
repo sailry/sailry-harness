@@ -311,261 +311,326 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn declares_quota_and_key_requirements() {
-        let mut settings = Settings::default();
-        assert_eq!(
-            settings.capabilities[&Driver::Exa].quota,
-            Quota::AnonymousQuota
-        );
-        assert_eq!(
-            settings.capabilities[&Driver::Searxng].quota,
-            Quota::Keyless
-        );
-        for driver in [
-            Driver::Tinyfish,
-            Driver::Tavily,
-            Driver::Brave,
-            Driver::Volcengine,
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "declares_quota_and_key_requirements",
+                (|scenario: &'static str| {
+                    let mut settings = Settings::default();
+                    assert_eq!(
+                        settings.capabilities[&Driver::Exa].quota,
+                        Quota::AnonymousQuota,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        settings.capabilities[&Driver::Searxng].quota,
+                        Quota::Keyless,
+                        "{scenario}"
+                    );
+                    for driver in [
+                        Driver::Tinyfish,
+                        Driver::Tavily,
+                        Driver::Brave,
+                        Driver::Volcengine,
+                    ] {
+                        assert_eq!(
+                            settings.capabilities[&driver].quota,
+                            Quota::FreeQuota,
+                            "{scenario}"
+                        );
+                        assert!(settings.capabilities[&driver].key_required, "{scenario}");
+                    }
+                    for driver in [Driver::Bocha, Driver::Deepseek, Driver::Model] {
+                        assert_eq!(
+                            settings.capabilities[&driver].quota,
+                            Quota::Paid,
+                            "{scenario}"
+                        );
+                    }
+                    assert!(
+                        !settings.capabilities[&Driver::Model].key_required,
+                        "{scenario}"
+                    );
+                    settings
+                        .providers
+                        .get_mut(&Driver::Exa)
+                        .unwrap()
+                        .key_configured = true;
+                    settings.describe();
+                    assert_eq!(
+                        settings.capabilities[&Driver::Exa].quota,
+                        Quota::FreeQuota,
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        serde_json::from_value::<Settings>(
+                            serde_json::to_value(&settings).unwrap()
+                        )
+                        .unwrap(),
+                        settings,
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "preserves_order_and_defaults_missing_field",
+                (|scenario: &'static str| {
+                    let mut settings = Settings::default();
+                    settings.order.reverse();
+                    let mut value = serde_json::to_value(&settings).unwrap();
+                    assert_eq!(
+                        serde_json::from_value::<Settings>(value.clone()).unwrap(),
+                        settings,
+                        "{scenario}"
+                    );
+                    value.as_object_mut().unwrap().remove("order");
+                    assert_eq!(
+                        serde_json::from_value::<Settings>(value).unwrap().order,
+                        Driver::ALL,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "defaults_optional_model_fields",
+                (|scenario: &'static str| {
+                    let config: Config = serde_json::from_value(json!({
+                    "enabled":false,"endpoint":null,"key_configured":false,"basic_configured":false
+                }))
+                .unwrap();
+                    assert_eq!(config.model, None, "{scenario}");
+                    let page: Page = serde_json::from_value(json!({
+                    "driver":"exa","results":[],"untrusted":true,"fetch_hint":"Read source pages"
+                }))
+                .unwrap();
+                    assert_eq!(page.summary, None, "{scenario}");
+                    let binding = ModelConfig {
+                        provider: crate::ProviderId::new(),
+                        model: "search-model".into(),
+                    };
+                    assert_eq!(
+                        serde_json::from_value::<ModelConfig>(
+                            serde_json::to_value(&binding).unwrap()
+                        )
+                        .unwrap(),
+                        binding,
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "defaults_select_auto_and_bound_results",
+                (|scenario: &'static str| {
+                    let settings = Settings::default();
+                    assert_eq!(settings.driver, Some(Selection::Auto), "{scenario}");
+                    assert!(settings.fallback, "{scenario}");
+                    assert!(settings.providers[&Driver::Exa].enabled, "{scenario}");
+                    assert!(
+                        settings
+                            .providers
+                            .iter()
+                            .all(|(driver, provider)| *driver == Driver::Exa || !provider.enabled),
+                        "{scenario}"
+                    );
+                    let request: Request =
+                        serde_json::from_value(json!({"query":"current sources"})).unwrap();
+                    assert_eq!(request.limit, DEFAULT_LIMIT, "{scenario}");
+                    assert_eq!(request.freshness, None, "{scenario}");
+                    assert!(request.include_domains.is_empty(), "{scenario}");
+                    assert!(request.exclude_domains.is_empty(), "{scenario}");
+                    assert_eq!(
+                        serde_json::to_value(&request).unwrap(),
+                        json!({"query":"current sources", "limit":DEFAULT_LIMIT}),
+                        "{scenario}"
+                    );
+                    request.validate().unwrap();
+                    let expanded = Request {
+                        query: "source ".repeat(700),
+                        limit: 50,
+                        ..Default::default()
+                    };
+                    expanded.validate().unwrap();
+                    assert!(
+                        Request {
+                            limit: 0,
+                            ..expanded
+                        }
+                        .validate()
+                        .is_err(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        serde_json::from_value::<Request>(json!({"query":"source","key":"secret"}))
+                            .is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "serializes_each_freshness",
+                (|scenario: &'static str| {
+                    for (freshness, name) in [
+                        (Freshness::Hour, "hour"),
+                        (Freshness::Day, "day"),
+                        (Freshness::Week, "week"),
+                        (Freshness::Month, "month"),
+                        (Freshness::Year, "year"),
+                    ] {
+                        let value = json!({
+                            "query":"current sources", "freshness":name,
+                            "include_domains":["example.com"], "exclude_domains":["other.test"]
+                        });
+                        let request: Request = serde_json::from_value(value).unwrap();
+                        request.validate().unwrap();
+                        assert_eq!(request.freshness, Some(freshness), "{scenario}");
+                        assert_eq!(
+                            serde_json::to_value(&request).unwrap()["freshness"],
+                            name,
+                            "{scenario}"
+                        );
+                    }
+                    assert!(
+                        serde_json::from_value::<Request>(json!({
+                            "query":"current sources", "freshness":"minute"
+                        }))
+                        .is_err(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "normalizes_hosts_and_preserves_query_syntax",
+                (|scenario: &'static str| {
+                    let request = Request {
+                        query: "  site:example.com \"two  words\"\nOR source  ".into(),
+                        include_domains: vec![
+                            "EXAMPLE.COM.".into(),
+                            "example.com".into(),
+                            "b.example.com".into(),
+                        ],
+                        exclude_domains: vec!["OTHER.test.".into(), "other.test".into()],
+                        ..Default::default()
+                    };
+                    request.validate().unwrap();
+                    let normalized = request.normalized();
+                    assert_eq!(
+                        normalized.query, "site:example.com \"two  words\"\nOR source",
+                        "{scenario}"
+                    );
+                    assert_eq!(
+                        normalized.include_domains,
+                        ["b.example.com", "example.com"],
+                        "{scenario}"
+                    );
+                    assert_eq!(normalized.exclude_domains, ["other.test"], "{scenario}");
+                    assert_eq!(normalized.normalized(), normalized, "{scenario}");
+
+                    let request = Request {
+                        query: "Unicode hostname".into(),
+                        include_domains: vec!["例子.测试".into()],
+                        ..Default::default()
+                    };
+                    request.validate().unwrap();
+                    assert_eq!(
+                        request.normalized().include_domains,
+                        ["xn--fsqu00a.xn--0zwm56d"],
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "rejects_overlapping_or_oversized_domains",
+                (|scenario: &'static str| {
+                    for (include_domains, exclude_domains) in [
+                        (vec!["EXAMPLE.com.".into()], vec!["example.com".into()]),
+                        (vec!["example.com".into(); MAX_DOMAINS + 1], vec![]),
+                        (vec![], vec!["example.com".into(); MAX_DOMAINS + 1]),
+                    ] {
+                        assert!(
+                            Request {
+                                query: "current sources".into(),
+                                include_domains,
+                                exclude_domains,
+                                ..Default::default()
+                            }
+                            .validate()
+                            .is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    let request = Request {
+                        query: "current sources".into(),
+                        include_domains: (0..MAX_DOMAINS)
+                            .map(|index| format!("host{index}.example"))
+                            .collect(),
+                        exclude_domains: vec!["other.test".into(); MAX_DOMAINS],
+                        ..Default::default()
+                    };
+                    request.validate().unwrap();
+                }),
+            ),
+            (
+                "rejects_non_host_filters",
+                (|scenario: &'static str| {
+                    for value in [
+                        "",
+                        "https://example.com",
+                        "example.com/path",
+                        "example.com:443",
+                        "user@example.com",
+                        "*.example.com",
+                        ".example.com",
+                        "example..com",
+                        "example.com..",
+                        "example_com",
+                        "-example.com",
+                        "example-.com",
+                        " example.com",
+                        "example.com ",
+                        "example.com?x=1",
+                        "example.com#fragment",
+                        "127.0.0.1",
+                        "[::1]",
+                        "::1",
+                        "%65xample.com",
+                    ] {
+                        for exclude in [false, true] {
+                            let mut request = Request {
+                                query: "current sources".into(),
+                                ..Default::default()
+                            };
+                            if exclude {
+                                request.exclude_domains.push(value.into());
+                            } else {
+                                request.include_domains.push(value.into());
+                            }
+                            assert!(request.validate().is_err(), "{scenario}: {value:?}");
+                        }
+                    }
+                }),
+            ),
+            (
+                "secret_updates_never_enter_public_settings",
+                (|scenario: &'static str| {
+                    let credentials = Credentials {
+                        key: SecretUpdate::Replace(crate::Secret::new("private-key".into())),
+                        basic: SecretUpdate::Replace(crate::Secret::new(
+                            "private-user:private-password".into(),
+                        )),
+                    };
+                    assert!(
+                        !format!("{credentials:?}").contains("private-key"),
+                        "{scenario}"
+                    );
+                    let settings = serde_json::to_string(&Settings::default()).unwrap();
+                    for secret in ["private-key", "private-user", "private-password"] {
+                        assert!(!settings.contains(secret), "{scenario}");
+                    }
+                }),
+            ),
         ] {
-            assert_eq!(settings.capabilities[&driver].quota, Quota::FreeQuota);
-            assert!(settings.capabilities[&driver].key_required);
-        }
-        for driver in [Driver::Bocha, Driver::Deepseek, Driver::Model] {
-            assert_eq!(settings.capabilities[&driver].quota, Quota::Paid);
-        }
-        assert!(!settings.capabilities[&Driver::Model].key_required);
-        settings
-            .providers
-            .get_mut(&Driver::Exa)
-            .unwrap()
-            .key_configured = true;
-        settings.describe();
-        assert_eq!(settings.capabilities[&Driver::Exa].quota, Quota::FreeQuota);
-        assert_eq!(
-            serde_json::from_value::<Settings>(serde_json::to_value(&settings).unwrap()).unwrap(),
-            settings
-        );
-    }
-
-    #[test]
-    fn preserves_order_and_defaults_missing_field() {
-        let mut settings = Settings::default();
-        settings.order.reverse();
-        let mut value = serde_json::to_value(&settings).unwrap();
-        assert_eq!(
-            serde_json::from_value::<Settings>(value.clone()).unwrap(),
-            settings
-        );
-        value.as_object_mut().unwrap().remove("order");
-        assert_eq!(
-            serde_json::from_value::<Settings>(value).unwrap().order,
-            Driver::ALL
-        );
-    }
-
-    #[test]
-    fn defaults_optional_model_fields() {
-        let config: Config = serde_json::from_value(json!({
-            "enabled":false,"endpoint":null,"key_configured":false,"basic_configured":false
-        }))
-        .unwrap();
-        assert_eq!(config.model, None);
-        let page: Page = serde_json::from_value(json!({
-            "driver":"exa","results":[],"untrusted":true,"fetch_hint":"Read source pages"
-        }))
-        .unwrap();
-        assert_eq!(page.summary, None);
-        let binding = ModelConfig {
-            provider: crate::ProviderId::new(),
-            model: "search-model".into(),
-        };
-        assert_eq!(
-            serde_json::from_value::<ModelConfig>(serde_json::to_value(&binding).unwrap()).unwrap(),
-            binding
-        );
-    }
-
-    #[test]
-    fn defaults_select_auto_and_bound_results() {
-        let settings = Settings::default();
-        assert_eq!(settings.driver, Some(Selection::Auto));
-        assert!(settings.fallback);
-        assert!(settings.providers[&Driver::Exa].enabled);
-        assert!(
-            settings
-                .providers
-                .iter()
-                .all(|(driver, provider)| *driver == Driver::Exa || !provider.enabled)
-        );
-        let request: Request = serde_json::from_value(json!({"query":"current sources"})).unwrap();
-        assert_eq!(request.limit, DEFAULT_LIMIT);
-        assert_eq!(request.freshness, None);
-        assert!(request.include_domains.is_empty());
-        assert!(request.exclude_domains.is_empty());
-        assert_eq!(
-            serde_json::to_value(&request).unwrap(),
-            json!({"query":"current sources", "limit":DEFAULT_LIMIT})
-        );
-        request.validate().unwrap();
-        let expanded = Request {
-            query: "source ".repeat(700),
-            limit: 50,
-            ..Default::default()
-        };
-        expanded.validate().unwrap();
-        assert!(
-            Request {
-                limit: 0,
-                ..expanded
-            }
-            .validate()
-            .is_err()
-        );
-        assert!(
-            serde_json::from_value::<Request>(json!({"query":"source","key":"secret"})).is_err()
-        );
-    }
-
-    #[test]
-    fn serializes_each_freshness() {
-        for (freshness, name) in [
-            (Freshness::Hour, "hour"),
-            (Freshness::Day, "day"),
-            (Freshness::Week, "week"),
-            (Freshness::Month, "month"),
-            (Freshness::Year, "year"),
-        ] {
-            let value = json!({
-                "query":"current sources", "freshness":name,
-                "include_domains":["example.com"], "exclude_domains":["other.test"]
-            });
-            let request: Request = serde_json::from_value(value).unwrap();
-            request.validate().unwrap();
-            assert_eq!(request.freshness, Some(freshness));
-            assert_eq!(serde_json::to_value(&request).unwrap()["freshness"], name);
-        }
-        assert!(
-            serde_json::from_value::<Request>(json!({
-                "query":"current sources", "freshness":"minute"
-            }))
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn normalizes_hosts_and_preserves_query_syntax() {
-        let request = Request {
-            query: "  site:example.com \"two  words\"\nOR source  ".into(),
-            include_domains: vec![
-                "EXAMPLE.COM.".into(),
-                "example.com".into(),
-                "b.example.com".into(),
-            ],
-            exclude_domains: vec!["OTHER.test.".into(), "other.test".into()],
-            ..Default::default()
-        };
-        request.validate().unwrap();
-        let normalized = request.normalized();
-        assert_eq!(
-            normalized.query,
-            "site:example.com \"two  words\"\nOR source"
-        );
-        assert_eq!(normalized.include_domains, ["b.example.com", "example.com"]);
-        assert_eq!(normalized.exclude_domains, ["other.test"]);
-        assert_eq!(normalized.normalized(), normalized);
-
-        let request = Request {
-            query: "Unicode hostname".into(),
-            include_domains: vec!["例子.测试".into()],
-            ..Default::default()
-        };
-        request.validate().unwrap();
-        assert_eq!(
-            request.normalized().include_domains,
-            ["xn--fsqu00a.xn--0zwm56d"]
-        );
-    }
-
-    #[test]
-    fn rejects_overlapping_or_oversized_domains() {
-        for (include_domains, exclude_domains) in [
-            (vec!["EXAMPLE.com.".into()], vec!["example.com".into()]),
-            (vec!["example.com".into(); MAX_DOMAINS + 1], vec![]),
-            (vec![], vec!["example.com".into(); MAX_DOMAINS + 1]),
-        ] {
-            assert!(
-                Request {
-                    query: "current sources".into(),
-                    include_domains,
-                    exclude_domains,
-                    ..Default::default()
-                }
-                .validate()
-                .is_err()
-            );
-        }
-        let request = Request {
-            query: "current sources".into(),
-            include_domains: (0..MAX_DOMAINS)
-                .map(|index| format!("host{index}.example"))
-                .collect(),
-            exclude_domains: vec!["other.test".into(); MAX_DOMAINS],
-            ..Default::default()
-        };
-        request.validate().unwrap();
-    }
-
-    #[test]
-    fn rejects_non_host_filters() {
-        for value in [
-            "",
-            "https://example.com",
-            "example.com/path",
-            "example.com:443",
-            "user@example.com",
-            "*.example.com",
-            ".example.com",
-            "example..com",
-            "example.com..",
-            "example_com",
-            "-example.com",
-            "example-.com",
-            " example.com",
-            "example.com ",
-            "example.com?x=1",
-            "example.com#fragment",
-            "127.0.0.1",
-            "[::1]",
-            "::1",
-            "%65xample.com",
-        ] {
-            for exclude in [false, true] {
-                let mut request = Request {
-                    query: "current sources".into(),
-                    ..Default::default()
-                };
-                if exclude {
-                    request.exclude_domains.push(value.into());
-                } else {
-                    request.include_domains.push(value.into());
-                }
-                assert!(request.validate().is_err(), "{value:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn secret_updates_never_enter_public_settings() {
-        let credentials = Credentials {
-            key: SecretUpdate::Replace(crate::Secret::new("private-key".into())),
-            basic: SecretUpdate::Replace(crate::Secret::new(
-                "private-user:private-password".into(),
-            )),
-        };
-        assert!(!format!("{credentials:?}").contains("private-key"));
-        let settings = serde_json::to_string(&Settings::default()).unwrap();
-        for secret in ["private-key", "private-user", "private-password"] {
-            assert!(!settings.contains(secret));
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

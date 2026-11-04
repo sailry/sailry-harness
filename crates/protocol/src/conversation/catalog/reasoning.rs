@@ -62,78 +62,97 @@ mod tests {
     use super::*;
 
     #[test]
-    fn toggle_preserves_level_order() {
-        let mut model = Model {
-            id: "fixture".into(),
-            name: "Fixture".into(),
-            context: None,
-            output: Some(8192),
-            inputs: vec![],
-            outputs: vec![],
-            tools: None,
-            reasoning: Some(true),
-            options: vec![
-                Reasoning::Toggle,
-                Reasoning::Effort {
-                    values: vec![Some("low".into()), Some("high".into()), Some("max".into())],
-                },
-            ],
-        };
-        assert_eq!(
-            model.efforts(ModelApi::DeepSeek, 8192),
-            vec![Effort::High, Effort::Max, Effort::Disabled]
-        );
-        model.options.remove(0);
-        assert_eq!(
-            model.efforts(ModelApi::DeepSeek, 8192),
-            vec![Effort::High, Effort::Max]
-        );
-    }
-
-    #[test]
-    fn filters_unsupported_gemini_choices() {
-        let model = Model {
-            id: "fixture".into(),
-            name: "Gemini".into(),
-            context: None,
-            output: Some(8192),
-            inputs: vec![],
-            outputs: vec![],
-            tools: None,
-            reasoning: Some(true),
-            options: vec![
-                Reasoning::Effort {
-                    values: vec![
-                        Some("minimal".into()),
-                        Some("low".into()),
-                        Some("high".into()),
-                    ],
-                },
-                Reasoning::BudgetTokens {
-                    min: Some(-1),
-                    max: Some(8192),
-                },
-                Reasoning::BudgetTokens {
-                    min: Some(2048),
-                    max: Some(8192),
-                },
-            ],
-        };
-        assert_eq!(
-            model.efforts(ModelApi::Gemini, 8192),
-            vec![Effort::Low, Effort::High, Effort::Budget(2048)]
-        );
-        for api in [ModelApi::Plugin, ModelApi::OpenCodeZen] {
-            assert_eq!(
-                model.efforts(api, 8192),
-                vec![
-                    Effort::Minimal,
-                    Effort::Low,
-                    Effort::High,
-                    Effort::Budget(-1),
-                    Effort::Budget(2048)
-                ]
-            );
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "toggle_preserves_level_order",
+                (|scenario: &'static str| {
+                    let mut model = Model {
+                        id: "fixture".into(),
+                        name: "Fixture".into(),
+                        context: None,
+                        output: Some(8192),
+                        inputs: vec![],
+                        outputs: vec![],
+                        tools: None,
+                        reasoning: Some(true),
+                        options: vec![
+                            Reasoning::Toggle,
+                            Reasoning::Effort {
+                                values: vec![
+                                    Some("low".into()),
+                                    Some("high".into()),
+                                    Some("max".into()),
+                                ],
+                            },
+                        ],
+                    };
+                    assert_eq!(
+                        model.efforts(ModelApi::DeepSeek, 8192),
+                        vec![Effort::High, Effort::Max, Effort::Disabled],
+                        "{scenario}"
+                    );
+                    model.options.remove(0);
+                    assert_eq!(
+                        model.efforts(ModelApi::DeepSeek, 8192),
+                        vec![Effort::High, Effort::Max],
+                        "{scenario}"
+                    );
+                }) as fn(&'static str),
+            ),
+            (
+                "filters_unsupported_gemini_choices",
+                (|scenario: &'static str| {
+                    let model = Model {
+                        id: "fixture".into(),
+                        name: "Gemini".into(),
+                        context: None,
+                        output: Some(8192),
+                        inputs: vec![],
+                        outputs: vec![],
+                        tools: None,
+                        reasoning: Some(true),
+                        options: vec![
+                            Reasoning::Effort {
+                                values: vec![
+                                    Some("minimal".into()),
+                                    Some("low".into()),
+                                    Some("high".into()),
+                                ],
+                            },
+                            Reasoning::BudgetTokens {
+                                min: Some(-1),
+                                max: Some(8192),
+                            },
+                            Reasoning::BudgetTokens {
+                                min: Some(2048),
+                                max: Some(8192),
+                            },
+                        ],
+                    };
+                    assert_eq!(
+                        model.efforts(ModelApi::Gemini, 8192),
+                        vec![Effort::Low, Effort::High, Effort::Budget(2048)],
+                        "{scenario}"
+                    );
+                    for api in [ModelApi::Plugin, ModelApi::OpenCodeZen] {
+                        assert_eq!(
+                            model.efforts(api, 8192),
+                            vec![
+                                Effort::Minimal,
+                                Effort::Low,
+                                Effort::High,
+                                Effort::Budget(-1),
+                                Effort::Budget(2048)
+                            ],
+                            "{scenario}"
+                        );
+                    }
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
     }
 }

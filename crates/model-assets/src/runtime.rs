@@ -120,33 +120,26 @@ mod tests {
     }
 
     #[test]
-    fn resolves_beside_binary() {
-        let directory = tempfile::tempdir().unwrap();
-        let library = directory.path().join(name().unwrap());
-        std::fs::write(&library, b"fixture").unwrap();
-        assert_eq!(
-            beside(&directory.path().join("binary")).unwrap(),
-            library.canonicalize().unwrap()
-        );
-    }
-
-    #[test]
-    fn rejects_missing_library() {
-        let directory = tempfile::tempdir().unwrap();
-        assert_eq!(
-            beside(&directory.path().join("binary")).unwrap_err().kind(),
-            io::ErrorKind::NotFound
-        );
-    }
-
-    #[test]
-    fn rejects_directory() {
-        let directory = tempfile::tempdir().unwrap();
-        std::fs::create_dir(directory.path().join(name().unwrap())).unwrap();
-        assert_eq!(
-            beside(&directory.path().join("binary")).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
+    fn resolves_only_ordinary_libraries() {
+        for (case, content, expected) in [
+            ("file", Some(true), None),
+            ("missing", None, Some(io::ErrorKind::NotFound)),
+            ("directory", Some(false), Some(io::ErrorKind::InvalidData)),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let library = directory.path().join(name().unwrap());
+            match content {
+                Some(true) => std::fs::write(&library, b"fixture").unwrap(),
+                Some(false) => std::fs::create_dir(&library).unwrap(),
+                None => {}
+            }
+            let resolved = beside(&directory.path().join("binary"));
+            if let Some(expected) = expected {
+                assert_eq!(resolved.unwrap_err().kind(), expected, "{case}");
+            } else {
+                assert_eq!(resolved.unwrap(), library.canonicalize().unwrap(), "{case}");
+            }
+        }
     }
 
     #[cfg(unix)]

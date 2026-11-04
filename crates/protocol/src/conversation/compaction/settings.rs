@@ -35,32 +35,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_disabled_boundaries() {
-        for percent in [0, 100, 255] {
-            assert!(
-                Settings {
-                    percent,
-                    ..Settings::default()
-                }
-                .validate()
-                .is_err()
-            );
+    fn preserves_wire_and_validation() {
+        for (scenario, check) in [
+            (
+                "rejects_disabled_boundaries",
+                (|scenario: &'static str| {
+                    for percent in [0, 100, 255] {
+                        assert!(
+                            Settings {
+                                percent,
+                                ..Settings::default()
+                            }
+                            .validate()
+                            .is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    for percent in [1, 80, 99] {
+                        assert!(
+                            Settings {
+                                percent,
+                                ..Settings::default()
+                            }
+                            .validate()
+                            .is_ok(),
+                            "{scenario}"
+                        );
+                    }
+                }) as fn(&'static str),
+            ),
+            (
+                "commands_have_durability",
+                (|scenario: &'static str| {
+                    assert!(
+                        !crate::Command::ReadCompactionSettings.durable(),
+                        "{scenario}"
+                    );
+                    assert!(
+                        crate::Command::SaveCompactionSettings(Settings::default()).durable(),
+                        "{scenario}"
+                    );
+                }),
+            ),
+        ] {
+            eprintln!("case: {scenario}");
+            check(scenario);
         }
-        for percent in [1, 80, 99] {
-            assert!(
-                Settings {
-                    percent,
-                    ..Settings::default()
-                }
-                .validate()
-                .is_ok()
-            );
-        }
-    }
-
-    #[test]
-    fn commands_have_durability() {
-        assert!(!crate::Command::ReadCompactionSettings.durable());
-        assert!(crate::Command::SaveCompactionSettings(Settings::default()).durable());
     }
 }
