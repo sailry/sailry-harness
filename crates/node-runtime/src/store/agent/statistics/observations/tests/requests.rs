@@ -332,7 +332,7 @@ async fn merges_recovered_attempts_across_rebuilds() {
     assert_eq!(call.id, request.id);
     assert_eq!(call.turn_index, Some(1));
     // Aggregates use every attempt; the published snapshot keeps the final one.
-    assert_eq!(call.attempts, vec![attempt(3, Outcome::Succeeded)]);
+    assert_eq!(call.attempts, succeeded.attempts);
     let page = fixture.read(None, 20).await.page;
     assert!(page.entries.iter().any(|entry| {
         entry
