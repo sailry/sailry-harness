@@ -159,7 +159,9 @@ pub(super) async fn execute_admitted(
                 scheduled_ms: None,
             };
             (
-                Output::Job(events::enqueue(db, Some(&reference), &handler, &event).await?),
+                Output::Job(Box::new(
+                    events::enqueue(db, Some(&reference), &handler, &event).await?,
+                )),
                 true,
             )
         }
@@ -168,11 +170,13 @@ pub(super) async fn execute_admitted(
             false,
         ),
         Command::ReadJob { id } => (
-            Output::Job(required(db, "dispatch_jobs", &package.name, "id", &id.to_string()).await?),
+            Output::Job(Box::new(
+                required(db, "dispatch_jobs", &package.name, "id", &id.to_string()).await?,
+            )),
             false,
         ),
         Command::CancelJob { id } => (
-            Output::Job(jobs::cancel(db, &package.name, *id).await?),
+            Output::Job(Box::new(jobs::cancel(db, &package.name, *id).await?)),
             true,
         ),
         Command::ReadResult { id } => (

@@ -142,11 +142,7 @@ impl Ingress {
                             .unwrap_or_else(|_| Err(unavailable()));
                         if let Ok(output) = &result
                             && let Err(error) = agent::queue::interrupt::deliver(
-                                &mut database,
-                                agents,
-                                output,
-                                recipient,
-                                id,
+                                &database, agents, output, recipient, id,
                             )
                             .await
                         {

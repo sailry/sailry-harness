@@ -81,13 +81,13 @@ mod cache {
         let cache = Cache::default();
         fixture.completed(&["First reply"]).await;
         fixture.append([timed(100, 20, 125_000)]).await;
-        assert_current(&fixture, &cache, 1).await;
-        assert_current(&fixture, &cache, 1).await;
+        assert_current(fixture, &cache, 1).await;
+        assert_current(fixture, &cache, 1).await;
         // Queue and run state do not invalidate canonical aggregates.
         fixture.queued().await;
-        assert_current(&fixture, &cache, 1).await;
+        assert_current(fixture, &cache, 1).await;
         fixture.append([event(10, 4)]).await;
-        assert_current(&fixture, &cache, 2).await;
+        assert_current(fixture, &cache, 2).await;
         assert_eq!(
             current(&cache, &fixture.database.connection, SessionId::new())
                 .await
@@ -227,13 +227,13 @@ mod cache {
         prepare(&cache, connection, fixture.session).await.unwrap();
         assert_eq!(cache.misses(), 2);
         cache.retain(entry);
-        assert_current(&fixture, &cache, 2).await;
+        assert_current(fixture, &cache, 2).await;
     }
 
     async fn appends_without_rereading_prior_events(fixture: &mut Fixture) {
         let cache = Cache::default();
         fixture.append((0..128).map(|_| event(10, 4))).await;
-        assert_current(&fixture, &cache, 1).await;
+        assert_current(fixture, &cache, 1).await;
         let before = super::super::cache::stamp(&fixture.database.connection, fixture.session)
             .await
             .unwrap();
@@ -244,7 +244,7 @@ mod cache {
             .examined;
         let anchor = event(20, 5);
         fixture.append([anchor.clone()]).await;
-        assert_current(&fixture, &cache, 2).await;
+        assert_current(fixture, &cache, 2).await;
         let after = super::super::cache::stamp(&fixture.database.connection, fixture.session)
             .await
             .unwrap();
@@ -259,7 +259,7 @@ mod cache {
         fixture
             .append([summary(&anchor, "Handoff"), event(4, 2)])
             .await;
-        assert_current(&fixture, &cache, 3).await;
+        assert_current(fixture, &cache, 3).await;
     }
 
     #[tokio::test]

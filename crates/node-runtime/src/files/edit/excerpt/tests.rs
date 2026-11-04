@@ -39,10 +39,10 @@ fn merges_nearby_changes_and_clamps_edges() {
 #[test]
 fn locates_deletions_and_missing_final_newline() {
     let text = "first\nsecond\nlast";
-    let excerpt = collect(text, &[text.len()..text.len()]);
+    let excerpt = collect(text, std::slice::from_ref(&(text.len()..text.len())));
     assert_eq!(numbers(&excerpt.hunks[0]), vec![1, 2, 3]);
     assert_eq!(excerpt.hunks[0].lines[2].text, "last");
-    assert!(collect("", &[0..0]).hunks.is_empty());
+    assert!(collect("", std::slice::from_ref(&(0..0))).hunks.is_empty());
 }
 
 #[test]
@@ -55,15 +55,15 @@ fn bounds_hunks_lines_and_bytes() {
     assert_eq!(excerpt.hunks.len(), MAX_HUNKS);
     assert_eq!(excerpt.omitted, 40 - MAX_HUNKS);
     let long = numbered(200);
-    let excerpt = collect(&long, &[0..long.len()]);
+    let excerpt = collect(&long, std::slice::from_ref(&(0..long.len())));
     assert_eq!(excerpt.hunks[0].lines.len(), HUNK_LINES);
     assert!(excerpt.hunks[0].shortened);
     let wide = format!("{}\n", "中".repeat(LINE_BYTES));
-    let excerpt = collect(&wide, &[0..wide.len()]);
+    let excerpt = collect(&wide, std::slice::from_ref(&(0..wide.len())));
     assert!(excerpt.hunks[0].shortened);
     assert!(excerpt.hunks[0].lines[0].text.len() <= LINE_BYTES);
     let heavy = format!("{}\n", "x".repeat(900)).repeat(100);
-    let excerpt = collect(&heavy, &[0..heavy.len()]);
+    let excerpt = collect(&heavy, std::slice::from_ref(&(0..heavy.len())));
     let bytes: usize = excerpt.hunks[0]
         .lines
         .iter()

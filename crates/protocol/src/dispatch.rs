@@ -189,7 +189,7 @@ pub enum Output {
     Schedules(Vec<Schedule>),
     Schedule(Schedule),
     Published { event: EventId, jobs: Vec<JobId> },
-    Job(Job),
+    Job(Box<Job>),
     Jobs(Page),
     Result(crate::RequestOutcome),
     Removed,

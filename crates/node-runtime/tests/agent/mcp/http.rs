@@ -72,7 +72,7 @@ async fn confines_headers_and_isolates_redirect_failures() {
                 );
                 install_current(fixture).await;
 
-                let (_, turn) = submit(&fixture, false).await;
+                let (_, turn) = submit(fixture, false).await;
                 let page = finished(&fixture.client, fixture.session.id, turn.id).await;
                 assert_eq!(
                     page.runs[0].status,
@@ -167,7 +167,7 @@ async fn confines_headers_and_isolates_redirect_failures() {
                     "{case_name}"
                 );
 
-                let (_, turn) = submit(&fixture, false).await;
+                let (_, turn) = submit(fixture, false).await;
                 let page = finished(&fixture.client, fixture.session.id, turn.id).await;
                 assert_eq!(
                     page.runs.last().unwrap().status,

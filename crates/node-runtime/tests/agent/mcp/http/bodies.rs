@@ -299,7 +299,7 @@ async fn isolates_failed_discovery() {
                 );
                 install_current(fixture).await;
 
-                let (request, turn) = submit(&fixture, false).await;
+                let (request, turn) = submit(fixture, false).await;
                 if method == "tools/call" {
                     let (_, approval) =
                         approvals::pending(&fixture.client, fixture.session.id).await;
