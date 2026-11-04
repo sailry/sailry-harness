@@ -148,23 +148,6 @@ impl ListDelegate for Items {
                                 .child(row.description()),
                         )
                     })
-                    .when_some(
-                        match row {
-                            Item::Command(commands::Choice::Skill(package, _)) => {
-                                Some(package.name.clone())
-                            }
-                            _ => None,
-                        },
-                        |line, name| {
-                            line.child(
-                                div()
-                                    .ml_auto()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(name),
-                            )
-                        },
-                    )
                     .when(matches!(row, Item::Page(_)), |row| {
                         row.child(Icon::new(IconName::ChevronRight).size_3().ml_auto())
                     }),
