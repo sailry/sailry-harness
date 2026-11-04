@@ -38,6 +38,8 @@ async fn inherits_parent_model() {
         .into_iter()
         .enumerate()
         {
+            // nextest prints captured stderr with a failure, naming the case.
+            eprintln!("case {index}: roster={roster} selection={selection:?} remote={remote}");
             let root = directory.path().join(format!("project-{index}"));
             std::fs::create_dir(&root).unwrap();
             std::fs::write(root.join("AGENTS.md"), "Shared default instructions").unwrap();

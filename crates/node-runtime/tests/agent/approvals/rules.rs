@@ -414,6 +414,8 @@ async fn remembers_across_turns_and_isolates_plain_approval() {
             (second.id, ApprovalSource::SessionRule),
             (third.id, ApprovalSource::SessionRule),
         ] {
+            // nextest prints captured stderr with a failure, naming the case.
+            eprintln!("case: turn={turn} source={source:?} remote={remote}");
             let approval = page
                 .approvals
                 .iter()

@@ -490,12 +490,15 @@ async fn rejects_unavailable_native_images(suite: &Suite) {
 
 async fn disabled_role_has_no_generation_calls(suite: &Suite) {
     let fixture = Fixture::new(suite, ModelApi::Responses).await;
+    let revision = fixture.media_revision().await;
     fixture
         .execute(Command::SaveMediaSettings(Settings {
-            revision: fixture.media_revision().await,
+            revision,
             bindings: [(Kind::Image, None)].into(),
         }))
         .await;
+    // Each save advances the shared settings revision by one.
+    assert_eq!(fixture.media_revision().await, revision + 1);
     let session = fixture.create().await;
     fixture
         .execute(Command::SaveMediaSettings(Settings {
