@@ -194,6 +194,13 @@ fn owned_completion_and_unavailability(cx: &mut TestAppContext) {
 fn observed_recovery_and_progress(cx: &mut TestAppContext) {
     use sailry_protocol::installation::{Phase, Progress};
     cx.update(|cx| {
+        let node = NodeId([1; 32]);
+        // Checked before the global registry exists.
+        assert_eq!(
+            model_progress(node, "model", cx),
+            None,
+            "model progress: no registry"
+        );
         let queue = registry(cx);
         let failed = key();
         queue.update(cx, |queue, _| {
@@ -228,7 +235,6 @@ fn observed_recovery_and_progress(cx: &mut TestAppContext) {
             );
         });
 
-        let node = NodeId([1; 32]);
         assert_eq!(
             model_progress(node, "model", cx),
             None,
