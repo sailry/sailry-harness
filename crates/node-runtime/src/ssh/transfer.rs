@@ -1,13 +1,16 @@
-//! SCP framing adapted from sailry-code 67ae9fa0 sailry-connections/src/ssh.rs
+//! Transfer handling adapted from sailry-code 67ae9fa0 sailry-connections/src/ssh.rs
 //! (Apache-2.0). File bytes stay on the execution Node, outside control frames.
 use super::*;
 use crate::files::{
     io_error,
     ssh::{Incoming, LIMIT},
 };
-use russh::{Channel, client::Msg};
+use russh_sftp::{
+    client::{SftpSession, error::Error},
+    protocol::{FileAttributes, OpenFlags, StatusCode},
+};
 use sailry_protocol::ssh::{Direction, Transfer};
-use std::{collections::VecDeque, path::PathBuf};
+use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub(crate) fn validate(transfer: &Transfer) -> Result<(), Fault> {
@@ -45,23 +48,17 @@ pub(super) async fn execute(
     .await
     .map_err(|_| unavailable("SSH file preparation failed"))??;
     let work = async {
-        let mut channel = session
-            .channel_open_session()
-            .await
-            .map_err(|_| unavailable("SSH transfer channel could not be opened"))?;
-        let mode = match transfer.direction {
-            Direction::Upload => "-t",
-            Direction::Download => "-f",
+        let sftp = files::open(session).await?;
+        let result = match &prepared {
+            Prepared::Upload(file) => {
+                upload(&sftp, file, &transfer.path, &transfer.remote_path).await
+            }
+            Prepared::Download(incoming) => {
+                download(&sftp, &incoming.file, &transfer.remote_path).await
+            }
         };
-        let quoted = format!("'{}'", transfer.remote_path.replace('\'', "'\\''"));
-        channel
-            .exec(true, format!("scp {mode} -- {quoted}"))
-            .await
-            .map_err(|_| interrupted())?;
-        match &prepared {
-            Prepared::Upload(file) => upload(&mut channel, file, &transfer.path).await,
-            Prepared::Download(incoming) => download(&mut channel, &incoming.file).await,
-        }
+        let _ = sftp.close().await;
+        result
     };
     let (bytes, revision) = tokio::select! {
         biased;
@@ -83,23 +80,39 @@ pub(super) async fn execute(
 }
 
 async fn upload(
-    channel: &mut Channel<Msg>,
+    sftp: &SftpSession,
     source: &std::fs::File,
     path: &str,
+    remote_path: &str,
 ) -> Result<(u64, String), Fault> {
     let before = source.metadata().map_err(io_error)?;
     if before.len() > LIMIT {
         return Err(Fault::invalid("SSH file exceeds the transfer limit"));
     }
-    let mut file = tokio::fs::File::from_std(source.try_clone().map_err(io_error)?);
-    let mut response = Response::default();
-    response.ack(channel).await?;
-    let name = path.rsplit('/').next().unwrap();
-    channel
-        .data_bytes(format!("C0600 {} {name}\n", before.len()).into_bytes())
+    let remote_path = match sftp.metadata(remote_path).await {
+        Ok(metadata) if metadata.is_dir() => format!(
+            "{}/{}",
+            remote_path.trim_end_matches('/'),
+            path.rsplit('/').next().unwrap()
+        ),
+        Ok(_) => remote_path.to_owned(),
+        Err(Error::Status(status)) if status.status_code == StatusCode::NoSuchFile => {
+            remote_path.to_owned()
+        }
+        Err(_) => return Err(interrupted()),
+    };
+    let mut remote = sftp
+        .open_with_flags_and_attributes(
+            remote_path,
+            OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
+            FileAttributes {
+                permissions: Some(0o600),
+                ..FileAttributes::empty()
+            },
+        )
         .await
         .map_err(|_| interrupted())?;
-    response.ack(channel).await?;
+    let mut file = tokio::fs::File::from_std(source.try_clone().map_err(io_error)?);
     let mut remaining = before.len();
     let mut buffer = vec![0; sailry_protocol::FILE_TRANSFER_CHUNK_BYTES];
     while remaining > 0 {
@@ -111,8 +124,8 @@ async fn upload(
         if count == 0 {
             return Err(interrupted());
         }
-        channel
-            .data_bytes(buffer[..count].to_vec())
+        remote
+            .write_all(&buffer[..count])
             .await
             .map_err(|_| interrupted())?;
         remaining -= count as u64;
@@ -123,144 +136,47 @@ async fn upload(
             "SSH upload source changed; inspect the remote file",
         ));
     }
-    channel
-        .data_bytes(vec![0])
-        .await
-        .map_err(|_| interrupted())?;
-    response.ack(channel).await?;
-    channel.eof().await.map_err(|_| interrupted())?;
-    response.finish(channel).await?;
+    remote.shutdown().await.map_err(|_| interrupted())?;
     Ok((before.len(), String::new()))
 }
 
 async fn download(
-    channel: &mut Channel<Msg>,
+    sftp: &SftpSession,
     destination: &std::fs::File,
+    path: &str,
 ) -> Result<(u64, String), Fault> {
-    let mut response = Response::default();
-    channel
-        .data_bytes(vec![0])
-        .await
-        .map_err(|_| interrupted())?;
-    let header = response.line(channel).await?;
-    let size = file_header(&header)?;
-    let mut file = tokio::fs::File::from_std(destination.try_clone().map_err(io_error)?);
-    channel
-        .data_bytes(vec![0])
-        .await
-        .map_err(|_| interrupted())?;
-    let mut remaining = size;
-    let mut hash = blake3::Hasher::new();
-    while remaining > 0 {
-        response.fill(channel).await?;
-        let count = remaining.min(response.buffer.len() as u64) as usize;
-        let bytes: Vec<_> = response.buffer.drain(..count).collect();
-        file.write_all(&bytes).await.map_err(io_error)?;
-        hash.update(&bytes);
-        remaining -= count as u64;
+    let mut remote = sftp.open(path).await.map_err(|_| interrupted())?;
+    let before = remote.metadata().await.map_err(|_| interrupted())?;
+    if !before.file_type().is_file() || before.len() > LIMIT {
+        return Err(unknown("SSH server returned an invalid or oversized file"));
     }
-    file.flush().await.map_err(io_error)?;
-    response.ack(channel).await?;
-    channel
-        .data_bytes(vec![0])
-        .await
-        .map_err(|_| interrupted())?;
-    channel.eof().await.map_err(|_| interrupted())?;
-    response.finish(channel).await?;
-    Ok((size, hash.finalize().to_hex().to_string()))
-}
-
-fn file_header(header: &str) -> Result<u64, Fault> {
-    let mut parts = header
-        .strip_prefix('C')
-        .ok_or_else(interrupted)?
-        .splitn(3, ' ');
-    let mode = parts.next().unwrap_or_default();
-    let size = parts
-        .next()
-        .and_then(|value| value.parse::<u64>().ok())
-        .ok_or_else(interrupted)?;
-    let name = parts.next().unwrap_or_default();
-    if mode.len() != 4
-        || !mode.bytes().all(|byte| matches!(byte, b'0'..=b'7'))
-        || size > LIMIT
-        || name.is_empty()
-        || matches!(name, "." | "..")
-        || name.contains(['/', '\\'])
-        || name.chars().any(char::is_control)
-    {
+    let mut file = tokio::fs::File::from_std(destination.try_clone().map_err(io_error)?);
+    let mut buffer = vec![0; sailry_protocol::FILE_TRANSFER_CHUNK_BYTES];
+    let mut bytes = 0u64;
+    let mut hash = blake3::Hasher::new();
+    loop {
+        let count = remote.read(&mut buffer).await.map_err(|_| interrupted())?;
+        if count == 0 {
+            break;
+        }
+        bytes += count as u64;
+        if bytes > LIMIT {
+            return Err(interrupted());
+        }
+        file.write_all(&buffer[..count]).await.map_err(io_error)?;
+        hash.update(&buffer[..count]);
+    }
+    let after = remote.metadata().await.map_err(|_| interrupted())?;
+    if bytes != before.len() || before.len() != after.len() || before.mtime != after.mtime {
         return Err(unknown(
-            "SSH server returned an invalid or oversized SCP file",
+            "SSH download source changed; inspect the remote file",
         ));
     }
-    Ok(size)
+    file.flush().await.map_err(io_error)?;
+    remote.shutdown().await.map_err(|_| interrupted())?;
+    Ok((bytes, hash.finalize().to_hex().to_string()))
 }
 
-#[derive(Default)]
-struct Response {
-    buffer: VecDeque<u8>,
-    exit: Option<u32>,
-}
-impl Response {
-    async fn fill(&mut self, channel: &mut Channel<Msg>) -> Result<(), Fault> {
-        while self.buffer.is_empty() {
-            if self.exit.is_some() {
-                return Err(interrupted());
-            }
-            let message = channel.wait().await.ok_or_else(interrupted)?;
-            self.accept(message)?;
-        }
-        Ok(())
-    }
-    async fn byte(&mut self, channel: &mut Channel<Msg>) -> Result<u8, Fault> {
-        self.fill(channel).await?;
-        Ok(self.buffer.pop_front().unwrap())
-    }
-    async fn line(&mut self, channel: &mut Channel<Msg>) -> Result<String, Fault> {
-        let mut line = Vec::new();
-        loop {
-            let byte = self.byte(channel).await?;
-            if byte == b'\n' {
-                return String::from_utf8(line).map_err(|_| interrupted());
-            }
-            if line.len() >= 4096 {
-                return Err(interrupted());
-            }
-            line.push(byte);
-        }
-    }
-    async fn ack(&mut self, channel: &mut Channel<Msg>) -> Result<(), Fault> {
-        if self.byte(channel).await? == 0 {
-            Ok(())
-        } else {
-            Err(interrupted())
-        }
-    }
-    async fn finish(&mut self, channel: &mut Channel<Msg>) -> Result<(), Fault> {
-        while let Some(message) = channel.wait().await {
-            self.accept(message)?;
-        }
-        if self.exit == Some(0) && self.buffer.is_empty() {
-            Ok(())
-        } else {
-            Err(interrupted())
-        }
-    }
-    fn accept(&mut self, message: ChannelMsg) -> Result<(), Fault> {
-        match message {
-            ChannelMsg::Data { data } => {
-                if self.buffer.len() + data.len() > 256 * 1024 {
-                    return Err(interrupted());
-                }
-                self.buffer.extend(data);
-            }
-            ChannelMsg::ExitStatus { exit_status } => self.exit = Some(exit_status),
-            ChannelMsg::Failure => return Err(interrupted()),
-            _ => {}
-        }
-        Ok(())
-    }
-}
 fn interrupted() -> Fault {
     unknown("SSH file transfer could not be confirmed; inspect the destination before retrying")
 }

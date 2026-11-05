@@ -29,6 +29,7 @@ pub struct Server {
     pub key: sailry_protocol::ssh::HostKey,
     pub authentication: Arc<AtomicUsize>,
     pub commands: Arc<Mutex<Vec<String>>>,
+    pub subsystems: Arc<AtomicUsize>,
     stop: CancellationToken,
     task: tokio::task::JoinHandle<()>,
     processes: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
@@ -36,12 +37,20 @@ pub struct Server {
 
 impl Server {
     pub async fn start(root: PathBuf, seed: u8) -> Self {
-        Self::configured(root, seed, false).await
+        Self::configured(root, seed, false, None).await
     }
     pub async fn deployment(root: PathBuf, seed: u8) -> Self {
-        Self::configured(root, seed, true).await
+        Self::configured(root, seed, true, None).await
     }
-    async fn configured(root: PathBuf, seed: u8, deployment: bool) -> Self {
+    pub async fn without_close(root: PathBuf, seed: u8) -> Self {
+        Self::configured(root, seed, false, Some("close")).await
+    }
+    async fn configured(
+        root: PathBuf,
+        seed: u8,
+        deployment: bool,
+        denied_requests: Option<&'static str>,
+    ) -> Self {
         let key = key(seed);
         let observed = sailry_protocol::ssh::HostKey {
             algorithm: key.public_key().algorithm().to_string(),
@@ -55,12 +64,15 @@ impl Server {
         });
         let authentication = Arc::new(AtomicUsize::new(0));
         let commands = Arc::new(Mutex::new(Vec::new()));
+        let subsystems = Arc::new(AtomicUsize::new(0));
         let processes = Arc::new(Mutex::new(Vec::new()));
         let mut handler = Handler {
             root,
             deployment,
+            denied_requests,
             authentication: authentication.clone(),
             commands: commands.clone(),
+            subsystems: subsystems.clone(),
             channels: BTreeMap::new(),
             terminals: BTreeMap::new(),
             processes: processes.clone(),
@@ -86,6 +98,7 @@ impl Server {
             key: observed,
             authentication,
             commands,
+            subsystems,
             stop,
             task,
             processes,
@@ -108,8 +121,10 @@ impl Server {
 struct Handler {
     root: PathBuf,
     deployment: bool,
+    denied_requests: Option<&'static str>,
     authentication: Arc<AtomicUsize>,
     commands: Arc<Mutex<Vec<String>>>,
+    subsystems: Arc<AtomicUsize>,
     channels: BTreeMap<ChannelId, Channel<server::Msg>>,
     terminals: BTreeMap<ChannelId, terminal::Pty>,
     processes: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
@@ -119,8 +134,10 @@ impl Clone for Handler {
         Self {
             root: self.root.clone(),
             deployment: self.deployment,
+            denied_requests: self.denied_requests,
             authentication: self.authentication.clone(),
             commands: self.commands.clone(),
+            subsystems: self.subsystems.clone(),
             channels: BTreeMap::new(),
             terminals: BTreeMap::new(),
             processes: self.processes.clone(),
@@ -247,14 +264,19 @@ impl server::Handler for Handler {
         .into_iter()
         .find(|path| std::path::Path::new(path).is_file())
         .expect("OpenSSH SFTP server is required for file acceptance");
+        self.subsystems.fetch_add(1, Ordering::SeqCst);
         session.channel_success(channel)?;
         let pipe = self.channels.remove(&channel).unwrap();
+        let command = match self.denied_requests {
+            Some(requests) => format!("exec {executable} -d . -P {requests}"),
+            None => format!("exec {executable} -d ."),
+        };
         self.processes
             .lock()
             .unwrap()
             .push(tokio::spawn(process::run(
                 self.root.clone(),
-                format!("exec {executable} -d ."),
+                command,
                 pipe,
                 session.handle(),
             )));

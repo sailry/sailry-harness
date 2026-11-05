@@ -30,14 +30,7 @@ pub(crate) fn validate_path(path: &str) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(super) async fn execute(
-    session: &client::Handle<Verifier>,
-    profile: &Profile,
-    operation: Operation,
-    caller: NodeId,
-    transfers: Arc<Transfers>,
-    closed: CancellationToken,
-) -> Result<Outcome, Fault> {
+pub(super) async fn open(session: &client::Handle<Verifier>) -> Result<SftpSession, Fault> {
     let channel = session
         .channel_open_session()
         .await
@@ -46,9 +39,18 @@ pub(super) async fn execute(
         .request_subsystem(true, "sftp")
         .await
         .map_err(|_| unavailable("SFTP is unavailable on the SSH server"))?;
-    let sftp = SftpSession::new(channel.into_stream())
-        .await
-        .map_err(error)?;
+    SftpSession::new(channel.into_stream()).await.map_err(error)
+}
+
+pub(super) async fn execute(
+    session: &client::Handle<Verifier>,
+    profile: &Profile,
+    operation: Operation,
+    caller: NodeId,
+    transfers: Arc<Transfers>,
+    closed: CancellationToken,
+) -> Result<Outcome, Fault> {
+    let sftp = open(session).await?;
     let outcome = match operation {
         Operation::Modify { path, action } => mutation::execute(&sftp, &path, action)
             .await
