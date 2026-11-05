@@ -564,17 +564,36 @@ class RecoveredReadiness(unittest.TestCase):
     def setUp(self):
         self.revision = "b" * 40
         self.root = ROOT / ".workflow-tools"
+        self.candidate = {
+            "id": 42, "head_sha": self.revision, "head_branch": "main", "event": "workflow_dispatch",
+            "path": publication.ci_reuse.WORKFLOW, "status": "completed", "conclusion": "success",
+        }
+        self.pages = {1: [self.candidate]}
+        self.jobs = {42: [{"name": name, "status": "completed", "conclusion": "success"}
+                          for name in (*publication.PREREQUISITES["desktop"], "Desktop ready")]}
         self.client = Mock()
+        self.client.api.side_effect = self.api
         self.git = self.enterContext(patch.object(
             publication.ci_reuse, "git", side_effect=[self.revision.encode(), b"false"]))
-        self.inputs = self.enterContext(patch.object(publication.ci_reuse, "equivalent_inputs"))
-        self.ready = self.enterContext(patch.object(publication, "ready_run", return_value=42))
+        self.inputs = self.enterContext(patch.object(publication.ci_reuse, "equivalent_inputs", return_value=set()))
         self.parent = self.enterContext(patch.object(publication, "checked_source", return_value=None))
+        self.verified = self.enterContext(patch.object(publication.ci_reuse, "verified_jobs", return_value=set()))
         self.artifact = self.enterContext(patch.object(
             publication.ci_reuse, "find_artifact", return_value={"id": 13}))
         self.proof = {"source_sha": COMMIT, "target_sha": self.revision}
         self.read = self.enterContext(patch.object(publication.ci_reuse, "read_proof", return_value=self.proof))
         self.validate = self.enterContext(patch.object(publication.ci_reuse, "validate_proof"))
+
+    def api(self, method, endpoint):
+        self.assertEqual(method, "GET")
+        prefix = f"repos/{REPOSITORY}/actions"
+        query = prefix + "/workflows/ci.yml/runs?branch=main&status=completed&per_page=100&page="
+        if endpoint.startswith(query):
+            return {"workflow_runs": self.pages.get(int(endpoint.removeprefix(query)), [])}
+        for run_id, jobs in self.jobs.items():
+            if endpoint == f"{prefix}/runs/{run_id}/jobs?filter=latest&per_page=100":
+                return {"jobs": jobs}
+        raise AssertionError(f"Unexpected recovery request: {method} {endpoint}")
 
     def recover(self):
         return publication.recovered_run(self.client, REPOSITORY, COMMIT, "desktop", self.root)
@@ -582,45 +601,119 @@ class RecoveredReadiness(unittest.TestCase):
     def test_requires_unchanged_source_and_verified_proof(self):
         self.assertEqual(self.recover(), 42)
         self.inputs.assert_called_once_with(self.root, COMMIT, self.revision)
-        self.ready.assert_called_once_with(self.client, REPOSITORY, self.revision, "desktop")
         self.validate.assert_called_once_with(
             self.client, REPOSITORY, self.revision, 42, self.proof, self.root)
         self.parent.assert_not_called()
 
-    def test_reuses_verified_tooling_parent(self):
-        parent = "c" * 40
-        self.proof["target_sha"] = parent
-        self.parent.return_value = parent
-        self.ready.side_effect = [None, 42]
+    def test_discovers_older_tooling_checks(self):
+        candidate = "c" * 40
+        self.candidate["head_sha"] = candidate
+        self.proof["target_sha"] = candidate
         self.assertEqual(self.recover(), 42)
-        self.inputs.assert_called_once_with(self.root, COMMIT, self.revision)
-        self.parent.assert_called_once_with(self.revision, root=self.root)
-        self.ready.assert_called_with(self.client, REPOSITORY, parent, "desktop")
+        self.assertEqual([call.args for call in self.inputs.call_args_list], [
+            (self.root, COMMIT, self.revision), (self.root, COMMIT, candidate),
+            (self.root, candidate, self.revision),
+        ])
+        self.parent.assert_not_called()
         self.artifact.assert_called_once_with(
-            self.client, REPOSITORY, {"id": 42, "head_sha": parent}, "checks-reuse", optional=True)
+            self.client, REPOSITORY, {"id": 42, "head_sha": candidate}, "checks-reuse", optional=True)
         self.validate.assert_called_once_with(
-            self.client, REPOSITORY, parent, 42, self.proof, self.root)
+            self.client, REPOSITORY, candidate, 42, self.proof, self.root)
 
-    def test_parent_still_requires_successful_gate(self):
-        self.parent.return_value = "c" * 40
-        self.ready.return_value = None
+    def test_skips_nonmatching_proof(self):
+        self.pages[1].insert(0, {**self.candidate, "id": 43})
+        self.jobs[43] = copy.deepcopy(self.jobs[42])
+        self.candidate["head_sha"] = "c" * 40
+        self.proof["target_sha"] = self.candidate["head_sha"]
+        self.read.side_effect = [{"source_sha": "d" * 40}, self.proof]
+        self.assertEqual(self.recover(), 42)
+        self.validate.assert_called_once_with(
+            self.client, REPOSITORY, self.candidate["head_sha"], 42, self.proof, self.root)
+
+    def test_paginates_completed_checks(self):
+        self.pages[1] = [{**self.candidate, "head_branch": "other"}] * 100
+        self.pages[2] = [self.candidate]
+        self.assertEqual(self.recover(), 42)
+        self.assertIn("page=2", self.client.api.call_args_list[1].args[1])
+
+    def test_bounds_history_queries(self):
+        self.pages = {page: [{**self.candidate, "head_branch": "other"}] * 100
+                      for page in range(1, publication.RECOVERY_PAGES + 1)}
         self.assertIsNone(self.recover())
-        self.assertEqual(self.ready.call_count, 2)
+        self.assertEqual(self.client.api.call_count, publication.RECOVERY_PAGES)
+        self.artifact.assert_not_called()
+
+    def test_rejects_untrusted_or_cancelled_runs(self):
+        for key, value in (("head_branch", "other"), ("event", "pull_request"),
+                           ("path", ".github/workflows/other.yml"), ("status", "in_progress"),
+                           ("conclusion", "cancelled"), ("head_sha", "invalid"), ("id", True)):
+            with self.subTest(key=key, value=value):
+                self.git.side_effect = [self.revision.encode(), b"false"]
+                previous = self.candidate[key]
+                self.candidate[key] = value
+                self.assertIsNone(self.recover())
+                self.candidate[key] = previous
+        self.artifact.assert_not_called()
+
+    def test_preserves_component_readiness(self):
+        self.candidate["conclusion"] = "failure"
+        self.jobs[42].append({"name": "Mobile", "status": "completed", "conclusion": "failure"})
+        self.assertEqual(self.recover(), 42)
+
+    def test_rejects_unverified_candidate_history(self):
+        self.candidate["head_sha"] = "c" * 40
+        for index in (1, 2):
+            for message in ("Checks input history is unavailable or not ancestral",
+                            "Product inputs changed: Cargo.toml", "Executable check inputs changed: ci.yml"):
+                with self.subTest(index=index, message=message):
+                    self.git.side_effect = [self.revision.encode(), b"false"]
+                    results = [set(), set(), set()]
+                    results[index] = ValueError(message)
+                    self.inputs.side_effect = results
+                    self.assertIsNone(self.recover())
+        self.artifact.assert_not_called()
+
+    def test_rejects_invalidated_product_checks(self):
+        self.candidate["head_sha"] = "c" * 40
+        self.inputs.side_effect = [set(), set(), {"Desktop"}]
+        self.assertIsNone(self.recover())
         self.artifact.assert_not_called()
 
     def test_history_failures_remain_visible(self):
         self.git.side_effect = ValueError("Checks input history is unavailable")
         with self.assertRaisesRegex(ValueError, "history is unavailable"):
             self.recover()
-        self.ready.assert_not_called()
+        self.client.api.assert_not_called()
 
     def test_rejects_changed_product_inputs(self):
         self.inputs.side_effect = ValueError("Product inputs changed")
         self.assertIsNone(self.recover())
-        self.ready.assert_not_called()
+        self.client.api.assert_not_called()
 
     def test_requires_successful_recovery_gate(self):
-        self.ready.return_value = None
+        self.jobs[42][-1]["conclusion"] = "failure"
+        self.assertIsNone(self.recover())
+        self.artifact.assert_not_called()
+
+    def test_rejects_partial_checks(self):
+        baseline = copy.deepcopy(self.jobs[42])
+        for name in ("Source", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Desktop ready"):
+            with self.subTest(name=name):
+                self.git.side_effect = [self.revision.encode(), b"false"]
+                self.jobs[42] = [job for job in baseline if job["name"] != name]
+                self.assertIsNone(self.recover())
+        self.artifact.assert_not_called()
+
+    def test_requires_verified_skipped_prerequisites(self):
+        self.jobs[42][1]["conclusion"] = "skipped"
+        self.assertIsNone(self.recover())
+        self.verified.assert_called_once_with(self.client, REPOSITORY, self.revision, 42)
+        self.artifact.assert_not_called()
+
+    def test_does_not_combine_different_runs(self):
+        gate = self.jobs[42].pop()
+        self.pages[1].append({**self.candidate, "id": 43})
+        self.jobs[43] = [gate]
         self.assertIsNone(self.recover())
         self.artifact.assert_not_called()
 
@@ -642,6 +735,12 @@ class RecoveredReadiness(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Stale Checks proof"):
             self.recover()
 
+    def test_rejects_changed_proof_digest(self):
+        self.read.side_effect = ValueError("Reuse proof artifact digest changed")
+        with self.assertRaisesRegex(ValueError, "digest changed"):
+            self.recover()
+        self.validate.assert_not_called()
+
     def test_fetches_shallow_tooling_history(self):
         self.git.side_effect = [self.revision.encode(), b"true", b""]
         self.assertEqual(self.recover(), 42)
@@ -653,12 +752,11 @@ class RecoveredReadiness(unittest.TestCase):
         self.git.side_effect = [COMMIT.encode()]
         self.assertIsNone(self.recover())
         self.inputs.assert_not_called()
-        self.ready.assert_not_called()
+        self.client.api.assert_not_called()
 
     def test_release_admission_accepts_verified_recovery(self):
-        self.ready.return_value = None
-        with patch.object(publication, "recovered_run", return_value=42) as recovered, \
-                patch.object(publication, "checked_source", return_value=None), \
+        with patch.object(publication, "ready_run", return_value=None), \
+                patch.object(publication, "recovered_run", return_value=42) as recovered, \
                 patch.object(publication.time, "sleep") as sleep:
             self.assertEqual(publication.readiness(self.client, REPOSITORY, COMMIT, "desktop"), 42)
             self.assertEqual(publication.wait_ready(self.client, REPOSITORY, COMMIT, "desktop"), 42)

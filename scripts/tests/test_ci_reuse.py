@@ -484,17 +484,89 @@ class InputEquivalence(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertEqual(self.compare(reuse.WORKFLOW, before=before, after=after), expected)
 
+    def release(self):
+        current = (ROOT / reuse.RELEASE_WORKFLOW).read_text()
+        setup = (
+            "      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0\n"
+            "        with:\n"
+            "          python-version: '3.14.6'\n"
+        )
+        self.assertEqual(current.count(setup), 1)
+        return current.replace(setup, setup.replace("'3.14.6'", "'3.12'"), 1), current, setup
+
+    def test_accepts_packaging_python_update(self):
+        before, after, _ = self.release()
+        self.assertNotEqual(before, after)
+        self.assertEqual(self.compare(reuse.RELEASE_WORKFLOW, before=before, after=after), set())
+
+    def test_rejects_release_input_changes(self):
+        before, after, setup = self.release()
+        for old, new in (
+            ("CARGO_INCREMENTAL: '0'", "CARGO_INCREMENTAL: '1'"),
+            ("MACOSX_DEPLOYMENT_TARGET: '13.0'", "MACOSX_DEPLOYMENT_TARGET: '14.0'"),
+            ("python-version: '3.12'", "python-version: '3.14.6'"),
+            ("CARGO_PROFILE_RELEASE_DEBUG: line-tables-only", "CARGO_PROFILE_RELEASE_DEBUG: full"),
+            ("cargo build --locked --release --timings", "cargo build --release --timings"),
+            ("'runner': 'macos-15-intel'", "'runner': 'macos-15'"),
+            ("RESUME_NATIVE_FROM: ${{ inputs.resume_native_from }}", "RESUME_NATIVE_FROM: ''"),
+            ("targets = targets[1:]", "targets = []"),
+            ("--component desktop --wait-ready --published", "--component desktop --published"),
+            ("name: native-${{ matrix.target }}", "name: replacement-native-${{ matrix.target }}"),
+            ("path: ${{ runner.temp }}/native-${{ matrix.target }}.tar.gz", "path: replacement.tar.gz"),
+            ('--source-sha "$(git rev-parse HEAD)"', '--source-sha "$PRODUCER_REVISION"'),
+            ("--artifact-id \"$NATIVE_ARTIFACT\" --artifact-digest \"$NATIVE_DIGEST\")",
+             "--artifact-id \"$NATIVE_ARTIFACT\")"),
+            ("python3 .workflow-tools/scripts/package-desktop-adhoc.py", "python3 other-package.py"),
+            ("path: ${{ steps.package.outputs.directory }}/*", "path: replacement/*"),
+            ("NATIVE_ARTIFACTS: ${{ steps.native.outputs.artifacts }}", "NATIVE_ARTIFACTS: '[]'"),
+            ("--tag \"$RELEASE_TAG\" \"${arguments[@]}\"", "--tag v0.0.0 \"${arguments[@]}\""),
+            (setup, setup.replace("@e797f83bcb11b83ae66e0230d6156d7c80228e7c", "@" + "f" * 40)),
+        ):
+            with self.subTest(new=new):
+                self.assertIn(old, after)
+                changed = after.replace(old, new, 1)
+                with self.assertRaisesRegex(ValueError, "Executable check inputs changed"):
+                    self.compare(reuse.RELEASE_WORKFLOW, before=before, after=changed)
+
+    def test_rejects_ambiguous_packaging_python(self):
+        before, after, setup = self.release()
+        for replacement in (
+            "", setup + setup,
+            setup.replace("'3.14.6'", "'3.15'"),
+            setup.replace("'3.14.6'", "${{ inputs.python }}"),
+            setup + "          python-version: '3.12'\n",
+            setup.replace("        with:\n          python-version: '3.14.6'\n",
+                          "        with: {python-version: '3.14.6'}\n"),
+            setup.replace("        with:\n", "        with:\n          python-version-file: .python-version\n"),
+            setup.replace("        with:\n", "        with: &python\n"),
+            setup.replace("- uses:", "- name: Packaging Python\n        uses:"),
+            setup.replace("@e797f83bcb11b83ae66e0230d6156d7c80228e7c", "@v6"),
+        ):
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                self.compare(reuse.RELEASE_WORKFLOW, before=before, after=after.replace(setup, replacement, 1))
+        for old, new in (
+            ("jobs:\n", "jobs: &release\n"),
+            ("  package:\n", "  package: &package\n"),
+            ("  package:\n", "  package:\n  package:\n"),
+            ("  build:\n", "  compile:\n"),
+            ("  publish:\n", "  extra:\n    runs-on: ubuntu-24.04\n  publish:\n"),
+        ):
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                self.compare(reuse.RELEASE_WORKFLOW, before=before, after=after.replace(old, new, 1))
+
     def test_rejects_changed_product_paths(self):
         for path in ("apps/desktop/src/main.rs", "Cargo.toml", "Cargo.lock", "plugins", "themes",
-                     "scripts/ci-run.py", ".github/actions/native-cache/action.yml"):
+                     "scripts/ci-run.py", ".github/actions/native-cache/action.yml",
+                     ".github/workflows/release-host.yml", ".github/workflows/release-desktop-formal.yml"):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Product inputs changed"):
                 self.compare(path)
 
     def test_rejects_added_deleted_or_retyped_repairs(self):
-        for mode in (("000000", "100644", "A"), ("100644", "000000", "D"),
-                     ("100644", "120000", "T"), ("100644", "100755", "M")):
-            with self.subTest(mode=mode), self.assertRaises(ValueError):
-                self.compare("scripts/tests/test_ui_tasks.py", *mode)
+        for path in ("scripts/tests/test_ui_tasks.py", reuse.RELEASE_WORKFLOW):
+            for mode in (("000000", "100644", "A"), ("100644", "000000", "D"),
+                         ("100644", "120000", "T"), ("100644", "100755", "M")):
+                with self.subTest(path=path, mode=mode), self.assertRaises(ValueError):
+                    self.compare(path, *mode)
         for path in reuse.NEW_FILES:
             with self.subTest(path=path):
                 self.compare(path, "000000", "100644", "A")

@@ -20,6 +20,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ".github/workflows/ci.yml"
+RELEASE_WORKFLOW = ".github/workflows/release.yml"
 JOB_NAMES = {
     "lint": "Rust strict lint",
     "build": "Test build",
@@ -36,7 +37,7 @@ REPAIR_FILES = NEW_FILES | {
     "CHANGELOG.md",
     "scripts/tests/test_ui_tasks.py", "scripts/tests/test_ci_resources.py",
     "scripts/package/publication.py", "scripts/tests/test_publish_packages.py", "scripts/tests/test_release_notes.py",
-    "scripts/ci.py", WORKFLOW,
+    "scripts/ci.py", WORKFLOW, RELEASE_WORKFLOW,
 }
 PROOF_LIMIT = 64 * 1024
 LOG_LIMIT = 4 * 1024 * 1024
@@ -362,6 +363,42 @@ def workflow_inputs(source, normalize_sources=True):
     return top, runtime
 
 
+def release_inputs(source):
+    top = fields(yaml_lines(source), 0)
+    jobs = top.pop("jobs", [])
+    if jobs[:1] != [(0, "jobs:", ())]:
+        raise ValueError("Missing release workflow jobs")
+    declared = fields(jobs[1:], 2)
+    if set(declared) != {"version", "build", "package", "publish"}:
+        raise ValueError("Unexpected release job set")
+    package = declared.pop("package")
+    if package[0] != (2, "package:", ()):
+        raise ValueError("Unsupported package job")
+    properties = fields(package[1:], 4)
+    steps = properties.get("steps", [])
+    if steps[:1] != [(4, "steps:", ())]:
+        raise ValueError("Missing package steps")
+    groups = []
+    for line in steps[1:]:
+        if line[0] == 6 and line[1].startswith("- "):
+            groups.append([])
+        if not groups:
+            raise ValueError("Unsupported package workflow step")
+        groups[-1].append(line)
+    python = [group for group in groups if any("actions/setup-python" in line[1] for line in group)]
+    if len(python) != 1:
+        raise ValueError("Missing or ambiguous packaging Python")
+    step = python[0]
+    versions = [(10, f"python-version: '{version}'", ()) for version in ("3.12", "3.14.6")]
+    if (len(step) != 3 or step[0][2]
+            or not re.fullmatch(r"- uses: actions/setup-python@[0-9a-f]{40}(?: +#.*)?", step[0][1])
+            or step[1] != (8, "with:", ()) or step[2] not in versions):
+        raise ValueError("Unverified packaging Python setup")
+    step[2] = versions[0]
+    properties["steps"] = [steps[0], *(line for group in groups for line in group)]
+    return top, declared, properties
+
+
 def equivalent_inputs(root, source, target):
     source, target = sha(source), sha(target)
     invalidated = set()
@@ -370,6 +407,7 @@ def equivalent_inputs(root, source, target):
               "--ignore-submodules=none", source, target, "--").split(b"\0")
     if raw[-1] != b"" or len(raw) % 2 != 1:
         raise ValueError("Invalid Checks source diff")
+    normalizers = {"scripts/ci.py": script_inputs, WORKFLOW: workflow_inputs, RELEASE_WORKFLOW: release_inputs}
     for index in range(0, len(raw) - 1, 2):
         metadata = raw[index].split()
         path = raw[index + 1].decode("utf-8")
@@ -381,10 +419,10 @@ def equivalent_inputs(root, source, target):
                 raise ValueError(f"Recovery requires a regular modification: {path}")
         elif old_mode not in {b"000000", b"100644", b"100755"} or new_mode not in {b"000000", b"100644", b"100755"}:
             raise ValueError(f"Invalid recovery file type: {path}")
-        if path in {"scripts/ci.py", WORKFLOW}:
+        if path in normalizers:
             previous = git(root, "show", f"{source}:{path}").decode("utf-8")
             current = git(root, "show", f"{target}:{path}").decode("utf-8")
-            normalize = script_inputs if path == "scripts/ci.py" else workflow_inputs
+            normalize = normalizers[path]
             if normalize(previous) != normalize(current):
                 raise ValueError(f"Executable check inputs changed: {path}")
             if path == WORKFLOW and workflow_inputs(previous, False) != workflow_inputs(current, False):
