@@ -1,5 +1,8 @@
 import '../../../runtime/json.dart';
 
+String turnOwner(Map<String, dynamic> view, String turn) =>
+    text(object(view['owners'])[turn], turn);
+
 String turnWorktree(
   Map<String, dynamic> page,
   Map<String, dynamic> session,
@@ -12,6 +15,7 @@ String turnWorktree(
 );
 
 typedef InputContent = ({
+  String turn,
   String text,
   List<Map<String, dynamic>> attachments,
   List<Map<String, dynamic>> references,
@@ -24,6 +28,7 @@ List<InputContent> turnInputs(Map<String, dynamic> view, Object? turn) =>
 List<InputContent> inputContents(Object? inputs) => [
   for (final input in objects(inputs))
     (
+      turn: input['turn'] as String,
       text: text(object(input['message'])['text']),
       attachments: objects(input['attachments']),
       references: objects(object(input['message'])['references']),

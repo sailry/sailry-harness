@@ -229,7 +229,8 @@ extension _HistoryActions on _LiveConversationPageState {
     _seeking = false;
     final target = _reveal;
     if (!mounted || target == null) return;
-    final targetContext = _turnKeys[target.turn]?.currentContext;
+    final owner = turnOwner(_view.value, target.turn);
+    final targetContext = _turnKeys[owner]?.currentContext;
     if (targetContext != null) {
       _reveal = null;
       Scrollable.ensureVisible(
@@ -240,10 +241,10 @@ extension _HistoryActions on _LiveConversationPageState {
       return;
     }
     if (!_scroll.hasClients) return;
-    final runs = objects(_page['runs']);
-    final goal = runs.indexWhere((run) => run['turn'] == target.turn);
-    final shown = runs.indexWhere(
-      (run) => _turnKeys[run['turn']]?.currentContext != null,
+    final turns = _view.value['timeline'] as List? ?? const [];
+    final goal = turns.indexOf(owner);
+    final shown = turns.indexWhere(
+      (turn) => _turnKeys[turn]?.currentContext != null,
     );
     if (goal < 0) return;
     final position = _scroll.position;
