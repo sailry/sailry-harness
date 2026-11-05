@@ -3,6 +3,24 @@
 Release entries supply the corresponding GitHub Release notes. When an entry is
 missing, publication generates it from the tagged Git history.
 
+## [0.1.4](https://github.com/sailry/sailry-harness/releases/tag/v0.1.4) — 2026-11-05
+
+- Relicense Sailry under Apache-2.0 ([baacb30](https://github.com/sailry/sailry-harness/commit/baacb301f030fc26b45a91acdae7b8396a509eb1))
+- Keep the install progress ring circular ([612bf4b](https://github.com/sailry/sailry-harness/commit/612bf4b33d012155cc52d44192309625a5085125))
+- Name provider picker collection types ([8773406](https://github.com/sailry/sailry-harness/commit/87734064fb70fc9999e08ad67829cc6395cc2430))
+- Compile macOS tests once and shard their runs ([96111c9](https://github.com/sailry/sailry-harness/commit/96111c96dc1d9dd58bf138921e80d3d16b3a8496))
+- Include runtime parsers in shared test archives ([6dc39b5](https://github.com/sailry/sailry-harness/commit/6dc39b54bd9eca0f6d1e13abeaf8c2a1c8e07492))
+- Keep automatic session read acknowledgements silent ([ad24107](https://github.com/sailry/sailry-harness/commit/ad241078e25b856cebdf4e322a63f79c1b56f9ae))
+- Retry conflicting automatic read acknowledgements ([2ad8e3b](https://github.com/sailry/sailry-harness/commit/2ad8e3b4143f2414867594de30bf26af9aac6416))
+- Require shared test shards for product readiness ([bc2cb20](https://github.com/sailry/sailry-harness/commit/bc2cb20afca6161311da974a244e7e8d0cd0b7b4))
+- Bound file previews with incremental size accounting ([fc69e5c](https://github.com/sailry/sailry-harness/commit/fc69e5c18a184585151066f4eabefd345a428623))
+- Settle cancelled delegated waiters before releasing ownership ([7891be6](https://github.com/sailry/sailry-harness/commit/7891be645b2a7009ceaeb78525622c4301d65570))
+- Reuse verified Checks results for unchanged product inputs ([3431eaf](https://github.com/sailry/sailry-harness/commit/3431eaf77b0aea6bcda6edea41e362d08e016f06))
+- Allow interrupted conversations to reuse attachments ([cafd54d](https://github.com/sailry/sailry-harness/commit/cafd54dfde3421ac0374d78ac77df2779174be3f))
+- Prepare Sailry 0.1.4 ([45b1702](https://github.com/sailry/sailry-harness/commit/45b17024543a2caafba8651cab950f79fbd6df81))
+
+[Full changelog](https://github.com/sailry/sailry-harness/compare/v0.1.3...v0.1.4)
+
 ## [0.1.3](https://github.com/sailry/sailry-harness/releases/tag/v0.1.3) — 2026-11-04
 
 - Release browser resources when closing sidebar ([96b975d](https://github.com/sailry/sailry-harness/commit/96b975dcc6ef77441f97228c26f4fe6f7f70684f))
