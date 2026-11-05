@@ -78,8 +78,15 @@ const TABLE_DIVIDER: f32 = 1.0;
 pub type OnLink = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
 /// Standalone file links may be replaced by the owning surface.
 pub type OnFile = Rc<dyn Fn(usize, &str, &str, &App) -> Option<AnyElement>>;
+/// The size a document states for a picture; unset sides follow its proportions.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Stated {
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+}
+
 /// Image resources are resolved by the owning surface.
-pub type OnImage = Rc<dyn Fn(&str, &[&str], usize, &App) -> AnyElement>;
+pub type OnImage = Rc<dyn Fn(&str, &[&str], usize, Stated, &App) -> AnyElement>;
 pub type OnMathLink = std::sync::Arc<dyn Fn(&SharedString, &mut Window, &mut App) + Send + Sync>;
 pub type OnLinkHover = Rc<dyn Fn(Cursor, Option<usize>, &mut Window, &mut App)>;
 
@@ -119,6 +126,8 @@ pub struct Editing<'a> {
     pub on_file: Option<OnFile>,
     pub annotations: &'a [Annotation],
     pub visuals: Option<&'a super::visuals::Images>,
+    /// Native flows of the document's HTML blocks, by block source.
+    pub html: Option<&'a super::html::layout::Layouts>,
     pub on_math_link: Option<OnMathLink>,
     /// Editors show a visual block's source while the selection reaches it,
     /// and its rendered form elsewhere, where a click places the caret in it.
@@ -145,6 +154,7 @@ impl Default for Editing<'_> {
             on_file: None,
             annotations: &[],
             visuals: None,
+            html: None,
             on_math_link: None,
             reveal: false,
         }
@@ -468,6 +478,7 @@ struct Overlay<'a> {
     on_file: Option<&'a OnFile>,
     annotations: &'a [Annotation],
     visuals: Option<&'a super::visuals::Images>,
+    html: Option<&'a super::html::layout::Layouts>,
     on_math_link: Option<&'a OnMathLink>,
     reveal: bool,
 }
@@ -593,6 +604,7 @@ pub fn with_block(
         on_file,
         annotations,
         visuals,
+        html,
         on_math_link,
         reveal,
     } = editing;
@@ -663,6 +675,7 @@ pub fn with_block(
             on_file: on_file.as_ref(),
             annotations,
             visuals,
+            html,
             on_math_link: on_math_link.as_ref(),
             reveal,
         };
@@ -969,19 +982,36 @@ fn block_element(
         BlockKind::Html(code) if !overlay.reveal && super::html::hidden(&code.text) => {
             div().into_any_element()
         }
-        BlockKind::Html(code) => (!overlay.shows_source())
-            .then(|| visual(super::visuals::Kind::Html, &code.text, overlay, theme))
-            .flatten()
-            .unwrap_or_else(|| {
-                code_block(
-                    Some("html"),
-                    &code.text,
-                    overlay.at(Part::Code),
-                    typography,
-                    theme,
-                    cx,
-                )
-            }),
+        // Native flows show what they can express in full. Richer markup keeps
+        // its sanitized picture, and its text and images until one is ready.
+        BlockKind::Html(code) => {
+            let rendered = !overlay.shows_source();
+            let layout = overlay
+                .html
+                .filter(|_| rendered)
+                .and_then(|layouts| layouts.get(&code.text))
+                .filter(|layout| !layout.flows.is_empty());
+            let flows = |layout| native_html::flows(layout, overlay, typography, theme, cx);
+            layout
+                .filter(|layout| layout.complete)
+                .map(flows)
+                .or_else(|| {
+                    rendered
+                        .then(|| visual(super::visuals::Kind::Html, &code.text, overlay, theme))
+                        .flatten()
+                })
+                .or_else(|| layout.map(flows))
+                .unwrap_or_else(|| {
+                    code_block(
+                        Some("html"),
+                        &code.text,
+                        overlay.at(Part::Code),
+                        typography,
+                        theme,
+                        cx,
+                    )
+                })
+        }
         BlockKind::Code { language, code } => code_block(
             language.as_deref(),
             &code.text,
@@ -1791,7 +1821,13 @@ fn image(
     } else if let Some(render) = overlay.on_image {
         div()
             .debug_selector(|| "markdown-image-picture".into())
-            .child(render(url, overlay.image_urls, overlay.image_index, cx))
+            .child(render(
+                url,
+                overlay.image_urls,
+                overlay.image_index,
+                Stated::default(),
+                cx,
+            ))
     } else {
         // A URL is fetched; anything else is a file, and gpui reads one only
         // from a `PathBuf` — handed a string it looks for an asset built into
@@ -2128,6 +2164,8 @@ fn table(
         .child(inner)
         .into_any_element()
 }
+
+mod native_html;
 
 #[cfg(test)]
 mod tests;

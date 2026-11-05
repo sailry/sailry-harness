@@ -1,11 +1,13 @@
 //! Raw HTML in Markdown.
 //!
 //! Inline tags with a text-style meaning become marks; every other tag stays
-//! the literal text it was written as. Blocks keep their exact source and
-//! render from a sanitized copy: an allowlist of structural tags, attributes
-//! and CSS properties, with scripts, event handlers, frames, embedded objects
-//! and every resource reference except inline raster `data:` images removed.
-//! The rendering surface adds a CSP that blocks scripts and network loads.
+//! the literal text it was written as. Blocks keep their exact source. Common
+//! README markup becomes native [`layout`] flows, whose images follow the same
+//! path as Markdown images. Everything else renders from a sanitized copy: an
+//! allowlist of structural tags, attributes and CSS properties, with scripts,
+//! event handlers, frames, embedded objects and every resource reference except
+//! inline raster `data:` images removed. The rendering surface adds a CSP that
+//! blocks scripts and network loads.
 use super::doc::Mark;
 use ammonia::{Builder, UrlRelative};
 use gpui_kit::{Hsla, rgb, rgba};
@@ -13,6 +15,8 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
 };
+
+pub(crate) mod layout;
 
 /// What one inline tag does to the text around it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +174,7 @@ fn attributes(mut rest: &str) -> Option<Vec<(String, String)>> {
 
 fn decode(value: &str) -> String {
     value
+        .replace("&nbsp;", "\u{a0}")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&lt;", "<")
@@ -474,6 +479,26 @@ const IMAGE_TYPES: [&str; 4] = [
 
 /// Sanitize a block for rendering. Never written back to the document.
 pub fn sanitize(source: &str) -> String {
+    let mut builder = cleaner(&[]);
+    builder
+        .url_schemes(["data"].into_iter().collect())
+        .url_relative(UrlRelative::Deny)
+        .attribute_filter(filter)
+        .clean(source)
+        .to_string()
+}
+
+/// What the surface rasterizes: nothing for a block native flows show in full.
+pub fn raster(source: &str) -> String {
+    if layout::layout(source).complete {
+        String::new()
+    } else {
+        sanitize(source)
+    }
+}
+
+/// The shared allowlist, plus attributes a caller's URL policy covers.
+fn cleaner<'a>(references: &[(&'a str, &'a str)]) -> Builder<'a> {
     let mut attributes = HashMap::new();
     for (tag, names) in [
         ("img", "src alt"),
@@ -485,10 +510,14 @@ pub fn sanitize(source: &str) -> String {
         ("li", "value"),
         ("font", "size face"),
         ("table", "border cellpadding cellspacing"),
-    ] {
+    ]
+    .into_iter()
+    .chain(references.iter().copied())
+    {
         attributes.insert(tag, names.split_whitespace().collect::<HashSet<_>>());
     }
-    Builder::empty()
+    let mut builder = Builder::empty();
+    builder
         .tags(TAGS.into_iter().collect())
         .clean_content_tags(REMOVED.into_iter().collect())
         .generic_attributes(
@@ -500,14 +529,10 @@ pub fn sanitize(source: &str) -> String {
             .collect(),
         )
         .tag_attributes(attributes)
-        .url_schemes(["data"].into_iter().collect())
-        .url_relative(UrlRelative::Deny)
         .link_rel(None)
         .strip_comments(true)
-        .filter_style_properties(STYLE_PROPERTIES.into_iter().collect())
-        .attribute_filter(filter)
-        .clean(source)
-        .to_string()
+        .filter_style_properties(STYLE_PROPERTIES.into_iter().collect());
+    builder
 }
 
 fn filter<'a>(tag: &str, name: &str, value: &'a str) -> Option<Cow<'a, str>> {

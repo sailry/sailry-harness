@@ -23,7 +23,7 @@ mod load;
 mod preview;
 mod render;
 mod source;
-pub(crate) use render::card;
+pub(crate) use render::{Presentation, card};
 pub(crate) use source::ImageSource;
 mod local;
 pub(crate) use local::Local;

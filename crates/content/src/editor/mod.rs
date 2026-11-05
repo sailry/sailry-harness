@@ -428,6 +428,7 @@ impl State {
                 &mut state.visuals
             });
         let visuals = self.visuals.images();
+        let html = self.visuals.layouts();
         let content = markdown::with_selection(
             &self.doc,
             Editing {
@@ -439,11 +440,18 @@ impl State {
                 on_image: self.on_image.clone().map(|handler| {
                     // Clicks preview a picture only where they cannot edit it.
                     let preview = self.readonly || self.mode != Mode::Document;
-                    std::rc::Rc::new(move |url: &str, urls: &[&str], index: usize, cx: &App| {
-                        handler(url, urls, index, preview, cx)
-                    }) as markdown::render::OnImage
+                    std::rc::Rc::new(
+                        move |url: &str,
+                              urls: &[&str],
+                              index: usize,
+                              stated: markdown::render::Stated,
+                              cx: &App| {
+                            handler(url, urls, index, stated, preview, cx)
+                        },
+                    ) as markdown::render::OnImage
                 }),
                 visuals: Some(visuals),
+                html: Some(html),
                 reveal: true,
                 ..Editing::default()
             },
