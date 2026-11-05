@@ -70,7 +70,7 @@ pub(super) async fn run(
             },
             result = results.recv() => {
                 if let Some(result) = result {
-                    runner.complete(result);
+                    runner.complete(result).await;
                 }
             },
             _ = async {
@@ -110,6 +110,7 @@ struct Package {
     generation: u64,
     entries: Vec<Entry>,
     failure: Option<Fault>,
+    reported: bool,
     retry_after: Option<Instant>,
     dirty: Option<Dirty>,
     running: bool,
@@ -177,6 +178,33 @@ impl Package {
             .then(|| self.dirty.map(|dirty| dirty.due(self.retry_after)))
             .flatten()
     }
+
+    fn complete(&mut self, result: Result<Vec<Entry>, Fault>, now: Instant) -> Option<Fault> {
+        self.running = false;
+        match result {
+            Ok(entries) => {
+                self.entries = entries;
+                self.failure = None;
+                self.reported = false;
+                self.retry_after = None;
+                None
+            }
+            Err(error) => {
+                let retry = error.code == ErrorCode::Busy && self.failure.is_none();
+                self.failure = Some(evaluation::public(error.clone()));
+                self.retry_after = Some(now + FAILURE_WAIT);
+                if retry {
+                    self.dirty = Some(Dirty::new(now, false));
+                    None
+                } else if self.reported {
+                    None
+                } else {
+                    self.reported = true;
+                    Some(error)
+                }
+            }
+        }
+    }
 }
 
 impl Runner {
@@ -210,6 +238,7 @@ impl Runner {
                     info,
                     generation: self.generation,
                     failure: None,
+                    reported: false,
                     retry_after: None,
                     dirty: Some(Dirty::new(Instant::now(), true)),
                     running: false,
@@ -346,24 +375,20 @@ impl Runner {
         }
     }
 
-    fn complete(&mut self, completed: Completed) {
+    async fn complete(&mut self, completed: Completed) {
         let Some(package) = self.packages.get_mut(&completed.name) else {
             return;
         };
         if package.generation != completed.generation {
             return;
         }
-        package.running = false;
-        match completed.result {
-            Ok(entries) => {
-                package.entries = entries;
-                package.failure = None;
-                package.retry_after = None;
-            }
-            Err(error) => {
-                package.failure = Some(evaluation::public(error));
-                package.retry_after = Some(Instant::now() + FAILURE_WAIT);
-            }
+        let report = package
+            .complete(completed.result, Instant::now())
+            .map(|error| (error, package.info.clone()));
+        if let Some((error, info)) = report {
+            self.ingress
+                .script_failure(self.ingress.node, error, &info)
+                .await;
         }
         self.publish(None);
     }
@@ -413,6 +438,73 @@ impl Runner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn package() -> Package {
+        let info = super::super::tests::package();
+        let states =
+            evaluation::validate(&info, serde_json::json!([super::super::tests::state()])).unwrap();
+        Package {
+            entries: evaluation::entries(&info, states),
+            info,
+            generation: 1,
+            failure: None,
+            reported: false,
+            retry_after: None,
+            dirty: None,
+            running: true,
+            stop: CancellationToken::new(),
+        }
+    }
+
+    #[test]
+    fn retries_busy_once_without_losing_states() {
+        let mut package = package();
+        let expected = package.entries.clone();
+        let now = Instant::now();
+        let busy = Fault::new(ErrorCode::Busy, "Git inspection queue is busy");
+        assert!(package.complete(Err(busy.clone()), now).is_none());
+        assert_eq!(package.entries, expected);
+        assert_eq!(package.failure, Some(busy.clone()));
+        assert_eq!(package.deadline(), Some(now + FAILURE_WAIT));
+        package.mark(false);
+        assert_eq!(package.deadline(), Some(now + FAILURE_WAIT));
+
+        package.dirty = None;
+        package.running = true;
+        assert_eq!(
+            package.complete(Err(busy.clone()), now + FAILURE_WAIT),
+            Some(busy.clone())
+        );
+        assert_eq!(package.entries, expected);
+        assert!(package.deadline().is_none());
+        assert!(package.complete(Err(busy.clone()), now).is_none());
+        assert!(package.deadline().is_none());
+
+        assert!(package.complete(Ok(expected.clone()), now).is_none());
+        assert!(package.failure.is_none());
+        assert!(!package.reported);
+        assert!(package.retry_after.is_none());
+        assert!(package.complete(Err(busy), now).is_none());
+        assert_eq!(package.deadline(), Some(now + FAILURE_WAIT));
+        assert_eq!(package.entries, expected);
+    }
+
+    #[test]
+    fn reports_other_failures_once_per_cycle() {
+        let mut package = package();
+        let expected = package.entries.clone();
+        let now = Instant::now();
+        let failure = Fault::invalid("Status output does not match its declarations");
+        assert_eq!(
+            package.complete(Err(failure.clone()), now),
+            Some(failure.clone())
+        );
+        assert_eq!(package.entries, expected);
+        assert!(package.deadline().is_none());
+        assert!(package.complete(Err(failure.clone()), now).is_none());
+        assert!(package.complete(Ok(expected), now).is_none());
+        assert_eq!(package.complete(Err(failure.clone()), now), Some(failure));
+    }
 
     #[test]
     fn bounds_dirty_windows_and_failure_waits() {

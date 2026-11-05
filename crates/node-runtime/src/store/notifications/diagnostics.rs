@@ -94,6 +94,7 @@ fn emit(report: &SystemDiagnostic) {
         request = report.request.map(|id| id.to_string()).unwrap_or_default().as_str(),
         source_kind = token(report.source).as_str(), stage = token(report.phase).as_str(),
         reason = token(report.reason).as_str(), code = token(report.code).as_str(),
+        cause_code = report.cause.map(|cause| cause.as_str()).unwrap_or_default(),
         exception = report.exception.map(token).unwrap_or_default().as_str(),
         operation = report.operation.as_deref().unwrap_or_default(),
         package = report.plugin.as_ref().map_or("", |plugin| plugin.name.as_str()),

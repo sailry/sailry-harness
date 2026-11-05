@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 mod recovery;
 
-fn package() -> plugin::Info {
+pub(super) fn package() -> plugin::Info {
     serde_json::from_value(json!({
         "summary":{"name":"status-fixture","revision":1,"digest":"a".repeat(64),
             "settings_revision":0,"enabled":true,"version":"0.1.0","description":null},
@@ -22,7 +22,7 @@ fn package() -> plugin::Info {
     .unwrap()
 }
 
-fn state() -> Value {
+pub(super) fn state() -> Value {
     json!({"id":"badge","visible":true,"enabled":true,
         "segments":[{"label":{"label":"Ready","locales":{"zh-CN":"就绪"}},"tone":"success"}],
         "details":[{"label":{"label":"Items"},"value":"4"}]})

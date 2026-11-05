@@ -160,9 +160,17 @@ pub(crate) fn admitted(
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn rejected(span: &mut Span, fault: &Fault) {
-    if let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = &fault.details
-        && let Some(plugin) = &report.plugin
+pub(crate) fn diagnostic(span: &mut Span, fault: &Fault) {
+    let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = &fault.details else {
+        return;
+    };
+    if let Some(cause) = report.cause {
+        span.entry.cause_code = Some(cause.as_str());
+    }
+    if report.operation.as_deref() == Some("inspect_git") {
+        span.entry.operation = Some("inspect_git");
+    }
+    if let Some(plugin) = &report.plugin
         && span
             .entry
             .context
@@ -172,6 +180,10 @@ pub(crate) fn rejected(span: &mut Span, fault: &Fault) {
     {
         span.entry.context.plugin_version = Some(plugin.version.clone());
     }
+}
+
+pub(crate) fn rejected(span: &mut Span, fault: &Fault) {
+    diagnostic(span, fault);
     let expected = matches!(
         fault.code,
         sailry_protocol::ErrorCode::NotFound | sailry_protocol::ErrorCode::InvalidRequest

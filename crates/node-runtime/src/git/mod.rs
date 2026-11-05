@@ -38,6 +38,9 @@ use futures::{
 };
 use git2::{Config, Repository, RepositoryOpenFlags};
 use sailry_link::CancellationToken;
+use sailry_protocol::notification::{
+    DiagnosticCause, DiagnosticReason, SystemDiagnostic, SystemSource,
+};
 use sailry_protocol::*;
 
 use crate::files::path;
@@ -302,7 +305,7 @@ impl Git {
             let result = tokio::select! {
                 _ = closed.cancelled() => return Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
                 result = tokio::time::timeout(deadline, worker) => result
-                    .map_err(|_| Fault::new(ErrorCode::Busy, "Git read deadline exceeded"))?
+                    .map_err(|_| busy(DiagnosticCause::GitReadTimeout))?
                     .map_err(|_| Fault::new(ErrorCode::Internal, "Git worker failed"))??,
             };
             if let Some(result) = result {
@@ -318,7 +321,7 @@ impl Git {
                 biased;
                 _ = closed.cancelled() => return Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
                 permit = tokio::time::timeout(deadline, gate.acquire_owned()) =>
-                    permit.map_err(|_| Fault::new(ErrorCode::Busy, "Git inspection queue is busy"))?
+                    permit.map_err(|_| busy(DiagnosticCause::GitQueueTimeout))?
                         .map_err(|_| Fault::new(ErrorCode::Unavailable, "Git inspection is unavailable"))?,
             })
         } else {
@@ -473,7 +476,7 @@ impl Git {
         tokio::select! {
             _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
             result = tokio::time::timeout(deadline, worker) => result
-                .map_err(|_| Fault::new(ErrorCode::Busy, "Git read deadline exceeded"))?
+                .map_err(|_| busy(DiagnosticCause::GitReadTimeout))?
                 .map_err(|_| Fault::new(ErrorCode::Internal, "Git worker failed"))?,
         }
     }
@@ -489,7 +492,7 @@ impl Control {
         if self.cancelled.is_cancelled() {
             Err(Fault::new(ErrorCode::Cancelled, "Git read cancelled"))
         } else if Instant::now() >= self.deadline {
-            Err(Fault::new(ErrorCode::Busy, "Git read deadline exceeded"))
+            Err(busy(DiagnosticCause::GitReadTimeout))
         } else {
             Ok(())
         }
@@ -612,10 +615,29 @@ impl EntryParents {
     }
 }
 
+fn busy(cause: DiagnosticCause) -> Fault {
+    let message = match cause {
+        DiagnosticCause::GitQueueTimeout => "Git inspection queue is busy",
+        DiagnosticCause::GitReadTimeout => "Git read deadline exceeded",
+        DiagnosticCause::GitLocked => "Git operation failed (Locked)",
+    };
+    let mut fault = Fault::new(ErrorCode::Busy, message);
+    let mut diagnostic =
+        SystemDiagnostic::new(RequestId::new(), SystemSource::GitInspection, fault.code);
+    diagnostic.cause = Some(cause);
+    if cause != DiagnosticCause::GitLocked {
+        diagnostic.reason = DiagnosticReason::Timeout;
+    }
+    fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(diagnostic)));
+    fault
+}
+
 fn fault(error: git2::Error) -> Fault {
+    if error.code() == git2::ErrorCode::Locked {
+        return busy(DiagnosticCause::GitLocked);
+    }
     let code = match error.code() {
         git2::ErrorCode::NotFound | git2::ErrorCode::UnbornBranch => ErrorCode::NotFound,
-        git2::ErrorCode::Locked => ErrorCode::Busy,
         _ => ErrorCode::InvalidRequest,
     };
     Fault::new(code, format!("Git operation failed ({:?})", error.code()))

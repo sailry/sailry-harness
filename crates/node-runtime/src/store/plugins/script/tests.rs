@@ -67,6 +67,15 @@ fn preserves_storage_contracts() {
                 "origin":null,"icon":null,"extension":null,"settings":null
                     }))
                 .unwrap();
+                let mut fault = Fault::new(ErrorCode::Busy, "Git inspection queue is busy");
+                fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(report.clone())));
+                attribute(&mut fault, &info);
+                let Some(FaultDetails::SystemDiagnostic(attributed)) = fault.details else {
+                    panic!("attributed diagnostic expected");
+                };
+                assert_eq!(attributed.incident, report.incident);
+                assert_eq!(attributed.plugin.as_ref().unwrap().name, "fixture");
+                assert_eq!(attributed.plugin.as_ref().unwrap().version, "0.1.0");
                 tracing::dispatcher::with_default(&dispatch, || {
                     persist_failed(
                         NodeId([1; 32]),

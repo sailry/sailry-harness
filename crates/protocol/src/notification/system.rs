@@ -29,6 +29,24 @@ pub enum DiagnosticReason {
     Cancelled,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticCause {
+    GitQueueTimeout,
+    GitReadTimeout,
+    GitLocked,
+}
+
+impl DiagnosticCause {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GitQueueTimeout => "git_queue_timeout",
+            Self::GitReadTimeout => "git_read_timeout",
+            Self::GitLocked => "git_locked",
+        }
+    }
+}
+
 /// Native error prototypes are classified before reading any package-authored text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -60,6 +78,8 @@ pub struct SystemDiagnostic {
     pub phase: DiagnosticPhase,
     pub reason: DiagnosticReason,
     pub code: ErrorCode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause: Option<DiagnosticCause>,
     #[serde(default)]
     pub exception: Option<ScriptException>,
     pub plugin: Option<DiagnosticPlugin>,
@@ -82,6 +102,7 @@ impl SystemDiagnostic {
             incident,
             source,
             code,
+            cause: None,
             exception: None,
             phase: match source {
                 SystemSource::PluginMetadata => DiagnosticPhase::Metadata,

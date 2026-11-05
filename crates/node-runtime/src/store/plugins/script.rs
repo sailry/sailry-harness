@@ -102,17 +102,10 @@ impl Ingress {
         fault: Fault,
         info: &plugin::Info,
     ) -> Fault {
-        use notification::{DiagnosticPlugin, DiagnosticReason};
+        use notification::DiagnosticReason;
         let mut fault = fault;
+        attribute(&mut fault, info);
         if let Some(FaultDetails::SystemDiagnostic(report)) = &mut fault.details {
-            report.plugin = Some(DiagnosticPlugin {
-                name: info.summary.name.clone(),
-                version: info
-                    .summary
-                    .version
-                    .clone()
-                    .unwrap_or_else(|| "unknown".into()),
-            });
             if fault.code == ErrorCode::OutcomeUnknown
                 || (report.reason != DiagnosticReason::Cancelled
                     && fault.code != ErrorCode::Cancelled)
@@ -137,6 +130,19 @@ impl Ingress {
             }
         }
         fault
+    }
+}
+
+fn attribute(fault: &mut Fault, info: &plugin::Info) {
+    if let Some(FaultDetails::SystemDiagnostic(report)) = &mut fault.details {
+        report.plugin = Some(notification::DiagnosticPlugin {
+            name: info.summary.name.clone(),
+            version: info
+                .summary
+                .version
+                .clone()
+                .unwrap_or_else(|| "unknown".into()),
+        });
     }
 }
 
@@ -179,6 +185,16 @@ pub(super) async fn run(
     stop: CancellationToken,
 ) -> Result<Output, Fault> {
     let runtime = tokio::runtime::Handle::current();
+    let status_read = matches!(
+        &request.command,
+        Command::ReadPluginCallback { handler, .. }
+            if info
+                .extension
+                .as_ref()
+                .and_then(|extension| extension.host.as_ref())
+                .and_then(|host| host.status.as_ref())
+                .is_some_and(|status| &status.read == handler)
+    );
     let invalidation = match &request.command {
         Command::CallPlugin { handler, .. }
             if info
@@ -225,7 +241,14 @@ pub(super) async fn run(
                 runtime.block_on(ingress.script_dispatch(caller, request, deadline, &stopped))
             },
         )
-        .map_err(|fault| report_runtime.block_on(reporter.script_failure(caller, fault, &info)))
+        .map_err(|mut fault| {
+            if status_read {
+                attribute(&mut fault, &info);
+                fault
+            } else {
+                report_runtime.block_on(reporter.script_failure(caller, fault, &info))
+            }
+        })
         .map(Output::PluginResult)
     })
     .await

@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn preserves_bounded_diagnostic_causes() {
+    let mut report = SystemDiagnostic::new(
+        crate::RequestId::new(),
+        SystemSource::GitInspection,
+        crate::ErrorCode::Busy,
+    );
+    let wire = serde_json::to_value(&report).unwrap();
+    assert!(!wire.as_object().unwrap().contains_key("cause"));
+    assert_eq!(
+        serde_json::from_value::<SystemDiagnostic>(wire)
+            .unwrap()
+            .cause,
+        None
+    );
+    for cause in [
+        DiagnosticCause::GitQueueTimeout,
+        DiagnosticCause::GitReadTimeout,
+        DiagnosticCause::GitLocked,
+    ] {
+        report.cause = Some(cause);
+        let mut wire = serde_json::to_value(&report).unwrap();
+        assert_eq!(wire["cause"], cause.as_str());
+        assert_eq!(
+            serde_json::from_value::<SystemDiagnostic>(wire.clone()).unwrap(),
+            report
+        );
+        wire["cause"] = serde_json::json!("PRIVATE_ERROR_MESSAGE");
+        assert!(serde_json::from_value::<SystemDiagnostic>(wire).is_err());
+    }
+}
+
+#[test]
 fn preserves_wire_and_validation() {
     for (scenario, check) in [
         (

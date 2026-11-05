@@ -1,5 +1,86 @@
 use super::*;
 
+async fn notices(fixture: &Fixture) -> usize {
+    let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
+        panic!("snapshot expected")
+    };
+    snapshot
+        .notifications
+        .iter()
+        .filter(|notice| {
+            matches!(
+                &notice.content.details,
+                Some(sailry_protocol::notification::Details::System(report))
+                    if report.plugin.as_ref().is_some_and(|plugin| plugin.name == "status-fixture")
+            )
+        })
+        .count()
+}
+
+#[tokio::test]
+async fn reports_persistent_status_failures_once() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote).await;
+        let package = fixture
+            .install("status-fixture", SOURCE, &[Change::Package], 0)
+            .await;
+        let scope = Scope {
+            worktree: Some(fixture.worktree),
+            session: None,
+        };
+        let context = fixture.context(&package, scope);
+        let mut feed = Feed::new(fixture.client.clone(), scope);
+        let initial = feed.until(|view| fixture::label(view) == Some("0")).await;
+        let mut revision = 0;
+        for cycle in 0..2 {
+            for attempt in 0..3 {
+                let message = format!("Busy cycle {cycle} attempt {attempt}");
+                fixture
+                    .write(
+                        &context,
+                        "mode",
+                        json!({"error":"busy","message":message}),
+                        revision,
+                    )
+                    .await;
+                revision += 1;
+                let retry = (attempt > 0).then(|| Feed::new(fixture.client.clone(), scope));
+                let failed = feed
+                    .until(|view| {
+                        view.failures
+                            .first()
+                            .is_some_and(|failure| failure.fault.message.ends_with(&message))
+                    })
+                    .await;
+                assert_eq!(failed.entries, initial.entries);
+                assert_eq!(failed.failures[0].fault.code, ErrorCode::Busy);
+                assert_eq!(notices(&fixture).await, cycle + usize::from(attempt > 0));
+                if let Some(retry) = retry {
+                    retry.close().await;
+                }
+            }
+            fixture.write(&context, "mode", Value::Null, revision).await;
+            revision += 1;
+            let retry = Feed::new(fixture.client.clone(), scope);
+            feed.until(|view| view.failures.is_empty()).await;
+            retry.close().await;
+        }
+        fixture.write(&context, "fail", json!(true), 0).await;
+        let current = feed.current();
+        let request = fixture
+            .client
+            .prepare_status(&scope, &current.entries[0])
+            .unwrap();
+        assert_eq!(
+            fixture.client.execute(request).await.unwrap_err().code,
+            ErrorCode::InvalidRequest
+        );
+        assert_eq!(notices(&fixture).await, 3);
+        feed.close().await;
+        fixture.close().await;
+    }
+}
+
 #[tokio::test]
 async fn refreshes_declarations_and_revokes_entries() {
     for remote in [false, true] {

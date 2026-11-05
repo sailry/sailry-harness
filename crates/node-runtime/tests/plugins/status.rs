@@ -25,6 +25,7 @@ export async function badge(input) {
     if (Object.keys(input).length || scope.surface!=='composer' || scope.invocation!=null || scope.turn!=null)
         throw new Error('Unexpected Status callback context');
     const mode=(await getValue('mode')).value;
+    if (mode?.error) throw Object.assign(new Error(mode.message),{code:mode.error});
     if (mode==='undeclared') return [{id:'unknown',visible:true}];
     if (mode==='oversize') return [{id:'badge',label:{label:'x'.repeat(65536)},visible:true}];
     if (mode==='reply') return [{id:'badge',visible:true,reply_to:1}];

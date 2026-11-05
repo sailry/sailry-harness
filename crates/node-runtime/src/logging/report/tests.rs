@@ -575,6 +575,57 @@ async fn retains_verified_plugin_metadata() {
 }
 
 #[tokio::test]
+async fn classifies_git_inspection_causes() {
+    use sailry_protocol::{
+        Command, ErrorCode, FaultDetails, NodeId, Request, RequestId,
+        notification::{DiagnosticCause, SystemDiagnostic, SystemSource},
+    };
+    let mut server = server::Server::new().await;
+    let report = Report::create(Control::fixture(true, true), Some(&server.dsn)).unwrap();
+    let hub = Arc::new(Hub::new(
+        Some(report.client.clone()),
+        Arc::new(Default::default()),
+    ));
+    let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(report.layer()));
+    let node = NodeId([2; 32]);
+    let request = Request::new(
+        node,
+        Command::ReadPluginCallback {
+            handler: "PRIVATE_HANDLER".into(),
+            input: json!({"secret":"PRIVATE_INPUT"}),
+        },
+    );
+    for cause in [
+        DiagnosticCause::GitQueueTimeout,
+        DiagnosticCause::GitReadTimeout,
+        DiagnosticCause::GitLocked,
+    ] {
+        let mut fault = Fault::new(ErrorCode::Busy, "PRIVATE_ERROR");
+        let mut diagnostic =
+            SystemDiagnostic::new(RequestId::new(), SystemSource::GitInspection, fault.code);
+        diagnostic.cause = Some(cause);
+        diagnostic.operation = Some("inspect_git".into());
+        fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(diagnostic)));
+        Hub::run(hub.clone(), || {
+            tracing::dispatcher::with_default(&dispatch, || {
+                let mut span = super::super::commands::begin(node, node, &request).unwrap();
+                super::super::commands::rejected(&mut span, &fault);
+            })
+        });
+        let envelope = server.next().await;
+        assert_eq!(envelope["event"]["extra"]["cause_code"], cause.as_str());
+        assert_eq!(envelope["event"]["extra"]["operation"], "inspect_git");
+        assert_eq!(
+            envelope["event"]["exception"]["values"][0]["value"],
+            "command.inspect_git:busy"
+        );
+        assert!(!envelope.to_string().contains("PRIVATE_"));
+        assert!(!envelope.to_string().contains(&node.to_string()));
+    }
+    assert!(report.close(Duration::from_secs(1)));
+}
+
+#[tokio::test]
 async fn groups_private_plugin_failures() {
     let mut server = server::Server::new().await;
     let report = Report::create(Control::fixture(true, true), Some(&server.dsn)).unwrap();

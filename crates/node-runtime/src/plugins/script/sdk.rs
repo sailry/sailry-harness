@@ -376,11 +376,13 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
     }
 
     fn dispatch(&mut self, request: Request, operation: String) -> sailry_link::Response {
+        let id = request.id;
         let mut result = (self.dispatch)(request);
         if let Err(fault) = &mut result
             && let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) =
                 &mut fault.details
         {
+            report.request.get_or_insert(id);
             report.operation = Some(operation);
         }
         if (self.control.stop.is_cancelled() || Instant::now() >= self.control.deadline)

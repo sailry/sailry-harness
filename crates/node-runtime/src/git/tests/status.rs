@@ -115,6 +115,56 @@ fn queued_reads_keep_execution_budget() {
     });
 }
 
+#[test]
+fn distinguishes_wait_and_execution_timeouts() {
+    let (_directory, root, git, command) = fixture();
+    runtime().block_on(async {
+        tokio::time::pause();
+        let permit = git.scans.root(&root).acquire_owned().await.unwrap();
+        let mut read =
+            Box::pin(git.inspect(root.clone(), command.clone(), CancellationToken::new()));
+        pending(read.as_mut()).await;
+        tokio::time::advance(Duration::from_secs(6)).await;
+        let error = read.await.unwrap_err();
+        let Some(FaultDetails::SystemDiagnostic(report)) = error.details else {
+            panic!("Git diagnostic expected");
+        };
+        assert_eq!(error.code, ErrorCode::Busy);
+        assert_eq!(report.cause, Some(DiagnosticCause::GitQueueTimeout));
+        assert_eq!(report.reason, DiagnosticReason::Timeout);
+        drop(permit);
+        let (release, blocker) = hold();
+        let mut read = Box::pin(git.inspect(root, command, CancellationToken::new()));
+        pending(read.as_mut()).await;
+        tokio::time::advance(Duration::from_secs(6)).await;
+        let error = read.await.unwrap_err();
+        release.send(()).unwrap();
+        blocker.await.unwrap();
+        let Some(FaultDetails::SystemDiagnostic(report)) = error.details else {
+            panic!("Git diagnostic expected");
+        };
+        assert_eq!(error.code, ErrorCode::Busy);
+        assert_eq!(report.cause, Some(DiagnosticCause::GitReadTimeout));
+        assert_eq!(report.reason, DiagnosticReason::Timeout);
+    });
+}
+
+#[test]
+fn identifies_locks_without_error_payloads() {
+    let error = fault(git2::Error::new(
+        git2::ErrorCode::Locked,
+        git2::ErrorClass::Repository,
+        "PRIVATE_REPOSITORY_PATH",
+    ));
+    assert_eq!(error.code, ErrorCode::Busy);
+    assert!(!error.message.contains("PRIVATE_"));
+    let Some(FaultDetails::SystemDiagnostic(report)) = error.details else {
+        panic!("Git diagnostic expected");
+    };
+    assert_eq!(report.cause, Some(DiagnosticCause::GitLocked));
+    assert_eq!(report.reason, DiagnosticReason::Failure);
+}
+
 #[tokio::test]
 async fn cached_reads_bypass_scan_queue() {
     let (_directory, root, git, command) = fixture();

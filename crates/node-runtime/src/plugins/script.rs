@@ -193,6 +193,7 @@ fn evaluate(
     match &result {
         Ok(_) => span.finish(crate::logging::Phase::Completed, None),
         Err(fault) => {
+            crate::logging::commands::diagnostic(&mut span, fault);
             span.entry.reason = Some("callback");
             span.finish(
                 if fault.code == ErrorCode::Cancelled {
