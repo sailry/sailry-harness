@@ -570,13 +570,10 @@ impl View {
         let elapsed = (self.history.connected || !frame::active(run.status))
             .then(|| frame::elapsed(run, chrono::Utc::now().timestamp_millis()))
             .flatten();
-        // A finished turn shows only its duration; color carries failure.
-        let settled = !frame::active(run.status) && elapsed.is_some();
-        let label: SharedString = match (&elapsed, settled) {
-            (Some(elapsed), true) => elapsed.clone().into(),
-            (Some(elapsed), false) => format!("{} {elapsed}", tr(status)).into(),
-            (None, _) => tr(status),
-        };
+        let label: SharedString = elapsed.as_ref().map_or_else(
+            || tr(status),
+            |elapsed| format!("{} {elapsed}", tr(status)).into(),
+        );
         let status_row = h_flex()
             .id(format!("turn-status-{turn}"))
             .gap_2()
@@ -584,7 +581,7 @@ impl View {
                 matches!(run.status, Status::Failed | Status::Interrupted),
                 |row| row.text_color(cx.theme().danger),
             )
-            .when(!settled, |row| row.child(tr(status)))
+            .child(tr(status))
             .children(elapsed);
         let header = if answer_from > 0 {
             crate::conversation::surface::trigger(
