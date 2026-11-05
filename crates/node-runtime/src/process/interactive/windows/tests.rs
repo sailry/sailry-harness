@@ -211,7 +211,7 @@ async fn honors_working_directory() {
     let temporary = tempfile::tempdir().unwrap();
     let root = temporary.path().join("项目 with spaces");
     std::fs::create_dir(&root).unwrap();
-    let script = r#"if not "%CD%"=="%PWD%" exit /b 9 & echo cwd-marker>cwd.txt"#;
+    let script = r#"if "%CD%"=="%PWD%" (echo cwd-marker>cwd.txt) else (exit /b 9)"#;
     let result = Running::command(&root, "tail", script).await.finish().await;
     assert_eq!(result.outcome, Outcome::Exited(0), "{:?}", result.stdout);
     assert_eq!(
