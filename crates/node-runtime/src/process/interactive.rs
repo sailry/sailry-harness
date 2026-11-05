@@ -172,6 +172,8 @@ pub(super) async fn execute(
                 command.env(key, value);
             }
         }
+        #[cfg(windows)]
+        let directory = super::pty_directory(&directory);
         command.cwd(&directory);
         command.env("PWD", &directory);
         command.env("TERM", "xterm-256color");

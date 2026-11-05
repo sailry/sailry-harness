@@ -95,14 +95,21 @@ impl Running {
     async fn ready(&mut self) {
         tokio::time::timeout(Duration::from_secs(10), async {
             while !self.output.borrow().0.text.contains("fixture-ready") {
-                self.output
-                    .changed()
-                    .await
-                    .expect("PTY output ended before readiness");
+                self.output.changed().await.unwrap_or_else(|error| {
+                    panic!(
+                        "PTY output ended before readiness: {error}; output: {:?}",
+                        self.output.borrow().0
+                    )
+                });
             }
         })
         .await
-        .expect("PTY readiness deadline");
+        .unwrap_or_else(|error| {
+            panic!(
+                "PTY readiness deadline: {error}; output: {:?}",
+                self.output.borrow().0
+            )
+        });
     }
 
     async fn finish(mut self) -> Completion {
@@ -182,13 +189,50 @@ async fn exited(handle: &OwnedHandle) {
     .expect("PTY descendant did not exit");
 }
 
+#[test]
+fn prepares_working_directories() {
+    for (source, expected) in [
+        (r"\\?\C:\project", r"C:\project"),
+        (r"\\?\C:\项目 with spaces", r"C:\项目 with spaces"),
+        (r"\\?\C:\", r"C:\"),
+        (r"C:\project", r"C:\project"),
+        (r"\\server\share\project", r"\\server\share\project"),
+        (r"\\?\UNC\server\share", r"\\?\UNC\server\share"),
+        (r"\\.\pipe\fixture", r"\\.\pipe\fixture"),
+        (r"\\?\C:\project.", r"\\?\C:\project."),
+        (r"\\?\C:\project ", r"\\?\C:\project "),
+    ] {
+        assert_eq!(super::directory(Path::new(source)), Path::new(expected));
+    }
+}
+
+#[tokio::test]
+async fn honors_working_directory() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path().join("项目 with spaces");
+    std::fs::create_dir(&root).unwrap();
+    let script = r#"if not "%CD%"=="%PWD%" exit /b 9 & echo cwd-marker>cwd.txt"#;
+    let result = Running::command(&root, "tail", script).await.finish().await;
+    assert_eq!(result.outcome, Outcome::Exited(0), "{:?}", result.stdout);
+    assert_eq!(
+        std::fs::read_to_string(root.join("cwd.txt"))
+            .unwrap()
+            .trim(),
+        "cwd-marker"
+    );
+}
+
 #[tokio::test]
 async fn closes_after_draining_unicode_output() {
     let directory = tempfile::tempdir().unwrap();
     let running = Running::start(directory.path(), "tail").await;
     let result = running.finish().await;
-    assert_eq!(result.outcome, Outcome::Exited(7));
-    assert!(result.stdout.text.contains("中文 🙂 final tail"));
+    assert_eq!(result.outcome, Outcome::Exited(7), "{:?}", result.stdout);
+    assert!(
+        result.stdout.text.contains("中文 🙂 final tail"),
+        "{:?}",
+        result.stdout
+    );
     assert!(result.stdout.text.len() <= 64 * 1024);
     assert!(!result.stdout.invalid_utf8);
     assert!(!result.stdout.text.contains("\u{1b}[6n"));

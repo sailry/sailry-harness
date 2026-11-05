@@ -9,7 +9,7 @@ mod macos;
 pub(crate) mod pty;
 pub(crate) use environment::Environment;
 #[cfg(windows)]
-pub(crate) use interactive::windows::Job as PtyJob;
+pub(crate) use interactive::windows::{Job as PtyJob, directory as pty_directory};
 pub(crate) mod output;
 pub(crate) mod sandbox;
 #[cfg(test)]

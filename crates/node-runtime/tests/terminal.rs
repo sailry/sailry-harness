@@ -26,6 +26,9 @@ mod synchronized_output;
 #[path = "terminal/tools.rs"]
 #[cfg(unix)]
 mod tools;
+#[cfg(windows)]
+#[path = "terminal/windows.rs"]
+mod windows;
 
 #[cfg(unix)]
 async fn isolated(profile: &std::path::Path, home: &std::path::Path) -> Node {
