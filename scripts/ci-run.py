@@ -8,9 +8,44 @@ import sys
 import time
 
 
+def windows_snapshot():
+    script = """
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$names = 'cargo.exe', 'cargo-nextest.exe', 'rustc.exe', 'sccache.exe',
+    'clang.exe', 'clang-cl.exe', 'cl.exe', 'link.exe', 'lld-link.exe',
+    'rust-lld.exe', 'ld.exe', 'ld64.lld.exe'
+$filter = ($names | ForEach-Object { "Name = '$_'" }) -join ' OR '
+$now = Get-Date
+Get-CimInstance -ClassName Win32_Process -Filter $filter |
+    Sort-Object ProcessId |
+    Select-Object @{Name='PID'; Expression={$_.ProcessId}},
+        @{Name='PPID'; Expression={$_.ParentProcessId}},
+        @{Name='ELAPSED(s)'; Expression={
+            if ($_.CreationDate) { [math]::Round(($now - $_.CreationDate).TotalSeconds) }
+        }},
+        @{Name='CPU(s)'; Expression={
+            [math]::Round(([double]$_.KernelModeTime + [double]$_.UserModeTime) / 1e7, 1)
+        }},
+        @{Name='RSS(KiB)'; Expression={[math]::Round([double]$_.WorkingSetSize / 1024)}},
+        @{Name='COMMAND'; Expression={$_.Name}} |
+    Format-Table -AutoSize |
+    Out-String -Width 200
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=True,
+    )
+    print("RSS is KiB; CPU time is cumulative seconds:", flush=True)
+    print(result.stdout.strip() or "No build processes found", flush=True)
+
+
 def progress(elapsed):
     print(f"CI phase still running after {elapsed:.0f}s", flush=True)
     try:
+        if sys.platform == "win32":
+            windows_snapshot()
+            return
         result = subprocess.run(
             ["ps", "-axo", "pid,ppid,etime,time,pcpu,rss,comm"],
             capture_output=True, text=True, timeout=10, check=True,
@@ -22,8 +57,13 @@ def progress(elapsed):
                 "cargo", "cargo-nextest", "rustc", "sccache", "clang", "ld", "ld64.lld",
             }:
                 print(line, flush=True)
-    except (OSError, subprocess.SubprocessError):
-        print("Process snapshot unavailable", flush=True)
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"Process snapshot unavailable: {error}", flush=True)
+        detail = getattr(error, "stderr", None) or getattr(error, "stdout", None)
+        if isinstance(detail, bytes):
+            detail = detail.decode("utf-8", errors="replace")
+        if detail:
+            print(detail.strip(), flush=True)
 
 
 def run(command, env=None):
