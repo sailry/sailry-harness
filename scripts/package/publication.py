@@ -14,9 +14,9 @@ import zipfile
 import versions
 
 PREREQUISITES = {
-    "desktop": ("Source", "Rust strict lint", "Shared Node", "Desktop"),
-    "host": ("Source", "Rust strict lint", "Shared Node", "Host"),
-    "mobile": ("Source", "Rust strict lint", "Shared Node", "Mobile", "Mobile Android"),
+    "desktop": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Desktop"),
+    "host": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Host"),
+    "mobile": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Mobile", "Mobile Android"),
 }
 
 

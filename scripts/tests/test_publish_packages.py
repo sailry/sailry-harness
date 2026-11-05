@@ -4,6 +4,7 @@ import copy
 import subprocess
 import importlib.util
 import io
+import json
 from pathlib import Path
 import re
 import tempfile
@@ -413,20 +414,31 @@ class NativeBinary(unittest.TestCase):
 class Readiness(unittest.TestCase):
     def test_required_jobs_exist(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        names = set(re.findall(r"^    name: (.+)$", workflow, re.MULTILINE))
+        names = set()
+        jobs = workflow.split("\njobs:\n", 1)[1]
+        for job in re.split(r"^  [a-z_]+:\n", jobs, flags=re.MULTILINE)[1:]:
+            name = re.search(r"^    name: (.+)$", job, re.MULTILINE)[1]
+            if "${{ matrix.partition }}" in name:
+                matrix = re.search(r"^        partition: (\[[^\n]+\])$", job, re.MULTILINE)
+                self.assertIsNotNone(matrix)
+                names.update(name.replace("${{ matrix.partition }}", str(partition))
+                             for partition in json.loads(matrix[1]))
+            else:
+                names.add(name)
         for component, prerequisites in publication.PREREQUISITES.items():
             with self.subTest(component=component):
-                self.assertIn("Rust strict lint", prerequisites)
+                self.assertLessEqual({"Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)"},
+                                     set(prerequisites))
                 self.assertLessEqual(set(prerequisites) | {f"{component.title()} ready"}, names)
 
-    def run_fixture(self, gate="success", event="push", branch="main", sha=COMMIT, overall="failure"):
+    def run_fixture(self, gate="success", event="push", branch="main", sha=COMMIT, overall="failure", component="desktop"):
         client = Mock()
         client.api.side_effect = [
             {"workflow_runs": [{"id": 42, "head_sha": sha, "head_branch": branch,
                                 "event": event, "conclusion": overall}]},
             {"jobs": [{"name": name, "status": "completed", "conclusion": "success"}
-                      for name in publication.PREREQUISITES["desktop"]] +
-                     [{"name": "Desktop ready", "status": "completed", "conclusion": gate}]},
+                      for name in publication.PREREQUISITES[component]] +
+                     [{"name": f"{component.title()} ready", "status": "completed", "conclusion": gate}]},
         ]
         return client
 
@@ -489,6 +501,24 @@ class Readiness(unittest.TestCase):
                 client.api.side_effect = [runs, jobs]
                 with self.subTest(name=name, conclusion=conclusion), self.assertRaises(ValueError):
                     publication.readiness(client, REPOSITORY, COMMIT, "desktop")
+
+    def test_requires_build_and_both_shards(self):
+        for component in publication.PREREQUISITES:
+            for name in ("Test build", "Shared Node (1/2)", "Shared Node (2/2)"):
+                for state in ("missing", "failure", "skipped", "cancelled", "in_progress"):
+                    with self.subTest(component=component, name=name, state=state):
+                        client = self.run_fixture(component=component)
+                        runs, jobs = list(client.api.side_effect)
+                        job = next(job for job in jobs["jobs"] if job["name"] == name)
+                        if state == "missing":
+                            jobs["jobs"].remove(job)
+                        elif state == "in_progress":
+                            job.update(status=state, conclusion=None)
+                        else:
+                            job["conclusion"] = state
+                        client.api.side_effect = [runs, jobs]
+                        with patch.object(publication, "checked_source", return_value=None), self.assertRaises(ValueError):
+                            publication.readiness(client, REPOSITORY, COMMIT, component)
 
     def test_does_not_combine_different_runs(self):
         client = self.run_fixture()
