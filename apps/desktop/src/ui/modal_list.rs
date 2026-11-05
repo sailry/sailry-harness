@@ -33,7 +33,6 @@ enum Mark {
 pub(crate) struct List {
     id: SharedString,
     heading: Option<SharedString>,
-    icon: Option<Icon>,
     count: Option<SharedString>,
     rows: Vec<Row>,
     action: Option<AnyElement>,
@@ -46,7 +45,6 @@ impl List {
         Self {
             id: id.into(),
             heading: None,
-            icon: None,
             count: None,
             rows: Vec::new(),
             action: None,
@@ -57,11 +55,6 @@ impl List {
 
     pub fn heading(mut self, label: impl Into<SharedString>) -> Self {
         self.heading = Some(label.into());
-        self
-    }
-
-    pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
-        self.icon = Some(icon.into());
         self
     }
 
@@ -117,7 +110,6 @@ impl RenderOnce for List {
                 .gap_2()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
-                .children(self.icon.map(|icon| icon.size_4()))
                 .child(div().flex_1().min_w_0().truncate().child(label))
                 .children(self.count)
         });

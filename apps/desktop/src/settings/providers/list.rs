@@ -26,8 +26,8 @@ const SPANS: [&str; 2] = ["provider_window_5h", "provider_window_7d"];
 
 type Details = Rc<dyn Fn(&App) -> AnyElement>;
 
-/// The channel's type icon on its gradient tile, as in the type picker; monochrome icons
-/// inherit the white text color.
+/// The channel's type icon on its gradient tile, always drawn in the white text color
+/// so brand-colored vectors stay readable.
 pub(super) fn tile(channel: &Channel, size: f32) -> Div {
     let icon = size * 5. / 9.;
     let glyph = channel.directory.as_ref().map_or_else(
@@ -39,7 +39,7 @@ pub(super) fn tile(channel: &Channel, size: f32) -> Div {
                 .size(px(icon))
                 .into_any_element()
         },
-        |entry| presets::render_icon(entry, rems(icon / 16.)),
+        |entry| presets::render_mono(entry, rems(icon / 16.)),
     );
     crate::plugins::emblem::surface(&channel.name, None, px(size))
         .text_color(gpui_kit::white())

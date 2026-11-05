@@ -214,6 +214,10 @@ const ICONS: &[(&str, &[u8])] = &[
         include_bytes!("../../../assets/branding/sailry-mark.svg"),
     ),
     (
+        "branding/sailry-mark-white.svg",
+        include_bytes!("../../../assets/branding/sailry-mark-white.svg"),
+    ),
+    (
         "icons/remix/progress-2-line.svg",
         include_bytes!("../../../assets/icons/remix/progress-2-line.svg"),
     ),

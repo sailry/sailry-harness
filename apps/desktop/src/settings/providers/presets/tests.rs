@@ -211,6 +211,28 @@ fn directory_and_routes() {
             }),
         ),
         (
+            "tints_only_vector_glyphs",
+            (|_scenario: &str| {
+                let declared =
+                    sailry_protocol::plugin::desktop::Icon::Name("reicon:messages/chat".into());
+                for (glyph, expected) in [
+                    (Glyph::Declared(&declared), true),
+                    (Glyph::Image(ImageFormat::Svg, b"<svg/>".to_vec()), true),
+                    (Glyph::Fallback, true),
+                    (Glyph::Image(ImageFormat::Png, vec![0]), false),
+                    (Glyph::Remote("https://example.test/logo.png"), false),
+                ] {
+                    assert_eq!(tinted(&glyph), expected, "tints only vector glyphs: {glyph:?}");
+                }
+                assert!(
+                    groups(&bundled())
+                        .iter()
+                        .all(|(_, entries)| tinted(&glyph(&entries[0]))),
+                    "tints only vector glyphs"
+                );
+            }),
+        ),
+        (
             "routes_outweigh_brand_glyphs",
             (|_scenario: &str| {
                 let mut entry = bundled()

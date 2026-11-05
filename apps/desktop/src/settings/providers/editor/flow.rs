@@ -1,4 +1,5 @@
 //! Channel selection is presentation state; only the final action saves to the Node.
+use super::super::brands::{self, Choice};
 use super::super::presets;
 use super::entry::brand_label;
 use super::*;
@@ -20,7 +21,7 @@ pub(super) enum Origin {
 pub(super) struct Flow {
     pub step: Step,
     pub brand: Option<String>,
-    pub requested: Option<String>,
+    pub requested: Option<Choice>,
     editing: bool,
     origin: Origin,
 }
@@ -40,31 +41,31 @@ impl Flow {
         }
     }
 
-    pub(super) fn select(&mut self, brand: &str, count: usize) {
+    pub(super) fn select(&mut self, brand: &str, methods: usize) {
         if self.editing {
             return;
         }
         self.requested = None;
         self.brand = Some(brand.into());
-        self.step = if count == 1 {
+        self.step = if methods == 1 {
             Step::Configure
         } else {
             Step::Method
         };
     }
 
-    pub(super) fn defer(&mut self, brand: String) {
+    pub(super) fn defer(&mut self, choice: Choice) {
         if !self.editing {
-            self.requested = Some(brand);
+            self.requested = Some(choice);
         }
     }
 
-    fn back(&mut self, count: usize) -> Option<Origin> {
+    fn back(&mut self, methods: usize) -> Option<Origin> {
         if self.editing {
             return None;
         }
         self.step = match self.step {
-            Step::Configure if count > 1 => Step::Method,
+            Step::Configure if methods > 1 => Step::Method,
             _ => Step::Brand,
         };
         (self.step == Step::Brand).then_some(self.origin)
@@ -101,16 +102,6 @@ impl Access {
             Self::Cloud => "provider_access_cloud",
         }
     }
-
-    fn icon(self) -> Icon {
-        use gpui_kit::assets::IconName as Glyph;
-        match self {
-            Self::Key => Icon::new(Glyph::KeyRound),
-            Self::Endpoint => Icon::new(Glyph::Link),
-            Self::Login => Icon::new(IconName::CircleUser),
-            Self::Cloud => Icon::new(Glyph::Cloud),
-        }
-    }
 }
 
 /// Second summary line: the method name, or its access kind when the name
@@ -135,19 +126,20 @@ fn icon_tile(size: Pixels, icon: impl IntoElement, cx: &App) -> Div {
         .child(icon)
 }
 
-impl Editor {
-    fn choices_count(&self) -> usize {
-        self.flow
-            .brand
-            .as_ref()
-            .and_then(|selected| {
-                presets::groups(&self.directory)
-                    .into_iter()
-                    .find(|(key, _)| key == selected)
-            })
-            .map_or(0, |(_, choices)| choices.len())
+/// Methods behind the current configuration: a login opens alone, while an API
+/// method returns through its brand's list.
+fn method_count(
+    directory: &[sailry_protocol::conversation::presets::Entry],
+    brand: Option<&str>,
+    selected: Option<&sailry_protocol::conversation::presets::Entry>,
+) -> usize {
+    if selected.is_some_and(presets::login) {
+        return 1;
     }
+    brand.map_or(0, |brand| brands::api_methods(directory, brand).len())
+}
 
+impl Editor {
     pub(super) fn navigation_blocked(&self) -> bool {
         self.pending || self.closed || self.probe.is_some()
     }
@@ -156,7 +148,12 @@ impl Editor {
         if self.navigation_blocked() {
             return;
         }
-        if self.flow.back(self.choices_count()) == Some(Origin::Welcome)
+        let methods = method_count(
+            &self.directory,
+            self.flow.brand.as_deref(),
+            self.selected.as_ref(),
+        );
+        if self.flow.back(methods) == Some(Origin::Welcome)
             && let Some(return_to) = self.return_to.clone()
         {
             self.close(window, cx);
@@ -269,20 +266,18 @@ impl Editor {
             })
     }
 
-    pub(super) fn choices(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
-        let width = (window.viewport_size().width - px(48.)).min(super::super::brands::WIDTH);
+    pub(super) fn choices(&self, cx: &Context<Self>) -> AnyElement {
         let content = if self.flow.step == Step::Brand {
             let owner = cx.entity().downgrade();
             div()
-                .pt(px(31.))
-                .pb(px(45.))
-                .child(super::super::brands::matrix(
+                .px_7()
+                .pt(px(10.))
+                .pb(px(28.))
+                .child(brands::picker(
                     Some(&self.directory),
-                    width,
                     self.navigation_blocked(),
-                    move |brand, window, cx| {
-                        let _ =
-                            owner.update(cx, |editor, cx| editor.choose_brand(brand, window, cx));
+                    move |choice, window, cx| {
+                        let _ = owner.update(cx, |editor, cx| editor.choose(choice, window, cx));
                     },
                 ))
                 .into_any_element()

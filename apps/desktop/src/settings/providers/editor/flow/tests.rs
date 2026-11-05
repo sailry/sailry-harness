@@ -38,16 +38,54 @@ fn navigation_and_editing() {
 }
 
 #[test]
+fn login_returns_to_picker() {
+    // A login shares its brand with API methods but skips the method step.
+    let mut flow = Flow::new(false, Origin::Providers);
+    let entries = presets::bundled();
+    let login = Choice::Login {
+        brand: "openai".into(),
+        id: "chat-gpt-oauth".into(),
+    };
+    let (brand, methods) = brands::resolve(&entries, &login).unwrap();
+    flow.select(&brand, methods.len());
+    assert!(flow.step == Step::Configure);
+    let count = method_count(&entries, Some(&brand), methods.first());
+    assert_eq!(count, 1);
+    assert_eq!(flow.back(count), Some(Origin::Providers));
+    let (brand, methods) = brands::resolve(&entries, &Choice::Api("openai".into())).unwrap();
+    flow.select(&brand, methods.len());
+    assert!(flow.step == Step::Method);
+    flow.step = Step::Configure;
+    let count = method_count(&entries, Some(&brand), methods.first());
+    assert_eq!(count, 2);
+    assert_eq!(flow.back(count), None);
+    assert!(flow.step == Step::Method);
+}
+
+#[test]
+fn partner_returns_to_picker() {
+    // A suggestion replaces the brand, whose own list decides the back target.
+    assert_eq!(
+        method_count(&presets::bundled(), Some("partner:sample"), None),
+        0
+    );
+}
+
+#[test]
 fn waits_for_package_brand() {
     let mut flow = Flow::new(false, Origin::Providers);
-    flow.defer("package:sample:models".into());
-    assert_eq!(flow.requested.as_deref(), Some("package:sample:models"));
+    let requested = Choice::Api("package:sample:models".into());
+    flow.defer(requested.clone());
+    assert_eq!(flow.requested, Some(requested));
     assert!(flow.step == Step::Brand);
     flow.select("package:sample:models", 2);
     assert!(flow.requested.is_none());
     assert_eq!(flow.brand.as_deref(), Some("package:sample:models"));
     assert!(flow.step == Step::Method);
-    flow.defer("package:other:models".into());
+    flow.defer(Choice::Login {
+        brand: "package:other:models".into(),
+        id: "sign-in".into(),
+    });
     flow.select("openai", 3);
     assert!(flow.requested.is_none());
     assert_eq!(flow.brand.as_deref(), Some("openai"));

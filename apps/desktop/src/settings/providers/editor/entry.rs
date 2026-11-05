@@ -1,27 +1,24 @@
-//! Reuse directory brands from Settings and the welcome guide.
-use super::super::presets;
+//! Reuse picker choices from Settings and the welcome guide.
+use super::super::{brands, presets};
 use super::*;
 
 impl Editor {
-    pub(in crate::settings::providers) fn choose_brand(
+    pub(in crate::settings::providers) fn choose(
         &mut self,
-        brand: String,
+        choice: brands::Choice,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.navigation_blocked() || self.editing.is_some() {
             return;
         }
-        let Some((key, choices)) = presets::groups(&self.directory)
-            .into_iter()
-            .find(|(key, _)| *key == brand)
-        else {
-            self.flow.defer(brand);
+        let Some((brand, methods)) = brands::resolve(&self.directory, &choice) else {
+            self.flow.defer(choice);
             return;
         };
-        self.flow.select(&key, choices.len());
-        if choices.len() == 1 {
-            self.choose_entry(choices[0].clone(), window, cx);
+        self.flow.select(&brand, methods.len());
+        if let [method] = methods.as_slice() {
+            self.choose_entry(method.clone(), window, cx);
         }
         cx.notify();
     }

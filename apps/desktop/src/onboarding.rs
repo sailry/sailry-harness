@@ -4,7 +4,7 @@ use crate::{
     backend::Services,
     preferences,
     preview::Page,
-    settings::{ReturnTo, Section, Workspace},
+    settings::{ProviderChoice, ReturnTo, Section, Workspace},
     shell::Shell,
     tr,
 };
@@ -19,7 +19,12 @@ use gpui_kit::{
 };
 use std::rc::Rc;
 
-const WIDTH: Pixels = px(640.);
+const WIDTH: Pixels = px(560.);
+/// Approved peach-to-coral brand banner. Themes have no brand banner token, and
+/// GPUI gradients paint two stops, so these approximate the design's four.
+const BANNER_FROM: u32 = 0xffd9cc;
+const BANNER_TO: u32 = 0xe8687f;
+const BANNER_ANGLE: f32 = 135.;
 
 impl Shell {
     pub(crate) fn open_welcome(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -50,7 +55,7 @@ impl Shell {
 
     fn welcome_provider(
         &mut self,
-        brand: String,
+        choice: ProviderChoice,
         return_to: ReturnTo,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -79,7 +84,7 @@ impl Shell {
         });
         Workspace::add_provider(
             self.settings.clone(),
-            Some(brand),
+            Some(choice),
             Some(return_to),
             window,
             cx,
@@ -109,7 +114,7 @@ fn show(guide: Entity<Guide>, window: &mut Window, cx: &mut App) {
     });
 }
 
-fn launch(guide: Entity<Guide>, brand: String, window: &mut Window, cx: &mut App) {
+fn launch(guide: Entity<Guide>, choice: ProviderChoice, window: &mut Window, cx: &mut App) {
     let shell = guide.read(cx).shell.clone();
     let resume = guide.clone();
     let return_to = Rc::new(move |window: &mut Window, cx: &mut App| {
@@ -126,7 +131,7 @@ fn launch(guide: Entity<Guide>, brand: String, window: &mut Window, cx: &mut App
     preferences::mark_welcome_seen(cx);
     window.close_dialog(cx);
     let _ = shell.update(cx, |shell, cx| {
-        shell.welcome_provider(brand, return_to.clone(), window, cx)
+        shell.welcome_provider(choice, return_to.clone(), window, cx)
     });
 }
 
@@ -164,8 +169,7 @@ impl Guide {
 }
 
 impl Render for Guide {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let width = (window.viewport_size().width - px(48.)).min(WIDTH);
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let guide = cx.entity().downgrade();
         v_flex()
             .id("welcome-guide")
@@ -174,42 +178,59 @@ impl Render for Guide {
             .w_full()
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
-            .child(div().absolute().top(px(25.)).right(px(25.)).size_8().child(
-                DialogClose::new().trigger(|button| button.ghost().size_8().icon(IconName::Close)),
-            ))
             .child(
                 v_flex()
                     .w_full()
                     .items_center()
-                    .pt(px(37.))
+                    .pt(px(34.))
+                    .pb(px(28.))
                     .px_9()
-                    .child(img("branding/sailry-mark.svg").size(px(50.)))
+                    // The dialog does not clip its content to its corners.
+                    .rounded_tl(cx.theme().radius_lg)
+                    .rounded_tr(cx.theme().radius_lg)
+                    .bg(linear_gradient(
+                        BANNER_ANGLE,
+                        linear_color_stop(rgb(BANNER_FROM), 0.),
+                        linear_color_stop(rgb(BANNER_TO), 1.),
+                    ))
+                    .child(img("branding/sailry-mark-white.svg").size(px(56.)))
                     .child(
                         DialogTitle::new()
-                            .mt(px(19.))
+                            .mt(px(14.))
                             .text_2xl()
                             .font_semibold()
                             .text_center()
+                            .text_color(gpui_kit::white())
                             .child(tr("onboarding_title")),
                     )
                     .child(
                         DialogDescription::new()
-                            .mt(px(9.))
+                            .mt(px(6.))
                             .text_center()
+                            .text_color(gpui_kit::white())
                             .child(tr("onboarding_description")),
                     ),
             )
+            .child(div().absolute().top(px(12.)).right(px(12.)).size_8().child(
+                DialogClose::new().trigger(|button| {
+                    button
+                        .ghost()
+                        .size_8()
+                        .icon(IconName::Close)
+                        .text_color(gpui_kit::white())
+                }),
+            ))
             .child(
                 div()
                     .w_full()
-                    .pt(px(35.))
-                    .pb(px(40.))
-                    .child(Workspace::provider_matrix(
+                    .px_7()
+                    .pt(px(20.))
+                    .pb(px(26.))
+                    .child(Workspace::provider_picker(
                         self.entries.as_deref(),
-                        width,
-                        move |brand, window, cx| {
+                        move |choice, window, cx| {
                             if let Some(guide) = guide.upgrade() {
-                                launch(guide, brand, window, cx);
+                                launch(guide, choice, window, cx);
                             }
                         },
                     )),

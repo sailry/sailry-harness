@@ -185,7 +185,7 @@
       "key_url": null,
       "badge": null,
       "brand": "openai",
-      "offered": true,
+      "offered": false,
       "routes": [
         {
           "protocol": "openai-responses",
