@@ -39,17 +39,39 @@ class Audit:
         self.skipped = set()
         self.measurements = 0
 
-    def pair(self, label, foreground, background, base, minimum=4.5, opacity=1):
-        foreground, background = rgba(foreground), rgba(background)
+    def measure(self, label, foreground, background, minimum=4.5):
         if foreground is None or background is None:
             self.skipped.add(label)
             return
-        background[3] *= opacity
-        background = composite(background, base)
         ratio = contrast(composite(foreground, background), background)
         self.measurements += 1
         if ratio < minimum:
             self.errors.append(f"{label}: {ratio:.2f}:1 contrast, requires {minimum:g}:1")
+
+    def pair(self, label, foreground, background, base, minimum=4.5):
+        background = rgba(background)
+        background = composite(background, base) if background is not None and base is not None else None
+        self.measure(label, rgba(foreground), background, minimum)
+
+    def controls(self, mode, colors, base):
+        surfaces = {"base": base}
+        for name in ("group_box", "popover"):
+            surface = rgba(colors.get(name + ".background"))
+            surfaces[name] = composite(surface, base) if surface is not None else None
+        for name, surface in surfaces.items():
+            track = rgba(colors.get("tab_bar.segmented.background"))
+            track = composite(track, surface) if track is not None and surface is not None else None
+            label = f"{mode}: segmented.{name}"
+            self.measure(label + ".selection", rgba(colors.get("background")), track, 3)
+            self.pair(label + ".selected.foreground", colors.get("tab.active.foreground"),
+                      colors.get("background"), track)
+            self.measure(label + ".unselected.foreground", rgba(colors.get("tab.foreground")), track)
+            self.measure(label + ".hovered.foreground", rgba(colors.get("tab.active.foreground")), track)
+            for state in ("background", "hover.background", "active.background"):
+                label = f"{mode}: button.primary.{state}.{name}"
+                fill = colors.get("button.primary." + state)
+                self.measure(label + ".surface", rgba(fill), surface, 3)
+                self.pair(label + ".foreground", colors.get("button.primary.foreground"), fill, surface)
 
     def variant(self, mode, variant):
         colors = variant["theme"].get("colors", {})
@@ -62,14 +84,13 @@ class Audit:
             self.pair(f"{mode}: {key}", colors.get(key), colors.get("background"), base)
         modal = rgba(colors.get("popover.background"))
         modal = composite(modal, base) if modal else base
-        for prefix in ("tab", "tab.active", "button", "button.primary", "button.secondary"):
+        for prefix in ("tab", "tab.active", "button", "button.secondary"):
             states = ("background",) if prefix.startswith("tab") else (
                 "background", "hover.background", "active.background")
             for state in states:
-                # Kit's normal buttons mix their fill with transparent at 20%.
-                opacity = 0.8 if prefix.startswith("button") and state == "background" else 1
                 self.pair(f"{mode}: {prefix}.{state}", colors.get(prefix + ".foreground"),
-                          colors.get(prefix + "." + state), modal, opacity=opacity)
+                          colors.get(prefix + "." + state), modal)
+        self.controls(mode, colors, base)
         for key, card in variant.get("cards", {}).items():
             for state in ("background", "hover", "active"):
                 for text in ("foreground", "detail"):
