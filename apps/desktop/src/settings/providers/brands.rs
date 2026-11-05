@@ -22,8 +22,11 @@ pub(crate) enum Choice {
     Api(String),
 }
 
+type Logins = Vec<(String, Entry)>;
+type ApiGroups = Vec<(String, Vec<Entry>)>;
+
 /// Offered groups ordered by their brand label, as every entry point shows them.
-fn sorted(entries: &[Entry]) -> Vec<(String, Vec<Entry>)> {
+fn sorted(entries: &[Entry]) -> ApiGroups {
     let mut groups = presets::groups(entries);
     groups.sort_by_cached_key(|(key, choices)| {
         (
@@ -35,7 +38,7 @@ fn sorted(entries: &[Entry]) -> Vec<(String, Vec<Entry>)> {
 }
 
 /// Account logins ordered by their chip label, then brands with API methods.
-fn split(entries: &[Entry]) -> (Vec<(String, Entry)>, Vec<(String, Vec<Entry>)>) {
+fn split(entries: &[Entry]) -> (Logins, ApiGroups) {
     let mut logins = Vec::new();
     let mut brands = Vec::new();
     for (key, choices) in sorted(entries) {
@@ -115,8 +118,8 @@ type Select = Rc<dyn Fn(Choice, &mut Window, &mut App)>;
 
 #[derive(IntoElement)]
 struct Picker {
-    logins: Vec<(String, Entry)>,
-    brands: Vec<(String, Vec<Entry>)>,
+    logins: Logins,
+    brands: ApiGroups,
     disabled: bool,
     select: Select,
 }
