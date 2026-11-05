@@ -1,9 +1,14 @@
-#![cfg(unix)]
 use super::*;
-use sailry_protocol::process::{Completion, Outcome};
+use sailry_protocol::process::Completion;
+#[cfg(unix)]
+use sailry_protocol::process::Outcome;
+#[cfg(unix)]
 use serde_json::json;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
+#[cfg(unix)]
 #[path = "process/follow_up.rs"]
 mod follow_up;
 
@@ -93,6 +98,7 @@ impl Fixture {
         }
     }
 
+    #[cfg(unix)]
     fn command(&self, turn: TurnId, command: &str) -> Request {
         self.client.prepare(Command::RunCommand {
             turn,
@@ -134,6 +140,7 @@ pub(super) async fn results(client: &Client, page: &Page) -> Vec<Completion> {
         .collect()
 }
 
+#[cfg(unix)]
 async fn child(path: &Path) -> i32 {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -149,6 +156,7 @@ async fn child(path: &Path) -> i32 {
     .expect("fixture child did not start")
 }
 
+#[cfg(unix)]
 async fn gone(pid: i32) {
     tokio::time::timeout(Duration::from_secs(3), async {
         // SAFETY: signal 0 only probes the exact fixture PID and passes no pointers.
@@ -160,6 +168,7 @@ async fn gone(pid: i32) {
     .expect("fixture child did not exit");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn reuses_turn_scratch() {
     for remote in [false, true] {
@@ -208,6 +217,7 @@ async fn reuses_turn_scratch() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn bounds_approved_results() {
     for remote in [false, true] {
@@ -356,6 +366,7 @@ async fn bounds_approved_results() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn cancellation_reaps_commands() {
     for remote in [false, true] {
@@ -468,6 +479,7 @@ async fn cancellation_reaps_commands() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn orders_batch_results() {
     for remote in [false, true] {
@@ -554,6 +566,7 @@ async fn orders_batch_results() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn delivers_completion_without_consuming_controller_reads() {
     use sailry_protocol::conversation::background::{Kind, State};
@@ -844,6 +857,7 @@ async fn delivers_completion_without_consuming_controller_reads() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn starts_independent_commands_together() {
     for remote in [false, true] {

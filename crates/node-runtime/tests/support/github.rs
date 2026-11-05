@@ -1,5 +1,9 @@
 //! An isolated CLI exercises login commands without reading a real account.
+#[cfg(unix)]
 use crate::environment_fixture as environment;
+#[cfg(windows)]
+#[path = "github/windows.rs"]
+mod environment;
 use sailry_node_runtime::EnvironmentFixture;
 use std::path::Path;
 
@@ -12,6 +16,7 @@ pub struct Cli {
 impl Cli {
     pub fn new(directory: &Path) -> Self {
         let login = environment::Login::new(directory);
+        #[cfg(unix)]
         environment::executable(
             &login.first.join("gh"),
             concat!(
