@@ -562,6 +562,7 @@ class GateWaiting(unittest.TestCase):
                     patch.object(gate.publication, "release", return_value={}) as release:
                 gate.main()
             self.assertEqual(wait.call_args.args[2:], ("a" * 40, component))
+            self.assertEqual(wait.call_args.kwargs, {"tag": "v0.1.0"})
             self.assertTrue(release.call_args.kwargs["published"])
 
     def test_missing_publication_fails_before_waiting(self):

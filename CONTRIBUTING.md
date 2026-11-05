@@ -226,34 +226,31 @@ those checks only when explicitly requested.
 
 ## Continuous integration
 
-[GitHub Actions](.github/workflows/ci.yml) runs automatically on pushes and pull
-requests. Source checks, native tests and platform builds use the same workflow;
-manual dispatch reruns it without changing the required coverage. A newer run for
-the same ref cancels superseded work. Reuse verified results while their relevant
-inputs remain unchanged.
+[Checks](.github/workflows/ci.yml) runs only through explicit dispatch. Ordinary
+branch pushes, pull requests, labels and draft transitions do not start CI.
+Version publication dispatches Checks when its exact tagged commit has no
+completed full result or active run. Manual dispatch remains available for
+independent diagnosis; it does not publish a version or start product packaging.
+Every dispatch selects all lanes in full mode, including Source, strict Rust
+lint, shared Node, Desktop, Host, Mobile, Android and pairing-service checks.
+Runs for the same source commit do not cancel an active run.
 
-`scripts/ci.py select` chooses the coverage mode from the event:
+For diagnostics, select the intended branch or tag in Actions, or run:
 
-| Event | Coverage |
-|---|---|
-| Push to `main`, manual dispatch | Full checks for the affected lanes |
-| Pull request with the `full-ci` label | Full checks for the affected lanes |
-| Other ready pull requests | Source, pairing service and light Rust lint |
-| Draft pull request, or another label added | Source only; checks are deferred |
+```sh
+gh workflow run ci.yml --ref <branch-or-version-tag>
+```
 
-Light lint checks formatting and runs strict `cargo clippy --all-targets` for the
-affected packages without running tests. Packages that Checks already builds on
-Linux use one Ubuntu job; speech, content, Desktop and the mobile bridge use one
-macOS job. Light lint also runs the Host and Mobile source fixtures on Linux and
-the Desktop source fixtures on macOS. It does not lint macOS-only code in packages
-checked on Linux, and it does not establish product readiness. Adding `full-ci`
-starts full checks; other labels do not cancel or repeat the current checks.
-Marking a draft ready for review starts its checks.
+The optional `reuse_run` input retains the existing verified recovery mechanism
+for main Checks: only successful jobs with unchanged product inputs and valid
+provenance can be reused. Source and readiness gates run again, and failures,
+cancellations or unverified skips cannot establish acceptance. Release admission
+also reuses an already successful full Checks run at the exact tagged SHA.
+A different main commit is never a substitute for that release source.
 
-A deferred run reports `Checks deferred` rather than `Checks passed`, so the
-required check stays pending instead of passing. A pull request run superseded
-on the same commit reports `Checks passed` as failed rather than skipped; its
-replacement then reports the result.
+Repository rules that require `Checks passed` on every pull request need separate
+maintainer review when adopting this policy; workflow changes do not edit branch
+protection. Release and website synchronization triggers remain independent.
 
 Native validation runs strict Rust checks, backend local/remote integration,
 Desktop logic and service-contract tests, and production-feature checks on Apple
@@ -277,9 +274,9 @@ producer fetches the locked workspace sources, shared by Checks and release jobs
 Target directories are not archived, to leave room within the repository's 10 GiB
 cache budget. Cargo validates fingerprints and rebuilds changed inputs.
 The pinned sccache compiler cache reuses Rust library compilation by content;
-test executables still need linking. Main produces compiler objects; PRs read
-them. SDKs, targets and profile flags remain part of compiler identity; release
-and test objects are not interchangeable. Cache statistics and repository usage
+test executables still need linking. Main produces compiler objects; tag and
+other branch runs read them. SDKs, targets and profile flags remain part of
+compiler identity; release and test objects are not interchangeable. Cache statistics and repository usage
 are recorded in each run, with a warning at 9 GiB. GitHub evicts least recently
 used entries at the repository limit; this budget cannot keep every platform and
 profile hot simultaneously. `SCCACHE_CACHE_SIZE` does not cap remote storage.
@@ -293,14 +290,14 @@ failures are not retried. Hung tests fail after five 60-second timeout periods.
 Unit tests precede production-feature checks; the lifecycle suite builds its own
 required application executable. JUnit reports remain separate and include
 individual test durations.
-Full checks use four macOS jobs: lint, shared Node with Host lifecycle, Desktop, and
-Mobile with conditional Dart FFI and iOS phases; light lint uses at most one. Node-only changes run Dart FFI
-contracts without rebuilding iOS.
+Full checks include macOS lint, the shared test build, shared Node with Host
+lifecycle, Desktop, and Mobile with Dart FFI and iOS phases. Manual and release
+dispatches select the complete platform coverage.
 Backend and Desktop share downloaded dependency sources, with backend as the
 cache producer; Mobile reuses that source cache. Sccache caches eligible library
 metadata. Downloaded speech and decision libraries share a target-specific cache
 keyed by their pinned identities. Only successful jobs on `main` save complete
-library archives; pull requests only restore them.
+library archives; tag and other branch runs only restore them.
 Rust compilation uses two Cargo jobs to bound memory on the standard macOS runner.
 These CLI limits preserve the shared dependency cache identity. Backend tests run
 four isolated processes concurrently to bound real-Node fixture contention.
@@ -328,14 +325,23 @@ Flutter run do not establish iOS or Android device acceptance.
 tag is pushed and dispatches version publication on `main`. It also accepts manual
 dispatch from `main` with an exact `tag` input. The tag must match every
 application's version, such as `v0.1.0` for version `0.1.0`, and its source must be
-an ancestor of the pinned main workflow commit. The entry generates notes and
-publishes the version release before independently starting
-[Desktop](.github/workflows/release.yml),
-[Host](.github/workflows/release-host.yml), Mobile and the changelog. Version
-publication does not wait for product Checks; every product build requires its
-exact-source readiness gate, including strict lint and shared Node checks. Other
-products' jobs can finish independently. The release can contain
-only notes while these builds are running.
+an ancestor of the pinned main workflow commit. The entry first requires a
+completed, successful full Checks run at that exact SHA, including every product
+readiness gate and the final `Checks passed` result.
+It verifies full lane selection and any reused job evidence. If no successful
+full result or active run exists, it explicitly dispatches `ci.yml` on the version
+tag, not on the moving main branch. The existing bounded waiter allows up to five
+hours; missing, failed, cancelled or incomplete Checks stop publication. A retry
+can reuse successful exact-source results; failed dispatches are not silently
+replayed. The remote tag is checked again after waiting.
+
+Only then does the entry generate notes, publish the version release and
+independently start [Desktop](.github/workflows/release.yml),
+[Host](.github/workflows/release-host.yml), Mobile and the changelog. Every product
+build still requires its exact-source readiness gate, including strict lint and
+shared Node checks, from main or the selected tag's Checks. Product packaging can
+finish independently. The release can contain only notes while these builds are
+running, but not while its initial full Checks are pending.
 
 Desktop and Host recovery workflows select `main` and supply the exact version
 tag as their `tag` input. Every product job checks out its selected source; the
@@ -384,9 +390,9 @@ advances the root feeds with one non-forced compare-and-swap commit. The stable
 feed accepts final versions only. The experience feed accepts both final and
 prerelease versions, and a stable publication advances both feeds. GitHub does
 not normally start another workflow for events created with `GITHUB_TOKEN`, so
-the version entry explicitly dispatches product and changelog workflows, while
-formal Desktop publication dispatches the verified feed handoff. Manual dispatch
-can retry those follow-ups for a published version tag.
+the version entry explicitly dispatches Checks, product and changelog workflows,
+while formal Desktop publication dispatches the verified feed handoff. Manual
+dispatch can retry those follow-ups for a published version tag.
 
 The independent [Mobile packages workflow](.github/workflows/release-mobile.yml)
 accepts dispatch from `main`. Its optional `tag` input selects the exact source of

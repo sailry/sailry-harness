@@ -24,6 +24,7 @@ PREREQUISITES = {
     "host": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Host"),
     "mobile": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Mobile", "Mobile Android"),
 }
+FULL_CHECKS = ("Source", *sorted(ci_reuse.NAMES), "Desktop ready", "Host ready", "Mobile ready")
 
 
 # Product Checks remain valid when only the reviewed signing tool and its
@@ -181,9 +182,21 @@ def append(client, repository, tag, metadata, assets):
         client.upload(tag, missing)
 
 
+def gate_name(component):
+    return "Checks passed" if component == "checks" else f"{component.title()} ready"
+
+
+def checks_run(run, commit, tag=None):
+    return (run.get("head_sha") == commit
+            and run.get("event") in {"push", "workflow_dispatch"}
+            and (run.get("head_branch") == "main"
+                 or (tag is not None and run.get("head_branch") == tag
+                     and run.get("event") == "workflow_dispatch")))
+
+
 def job_results(client, repository, commit, run_id, component, jobs):
-    fresh = {"Source", f"{component.title()} ready"}
-    required = {*PREREQUISITES[component], *fresh}
+    fresh = {"Source", gate_name(component)}
+    required = set(FULL_CHECKS if component == "checks" else PREREQUISITES[component]) | fresh
     jobs = [job for job in jobs if job.get("name") in required]
     successful = {job["name"] for job in jobs if job.get("status") == "completed"
                   and job.get("conclusion") == "success"}
@@ -199,19 +212,23 @@ def job_results(client, repository, commit, run_id, component, jobs):
     return successful - unfinished, bool(skipped - successful)
 
 
-def ready_run(client, repository, commit, component):
-    gate = f"{component.title()} ready"
-    required = {*PREREQUISITES[component], gate}
+def ready_run(client, repository, commit, component, tag=None):
+    gate = gate_name(component)
+    required = set(FULL_CHECKS if component == "checks" else PREREQUISITES[component]) | {gate}
     page = 1
     while True:
         runs = client.api("GET", f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}&per_page=100&page={page}")["workflow_runs"]
         for run in runs:
-            if (run.get("head_sha") != commit or run.get("head_branch") != "main"
-                    or run.get("event") not in {"push", "workflow_dispatch"}):
+            if not checks_run(run, commit, tag):
                 continue
-            jobs = client.api("GET", f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
+            if component == "checks" and (run.get("status") != "completed" or run.get("conclusion") != "success"):
+                continue
+            jobs = ci_reuse.pages(client, f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest", "jobs")
             successful, blocked = job_results(client, repository, commit, run["id"], component, jobs)
             if not blocked and required.issubset(successful):
+                if component == "checks":
+                    source = next(job for job in jobs if job.get("name") == "Source")
+                    ci_reuse.source_selection(repository, source)
                 return run["id"]
         if len(runs) < 100:
             break
@@ -252,8 +269,8 @@ def recovered_run(client, repository, commit, component, root=None):
     return run_id
 
 
-def readiness(client, repository, commit, component):
-    run = ready_run(client, repository, commit, component)
+def readiness(client, repository, commit, component, tag=None):
+    run = ready_run(client, repository, commit, component, tag=tag)
     if run is not None:
         return run
     source = checked_source(commit)
@@ -265,40 +282,40 @@ def readiness(client, repository, commit, component):
     run = recovered_run(client, repository, commit, component)
     if run is not None:
         return run
-    raise ValueError(f"The release product needs a successful {component.title()} ready gate from main Checks")
+    raise ValueError(f"The release product needs a successful {component.title()} ready gate from main or the selected tag's Checks")
 
 
-def wait_ready(client, repository, commit, component):
+def wait_ready(client, repository, commit, component, tag=None, ignored_runs=()):
     deadline = time.monotonic() + 5 * 60 * 60
     while True:
-        ready = ready_run(client, repository, commit, component)
+        ready = ready_run(client, repository, commit, component, tag=tag)
         if ready is not None:
             checked = client.api("GET", f"repos/{repository}/actions/runs/{ready}")
-            if (checked.get("id") != ready or checked.get("head_sha") != commit
-                    or checked.get("head_branch") != "main"
-                    or checked.get("event") not in {"push", "workflow_dispatch"}):
+            if (checked.get("id") != ready or not checks_run(checked, commit, tag)
+                    or (component == "checks" and (checked.get("status") != "completed"
+                                                  or checked.get("conclusion") != "success"))):
                 raise ValueError("The ready Checks run does not match the release source")
             return ready
-        recovered = recovered_run(client, repository, commit, component)
-        if recovered is not None:
-            return recovered
-        payload = client.api("GET", f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}&per_page=100")
-        runs = [run for run in payload["workflow_runs"]
-                if run.get("head_sha") == commit and run.get("head_branch") == "main"
-                and run.get("event") in {"push", "workflow_dispatch"}]
+        if component != "checks":
+            recovered = recovered_run(client, repository, commit, component)
+            if recovered is not None:
+                return recovered
+        payload = ci_reuse.pages(client, f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}", "workflow_runs")
+        runs = [run for run in payload if checks_run(run, commit, tag) and run.get("id") not in ignored_runs]
         pending = False
         for run in runs:
             if run.get("status") == "completed":
                 continue
-            jobs = client.api("GET", f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
+            jobs = ci_reuse.pages(client, f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest", "jobs")
             _, blocked = job_results(client, repository, commit, run["id"], component, jobs)
             pending |= not blocked
         if runs and not pending:
-            raise ValueError(f"The exact-source Checks ended without successful {component.title()} readiness")
+            label = "full Checks" if component == "checks" else component.title()
+            raise ValueError(f"The exact-source Checks ended without successful {label} readiness")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("The exact-source release gate did not become ready within five hours")
-        print(f"Waiting for {component.title()} readiness at exact source {commit}", flush=True)
+        print(f"Waiting for {gate_name(component)} at exact source {commit}", flush=True)
         time.sleep(min(60, remaining))
 
 

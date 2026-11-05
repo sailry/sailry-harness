@@ -506,6 +506,18 @@ class Readiness(unittest.TestCase):
         self.assertEqual(publication.readiness(self.run_fixture(event="workflow_dispatch"),
                                               REPOSITORY, COMMIT, "desktop"), 42)
 
+    def test_accepts_only_the_selected_tag_dispatch(self):
+        for component in publication.PREREQUISITES:
+            client = self.run_fixture(event="workflow_dispatch", branch=TAG, component=component)
+            with self.subTest(component=component):
+                self.assertEqual(publication.readiness(client, REPOSITORY, COMMIT, component, tag=TAG), 42)
+        for tag, event, branch in ((None, "workflow_dispatch", TAG), (TAG, "workflow_dispatch", "v0.2.0"),
+                                   (TAG, "push", TAG), (TAG, "pull_request", TAG)):
+            client = self.run_fixture(event=event, branch=branch)
+            with self.subTest(tag=tag, event=event, branch=branch), self.assertRaises(ValueError):
+                publication.readiness(client, REPOSITORY, COMMIT, "desktop", tag=tag)
+            self.assertEqual(client.api.call_count, 1)
+
     def test_requires_actual_prerequisites_with_success_gate(self):
         for name in publication.PREREQUISITES["desktop"]:
             for conclusion in ("failure", "skipped"):

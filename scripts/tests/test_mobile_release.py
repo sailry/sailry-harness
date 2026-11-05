@@ -228,6 +228,21 @@ class Admission(unittest.TestCase):
             self.assertEqual(values["revision"], fixture.revision)
             self.assertEqual(values["workflow_revision"], fixture.workflow)
 
+    def test_admits_exact_tag_checks_from_version_entry(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Repository(Path(temporary))
+            tag = f"v{VERSION}"
+            git(fixture.tooling, "tag", tag, fixture.revision)
+            environment = {**fixture.environment, "SOURCE_COMMIT": "", "RELEASE_TAG": tag}
+            client = Checks(fixture.revision)
+            client.run.update(head_branch=tag, event="workflow_dispatch")
+            with patch.dict(os.environ, environment, clear=True), \
+                    patch.object(release.publication, "GitHub", return_value=client):
+                release.admit(fixture.source, fixture.tooling)
+            values = dict(row.split("=", 1) for row in Path(environment["GITHUB_OUTPUT"]).read_text().splitlines())
+            self.assertEqual(values["revision"], fixture.revision)
+            self.assertEqual(values["tag"], tag)
+
     def test_admits_despite_unrelated_check_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Repository(Path(temporary))
