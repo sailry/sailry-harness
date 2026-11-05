@@ -17,6 +17,8 @@ async fn restores_explicit_shells() {
     let profile = temp.path().join("node");
     let node = Node::start_empty(&profile).await.unwrap();
     let local = Client::new(node.local());
+    #[cfg(windows)]
+    configure_shell(&local).await;
     local
         .execute(local.prepare(Command::RegisterProject {
             name: "Reopen fixture".into(),
@@ -124,7 +126,7 @@ async fn restores_explicit_shells() {
         assert_eq!(error.code, ErrorCode::RevisionConflict);
         let mut stream = client.subscribe_terminal(info.id).await.unwrap();
         let mut projection = Projection::new(node.id(), info.id, 1);
-        command(client, &info, "printf '%s%s\\n' 'reopened-' 'shell'").await;
+        command(client, &info, &marker("reopened-", "shell")).await;
         until(&mut *stream, &mut projection, "reopened-shell").await;
     }
     assert_eq!(

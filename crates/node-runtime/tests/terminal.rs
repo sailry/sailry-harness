@@ -78,6 +78,44 @@ fn launch(worktree: WorktreeId) -> Launch {
     }
 }
 
+#[cfg(windows)]
+async fn configure_shell(client: &Client) {
+    let Output::Shells(shells) = client
+        .execute(client.prepare(Command::ListShells))
+        .await
+        .unwrap()
+    else {
+        panic!("shells expected")
+    };
+    let shell = shells
+        .into_iter()
+        .find(|shell| {
+            std::path::Path::new(shell)
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .is_some_and(|name| name.eq_ignore_ascii_case("powershell.exe"))
+        })
+        .expect("Windows PowerShell expected");
+    client
+        .execute(client.prepare(Command::SaveTerminalSettings(Settings {
+            shell,
+            ..Default::default()
+        })))
+        .await
+        .unwrap();
+}
+
+fn marker(prefix: &str, suffix: &str) -> String {
+    #[cfg(unix)]
+    {
+        format!("printf '%s%s\\n' '{prefix}' '{suffix}'")
+    }
+    #[cfg(windows)]
+    {
+        format!("Write-Output ('{prefix}' + '{suffix}')")
+    }
+}
+
 async fn command(client: &Client, info: &Info, text: &str) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     let inputs = vec![
@@ -196,6 +234,8 @@ async fn shares_process_and_input_ownership() {
         )
         .await
         .unwrap();
+    #[cfg(windows)]
+    configure_shell(&local).await;
     let Output::Snapshot(snapshot) = local
         .execute(local.prepare(Command::Snapshot))
         .await
@@ -240,11 +280,11 @@ async fn shares_process_and_input_ownership() {
         let mut stream = other.subscribe_terminal(info.id).await.unwrap();
         let mut projection = Projection::new(node.id(), info.id, 1);
         projection.apply(1, stream.next().await.unwrap()).unwrap();
-        command(&client, &info, "printf '%s%s\\n' 'pty-' 'ready'").await;
+        command(&client, &info, &marker("pty-", "ready")).await;
         until(&mut *stream, &mut projection, "pty-ready").await;
         let invalid = vec![
             Input::Text {
-                text: "printf leaked > batch-rejected".into(),
+                text: "echo leaked > batch-rejected".into(),
             },
             Input::Key {
                 event: KeyEvent {
@@ -283,7 +323,7 @@ async fn shares_process_and_input_ownership() {
                 ErrorCode::InvalidRequest
             );
         }
-        command(&client, &info, "printf '%s%s\\n' 'batch-' 'accepted'").await;
+        command(&client, &info, &marker("batch-", "accepted")).await;
         until(&mut *stream, &mut projection, "batch-accepted").await;
         assert!(!root.join("batch-rejected").exists());
         assert_eq!(
@@ -346,11 +386,15 @@ async fn shares_process_and_input_ownership() {
         };
         assert_eq!(resized.screen.columns, 100);
         assert_eq!(resized.screen.rows.len(), 30);
-        command(&other, &info, "stty size").await;
+        #[cfg(unix)]
+        let size = "stty size";
+        #[cfg(windows)]
+        let size = "'{0} {1}' -f [Console]::WindowHeight, [Console]::WindowWidth";
+        command(&other, &info, size).await;
         until(&mut *stream, &mut projection, "30 100").await;
         drop(stream);
         controller.handle().disconnect(node.id()).await;
-        command(&other, &info, "printf '%s%s\\n' 'still-' 'running'").await;
+        command(&other, &info, &marker("still-", "running")).await;
         let mut recovered = client.subscribe_terminal(info.id).await.unwrap();
         let mut projection = Projection::new(node.id(), info.id, 1);
         until(&mut *recovered, &mut projection, "still-running").await;
@@ -400,6 +444,8 @@ async fn preserves_stopped_processes() {
     let profile = temp.path().join("node");
     let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
+    #[cfg(windows)]
+    configure_shell(&client).await;
     client
         .execute(client.prepare(Command::RegisterProject {
             name: "Terminal fixture".into(),
@@ -420,9 +466,19 @@ async fn preserves_stopped_processes() {
     let Output::Terminal(info) = &original else {
         panic!("terminal expected")
     };
-    command(&client, info, "sleep 30").await;
     let mut stream = client.subscribe_terminal(info.id).await.unwrap();
-    stream.next().await.unwrap();
+    let mut projection = Projection::new(node.id(), info.id, 1);
+    #[cfg(unix)]
+    let pause = "sleep 30";
+    #[cfg(windows)]
+    let pause = "Start-Sleep -Seconds 30";
+    command(
+        &client,
+        info,
+        &format!("{}; {pause}", marker("process-", "ready")),
+    )
+    .await;
+    until(&mut *stream, &mut projection, "process-ready").await;
     tokio::time::timeout(Duration::from_secs(5), node.shutdown())
         .await
         .unwrap()
