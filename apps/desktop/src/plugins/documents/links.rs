@@ -17,7 +17,7 @@ pub(super) fn handler(
     base: String,
     context: plugin::Context,
 ) -> OnLink {
-    Rc::new(move |url: &SharedString, _: &mut Window, cx: &mut App| {
+    Rc::new(move |url: &SharedString, _, _: &mut Window, cx: &mut App| {
         if url.contains("://") || url.starts_with("mailto:") {
             cx.open_url(url);
             return;

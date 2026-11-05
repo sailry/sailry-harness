@@ -272,10 +272,10 @@ impl Render for State {
         let html = self.visuals.layouts();
         let math_entity = cx.weak_entity();
         let on_math_link: super::render::OnMathLink =
-            std::sync::Arc::new(move |url, window, cx| {
+            std::sync::Arc::new(move |url, modifiers, window, cx| {
                 let _ = math_entity.update(cx, |state, cx| {
                     if let Some(listener) = &state.on_link {
-                        listener(url, window, cx);
+                        listener(url, modifiers, window, cx);
                     } else {
                         cx.open_url(url);
                     }
@@ -283,7 +283,7 @@ impl Render for State {
             });
         let entity = cx.weak_entity();
         let listener = self.on_link.clone();
-        let on_link: OnLink = Rc::new(move |url, window, cx| {
+        let on_link: OnLink = Rc::new(move |url, modifiers, window, cx| {
             let allowed = entity
                 .update(cx, |state, _| {
                     state
@@ -293,7 +293,7 @@ impl Render for State {
                 .unwrap_or(false);
             if allowed {
                 if let Some(listener) = &listener {
-                    listener(url, window, cx);
+                    listener(url, modifiers, window, cx);
                 } else {
                     cx.open_url(url);
                 }
@@ -458,7 +458,7 @@ impl View {
     }
     pub fn on_link_click(
         mut self,
-        listener: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
+        listener: impl Fn(&SharedString, gpui_kit::Modifiers, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_link = Some(Rc::new(listener));
         self

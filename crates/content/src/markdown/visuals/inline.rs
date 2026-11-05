@@ -91,7 +91,7 @@ pub(in crate::markdown) fn render(
         images: Arc::new(images.clone()),
     })
     .when_some(link, |view, link| {
-        view.on_link_click(move |url, _, window, cx| link(url, window, cx))
+        view.on_link_click(move |url, event, window, cx| link(url, event.modifiers(), window, cx))
     });
     div()
         .min_w_0()

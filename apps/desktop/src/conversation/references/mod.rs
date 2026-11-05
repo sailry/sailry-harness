@@ -152,7 +152,12 @@ impl Shell {
             return;
         }
         match reference.kind {
-            Kind::File(path) => self.open_conversation_link(path.into(), window, cx),
+            Kind::File(path) => self.open_conversation_link(
+                path.into(),
+                crate::conversation::links::Mode::Internal,
+                window,
+                cx,
+            ),
             Kind::Directory(_) => self.open_resource_panel(preview::Page::Files, window, cx),
             _ => {}
         }

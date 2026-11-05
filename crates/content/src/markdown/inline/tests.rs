@@ -159,6 +159,91 @@ fn decorations_preserve_offsets_and_follow_theme(cx: &mut gpui::TestAppContext) 
     });
 }
 
+mod insets {
+    use super::*;
+    use crate::markdown::parse::parse;
+
+    fn font_at(flat: &Flat, at: usize) -> &gpui_kit::Font {
+        let mut end = 0;
+        flat.runs
+            .iter()
+            .find(|run| {
+                end += run.len;
+                at < end
+            })
+            .map(|run| &run.font)
+            .unwrap()
+    }
+
+    #[gpui::test]
+    fn match_on_both_sides(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::tests::init(cx);
+            let mut theme = Theme::of(cx);
+            theme.font_body = "Test Body".into();
+            theme.font_mono = "Test Mono".into();
+            for source in [
+                "before `code` after",
+                "`code` after",
+                "before `code`",
+                "**before** `code` **after**",
+                "[`code`](file.rs) after",
+                "before [`code`](file.rs)",
+                "中文`代码`中文",
+            ] {
+                let doc = parse(source);
+                let text = doc.blocks[0].text_at(crate::markdown::Part::Body).unwrap();
+                let flat = flatten(text, FontWeight::NORMAL, &theme);
+                let inset = '\u{202f}'.len_utf8();
+                let [range] = flat.code.as_slice() else {
+                    panic!("one code span: {source}");
+                };
+                assert!(flat.text[range.clone()].starts_with('\u{202f}'), "{source}");
+                assert!(flat.text[range.clone()].ends_with('\u{202f}'), "{source}");
+                let leading = font_at(&flat, range.start);
+                assert_eq!(leading, font_at(&flat, range.end - inset), "{source}");
+                assert_eq!(leading, font_at(&flat, range.start + inset), "{source}");
+                assert_eq!(leading.family.as_ref(), "Test Mono", "{source}");
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn keep_source_offsets(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::tests::init(cx);
+            let theme = Theme::of(cx);
+            let doc = parse("ab `cd` ef");
+            let text = doc.blocks[0].text_at(crate::markdown::Part::Body).unwrap();
+            assert_eq!(text.text, "ab cd ef");
+            let flat = flatten(text, FontWeight::NORMAL, &theme);
+            let inset = '\u{202f}'.len_utf8();
+            assert_eq!(flat.text.as_ref(), "ab \u{202f}cd\u{202f} ef");
+            assert_eq!(flat.code.len(), 1);
+            assert_eq!(flat.code[0], 3..5 + 2 * inset);
+            assert_eq!(
+                flat.runs.iter().map(|run| run.len).sum::<usize>(),
+                flat.text.len()
+            );
+            for (source, display) in [
+                (0, 0),
+                (3, 3 + inset),
+                (4, 4 + inset),
+                (5, 5 + 2 * inset),
+                (8, 8 + 2 * inset),
+            ] {
+                assert_eq!(flat.offsets.display(source), display);
+                assert_eq!(flat.offsets.source(display), source);
+            }
+            // A point inside an inset resolves to the source edge it pads.
+            assert_eq!(flat.offsets.source(3 + inset - 1), 3);
+            assert_eq!(flat.offsets.source(5 + 2 * inset - 1), 5);
+        });
+    }
+}
+
 mod emphasis {
     use super::*;
     use crate::markdown::{self, Part, Selection, doc::BlockKind};

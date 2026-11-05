@@ -9,6 +9,7 @@ pub(crate) mod fixture;
 mod highlights;
 pub(crate) mod interaction;
 mod layout;
+pub(crate) mod links;
 pub(crate) mod live;
 mod mode;
 pub(crate) mod models;
@@ -95,9 +96,10 @@ impl Shell {
         crate::content::markdown::View::markdown(id, text)
             .link_hover_underline(true)
             .foreground(crate::theme::messages::foreground("assistant", cx))
-            .on_link_click(move |link, window, cx| {
+            .on_link_click(move |link, modifiers, window, cx| {
+                let mode = links::Mode::of(modifiers, cx);
                 _ = owner.update(cx, |shell, cx| {
-                    shell.open_conversation_link(link.clone(), window, cx)
+                    shell.open_conversation_link(link.clone(), mode, window, cx)
                 });
             })
     }

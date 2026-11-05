@@ -6,6 +6,7 @@ mod files;
 pub(crate) mod html;
 mod images;
 mod inline;
+mod link_text;
 pub mod parse;
 pub(crate) mod pointer;
 pub mod preview;

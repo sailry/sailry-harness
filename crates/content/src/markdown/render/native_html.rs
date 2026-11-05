@@ -91,8 +91,8 @@ fn line(
                         let url = SharedString::from(url.clone());
                         let on_link = overlay.on_link.cloned();
                         cell.cursor_pointer()
-                            .on_click(move |_, window, cx| match &on_link {
-                                Some(on_link) => on_link(&url, window, cx),
+                            .on_click(move |event, window, cx| match &on_link {
+                                Some(on_link) => on_link(&url, event.modifiers(), window, cx),
                                 None => cx.open_url(&url),
                             })
                             .child(content)

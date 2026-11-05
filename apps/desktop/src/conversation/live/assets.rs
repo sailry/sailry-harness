@@ -335,8 +335,12 @@ impl Assets {
 
     fn select_source(&mut self, uri: String, window: &mut Window, cx: &mut Context<Self>) {
         self.set_open(false, window, cx);
-        let _ = self
-            .owner
-            .update(cx, |_, cx| cx.emit(Event::Link(None, uri.into())));
+        let _ = self.owner.update(cx, |_, cx| {
+            cx.emit(Event::Link(
+                None,
+                uri.into(),
+                crate::conversation::links::Mode::Internal,
+            ))
+        });
     }
 }

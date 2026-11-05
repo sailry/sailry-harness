@@ -10,11 +10,12 @@
 use std::{cell::RefCell, ops::Range, rc::Rc};
 
 use super::inline::{Flat, Offsets, flatten, flatten_with};
+use super::link_text::LinkText;
 use super::style as theme;
 use gpui::{
-    AnyElement, App, BorderStyle, Bounds, CursorStyle, ElementId, FontWeight, Hsla,
-    InteractiveText, ObjectFit, Pixels, Point, SharedString, StyledImage as _, StyledText,
-    TextLayout, TextRun, Window, canvas, div, font, img, point, prelude::*, px, quad, size,
+    AnyElement, App, BorderStyle, Bounds, CursorStyle, ElementId, FontWeight, Hsla, Modifiers,
+    ObjectFit, Pixels, Point, SharedString, StyledImage as _, StyledText, TextLayout, TextRun,
+    Window, canvas, div, font, img, point, prelude::*, px, quad, size,
 };
 use gpui_kit as gpui;
 use gpui_kit::base::TestSupportExt as _;
@@ -74,8 +75,9 @@ const TABLE_CELL_PADDING: f32 = 12.0;
 const TABLE_DIVIDER: f32 = 1.0;
 
 /// Links are delegated to the owning surface so citations and file links can
-/// use application navigation instead of opening an external browser.
-pub type OnLink = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
+/// use application navigation instead of opening an external browser. The
+/// click's modifiers let the surface choose an external opening.
+pub type OnLink = Rc<dyn Fn(&SharedString, Modifiers, &mut Window, &mut App)>;
 /// Standalone file links may be replaced by the owning surface.
 pub type OnFile = Rc<dyn Fn(usize, &str, &str, &App) -> Option<AnyElement>>;
 /// The size a document states for a picture; unset sides follow its proportions.
@@ -87,7 +89,8 @@ pub struct Stated {
 
 /// Image resources are resolved by the owning surface.
 pub type OnImage = Rc<dyn Fn(&str, &[&str], usize, Stated, &App) -> AnyElement>;
-pub type OnMathLink = std::sync::Arc<dyn Fn(&SharedString, &mut Window, &mut App) + Send + Sync>;
+pub type OnMathLink =
+    std::sync::Arc<dyn Fn(&SharedString, Modifiers, &mut Window, &mut App) + Send + Sync>;
 pub type OnLinkHover = Rc<dyn Fn(Cursor, Option<usize>, &mut Window, &mut App)>;
 
 /// Source-mapped draft decorations; never part of the document or its history.
@@ -1337,6 +1340,7 @@ fn painted_text(
     let offsets = flat.offsets;
     let selected = selected.map(|range| offsets.display(range.start)..offsets.display(range.end));
     let caret = caret.map(|offset| offsets.display(offset));
+    let label = flat.text.clone();
     let styled = StyledText::new(flat.text).with_runs(flat.runs);
     let layout = styled.layout().clone();
 
@@ -1348,17 +1352,21 @@ fn painted_text(
         let on_hover = overlay.on_link_hover.cloned();
         let hover_offsets = offsets.clone();
         let hover_ranges = ranges.clone();
-        InteractiveText::new(SharedString::from(format!("md-text-{ix}-{part:?}")), styled)
-            .on_click(ranges, move |clicked, window, cx| {
+        LinkText::new(
+            SharedString::from(format!("md-text-{ix}-{part:?}")),
+            styled,
+            label,
+            ranges,
+            move |clicked, modifiers, window, cx| {
                 if let Some(url) = urls.get(clicked) {
                     if let Some(on_link) = &on_link {
-                        on_link(&SharedString::from(url.clone()), window, cx);
+                        on_link(&SharedString::from(url.clone()), modifiers, window, cx);
                     } else {
                         cx.open_url(url);
                     }
                 }
-            })
-            .on_hover(move |index, _, window, cx| {
+            },
+            move |index, window, cx| {
                 if let Some(on_hover) = &on_hover {
                     on_hover(
                         Cursor::new(ix, part, 0),
@@ -1369,8 +1377,9 @@ fn painted_text(
                         cx,
                     );
                 }
-            })
-            .into_any_element()
+            },
+        )
+        .into_any_element()
     };
 
     // The wash is painted before the text — an earlier sibling is underneath —
@@ -1943,9 +1952,9 @@ fn bookmark(
             .text_color(theme.text)
             .cursor(CursorStyle::PointingHand)
             .hover(|el| el.bg(theme.element_active))
-            .on_click(move |_, window, cx| {
+            .on_click(move |event, window, cx| {
                 if let Some(on_link) = &on_link {
-                    on_link(&open.clone().into(), window, cx);
+                    on_link(&open.clone().into(), event.modifiers(), window, cx);
                 } else {
                     cx.open_url(&open);
                 }
@@ -2028,9 +2037,9 @@ fn bookmark(
         .bg(theme.surface_card)
         .cursor(CursorStyle::PointingHand)
         .hover(|el| el.bg(theme.element_hover))
-        .on_click(move |_, window, cx| {
+        .on_click(move |event, window, cx| {
             if let Some(on_link) = &on_link {
-                on_link(&open.clone().into(), window, cx);
+                on_link(&open.clone().into(), event.modifiers(), window, cx);
             } else {
                 cx.open_url(&open);
             }

@@ -4,6 +4,7 @@ use crate::{
     backend::Services,
     conversation::{
         file_reference::{self, Target},
+        links::{self, Mode, Opening, Route},
         live::View as Chat,
     },
 };
@@ -13,22 +14,37 @@ impl Shell {
     pub(crate) fn open_conversation_link(
         &mut self,
         link: SharedString,
+        mode: Mode,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if url::Url::parse(&link).is_ok_and(|url| matches!(url.scheme(), "http" | "https")) {
-            let target = link.clone();
-            if self.guard_file_navigation(window, cx, move |shell, window, cx| {
-                shell.open_conversation_link(target.clone(), window, cx)
-            }) {
+        let link = SharedString::from(links::normalize(&link));
+        // Preview links never leave the preview.
+        let mode = if self.live.is_some() {
+            mode
+        } else {
+            Mode::Internal
+        };
+        match links::route(&link, mode) {
+            Route::Browser => {
+                let target = link.clone();
+                if self.guard_file_navigation(window, cx, move |shell, window, cx| {
+                    shell.open_conversation_link(target.clone(), Mode::Internal, window, cx)
+                }) {
+                    return;
+                }
+                self.open_browser_resource(Some(link.to_string()), window, cx);
+                cx.notify();
                 return;
             }
-            self.open_browser_resource(Some(link.to_string()), window, cx);
-            cx.notify();
-            return;
+            Route::System if self.live.is_some() => {
+                cx.open_url(&link);
+                return;
+            }
+            Route::System | Route::Resource => {}
         }
         if let Some(chat) = self.current_chat().cloned() {
-            self.open_chat_link(&chat, None, link, window, cx);
+            self.open_chat_link(&chat, None, link, mode, window, cx);
             return;
         }
         if knowledge::recognizes(&link) {
@@ -36,21 +52,23 @@ impl Shell {
             return;
         }
         if let Some(live) = &self.live {
-            if let Some(worktree) = live.selected_worktree()
-                && let Some(snapshot) = live
-                    .view
-                    .snapshot
-                    .as_ref()
-                    .filter(|snapshot| snapshot.node == live.selected)
-            {
-                let Some((worktree, target)) =
+            let located = live
+                .selected_worktree()
+                .zip(
+                    live.view
+                        .snapshot
+                        .as_ref()
+                        .filter(|snapshot| snapshot.node == live.selected),
+                )
+                .and_then(|(worktree, snapshot)| {
                     file_reference::locate(&link, worktree.id, &snapshot.worktrees)
-                else {
-                    crate::resources::file_open::failure("files_open_failed", window, cx);
-                    return;
-                };
-                self.open_workspace_link((live.selected, worktree), target, link, window, cx);
-            }
+                });
+            let Some((worktree, target)) = located else {
+                crate::resources::file_open::failure("files_open_failed", window, cx);
+                return;
+            };
+            let node = live.selected;
+            self.open_workspace_link((node, worktree), target, link, mode, window, cx);
             return;
         }
         let path = link.split(['#', '?']).next().unwrap_or(&link);
@@ -64,7 +82,7 @@ impl Shell {
             // Unresolved links stay inside the preview; never open a browser or read a real file.
             let target = link.clone();
             if self.guard_file_navigation(window, cx, move |shell, window, cx| {
-                shell.open_conversation_link(target.clone(), window, cx)
+                shell.open_conversation_link(target.clone(), Mode::Internal, window, cx)
             }) {
                 return;
             }
@@ -79,12 +97,21 @@ impl Shell {
         chat: &Entity<Chat>,
         origin: Option<WorktreeId>,
         link: SharedString,
+        mode: Mode,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if url::Url::parse(&link).is_ok_and(|url| matches!(url.scheme(), "http" | "https")) {
-            self.open_conversation_link(link, window, cx);
-            return;
+        let link = SharedString::from(links::normalize(&link));
+        match links::route(&link, mode) {
+            Route::Browser => {
+                self.open_conversation_link(link, mode, window, cx);
+                return;
+            }
+            Route::System => {
+                cx.open_url(&link);
+                return;
+            }
+            Route::Resource => {}
         }
         if knowledge::recognizes(&link) {
             self.open_knowledge_link(chat, link, window, cx);
@@ -93,6 +120,7 @@ impl Shell {
         let view = chat.read(cx);
         let binding = view.binding();
         let Some(worktree) = origin.or(binding.worktree) else {
+            crate::resources::file_open::failure("files_open_failed", window, cx);
             return;
         };
         let snapshot = view.node_snapshot().or_else(|| {
@@ -111,6 +139,7 @@ impl Shell {
             (binding.client.target(), worktree),
             target,
             link,
+            mode,
             window,
             cx,
         );
@@ -121,22 +150,29 @@ impl Shell {
         scope: (NodeId, WorktreeId),
         target: Target,
         link: SharedString,
+        mode: Mode,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match target {
-            Target::Workspace { path, .. } if path.is_empty() || link.ends_with('/') => {
+        let local = cx.global::<Services>().local.target() == scope.0;
+        match (
+            links::opening(&target, link.ends_with('/'), local, mode),
+            target,
+        ) {
+            (Opening::Folder, Target::Workspace { path, .. }) => {
                 self.open_file_in_system(scope, path, true, window, cx);
             }
-            Target::Workspace { path, line } => {
+            // Confined to the worktree; a local Node needs no file transfer.
+            (Opening::System, Target::Workspace { path, .. }) => {
+                self.open_file_in_system(scope, path, false, window, cx);
+            }
+            (Opening::Document, Target::Workspace { path, line }) => {
                 self.open_conversation_file(scope, path, line, window, cx);
             }
-            Target::External(path) if cx.global::<Services>().local.target() == scope.0 => {
+            (Opening::System, Target::External(path)) => {
                 crate::resources::file_open::local(path, window, cx);
             }
-            Target::External(_) => {
-                crate::resources::file_open::failure("files_remote_path", window, cx)
-            }
+            _ => crate::resources::file_open::failure("files_remote_path", window, cx),
         }
     }
 }
