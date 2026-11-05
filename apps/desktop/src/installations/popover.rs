@@ -69,6 +69,9 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
             Button::new("installations-open")
                 .ghost()
                 .size_9()
+                // Custom content gets Kit's text-button padding, which squeezed
+                // the square ring container into a tall ellipse.
+                .p_0()
                 .selected(open)
                 .tooltip(tr("installation_title"))
                 .accessibility_label(tr("installation_title"))
@@ -98,6 +101,7 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
                             )
                         })
                         .size_8()
+                        .flex_shrink_0()
                         .flex()
                         .items_center()
                         .justify_center()
