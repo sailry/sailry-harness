@@ -288,6 +288,47 @@ fn preserves_result_projection() {
     }
 }
 
+#[test]
+fn preserves_the_exact_byte_ceiling() {
+    for (line, ending) in [("x".repeat(1000), "\n"), ("\\\"\t".repeat(166), "\r\n")] {
+        let full = |value: &Value| {
+            let page: FileLines = serde_json::from_value(value["data"].clone()).unwrap();
+            let body: String = page.lines.iter().map(|line| row(line).0).collect();
+            render(&page, &body, Some((1, 32)), false, None, &source(value))
+        };
+        let mut raw = format!("{line}{ending}").repeat(32);
+        let value = original(&raw, 0);
+        let remaining = LIMIT - serde_json::to_string(&full(&value)).unwrap().len();
+        assert!(line.len() + remaining < LINE_LIMIT);
+        raw.insert_str(raw.len() - ending.len(), &"x".repeat(remaining));
+        let value = original(&raw, 0);
+        let expected = full(&value);
+        assert_eq!(serde_json::to_string(&expected).unwrap().len(), LIMIT);
+        assert_eq!(project(&value, &source(&value), None), Some(expected));
+
+        raw.insert(raw.len() - ending.len(), 'x');
+        let value = original(&raw, 0);
+        assert_eq!(
+            serde_json::to_string(&full(&value)).unwrap().len(),
+            LIMIT + 1
+        );
+        let projected = project(&value, &source(&value), None).unwrap();
+        let page: FileLines = serde_json::from_value(value["data"].clone()).unwrap();
+        let body: String = page.lines[..31].iter().map(|line| row(line).0).collect();
+        assert_eq!(
+            projected,
+            render(
+                &page,
+                &body,
+                Some((1, 31)),
+                false,
+                Some(31),
+                &source(&value)
+            ),
+        );
+    }
+}
+
 mod unchanged {
     use super::*;
 

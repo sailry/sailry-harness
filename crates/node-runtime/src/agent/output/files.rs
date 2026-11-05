@@ -37,14 +37,12 @@ pub(super) fn project(
     {
         return Some(unchanged(&page, (first.number, last.number), source));
     }
-    let mut covered = None;
     let mut body = String::new();
+    let mut bytes = 0;
+    let mut lines = 0;
     let mut shortened = false;
-    let mut projected = if page.lines.is_empty() {
-        Some(render(&page, "", None, false, page.next_offset, source))
-    } else {
-        None
-    };
+    let mut range = None;
+    let mut next_offset = page.next_offset;
     // Rows stop at the shared line ceiling; the next file page continues there.
     for (index, line) in page.lines.iter().enumerate().take(MAX_LINES) {
         line.number.checked_sub(1)?;
@@ -53,11 +51,11 @@ pub(super) fn project(
             None => page.next_offset,
         };
         let (row, omitted) = row(line);
-        let mut candidate = body.clone();
-        candidate.push_str(&row);
-        let text = render(
+        let row_bytes = serde_json::to_string(&row).ok()?.len() - 2;
+        let row_lines = limit::count(&row);
+        let metadata = render(
             &page,
-            &candidate,
+            "",
             Some((page.lines[0].number, line.number)),
             shortened || omitted,
             next,
@@ -65,17 +63,22 @@ pub(super) fn project(
         );
         // Native providers consume Text directly; plugin adapters may serialize
         // its string. Budget the escaped text too, including metadata and hints.
-        if serde_json::to_string(&text).ok()?.len() > LIMIT || limit::count(&text) > MAX_LINES {
+        if bytes + row_bytes + serde_json::to_string(&metadata).ok()?.len() > LIMIT
+            || lines + row_lines + limit::count(&metadata) > MAX_LINES
+        {
             break;
         }
-        body = candidate;
+        body.push_str(&row);
+        bytes += row_bytes;
+        lines += row_lines;
         shortened |= omitted;
-        covered = (!shortened).then_some((page.lines[0].number, line.number));
-        projected = Some(text);
+        range = Some((page.lines[0].number, line.number));
+        next_offset = next;
     }
-    let projected = projected
+    let projected = (page.lines.is_empty() || range.is_some())
+        .then(|| render(&page, &body, range, shortened, next_offset, source))
         .filter(|text| serde_json::to_string(text).is_ok_and(|encoded| encoded.len() <= LIMIT));
-    if let (Some(reads), Some(range), Some(_)) = (reads, covered, &projected) {
+    if !shortened && let (Some(reads), Some(range), Some(_)) = (reads, range, &projected) {
         reads
             .0
             .entry((page.path.clone(), page.revision.clone()))
