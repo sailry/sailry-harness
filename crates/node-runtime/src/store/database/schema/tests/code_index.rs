@@ -5,8 +5,8 @@ const SETTINGS: &str = "CREATE TABLE code_index_settings (singleton INTEGER PRIM
 
 #[tokio::test]
 async fn preserves_retired_data_and_current_choice() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("node.turso");
+    let (directory, storage) = storage();
+    let path = storage.join("node.turso");
     let node = NodeId([84; 32]);
     let database = Database::open(&path, node, None).await.unwrap();
     for (_, declaration) in RETAINED {
@@ -94,7 +94,7 @@ async fn preserves_retired_data_and_current_choice() {
         .unwrap();
     assert_eq!(startup, old);
     database.close().await.unwrap();
-    let backups = std::fs::read_dir(directory.path().join("backups"))
+    let backups = std::fs::read_dir(storage.join("backups"))
         .unwrap()
         .map(|entry| entry.unwrap().path().join("node.turso"))
         .collect::<Vec<_>>();
@@ -121,8 +121,8 @@ async fn preserves_retired_data_and_current_choice() {
 
 #[tokio::test]
 async fn rejects_invalid_data_without_applying_changes() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("node.turso");
+    let (_directory, storage) = storage();
+    let path = storage.join("node.turso");
     let node = NodeId([85; 32]);
     let database = Database::open(&path, node, None).await.unwrap();
     database
@@ -183,8 +183,8 @@ async fn rollback_restores_absent_settings_table() {
 
 #[tokio::test]
 async fn omits_retired_tables_from_new_profiles() {
-    let directory = tempfile::tempdir().unwrap();
-    let database = Database::open(&directory.path().join("node.turso"), NodeId([86; 32]), None)
+    let (_directory, storage) = storage();
+    let database = Database::open(&storage.join("node.turso"), NodeId([86; 32]), None)
         .await
         .unwrap();
     let tables = objects(&database.connection).await.unwrap();

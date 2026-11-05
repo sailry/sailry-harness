@@ -101,12 +101,13 @@ async fn tools_pending(connection: &Connection) -> Result<bool, Error> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::tests::storage;
     use super::*;
 
     #[tokio::test]
     async fn completed_tools_skip_history() {
-        let directory = tempfile::tempdir().unwrap();
-        let database = crate::store::database::engine(&directory.path().join("node.turso"))
+        let (_directory, storage) = storage();
+        let database = crate::store::database::engine(&storage.join("node.turso"))
             .await
             .unwrap();
         let connection = crate::store::database::connect(&database).await.unwrap();

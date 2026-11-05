@@ -6,9 +6,16 @@ mod indexes;
 mod references;
 mod search;
 
-async fn fixture(ddl: &str) -> (tempfile::TempDir, turso::Database, Connection) {
+pub(super) fn storage() -> (tempfile::TempDir, std::path::PathBuf) {
     let directory = tempfile::tempdir().unwrap();
-    let database = super::super::engine(&directory.path().join("node.turso"))
+    let storage = directory.path().join("storage");
+    crate::profile::private_directory(&storage).unwrap();
+    (directory, storage)
+}
+
+async fn fixture(ddl: &str) -> (tempfile::TempDir, turso::Database, Connection) {
+    let (directory, storage) = storage();
+    let database = super::super::engine(&storage.join("node.turso"))
         .await
         .unwrap();
     let connection = super::super::connect(&database).await.unwrap();

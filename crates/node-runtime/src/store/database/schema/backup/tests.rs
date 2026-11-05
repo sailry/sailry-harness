@@ -1,3 +1,4 @@
+use super::super::tests::storage;
 use super::*;
 
 #[test]
@@ -235,8 +236,8 @@ fn preserves_storage_contracts() {
 
 #[tokio::test]
 async fn opens_snapshots_read_only() {
-    let directory = tempfile::tempdir().unwrap();
-    let source = directory.path().join("node.turso");
+    let (_directory, storage) = storage();
+    let source = storage.join("node.turso");
     let handle = crate::store::database::Handle::new(
         source.clone(),
         crate::store::database::engine(&source).await.unwrap(),
