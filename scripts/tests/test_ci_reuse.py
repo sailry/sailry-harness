@@ -532,6 +532,20 @@ class ProofArchive(unittest.TestCase):
         process.stdout.read.assert_called_once_with(11)
         process.kill.assert_called_once_with()
 
+    def test_download_reports_http_failure(self):
+        process = Mock()
+        process.stdout.read.return_value = b""
+        process.wait.return_value = 1
+        process.__enter__ = Mock(return_value=process)
+        process.__exit__ = Mock(return_value=False)
+
+        def failure(command, stdout, stderr):
+            stderr.write(b"gh: Resource not accessible by integration (HTTP 403)\n")
+            return process
+
+        with patch.object(reuse.subprocess, "Popen", side_effect=failure), self.assertRaisesRegex(ValueError, "HTTP 403"):
+            reuse.download("repos/example/sailry/actions/jobs/1/logs", 10)
+
     def test_rejects_unsafe_or_extra_entries(self):
         for name in ("../reuse.json", "/reuse.json", "folder/reuse.json", "other.json"):
             with self.subTest(name=name), self.assertRaises(ValueError):
