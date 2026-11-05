@@ -43,5 +43,8 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 path = "junit.xml"
 
 [profile.default.archive]
-# Plugin contracts in the Shared test job run the example host that Build compiled.
-include = [{ path = "debug/examples", relative-to = "target", depth = 1, on-missing = "warn" }]
+# Runtime-loaded grammars are not Cargo link paths. Reuse Build's signed files.
+include = [
+    { path = "debug/code-parsers", relative-to = "target", depth = 1, on-missing = "error" },
+    { path = "debug/examples/plugin-test-host", relative-to = "target", on-missing = "warn" },
+]

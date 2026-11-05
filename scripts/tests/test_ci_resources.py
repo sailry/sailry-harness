@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
-JOBS = ("source", "lint", "shared", "desktop", "host", "mobile", "android", "services")
+JOBS = ("source", "lint", "build", "shared", "desktop", "host", "mobile", "android", "services")
 spec = importlib.util.spec_from_file_location("ci", ROOT / "scripts/ci.py")
 ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
@@ -294,7 +294,7 @@ class SharedCommands(unittest.TestCase):
 
     def test_reads_scope_from_the_cli(self):
         selection = ci.outputs({"shared", "host"})
-        for name in ("shared", "shared-databases"):
+        for name in ("archive", "shared", "shared-databases"):
             with self.subTest(name=name), patch.dict(os.environ, {"CHECK_SCOPE": json.dumps(selection)}), \
                     patch.object(sys, "argv", ["ci.py", "check", name]), \
                     patch.object(ci, "run_check", return_value=0) as run:
@@ -312,6 +312,87 @@ class SharedCommands(unittest.TestCase):
                 self.assertEqual(ci.run_check(name), 0)
                 prepare.assert_called_once_with(ROOT, None, libraries=True)
                 self.assertEqual(run.call_args.kwargs["env"]["GOOSE_PROVIDER_SKIP_BACKOFF"], "true")
+
+
+class Archives(unittest.TestCase):
+    def test_builds_the_selected_union(self):
+        for selected in ({"shared"}, {"desktop"}, {"host"}, {"shared", "desktop", "host"}):
+            with self.subTest(selected=selected):
+                commands = ci.check_commands("archive", "2", selection=ci.outputs(selected), env={})
+                archive = commands[-1]["argv"]
+                self.assertEqual(archive[:4], ["cargo", "nextest", "archive", "--locked"])
+                packages = [archive[index + 1] for index, value in enumerate(archive) if value == "-p"]
+                self.assertEqual(set(packages), {package for lane in selected for package in ci.LINT_PACKAGES[lane]})
+                self.assertEqual(archive[archive.index("--archive-file") + 1], str(ROOT / ci.TEST_ARCHIVE))
+                self.assertEqual(archive[archive.index("--build-jobs") + 1], "2")
+                self.assertEqual(len(commands), 2 if "shared" in selected else 1)
+                if "shared" in selected:
+                    build = commands[0]["argv"]
+                    self.assertEqual(build[:3], ["cargo", "build", "--locked"])
+                    self.assertEqual(build[3:build.index("--example")], archive[4:archive.index("--timings")])
+                    self.assertEqual(build[build.index("--example") + 1], "plugin-test-host")
+
+    def test_partitions_only_ordinary_shared_tests(self):
+        for selected in ({"shared"}, {"host"}, {"shared", "host"}):
+            for partition in ("count:1/2", "count:2/2"):
+                with self.subTest(selected=selected, partition=partition):
+                    commands = ci.check_commands("shared", selection=ci.outputs(selected), env={
+                        "CHECK_ARCHIVE": ci.TEST_ARCHIVE, "CHECK_PARTITION": partition,
+                    })
+                    self.assertEqual(len(commands), 1)
+                    run = commands[0]["argv"]
+                    self.assertEqual(run[:3], ["cargo", "nextest", "run"])
+                    self.assertEqual(run[run.index("--extract-to") + 1], str(ROOT))
+                    self.assertIn("--extract-overwrite", run)
+                    self.assertEqual(run[run.index("--partition") + 1], partition)
+                    self.assertNotIn("--locked", run)
+                    self.assertNotIn("-p", run)
+                    filters = run[run.index("--filterset") + 1]
+                    self.assertEqual(set(re.findall(r"package\(([\w-]+)\)", filters)),
+                                     {package for lane in selected for package in ci.LINT_PACKAGES[lane]})
+                    if "host" in selected:
+                        self.assertIn("not (package(sailry-host) and not binary(lifecycle))", filters)
+        env = {"CHECK_ARCHIVE": ci.TEST_ARCHIVE, "CHECK_PARTITION": "count:2/2"}
+        for name, profile in (("shared-databases", "databases"), ("desktop", "ci"),
+                              ("desktop-lifecycle", "lifecycle")):
+            with self.subTest(name=name):
+                run = ci.check_commands(name, selection=ci.outputs(ci.LANES), env=env)[0]["argv"]
+                self.assertNotIn("--partition", run)
+                self.assertNotIn("--no-tests=pass", run)
+                self.assertEqual(run[run.index("--profile") + 1], profile)
+                if name == "shared-databases":
+                    self.assertEqual(run[run.index("--run-ignored") + 1], "only")
+                    self.assertIn("binary(databases)", run[run.index("--filterset") + 1])
+                    self.assertIn("--test-threads=1", run)
+
+    def test_uses_shipped_parsers_without_preparation(self):
+        for name in ("shared", "shared-databases", "desktop", "desktop-lifecycle", "plugin-contracts"):
+            with self.subTest(name=name), \
+                    patch.object(ci, "parser_environment", side_effect=AssertionError("unexpected parser download")), \
+                    patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+                environment = {"CHECK_ARCHIVE": ci.TEST_ARCHIVE, "PATH": "fixture path"}
+                self.assertEqual(ci.run_check(name, selection=ci.outputs(ci.LANES), env=environment), 0)
+                self.assertEqual(run.call_count, 1)
+                self.assertEqual(run.call_args.kwargs["env"], {**environment, "GOOSE_PROVIDER_SKIP_BACKOFF": "true"})
+                self.assertNotIn("GOOSE_PROVIDER_SKIP_BACKOFF", environment)
+                if name == "plugin-contracts":
+                    self.assertEqual(run.call_args.args[0], [sys.executable, "scripts/test-plugins.py",
+                                                            "--runtime-host", str(ROOT / "target/debug/examples/plugin-test-host")])
+
+    def test_prepares_parsers_before_building(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(ci, "parser_environment", return_value={}) as prepare, \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+            root = Path(directory)
+            self.assertEqual(ci.run_check("archive", root=root, selection=ci.outputs({"shared"}), env={}), 0)
+            prepare.assert_called_once_with(root, {}, libraries=True)
+            self.assertTrue((root / ci.TEST_ARCHIVE).parent.is_dir())
+            self.assertEqual(run.call_count, 2)
+
+    def test_includes_runtime_parsers(self):
+        config = tomllib.loads((ROOT / ".config/nextest.toml").read_text())
+        self.assertIn({"path": "debug/code-parsers", "relative-to": "target", "depth": 1, "on-missing": "error"},
+                      config["profile"]["default"]["archive"]["include"])
 
 
 class Workflow(unittest.TestCase):
@@ -375,11 +456,11 @@ class Workflow(unittest.TestCase):
         build = job_section(workflow, "build")
         shared = job_section(workflow, "shared")
         self.assertIn("node-version: '22.22.1'", shared)
-        # Build places the example in target/debug/examples, which the archive includes.
+        # Only the executable is needed, not hashed duplicates or unrelated examples.
         self.assertIn("--example plugin-test-host --profile test", build)
         self.assertLess(build.index("--example plugin-test-host"), build.index("cargo nextest archive"))
         config = tomllib.loads((ROOT / ".config/nextest.toml").read_text())
-        self.assertIn({"path": "debug/examples", "relative-to": "target", "depth": 1, "on-missing": "warn"},
+        self.assertIn({"path": "debug/examples/plugin-test-host", "relative-to": "target", "on-missing": "warn"},
                       config["profile"]["default"]["archive"]["include"])
         step = shared.split("      - name: Plugin contracts\n", 1)[1].split("      - ", 1)[0]
         self.assertIn("if: matrix.partition == 2 && needs.source.outputs.shared == 'true'", step)

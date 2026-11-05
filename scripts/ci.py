@@ -473,7 +473,11 @@ def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None
     if name == "archive":
         (root / TEST_ARCHIVE).parent.mkdir(parents=True, exist_ok=True)
     if name in {"tests", "archive", "shared", "shared-databases", "plugin-contracts", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
-        env = parser_environment(root, env, libraries=True)
+        environment = os.environ if env is None else env
+        archived = environment.get("CHECK_ARCHIVE") and name in {
+            "tests", "shared", "shared-databases", "plugin-contracts", "desktop", "desktop-lifecycle",
+        }
+        env = dict(environment) if archived else parser_environment(root, env, libraries=True)
         # Fixture servers verify recovery without waiting minutes for each failure.
         # The GDK's paused-clock tests verify the fixed production retry timing.
         env.setdefault("GOOSE_PROVIDER_SKIP_BACKOFF", "true")
