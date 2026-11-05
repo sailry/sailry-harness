@@ -264,6 +264,77 @@ async fn returns_last_guided_turn() {
 }
 
 #[tokio::test]
+async fn settles_admitted_cancellation() {
+    for recorded in [false, true] {
+        let fixture = Box::pin(Fixture::new()).await;
+        let supervisor = Supervisor::start(1);
+        let admitted = CancellationToken::new();
+        let invocation = fixture.child(admitted.clone()).await;
+        let session = invocation.turn.session;
+        let turn = invocation.turn.id;
+        let owner = CancellationToken::new();
+        let token = owner.child_token();
+        inject(
+            &fixture,
+            format!("UPDATE agent_runs SET ready=0 WHERE turn='{turn}';"),
+        )
+        .await;
+        if recorded {
+            inject(
+                &fixture,
+                format!("UPDATE agent_runs SET body=CAST(json_set(body,'$.status','cancelled') AS BLOB) WHERE turn='{turn}';"),
+            )
+            .await;
+        }
+        {
+            let ingress = &fixture.store.ingress;
+            let waiting = wait(ingress, turn, session, &owner, &token);
+            tokio::pin!(waiting);
+            if !recorded {
+                assert!(waiting.as_mut().now_or_never().is_none());
+                let run = ingress
+                    .child_state(fixture.invocation.turn.id, session)
+                    .await
+                    .unwrap()
+                    .run;
+                assert_eq!(run.status, Status::Queued);
+                assert!(waiting.as_mut().now_or_never().is_none());
+                let client = Client::new(Arc::new(Local::new(
+                    ingress.node,
+                    ingress.node,
+                    ingress.clone(),
+                )));
+                client
+                    .execute(client.prepare(Command::StopTurn { turn }))
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(10), waiting)
+                    .await
+                    .expect("queued cancellation deadline")
+                    .unwrap(),
+                Status::Cancelled,
+            );
+        }
+        let run = fixture
+            .store
+            .ingress
+            .child_state(fixture.invocation.turn.id, session)
+            .await
+            .unwrap()
+            .run;
+        assert_eq!(run.status, Status::Cancelled);
+        assert!(run.started_ms.is_none());
+        assert!(run.finished_ms.is_some());
+        assert_eq!(admitted.is_cancelled(), !recorded);
+        assert!(!token.is_cancelled());
+        assert!(fixture.store.ingress.agents.runner(turn).is_none());
+        close(fixture, supervisor).await;
+    }
+}
+
+#[tokio::test]
 async fn preserves_stop_outcomes() {
     for stopped in [false, true] {
         let fixture = Box::pin(Fixture::new()).await;

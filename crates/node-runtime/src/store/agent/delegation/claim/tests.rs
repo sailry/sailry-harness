@@ -1,5 +1,9 @@
 use super::*;
-use crate::store::agent::tests::{command, fixture::Fixture};
+use crate::store::agent::{
+    background,
+    tests::{command, fixture::Fixture},
+};
+use sailry_protocol::conversation::background::{Kind, Outcome, State};
 
 async fn parent(fixture: &mut Fixture) -> TurnId {
     let turn = fixture.queued().await;
@@ -270,9 +274,14 @@ async fn preserves_capacity_and_fifo() {
                 let next = queued(&mut fixture, parent, 2).await;
                 assert_eq!(claim(&mut fixture, first.id).await, Status::Running, "{scenario}");
                 assert_eq!(claim(&mut fixture, cancelled.id).await, Status::Queued, "{scenario}");
-                runs::stop(&fixture.database.connection, cancelled.id)
+                let stopped = runs::stop(&fixture.database.connection, cancelled.id)
                     .await
                     .unwrap();
+                assert_eq!(stopped.status, Status::Cancelled, "{scenario}");
+                assert!(stopped.started_ms.is_none(), "{scenario}");
+                assert!(stopped.finished_ms.is_none(), "{scenario}");
+                assert_eq!(claim(&mut fixture, cancelled.id).await, Status::Cancelled, "{scenario}");
+                let mut settled = None;
                 for _ in 0..2 {
                     assert_eq!(
                         finish_queued(
@@ -286,24 +295,28 @@ async fn preserves_capacity_and_fifo() {
                         .unwrap(),
                         Status::Cancelled
                     , "{scenario}");
-                }
-                let run = runs::get(&fixture.database.connection, cancelled.id)
-                    .await
-                    .unwrap();
-                assert!(run.started_ms.is_none(), "{scenario}");
-                assert!(run.finished_ms.is_some(), "{scenario}");
-                let tasks =
-                    super::super::super::background::list(&fixture.database.connection, fixture.session)
+                    let run = runs::get(&fixture.database.connection, cancelled.id)
                         .await
                         .unwrap();
-                let task = tasks
-                    .iter()
-                    .find(|task| task.id == format!("agent:{}", cancelled.id))
-                    .unwrap();
-                assert_eq!(
-                    task.outcome,
-                    Some(sailry_protocol::conversation::background::Outcome::Cancelled)
-                , "{scenario}");
+                    assert!(run.started_ms.is_none(), "{scenario}");
+                    assert!(run.finished_ms.is_some(), "{scenario}");
+                    let tasks = background::list(&fixture.database.connection, fixture.session)
+                        .await
+                        .unwrap();
+                    let task = tasks
+                        .iter()
+                        .find(|task| task.id == format!("agent:{}", cancelled.id))
+                        .unwrap();
+                    assert_eq!(task.outcome, Some(Outcome::Cancelled), "{scenario}");
+                    assert_eq!(task.state, State::Pending, "{scenario}");
+                    assert!(task.finished_ms.is_some(), "{scenario}");
+                    assert!(task.delivery.is_none(), "{scenario}");
+                    let current = (run.finished_ms, task.clone());
+                    if let Some(previous) = &settled {
+                        assert_eq!(&current, previous, "{scenario}");
+                    }
+                    settled = Some(current);
+                }
                 finish(&mut fixture, first.id).await;
                 assert_eq!(claim(&mut fixture, next.id).await, Status::Running, "{scenario}");
             }).await,
@@ -312,8 +325,23 @@ async fn preserves_capacity_and_fifo() {
                 limit(&fixture, 1).await;
                 let active = queued(&mut fixture, parent, 0).await;
                 let waiting = queued(&mut fixture, parent, 1).await;
+                let cancelled = queued(&mut fixture, parent, 2).await;
+                let settled = queued(&mut fixture, parent, 3).await;
                 assert_eq!(claim(&mut fixture, active.id).await, Status::Running, "{scenario}");
                 assert_eq!(claim(&mut fixture, waiting.id).await, Status::Queued, "{scenario}");
+                for turn in [cancelled.id, settled.id] {
+                    let run = runs::stop(&fixture.database.connection, turn).await.unwrap();
+                    assert!(run.finished_ms.is_none(), "{scenario}");
+                }
+                assert_eq!(
+                    finish_queued(&mut fixture.database, settled.id, Status::Cancelled, None, &fixture.events)
+                        .await
+                        .unwrap(),
+                    Status::Cancelled,
+                    "{scenario}"
+                );
+                let finished = runs::get(&fixture.database.connection, settled.id).await.unwrap().finished_ms;
+                assert!(finished.is_some(), "{scenario}");
                 {
                     let transaction = turso::transaction::Transaction::new_unchecked(
                         &fixture.database.connection,
@@ -324,11 +352,33 @@ async fn preserves_capacity_and_fifo() {
                     runs::recover(&transaction).await.unwrap();
                     transaction.commit().await.unwrap();
                 };
-                for turn in [active.id, waiting.id] {
+                for turn in [active.id, waiting.id, cancelled.id] {
                     let run = runs::get(&fixture.database.connection, turn).await.unwrap();
                     assert_eq!(run.status, Status::Interrupted, "{scenario}");
                     assert_eq!(run.error.unwrap().code, ErrorCode::OutcomeUnknown, "{scenario}");
                     assert_eq!(claim(&mut fixture, turn).await, Status::Interrupted, "{scenario}");
+                }
+                let run = runs::get(&fixture.database.connection, settled.id).await.unwrap();
+                assert_eq!(run.status, Status::Cancelled, "{scenario}");
+                assert_eq!(run.finished_ms, finished, "{scenario}");
+                let cancelled = runs::hydrate(
+                    &fixture.database.connection,
+                    runs::get(&fixture.database.connection, cancelled.id).await.unwrap(),
+                ).await.unwrap();
+                assert!(cancelled.started_ms.is_none(), "{scenario}");
+                assert!(cancelled.finished_ms.is_some(), "{scenario}");
+                assert_eq!(cancelled.input.unwrap().message.text, "Frozen child 2", "{scenario}");
+                let tasks = background::list(&fixture.database.connection, fixture.session).await.unwrap();
+                for (turn, outcome) in [
+                    (active.id, Outcome::Interrupted),
+                    (waiting.id, Outcome::Interrupted),
+                    (cancelled.turn, Outcome::Interrupted),
+                    (settled.id, Outcome::Cancelled),
+                ] {
+                    let task = tasks.iter().find(|task| task.id == format!("agent:{turn}")).unwrap();
+                    assert_eq!(task.outcome, Some(outcome), "{scenario}");
+                    assert!(task.recovered, "{scenario}");
+                    assert!(task.suppressed, "{scenario}");
                 }
                 let waiting = runs::hydrate(
                     &fixture.database.connection,
@@ -364,6 +414,10 @@ async fn preserves_capacity_and_fifo() {
                         .status,
                     Status::Queued
                 , "{scenario}");
+                let stopped = runs::stop(&fixture.database.connection, guidance.id).await.unwrap();
+                assert_eq!(stopped.status, Status::Cancelled, "{scenario}");
+                assert!(stopped.started_ms.is_none(), "{scenario}");
+                assert!(stopped.finished_ms.is_some(), "{scenario}");
             }).await,
             "admits_guidance_after_the_recipient_finishes" => Box::pin(async {
                 let parent = parent(&mut fixture).await;
@@ -440,6 +494,142 @@ async fn preserves_capacity_and_fifo() {
             _ => unreachable!(),
         }
     }
+}
+
+#[tokio::test]
+async fn settles_selected_guidance_only() {
+    let mut fixture = Fixture::new().await;
+    let parent = parent(&mut fixture).await;
+    let ordinary = fixture.queued().await;
+    let stopped = runs::stop(&fixture.database.connection, ordinary)
+        .await
+        .unwrap();
+    assert_eq!(stopped.status, Status::Cancelled);
+    assert!(stopped.started_ms.is_none());
+    assert!(stopped.finished_ms.is_some());
+
+    let child = queued(&mut fixture, parent, 0).await;
+    assert_eq!(claim(&mut fixture, child.id).await, Status::Running);
+    let Output::QueuedTurn(withdrawn) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::GuideTurn {
+            recipient: child.id,
+            expected_revision: child.revision,
+            message: "Discard this guidance".into(),
+        },
+    )
+    .await
+    else {
+        panic!("guided turn expected")
+    };
+    let before = background::list(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0].state, State::Running);
+    assert!(before[0].outcome.is_none());
+    let stopped = runs::stop(&fixture.database.connection, withdrawn.id)
+        .await
+        .unwrap();
+    assert_eq!(stopped.status, Status::Cancelled);
+    assert!(stopped.started_ms.is_none());
+    assert!(stopped.finished_ms.is_some());
+    assert_eq!(
+        finish_queued(
+            &mut fixture.database,
+            withdrawn.id,
+            Status::Cancelled,
+            None,
+            &fixture.events,
+        )
+        .await
+        .unwrap(),
+        Status::Cancelled,
+    );
+    assert_eq!(
+        background::list(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
+        before,
+    );
+    assert_eq!(
+        runs::get(&fixture.database.connection, child.id)
+            .await
+            .unwrap()
+            .status,
+        Status::Running,
+    );
+
+    let Output::QueuedTurn(guidance) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::GuideTurn {
+            recipient: child.id,
+            expected_revision: child.revision,
+            message: "Selected guidance".into(),
+        },
+    )
+    .await
+    else {
+        panic!("guided turn expected")
+    };
+    finish(&mut fixture, child.id).await;
+    let invocation = runs::claim_guidance(&mut fixture.database, child.id, &fixture.events)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(invocation.turn.id, guidance.id);
+    finish(&mut fixture, parent).await;
+    let stopped = runs::stop(&fixture.database.connection, guidance.id)
+        .await
+        .unwrap();
+    assert_eq!(stopped.status, Status::Cancelled);
+    assert!(stopped.started_ms.is_none());
+    assert!(stopped.finished_ms.is_none());
+    assert_eq!(
+        finish_queued(
+            &mut fixture.database,
+            guidance.id,
+            Status::Cancelled,
+            None,
+            &fixture.events,
+        )
+        .await
+        .unwrap(),
+        Status::Cancelled,
+    );
+    let tasks = background::list(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(tasks.len(), 1);
+    let task = &tasks[0];
+    assert_eq!(task.id, format!("agent:{}", child.id));
+    assert_eq!(
+        task.kind,
+        Kind::Agent {
+            session: child.session,
+            turn: guidance.id,
+        },
+    );
+    assert_eq!(task.state, State::Pending);
+    assert_eq!(task.outcome, Some(Outcome::Cancelled));
+    assert!(task.delivery.is_none());
+    assert!(
+        runs::claim(&mut fixture.database, &fixture.events)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let next = self::parent(&mut fixture).await;
+    let run = runs::get(&fixture.database.connection, next).await.unwrap();
+    assert_eq!(run.notices.len(), 1);
+    assert_eq!(run.notices[0].id, task.id);
+    assert_eq!(run.notices[0].outcome, Outcome::Cancelled);
+    let tasks = background::list(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(tasks[0].delivery, Some(next));
 }
 
 #[tokio::test]

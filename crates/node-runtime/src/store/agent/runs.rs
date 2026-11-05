@@ -308,11 +308,10 @@ pub(in crate::store::agent) async fn retry(db: &Connection, turn: TurnId) -> Res
 pub(in crate::store) async fn stop(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
     let mut run = get(db, turn).await?;
     visible(db, run.session, turn).await?;
+    let mut queued_child = false;
     if run.status == Status::Queued || super::queue::retained(db, turn).await? {
-        super::background::release(db, turn, true).await?;
-        super::queue::remove(db, turn, run.session).await?;
         let mut query = db
-            .prepare("SELECT input IS NULL FROM agent_runs WHERE turn=?1")
+            .prepare("SELECT input IS NULL,NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=?1 AND p.recipient IS NULL) FROM agent_runs WHERE turn=?1")
             .await
             .map_err(storage_error)?;
         let row = query
@@ -320,7 +319,14 @@ pub(in crate::store) async fn stop(db: &Connection, turn: TurnId) -> Result<Run,
             .await
             .map_err(storage_error)?;
         let uncaptured: bool = row.get(0).map_err(storage_error)?;
+        let selected: bool = row.get(1).map_err(storage_error)?;
         drop(query);
+        queued_child = run.status == Status::Queued
+            && !uncaptured
+            && selected
+            && super::delegation::origin(db, turn).await?.is_some();
+        super::background::release(db, turn, true).await?;
+        super::queue::remove(db, turn, run.session).await?;
         if uncaptured {
             super::super::attachments::turns::clear(db, turn).await?;
         }
@@ -329,8 +335,10 @@ pub(in crate::store) async fn stop(db: &Connection, turn: TurnId) -> Result<Run,
     }
     run.status = match run.status {
         Status::Queued => {
-            // An unstarted turn takes its transcript place when it leaves the queue.
-            run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
+            if !queued_child {
+                // An unstarted turn takes its transcript place when it leaves the queue.
+                run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
+            }
             Status::Cancelled
         }
         Status::Running => Status::Stopping,
@@ -896,7 +904,7 @@ pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
     super::continuation::recover(db).await?;
     super::queue::guidance::recover(db).await?;
     super::delegation::retain_guidance(db, None).await?;
-    let mut query = db.prepare("SELECT a.body FROM agent_runs a WHERE json_extract(a.body,'$.status') IN ('running','stopping') OR (json_extract(a.body,'$.status')='queued' AND EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn))").await.map_err(storage_error)?;
+    let mut query = db.prepare("SELECT a.body FROM agent_runs a WHERE json_extract(a.body,'$.status') IN ('running','stopping') OR (json_extract(a.body,'$.status') IN ('queued','cancelled') AND json_extract(a.body,'$.finished_ms') IS NULL AND EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn))").await.map_err(storage_error)?;
     let rows = {
         let mut rows = query.query(()).await.map_err(storage_error)?;
         let mut values = Vec::new();
@@ -909,7 +917,7 @@ pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
     for body in rows {
         let mut run: Run =
             serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error)?;
-        if run.status == Status::Queued {
+        if matches!(run.status, Status::Queued | Status::Cancelled) {
             run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
         }
         run.status = Status::Interrupted;

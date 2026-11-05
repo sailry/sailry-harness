@@ -106,11 +106,16 @@ async fn wait(
     owner: &CancellationToken,
     token: &CancellationToken,
 ) -> Result<Status, Fault> {
+    let admitted = ingress.agents.runner(turn).unwrap_or_else(|| token.clone());
     loop {
         let notified = ingress.agents.wake.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
-        if ingress.agents.stopped.is_cancelled() || owner.is_cancelled() || token.is_cancelled() {
+        if ingress.agents.stopped.is_cancelled()
+            || owner.is_cancelled()
+            || token.is_cancelled()
+            || admitted.is_cancelled()
+        {
             let status = if ingress.agents.stopped.is_cancelled() {
                 Status::Interrupted
             } else {
@@ -122,7 +127,13 @@ async fn wait(
             ingress.agents.wake.notify_waiters();
             return Ok(status);
         }
-        let status = ingress.claim_child(turn, token.clone()).await?;
+        let status = match ingress.claim_child(turn, token.clone()).await? {
+            Status::Cancelled => {
+                super::super::settlement::queued(ingress, turn, session, Status::Cancelled, None)
+                    .await?
+            }
+            status => status,
+        };
         if status != Status::Queued {
             if status == Status::Running {
                 // Another eligible waiter may fill the remaining Node capacity.
@@ -136,6 +147,7 @@ async fn wait(
             _ = ingress.agents.stopped.cancelled() => {},
             _ = owner.cancelled() => {},
             _ = token.cancelled() => {},
+            _ = admitted.cancelled() => {},
             _ = notified => {},
         }
     }
