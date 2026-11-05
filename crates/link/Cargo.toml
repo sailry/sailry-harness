@@ -29,6 +29,9 @@ tracing.workspace = true
 semver.workspace = true
 zstd.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Security", "Win32_Security_Authorization", "Win32_System_SystemServices", "Win32_System_Threading"] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 iroh-relay = { workspace = true, features = ["server", "test-utils"] }

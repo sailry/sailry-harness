@@ -1,7 +1,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{File, OpenOptions},
+    fs::File,
     io::{Read, Write},
     path::PathBuf,
     sync::Mutex,
@@ -9,6 +9,15 @@ use std::{
 
 const MAX_PEERS: usize = 128;
 const MAX_BYTES: u64 = 1024 * 1024;
+
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix as files;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as files;
 
 #[cfg(test)]
 mod tests;
@@ -42,41 +51,16 @@ impl Store {
         if !path.is_absolute() {
             return Err(storage("absolute controller directory required"));
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         return Err(storage(
             "controller profile protection is not implemented on this platform",
         ));
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
-            use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(path)
-                .map_err(storage)?;
-            let metadata = path.symlink_metadata().map_err(storage)?;
-            // SAFETY: geteuid has no arguments or memory preconditions.
-            if !metadata.is_dir()
-                || metadata.is_symlink()
-                || metadata.uid() != unsafe { libc::geteuid() }
-                || metadata.permissions().mode() & 0o077 != 0
-            {
-                return Err(storage(
-                    "controller directory must be private and owned by the current user",
-                ));
-            }
-            let path = path.canonicalize().map_err(storage)?;
+            let path = files::prepare(path).map_err(storage)?;
             // Share Node's lock name: one profile must never bind two endpoints,
             // even if a caller accidentally opens a Node profile as a controller.
-            let lock = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(path.join("node.lock"))
-                .map_err(storage)?;
+            let lock = files::lock(&path.join("node.lock")).map_err(storage)?;
             lock.try_lock().map_err(storage)?;
             if ["storage/node.turso", "storage/node.sqlite3"]
                 .into_iter()
@@ -85,53 +69,29 @@ impl Store {
                 return Err(storage("a Node profile cannot be opened as a controller"));
             }
             let identity = Identity::open(&path).map_err(storage)?;
-            let peers = match OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(path.join("peers.json"))
-            {
+            #[cfg(windows)]
+            windows::validate_existing_file(&path.join("link.key")).map_err(storage)?;
+            let peers = match files::read(&path.join("peers.json")) {
                 Ok(file) => {
-                    let metadata = file.metadata().map_err(storage)?;
-                    if !metadata.is_file()
-                        || metadata.len() > MAX_BYTES
-                        || metadata.permissions().mode() & 0o077 != 0
-                    {
+                    if file.metadata().map_err(storage)?.len() > MAX_BYTES {
                         return Err(storage("invalid private peer file"));
                     }
                     let mut bytes = Vec::new();
                     file.take(MAX_BYTES + 1)
                         .read_to_end(&mut bytes)
                         .map_err(storage)?;
-                    let record: Record = serde_json::from_slice(&bytes).map_err(storage)?;
-                    if record.version != 1 || record.peers.len() > MAX_PEERS {
-                        return Err(storage("unsupported peer record"));
-                    }
-                    let mut unique = std::collections::BTreeSet::new();
-                    for peer in &record.peers {
-                        if !unique.insert(peer.id)
-                            || peer
-                                .address
-                                .as_ref()
-                                .is_some_and(|address| address.id.as_bytes() != &peer.id.0)
-                        {
-                            return Err(storage("invalid peer identity binding"));
-                        }
-                    }
-                    record.peers
+                    Record::decode(&bytes)?
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => vec![],
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    persist(&path, br#"{"version":1,"peers":[]}"#)?;
+                    #[cfg(not(windows))]
+                    File::open(&path)
+                        .and_then(|file| file.sync_all())
+                        .map_err(storage)?;
+                    vec![]
+                }
                 Err(error) => return Err(storage(error)),
             };
-            if !path.join("peers.json").exists() {
-                let mut file = tempfile::NamedTempFile::new_in(&path).map_err(storage)?;
-                file.write_all(br#"{"version":1,"peers":[]}"#)
-                    .map_err(storage)?;
-                file.as_file().sync_all().map_err(storage)?;
-                file.persist(path.join("peers.json")).map_err(storage)?;
-                File::open(&path)
-                    .and_then(|file| file.sync_all())
-                    .map_err(storage)?;
-            }
             Ok((
                 identity,
                 Self(Arc::new(Inner {
@@ -169,20 +129,54 @@ impl Store {
             if bytes.len() > MAX_BYTES as usize {
                 return Err(storage("peer record size exceeded"));
             }
-            let mut file = tempfile::NamedTempFile::new_in(&inner.path).map_err(storage)?;
-            file.write_all(&bytes).map_err(storage)?;
-            file.as_file().sync_all().map_err(storage)?;
-            file.persist(inner.path.join("peers.json"))
-                .map_err(storage)?;
+            persist(&inner.path, &bytes)?;
             // Rename has already committed; keep memory aligned even if fsync fails.
             *current = peers;
+            #[cfg(not(windows))]
             File::open(&inner.path)
                 .and_then(|file| file.sync_all())
-                .map_err(storage)
+                .map_err(storage)?;
+            Ok(())
         })
         .await
         .map_err(storage)?
     }
+}
+
+impl Record {
+    fn decode(bytes: &[u8]) -> Result<Vec<Peer>, Fault> {
+        if bytes.len() > MAX_BYTES as usize {
+            return Err(storage("peer record size exceeded"));
+        }
+        let record: Self = serde_json::from_slice(bytes).map_err(storage)?;
+        if record.version != 1 || record.peers.len() > MAX_PEERS {
+            return Err(storage("unsupported peer record"));
+        }
+        let mut unique = std::collections::BTreeSet::new();
+        for peer in &record.peers {
+            if !unique.insert(peer.id)
+                || peer
+                    .address
+                    .as_ref()
+                    .is_some_and(|address| address.id.as_bytes() != &peer.id.0)
+            {
+                return Err(storage("invalid peer identity binding"));
+            }
+        }
+        Ok(record.peers)
+    }
+}
+
+fn persist(directory: &Path, bytes: &[u8]) -> Result<(), Fault> {
+    let mut file = tempfile::NamedTempFile::new_in(directory).map_err(storage)?;
+    file.write_all(bytes).map_err(storage)?;
+    file.as_file().sync_all().map_err(storage)?;
+    #[cfg(windows)]
+    windows::persist(file, &directory.join("peers.json")).map_err(storage)?;
+    #[cfg(not(windows))]
+    file.persist(directory.join("peers.json"))
+        .map_err(storage)?;
+    Ok(())
 }
 
 impl PeerStore for Store {
