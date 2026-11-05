@@ -688,6 +688,14 @@ mod package_storage {
             fs::read(stored.join("skills/analysis/references/guide.md")).unwrap(),
             "保留全部资源 🙂\n".as_bytes()
         );
+        let entries = fs::read_dir(stored.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            entries,
+            vec![std::ffi::OsString::from(&first.summary.digest)]
+        );
         fs::write(
             package.join("skills/analysis/references/guide.md"),
             "New contents",
@@ -698,6 +706,50 @@ mod package_storage {
         assert_eq!(
             fs::read(stored.join("skills/analysis/references/guide.md")).unwrap(),
             "保留全部资源 🙂\n".as_bytes()
+        );
+    }
+
+    #[test]
+    fn cleans_rejected_staging() {
+        let (_temp, host, _) = fixture();
+        let manifest = manifest("other");
+        let error = host
+            .stage("example", |staged| {
+                package::write_embedded(staged, &[("plugin.json", manifest.as_bytes())])
+            })
+            .unwrap_err();
+        assert_eq!(
+            error,
+            Fault::invalid("plugin manifest changed during installation")
+        );
+        let packages = host.profile.as_ref().unwrap().join("plugins/packages");
+        assert!(fs::read_dir(packages).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn reports_os_code() {
+        let error = file_error("package publication", std::io::Error::from_raw_os_error(32));
+        assert_eq!(error.code, ErrorCode::Unavailable);
+        assert!(
+            error
+                .message
+                .starts_with("plugin package publication failed (")
+        );
+        assert!(error.message.ends_with(", OS error 32)"));
+    }
+
+    #[test]
+    fn omits_private_error_details() {
+        let error = io_error(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "private profile path and credentials",
+        ));
+        assert_eq!(
+            error,
+            Fault::new(
+                ErrorCode::Unavailable,
+                "plugin file operation failed (PermissionDenied)"
+            )
         );
     }
 

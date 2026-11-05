@@ -2,6 +2,7 @@ use super::*;
 use std::path::Path;
 
 #[cfg(windows)]
+#[path = "tests/windows.rs"]
 mod windows;
 
 fn launch(root: &Path, command: &str) -> Launch {

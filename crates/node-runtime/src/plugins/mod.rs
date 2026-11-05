@@ -315,10 +315,15 @@ impl Host {
             .ok_or_else(|| Fault::new(ErrorCode::Unavailable, "plugin storage is unavailable"))?;
         let profile = crate::files::path::root(profile)?;
         let packages = directory(&directory(&profile, "plugins")?, "packages")?;
-        let staging = cap_tempfile::TempDir::new_in(&packages).map_err(io_error)?;
+        let staging = cap_tempfile::TempDir::new_in(&packages)
+            .map_err(|error| file_error("staging directory creation", error))?;
         let result = (|| {
-            staging.create_dir("package").map_err(io_error)?;
-            let staged = staging.open_dir_nofollow("package").map_err(io_error)?;
+            staging
+                .create_dir("package")
+                .map_err(|error| file_error("staged package creation", error))?;
+            let staged = staging
+                .open_dir_nofollow("package")
+                .map_err(|error| file_error("staged package opening", error))?;
             let tree = write(&staged)?;
             let digest = tree.digest();
             // Parse the copied bytes, not a path that may have changed during staging.
@@ -345,6 +350,7 @@ impl Host {
                     "plugin contains invalid skills",
                 ));
             }
+            drop(staged);
             match packages.open_dir_nofollow(&digest) {
                 Ok(existing) => {
                     let mut tree = package::Tree::default();
@@ -359,17 +365,18 @@ impl Host {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     staging
                         .rename("package", &packages, &digest)
-                        .map_err(io_error)?;
+                        .map_err(|error| file_error("package publication", error))?;
                     #[cfg(unix)]
-                    crate::files::path::sync(&packages).map_err(io_error)?;
+                    crate::files::path::sync(&packages)
+                        .map_err(|error| file_error("package directory synchronization", error))?;
                 }
-                Err(error) => return Err(io_error(error)),
+                Err(error) => return Err(file_error("stored package opening", error)),
             }
             Ok(info)
         })();
         staging
             .close()
-            .map_err(|_| Fault::new(ErrorCode::Unavailable, "plugin staging cleanup failed"))?;
+            .map_err(|error| file_error("staging cleanup", error))?;
         result
     }
 }
@@ -486,12 +493,23 @@ fn directory(parent: &cap_std::fs::Dir, name: &str) -> Result<cap_std::fs::Dir, 
     match parent.create_dir(name) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(io_error(error)),
+        Err(error) => return Err(file_error("directory creation", error)),
     }
-    parent.open_dir_nofollow(name).map_err(io_error)
+    parent
+        .open_dir_nofollow(name)
+        .map_err(|error| file_error("directory opening", error))
 }
-fn io_error(_: std::io::Error) -> Fault {
-    Fault::new(ErrorCode::Unavailable, "plugin file operation failed")
+fn io_error(error: std::io::Error) -> Fault {
+    file_error("file operation", error)
+}
+
+fn file_error(operation: &str, error: std::io::Error) -> Fault {
+    let kind = error.kind();
+    let message = match error.raw_os_error() {
+        Some(code) => format!("plugin {operation} failed ({kind:?}, OS error {code})"),
+        None => format!("plugin {operation} failed ({kind:?})"),
+    };
+    Fault::new(ErrorCode::Unavailable, message)
 }
 
 #[cfg(test)]
