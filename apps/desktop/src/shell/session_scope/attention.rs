@@ -23,6 +23,24 @@ impl Shell {
         }
     }
 
+    /// A conflicting automatic acknowledgement retries once the visible
+    /// session's attention revision changes, at most once per revision.
+    pub(crate) fn retry_session_read(
+        &mut self,
+        node: NodeId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Key::Session(active, id) = self.session_scope.active
+            && active == node
+            && let Some(attention) = self.session_attention(node, id)
+            && attention.unread
+            && self.activity.acknowledged.get(&(node, id)) != Some(&attention.revision)
+        {
+            self.read_current_session(window, cx);
+        }
+    }
+
     fn session_attention(
         &self,
         node: NodeId,
@@ -86,6 +104,11 @@ impl Shell {
             return;
         };
         let client = live.client_for(transport);
+        if automatic {
+            self.activity
+                .acknowledged
+                .insert((node, id), attention.revision);
+        }
         let request = client.prepare(sailry_protocol::Command::SetSessionRead {
             session: id,
             expected_revision: attention.revision,
