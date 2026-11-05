@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # scripts/ci.py select decides coverage: drafts and other labels defer,
+    # the full-ci label runs full checks and other pull requests run light lint.
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_dispatch:
 
 permissions:
@@ -11,7 +14,11 @@ permissions:
   actions: read
 
 concurrency:
-  group: checks-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  # Other labels defer in their own group so they cannot cancel current pull request checks.
+  group: >-
+    checks-${{ github.workflow }}-${{ github.event_name == 'pull_request' &&
+    (github.event.action == 'labeled' && github.event.label.name != 'full-ci' && format('label-{0}', github.run_id) || github.ref) ||
+    github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -38,6 +45,9 @@ jobs:
       mobile_ffi: ${{ steps.scope.outputs.mobile_ffi }}
       android: ${{ steps.scope.outputs.android }}
       services: ${{ steps.scope.outputs.services }}
+      mode: ${{ steps.scope.outputs.mode }}
+      light_linux: ${{ steps.scope.outputs.light_linux }}
+      light_macos: ${{ steps.scope.outputs.light_macos }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -88,7 +98,9 @@ jobs:
   lint:
     name: Rust strict lint
     needs: source
-    if: needs.source.outputs.shared == 'true' || needs.source.outputs.desktop == 'true' || needs.source.outputs.host == 'true' || needs.source.outputs.mobile == 'true'
+    if: >-
+      needs.source.outputs.mode == 'full' && (needs.source.outputs.shared == 'true' || needs.source.outputs.desktop == 'true' ||
+      needs.source.outputs.host == 'true' || needs.source.outputs.mobile == 'true')
     runs-on: macos-15
     timeout-minutes: 150
     env:
@@ -147,7 +159,7 @@ jobs:
   shared:
     name: Shared Node
     needs: source
-    if: needs.source.outputs.shared == 'true' || needs.source.outputs.host == 'true'
+    if: needs.source.outputs.mode == 'full' && (needs.source.outputs.shared == 'true' || needs.source.outputs.host == 'true')
     runs-on: macos-15
     timeout-minutes: 240
     env:
@@ -254,7 +266,7 @@ jobs:
   desktop:
     name: Desktop
     needs: source
-    if: needs.source.outputs.desktop == 'true'
+    if: needs.source.outputs.mode == 'full' && needs.source.outputs.desktop == 'true'
     runs-on: macos-15
     timeout-minutes: 150
     env:
@@ -336,7 +348,7 @@ jobs:
   host:
     name: Host
     needs: source
-    if: needs.source.outputs.host == 'true'
+    if: needs.source.outputs.mode == 'full' && needs.source.outputs.host == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
@@ -398,7 +410,7 @@ jobs:
   mobile:
     name: Mobile
     needs: source
-    if: needs.source.outputs.mobile == 'true' || needs.source.outputs.mobile_ffi == 'true'
+    if: needs.source.outputs.mode == 'full' && (needs.source.outputs.mobile == 'true' || needs.source.outputs.mobile_ffi == 'true')
     runs-on: macos-15
     timeout-minutes: 240
     env:
@@ -483,7 +495,7 @@ jobs:
   android:
     name: Mobile Android
     needs: source
-    if: needs.source.outputs.android == 'true'
+    if: needs.source.outputs.mode == 'full' && needs.source.outputs.android == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -533,6 +545,106 @@ jobs:
           python3 scripts/package/verify-android.py apps/mobile/build/app/outputs/flutter-apk/app-release.apk \
             --version "$(python3 scripts/package/versions.py)" \
             --code "$(python3 scripts/package/versions.py --android-code)"
+
+  light_linux:
+    name: Rust lint Linux
+    needs: source
+    if: needs.source.outputs.light_linux == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: '0.16.0'
+          use-cache: false
+      - name: Pinned Rust toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = x86_64-unknown-linux-gnu
+      - name: Linux build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes build-essential pkg-config clang libx11-dev libxi-dev libxtst-dev
+      - name: Rust dependency caches
+        id: rust-cache
+        uses: ./.github/actions/rust-cache
+      - name: Formatting
+        run: python3 scripts/ci.py check format
+      - name: Host source fixtures
+        if: needs.source.outputs.host == 'true'
+        run: python3 scripts/ci.py check host-source
+      - name: Mobile source fixtures
+        if: needs.source.outputs.mobile == 'true'
+        run: python3 scripts/ci.py check mobile-source
+      - name: Strict lint for Linux packages
+        run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint linux
+      - name: Compiler cache statistics
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 scripts/ci.py cache-usage
+
+  light_macos:
+    name: Rust lint macOS
+    needs: source
+    if: needs.source.outputs.light_macos == 'true'
+    runs-on: macos-15
+    timeout-minutes: 150
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: '0.16.0'
+          use-cache: false
+      - name: Pinned Rust toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+      - name: Rust dependency caches
+        id: rust-cache
+        uses: ./.github/actions/rust-cache
+      - name: Native library cache
+        id: native-cache
+        continue-on-error: true
+        uses: ./.github/actions/native-cache
+        with:
+          target: aarch64-apple-darwin
+      - name: Desktop source fixtures
+        if: needs.source.outputs.desktop == 'true'
+        run: python3 scripts/ci.py check desktop-source
+      - name: Strict lint for macOS packages
+        run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint macos
+      - name: Compiler cache statistics
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 scripts/ci.py cache-usage
 
   desktop_ready:
     name: Desktop ready
@@ -589,9 +701,11 @@ jobs:
         run: python3 scripts/ci.py report mobile
 
   checks:
-    name: Checks passed
-    if: ${{ !cancelled() }}
-    needs: [source, lint, shared, desktop, host, mobile, android, services]
+    # Deferred runs report another name, so they neither pass nor replace the required check.
+    name: ${{ needs.source.outputs.mode == 'skip' && 'Checks deferred' || 'Checks passed' }}
+    # A superseded pull request run can share its commit; it reports failure, never a skip.
+    if: ${{ !cancelled() || github.event_name == 'pull_request' }}
+    needs: [source, lint, shared, desktop, host, mobile, android, services, light_linux, light_macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

@@ -41,13 +41,24 @@ def job_section(workflow, name):
 
 class CheckResults(unittest.TestCase):
     def results(self, selected):
-        selection = ci.outputs(selected)
+        selection = {**ci.outputs(selected), "mode": "full", "light_linux": "false", "light_macos": "false"}
         return {
             "source": {"result": "success", "outputs": selection},
             **{name: {"result": "success" if lanes & selected else "skipped"}
                for name, lanes in ci.CHECK_JOBS.items()},
             "lint": {"result": "success" if ci.lint_packages(selected) else "skipped"},
+            **{name: {"result": "skipped"} for name in ci.LIGHT_JOBS},
         }
+
+    def light(self, selected, mode="light"):
+        jobs = ci.light_jobs(selected, mode)
+        results = self.results(set())
+        results["source"]["outputs"] = {**ci.outputs(selected), "mode": mode,
+                                        **{name: str(name in jobs).lower() for name in ci.LIGHT_JOBS}}
+        for name in ci.LIGHT_JOBS:
+            results[name]["result"] = "success" if name in jobs else "skipped"
+        results["services"]["result"] = "success" if "services" in selected else "skipped"
+        return results
 
     def summarize(self, results, product=None):
         try:
@@ -100,6 +111,54 @@ class CheckResults(unittest.TestCase):
                     for status in ("failure", "cancelled", "unknown", None):
                         changed[name]["result"] = status
                         self.assertNotEqual(self.summarize(changed).returncode, 0)
+
+    def test_light_requires_lint_and_skipped_tests(self):
+        for selected, jobs in ((set(), set()), ({"services"}, set()), ({"host"}, {"light_linux"}),
+                               ({"desktop"}, {"light_linux", "light_macos"}),
+                               ({"shared"}, {"light_linux", "light_macos"}),
+                               ({"mobile", "android"}, {"light_linux", "light_macos"}),
+                               (ci.LANES, {"light_linux", "light_macos"})):
+            with self.subTest(selected=selected):
+                self.assertEqual(ci.light_jobs(selected, "light"), jobs)
+                results = self.light(selected)
+                self.assertEqual(ci.require_results(results), "light")
+                for name in JOBS[1:] + tuple(ci.LIGHT_JOBS):
+                    for status in ("success", "failure", "cancelled", "skipped", None):
+                        if status == results[name]["result"]:
+                            continue
+                        changed = copy.deepcopy(results)
+                        changed[name]["result"] = status
+                        accepted = name == "services" and not selected & {"services"} and status == "success"
+                        self.assertEqual(self.summarize(changed).returncode == 0, accepted, (name, status))
+
+    def test_light_ignores_untrusted_job_outputs(self):
+        results = self.light({"desktop"})
+        results["source"]["outputs"]["light_macos"] = "false"
+        results["light_macos"]["result"] = "skipped"
+        self.assertNotEqual(self.summarize(results).returncode, 0)
+
+    def test_deferred_runs_only_source(self):
+        results = self.light(set(), "skip")
+        self.assertEqual(ci.require_results(results), "skip")
+        for name in JOBS[1:] + tuple(ci.LIGHT_JOBS):
+            changed = copy.deepcopy(results)
+            changed[name]["result"] = "success"
+            if name != "services":
+                self.assertNotEqual(self.summarize(changed).returncode, 0)
+        selected = self.light({"host"}, "skip")
+        self.assertNotEqual(self.summarize(selected).returncode, 0)
+        for product in ci.PRODUCTS:
+            self.assertNotEqual(self.summarize(self.light(ci.LANES, "light"), product).returncode, 0)
+
+    def test_rejects_missing_mode(self):
+        for mode in (None, "", "partial"):
+            with self.subTest(mode=mode):
+                results = self.results(ci.LANES)
+                results["source"]["outputs"]["mode"] = mode
+                self.assertNotEqual(self.summarize(results).returncode, 0)
+        results = self.results(ci.LANES)
+        del results["light_linux"]
+        self.assertNotEqual(self.summarize(results).returncode, 0)
 
     def test_rejects_missing_results(self):
         self.assertNotEqual(self.summarize({}).returncode, 0)
@@ -259,7 +318,7 @@ class Workflow(unittest.TestCase):
             self.assertIn("needs: source", section)
             for lane in lanes:
                 self.assertIn(f"needs.source.outputs.{lane} == 'true'", section)
-        self.assertIn("needs: [source, lint, shared, desktop, host, mobile, android, services]", workflow)
+        self.assertIn("needs: [source, lint, shared, desktop, host, mobile, android, services, light_linux, light_macos]", workflow)
         self.assertIn("run: python3 scripts/ci.py report", workflow)
 
     def test_lints_every_workspace_member(self):
@@ -273,7 +332,10 @@ class Workflow(unittest.TestCase):
         self.assertIn("CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}", lint)
         self.assertIn("needs: source", lint)
         self.assertNotIn("cargo clippy", workflow)
-        self.assertEqual(workflow.count("scripts/ci-run.py -- python3 scripts/ci.py lint"), 1)
+        for line in ("run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint\n",
+                     "run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint linux\n",
+                     "run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint macos\n"):
+            self.assertEqual(workflow.count(line), 1)
         for name in ci.CHECK_JOBS:
             self.assertNotIn("needs: [source, lint]", job_section(workflow, name))
 
@@ -309,8 +371,9 @@ class Workflow(unittest.TestCase):
         workflow = workflow_source()
         lint = job_section(workflow, "lint")
         header = lint.split("    steps:\n", 1)[0]
-        self.assertEqual(workflow.count("run: cargo fmt --all -- --check"), 1)
+        self.assertEqual(workflow.count("run: cargo fmt --all -- --check"), 2)
         self.assertIn("run: cargo fmt --all -- --check", lint)
+        self.assertIn("run: cargo fmt --all -- --check", job_section(workflow, "light_linux"))
         for lane in ("shared", "desktop", "host", "mobile"):
             self.assertIn(f"needs.source.outputs.{lane} == 'true'", header)
         for lane in ("shared", "desktop", "host", "mobile", "android"):
@@ -331,6 +394,40 @@ class Workflow(unittest.TestCase):
                         self.assertIn(f"needs.{name}.result == 'success'", section)
                 self.assertIn(f"python3 scripts/ci.py report {product}", section)
                 self.assertNotIn("continue-on-error", section)
+
+    def test_separates_light_and_full_lanes(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        for name in ("lint", "shared", "desktop", "host", "mobile", "android"):
+            header = job_section(workflow, name).split("    steps:\n", 1)[0]
+            self.assertIn("needs.source.outputs.mode == 'full' && ", header)
+        self.assertNotIn("outputs.mode", job_section(workflow, "services"))
+        macos = {"full": [], "light": []}
+        for name in re.findall(r"\n  ([a-z_]+):\n    name:", workflow):
+            section = job_section(workflow, name)
+            if "runs-on: macos" in section:
+                macos["light" if name in ci.LIGHT_JOBS else "full"].append(name)
+            if name in ci.LIGHT_JOBS:
+                header = section.split("    steps:\n", 1)[0]
+                self.assertIn(f"if: needs.source.outputs.{name} == 'true'", header)
+                self.assertIn("CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}", header)
+                self.assertNotIn("actions/cache/save", section)
+                self.assertNotIn("nextest", section)
+                self.assertIn(f"scripts/ci.py lint {ci.LIGHT_JOBS[name]}", section)
+                self.assertIn("runs-on: macos-15" if name == "light_macos" else "runs-on: ubuntu-24.04", section)
+        self.assertEqual(macos, {"full": ["lint", "shared", "desktop", "mobile"], "light": ["light_macos"]})
+        source = job_section(workflow, "source")
+        for name in ("mode", *ci.LIGHT_JOBS):
+            self.assertIn(f"{name}: ${{{{ steps.scope.outputs.{name} }}}}", source)
+
+    def test_triggers_and_defers_label_events(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, labeled]", workflow)
+        group = workflow.split("concurrency:\n", 1)[1].split("\n  cancel-in-progress:", 1)[0]
+        self.assertIn(f"github.event.label.name != '{ci.FULL_LABEL}'", group)
+        self.assertIn("github.run_id", group)
+        checks = job_section(workflow, "checks")
+        self.assertIn("name: ${{ needs.source.outputs.mode == 'skip' && 'Checks deferred' || 'Checks passed' }}", checks)
+        self.assertIn("if: ${{ !cancelled() || github.event_name == 'pull_request' }}", checks)
 
     def test_merges_host_lifecycle_into_shared(self):
         workflow = workflow_source()
