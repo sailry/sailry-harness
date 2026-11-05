@@ -1,10 +1,12 @@
 use super::*;
 use crate::file_fixture as files;
 use sailry_protocol::ssh::{Direction, Transfer};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 #[tokio::test]
 async fn copies_confirmed_files() {
+    let _ = server::sftp_executable();
     for remote in [false, true] {
         let fixture = files::Fixture::empty().await;
         let remote_files = fixture._temp.path().join("ssh");
@@ -43,6 +45,7 @@ async fn copies_confirmed_files() {
         });
         assert_eq!(client.execute(request.clone()).await.unwrap(), expected);
         assert_eq!(std::fs::read(remote_files.join(remote_name)).unwrap(), data);
+        #[cfg(unix)]
         assert_eq!(
             std::fs::metadata(remote_files.join(remote_name))
                 .unwrap()
@@ -56,6 +59,7 @@ async fn copies_confirmed_files() {
         std::fs::write(fixture.root.join("source.bin"), "changed").unwrap();
         assert_eq!(client.execute(request.clone()).await.unwrap(), expected);
         assert_eq!(server.subsystems.load(Ordering::SeqCst), 1);
+        assert_eq!(server.authentication.load(Ordering::SeqCst), 1);
         let download = client.prepare(command(Direction::Download, "download.bin", remote_name));
         assert_eq!(client.execute(download.clone()).await.unwrap(), expected);
         assert_eq!(
@@ -81,18 +85,21 @@ async fn copies_confirmed_files() {
                     .is_err()
             );
         }
-        std::os::unix::fs::symlink(&remote_files, fixture.root.join("outside")).unwrap();
-        assert!(
-            client
-                .execute(client.prepare(command(
-                    Direction::Download,
-                    "outside/escape",
-                    remote_name
-                )))
-                .await
-                .is_err()
-        );
-        assert!(!remote_files.join("escape").exists());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&remote_files, fixture.root.join("outside")).unwrap();
+            assert!(
+                client
+                    .execute(client.prepare(command(
+                        Direction::Download,
+                        "outside/escape",
+                        remote_name
+                    )))
+                    .await
+                    .is_err()
+            );
+            assert!(!remote_files.join("escape").exists());
+        }
         assert_eq!(
             client
                 .execute(client.prepare(command(Direction::Download, "missing.bin", "absent")))
@@ -155,6 +162,7 @@ async fn copies_confirmed_files() {
 
 #[tokio::test]
 async fn requires_confirmed_close() {
+    let _ = server::sftp_executable();
     for remote in [false, true] {
         let fixture = files::Fixture::empty().await;
         let remote_files = fixture._temp.path().join("ssh");

@@ -4,23 +4,12 @@ use tokio::io::AsyncReadExt;
 
 pub(super) async fn run(
     root: PathBuf,
-    command: String,
+    mut command: tokio::process::Command,
     mut channel: Channel<server::Msg>,
     handle: server::Handle,
 ) {
     let id = channel.id();
-    let mut child = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .env("HOME", &root)
-        .env(
-            "PATH",
-            format!(
-                "{}:{}",
-                root.join(".fixture/bin").display(),
-                std::env::var("PATH").unwrap()
-            ),
-        )
+    let mut child = command
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

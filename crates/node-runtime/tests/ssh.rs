@@ -1,22 +1,29 @@
-#![cfg(unix)]
+#![cfg(any(unix, windows))]
 use sailry_client::Client;
+#[cfg(unix)]
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::{
     ssh::{Authentication, Credential, Outcome, Profile},
     *,
 };
-use std::{sync::atomic::Ordering, time::Duration};
+use std::sync::atomic::Ordering;
+#[cfg(unix)]
+use std::time::Duration;
 
+#[cfg(unix)]
 #[path = "ssh/concurrency.rs"]
 mod concurrency;
 #[path = "ssh/server.rs"]
 mod server;
 
+#[cfg(unix)]
 #[path = "ssh/files.rs"]
 mod files;
+#[cfg(unix)]
 #[path = "ssh/install.rs"]
 mod install;
+#[cfg(unix)]
 #[path = "ssh/terminal.rs"]
 mod terminal;
 #[path = "ssh/transfer.rs"]
@@ -72,6 +79,7 @@ async fn trust(client: &Client, profile: &Profile, key: &ssh::HostKey) -> Profil
     profile
 }
 
+#[cfg(unix)]
 fn run(profile: &Profile, command: &str) -> Command {
     Command::RunSsh {
         profile: profile.id,
@@ -81,6 +89,7 @@ fn run(profile: &Profile, command: &str) -> Command {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 #[ignore = "Requires SAILRY_TEST_SSH_HOST; performs only an unauthenticated handshake"]
 async fn external_host_key() {
@@ -108,6 +117,7 @@ async fn external_host_key() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn preserves_authenticated_ownership() {
     for remote in [false, true] {
@@ -261,6 +271,7 @@ async fn preserves_authenticated_ownership() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn connection_failure_includes_cause() {
     for remote in [false, true] {
@@ -309,6 +320,7 @@ async fn connection_failure_includes_cause() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn reports_authenticated_uncertainty() {
     for remote in [false, true] {

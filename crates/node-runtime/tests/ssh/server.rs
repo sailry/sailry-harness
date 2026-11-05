@@ -17,11 +17,34 @@ use std::{
 
 #[path = "server/process.rs"]
 mod process;
+#[cfg(unix)]
 #[path = "server/terminal.rs"]
 mod terminal;
 
 pub fn key(seed: u8) -> PrivateKey {
     Ed25519Keypair::from_seed(&[seed; 32]).into()
+}
+
+pub fn sftp_executable() -> &'static str {
+    let paths = [
+        #[cfg(windows)]
+        r"C:\Windows\System32\OpenSSH\sftp-server.exe",
+        #[cfg(unix)]
+        "/usr/libexec/sftp-server",
+        #[cfg(unix)]
+        "/usr/lib/openssh/sftp-server",
+        #[cfg(unix)]
+        "/usr/lib/ssh/sftp-server",
+    ];
+    paths
+        .into_iter()
+        .find(|path| std::path::Path::new(path).is_file())
+        .unwrap_or_else(|| {
+            panic!(
+                "OpenSSH SFTP server prerequisite is missing; expected {}",
+                paths.join(" or ")
+            )
+        })
 }
 
 pub struct Server {
@@ -37,18 +60,33 @@ pub struct Server {
 
 impl Server {
     pub async fn start(root: PathBuf, seed: u8) -> Self {
-        Self::configured(root, seed, false, None).await
+        Self::configured(
+            root,
+            seed,
+            #[cfg(unix)]
+            false,
+            None,
+        )
+        .await
     }
+    #[cfg(unix)]
     pub async fn deployment(root: PathBuf, seed: u8) -> Self {
         Self::configured(root, seed, true, None).await
     }
     pub async fn without_close(root: PathBuf, seed: u8) -> Self {
-        Self::configured(root, seed, false, Some("close")).await
+        Self::configured(
+            root,
+            seed,
+            #[cfg(unix)]
+            false,
+            Some("close"),
+        )
+        .await
     }
     async fn configured(
         root: PathBuf,
         seed: u8,
-        deployment: bool,
+        #[cfg(unix)] deployment: bool,
         denied_requests: Option<&'static str>,
     ) -> Self {
         let key = key(seed);
@@ -68,12 +106,14 @@ impl Server {
         let processes = Arc::new(Mutex::new(Vec::new()));
         let mut handler = Handler {
             root,
+            #[cfg(unix)]
             deployment,
             denied_requests,
             authentication: authentication.clone(),
             commands: commands.clone(),
             subsystems: subsystems.clone(),
             channels: BTreeMap::new(),
+            #[cfg(unix)]
             terminals: BTreeMap::new(),
             processes: processes.clone(),
         };
@@ -120,12 +160,14 @@ impl Server {
 
 struct Handler {
     root: PathBuf,
+    #[cfg(unix)]
     deployment: bool,
     denied_requests: Option<&'static str>,
     authentication: Arc<AtomicUsize>,
     commands: Arc<Mutex<Vec<String>>>,
     subsystems: Arc<AtomicUsize>,
     channels: BTreeMap<ChannelId, Channel<server::Msg>>,
+    #[cfg(unix)]
     terminals: BTreeMap<ChannelId, terminal::Pty>,
     processes: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
@@ -133,12 +175,14 @@ impl Clone for Handler {
     fn clone(&self) -> Self {
         Self {
             root: self.root.clone(),
+            #[cfg(unix)]
             deployment: self.deployment,
             denied_requests: self.denied_requests,
             authentication: self.authentication.clone(),
             commands: self.commands.clone(),
             subsystems: self.subsystems.clone(),
             channels: BTreeMap::new(),
+            #[cfg(unix)]
             terminals: BTreeMap::new(),
             processes: self.processes.clone(),
         }
@@ -189,6 +233,7 @@ impl server::Handler for Handler {
         reply.accept().await;
         Ok(())
     }
+    #[cfg(unix)]
     async fn pty_request(
         &mut self,
         channel: ChannelId,
@@ -206,6 +251,7 @@ impl server::Handler for Handler {
         session.channel_success(channel)?;
         Ok(())
     }
+    #[cfg(unix)]
     async fn shell_request(
         &mut self,
         channel: ChannelId,
@@ -224,6 +270,7 @@ impl server::Handler for Handler {
         session.channel_success(channel)?;
         Ok(())
     }
+    #[cfg(unix)]
     async fn window_change_request(
         &mut self,
         channel: ChannelId,
@@ -238,6 +285,7 @@ impl server::Handler for Handler {
         }
         Ok(())
     }
+    #[cfg(unix)]
     async fn channel_close(
         &mut self,
         channel: ChannelId,
@@ -256,21 +304,14 @@ impl server::Handler for Handler {
             session.channel_failure(channel)?;
             return Ok(());
         }
-        let executable = [
-            "/usr/libexec/sftp-server",
-            "/usr/lib/openssh/sftp-server",
-            "/usr/lib/ssh/sftp-server",
-        ]
-        .into_iter()
-        .find(|path| std::path::Path::new(path).is_file())
-        .expect("OpenSSH SFTP server is required for file acceptance");
+        let mut command = tokio::process::Command::new(sftp_executable());
+        command.args(["-d", "."]);
+        if let Some(requests) = self.denied_requests {
+            command.args(["-P", requests]);
+        }
         self.subsystems.fetch_add(1, Ordering::SeqCst);
         session.channel_success(channel)?;
         let pipe = self.channels.remove(&channel).unwrap();
-        let command = match self.denied_requests {
-            Some(requests) => format!("exec {executable} -d . -P {requests}"),
-            None => format!("exec {executable} -d ."),
-        };
         self.processes
             .lock()
             .unwrap()
@@ -282,6 +323,7 @@ impl server::Handler for Handler {
             )));
         Ok(())
     }
+    #[cfg(unix)]
     async fn exec_request(
         &mut self,
         channel: ChannelId,
@@ -306,12 +348,21 @@ impl server::Handler for Handler {
         session.channel_success(channel)?;
         let pipe = self.channels.remove(&channel).unwrap();
         if command.starts_with("scp ") || self.deployment {
+            let mut process = tokio::process::Command::new("sh");
+            process.arg("-c").arg(command).env("HOME", &self.root).env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    self.root.join(".fixture/bin").display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            );
             self.processes
                 .lock()
                 .unwrap()
                 .push(tokio::spawn(process::run(
                     self.root.clone(),
-                    command,
+                    process,
                     pipe,
                     session.handle(),
                 )));
@@ -345,6 +396,35 @@ impl server::Handler for Handler {
         }
         session.eof(channel)?;
         session.close(channel)?;
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    async fn exec_request(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut server::Session,
+    ) -> Result<(), Self::Error> {
+        self.commands
+            .lock()
+            .unwrap()
+            .push(String::from_utf8(data.to_vec()).unwrap());
+        session.channel_failure(channel)?;
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    async fn shell_request(
+        &mut self,
+        channel: ChannelId,
+        session: &mut server::Session,
+    ) -> Result<(), Self::Error> {
+        self.commands
+            .lock()
+            .unwrap()
+            .push("interactive-shell".into());
+        session.channel_failure(channel)?;
         Ok(())
     }
 }
