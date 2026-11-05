@@ -447,7 +447,8 @@ class GateWaiting(unittest.TestCase):
     def setUp(self):
         spec = importlib.util.spec_from_file_location("waiting_gate", ROOT / "scripts/package/publication.py")
         self.gate = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.gate)
+        with patch.object(sys, "path", [str(ROOT / "scripts/package"), *sys.path]):
+            spec.loader.exec_module(self.gate)
         self.client = Mock()
         self.pending = {"id": 7, "head_sha": "a" * 40, "head_branch": "main", "event": "push", "status": "queued"}
 

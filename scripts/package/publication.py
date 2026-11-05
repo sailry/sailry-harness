@@ -25,6 +25,7 @@ PREREQUISITES = {
     "mobile": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Mobile", "Mobile Android"),
 }
 FULL_CHECKS = ("Source", *sorted(ci_reuse.NAMES), "Desktop ready", "Host ready", "Mobile ready")
+RECOVERY_PAGES = 3
 
 
 # Product Checks remain valid when only the reviewed signing tool and its
@@ -249,24 +250,51 @@ def recovered_run(client, repository, commit, component, root=None):
     except ValueError as error:
         print(f"Recovered Checks cannot verify product equivalence: {error}", flush=True)
         return None
-    run_id = ready_run(client, repository, revision, component)
-    if run_id is None:
-        revision = checked_source(revision, root=root)
-        if revision is not None:
-            run_id = ready_run(client, repository, revision, component)
-    if run_id is None:
-        print("Recovered Checks have no successful gate at the verified tooling source", flush=True)
-        return None
-    metadata = {"id": run_id, "head_sha": revision}
-    artifact = ci_reuse.find_artifact(client, repository, metadata, "checks-reuse", optional=True)
-    if artifact is None:
-        return None
-    proof = ci_reuse.read_proof(repository, artifact)
-    if not isinstance(proof, dict) or proof.get("source_sha") != commit:
-        return None
-    ci_reuse.validate_proof(client, repository, revision, run_id, proof, root)
-    print(f"Verified recovered {component.title()} Checks for unchanged product source {commit} in run {run_id}")
-    return run_id
+    required = {*PREREQUISITES[component], gate_name(component)}
+    for page in range(1, RECOVERY_PAGES + 1):
+        payload = client.api("GET", f"repos/{repository}/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=100&page={page}")
+        runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
+        if (not isinstance(runs, list) or len(runs) > 100
+                or any(not isinstance(run, dict) for run in runs)):
+            raise ValueError("Invalid recovery Checks run page")
+        for run in runs:
+            if (run.get("head_branch") != "main" or run.get("path") != ci_reuse.WORKFLOW
+                    or run.get("event") not in {"push", "workflow_dispatch"}
+                    or run.get("status") != "completed" or run.get("conclusion") not in {"success", "failure"}):
+                continue
+            try:
+                candidate = ci_reuse.sha(run.get("head_sha"))
+                run_id = ci_reuse.identifier(run.get("id"))
+            except ValueError:
+                continue
+            if candidate == commit:
+                continue
+            if candidate != revision:
+                try:
+                    ci_reuse.equivalent_inputs(root, commit, candidate)
+                    invalidated = ci_reuse.equivalent_inputs(root, candidate, revision)
+                except ValueError:
+                    continue
+                if invalidated & required:
+                    continue
+            jobs = ci_reuse.pages(client, f"repos/{repository}/actions/runs/{run_id}/jobs?filter=latest", "jobs")
+            successful, blocked = job_results(client, repository, candidate, run_id, component, jobs)
+            if blocked or not required.issubset(successful):
+                continue
+            metadata = {"id": run_id, "head_sha": candidate}
+            artifact = ci_reuse.find_artifact(client, repository, metadata, "checks-reuse", optional=True)
+            if artifact is None:
+                continue
+            proof = ci_reuse.read_proof(repository, artifact)
+            if not isinstance(proof, dict) or proof.get("source_sha") != commit:
+                continue
+            ci_reuse.validate_proof(client, repository, candidate, run_id, proof, root)
+            print(f"Verified recovered {component.title()} Checks for unchanged product source {commit} in run {run_id}")
+            return run_id
+        if len(runs) < 100:
+            break
+    print("Recovered Checks have no successful gate in the searched tooling history", flush=True)
+    return None
 
 
 def readiness(client, repository, commit, component, tag=None):
