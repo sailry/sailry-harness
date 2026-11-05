@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 LANES = {"shared", "desktop", "host", "mobile", "mobile_ffi", "android", "services"}
 NATIVE = LANES - {"services"}
 CHECK_JOBS = {
+    # Build compiles every macOS test binary once; Shared and Desktop run its archive.
+    "build": {"shared", "host", "desktop"},
     "shared": {"shared", "host"},
     "desktop": {"desktop"},
     "host": {"host"},
@@ -84,6 +86,9 @@ MODES = {"full", "light", "skip"}
 LIGHT_JOBS = {"light_linux": "linux", "light_macos": "macos"}
 # Fresh-Node suites contend on full-sync storage; higher concurrency exceeds Link receipt deadlines.
 CI_TEST_THREADS = "4"
+# Build writes this nextest archive; test jobs extract it to the same workspace paths,
+# so compile-time absolute paths such as CARGO_MANIFEST_DIR remain valid.
+TEST_ARCHIVE = ".runtime/ci/tests.tar.zst"
 # Node is also exercised by Desktop and Mobile's real-Node contract fixtures.
 DEPENDENTS = (
     (("scripts/package/code-parsers.",), {"shared", "desktop", "host", "mobile_ffi"}),
@@ -299,6 +304,15 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
     cargo_jobs = ["--jobs", jobs] if jobs else []
     nextest_jobs = ["--build-jobs", jobs] if jobs else []
     environment = os.environ if env is None else env
+    archive = environment.get("CHECK_ARCHIVE")
+    partition = environment.get("CHECK_PARTITION")
+    if partition is not None and not re.fullmatch(r"count:[1-9][0-9]*/[1-9][0-9]*", partition):
+        raise ValueError("Invalid test partition")
+
+    def archived(expression, *options):
+        """Run prebuilt binaries from the archive instead of compiling them."""
+        return ["cargo", "nextest", "run", "--archive-file", str(root / archive), "--extract-to", str(root),
+                "--extract-overwrite", "--filterset", expression, *options]
     target = Path(environment.get("CARGO_TARGET_DIR", str(root / "target")))
     triple = environment.get("CARGO_BUILD_TARGET")
     if triple:
@@ -327,12 +341,17 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
             *plugin_contracts(packages),
         ],
         "databases": [(backend + [*nextest_jobs, "--profile", "databases", "--run-ignored", "only", "--filterset", "binary(databases)", "--test-threads=1"], ".")],
-        "desktop": [(desktop + ["--lib", "--bin", "sailry-desktop", "--timings", *nextest_jobs, "--profile", "ci"], ".")],
+        "desktop": [(archived("package(sailry-content) | (package(sailry-desktop) & (kind(lib) | kind(bin)))",
+                              "--profile", "ci") if archive else
+                     desktop + ["--lib", "--bin", "sailry-desktop", "--timings", *nextest_jobs, "--profile", "ci"], ".")],
         "desktop-production": [(["cargo", "check", "--locked", "-p", "sailry-desktop", *cargo_jobs], ".")],
-        "desktop-lifecycle": [(["cargo", "nextest", "run", "--locked", "-p", "sailry-desktop", "--test", "lifecycle", *nextest_jobs, "--profile", "lifecycle"], ".")],
+        "desktop-lifecycle": [(archived("package(sailry-desktop) & binary(lifecycle)", "--profile", "lifecycle") if archive else
+                               ["cargo", "nextest", "run", "--locked", "-p", "sailry-desktop", "--test", "lifecycle", *nextest_jobs, "--profile", "lifecycle"], ".")],
         "host": [(host + ["--timings", *nextest_jobs, "--profile", "ci", f"--test-threads={threads}"], ".")],
         "host-mac": [(host + ["--test", "lifecycle", "--timings", *nextest_jobs, "--profile", "ci", f"--test-threads={threads}"], ".")],
         "host-production": [(["cargo", "check", "--locked", "-p", "sailry-host", *cargo_jobs], ".")],
+        # Runs against the example that Build placed in the extracted archive.
+        "plugin-contracts": plugin_contracts(packages)[1:],
         "desktop-source": [
             ([python, "scripts/ci.py", "fixtures", "desktop"], "."),
             ([python, "-m", "unittest", "discover", "-s", "apps/desktop/src/content/files/preview/web", "-v"], "."),
@@ -355,14 +374,18 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
     }
     if name == "lint":
         return [{"argv": lint_command(selection, jobs), "cwd": "."}]
-    if name in {"tests", "shared", "shared-databases"}:
+    if name in {"tests", "archive", "shared", "shared-databases"}:
         # One build for every selected product avoids rebuilding the graph per feature set.
         if (not isinstance(selection, dict) or set(selection) != LANES
                 or any(value not in {"true", "false"} for value in selection.values())):
             raise ValueError("Missing test selection")
         lanes = {lane for lane in LANES if selection[lane] == "true"}
         test_system = platform.system() if system is None else system
-        if name != "tests":
+        if name == "archive":
+            # One macOS build serves the Shared and Desktop test jobs.
+            lanes.intersection_update({"shared", "host", "desktop"})
+            test_system = "Darwin"
+        elif name != "tests":
             # The macOS Shared job covers only Node and Host lifecycle contracts.
             lanes.intersection_update({"shared", "host"})
             test_system = "Darwin"
@@ -372,6 +395,24 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
             raise ValueError("No product tests selected")
         if name == "shared-databases" and "shared" not in scope:
             raise ValueError("Database tests require the shared package selection")
+        if name == "archive":
+            selected = package_arguments(selected)
+            steps = (plugin_contracts(selected)[:1] if "shared" in scope else []) + [
+                (["cargo", "nextest", "archive", "--locked", *selected, "--timings", *nextest_jobs,
+                  "--archive-file", str(root / TEST_ARCHIVE)], "."),
+            ]
+            return [{"argv": argv, "cwd": cwd} for argv, cwd in steps]
+        if archive:
+            filters = " | ".join(f"package({package})" for package in selected)
+            if expression:
+                filters = f"({filters}) & ({expression})"
+            if name == "shared-databases":
+                run = archived(f"({filters}) & binary(databases)", "--profile", "databases",
+                               "--run-ignored", "only", "--test-threads=1")
+            else:
+                run = archived(filters, "--profile", "ci", f"--test-threads={threads}",
+                               *(["--partition", partition, "--no-tests=pass"] if partition else []))
+            return [{"argv": run, "cwd": "."}]
         if name == "shared" and scope == {"host-mac"}:
             return [{"argv": argv, "cwd": cwd} for argv, cwd in commands["host-mac"]]
         selected = package_arguments(selected)
@@ -429,7 +470,9 @@ def parser_environment(root, env, libraries):
 
 def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None):
     commands = check_commands(name, jobs, root, selection, env, threads)
-    if name in {"tests", "shared", "shared-databases", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
+    if name == "archive":
+        (root / TEST_ARCHIVE).parent.mkdir(parents=True, exist_ok=True)
+    if name in {"tests", "archive", "shared", "shared-databases", "plugin-contracts", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
         env = parser_environment(root, env, libraries=True)
         # Fixture servers verify recovery without waiting minutes for each failure.
         # The GDK's paused-clock tests verify the fixed production retry timing.
@@ -704,7 +747,7 @@ def main():
     elif len(sys.argv) == 3 and sys.argv[1] == "check":
         try:
             selection = (lane_scope(json.loads(os.environ.get("CHECK_SCOPE", json.dumps(outputs(LANES)))))
-                         if sys.argv[2] in {"lint", "shared", "shared-databases"} else None)
+                         if sys.argv[2] in {"lint", "archive", "shared", "shared-databases"} else None)
             raise SystemExit(run_check(sys.argv[2], selection=selection))
         except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
             raise SystemExit(str(error)) from error
