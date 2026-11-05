@@ -1,6 +1,9 @@
 use super::*;
 use std::path::Path;
 
+#[cfg(windows)]
+mod windows;
+
 fn launch(root: &Path, command: &str) -> Launch {
     Launch {
         pty: false,

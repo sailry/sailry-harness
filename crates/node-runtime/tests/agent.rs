@@ -78,6 +78,9 @@ mod planning;
 mod plugins;
 #[path = "agent/process.rs"]
 mod process;
+#[cfg(windows)]
+#[path = "agent/process_windows.rs"]
+mod process_windows;
 #[cfg(unix)]
 #[path = "agent/progress.rs"]
 mod progress;

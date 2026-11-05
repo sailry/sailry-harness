@@ -1,0 +1,62 @@
+use super::*;
+
+async fn run(launch: Launch) -> Completion {
+    execute(
+        launch,
+        &Environment::ambient(),
+        &CancellationToken::new(),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn preserves_cmd_quoting() {
+    let directory = tempfile::tempdir().unwrap();
+    for (command, expected) in [
+        (r#"echo "quoted & value""#, "\"quoted & value\""),
+        (r#"for %G in ("quoted value") do @echo %~G"#, "quoted value"),
+        (r#"echo "pipe value" | findstr "pipe""#, "\"pipe value\""),
+        (r#"echo escaped ^& value"#, "escaped & value"),
+    ] {
+        let output = run(launch(directory.path(), command)).await;
+        assert_eq!(output.outcome, Outcome::Exited(0), "{command}");
+        assert_eq!(output.stdout.text.trim(), expected, "{command}");
+        assert!(
+            output.stderr.text.is_empty(),
+            "{command}: {:?}",
+            output.stderr
+        );
+    }
+}
+
+#[tokio::test]
+async fn starts_quoted_script_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("项目 with spaces");
+    std::fs::create_dir(&root).unwrap();
+    let script = root.join("quoted script.cmd");
+    std::fs::write(&script, "@echo off\r\necho script-marker\r\nexit /b 7\r\n").unwrap();
+    let mut request = launch(directory.path(), &format!("\"{}\"", script.display()));
+    request.cwd = "项目 with spaces".into();
+    let output = run(request).await;
+    assert_eq!(output.outcome, Outcome::Exited(7));
+    assert_eq!(output.stdout.text.trim(), "script-marker");
+    assert!(output.stderr.text.is_empty());
+}
+
+#[tokio::test]
+async fn captures_unicode_and_exit_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = run(launch(
+        directory.path(),
+        "chcp 65001>nul & echo \"中文 🙂\"& echo error-marker 1>&2& exit /b 7",
+    ))
+    .await;
+    assert_eq!(output.outcome, Outcome::Exited(7));
+    assert_eq!(output.stdout.text.trim(), "\"中文 🙂\"");
+    assert_eq!(output.stderr.text.trim(), "error-marker");
+    assert!(!output.stdout.invalid_utf8);
+    assert!(!output.stderr.invalid_utf8);
+}

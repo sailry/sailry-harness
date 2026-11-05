@@ -1,4 +1,5 @@
 mod host;
+mod shell;
 use super::{
     Workspace,
     group::{Group, Row},

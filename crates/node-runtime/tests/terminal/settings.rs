@@ -1,6 +1,77 @@
 use super::*;
 
 #[tokio::test]
+async fn lists_and_preserves_shell_choices() {
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let local = Client::new(node.local());
+    let remote = Client::new(controller.handle().remote(address));
+    let Output::Shells(shells) = local
+        .execute(local.prepare(Command::ListShells))
+        .await
+        .unwrap()
+    else {
+        panic!("shells expected")
+    };
+    assert!(!shells.is_empty());
+    assert!(shells.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(shells.iter().all(|shell| {
+        let path = std::path::Path::new(shell);
+        path.is_absolute() && path.is_file()
+    }));
+    #[cfg(unix)]
+    assert!(shells.iter().any(|shell| shell == "/bin/sh"));
+    #[cfg(windows)]
+    assert!(shells.iter().any(|shell| {
+        std::path::Path::new(shell)
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|name| name.eq_ignore_ascii_case("cmd.exe"))
+    }));
+    assert_eq!(
+        remote
+            .execute(remote.prepare(Command::ListShells))
+            .await
+            .unwrap(),
+        Output::Shells(shells.clone())
+    );
+    let missing = directory.path().join("Removed Shell.exe");
+    let mut settings = Settings::default();
+    for shell in [shells[0].as_str(), "", missing.to_str().unwrap()] {
+        settings.shell = shell.to_owned();
+        let Output::TerminalSettings(saved) = remote
+            .execute(remote.prepare(Command::SaveTerminalSettings(settings.clone())))
+            .await
+            .unwrap()
+        else {
+            panic!("terminal settings expected")
+        };
+        assert_eq!(saved.shell, shell);
+        assert_eq!(saved.revision, settings.revision + 1);
+        assert_eq!(
+            local
+                .execute(local.prepare(Command::ReadTerminalSettings))
+                .await
+                .unwrap(),
+            Output::TerminalSettings(saved.clone())
+        );
+        settings = saved;
+    }
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 #[cfg(unix)]
 async fn applies_execution_settings() {
     let directory = tempfile::tempdir().unwrap();

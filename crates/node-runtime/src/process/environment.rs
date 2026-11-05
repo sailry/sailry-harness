@@ -224,7 +224,9 @@ impl Environment {
         #[cfg(unix)]
         command.args(["-c", &launch.command]);
         #[cfg(windows)]
-        command.args(["/D", "/S", "/C", &launch.command]);
+        command
+            .args(["/D", "/S", "/C"])
+            .raw_arg(format!("\"{}\"", launch.command));
         self.apply(&mut command);
         if let Some(python) = &launch.python {
             command.envs(python.variables());

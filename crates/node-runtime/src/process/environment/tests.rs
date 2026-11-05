@@ -109,6 +109,20 @@ fn filters_sensitive_values() {
     assert_eq!(environment.values[OsStr::new("LANG")], "en_US.UTF-8");
 }
 
+#[cfg(windows)]
+#[test]
+fn keeps_cmd_for_agent_commands() {
+    let environment = Environment::filtered([
+        ("COMSPEC".into(), r"C:\Windows\System32\cmd.exe".into()),
+        (
+            "SHELL".into(),
+            r"C:\Program Files\PowerShell\7\pwsh.exe".into(),
+        ),
+    ]);
+    assert_eq!(environment.shell(), r"C:\Windows\System32\cmd.exe");
+    assert_eq!(Environment::filtered([]).shell(), "cmd.exe");
+}
+
 #[cfg(unix)]
 mod unix {
     use super::*;
