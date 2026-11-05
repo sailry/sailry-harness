@@ -11,7 +11,7 @@
 <p align="center">Rust + GPUI 原生工作区，模型和机器你自己选。智能体团队直接操作文件、终端、Git、SSH 和数据库；链路端到端加密，手机随时接上任意主机。</p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge" alt="Apache-2.0 License"></a>
   <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.98-orange?style=for-the-badge&logo=rust&logoColor=white" alt="Rust 1.98"></a>
   <a href="#安装"><img src="https://img.shields.io/badge/platform-macOS-lightgrey?style=for-the-badge&logo=apple&logoColor=white" alt="Platform macOS"></a>
   <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=for-the-badge&color=yellow" alt="GitHub Stars"></a>
@@ -136,13 +136,11 @@ curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/ins
 
 ## 许可证
 
-Sailry 自有代码采用 [AGPL-3.0-only](LICENSE)。[sdk/](sdk/) 中的插件 SDK
-以及 [NOTICE](NOTICE) 列出的插件接口文件采用 [Apache-2.0](sdk/LICENSE)，
+Sailry 采用 [Apache-2.0](LICENSE) 许可证，[sdk/](sdk/) 中的插件 SDK、
 官方[插件](https://github.com/sailry/sailry-plugins)与
 [主题](https://github.com/sailry/sailry-themes)仓库同样采用 Apache-2.0。
 
-无法遵守 AGPL 的使用场景可获取商业许可，请[联系维护者](https://github.com/sailry)。
-详见 [COMMERCIAL.md](COMMERCIAL.md)。
+许可证不包含 Sailry 名称和 Logo 的使用权，详见 [TRADEMARKS.md](TRADEMARKS.md)。
 
 第三方材料保留各自的许可证，详见 [NOTICE](NOTICE) 和[第三方许可声明](third_party_licenses/)。
 

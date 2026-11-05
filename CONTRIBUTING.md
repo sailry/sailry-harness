@@ -602,9 +602,7 @@ merged without a signed CLA.
 
 ## Licensing
 
-Sailry-owned contributions use [AGPL-3.0-only](LICENSE). The plugin SDK
-interface files listed in [NOTICE](NOTICE), including [sdk/](sdk/), use
-[Apache-2.0](sdk/LICENSE). Preserve third-party copyright, source provenance
+Sailry-owned contributions use [Apache-2.0](LICENSE). Preserve third-party copyright, source provenance
 and license notices. The root license does not
 relicense vendored source, imported shell scripts, fonts, icons or other resources.
 Include applicable notices when packaging or redistributing those materials.

@@ -11,7 +11,7 @@
 <p align="center">A native Rust + GPUI workspace on your own models and machines. Agent teams work with files, terminals, Git, SSH and databases; every link is end-to-end encrypted, so your phone can drive any Host.</p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge" alt="Apache-2.0 License"></a>
   <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.98-orange?style=for-the-badge&logo=rust&logoColor=white" alt="Rust 1.98"></a>
   <a href="#install"><img src="https://img.shields.io/badge/platform-macOS-lightgrey?style=for-the-badge&logo=apple&logoColor=white" alt="Platform macOS"></a>
   <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=for-the-badge&color=yellow" alt="GitHub Stars"></a>
@@ -142,14 +142,12 @@ For collaboration or to join the group chat, add me on WeChat or join the Discor
 
 ## License
 
-Sailry-owned code uses [AGPL-3.0-only](LICENSE). The plugin SDK in [sdk/](sdk/)
-and the plugin interface files listed in [NOTICE](NOTICE) use
-[Apache-2.0](sdk/LICENSE), as do the official
+Sailry is licensed under [Apache-2.0](LICENSE), as are the plugin SDK in
+[sdk/](sdk/) and the official
 [plugins](https://github.com/sailry/sailry-plugins) and
 [themes](https://github.com/sailry/sailry-themes) repositories.
 
-Commercial licenses are available for uses that cannot comply with the AGPL;
-[contact the maintainers](https://github.com/sailry). See [COMMERCIAL.md](COMMERCIAL.md).
+The license does not cover the Sailry name or logos; see [TRADEMARKS.md](TRADEMARKS.md).
 
 Third-party materials retain their own licenses; see [NOTICE](NOTICE) and
 [third-party notices](third_party_licenses/).

@@ -1242,7 +1242,7 @@ existing transient attention behavior in the popover.
 Authenticated Node/resource access, path confinement, Node-owned credentials,
 revision checks and honest uncertain outcomes are the primary boundaries.
 Destructive actions identify their target and consequence. Imported sources and
-resources retain their licenses; root AGPL licensing does not replace those
+resources retain their licenses; the root Apache-2.0 license does not replace those
 notices. Native OS permissions remain platform responsibilities.
 
 Changed shared behavior requires local and remote-path evidence. UI interaction,
