@@ -18,6 +18,19 @@ async fn fixture(ddl: &str) -> (tempfile::TempDir, turso::Database, Connection) 
 
 const CURRENT: &str = "CREATE TABLE records(id INTEGER PRIMARY KEY,value TEXT DEFAULT 'Kept'); CREATE INDEX records_value ON records(value)";
 
+#[cfg(windows)]
+#[tokio::test]
+async fn builds_reference_with_default_temp_security() {
+    let reference = expected(CURRENT, &[]).await.unwrap();
+    assert_eq!(
+        reference.keys().cloned().collect::<Vec<_>>(),
+        vec![
+            ("index".into(), "records_value".into()),
+            ("table".into(), "records".into()),
+        ]
+    );
+}
+
 #[tokio::test]
 async fn accepts_matching_definitions() {
     let (_directory, _database, connection) = fixture("create table records(id integer primary key, /* value */ value text default 'Kept'); create index records_value on records(value)").await;
