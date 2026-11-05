@@ -180,6 +180,13 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let width = if cfg!(target_os = "windows") {
+            let controls = window.window_controls();
+            let count = 1 + u8::from(controls.minimize) + u8::from(controls.maximize);
+            width - gpui_kit::component::TITLE_BAR_HEIGHT * f32::from(count)
+        } else {
+            width
+        };
         let filters = self.header_has_filters(cx);
         let split = matches!(self.page, Page::Conversation | Page::Terminal)
             && self.splits.read(cx).is_split(cx);
@@ -201,6 +208,7 @@ impl Shell {
         };
         crate::header::Header::new("shell-module-header", cx)
             .bordered(false)
+            .draggable(!cfg!(target_os = "windows"))
             .child(
                 h_flex()
                     .min_w_0()

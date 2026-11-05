@@ -1,5 +1,5 @@
-//! Shell geometry and surfaces. Features supply optional navigation and details
-//! slots; their headers align with the outer band without another header layer.
+//! Shell geometry and surfaces. Features retain their navigation and details
+//! content; the frame places shared window and module headers.
 mod corner;
 mod motion;
 
@@ -261,23 +261,31 @@ impl super::Shell {
                 content,
             }),
             rail: self.feature_rail(window, cx).into_any_element(),
-            window_header: crate::header::Header::workspace("shell-window-header", cx)
-                .pl(if cfg!(target_os = "macos") {
-                    px(80.)
-                } else {
-                    px(12.)
-                })
-                .children(
-                    sidebar_open.then(|| div().flex_1().min_w_0().truncate().child(tr("app"))),
-                )
-                .into_any_element(),
+            window_header: if cfg!(target_os = "windows") {
+                crate::header::Header::new("shell-window-header", cx)
+                    .bordered(false)
+                    .draggable(false)
+            } else {
+                crate::header::Header::workspace("shell-window-header", cx)
+            }
+            .pl(if cfg!(target_os = "macos") {
+                px(80.)
+            } else {
+                px(12.)
+            })
+            .children(sidebar_open.then(|| div().flex_1().min_w_0().truncate().child(tr("app"))))
+            .into_any_element(),
             module_header: self
                 .module_header(
                     navigation_available,
                     visible,
                     window.viewport_size().width
                         - sidebar_width
-                        - if visible { px(panel_width) } else { px(0.) },
+                        - if visible && !cfg!(target_os = "windows") {
+                            px(panel_width)
+                        } else {
+                            px(0.)
+                        },
                     window,
                     cx,
                 )
@@ -469,13 +477,42 @@ impl RenderOnce for Frame {
             self.workspace_state.update(cx, |state, _| state.clear());
             previous.update(cx, |previous, _| *previous = Some(geometry));
         }
+        let (window_header, module_header, title_bar) = if cfg!(target_os = "windows") {
+            (
+                None,
+                None,
+                Some(
+                    crate::header::Header::workspace("shell-title-bar", cx)
+                        .px_0()
+                        .gap_0()
+                        .child(
+                            div()
+                                .w(left_width)
+                                .h_full()
+                                .flex_shrink_0()
+                                .child(self.window_header),
+                        )
+                        .child(
+                            div()
+                                .w_0()
+                                .flex_1()
+                                .h_full()
+                                .overflow_hidden()
+                                .child(self.module_header),
+                        )
+                        .into_any_element(),
+                ),
+            )
+        } else {
+            (Some(self.window_header), Some(self.module_header), None)
+        };
         let main_minimum =
             self.min_content_width + details.as_ref().map_or(px(0.), |pane| pane.width);
         let on_workspace_resize = self.on_workspace_resize;
         let workspace = Workspace {
             state: self.workspace_state,
             content: self.content,
-            header: self.module_header,
+            header: module_header,
             details,
             minimum: self.min_content_width,
             left_width,
@@ -494,13 +531,13 @@ impl RenderOnce for Frame {
         let left = v_flex()
             .size_full()
             .min_w_0()
-            .child(
+            .children(window_header.map(|header| {
                 div()
                     .h(px(HEADER_HEIGHT))
                     .flex_shrink_0()
                     .bg(crate::theme::sidebar_background(cx))
-                    .child(self.window_header),
-            )
+                    .child(header)
+            }))
             .child(
                 h_flex()
                     .flex_1()
@@ -567,6 +604,20 @@ impl RenderOnce for Frame {
                             .child(workspace),
                     ),
             );
+        let panels = if let Some(header) = title_bar {
+            v_flex()
+                .size_full()
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .bg(crate::theme::sidebar_background(cx))
+                        .child(header),
+                )
+                .child(div().flex_1().min_h_0().child(panels))
+                .into_any_element()
+        } else {
+            panels.into_any_element()
+        };
         div()
             .debug_selector(|| "shell-material".into())
             .relative()
@@ -627,7 +678,7 @@ impl RenderOnce for Plugin {
 
 fn main(
     content: AnyElement,
-    header: AnyElement,
+    header: Option<AnyElement>,
     left_width: Pixels,
     mounted: bool,
     cx: &App,
@@ -637,7 +688,7 @@ fn main(
         .size_full()
         .min_w_0()
         .overflow_hidden()
-        .child(
+        .children(header.map(|header| {
             div()
                 .flex_shrink_0()
                 .bg(crate::theme::sidebar_background(cx))
@@ -646,8 +697,8 @@ fn main(
                 } else {
                     px(0.)
                 })
-                .child(header),
-        )
+                .child(header)
+        }))
         .child(
             v_flex()
                 .debug_selector(|| "shell-body".into())
@@ -668,7 +719,7 @@ fn main(
 pub(crate) struct Workspace {
     pub state: Entity<ResizableState>,
     pub content: AnyElement,
-    pub header: AnyElement,
+    pub header: Option<AnyElement>,
     pub details: Option<Pane>,
     pub minimum: Pixels,
     pub left_width: Pixels,
@@ -712,7 +763,7 @@ impl RenderOnce for Workspace {
                                 .h(px(HEADER_HEIGHT))
                                 .bg(crate::theme::sidebar_background(cx)),
                         )
-                        // The existing details header occupies the outer header band.
+                        // Features retain their own details header and operations.
                         .child(
                             div()
                                 .absolute()
