@@ -73,8 +73,13 @@ def download(endpoint, limit):
             exit_code = process.wait()
             if exit_code:
                 errors.seek(0)
-                status = re.search(rb"\bHTTP [0-9]{3}\b", errors.read(8192))
-                reason = status[0].decode() if status else f"exit code {exit_code}"
+                detail = errors.read(8192).decode("utf-8", errors="replace")
+                for name in ("GH_TOKEN", "GITHUB_TOKEN"):
+                    credential = os.getenv(name)
+                    if credential:
+                        detail = detail.replace(credential, "[redacted]")
+                detail = re.sub(r"https?://\S+", "[URL]", detail)
+                reason = " ".join(detail.split())[:512] or f"exit code {exit_code}"
                 raise ValueError(f"Checks evidence could not be downloaded ({reason})")
     return content
 

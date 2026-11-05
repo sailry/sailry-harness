@@ -532,7 +532,7 @@ class ProofArchive(unittest.TestCase):
         process.stdout.read.assert_called_once_with(11)
         process.kill.assert_called_once_with()
 
-    def test_download_reports_http_failure(self):
+    def test_download_redacts_failure_details(self):
         process = Mock()
         process.stdout.read.return_value = b""
         process.wait.return_value = 1
@@ -540,11 +540,15 @@ class ProofArchive(unittest.TestCase):
         process.__exit__ = Mock(return_value=False)
 
         def failure(command, stdout, stderr):
-            stderr.write(b"gh: Resource not accessible by integration (HTTP 403)\n")
+            stderr.write(b"gh: request https://storage.example/logs?secret=value secret-token failed (HTTP 403)\n")
             return process
 
-        with patch.object(reuse.subprocess, "Popen", side_effect=failure), self.assertRaisesRegex(ValueError, "HTTP 403"):
+        with patch.object(reuse.subprocess, "Popen", side_effect=failure), \
+                patch.dict(os.environ, {"GH_TOKEN": "secret-token"}), \
+                self.assertRaisesRegex(ValueError, "HTTP 403") as caught:
             reuse.download("repos/example/sailry/actions/jobs/1/logs", 10)
+        self.assertNotIn("secret", str(caught.exception))
+        self.assertNotIn("https://", str(caught.exception))
 
     def test_rejects_unsafe_or_extra_entries(self):
         for name in ("../reuse.json", "/reuse.json", "folder/reuse.json", "other.json"):
