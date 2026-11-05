@@ -167,7 +167,8 @@ impl View {
                         (run.status != Status::Queued || child && !guidance.contains(&run.turn))
                             && (run.status != Status::Cancelled
                                 || child
-                                || run.kind == RunKind::Compaction
+                                // A compaction removed from the queue never ran.
+                                || run.kind == RunKind::Compaction && run.started_ms.is_some()
                                 || run.input.is_some()
                                 || entries.contains(&run.turn))
                     })

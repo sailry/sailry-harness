@@ -229,9 +229,13 @@ async fn cancelling_reservation_prevents_rescheduling(fixture: &mut Fixture) {
             .delivery,
         Some(queued.id)
     );
-    runs::stop(&fixture.database.connection, queued.id)
+    let stopped = runs::stop(&fixture.database.connection, queued.id)
         .await
         .unwrap();
+    // An unstarted turn keeps the transcript position at which it left the queue.
+    assert_eq!(stopped.status, Status::Cancelled);
+    assert_eq!(stopped.started_ms, None);
+    assert!(stopped.finished_ms.is_some());
     let record = get(&fixture.database.connection, &id)
         .await
         .unwrap()

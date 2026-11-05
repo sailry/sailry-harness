@@ -374,6 +374,7 @@ pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
             let mut run = runs::get(db, turn).await?;
             if run.notice && run.status == Status::Queued {
                 run.status = Status::Cancelled;
+                run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
                 runs::put(db, &run).await?;
                 queue::remove(db, turn, run.session).await?;
             }
