@@ -222,7 +222,11 @@ fn directory_and_routes() {
                     (Glyph::Image(ImageFormat::Png, vec![0]), false),
                     (Glyph::Remote("https://example.test/logo.png"), false),
                 ] {
-                    assert_eq!(tinted(&glyph), expected, "tints only vector glyphs: {glyph:?}");
+                    assert_eq!(
+                        tinted(&glyph),
+                        expected,
+                        "tints only vector glyphs: {glyph:?}"
+                    );
                 }
                 assert!(
                     groups(&bundled())

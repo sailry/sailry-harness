@@ -221,7 +221,10 @@ mod tests {
                 .flat_map(|(_, choices)| choices)
                 .all(|entry| !presets::login(entry))
         );
-        let keys = brands.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>();
+        let keys = brands
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>();
         assert!(keys.contains(&"openai") && keys.contains(&"anthropic"));
         let labels = brands
             .iter()
