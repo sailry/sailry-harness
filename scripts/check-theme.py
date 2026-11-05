@@ -59,6 +59,8 @@ class Audit:
             surface = rgba(colors.get(name + ".background"))
             surfaces[name] = composite(surface, base) if surface is not None else None
         for name, surface in surfaces.items():
+            for state in ("link", "link.hover", "link.active"):
+                self.measure(f"{mode}: {state}.{name}", rgba(colors.get(state)), surface)
             track = rgba(colors.get("tab_bar.segmented.background"))
             track = composite(track, surface) if track is not None and surface is not None else None
             label = f"{mode}: segmented.{name}"
@@ -98,6 +100,10 @@ class Audit:
         for key, message in variant.get("messages", {}).items():
             self.pair(f"{mode}: message.{key}", message.get("foreground"),
                       message.get("background", colors.get("background")), base)
+            surface = rgba(message["background"]) if "background" in message else base
+            surface = composite(surface, base) if surface is not None else None
+            for state in ("link", "link.hover", "link.active"):
+                self.measure(f"{mode}: message.{key}.{state}", rgba(colors.get(state)), surface)
         composer = rgba(colors.get("muted.background"))
         composer = composite(composer, base) if composer else base
         for key in ("send", "stop"):

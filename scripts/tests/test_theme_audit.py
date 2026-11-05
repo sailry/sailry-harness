@@ -216,6 +216,48 @@ class Controls(unittest.TestCase):
                             self.assertIn(f"dark: button.primary.{state}.{surface}.{part}", result.skipped)
 
 
+class Links(unittest.TestCase):
+    def test_checks_each_state_and_surface(self):
+        colors = {"background": "#FFFFFF", "foreground": "#000000",
+                  "group_box.background": "#FFFFFF", "popover.background": "#FFFFFF",
+                  "link": "#000000", "link.hover": "#000000", "link.active": "#000000"}
+        for state in ("link", "link.hover", "link.active"):
+            for color in ("#EEEEEE", "#00000020"):
+                with self.subTest(state=state, color=color):
+                    variant = {"theme": {"colors": {**colors, state: color}}}
+                    result = audit.Audit()
+                    result.variant("light", variant)
+                    self.assertEqual({error.rsplit(": ", 1)[0] for error in result.errors},
+                                     {f"light: {state}.{surface}"
+                                      for surface in ("base", "group_box", "popover")})
+
+    def test_checks_message_backgrounds(self):
+        variant = {"theme": {"colors": {
+            "background": "#000000", "foreground": "#FFFFFF", "link": "#FFFFFF",
+            "link.hover": "#FFFFFF", "link.active": "#FFFFFF"}},
+            "messages": {"user": {"background": "#FFFFFF80", "foreground": "#000000"},
+                         "assistant": {"foreground": "#FFFFFF"}}}
+        result = audit.Audit()
+        result.variant("dark", variant)
+        self.assertEqual({error.rsplit(": ", 1)[0] for error in result.errors},
+                         {f"dark: message.user.{state}"
+                          for state in ("link", "link.hover", "link.active")})
+        for state in ("link", "link.hover", "link.active"):
+            self.assertNotIn(f"dark: message.assistant.{state}", result.skipped)
+
+    def test_skips_unresolved_colors(self):
+        for color in (None, "blue-300", "linear-gradient(blue, black)"):
+            with self.subTest(color=color):
+                variant = fixture()["light"]
+                variant["theme"]["colors"]["link"] = color
+                variant["messages"] = {"assistant": {"foreground": "#000000"}}
+                result = audit.Audit()
+                result.variant("light", variant)
+                self.assertFalse(result.errors)
+                self.assertIn("light: link.base", result.skipped)
+                self.assertIn("light: message.assistant.link", result.skipped)
+
+
 class Command(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
