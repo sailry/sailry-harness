@@ -1,7 +1,7 @@
 //! Plain handlers inherit their declared capabilities, not an implicit read-only claim.
 use sailry_protocol::{plugin::Action, tool};
 
-pub(super) fn read_only(handler: &tool::Handler, actions: &[Action]) -> bool {
+pub(in crate::agent::plugins) fn read_only(handler: &tool::Handler, actions: &[Action]) -> bool {
     if let Some(operation) = handler.operation {
         return operation.read_only();
     }

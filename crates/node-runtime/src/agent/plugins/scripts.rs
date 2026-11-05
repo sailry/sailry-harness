@@ -9,6 +9,7 @@ mod identity;
 mod media;
 mod policy;
 mod turn;
+pub(super) use policy::read_only;
 
 pub(super) async fn bind(
     ingress: &Arc<Ingress>,
