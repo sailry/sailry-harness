@@ -221,17 +221,24 @@ def ready_run(client, repository, commit, component):
 
 def recovered_run(client, repository, commit, component, root=None):
     root = root or ci_reuse.ROOT
+    revision = ci_reuse.git(root, "rev-parse", "HEAD").decode().strip()
+    if revision == commit:
+        return None
+    if ci_reuse.git(root, "rev-parse", "--is-shallow-repository").strip() == b"true":
+        ci_reuse.git(root, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules",
+                     "--unshallow", "origin", revision)
     try:
-        revision = ci_reuse.git(root, "rev-parse", "HEAD").decode().strip()
-        if revision == commit:
-            return None
-        if ci_reuse.git(root, "rev-parse", "--is-shallow-repository").strip() == b"true":
-            ci_reuse.git(root, "fetch", "--quiet", "--no-tags", "--unshallow", "origin")
         ci_reuse.equivalent_inputs(root, commit, revision)
-    except ValueError:
+    except ValueError as error:
+        print(f"Recovered Checks cannot verify product equivalence: {error}", flush=True)
         return None
     run_id = ready_run(client, repository, revision, component)
     if run_id is None:
+        revision = checked_source(revision, root=root)
+        if revision is not None:
+            run_id = ready_run(client, repository, revision, component)
+    if run_id is None:
+        print("Recovered Checks have no successful gate at the verified tooling source", flush=True)
         return None
     metadata = {"id": run_id, "head_sha": revision}
     artifact = ci_reuse.find_artifact(client, repository, metadata, "checks-reuse", optional=True)

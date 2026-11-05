@@ -569,6 +569,7 @@ class RecoveredReadiness(unittest.TestCase):
             publication.ci_reuse, "git", side_effect=[self.revision.encode(), b"false"]))
         self.inputs = self.enterContext(patch.object(publication.ci_reuse, "equivalent_inputs"))
         self.ready = self.enterContext(patch.object(publication, "ready_run", return_value=42))
+        self.parent = self.enterContext(patch.object(publication, "checked_source", return_value=None))
         self.artifact = self.enterContext(patch.object(
             publication.ci_reuse, "find_artifact", return_value={"id": 13}))
         self.proof = {"source_sha": COMMIT, "target_sha": self.revision}
@@ -584,6 +585,34 @@ class RecoveredReadiness(unittest.TestCase):
         self.ready.assert_called_once_with(self.client, REPOSITORY, self.revision, "desktop")
         self.validate.assert_called_once_with(
             self.client, REPOSITORY, self.revision, 42, self.proof, self.root)
+        self.parent.assert_not_called()
+
+    def test_reuses_verified_tooling_parent(self):
+        parent = "c" * 40
+        self.proof["target_sha"] = parent
+        self.parent.return_value = parent
+        self.ready.side_effect = [None, 42]
+        self.assertEqual(self.recover(), 42)
+        self.inputs.assert_called_once_with(self.root, COMMIT, self.revision)
+        self.parent.assert_called_once_with(self.revision, root=self.root)
+        self.ready.assert_called_with(self.client, REPOSITORY, parent, "desktop")
+        self.artifact.assert_called_once_with(
+            self.client, REPOSITORY, {"id": 42, "head_sha": parent}, "checks-reuse", optional=True)
+        self.validate.assert_called_once_with(
+            self.client, REPOSITORY, parent, 42, self.proof, self.root)
+
+    def test_parent_still_requires_successful_gate(self):
+        self.parent.return_value = "c" * 40
+        self.ready.return_value = None
+        self.assertIsNone(self.recover())
+        self.assertEqual(self.ready.call_count, 2)
+        self.artifact.assert_not_called()
+
+    def test_history_failures_remain_visible(self):
+        self.git.side_effect = ValueError("Checks input history is unavailable")
+        with self.assertRaisesRegex(ValueError, "history is unavailable"):
+            self.recover()
+        self.ready.assert_not_called()
 
     def test_rejects_changed_product_inputs(self):
         self.inputs.side_effect = ValueError("Product inputs changed")
@@ -617,7 +646,8 @@ class RecoveredReadiness(unittest.TestCase):
         self.git.side_effect = [self.revision.encode(), b"true", b""]
         self.assertEqual(self.recover(), 42)
         self.assertEqual(self.git.call_args.args,
-                         (self.root, "fetch", "--quiet", "--no-tags", "--unshallow", "origin"))
+                         (self.root, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules",
+                          "--unshallow", "origin", self.revision))
 
     def test_avoids_duplicate_exact_source_lookup(self):
         self.git.side_effect = [COMMIT.encode()]
