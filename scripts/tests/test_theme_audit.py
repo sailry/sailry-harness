@@ -65,7 +65,7 @@ class Colors(unittest.TestCase):
         variant["theme"]["colors"].update({"background": "#000000", "foreground": "#FFFFFF", "group_box.background": "#000000",
                                            "switch.background": "#808080", "switch.thumb.background": "#FFFFFF",
                                            "primary.background": "#808080", "switch.checked.background": "#000000",
-                                           "button.primary.background": "#000000"})
+                                           "button.primary.background": "#FFFFFF"})
         result = audit.Audit()
         result.variant("dark", variant)
         self.assertFalse(result.errors)
@@ -75,6 +75,145 @@ class Colors(unittest.TestCase):
         result = audit.Audit()
         result.variant("dark", variant)
         self.assertTrue(any("checked switch track" in error for error in result.errors))
+
+
+class Controls(unittest.TestCase):
+    def setUp(self):
+        self.variant = fixture()["dark"]
+        self.colors = self.variant["theme"]["colors"]
+        self.colors.update({"background": "#000000", "foreground": "#FFFFFF",
+                            "group_box.background": "#000000", "popover.background": "#000000"})
+
+    def test_preserves_normal_button_opacity(self):
+        self.colors.update({"background": "#FFFFFF", "foreground": "#000000",
+                            "group_box.background": "#FFFFFF", "popover.background": "#FFFFFF"})
+        for prefix in ("button", "button.primary", "button.secondary"):
+            self.colors[prefix + ".background"] = "#707070"
+            self.colors[prefix + ".foreground"] = "#FFFFFF"
+        result = audit.Audit()
+        result.variant("light", self.variant)
+        self.assertFalse(result.errors)
+        self.assertNotIn("light: button.primary.background.base.foreground", result.skipped)
+
+    def test_rejects_indistinct_selection(self):
+        self.colors.update({"tab_bar.segmented.background": "#111111",
+                            "tab.active.foreground": "#FFFFFF", "tab.foreground": "#FFFFFF"})
+        result = audit.Audit()
+        result.variant("dark", self.variant)
+        self.assertEqual({error.rsplit(": ", 1)[0] for error in result.errors},
+                         {f"dark: segmented.{surface}.selection"
+                          for surface in ("base", "group_box", "popover")})
+        self.assertTrue(all("requires 3:1" in error for error in result.errors))
+
+    def test_requires_readable_segmented_text(self):
+        self.colors.update({"tab_bar.segmented.background": "#767676",
+                            "tab.active.foreground": "#FFFFFF", "tab.foreground": "#FFFFFF"})
+        result = audit.Audit()
+        result.variant("dark", self.variant)
+        self.assertFalse(result.errors)
+        for key, value, state in (("tab.active.foreground", "#000000", "selected"),
+                                  ("tab.foreground", "#767676", "unselected"),
+                                  ("tab.active.foreground", "#767676", "hovered")):
+            with self.subTest(state=state):
+                variant = {"theme": {"colors": {**self.colors, key: value}}}
+                result = audit.Audit()
+                result.variant("dark", variant)
+                self.assertEqual({error.rsplit(": ", 1)[0] for error in result.errors},
+                                 {f"dark: segmented.{surface}.{state}.foreground"
+                                  for surface in ("base", "group_box", "popover")})
+                self.assertTrue(all("requires 4.5:1" in error for error in result.errors))
+
+    def test_distinguishes_active_tab_fill(self):
+        self.colors.update({"tab_bar.segmented.background": "#767676",
+                            "tab.active.background": "#FFFFFF",
+                            "tab.active.foreground": "#FFFFFF", "tab.foreground": "#FFFFFF"})
+        result = audit.Audit()
+        result.variant("dark", self.variant)
+        self.assertEqual([error.rsplit(": ", 1)[0] for error in result.errors],
+                         ["dark: tab.active.background"])
+        self.assertNotIn("dark: segmented.base.selected.foreground", result.skipped)
+
+    def test_composites_segmented_layers(self):
+        self.colors.update({"background": "#FFFFFF80", "foreground": "#000000",
+                            "group_box.background": "#00000080", "popover.background": "#FFFFFF80",
+                            "tab_bar.segmented.background": "#00000080",
+                            "tab.active.foreground": "#000000", "tab.foreground": "#FFFFFF"})
+        result = audit.Audit()
+        result.variant("dark", self.variant)
+        self.assertEqual([error.rsplit(": ", 1)[0] for error in result.errors],
+                         ["dark: segmented.base.hovered.foreground",
+                          "dark: segmented.group_box.hovered.foreground",
+                          "dark: segmented.popover.selection",
+                          "dark: segmented.popover.hovered.foreground"])
+        self.assertTrue(result.errors[2].endswith("requires 3:1"))
+        self.assertTrue(all(result.errors[index].endswith("requires 4.5:1") for index in (0, 1, 3)))
+
+    def test_rejects_indistinct_primary_states(self):
+        for fill, foreground, part, minimum in (("#111111", "#FFFFFF", "surface", 3),
+                                                ("#FFFFFF", "#FFFFFF", "foreground", 4.5)):
+            with self.subTest(part=part):
+                self.colors["button.primary.foreground"] = foreground
+                for state in ("background", "hover.background", "active.background"):
+                    self.colors["button.primary." + state] = fill
+                result = audit.Audit()
+                result.variant("dark", self.variant)
+                self.assertEqual({error.rsplit(": ", 1)[0] for error in result.errors},
+                                 {f"dark: button.primary.{state}.{surface}.{part}"
+                                  for state in ("background", "hover.background", "active.background")
+                                  for surface in ("base", "group_box", "popover")})
+                self.assertTrue(all(f"requires {minimum:g}:1" in error for error in result.errors))
+
+    def test_composites_primary_over_each_surface(self):
+        self.colors.update({"background": "#FFFFFF80", "foreground": "#000000",
+                            "group_box.background": "#00000080", "popover.background": "#FFFFFF80",
+                            "button.primary.background": "#00000080",
+                            "button.primary.foreground": "#FFFFFF"})
+        result = audit.Audit()
+        result.variant("dark", self.variant)
+        self.assertEqual({error.rsplit(": ", 1)[0] for error in result.errors},
+                         {f"dark: button.primary.background.{surface}.surface"
+                          for surface in ("base", "group_box")})
+        self.assertNotIn("dark: button.primary.background.popover.surface", result.skipped)
+
+    def test_skips_unresolved_control_fills(self):
+        self.colors.update({"tab.active.foreground": "#FFFFFF", "tab.foreground": "#000000",
+                            "button.primary.foreground": "#000000"})
+        for value in (None, "white", "linear-gradient(white, black)"):
+            with self.subTest(value=value):
+                self.colors["tab_bar.segmented.background"] = value
+                for state in ("background", "hover.background", "active.background"):
+                    self.colors["button.primary." + state] = value
+                result = audit.Audit()
+                result.variant("dark", self.variant)
+                self.assertFalse(result.errors)
+                self.assertEqual(result.measurements, 1)
+                for surface in ("base", "group_box", "popover"):
+                    for part in ("selection", "selected.foreground", "unselected.foreground", "hovered.foreground"):
+                        self.assertIn(f"dark: segmented.{surface}.{part}", result.skipped)
+                    for state in ("background", "hover.background", "active.background"):
+                        for part in ("surface", "foreground"):
+                            self.assertIn(f"dark: button.primary.{state}.{surface}.{part}", result.skipped)
+
+    def test_skips_unresolved_control_surfaces(self):
+        self.colors.update({"tab_bar.segmented.background": "#767676",
+                            "tab.active.foreground": "#FFFFFF", "tab.foreground": "#FFFFFF",
+                            "button.primary.foreground": "#000000"})
+        for state in ("background", "hover.background", "active.background"):
+            self.colors["button.primary." + state] = "#FFFFFF"
+        for value in (None, "black", "linear-gradient(black, white)"):
+            with self.subTest(value=value):
+                self.colors["group_box.background"] = value
+                self.colors["popover.background"] = value
+                result = audit.Audit()
+                result.variant("dark", self.variant)
+                self.assertFalse(result.errors)
+                self.assertEqual(result.measurements, 11)
+                for surface in ("group_box", "popover"):
+                    for part in ("selection", "selected.foreground", "unselected.foreground", "hovered.foreground"):
+                        self.assertIn(f"dark: segmented.{surface}.{part}", result.skipped)
+                    for state in ("background", "hover.background", "active.background"):
+                        for part in ("surface", "foreground"):
+                            self.assertIn(f"dark: button.primary.{state}.{surface}.{part}", result.skipped)
 
 
 class Command(unittest.TestCase):
