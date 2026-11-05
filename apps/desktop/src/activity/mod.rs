@@ -34,6 +34,8 @@ pub(crate) struct State {
     technical: BTreeSet<sailry_client::activity::Id>,
     unread_only: bool,
     pending: bool,
+    /// The attention revision each visible session last acknowledged automatically.
+    pub(crate) acknowledged: BTreeMap<(NodeId, sailry_protocol::SessionId), u64>,
 }
 
 impl State {

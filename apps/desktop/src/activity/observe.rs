@@ -39,6 +39,7 @@ impl Shell {
                             if let Some(notices) = notices {
                                 shell.receive_notices(node, &notices, window, cx);
                             }
+                            shell.retry_session_read(node, window, cx);
                             cx.notify();
                         })
                         .is_err()

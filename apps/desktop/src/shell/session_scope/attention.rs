@@ -23,6 +23,24 @@ impl Shell {
         }
     }
 
+    /// A conflicting automatic acknowledgement retries once the visible
+    /// session's attention revision changes, at most once per revision.
+    pub(crate) fn retry_session_read(
+        &mut self,
+        node: NodeId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Key::Session(active, id) = self.session_scope.active
+            && active == node
+            && let Some(attention) = self.session_attention(node, id)
+            && attention.unread
+            && self.activity.acknowledged.get(&(node, id)) != Some(&attention.revision)
+        {
+            self.read_current_session(window, cx);
+        }
+    }
+
     fn session_attention(
         &self,
         node: NodeId,
@@ -63,8 +81,9 @@ impl Shell {
         self.request_session_read(node, id, read, false, window, cx);
     }
 
-    /// Automatic acknowledgements skip revision conflicts: the session changed
-    /// concurrently, and the newer attention state stays visible.
+    /// Automatic acknowledgements run on every session switch, window activation
+    /// and page change without a user action, so they never toast. A failed one
+    /// leaves the unread dot visible and is retried by the next trigger.
     fn request_session_read(
         &mut self,
         node: NodeId,
@@ -85,6 +104,11 @@ impl Shell {
             return;
         };
         let client = live.client_for(transport);
+        if automatic {
+            self.activity
+                .acknowledged
+                .insert((node, id), attention.revision);
+        }
         let request = client.prepare(sailry_protocol::Command::SetSessionRead {
             session: id,
             expected_revision: attention.revision,
@@ -97,9 +121,7 @@ impl Shell {
         cx.spawn_in(window, async move |shell, cx| {
             let result = job.await;
             let _ = shell.update_in(cx, |_, window, cx| {
-                let conflict = matches!(&result, Ok(Err(error))
-                    if error.code == sailry_protocol::ErrorCode::RevisionConflict);
-                if !matches!(result, Ok(Ok(_))) && !(automatic && conflict) {
+                if !automatic && !matches!(result, Ok(Ok(_))) {
                     crate::feedback::toast(
                         window,
                         tr("live_request_failed"),
