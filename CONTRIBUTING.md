@@ -7,6 +7,23 @@ preserve unrelated local changes and keep each task cohesive and reviewable.
 Follow the [code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities through
 [the private security reporting process](SECURITY.md), not public issues.
 
+## Issues and pull requests
+
+Open an issue before starting work that adds a feature or changes behavior,
+UI, protocol, storage or architecture. Wait for a maintainer to agree on the
+direction, then reference the issue in the pull request with `Closes #<number>`.
+This keeps large changes from being declined after they are written.
+
+| Change | Issue first |
+|---|---|
+| Feature, behavior, UI, protocol, storage or architecture | Required |
+| Bug fix | Preferred. An obvious fix may go straight to a pull request with reproduction steps |
+| Typo, documentation, translation or other small fix | Not needed |
+
+Use the issue templates for bugs and feature requests, and keep one cohesive
+change per pull request. Fill in the pull request template, including how you
+verified the change. Maintainers may skip the issue for their own work.
+
 ## Native setup
 
 Use Rust 1.98.0, Git, Python 3.12 or newer, Zig 0.16.0, `just`, and your platform's
