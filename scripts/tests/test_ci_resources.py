@@ -27,12 +27,20 @@ spec.loader.exec_module(ci)
 def workflow_source():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 
-    def expand(match):
-        commands = ci.check_commands(match.group(1), "1", selection=ci.outputs(ci.LANES))
-        return "\n".join(shlex.join(["python3" if value == sys.executable else value
-                                       for value in command["argv"]]) for command in commands)
+    def expand(job):
+        # Jobs that declare the archive run its prebuilt binaries, as in CI.
+        env = {"CHECK_ARCHIVE": ci.TEST_ARCHIVE} if "CHECK_ARCHIVE:" in job else {}
+        if "CHECK_PARTITION:" in job:
+            env["CHECK_PARTITION"] = "count:1/2"
 
-    return re.sub(r"python3 (?:(?:\.\./){2})?scripts/ci\.py check ([a-z-]+)", expand, workflow)
+        def command(match):
+            commands = ci.check_commands(match.group(1), "1", selection=ci.outputs(ci.LANES), env=env)
+            return "\n".join(shlex.join(["python3" if value == sys.executable else value
+                                           for value in command["argv"]]) for command in commands)
+
+        return re.sub(r"python3 (?:(?:\.\./){2})?scripts/ci\.py check ([a-z-]+)", command, job)
+
+    return "".join(expand(job) for job in re.split(r"(?=\n  [a-z_]+:\n)", workflow))
 
 
 def job_section(workflow, name):
@@ -315,10 +323,10 @@ class Workflow(unittest.TestCase):
         self.assertIn("run: python3 scripts/ci.py select", source)
         for name, lanes in ci.CHECK_JOBS.items():
             section = job_section(workflow, name).split("    steps:\n", 1)[0]
-            self.assertIn("needs: source", section)
+            self.assertIn("needs: [source, build]" if name in {"shared", "desktop"} else "needs: source", section)
             for lane in lanes:
                 self.assertIn(f"needs.source.outputs.{lane} == 'true'", section)
-        self.assertIn("needs: [source, lint, shared, desktop, host, mobile, android, services, light_linux, light_macos]", workflow)
+        self.assertIn("needs: [source, lint, build, shared, desktop, host, mobile, android, services, light_linux, light_macos]", workflow)
         self.assertIn("run: python3 scripts/ci.py report", workflow)
 
     def test_lints_every_workspace_member(self):
@@ -354,17 +362,29 @@ class Workflow(unittest.TestCase):
         workflow = workflow_source()
         self.assertNotIn("--no-run", workflow)
         for command in re.findall(r"run: (?:python3 scripts/ci-run.py -- )?(cargo nextest run[^\n]+--profile ci[^\n]*)", workflow):
-            self.assertIn("--timings", command)
+            # Archived runs compile nothing; Build records the timings instead.
+            if "--archive-file" not in command:
+                self.assertIn("--timings", command)
+        self.assertIn("cargo nextest archive --locked", job_section(workflow, "build"))
+        self.assertIn("--timings --build-jobs 1 --archive-file", job_section(workflow, "build"))
         self.assertIn("--test dart --timings --", workflow)
         self.assertIn("run: cargo fmt --all -- --check", job_section(workflow, "lint"))
 
     def test_runs_plugin_contracts_in_shared(self):
         workflow = workflow_source()
+        build = job_section(workflow, "build")
         shared = job_section(workflow, "shared")
         self.assertIn("node-version: '22.22.1'", shared)
-        self.assertIn("--example plugin-test-host --profile test", shared)
-        self.assertIn("scripts/test-plugins.py --runtime-host", shared)
-        self.assertLess(shared.index("--example plugin-test-host"), shared.index("scripts/test-plugins.py"))
+        # Build places the example in target/debug/examples, which the archive includes.
+        self.assertIn("--example plugin-test-host --profile test", build)
+        self.assertLess(build.index("--example plugin-test-host"), build.index("cargo nextest archive"))
+        config = tomllib.loads((ROOT / ".config/nextest.toml").read_text())
+        self.assertIn({"path": "debug/examples", "relative-to": "target", "depth": 1, "on-missing": "warn"},
+                      config["profile"]["default"]["archive"]["include"])
+        step = shared.split("      - name: Plugin contracts\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("if: matrix.partition == 2 && needs.source.outputs.shared == 'true'", step)
+        self.assertIn("scripts/test-plugins.py --runtime-host", step)
+        self.assertNotIn("cargo build", shared)
         self.assertNotIn("scripts/test-plugins.py", job_section(workflow, "source"))
 
     def test_formats_once_for_selected_native_lanes(self):
@@ -397,7 +417,7 @@ class Workflow(unittest.TestCase):
 
     def test_separates_light_and_full_lanes(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        for name in ("lint", "shared", "desktop", "host", "mobile", "android"):
+        for name in ("lint", "build", "shared", "desktop", "host", "mobile", "android"):
             header = job_section(workflow, name).split("    steps:\n", 1)[0]
             self.assertIn("needs.source.outputs.mode == 'full' && ", header)
         self.assertNotIn("outputs.mode", job_section(workflow, "services"))
@@ -414,7 +434,7 @@ class Workflow(unittest.TestCase):
                 self.assertNotIn("nextest", section)
                 self.assertIn(f"scripts/ci.py lint {ci.LIGHT_JOBS[name]}", section)
                 self.assertIn("runs-on: macos-15" if name == "light_macos" else "runs-on: ubuntu-24.04", section)
-        self.assertEqual(macos, {"full": ["lint", "shared", "desktop", "mobile"], "light": ["light_macos"]})
+        self.assertEqual(macos, {"full": ["lint", "build", "shared", "desktop", "mobile"], "light": ["light_macos"]})
         source = job_section(workflow, "source")
         for name in ("mode", *ci.LIGHT_JOBS):
             self.assertIn(f"{name}: ${{{{ steps.scope.outputs.{name} }}}}", source)
@@ -431,25 +451,30 @@ class Workflow(unittest.TestCase):
 
     def test_merges_host_lifecycle_into_shared(self):
         workflow = workflow_source()
+        build = job_section(workflow, "build")
         shared = job_section(workflow, "shared")
         desktop = job_section(workflow, "desktop")
         host = job_section(workflow, "host")
-        self.assertNotIn("-p sailry-host", desktop)
-        self.assertIn("-p sailry-node-runtime", shared)
-        self.assertIn("-p sailry-release", shared)
-        self.assertIn("cargo check --locked -p sailry-desktop --jobs", desktop)
-        for section in (host, shared):
+        lint = job_section(workflow, "lint")
+        self.assertNotIn("package(sailry-host)", desktop)
+        for package in ("sailry-node-runtime", "sailry-release", "sailry-host", "sailry-desktop"):
+            self.assertIn(f"-p {package}", build)
+        self.assertIn("cargo nextest archive --locked", build)
+        self.assertIn("-p sailry-host --features sailry-node-runtime/test-support --timings", build)
+        self.assertIn("not (package(sailry-host) and not binary(lifecycle))", shared)
+        self.assertIn("cargo check --locked -p sailry-desktop --jobs", lint)
+        for section in (host, lint):
             self.assertIn("cargo check --locked -p sailry-host --jobs", section)
         self.assertIn("runs-on: ubuntu-24.04", host)
         self.assertIn("bubblewrap libx11-dev libxi-dev libxtst-dev", host)
         self.assertIn("cargo nextest run --locked -p sailry-host --timings", host)
-        self.assertIn("-p sailry-host --features sailry-node-runtime/test-support --timings", shared)
-        self.assertIn("not (package(sailry-host) and not binary(lifecycle))", shared)
         combined = shared.split("      - name: Shared and macOS Host contracts\n", 1)[1].split("      - ", 1)[0]
         self.assertNotIn("if: ", combined)
-        for title, lane in (("Isolated database engines", "shared"),
+        databases = shared.split("      - name: Isolated database engines\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("if: matrix.partition == 1 && needs.source.outputs.shared == 'true'", databases)
+        for title, lane in (("Desktop without test features", "desktop"),
                             ("Host without test features", "host")):
-            step = shared.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
+            step = lint.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
             self.assertIn(f"if: needs.source.outputs.{lane} == 'true'", step)
         self.assertIn("bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge --dependencies-only", workflow)
         self.assertIn("bash scripts/check-mobile-android.sh --apk", workflow)
@@ -459,15 +484,19 @@ class Workflow(unittest.TestCase):
         shared = job_section(workflow, "shared")
         self.assertIn("CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}", shared)
         self.assertNotIn("scripts/ci.py check host-mac", (ROOT / ".github/workflows/ci.yml").read_text())
-        commands = [line for line in shared.splitlines() if "cargo nextest run" in line and "-p sailry-node-runtime" in line]
+        self.assertNotIn("cargo build", shared)
+        commands = [line for line in shared.splitlines() if "cargo nextest run --archive-file" in line]
         self.assertEqual(len(commands), 2)
-        packages = [re.findall(r"-p ([\w-]+)", command) for command in commands]
+        self.assertTrue(all("--locked" not in command and " -p " not in command for command in commands))
+        packages = [re.findall(r"package\(([\w-]+)\)", command) for command in commands]
         self.assertEqual(packages[0], packages[1])
         self.assertIn("sailry-release", packages[1])
         self.assertIn("sailry-host", packages[1])
         self.assertIn("binary(lifecycle)", commands[0])
+        self.assertIn("--partition count:1/2 --no-tests=pass", commands[0])
         self.assertIn("binary(databases)", commands[1])
-        self.assertIn("cargo check --locked -p sailry-host", shared)
+        self.assertNotIn("--partition", commands[1])
+        self.assertIn("cargo check --locked -p sailry-host", job_section(workflow, "lint"))
 
     def test_source_fixtures_follow_product_owners(self):
         workflow = workflow_source()
@@ -512,7 +541,12 @@ class Workflow(unittest.TestCase):
         for path in ("target/sherpa-onnx-prebuilt", "target/llama-prebuilt"):
             self.assertIn(path, action)
         self.assertIn('native-key "$PACKAGE_TARGET" shared', action)
-        for name in ("lint", "shared", "desktop", "mobile"):
+        for name in ("shared", "desktop"):
+            # Archived test jobs never compile; linked native libraries travel in the archive.
+            section = job_section(workflow, name)
+            self.assertNotIn("rust-cache", section)
+            self.assertNotIn("native-cache", section)
+        for name in ("lint", "build", "mobile"):
             section = job_section(workflow, name)
             self.assertIn("uses: ./.github/actions/native-cache", section)
             self.assertIn("target: aarch64-apple-darwin", section)
