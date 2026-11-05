@@ -200,6 +200,10 @@ async fn run(client: &Client, turn: &QueuedTurn) -> Page {
         .execute(client.prepare(Command::StartQueuedTurn { turn: turn.id }))
         .await
         .unwrap();
+    finished(client, turn).await
+}
+
+async fn finished(client: &Client, turn: &QueuedTurn) -> Page {
     let mut observed = None;
     let result = tokio::time::timeout(Duration::from_secs(10), async {
         loop {

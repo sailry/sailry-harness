@@ -90,7 +90,13 @@ async fn confines_history_resolution() {
     )
     .await
     .unwrap();
-    for status in ["completed", "continued", "failed", "cancelled"] {
+    for status in [
+        "completed",
+        "continued",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ] {
         db.execute(
             "UPDATE agent_runs SET body=?1 WHERE turn=?2",
             params![format!("{{\"status\":\"{status}\"}}"), origin.to_string()],
@@ -115,7 +121,7 @@ async fn confines_history_resolution() {
         .await
         .unwrap();
     }
-    for status in ["queued", "running", "stopping", "interrupted"] {
+    for status in ["queued", "running", "stopping"] {
         db.execute(
             "UPDATE agent_runs SET body=?1 WHERE turn=?2",
             params![format!("{{\"status\":\"{status}\"}}"), origin.to_string()],

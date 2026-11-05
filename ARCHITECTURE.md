@@ -1134,7 +1134,8 @@ offline in its sidebar WebView; it does not require conversion or provide a nati
 PDF export command. Document skills use the execution Node's bundled Python and
 prepared plugin environments through ordinary command permissions.
 Document attachment reads use the executing conversation's visible history,
-including completed, failed and cancelled turns with no pending execution.
+including completed, failed, cancelled and interrupted turns with no pending
+execution.
 Queued, running or stopping inputs in other turns are excluded, even if their
 admission happened earlier. Fork and rewind membership remains authoritative.
 Model execution uses the corresponding GDK implementation for supported provider
