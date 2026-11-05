@@ -37,7 +37,8 @@ impl Shell {
             {
                 self.activity.read_session(node, session);
                 self.read_notice(notice.id, window, cx);
-                self.set_session_read(node, session, true, window, cx);
+                // The visible session acknowledges itself without a user action.
+                self.read_current_session(window, cx);
             }
         }
         self.activity.received.retain(|id, _| {

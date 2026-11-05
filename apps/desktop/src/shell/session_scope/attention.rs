@@ -63,8 +63,9 @@ impl Shell {
         self.request_session_read(node, id, read, false, window, cx);
     }
 
-    /// Automatic acknowledgements skip revision conflicts: the session changed
-    /// concurrently, and the newer attention state stays visible.
+    /// Automatic acknowledgements run on every session switch, window activation
+    /// and page change without a user action, so they never toast. A failed one
+    /// leaves the unread dot visible and is retried by the next trigger.
     fn request_session_read(
         &mut self,
         node: NodeId,
@@ -97,9 +98,7 @@ impl Shell {
         cx.spawn_in(window, async move |shell, cx| {
             let result = job.await;
             let _ = shell.update_in(cx, |_, window, cx| {
-                let conflict = matches!(&result, Ok(Err(error))
-                    if error.code == sailry_protocol::ErrorCode::RevisionConflict);
-                if !matches!(result, Ok(Ok(_))) && !(automatic && conflict) {
+                if !automatic && !matches!(result, Ok(Ok(_))) {
                     crate::feedback::toast(
                         window,
                         tr("live_request_failed"),
