@@ -64,8 +64,15 @@ class GitHub:
 
 
 def download(endpoint, limit):
+    command = ["gh", "api"]
+    usage = subprocess.run([*command, "--help"], capture_output=True, text=True)
+    if usage.returncode:
+        raise ValueError("GitHub CLI API options are unavailable")
+    if "--allow-escape-sequences" in usage.stdout:
+        command.append("--allow-escape-sequences")
+    command.append(endpoint)
     with tempfile.TemporaryFile() as errors:
-        with subprocess.Popen(["gh", "api", endpoint], stdout=subprocess.PIPE, stderr=errors) as process:
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors) as process:
             content = process.stdout.read(limit + 1)
             if len(content) > limit:
                 process.kill()

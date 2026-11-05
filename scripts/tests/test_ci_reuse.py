@@ -516,6 +516,10 @@ class InputEquivalence(unittest.TestCase):
 
 
 class ProofArchive(unittest.TestCase):
+    def setUp(self):
+        self.usage = self.enterContext(patch.object(
+            reuse.subprocess, "run", return_value=Mock(returncode=0, stdout="--allow-escape-sequences")))
+
     def read(self, content, size=None):
         metadata = {"id": 400, "size_in_bytes": len(content) if size is None else size,
                     "digest": "sha256:" + hashlib.sha256(content).hexdigest()}
@@ -531,6 +535,24 @@ class ProofArchive(unittest.TestCase):
             reuse.download("repos/example/sailry/actions/artifacts/1/zip", 10)
         process.stdout.read.assert_called_once_with(11)
         process.kill.assert_called_once_with()
+
+    def test_download_supports_both_cli_versions(self):
+        process = Mock()
+        process.stdout.read.return_value = b"\x1b[36mCheck mode: full\x1b[0m"
+        process.wait.return_value = 0
+        process.__enter__ = Mock(return_value=process)
+        process.__exit__ = Mock(return_value=False)
+        endpoint = "repos/example/sailry/actions/jobs/1/logs"
+        for options in ("--allow-escape-sequences", ""):
+            with self.subTest(options=options), patch.object(reuse.subprocess, "Popen", return_value=process) as launch:
+                self.usage.return_value.stdout = options
+                self.assertEqual(reuse.download(endpoint, 100), process.stdout.read.return_value)
+                self.assertEqual(launch.call_args.args[0], ["gh", "api", *([options] if options else []), endpoint])
+
+    def test_download_requires_available_api_options(self):
+        self.usage.return_value.returncode = 1
+        with self.assertRaisesRegex(ValueError, "API options are unavailable"):
+            reuse.download("repos/example/sailry/actions/jobs/1/logs", 10)
 
     def test_download_redacts_failure_details(self):
         process = Mock()
