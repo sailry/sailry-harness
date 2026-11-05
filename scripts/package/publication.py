@@ -219,6 +219,32 @@ def ready_run(client, repository, commit, component):
     return None
 
 
+def recovered_run(client, repository, commit, component, root=None):
+    root = root or ci_reuse.ROOT
+    try:
+        revision = ci_reuse.git(root, "rev-parse", "HEAD").decode().strip()
+        if revision == commit:
+            return None
+        if ci_reuse.git(root, "rev-parse", "--is-shallow-repository").strip() == b"true":
+            ci_reuse.git(root, "fetch", "--quiet", "--no-tags", "--unshallow", "origin")
+        ci_reuse.equivalent_inputs(root, commit, revision)
+    except ValueError:
+        return None
+    run_id = ready_run(client, repository, revision, component)
+    if run_id is None:
+        return None
+    metadata = {"id": run_id, "head_sha": revision}
+    artifact = ci_reuse.find_artifact(client, repository, metadata, "checks-reuse", optional=True)
+    if artifact is None:
+        return None
+    proof = ci_reuse.read_proof(repository, artifact)
+    if not isinstance(proof, dict) or proof.get("source_sha") != commit:
+        return None
+    ci_reuse.validate_proof(client, repository, revision, run_id, proof, root)
+    print(f"Verified recovered {component.title()} Checks for unchanged product source {commit} in run {run_id}")
+    return run_id
+
+
 def readiness(client, repository, commit, component):
     run = ready_run(client, repository, commit, component)
     if run is not None:
@@ -229,6 +255,9 @@ def readiness(client, repository, commit, component):
         if run is not None:
             print(f"Reused product Checks for unchanged source {source}; only signing tools differ")
             return run
+    run = recovered_run(client, repository, commit, component)
+    if run is not None:
+        return run
     raise ValueError(f"The release product needs a successful {component.title()} ready gate from main Checks")
 
 
@@ -243,6 +272,9 @@ def wait_ready(client, repository, commit, component):
                     or checked.get("event") not in {"push", "workflow_dispatch"}):
                 raise ValueError("The ready Checks run does not match the release source")
             return ready
+        recovered = recovered_run(client, repository, commit, component)
+        if recovered is not None:
+            return recovered
         payload = client.api("GET", f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}&per_page=100")
         runs = [run for run in payload["workflow_runs"]
                 if run.get("head_sha") == commit and run.get("head_branch") == "main"

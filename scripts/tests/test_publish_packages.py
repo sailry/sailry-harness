@@ -560,6 +560,82 @@ class Readiness(unittest.TestCase):
                 publication.tagged_commit("v0.1.0-alpha.2")
 
 
+class RecoveredReadiness(unittest.TestCase):
+    def setUp(self):
+        self.revision = "b" * 40
+        self.root = ROOT / ".workflow-tools"
+        self.client = Mock()
+        self.git = self.enterContext(patch.object(
+            publication.ci_reuse, "git", side_effect=[self.revision.encode(), b"false"]))
+        self.inputs = self.enterContext(patch.object(publication.ci_reuse, "equivalent_inputs"))
+        self.ready = self.enterContext(patch.object(publication, "ready_run", return_value=42))
+        self.artifact = self.enterContext(patch.object(
+            publication.ci_reuse, "find_artifact", return_value={"id": 13}))
+        self.proof = {"source_sha": COMMIT, "target_sha": self.revision}
+        self.read = self.enterContext(patch.object(publication.ci_reuse, "read_proof", return_value=self.proof))
+        self.validate = self.enterContext(patch.object(publication.ci_reuse, "validate_proof"))
+
+    def recover(self):
+        return publication.recovered_run(self.client, REPOSITORY, COMMIT, "desktop", self.root)
+
+    def test_requires_unchanged_source_and_verified_proof(self):
+        self.assertEqual(self.recover(), 42)
+        self.inputs.assert_called_once_with(self.root, COMMIT, self.revision)
+        self.ready.assert_called_once_with(self.client, REPOSITORY, self.revision, "desktop")
+        self.validate.assert_called_once_with(
+            self.client, REPOSITORY, self.revision, 42, self.proof, self.root)
+
+    def test_rejects_changed_product_inputs(self):
+        self.inputs.side_effect = ValueError("Product inputs changed")
+        self.assertIsNone(self.recover())
+        self.ready.assert_not_called()
+
+    def test_requires_successful_recovery_gate(self):
+        self.ready.return_value = None
+        self.assertIsNone(self.recover())
+        self.artifact.assert_not_called()
+
+    def test_requires_original_tag_proof(self):
+        for proof in (None, {}, {"source_sha": "c" * 40}):
+            with self.subTest(proof=proof):
+                self.git.side_effect = [self.revision.encode(), b"false"]
+                self.read.return_value = proof
+                self.assertIsNone(self.recover())
+        self.validate.assert_not_called()
+
+    def test_requires_proof_artifact(self):
+        self.artifact.return_value = None
+        self.assertIsNone(self.recover())
+        self.read.assert_not_called()
+
+    def test_rejects_invalid_evidence(self):
+        self.validate.side_effect = ValueError("Stale Checks proof")
+        with self.assertRaisesRegex(ValueError, "Stale Checks proof"):
+            self.recover()
+
+    def test_fetches_shallow_tooling_history(self):
+        self.git.side_effect = [self.revision.encode(), b"true", b""]
+        self.assertEqual(self.recover(), 42)
+        self.assertEqual(self.git.call_args.args,
+                         (self.root, "fetch", "--quiet", "--no-tags", "--unshallow", "origin"))
+
+    def test_avoids_duplicate_exact_source_lookup(self):
+        self.git.side_effect = [COMMIT.encode()]
+        self.assertIsNone(self.recover())
+        self.inputs.assert_not_called()
+        self.ready.assert_not_called()
+
+    def test_release_admission_accepts_verified_recovery(self):
+        self.ready.return_value = None
+        with patch.object(publication, "recovered_run", return_value=42) as recovered, \
+                patch.object(publication, "checked_source", return_value=None), \
+                patch.object(publication.time, "sleep") as sleep:
+            self.assertEqual(publication.readiness(self.client, REPOSITORY, COMMIT, "desktop"), 42)
+            self.assertEqual(publication.wait_ready(self.client, REPOSITORY, COMMIT, "desktop"), 42)
+        self.assertEqual(recovered.call_count, 2)
+        sleep.assert_not_called()
+
+
 class ChecksRecovery(unittest.TestCase):
     def setUp(self):
         reuse = patch.object(publication.ci_reuse, "verified_jobs")

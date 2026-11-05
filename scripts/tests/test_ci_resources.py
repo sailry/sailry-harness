@@ -627,8 +627,17 @@ class Workflow(unittest.TestCase):
         for name in ("shared", "desktop"):
             # Archived test jobs never compile; linked native libraries travel in the archive.
             section = job_section(workflow, name)
-            self.assertNotIn("rust-cache", section)
             self.assertNotIn("native-cache", section)
+            self.assertNotIn("cargo build", section)
+            self.assertNotIn("cargo nextest archive", section)
+        self.assertNotIn("rust-cache", job_section(workflow, "shared"))
+        desktop = job_section(workflow, "desktop")
+        restore = "uses: ./.github/actions/rust-cache"
+        fetch = "cargo fetch --locked --target aarch64-apple-darwin"
+        self.assertIn(restore, desktop)
+        self.assertIn(fetch, desktop)
+        self.assertLess(desktop.index(restore), desktop.index(fetch))
+        self.assertLess(desktop.index(fetch), desktop.index("cargo nextest run --archive-file"))
         for name in ("lint", "build", "mobile"):
             section = job_section(workflow, name)
             self.assertIn("uses: ./.github/actions/native-cache", section)

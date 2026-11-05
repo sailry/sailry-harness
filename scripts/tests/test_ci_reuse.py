@@ -50,6 +50,19 @@ def workflow():
     return source
 
 
+def restored_workflow():
+    prefix, desktop = workflow().split("  desktop:\n", 1)
+    return prefix + "  desktop:\n" + desktop.replace(
+        "      - name: Test archive\n",
+        "      - name: Rust dependency sources\n"
+        "        uses: ./.github/actions/rust-cache\n"
+        "      - name: Restore locked source checkouts\n"
+        "        run: cargo fetch --locked --target aarch64-apple-darwin\n"
+        "      - name: Test archive\n",
+        1,
+    )
+
+
 def run(run_id, commit, completed=True):
     return {
         "id": run_id, "repository": {"full_name": REPOSITORY},
@@ -113,7 +126,7 @@ class Evidence(unittest.TestCase):
         self.log = ("2026-11-05T00:00:00.123Z Check mode: full\n"
                     "2026-11-05T00:00:00.124Z Selected checks: " + ", ".join(sorted(ci.LANES)) + "\n").encode()
         self.download = self.enterContext(patch.object(reuse, "download", return_value=self.log))
-        self.inputs = self.enterContext(patch.object(reuse, "equivalent_inputs"))
+        self.inputs = self.enterContext(patch.object(reuse, "equivalent_inputs", return_value=set()))
         self.environment = {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_SHA": TARGET,
                             "GITHUB_RUN_ID": str(CURRENT)}
 
@@ -167,6 +180,16 @@ class Evidence(unittest.TestCase):
         self.assertEqual(output["desktop"], "false")
         self.assertEqual(output["build"], "true")
         self.assertEqual(json.loads(output["shared_matrix"]), {"partition": [1, 2]})
+
+    def test_invalidates_changed_desktop_environment(self):
+        self.job("Desktop")["conclusion"] = "success"
+        for invalidated in ({"Desktop"}, set()):
+            with self.subTest(invalidated=invalidated):
+                self.inputs.return_value = invalidated
+                proof = self.proof()
+                names = {entry["name"] for entry in proof["jobs"]}
+                self.assertEqual(names, reuse.NAMES - {reuse.SHARDS[2]} - invalidated)
+                self.assertEqual(reuse.reuse_outputs(proof)["desktop"], str(not invalidated).lower())
 
     def test_accepts_completed_push_donor(self):
         self.donor["event"] = "push"
@@ -410,6 +433,17 @@ class InputEquivalence(unittest.TestCase):
         after = after.replace("python3 scripts/ci.py check desktop_ready", "python3 scripts/ci_reuse.py report desktop")
         self.assertEqual(reuse.workflow_inputs(before), reuse.workflow_inputs(after))
 
+        restored = restored_workflow()
+        self.assertEqual(reuse.workflow_inputs(before), reuse.workflow_inputs(restored))
+        self.assertNotEqual(
+            reuse.workflow_inputs(before),
+            reuse.workflow_inputs(restored.replace("./.github/actions/rust-cache", "./different", 1)),
+        )
+        self.assertNotEqual(
+            reuse.workflow_inputs(before),
+            reuse.workflow_inputs(restored.replace("cargo fetch --locked", "cargo fetch", 1)),
+        )
+
     def test_rejects_changed_executable_inputs(self):
         before = workflow()
         for old, new in (
@@ -436,8 +470,19 @@ class InputEquivalence(unittest.TestCase):
     def compare(self, path, old_mode="100644", new_mode="100644", status="M", before="", after=""):
         raw = f":{old_mode} {new_mode} a b {status}\0{path}\0".encode()
         with patch.object(reuse, "git", side_effect=[b"", raw, before.encode(), after.encode()]) as read:
-            reuse.equivalent_inputs(ROOT, SOURCE, TARGET)
+            invalidated = reuse.equivalent_inputs(ROOT, SOURCE, TARGET)
         self.assertEqual(read.call_args_list[0].args, (ROOT, "merge-base", "--is-ancestor", SOURCE, TARGET))
+        return invalidated
+
+    def test_invalidates_dependency_source_changes(self):
+        for before, after, expected in (
+            (workflow(), restored_workflow(), {"Desktop"}),
+            (restored_workflow(), workflow(), {"Desktop"}),
+            (restored_workflow(), restored_workflow(), set()),
+            (workflow(), workflow(), set()),
+        ):
+            with self.subTest(expected=expected):
+                self.assertEqual(self.compare(reuse.WORKFLOW, before=before, after=after), expected)
 
     def test_rejects_changed_product_paths(self):
         for path in ("apps/desktop/src/main.rs", "Cargo.toml", "Cargo.lock", "plugins", "themes",
@@ -456,6 +501,7 @@ class InputEquivalence(unittest.TestCase):
         self.compare("scripts/tests/test_ui_tasks.py")
 
     def test_checks_script_and_workflow_diffs(self):
+        self.compare("CHANGELOG.md")
         self.compare("scripts/ci.py", before="FIXTURES = {'desktop': set()}\n", after="FIXTURES = {'shared': set()}\n")
         self.compare(reuse.WORKFLOW, before=workflow(), after=workflow().replace("    if: true", "    if: false", 1))
         with self.assertRaisesRegex(ValueError, "Executable check inputs changed"):

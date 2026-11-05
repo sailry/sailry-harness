@@ -33,6 +33,7 @@ SHARDS = {1: "Shared Node (1/2)", 2: "Shared Node (2/2)"}
 NAMES = frozenset((*JOB_NAMES.values(), *SHARDS.values()))
 NEW_FILES = frozenset({"scripts/ci_reuse.py", "scripts/tests/test_ci_reuse.py"})
 REPAIR_FILES = NEW_FILES | {
+    "CHANGELOG.md",
     "scripts/tests/test_ui_tasks.py", "scripts/tests/test_ci_resources.py",
     "scripts/package/publication.py", "scripts/tests/test_publish_packages.py", "scripts/tests/test_release_notes.py",
     "scripts/ci.py", WORKFLOW,
@@ -282,7 +283,20 @@ def archive_step(lines):
     return result
 
 
-def job_inputs(name, lines):
+def dependency_source_steps(groups):
+    restore = [
+        [(6, "- name: Rust dependency sources", ()),
+         (8, "uses: ./.github/actions/rust-cache", ())],
+        [(6, "- name: Restore locked source checkouts", ()),
+         (8, "run: cargo fetch --locked --target aarch64-apple-darwin", ())],
+    ]
+    for index in range(len(groups) - 1):
+        if groups[index:index + 2] == restore:
+            return groups[:index] + groups[index + 2:]
+    return groups
+
+
+def job_inputs(name, lines, normalize_sources=True):
     properties = fields(lines, 4)
     for key in ("if", "needs"):
         properties.pop(key, None)
@@ -310,11 +324,13 @@ def job_inputs(name, lines):
             if not groups:
                 raise ValueError("Unsupported workflow step")
             groups[-1].append(line)
+        if name == "desktop" and normalize_sources:
+            groups = dependency_source_steps(groups)
         properties["steps"] = [*steps[:1], *(line for group in groups for line in archive_step(group))]
     return properties
 
 
-def workflow_inputs(source):
+def workflow_inputs(source, normalize_sources=True):
     top = fields(yaml_lines(source), 0)
     top.pop("on", None)
     jobs = top.pop("jobs", None)
@@ -325,13 +341,14 @@ def workflow_inputs(source):
                 "checks", "light_linux", "light_macos"}
     if set(declared) != expected:
         raise ValueError("Unexpected Checks job set")
-    runtime = {name: job_inputs(name, declared[name][1:]) for name in (*JOB_NAMES, "shared")}
+    runtime = {name: job_inputs(name, declared[name][1:], normalize_sources) for name in (*JOB_NAMES, "shared")}
     runtime.update({name: declared[name] for name in ("light_linux", "light_macos")})
     return top, runtime
 
 
 def equivalent_inputs(root, source, target):
     source, target = sha(source), sha(target)
+    invalidated = set()
     git(root, "merge-base", "--is-ancestor", source, target)
     raw = git(root, "diff", "--raw", "-z", "--no-renames", "--no-ext-diff", "--no-textconv",
               "--ignore-submodules=none", source, target, "--").split(b"\0")
@@ -354,6 +371,9 @@ def equivalent_inputs(root, source, target):
             normalize = script_inputs if path == "scripts/ci.py" else workflow_inputs
             if normalize(previous) != normalize(current):
                 raise ValueError(f"Executable check inputs changed: {path}")
+            if path == WORKFLOW and workflow_inputs(previous, False) != workflow_inputs(current, False):
+                invalidated.add(JOB_NAMES["desktop"])
+    return invalidated
 
 
 def make_proof(client, repository, commit, run_id, donor_id, root=None):
@@ -363,7 +383,7 @@ def make_proof(client, repository, commit, run_id, donor_id, root=None):
         raise ValueError("A Checks run cannot reuse itself")
     current = run_metadata(client, repository, run_id, commit)
     donor = run_metadata(client, repository, donor_id, donor=True)
-    equivalent_inputs(root or ROOT, donor["head_sha"], commit)
+    invalidated = equivalent_inputs(root or ROOT, donor["head_sha"], commit)
     jobs = jobs_for(client, repository, donor)
     build = jobs.get(JOB_NAMES["build"], {})
     if not succeeded(build):
@@ -378,7 +398,7 @@ def make_proof(client, repository, commit, run_id, donor_id, root=None):
         "source_run": donor["id"], "source_sha": donor["head_sha"],
         "source_attempt": donor["run_attempt"],
         "jobs": [{"id": jobs[name]["id"], "name": name} for name in sorted(NAMES)
-                 if name in jobs and succeeded(jobs[name])],
+                 if name not in invalidated and name in jobs and succeeded(jobs[name])],
         "archive": archive,
     }
 
