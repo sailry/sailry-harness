@@ -412,6 +412,11 @@ class NativeBinary(unittest.TestCase):
 
 
 class Readiness(unittest.TestCase):
+    def setUp(self):
+        reuse = patch.object(publication.ci_reuse, "verified_jobs", return_value=set())
+        self.reuse = reuse.start()
+        self.addCleanup(reuse.stop)
+
     def test_required_jobs_exist(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         names = set()
@@ -419,15 +424,16 @@ class Readiness(unittest.TestCase):
         for job in re.split(r"^  [a-z_]+:\n", jobs, flags=re.MULTILINE)[1:]:
             name = re.search(r"^    name: (.+)$", job, re.MULTILINE)[1]
             if "${{ matrix.partition }}" in name:
-                matrix = re.search(r"^        partition: (\[[^\n]+\])$", job, re.MULTILINE)
-                self.assertIsNotNone(matrix)
+                self.assertIn("matrix: ${{ fromJSON(needs.source.outputs.reuse_shared_matrix) }}", job)
+                partitions = json.loads(publication.ci_reuse.reuse_outputs(None)["shared_matrix"])["partition"]
+                self.assertEqual(partitions, [1, 2])
                 names.update(name.replace("${{ matrix.partition }}", str(partition))
-                             for partition in json.loads(matrix[1]))
+                             for partition in partitions)
             else:
                 names.add(name)
         for component, prerequisites in publication.PREREQUISITES.items():
             with self.subTest(component=component):
-                self.assertLessEqual({"Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)"},
+                self.assertLessEqual({"Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)"},
                                      set(prerequisites))
                 self.assertLessEqual(set(prerequisites) | {f"{component.title()} ready"}, names)
 
@@ -446,6 +452,16 @@ class Readiness(unittest.TestCase):
         with patch.object(publication, "checked_source") as source:
             self.assertEqual(publication.readiness(self.run_fixture(), REPOSITORY, COMMIT, "desktop"), 42)
         source.assert_not_called()
+        self.reuse.assert_not_called()
+
+    def test_preserves_run_pagination(self):
+        client = self.run_fixture()
+        runs, jobs = list(client.api.side_effect)
+        unrelated = {**runs["workflow_runs"][0], "head_sha": "b" * 40}
+        client.api.side_effect = [{"workflow_runs": [unrelated] * 100}, runs, jobs]
+        self.assertEqual(publication.ready_run(client, REPOSITORY, COMMIT, "desktop"), 42)
+        self.assertIn("per_page=100&page=2", client.api.call_args_list[1].args[1])
+        self.reuse.assert_not_called()
 
     def test_reuses_only_successful_direct_parent_checks(self):
         parent = "b" * 40
@@ -542,6 +558,154 @@ class Readiness(unittest.TestCase):
         with patch.object(publication.versions, "product", return_value=(TAG[1:], 1)):
             with self.assertRaisesRegex(ValueError, "application version"):
                 publication.tagged_commit("v0.1.0-alpha.2")
+
+
+class ChecksRecovery(unittest.TestCase):
+    def setUp(self):
+        reuse = patch.object(publication.ci_reuse, "verified_jobs")
+        self.reuse = reuse.start()
+        self.addCleanup(reuse.stop)
+
+    def fixture(self, component="desktop", missing=False, event="workflow_dispatch"):
+        client = Mock()
+        run = {"id": 42, "head_sha": COMMIT, "head_branch": "main", "event": event,
+               "status": "in_progress", "conclusion": None}
+        self.reuse.return_value = set(publication.PREREQUISITES[component]) - {"Source"}
+        jobs = [{"name": name, "status": "completed", "conclusion": "success"}
+                for name in ("Source", f"{component.title()} ready")]
+        if not missing:
+            jobs.extend({"name": name, "status": "completed", "conclusion": "skipped"}
+                        for name in sorted(self.reuse.return_value))
+
+        def api(method, endpoint):
+            self.assertEqual(method, "GET")
+            if "/actions/workflows/ci.yml/runs?" in endpoint:
+                self.assertIn("head_sha=" + COMMIT, endpoint)
+                return {"workflow_runs": [run]}
+            if "/actions/runs/42/jobs?" in endpoint:
+                return {"jobs": jobs}
+            if endpoint.endswith("/actions/runs/42"):
+                return run
+            raise AssertionError(f"Unexpected recovery request: {method} {endpoint}")
+
+        client.api.side_effect = api
+        return client, run, jobs
+
+    def test_accepts_verified_prerequisites_at_exact_source(self):
+        for component in publication.PREREQUISITES:
+            for missing in (False, True):
+                for event in ("push", "workflow_dispatch"):
+                    with self.subTest(component=component, missing=missing, event=event):
+                        client, _, _ = self.fixture(component, missing, event)
+                        self.reuse.reset_mock()
+                        with patch.object(publication, "checked_source") as source:
+                            self.assertEqual(publication.readiness(client, REPOSITORY, COMMIT, component), 42)
+                        source.assert_not_called()
+                        self.reuse.assert_called_once_with(client, REPOSITORY, COMMIT, 42)
+
+    def test_rejects_current_failures_despite_donor_success(self):
+        for name in publication.PREREQUISITES["desktop"]:
+            for conclusion in ("failure", "cancelled"):
+                with self.subTest(name=name, conclusion=conclusion):
+                    client, _, jobs = self.fixture()
+                    self.reuse.reset_mock()
+                    next(job for job in jobs if job["name"] == name)["conclusion"] = conclusion
+                    jobs.append({"name": name, "status": "completed", "conclusion": "success"})
+                    self.assertIsNone(publication.ready_run(client, REPOSITORY, COMMIT, "desktop"))
+                    self.reuse.assert_not_called()
+
+    def test_does_not_replace_active_prerequisites(self):
+        for status in ("queued", "in_progress"):
+            with self.subTest(status=status):
+                client, _, jobs = self.fixture()
+                next(job for job in jobs if job["name"] == "Desktop").update(status=status, conclusion=None)
+                self.assertIsNone(publication.ready_run(client, REPOSITORY, COMMIT, "desktop"))
+
+    def test_requires_fresh_source_and_ready(self):
+        for name in ("Source", "Desktop ready"):
+            for state in ("missing", "skipped", "failure", "cancelled", "in_progress"):
+                with self.subTest(name=name, state=state):
+                    client, _, jobs = self.fixture()
+                    self.reuse.return_value |= {"Source", "Desktop ready"}
+                    job = next(job for job in jobs if job["name"] == name)
+                    if state == "missing":
+                        jobs.remove(job)
+                    elif state == "in_progress":
+                        job.update(status=state, conclusion=None)
+                    else:
+                        job["conclusion"] = state
+                    self.assertIsNone(publication.ready_run(client, REPOSITORY, COMMIT, "desktop"))
+
+    def test_rejects_absent_or_incomplete_proof(self):
+        for verified in (set(), {"Rust strict lint"}):
+            with self.subTest(verified=verified):
+                client, _, _ = self.fixture()
+                self.reuse.return_value = verified
+                self.assertIsNone(publication.ready_run(client, REPOSITORY, COMMIT, "desktop"))
+                with patch.object(publication.time, "sleep") as sleep, \
+                        self.assertRaisesRegex(ValueError, "ended without"):
+                    publication.wait_ready(client, REPOSITORY, COMMIT, "desktop")
+                sleep.assert_not_called()
+
+    def test_rejects_invalid_or_stale_proof(self):
+        for message in ("Invalid Checks proof", "Stale Checks proof"):
+            for check in (publication.readiness, publication.wait_ready):
+                with self.subTest(message=message, check=check.__name__):
+                    client, _, _ = self.fixture()
+                    self.reuse.side_effect = ValueError(message)
+                    with patch.object(publication, "checked_source") as source, \
+                            patch.object(publication.time, "sleep") as sleep, \
+                            self.assertRaisesRegex(ValueError, message):
+                        check(client, REPOSITORY, COMMIT, "desktop")
+                    source.assert_not_called()
+                    sleep.assert_not_called()
+
+    def test_waits_for_fresh_gates_with_reuse(self):
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                client, run, jobs = self.fixture(missing=missing)
+                fresh = [job for job in jobs if job["name"] in {"Source", "Desktop ready"}]
+                for job in fresh:
+                    job.update(status="in_progress", conclusion=None)
+
+                def complete(_):
+                    for job in fresh:
+                        job.update(status="completed", conclusion="success")
+                    run.update(status="completed", conclusion="success")
+
+                with patch.object(publication.time, "sleep", side_effect=complete) as sleep, \
+                        patch.object(publication.time, "monotonic", side_effect=[0, 1]), \
+                        patch.object(publication, "checked_source") as source:
+                    self.assertEqual(publication.wait_ready(client, REPOSITORY, COMMIT, "desktop"), 42)
+                sleep.assert_called_once_with(60)
+                source.assert_not_called()
+                self.reuse.assert_called_with(client, REPOSITORY, COMMIT, 42)
+
+    def test_waiting_rejects_actual_failures_without_delay(self):
+        for name in (*publication.PREREQUISITES["desktop"], "Desktop ready"):
+            for conclusion in ("failure", "cancelled"):
+                with self.subTest(name=name, conclusion=conclusion):
+                    client, _, jobs = self.fixture()
+                    self.reuse.reset_mock()
+                    self.reuse.return_value |= {"Source", "Desktop ready"}
+                    next(job for job in jobs if job["name"] == name)["conclusion"] = conclusion
+                    with patch.object(publication.time, "sleep") as sleep, \
+                            self.assertRaisesRegex(ValueError, "ended without"):
+                        publication.wait_ready(client, REPOSITORY, COMMIT, "desktop")
+                    sleep.assert_not_called()
+                    self.reuse.assert_not_called()
+
+    def test_waiting_rejects_missing_fresh_gates(self):
+        for name in ("Source", "Desktop ready"):
+            with self.subTest(name=name):
+                client, run, jobs = self.fixture()
+                run.update(status="completed", conclusion="success")
+                jobs.remove(next(job for job in jobs if job["name"] == name))
+                self.reuse.return_value |= {"Source", "Desktop ready"}
+                with patch.object(publication.time, "sleep") as sleep, \
+                        self.assertRaisesRegex(ValueError, "ended without"):
+                    publication.wait_ready(client, REPOSITORY, COMMIT, "desktop")
+                sleep.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -1,11 +1,13 @@
 """Local recipes reuse CI commands without changing package and target boundaries."""
 
 import importlib.util
+import os
 from pathlib import Path
 import re
 import shlex
 import tomllib
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,12 +24,12 @@ def recipe(name):
     return [shlex.split(line.strip()) for line in body.group(1).splitlines()]
 
 
-def commands(name):
+def commands(name, env=None):
     result = []
     for arguments in recipe(name):
         if arguments[:4] != ["bash", "scripts/python.sh", "scripts/ci.py", "check"]:
             raise AssertionError(f"Recipe does not use the shared check runner: {name}")
-        result.extend(ci.check_commands(arguments[4], root=ROOT))
+        result.extend(ci.check_commands(arguments[4], root=ROOT, env={} if env is None else env))
     return result
 
 
@@ -47,6 +49,25 @@ class UI(unittest.TestCase):
         self.assertNotIn("--test", arguments)
         self.assertNotIn("--release", arguments)
         self.assertEqual(arguments[arguments.index("--profile") + 1], "ci")
+
+    def test_ignores_runner_environment(self):
+        names = ("test-ui", "test-backend", "check-mobile")
+        expected = {name: commands(name) for name in names}
+        with patch.dict(os.environ, {"CHECK_ARCHIVE": ci.TEST_ARCHIVE, "CHECK_PARTITION": "count:2/2"}):
+            for name in names:
+                with self.subTest(name=name):
+                    self.assertEqual(commands(name), expected[name])
+
+    def test_selects_archived_packages_and_targets(self):
+        selected = commands("test-ui", env={
+            "CHECK_ARCHIVE": ci.TEST_ARCHIVE, "CHECK_PARTITION": "count:2/2",
+        })
+        self.assertEqual(selected, [{"argv": [
+            "cargo", "nextest", "run", "--archive-file", str(ROOT / ci.TEST_ARCHIVE),
+            "--extract-to", str(ROOT), "--extract-overwrite", "--filterset",
+            "package(sailry-content) | (package(sailry-desktop) & (kind(lib) | kind(bin)))",
+            "--profile", "ci",
+        ], "cwd": "."}])
 
     def test_preserves_backend_graph(self):
         selected = commands("test-backend")

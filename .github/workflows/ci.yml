@@ -8,6 +8,12 @@ on:
     # the full-ci label runs full checks and other pull requests run light lint.
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_dispatch:
+    inputs:
+      reuse_run:
+        description: Completed full Checks run with unchanged product inputs
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -48,6 +54,17 @@ jobs:
       mode: ${{ steps.scope.outputs.mode }}
       light_linux: ${{ steps.scope.outputs.light_linux }}
       light_macos: ${{ steps.scope.outputs.light_macos }}
+      reuse_proof: ${{ steps.reuse.outputs.proof }}
+      reuse_archive_run: ${{ steps.reuse.outputs.archive_run }}
+      reuse_lint: ${{ steps.reuse.outputs.lint }}
+      reuse_build: ${{ steps.reuse.outputs.build }}
+      reuse_shared: ${{ steps.reuse.outputs.shared }}
+      reuse_shared_matrix: ${{ steps.reuse.outputs.shared_matrix }}
+      reuse_desktop: ${{ steps.reuse.outputs.desktop }}
+      reuse_host: ${{ steps.reuse.outputs.host }}
+      reuse_mobile: ${{ steps.reuse.outputs.mobile }}
+      reuse_android: ${{ steps.reuse.outputs.android }}
+      reuse_services: ${{ steps.reuse.outputs.services }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -74,11 +91,25 @@ jobs:
           ACTIONLINT="$(go env GOPATH)/bin/actionlint" python3 scripts/ci.py check workflows
       - name: Script syntax
         run: python3 scripts/ci.py check scripts
+      - name: Verify reusable results
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECK_REUSE_RUN: ${{ inputs.reuse_run }}
+        run: python3 scripts/ci_reuse.py prepare
+      - name: Reuse evidence
+        if: steps.reuse.outputs.proof != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: checks-reuse
+          path: .runtime/ci/reuse.json
+          if-no-files-found: error
+          retention-days: 7
 
   services:
     name: Pairing service
     needs: source
-    if: needs.source.outputs.services == 'true'
+    if: needs.source.outputs.services == 'true' && needs.source.outputs.reuse_services != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -100,7 +131,7 @@ jobs:
     needs: source
     if: >-
       needs.source.outputs.mode == 'full' && (needs.source.outputs.shared == 'true' || needs.source.outputs.desktop == 'true' ||
-      needs.source.outputs.host == 'true' || needs.source.outputs.mobile == 'true')
+      needs.source.outputs.host == 'true' || needs.source.outputs.mobile == 'true') && needs.source.outputs.reuse_lint != 'true'
     runs-on: macos-15
     timeout-minutes: 150
     env:
@@ -168,7 +199,7 @@ jobs:
     needs: source
     if: >-
       needs.source.outputs.mode == 'full' && (needs.source.outputs.shared == 'true' || needs.source.outputs.host == 'true' ||
-      needs.source.outputs.desktop == 'true')
+      needs.source.outputs.desktop == 'true') && needs.source.outputs.reuse_build != 'true'
     runs-on: macos-15
     timeout-minutes: 180
     env:
@@ -265,13 +296,16 @@ jobs:
   shared:
     name: Shared Node (${{ matrix.partition }}/2)
     needs: [source, build]
-    if: needs.source.outputs.mode == 'full' && (needs.source.outputs.shared == 'true' || needs.source.outputs.host == 'true')
+    if: >-
+      !cancelled() && needs.source.result == 'success' &&
+      (needs.build.result == 'success' || needs.source.outputs.reuse_build == 'true') &&
+      needs.source.outputs.mode == 'full' && (needs.source.outputs.shared == 'true' || needs.source.outputs.host == 'true') &&
+      needs.source.outputs.reuse_shared != 'true'
     runs-on: macos-15
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix:
-        partition: [1, 2]
+      matrix: ${{ fromJSON(needs.source.outputs.reuse_shared_matrix) }}
     env:
       CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
       CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
@@ -299,6 +333,8 @@ jobs:
         with:
           name: nextest-archive
           path: .runtime/ci
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.source.outputs.reuse_archive_run || github.run_id }}
       - name: Shared and macOS Host contracts
         run: python3 scripts/ci-run.py -- python3 scripts/ci.py check shared
       - name: Plugin contracts
@@ -324,7 +360,11 @@ jobs:
   desktop:
     name: Desktop
     needs: [source, build]
-    if: needs.source.outputs.mode == 'full' && needs.source.outputs.desktop == 'true'
+    if: >-
+      !cancelled() && needs.source.result == 'success' &&
+      (needs.build.result == 'success' || needs.source.outputs.reuse_build == 'true') &&
+      needs.source.outputs.mode == 'full' && needs.source.outputs.desktop == 'true' &&
+      needs.source.outputs.reuse_desktop != 'true'
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -349,6 +389,8 @@ jobs:
         with:
           name: nextest-archive
           path: .runtime/ci
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.source.outputs.reuse_archive_run || github.run_id }}
       - name: Desktop source fixtures
         run: python3 scripts/ci.py check desktop-source
       - name: Desktop logic and service contracts
@@ -370,7 +412,7 @@ jobs:
   host:
     name: Host
     needs: source
-    if: needs.source.outputs.mode == 'full' && needs.source.outputs.host == 'true'
+    if: needs.source.outputs.mode == 'full' && needs.source.outputs.host == 'true' && needs.source.outputs.reuse_host != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
@@ -432,7 +474,9 @@ jobs:
   mobile:
     name: Mobile
     needs: source
-    if: needs.source.outputs.mode == 'full' && (needs.source.outputs.mobile == 'true' || needs.source.outputs.mobile_ffi == 'true')
+    if: >-
+      needs.source.outputs.mode == 'full' && (needs.source.outputs.mobile == 'true' || needs.source.outputs.mobile_ffi == 'true') &&
+      needs.source.outputs.reuse_mobile != 'true'
     runs-on: macos-15
     timeout-minutes: 240
     env:
@@ -517,7 +561,7 @@ jobs:
   android:
     name: Mobile Android
     needs: source
-    if: needs.source.outputs.mode == 'full' && needs.source.outputs.android == 'true'
+    if: needs.source.outputs.mode == 'full' && needs.source.outputs.android == 'true' && needs.source.outputs.reuse_android != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -672,8 +716,11 @@ jobs:
     name: Desktop ready
     if: >-
       needs.source.outputs.shared == 'true' && needs.source.outputs.desktop == 'true' &&
-      !cancelled() && needs.source.result == 'success' && needs.lint.result == 'success' &&
-      needs.build.result == 'success' && needs.shared.result == 'success' && needs.desktop.result == 'success'
+      !cancelled() && needs.source.result == 'success' &&
+      (needs.lint.result == 'success' || (needs.lint.result == 'skipped' && needs.source.outputs.reuse_lint == 'true')) &&
+      (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.source.outputs.reuse_build == 'true')) &&
+      (needs.shared.result == 'success' || (needs.shared.result == 'skipped' && needs.source.outputs.reuse_shared == 'true')) &&
+      (needs.desktop.result == 'success' || (needs.desktop.result == 'skipped' && needs.source.outputs.reuse_desktop == 'true'))
     needs: [source, lint, build, shared, desktop]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -681,17 +728,23 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Require product results
         env:
+          GH_TOKEN: ${{ github.token }}
           CHECK_RESULTS: ${{ toJSON(needs) }}
-        run: python3 scripts/ci.py report desktop
+          CHECK_REUSE_PROOF: ${{ needs.source.outputs.reuse_proof }}
+        run: python3 scripts/ci_reuse.py report desktop
 
   host_ready:
     name: Host ready
     if: >-
       needs.source.outputs.shared == 'true' && needs.source.outputs.host == 'true' &&
-      !cancelled() && needs.source.result == 'success' && needs.lint.result == 'success' &&
-      needs.build.result == 'success' && needs.shared.result == 'success' && needs.host.result == 'success'
+      !cancelled() && needs.source.result == 'success' &&
+      (needs.lint.result == 'success' || (needs.lint.result == 'skipped' && needs.source.outputs.reuse_lint == 'true')) &&
+      (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.source.outputs.reuse_build == 'true')) &&
+      (needs.shared.result == 'success' || (needs.shared.result == 'skipped' && needs.source.outputs.reuse_shared == 'true')) &&
+      (needs.host.result == 'success' || (needs.host.result == 'skipped' && needs.source.outputs.reuse_host == 'true'))
     needs: [source, lint, build, shared, host]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -699,17 +752,24 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Require product results
         env:
+          GH_TOKEN: ${{ github.token }}
           CHECK_RESULTS: ${{ toJSON(needs) }}
-        run: python3 scripts/ci.py report host
+          CHECK_REUSE_PROOF: ${{ needs.source.outputs.reuse_proof }}
+        run: python3 scripts/ci_reuse.py report host
 
   mobile_ready:
     name: Mobile ready
     if: >-
       needs.source.outputs.shared == 'true' && needs.source.outputs.mobile == 'true' && needs.source.outputs.mobile_ffi == 'true' && needs.source.outputs.android == 'true' &&
-      !cancelled() && needs.source.result == 'success' && needs.lint.result == 'success' &&
-      needs.build.result == 'success' && needs.shared.result == 'success' && needs.mobile.result == 'success' && needs.android.result == 'success'
+      !cancelled() && needs.source.result == 'success' &&
+      (needs.lint.result == 'success' || (needs.lint.result == 'skipped' && needs.source.outputs.reuse_lint == 'true')) &&
+      (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.source.outputs.reuse_build == 'true')) &&
+      (needs.shared.result == 'success' || (needs.shared.result == 'skipped' && needs.source.outputs.reuse_shared == 'true')) &&
+      (needs.mobile.result == 'success' || (needs.mobile.result == 'skipped' && needs.source.outputs.reuse_mobile == 'true')) &&
+      (needs.android.result == 'success' || (needs.android.result == 'skipped' && needs.source.outputs.reuse_android == 'true'))
     needs: [source, lint, build, shared, mobile, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -717,10 +777,13 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Require product results
         env:
+          GH_TOKEN: ${{ github.token }}
           CHECK_RESULTS: ${{ toJSON(needs) }}
-        run: python3 scripts/ci.py report mobile
+          CHECK_REUSE_PROOF: ${{ needs.source.outputs.reuse_proof }}
+        run: python3 scripts/ci_reuse.py report mobile
 
   checks:
     # Deferred runs report another name, so they neither pass nor replace the required check.
@@ -734,7 +797,10 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Require selected results
         env:
+          GH_TOKEN: ${{ github.token }}
           CHECK_RESULTS: ${{ toJSON(needs) }}
-        run: python3 scripts/ci.py report
+          CHECK_REUSE_PROOF: ${{ needs.source.outputs.reuse_proof }}
+        run: python3 scripts/ci_reuse.py report

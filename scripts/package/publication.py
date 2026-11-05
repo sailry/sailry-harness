@@ -1,8 +1,10 @@
 """Shared verification for version-tagged GitHub release workflows."""
 
 import hashlib
+import importlib.util
 import io
 import json
+from pathlib import Path
 import re
 import stat
 import subprocess
@@ -12,6 +14,10 @@ from urllib.parse import quote
 import zipfile
 
 import versions
+
+_reuse_spec = importlib.util.spec_from_file_location("_sailry_ci_reuse", Path(__file__).resolve().parents[1] / "ci_reuse.py")
+ci_reuse = importlib.util.module_from_spec(_reuse_spec)
+_reuse_spec.loader.exec_module(ci_reuse)
 
 PREREQUISITES = {
     "desktop": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Desktop"),
@@ -175,6 +181,24 @@ def append(client, repository, tag, metadata, assets):
         client.upload(tag, missing)
 
 
+def job_results(client, repository, commit, run_id, component, jobs):
+    fresh = {"Source", f"{component.title()} ready"}
+    required = {*PREREQUISITES[component], *fresh}
+    jobs = [job for job in jobs if job.get("name") in required]
+    successful = {job["name"] for job in jobs if job.get("status") == "completed"
+                  and job.get("conclusion") == "success"}
+    skipped = {job["name"] for job in jobs if job.get("status") == "completed"
+               and job.get("conclusion") == "skipped"}
+    unfinished = {job["name"] for job in jobs if job.get("status") != "completed"}
+    if (skipped & fresh or any(job.get("status") == "completed"
+            and job.get("conclusion") not in {"success", "skipped"} for job in jobs)):
+        return successful, True
+    reusable = required - fresh - successful - unfinished
+    if reusable and (fresh <= successful or skipped & reusable):
+        successful |= reusable & ci_reuse.verified_jobs(client, repository, commit, run_id)
+    return successful - unfinished, bool(skipped - successful)
+
+
 def ready_run(client, repository, commit, component):
     gate = f"{component.title()} ready"
     required = {*PREREQUISITES[component], gate}
@@ -186,9 +210,8 @@ def ready_run(client, repository, commit, component):
                     or run.get("event") not in {"push", "workflow_dispatch"}):
                 continue
             jobs = client.api("GET", f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
-            successful = {job.get("name") for job in jobs if job.get("status") == "completed"
-                          and job.get("conclusion") == "success"}
-            if required.issubset(successful):
+            successful, blocked = job_results(client, repository, commit, run["id"], component, jobs)
+            if not blocked and required.issubset(successful):
                 return run["id"]
         if len(runs) < 100:
             break
@@ -224,15 +247,12 @@ def wait_ready(client, repository, commit, component):
         runs = [run for run in payload["workflow_runs"]
                 if run.get("head_sha") == commit and run.get("head_branch") == "main"
                 and run.get("event") in {"push", "workflow_dispatch"}]
-        required = {*PREREQUISITES[component], f"{component.title()} ready"}
         pending = False
         for run in runs:
             if run.get("status") == "completed":
                 continue
             jobs = client.api("GET", f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
-            blocked = any(job.get("name") in required and job.get("status") == "completed"
-                          and job.get("conclusion") != "success"
-                          for job in jobs)
+            _, blocked = job_results(client, repository, commit, run["id"], component, jobs)
             pending |= not blocked
         if runs and not pending:
             raise ValueError(f"The exact-source Checks ended without successful {component.title()} readiness")

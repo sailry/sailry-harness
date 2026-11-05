@@ -408,7 +408,7 @@ class Workflow(unittest.TestCase):
             for lane in lanes:
                 self.assertIn(f"needs.source.outputs.{lane} == 'true'", section)
         self.assertIn("needs: [source, lint, build, shared, desktop, host, mobile, android, services, light_linux, light_macos]", workflow)
-        self.assertIn("run: python3 scripts/ci.py report", workflow)
+        self.assertIn("run: python3 scripts/ci_reuse.py report", workflow)
 
     def test_lints_every_workspace_member(self):
         workflow = workflow_source()
@@ -493,7 +493,9 @@ class Workflow(unittest.TestCase):
                 for name, selected in ci.CHECK_JOBS.items():
                     if lanes & selected:
                         self.assertIn(f"needs.{name}.result == 'success'", section)
-                self.assertIn(f"python3 scripts/ci.py report {product}", section)
+                self.assertIn(f"python3 scripts/ci_reuse.py report {product}", section)
+                self.assertIn("CHECK_REUSE_PROOF: ${{ needs.source.outputs.reuse_proof }}", section)
+                self.assertIn("fetch-depth: 0", section)
                 self.assertNotIn("continue-on-error", section)
 
     def test_separates_light_and_full_lanes(self):
@@ -587,7 +589,7 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("test_android_package", shared)
         self.assertNotIn("test_host_install", shared)
         for name in ("test_release_versions", "test_start_release", "test_release_notes",
-                     "test_publish_packages", "test_publish_update_feed", "test_mobile_release"):
+                     "test_publish_packages", "test_publish_update_feed", "test_mobile_release", "test_ui_tasks"):
             self.assertIn(name, shared)
         self.assertIn("test_onnx_runtime", shared)
         self.assertIn("scripts/check-locales.py --product desktop", workflow)

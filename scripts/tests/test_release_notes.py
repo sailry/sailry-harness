@@ -462,6 +462,8 @@ class GateWaiting(unittest.TestCase):
                 return {"workflow_runs": [run]}
             if "/actions/runs/7/jobs?" in path:
                 return {"jobs": jobs}
+            if "/actions/runs/7/artifacts?" in path:
+                return {"artifacts": []}
             if path.endswith("/actions/runs/7"):
                 return run
             raise AssertionError(f"Unexpected readiness request: {method} {path}")
