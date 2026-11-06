@@ -115,14 +115,15 @@ impl Shell {
         let session = session.clone();
         let id = session.id;
         let active = matches!(placement, Placement::Active { .. });
-        let (prefix, row_key, entry, branch_last) = match placement {
-            Placement::Project(entry) => ("live-session", Row::LiveSession(id), Some(entry), None),
-            Placement::Recent { last } => {
-                ("recent-session", Row::RecentSession(id), None, Some(last))
-            }
-            Placement::Active { last } => {
-                ("active-session", Row::ActiveSession(id), None, Some(last))
-            }
+        let (prefix, row_key, entry, last) = match placement {
+            Placement::Project(entry) => (
+                "live-session",
+                Row::LiveSession(id),
+                Some(entry),
+                entry.last,
+            ),
+            Placement::Recent { last } => ("recent-session", Row::RecentSession(id), None, last),
+            Placement::Active { last } => ("active-session", Row::ActiveSession(id), None, last),
         };
         let indicators = !matches!(placement, Placement::Recent { .. });
         let node = live.selected;
@@ -161,7 +162,7 @@ impl Shell {
             .and_then(|branch| branch.label.clone());
         let status = if running {
             Some((
-                crate::ui::loading::mini()
+                crate::ui::loading::small()
                     .debug_selector(move || format!("{prefix}-{id}-loading"))
                     .into_any_element(),
                 "activity_running",
@@ -198,6 +199,10 @@ impl Shell {
             |(_, key)| format!("{title} · {}", tr(key)).into(),
         );
         let status = status.map(|(element, _)| element);
+        let guides = match entry {
+            Some(entry) => entry.guides(format!("{prefix}-{id}"), status, cx),
+            None => super::branch(format!("{prefix}-{id}"), last, px(30.), status, cx),
+        };
         let row = self
             .sidebar_row(
                 SharedString::from(format!("{prefix}-{id}")),
@@ -207,20 +212,8 @@ impl Shell {
                 cx,
             )
             .accessibility_label(accessible)
-            .map(|row| match (entry, branch_last) {
-                (Some(entry), _) => {
-                    row.pl(entry.indent())
-                        .child(entry.guides(format!("{prefix}-{id}"), status, cx))
-                }
-                (None, Some(last)) => row.pl(px(30.)).child(super::branch(
-                    format!("{prefix}-{id}"),
-                    last,
-                    px(30.),
-                    status,
-                    cx,
-                )),
-                (None, None) => row,
-            })
+            .pl(entry.map_or(px(30.), |entry| entry.indent()))
+            .child(guides)
             .when(running, |row| row.text_color(cx.theme().sidebar_foreground))
             .relative()
             .on_drag(

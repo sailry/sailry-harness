@@ -156,6 +156,7 @@ pub(crate) fn branch(
                     h_flex()
                         .flex_none()
                         .size(px(MARK))
+                        .overflow_hidden()
                         .justify_center()
                         .child(status),
                 )
