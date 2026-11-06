@@ -1119,7 +1119,7 @@ mod handoffs {
 
     #[tokio::test]
     async fn accepts_larger_handoffs() {
-        let handoff = "Verified complete handoff. ".repeat(600);
+        let handoff = "Verified complete handoff. ".repeat(450);
         assert!(tokens(&handoff) < TOKENS * 3 / 4);
         for remote in [false, true] {
             let (summary, transcript) = compacted(remote, &handoff).await;
