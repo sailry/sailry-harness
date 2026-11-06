@@ -58,6 +58,7 @@ class _ArtifactPageState extends State<ArtifactPage> {
 
   String get _session => widget.session ?? text(widget.artifact['session']);
   bool get _inherited => _session != widget.artifact['session'];
+  bool get _preview => _artifact['kind'] == 'preview';
 
   @override
   void initState() {
@@ -312,7 +313,7 @@ class _ArtifactPageState extends State<ArtifactPage> {
     ],
     child: _content == null
         ? const SizedBox.expand()
-        : _content!['view'] == null
+        : _content!['view'] == null && !_preview
         ? SingleChildScrollView(
             child: CodeBlock(text(_content!['html']), language: 'html'),
           )
@@ -320,7 +321,7 @@ class _ArtifactPageState extends State<ArtifactPage> {
             key: _surface,
             content: _content!,
             connected: widget.host.connected,
-            actions: _inherited ? null : widget.actions,
+            actions: _inherited || _preview ? null : widget.actions,
             readonly: _artifact['revision'] != _content!['latest_revision'],
             onEdited: () => _dirty = true,
             onReady: () {

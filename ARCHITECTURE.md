@@ -560,7 +560,8 @@ without granting project writes or arbitrary plugin callbacks.
 
 The preview kind preserves self-contained authored HTML, CSS and JavaScript.
 Desktop renders it in the existing native preview adapter's opaque-origin
-sandbox, not the privileged document surface. It receives no Node, tool,
+sandbox, not the privileged document surface; Mobile uses the same sandboxed
+frame without a package template or page channel. It receives no Node, tool,
 credential, filesystem or conversation-form bridge. Parent and child CSP restrict
 resource loading and navigation; this is not an OS-level zero-egress guarantee.
 The wrapper supplies the controller theme as `--sailry-*` CSS variables and a

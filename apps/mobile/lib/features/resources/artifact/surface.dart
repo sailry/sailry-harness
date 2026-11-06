@@ -47,8 +47,12 @@ class ArtifactSurfaceState extends State<ArtifactSurface> {
   Completer<String>? _export;
   int _exportId = 0;
   Map<String, String> _theme = {};
+  bool _dark = false;
+
+  bool get _preview => object(widget.content['artifact'])['kind'] == 'preview';
 
   bool get writable =>
+      !_preview &&
       !widget.readonly &&
       widget.content['latest_revision'] ==
           object(widget.content['artifact'])['revision'] &&
@@ -66,14 +70,23 @@ class ArtifactSurfaceState extends State<ArtifactSurface> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final next = artifactTheme(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
     if (!_started) {
       _started = true;
       _theme = next;
-      unawaited(_initialize());
-    } else if (jsonEncode(next) != jsonEncode(_theme)) {
+      _dark = dark;
+      unawaited(_preview ? _initializePreview() : _initialize());
+    } else if (jsonEncode(next) != jsonEncode(_theme) || dark != _dark) {
       _theme = next;
+      _dark = dark;
       if (_ready) {
-        unawaited(_run('window.sailryDocument.retheme(${jsonEncode(next)})'));
+        unawaited(
+          _run(
+            _preview
+                ? artifactPreviewRetheme(next, dark: dark)
+                : 'window.sailryDocument.retheme(${jsonEncode(next)})',
+          ),
+        );
       }
     }
   }
@@ -95,7 +108,51 @@ class ArtifactSurfaceState extends State<ArtifactSurface> {
   void _changed() {
     if (_closed || !mounted) return;
     setState(() {});
-    if (_ready) unawaited(_run('window.sailryDocument.setWritable($writable)'));
+    if (_ready && !_preview) {
+      unawaited(_run('window.sailryDocument.setWritable($writable)'));
+    }
+  }
+
+  /// Preview pages get no JavaScript channel; page load marks them ready.
+  Future<void> _initializePreview() async {
+    try {
+      final page = artifactPreviewPage(
+        text(widget.content['html']),
+        _theme,
+        dark: _dark,
+      );
+      final background = Theme.of(context).colorScheme.surface;
+      final controller = WebViewController();
+      await controller.setBackgroundColor(background);
+      if (_closed) return;
+      setState(() => _controller = controller);
+      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      if (_closed) return;
+      await controller.setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) =>
+              request.url == 'about:blank' || request.url == 'about:srcdoc'
+              ? NavigationDecision.navigate
+              : NavigationDecision.prevent,
+          onPageFinished: (_) => _loaded(),
+          onWebResourceError: (error) {
+            if (error.isForMainFrame == true) _fail();
+          },
+        ),
+      );
+      if (_closed) return;
+      _deadline = Timer(const Duration(seconds: 30), _fail);
+      await controller.loadHtmlString(page, baseUrl: 'about:blank');
+    } catch (_) {
+      _fail();
+    }
+  }
+
+  void _loaded() {
+    if (_closed || !mounted || _ready || _failed) return;
+    _deadline?.cancel();
+    setState(() => _ready = true);
+    widget.onReady?.call();
   }
 
   Future<void> _initialize() async {
@@ -287,6 +344,13 @@ class ArtifactSurfaceState extends State<ArtifactSurface> {
   Future<String> exportHtml() async {
     if (!_ready || _closed || _export != null) {
       throw StateError('Artifact renderer is not ready');
+    }
+    if (_preview) {
+      return artifactPreviewPage(
+        text(widget.content['html']),
+        _theme,
+        dark: _dark,
+      );
     }
     final result = _export = Completer<String>();
     final id = ++_exportId;

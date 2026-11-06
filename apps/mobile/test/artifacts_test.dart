@@ -146,6 +146,58 @@ void main() {
       throwsFormatException,
     );
   });
+  group('preview page', () {
+    const authored =
+        '</iframe><script>parent.postMessage("test","*")</script><p>Chart</p>';
+    final theme = {'background': '#101010ff', 'font_family': 'A</style>'};
+
+    test('confines authored code without a page channel', () {
+      final page = artifactPreviewPage(authored, theme, dark: true);
+      expect('<iframe '.allMatches(page), hasLength(1));
+      expect('</iframe>'.allMatches(page), hasLength(1));
+      expect(page, contains('sandbox="allow-scripts"'));
+      expect(page, isNot(contains('allow-same-origin')));
+      expect(page, contains('frame-src about:'));
+      expect(page, contains("frame-src 'none'"));
+      expect("connect-src 'none'".allMatches(page), hasLength(2));
+      expect(page, contains('&lt;script&gt;parent.postMessage'));
+      expect(page, isNot(contains('SailryDocument')));
+      expect(page, isNot(contains('sailryDocument')));
+      expect(page, isNot(contains('allow-popups')));
+    });
+
+    test('supplies theme variables to both documents', () {
+      final page = artifactPreviewPage(authored, theme, dark: true);
+      final rule = artifactThemeRule(theme, dark: true);
+      expect(rule, startsWith(':root{color-scheme:dark;--sailry-background:'));
+      expect(rule, contains(r'--sailry-font-family:A\3c /style\3e ;'));
+      expect(rule.allMatches(page), hasLength(2));
+      expect(page, contains('name=color-scheme content=dark'));
+      expect(
+        artifactThemeRule(theme, dark: false),
+        startsWith(':root{color-scheme:light;'),
+      );
+      final retheme = artifactPreviewRetheme(theme, dark: false);
+      expect(retheme, contains('postMessage({sailryTheme:rule},\'*\')'));
+      expect(retheme, contains('color-scheme:light'));
+    });
+
+    test('rejects empty or oversized source', () {
+      expect(
+        () => artifactPreviewPage(' ', theme, dark: false),
+        throwsFormatException,
+      );
+      expect(
+        () =>
+            artifactPreviewPage('a' * (artifactLimit + 1), theme, dark: false),
+        throwsFormatException,
+      );
+      expect(
+        () => artifactPreviewPage('<p>\u0000</p>', theme, dark: false),
+        throwsFormatException,
+      );
+    });
+  });
   test('export retains rendered content without executable scripts', () {
     final result = exportedArtifact(
       '<main><svg><path/></svg><script>bad()</script><p>Answer</p></main>',
