@@ -85,7 +85,12 @@ impl Shell {
                 .plugin_workspace(cx)
                 .is_some_and(|workspace| workspace.read(cx).has_details());
         }
-        if self.page == Page::Conversation && self.live.is_some() && self.current_chat().is_none() {
+        if self.page == Page::Conversation
+            && self.live.is_some()
+            && !self
+                .conversation_scope(cx)
+                .is_some_and(|scope| scope.panel(self.side_resource.is_some()))
+        {
             return false;
         }
         if !self.page.has_panel() || self.needs_project() {
