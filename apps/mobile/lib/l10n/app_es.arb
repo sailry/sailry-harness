@@ -194,6 +194,19 @@
       }
     }
   },
+  "fileChangesApprovalOne": "Aplicar parche a 1 archivo",
+  "fileChangesApproval": "Aplicar parche a {count} archivos",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "Añadido",
+  "fileChangesModified": "Modificado",
+  "fileChangesRenamed": "Renombrado",
+  "fileChangesDeleted": "Eliminado",
   "turnUndo": "Deshacer los cambios",
   "turnUndoAll": "Deshacer todo",
   "turnUndoConfirm": "Los conflictos con los cambios posteriores detendrán la operación, y el archivo se devolverá a la ubicación original",

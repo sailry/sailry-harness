@@ -948,6 +948,42 @@ abstract class AppLocalizations {
   /// **'{count} files'**
   String turnChangesCount(String count);
 
+  /// No description provided for @fileChangesApprovalOne.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply patch to 1 file'**
+  String get fileChangesApprovalOne;
+
+  /// No description provided for @fileChangesApproval.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply patch to {count} files'**
+  String fileChangesApproval(String count);
+
+  /// No description provided for @fileChangesAdded.
+  ///
+  /// In en, this message translates to:
+  /// **'Added'**
+  String get fileChangesAdded;
+
+  /// No description provided for @fileChangesModified.
+  ///
+  /// In en, this message translates to:
+  /// **'Modified'**
+  String get fileChangesModified;
+
+  /// No description provided for @fileChangesRenamed.
+  ///
+  /// In en, this message translates to:
+  /// **'Renamed'**
+  String get fileChangesRenamed;
+
+  /// No description provided for @fileChangesDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleted'**
+  String get fileChangesDeleted;
+
   /// No description provided for @turnUndo.
   ///
   /// In en, this message translates to:

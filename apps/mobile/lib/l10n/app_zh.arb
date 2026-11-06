@@ -161,6 +161,19 @@
       }
     }
   },
+  "fileChangesApprovalOne": "将补丁应用到 1 个文件",
+  "fileChangesApproval": "将补丁应用到 {count} 个文件",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "新增",
+  "fileChangesModified": "修改",
+  "fileChangesRenamed": "重命名",
+  "fileChangesDeleted": "删除",
   "turnUndo": "撤销修改",
   "turnUndoAll": "全部撤销",
   "turnUndoConfirm": "撤销这些文件在本轮中的修改？后续修改发生冲突时会停止",

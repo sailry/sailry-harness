@@ -452,6 +452,26 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get fileChangesApprovalOne => 'Apply patch to 1 file';
+
+  @override
+  String fileChangesApproval(String count) {
+    return 'Apply patch to $count files';
+  }
+
+  @override
+  String get fileChangesAdded => 'Added';
+
+  @override
+  String get fileChangesModified => 'Modified';
+
+  @override
+  String get fileChangesRenamed => 'Renamed';
+
+  @override
+  String get fileChangesDeleted => 'Deleted';
+
+  @override
   String get turnUndo => 'Undo changes';
 
   @override

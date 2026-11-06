@@ -455,6 +455,26 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
+  String get fileChangesApprovalOne => 'Применить патч к 1 файлу';
+
+  @override
+  String fileChangesApproval(String count) {
+    return 'Применить патч к файлам: $count';
+  }
+
+  @override
+  String get fileChangesAdded => 'Добавлен';
+
+  @override
+  String get fileChangesModified => 'Изменён';
+
+  @override
+  String get fileChangesRenamed => 'Переименован';
+
+  @override
+  String get fileChangesDeleted => 'Удалён';
+
+  @override
   String get turnUndo => 'Отмена изменений';
 
   @override

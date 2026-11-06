@@ -456,6 +456,26 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String get fileChangesApprovalOne => 'Aplicar parche a 1 archivo';
+
+  @override
+  String fileChangesApproval(String count) {
+    return 'Aplicar parche a $count archivos';
+  }
+
+  @override
+  String get fileChangesAdded => 'Añadido';
+
+  @override
+  String get fileChangesModified => 'Modificado';
+
+  @override
+  String get fileChangesRenamed => 'Renombrado';
+
+  @override
+  String get fileChangesDeleted => 'Eliminado';
+
+  @override
   String get turnUndo => 'Deshacer los cambios';
 
   @override

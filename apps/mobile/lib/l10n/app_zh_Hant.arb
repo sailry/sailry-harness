@@ -161,6 +161,19 @@
       }
     }
   },
+  "fileChangesApprovalOne": "將修補程式套用到 1 個檔案",
+  "fileChangesApproval": "將修補程式套用到 {count} 個檔案",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "新增",
+  "fileChangesModified": "修改",
+  "fileChangesRenamed": "重新命名",
+  "fileChangesDeleted": "刪除",
   "turnUndo": "撤銷修改",
   "turnUndoAll": "全部撤銷",
   "turnUndoConfirm": "撤銷這些檔案在本輪中的修改？後續修改發生衝突時會停止",

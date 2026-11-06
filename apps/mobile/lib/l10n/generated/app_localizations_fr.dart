@@ -460,6 +460,26 @@ class AppLocalizationsFr extends AppLocalizations {
   }
 
   @override
+  String get fileChangesApprovalOne => 'Appliquer le correctif à 1 fichier';
+
+  @override
+  String fileChangesApproval(String count) {
+    return 'Appliquer le correctif à $count fichiers';
+  }
+
+  @override
+  String get fileChangesAdded => 'Ajouté';
+
+  @override
+  String get fileChangesModified => 'Modifié';
+
+  @override
+  String get fileChangesRenamed => 'Renommé';
+
+  @override
+  String get fileChangesDeleted => 'Supprimé';
+
+  @override
   String get turnUndo => 'Annuler les modifications';
 
   @override

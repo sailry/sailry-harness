@@ -194,6 +194,19 @@
       }
     }
   },
+  "fileChangesApprovalOne": "Appliquer le correctif à 1 fichier",
+  "fileChangesApproval": "Appliquer le correctif à {count} fichiers",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "Ajouté",
+  "fileChangesModified": "Modifié",
+  "fileChangesRenamed": "Renommé",
+  "fileChangesDeleted": "Supprimé",
   "turnUndo": "Annuler les modifications",
   "turnUndoAll": "Annuler tout",
   "turnUndoConfirm": "Annuler ces modifications de fichier à partir de ce tour? Les conflits avec des modifications ultérieures arrêteront l'opération",

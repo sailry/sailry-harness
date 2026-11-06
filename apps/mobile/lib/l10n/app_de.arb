@@ -194,6 +194,19 @@
       }
     }
   },
+  "fileChangesApprovalOne": "Patch auf 1 Datei anwenden",
+  "fileChangesApproval": "Patch auf {count} Dateien anwenden",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "Hinzugefügt",
+  "fileChangesModified": "Geändert",
+  "fileChangesRenamed": "Umbenannt",
+  "fileChangesDeleted": "Gelöscht",
   "turnUndo": "Änderungen rückgängig machen",
   "turnUndoAll": "Alles rückgängig",
   "turnUndoConfirm": "Diese Dateiänderungen ab diesem Zug rückgängig machen? Konflikte mit späteren Änderungen stoppen den Vorgang",

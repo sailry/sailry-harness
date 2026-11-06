@@ -194,6 +194,19 @@
       }
     }
   },
+  "fileChangesApprovalOne": "Применить патч к 1 файлу",
+  "fileChangesApproval": "Применить патч к файлам: {count}",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "Добавлен",
+  "fileChangesModified": "Изменён",
+  "fileChangesRenamed": "Переименован",
+  "fileChangesDeleted": "Удалён",
   "turnUndo": "Отмена изменений",
   "turnUndoAll": "Отменить все",
   "turnUndoConfirm": "Отменить эти изменения файлов с этого хода? Конфликты с последующими изменениями остановит операцию",

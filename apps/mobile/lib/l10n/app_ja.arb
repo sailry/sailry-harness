@@ -194,6 +194,19 @@
       }
     }
   },
+  "fileChangesApprovalOne": "1 個のファイルにパッチを適用",
+  "fileChangesApproval": "{count} 個のファイルにパッチを適用",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "追加",
+  "fileChangesModified": "変更",
+  "fileChangesRenamed": "名前変更",
+  "fileChangesDeleted": "削除",
   "turnUndo": "変更を無効にする",
   "turnUndoAll": "すべて無効にする",
   "turnUndoConfirm": "このターンからファイルの変更を取り消しますか？後の変更との衝突は操作を停止します",
