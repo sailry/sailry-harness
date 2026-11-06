@@ -1,5 +1,6 @@
 //! Trusted immutable package assets plus validated markup in an offline document.
 use super::*;
+use crate::theme::css::font_family;
 use gpui_kit::component::ActiveTheme;
 use serde_json::{Value, json};
 #[cfg(test)]
@@ -18,30 +19,6 @@ pub(super) fn theme(cx: &App) -> Value {
         "font_family":font_family(&tokens.font_family,"system-ui, sans-serif"),"font_size":format!("{}px",f32::from(tokens.font_size)),
         "mono_font_family":font_family(&tokens.mono_font_family,"ui-monospace, monospace"),"radius":format!("{}px",f32::from(tokens.radius)),
         "is_dark":tokens.is_dark()})
-}
-
-fn font_family(family: &str, fallback: &str) -> String {
-    // GPUI's virtual system family resolves natively, but is not a CSS font name.
-    if family == ".SystemUIFont" || family.trim().is_empty() {
-        return fallback.into();
-    }
-    let mut quoted = String::from("\"");
-    for character in family.chars() {
-        match character {
-            '\\' | '"' => {
-                quoted.push('\\');
-                quoted.push(character);
-            }
-            '\0' => quoted.push('\u{fffd}'),
-            character if character.is_control() => {
-                quoted.push_str(&format!("\\{:x} ", character as u32));
-            }
-            character => quoted.push(character),
-        }
-    }
-    quoted.push_str("\", ");
-    quoted.push_str(fallback);
-    quoted
 }
 
 pub(super) fn labels() -> Value {
@@ -167,9 +144,9 @@ pub(super) fn capture(
         {
             return Task::ready(Err(HostError::new("invalid artifact content")));
         }
-        return Task::ready(Ok(crate::content::files::html::surface::document(
+        return Task::ready(Ok(crate::content::files::html::surface::artifact(
             &content.html,
-            cx,
+            &crate::theme::css::Palette::of(cx),
         )));
     }
     use raw_window_handle::HasWindowHandle;
