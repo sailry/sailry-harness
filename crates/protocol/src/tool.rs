@@ -75,6 +75,10 @@ pub struct Declaration {
     /// Starts visible to the main agent; limited to read-only or package-storage tools.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub initial: bool,
+    /// Outgoing model requests omit this tool's older result images in batches of
+    /// five beyond this count. Canonical history keeps every image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_images: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -712,6 +716,38 @@ mod initial_tests {
         ] {
             eprintln!("case: {scenario}");
             check(scenario);
+        }
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn keeps_declared_image_count() {
+        let value = json!({"name":"capture","operation":"browser.read","keep_images":5});
+        let declaration: Declaration = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(declaration.keep_images, Some(5));
+        assert!(declaration.valid());
+        assert_eq!(
+            serde_json::to_value(&declaration).unwrap()["keep_images"],
+            5
+        );
+        let plain: Declaration =
+            serde_json::from_value(json!({"name":"capture","operation":"browser.read"})).unwrap();
+        assert_eq!(plain.keep_images, None);
+        assert!(
+            serde_json::to_value(&plain)
+                .unwrap()
+                .get("keep_images")
+                .is_none()
+        );
+        for invalid in [json!(-1), json!("5"), json!(1.5)] {
+            let mut value = value.clone();
+            value["keep_images"] = invalid;
+            assert!(serde_json::from_value::<Declaration>(value).is_err());
         }
     }
 }
