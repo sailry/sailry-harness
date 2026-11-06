@@ -753,7 +753,9 @@ impl RenderOnce for Workspace {
                         .relative()
                         .size_full()
                         // Tint only the outer band; container opacity must not compound
-                        // with a second full-window layer underneath it.
+                        // with a second full-window layer underneath it. Windows draws its
+                        // title bar above the panes, so there the band is the panel's own
+                        // header row rather than window chrome.
                         .child(
                             div()
                                 .absolute()
@@ -761,7 +763,15 @@ impl RenderOnce for Workspace {
                                 .left_0()
                                 .right_0()
                                 .h(px(HEADER_HEIGHT))
-                                .bg(crate::theme::sidebar_background(cx)),
+                                .map(|band| {
+                                    if cfg!(target_os = "windows") {
+                                        band.bg(crate::theme::panel_background(cx))
+                                            .border_b_1()
+                                            .border_color(cx.theme().border)
+                                    } else {
+                                        band.bg(crate::theme::sidebar_background(cx))
+                                    }
+                                }),
                         )
                         // Features retain their own details header and operations.
                         .child(
