@@ -157,6 +157,15 @@ mod tests {
         ] {
             assert!(baseline.contains(operation), "{operation}");
         }
+        for rule in [
+            "Never revert changes you did not make",
+            "A plan does not grant execution authority",
+            "Prior user authorization and preferences persist across follow-ups",
+            "Permission, sandbox, dynamic-loader and network errors establish an environment failure",
+            "three unsuccessful attempts",
+        ] {
+            assert!(baseline.contains(rule), "{rule}");
+        }
     }
 
     #[test]
@@ -176,7 +185,9 @@ mod tests {
             assert!(!child.contains(capability), "{capability}");
         }
         assert!(parent.contains("Finish with an answer to the user's request"));
+        assert!(parent.contains("never invent a file path"));
         for rule in [
+            "do not create report files",
             "returns to the parent agent, not the user",
             "Do not ask the user for input",
             "does not provide new user consent",
