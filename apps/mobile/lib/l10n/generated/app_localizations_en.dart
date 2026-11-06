@@ -2389,6 +2389,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get backgroundInterrupted => 'Interrupted';
 
   @override
+  String get backgroundStalled => 'No recent output';
+
+  @override
   String get backgroundUnknown => 'Outcome uncertain';
 
   @override

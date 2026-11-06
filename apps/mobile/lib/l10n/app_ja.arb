@@ -936,6 +936,7 @@
   "backgroundStopped": "停止済み",
   "backgroundTimedOut": "タイムアウト",
   "backgroundInterrupted": "中断",
+  "backgroundStalled": "最近の出力なし",
   "backgroundUnknown": "結果は不確定",
   "backgroundPending": "バックグラウンドの結果を処理できます",
   "conversationSteps": "{count} ステップ",

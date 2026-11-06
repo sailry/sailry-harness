@@ -936,6 +936,7 @@
   "backgroundStopped": "Detenido",
   "backgroundTimedOut": "Tiempo agotado",
   "backgroundInterrupted": "Interrumpido",
+  "backgroundStalled": "Sin salida reciente",
   "backgroundUnknown": "Resultado incierto",
   "backgroundPending": "Resultados pendientes",
   "conversationSteps": "{count} pasos",

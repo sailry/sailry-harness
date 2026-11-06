@@ -994,6 +994,7 @@
   "backgroundStopped": "Stopped",
   "backgroundTimedOut": "Timed out",
   "backgroundInterrupted": "Interrupted",
+  "backgroundStalled": "No recent output",
   "backgroundUnknown": "Outcome uncertain",
   "backgroundPending": "Background results ready",
   "conversationSteps": "{count} steps",

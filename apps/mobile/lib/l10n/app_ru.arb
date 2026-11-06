@@ -936,6 +936,7 @@
   "backgroundStopped": "Остановлено",
   "backgroundTimedOut": "Время истекло",
   "backgroundInterrupted": "Прервано",
+  "backgroundStalled": "Нет нового вывода",
   "backgroundUnknown": "Результат неизвестен",
   "backgroundPending": "Фоновые результаты готовы",
   "conversationSteps": "Шагов: {count}",

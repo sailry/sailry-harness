@@ -261,6 +261,9 @@ async fn execute_configured(
         })?,
         armed: true,
     };
+    if let Some(retained) = &retained {
+        retained.spawned();
+    }
     #[cfg(target_os = "macos")]
     let group = macos::Group::capture(child.inner.as_ref());
     let stdout = child

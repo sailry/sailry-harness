@@ -28,6 +28,13 @@ class BackgroundNotices extends StatelessWidget {
     return reference == null ? null : object(reference);
   }
 
+  RowTone tone(Map<String, dynamic> item) {
+    final outcome = item['outcome'];
+    if (backgroundFailed(outcome)) return RowTone.failed;
+    if (backgroundWarning(outcome)) return RowTone.pending;
+    return RowTone.normal;
+  }
+
   void _details(BuildContext context, Map<String, dynamic> item) {
     final summary = text(item['summary']);
     showAppSheet(
@@ -40,9 +47,7 @@ class BackgroundNotices extends StatelessWidget {
             icon: child(item) == null ? 'clock' : 'spark',
             label: text(item['title']),
             detail: context.tr(backgroundLabel(item['outcome'])),
-            tone: backgroundFailed(item['outcome'])
-                ? RowTone.failed
-                : RowTone.normal,
+            tone: tone(item),
           ),
           if (summary.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -87,9 +92,9 @@ class BackgroundNotices extends StatelessWidget {
                       Text(
                         context.tr(backgroundLabel(item['outcome'])),
                         style: TextStyle(
-                          color: backgroundFailed(item['outcome'])
-                              ? colors.error
-                              : colors.onSurfaceVariant.withValues(alpha: .65),
+                          color: tone(item) == RowTone.normal
+                              ? colors.onSurfaceVariant.withValues(alpha: .65)
+                              : rowColor(context, tone(item)),
                         ),
                       ),
                     ],

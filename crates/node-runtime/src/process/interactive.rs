@@ -120,12 +120,13 @@ pub(super) async fn execute(
     let ready = progress.clone();
     let drained = Arc::new(AtomicBool::new(false));
     let finished = drained.clone();
+    let activity = retained.clone();
     let sink = Arc::new(move |event| {
         let mut output = output.lock().unwrap();
         match event {
             pty::Event::Bytes(bytes) => {
                 output.append(&bytes);
-                retained.append(sailry_protocol::process::OutputStream::Stdout, &bytes);
+                activity.append(sailry_protocol::process::OutputStream::Stdout, &bytes);
             }
             pty::Event::Eof(result) => {
                 output.finish();
@@ -215,6 +216,7 @@ pub(super) async fn execute(
     })
     .await
     .map_err(|_| failure("command PTY launch failed"))??;
+    retained.spawned();
     let mut tick = tokio::time::interval(Duration::from_millis(20));
     let mut input_open = true;
     let mut pending = None;

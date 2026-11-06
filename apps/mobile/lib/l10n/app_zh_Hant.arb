@@ -936,6 +936,7 @@
   "backgroundStopped": "已停止",
   "backgroundTimedOut": "逾時",
   "backgroundInterrupted": "已中斷",
+  "backgroundStalled": "近期無輸出",
   "backgroundUnknown": "結果不確定",
   "backgroundPending": "背景結果待處理",
   "conversationSteps": "{count} 個步驟",

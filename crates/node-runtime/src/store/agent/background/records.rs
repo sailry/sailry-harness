@@ -284,6 +284,23 @@ pub(in crate::store) async fn command_stalled(
     Ok(Some(record.task))
 }
 
+/// A finished command's completion supersedes its undelivered stall evidence.
+/// Delivered or reserved evidence stays with the turn that received it.
+pub(in crate::store) async fn settle_stall(
+    db: &Connection,
+    command: RequestId,
+) -> Result<Option<Task>, Fault> {
+    let Some(mut record) = get(db, &format!("stall:{command}")).await? else {
+        return Ok(None);
+    };
+    if record.task.state != State::Pending || record.task.delivery.is_some() {
+        return Ok(None);
+    }
+    record.task.state = State::Dismissed;
+    save(db, &mut record).await?;
+    Ok(Some(record.task))
+}
+
 pub(in crate::store) async fn consume_command(
     db: &Connection,
     parent: TurnId,
@@ -305,7 +322,9 @@ pub(in crate::store) async fn consume_command(
     // The snapshot has already been read by the tool. Completing it here closes
     // the terminal-read/sink race on the same storage actor without consuming UI polls.
     let _ = command_finished(db, snapshot, None, false).await?;
-    consume(db, &format!("command:{}", snapshot.info.id), run.session).await
+    let mut changed = consume(db, &format!("command:{}", snapshot.info.id), run.session).await?;
+    changed.extend(settle_stall(db, snapshot.info.id).await?);
+    Ok(changed)
 }
 
 pub(in crate::store) async fn consume_child(

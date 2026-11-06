@@ -2358,6 +2358,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get backgroundInterrupted => '已中断';
 
   @override
+  String get backgroundStalled => '近期无输出';
+
+  @override
   String get backgroundUnknown => '结果不确定';
 
   @override
@@ -4869,6 +4872,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get backgroundInterrupted => '已中斷';
+
+  @override
+  String get backgroundStalled => '近期無輸出';
 
   @override
   String get backgroundUnknown => '結果不確定';

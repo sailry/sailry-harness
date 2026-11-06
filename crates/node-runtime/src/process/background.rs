@@ -51,6 +51,8 @@ pub(crate) struct Commands {
     stalls: OnceLock<tokio::sync::mpsc::UnboundedSender<Stalled>>,
     entries: Mutex<BTreeMap<RequestId, Entry>>,
     changes: watch::Sender<()>,
+    /// Activity of a command the stall monitor is not timing.
+    resumed: Arc<tokio::sync::Notify>,
     budget: Arc<super::output::Budget>,
     #[cfg(any(test, feature = "test-support"))]
     stall_window: Mutex<Option<std::time::Duration>>,
@@ -63,6 +65,7 @@ impl Default for Commands {
             stalls: OnceLock::new(),
             entries: Mutex::default(),
             changes: watch::channel(()).0,
+            resumed: Arc::default(),
             budget: Arc::default(),
             #[cfg(any(test, feature = "test-support"))]
             stall_window: Mutex::default(),
