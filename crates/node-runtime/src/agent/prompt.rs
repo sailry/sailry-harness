@@ -131,16 +131,10 @@ mod tests {
             &headings(baseline)[1..],
             ["Work", "Tools and context", "Progress and verification"]
         );
-        for tool in [
-            "code_search",
-            "code_context",
-            "search_files",
-            "code_outline",
-        ] {
-            assert!(baseline.contains(tool), "{tool}");
-        }
         // Optional and recipient-specific tools belong to their own declarations.
         for tool in [
+            "code_search",
+            "search_files",
             "ask_user",
             "list_sessions",
             "update_plan",
