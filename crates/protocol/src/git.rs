@@ -308,6 +308,9 @@ pub struct GitStatus {
     pub entries: Vec<GitEntry>,
     pub truncated: bool,
     pub omitted_paths: usize,
+    /// Direct child directories with Git metadata, listed only for a plain directory.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repositories: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
