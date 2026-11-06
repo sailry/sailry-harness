@@ -423,6 +423,7 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'testFailed' => strings.testFailed,
   'queueCount' => strings.queueCount('{count}'),
   'queuePaused' => strings.queuePaused('{count}'),
+  'queueGuidance' => strings.queueGuidance('{queue}'),
   'pauseQueue' => strings.pauseQueue,
   'resumeQueue' => strings.resumeQueue,
   'enqueue' => strings.enqueue,

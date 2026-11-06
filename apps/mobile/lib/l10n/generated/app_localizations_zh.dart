@@ -1260,6 +1260,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String queueGuidance(String queue) {
+    return '$queue，引导等待加入';
+  }
+
+  @override
   String get pauseQueue => '暂停队列';
 
   @override
@@ -3773,6 +3778,11 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String queuePaused(String count) {
     return '佇列已暫停 · $count';
+  }
+
+  @override
+  String queueGuidance(String queue) {
+    return '$queue，引導等待加入';
   }
 
   @override

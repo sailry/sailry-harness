@@ -492,6 +492,14 @@
       }
     }
   },
+  "queueGuidance": "{queue}, Anweisung wartet auf Übernahme",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
   "pauseQueue": "Pause Queue",
   "resumeQueue": "Warteschlange fortsetzen",
   "enqueue": "Zur Warteschlange hinzufügen",

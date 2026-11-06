@@ -2568,6 +2568,12 @@ abstract class AppLocalizations {
   /// **'Queue paused · {count}'**
   String queuePaused(String count);
 
+  /// No description provided for @queueGuidance.
+  ///
+  /// In en, this message translates to:
+  /// **'{queue}, guidance waiting to join'**
+  String queueGuidance(String queue);
+
   /// No description provided for @pauseQueue.
   ///
   /// In en, this message translates to:

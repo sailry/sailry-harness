@@ -610,6 +610,14 @@
       }
     }
   },
+  "queueGuidance": "{queue}，引導等待加入",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
   "pauseQueue": "暫停佇列",
   "resumeQueue": "繼續佇列",
   "enqueue": "加入佇列",

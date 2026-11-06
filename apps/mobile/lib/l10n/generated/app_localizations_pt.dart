@@ -1291,6 +1291,11 @@ class AppLocalizationsPt extends AppLocalizations {
   }
 
   @override
+  String queueGuidance(String queue) {
+    return '$queue, orientação aguardando inclusão';
+  }
+
+  @override
   String get pauseQueue => 'Pause queue';
 
   @override

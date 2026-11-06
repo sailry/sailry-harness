@@ -1262,6 +1262,11 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String queueGuidance(String queue) {
+    return '$queue、指示の合流待ち';
+  }
+
+  @override
   String get pauseQueue => 'キューを一時停止';
 
   @override

@@ -1281,6 +1281,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String queueGuidance(String queue) {
+    return '$queue, guidance waiting to join';
+  }
+
+  @override
   String get pauseQueue => 'Pause queue';
 
   @override

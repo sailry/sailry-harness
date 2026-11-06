@@ -1301,6 +1301,11 @@ class AppLocalizationsFr extends AppLocalizations {
   }
 
   @override
+  String queueGuidance(String queue) {
+    return '$queue, consigne en attente d\'intégration';
+  }
+
+  @override
   String get pauseQueue => 'Mettre la file en pause';
 
   @override

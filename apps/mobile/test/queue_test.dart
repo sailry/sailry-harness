@@ -82,4 +82,27 @@ void main() {
       );
     });
   });
+
+  group('describe', () {
+    String tr(String key) => switch (key) {
+      'queueCount' => '{count} queued',
+      'queuePaused' => 'Paused · {count}',
+      'queueGuidance' => '{queue}, guidance waiting',
+      _ => key,
+    };
+
+    test('states the count', () {
+      expect(
+        describe((count: 2, paused: false, guiding: false), tr),
+        '2 queued',
+      );
+    });
+
+    test('adds waiting guidance to a paused queue', () {
+      expect(
+        describe((count: 1, paused: true, guiding: true), tr),
+        'Paused · 1, guidance waiting',
+      );
+    });
+  });
 }

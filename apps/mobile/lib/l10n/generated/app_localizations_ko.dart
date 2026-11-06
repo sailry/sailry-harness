@@ -1264,6 +1264,11 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String queueGuidance(String queue) {
+    return '$queue, 지침 합류 대기 중';
+  }
+
+  @override
   String get pauseQueue => '대기열 일시 정지';
 
   @override
