@@ -197,7 +197,7 @@ impl Preparer {
             .unwrap_or(sailry_protocol::conversation::ModelApi::Responses);
         attachments::hydrate(
             &self.ingress,
-            self.invocation.turn.id,
+            &self.invocation,
             conversation,
             model.is_some_and(|model| model.vision),
             api,

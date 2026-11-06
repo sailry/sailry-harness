@@ -356,6 +356,140 @@ async fn rejects_damaged_content() {
 }
 
 #[tokio::test]
+async fn omits_unavailable_history() {
+    let fixture = Fixture::empty().await;
+    let server = server::Server::start(false).await;
+    for client in fixture.clients() {
+        let (session, _) = session(
+            &client,
+            fixture.worktree,
+            &server.endpoint,
+            ModelApi::ChatCompletions,
+        )
+        .await;
+        let file = upload(
+            &client,
+            fixture.worktree,
+            "history.txt",
+            "text/plain",
+            b"historical content",
+        )
+        .await;
+        let first = queue(&client, &session, input("Inspect", &[&file])).await;
+        let sent = server.requests.lock().unwrap().len();
+        let history = run(&client, &first).await;
+        assert_eq!(
+            history.runs[0].status,
+            Status::Completed,
+            "{:?}",
+            history.runs
+        );
+        assert!(
+            server.requests.lock().unwrap()[sent]
+                .to_string()
+                .contains("historical content")
+        );
+        // Pending input hides its turn from history resolution while the attachment remains stored.
+        let sql = ("INSERT INTO agent_pending(turn,position,revision,request,caller) SELECT id,0,1,request,caller FROM turns WHERE id=?1").to_owned();
+        let parameters = turso::params![first.id.to_string()];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute(sql, parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap();
+        for hidden in [true, false] {
+            if !hidden {
+                let sql = ("DELETE FROM agent_pending WHERE turn=?1").to_owned();
+                let parameters = turso::params![first.id.to_string()];
+                fixture
+                    .node
+                    .with_storage(move |db| {
+                        Box::pin(async move {
+                            db.execute(sql, parameters)
+                                .await
+                                .map_err(crate::database_fixture::fault)
+                        })
+                    })
+                    .await
+                    .unwrap();
+                std::fs::remove_file(
+                    fixture
+                        .node
+                        .profile()
+                        .join("attachments")
+                        .join(file.id.to_string()),
+                )
+                .unwrap();
+            }
+            let turn = queue(&client, &session, "Continue".into()).await;
+            let sent = server.requests.lock().unwrap().len();
+            let history = run(&client, &turn).await;
+            let run = history.runs.iter().find(|run| run.turn == turn.id).unwrap();
+            assert_eq!(run.status, Status::Completed, "{hidden}: {:?}", run.error);
+            let request = server.requests.lock().unwrap()[sent].to_string();
+            assert!(request.contains("Attachment unavailable"), "{request}");
+            assert!(request.contains(&file.id.to_string()), "{request}");
+            assert!(!request.contains("historical content"), "{request}");
+            assert!(
+                history
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.turn == first.id)
+                    .flat_map(|entry| &entry.parts)
+                    .any(|part| *part == Part::Attachment(file.clone()))
+            );
+        }
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn rejects_unavailable_input() {
+    let fixture = Fixture::empty().await;
+    let server = server::Server::start(false).await;
+    for client in fixture.clients() {
+        let (session, _) = session(
+            &client,
+            fixture.worktree,
+            &server.endpoint,
+            ModelApi::ChatCompletions,
+        )
+        .await;
+        let file = upload(
+            &client,
+            fixture.worktree,
+            "input.txt",
+            "text/plain",
+            b"current input",
+        )
+        .await;
+        std::fs::remove_file(
+            fixture
+                .node
+                .profile()
+                .join("attachments")
+                .join(file.id.to_string()),
+        )
+        .unwrap();
+        let turn = queue(&client, &session, input("Inspect", &[&file])).await;
+        let history = run(&client, &turn).await;
+        let run = &history.runs[0];
+        assert_eq!(run.status, Status::Failed);
+        let error = run.error.as_ref().unwrap();
+        assert_eq!(error.code, ErrorCode::NotFound);
+        assert!(error.message.contains(&file.id.to_string()), "{error:?}");
+    }
+    assert!(server.requests.lock().unwrap().is_empty());
+    fixture.close().await;
+}
+
+#[tokio::test]
 async fn restores_rewound_inputs() {
     let fixture = Fixture::empty().await;
     let server = server::Server::start(false).await;

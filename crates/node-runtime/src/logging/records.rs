@@ -1,7 +1,7 @@
 use sailry_link::CancellationToken;
 use sailry_protocol::{
-    ArtifactId, ErrorCode, NodeId, ProviderId, RequestId, SessionId, TurnId, WorktreeId,
-    conversation::Status,
+    ArtifactId, AttachmentId, ErrorCode, NodeId, ProviderId, RequestId, SessionId, TurnId,
+    WorktreeId, conversation::Status,
 };
 use std::time::Instant;
 
@@ -102,6 +102,7 @@ pub struct Context {
     pub invocation: Option<RequestId>,
     pub call: Option<RequestId>,
     pub artifact: Option<ArtifactId>,
+    pub attachment: Option<AttachmentId>,
 }
 
 /// This allowlist deliberately has no message, input, output, URL or path field.
@@ -240,7 +241,7 @@ impl Entry {
             package = package.map_or("", |value| value.name.as_str()), plugin_version = context.plugin_version.as_deref().unwrap_or_default(), digest = package.map_or("", |value| value.digest.as_str()), settings_revision = package.map(|value| value.settings_revision),
             handler = context.handler.as_deref().unwrap_or_default(), invocation = id(context.invocation.map(|value| value.to_string())),
             call = id(context.call.map(|value| value.to_string())),
-            artifact_id = id(context.artifact.map(|value| value.to_string())), revision = self.revision,
+            artifact_id = id(context.artifact.map(|value| value.to_string())), attachment_id = id(context.attachment.map(|value| value.to_string())), revision = self.revision,
             command = self.command.unwrap_or_default(), operation = self.operation.unwrap_or_default(), stage = self.stage.unwrap_or_default(), source_kind = self.source_kind.unwrap_or_default(), reason = self.reason.unwrap_or_default(),
             cause_code = self.cause_code.unwrap_or_default(), cause_component = self.cause_component.unwrap_or_default(), cause_category = self.cause_category.unwrap_or_default(), upstream_status = self.upstream_status, websocket_close_code = self.websocket_close_code,
             attempt = self.attempt, limit = self.limit, request_mode = self.request_mode.unwrap_or_default(), stream = self.stream, budget = self.budget,

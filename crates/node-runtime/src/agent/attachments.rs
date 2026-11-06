@@ -18,6 +18,7 @@ mod tests;
 const PREFIX: &str = "sailry-attachment://";
 const REQUEST_BYTES: u64 = 64 * 1024 * 1024;
 const READ_NOTE: &str = "Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files";
+const UNAVAILABLE_NOTE: &str = "Attachment unavailable; contents not included";
 
 pub(crate) fn is_reference(uri: &str) -> bool {
     uri.starts_with(PREFIX)
@@ -105,9 +106,11 @@ pub(crate) fn render(
     Ok(record)
 }
 
+/// Historical references that cannot be read become notes in this request only;
+/// the running turn's own input still fails so it can be sent again.
 pub(super) async fn hydrate(
     ingress: &Ingress,
-    turn: TurnId,
+    invocation: &Invocation,
     conversation: &mut Conversation,
     vision: bool,
     api: ModelApi,
@@ -135,15 +138,48 @@ pub(super) async fn hydrate(
                 continue;
             }
             let reference = id(&document.data)?;
-            let (attachment, _) = ingress.attachment_source(turn, reference).await?;
+            let source = ingress
+                .attachment_source(invocation.turn.id, reference)
+                .await?;
+            let current = source.current;
+            let attachment = match source.attachment {
+                Ok(attachment) => attachment,
+                Err(fault) if current => return Err(fault),
+                Err(fault) => {
+                    omitted(ingress, invocation, reference, &fault);
+                    contents.push(MessageContent::text(unavailable(
+                        reference,
+                        &document.mime_type,
+                    )));
+                    continue;
+                }
+            };
             if document.mime_type != attachment.spec.media_type {
                 return Err(Fault::invalid("attachment media type mismatch"));
             }
             let mut materialized = None;
             if attachment.spec.size <= remaining {
-                let bytes = ingress
+                let bytes = match ingress
                     .attachment_bytes(attachment.clone(), stop.clone())
-                    .await?;
+                    .await
+                {
+                    Ok(bytes) => bytes,
+                    Err(fault)
+                        if !current
+                            && matches!(
+                                fault.code,
+                                ErrorCode::NotFound | ErrorCode::RevisionConflict
+                            ) =>
+                    {
+                        omitted(ingress, invocation, reference, &fault);
+                        contents.push(MessageContent::text(unavailable(
+                            reference,
+                            &attachment.spec.media_type,
+                        )));
+                        continue;
+                    }
+                    Err(fault) => return Err(fault),
+                };
                 materialized = inline(&attachment, bytes, vision, api);
                 if materialized.is_some() {
                     remaining -= attachment.spec.size;
@@ -217,6 +253,30 @@ fn file(attachment: &Attachment, note: Option<&str>) -> String {
         Some(note) => format!("Attachment reference: {value}\n{note}"),
         None => format!("Attachment reference: {value}"),
     }
+}
+
+fn unavailable(id: AttachmentId, media_type: &str) -> String {
+    let value = serde_json::json!({"id":id,"media_type":media_type});
+    format!("Attachment reference: {value}\n{UNAVAILABLE_NOTE}")
+}
+
+fn omitted(ingress: &Ingress, invocation: &Invocation, id: AttachmentId, fault: &Fault) {
+    let mut entry =
+        crate::logging::Entry::new(crate::logging::Area::Run, crate::logging::Phase::Failed);
+    entry.context = crate::logging::Context {
+        node: Some(ingress.node),
+        session: Some(invocation.turn.session),
+        turn: Some(invocation.turn.id),
+        worktree: Some(invocation.worktree),
+        attachment: Some(id),
+        ..Default::default()
+    };
+    entry.operation = Some("attachment");
+    entry.stage = Some("hydrate");
+    entry.source_kind = Some("history");
+    entry.recovery_decision = Some("placeholder");
+    entry.code = Some(fault.code);
+    entry.emit_warn();
 }
 
 fn filter_images(conversation: &mut Conversation) {

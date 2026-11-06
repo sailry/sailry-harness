@@ -1,4 +1,5 @@
 use super::database::{encode, storage_error};
+use crate::files::attachments::missing;
 use sailry_protocol::{
     AttachmentId, Command, ErrorCode, Fault, NodeId, Output, WorktreeId, attachment::Attachment,
 };
@@ -30,7 +31,7 @@ pub(super) async fn read(
         }
     };
     let attachment: Attachment =
-        serde_json::from_slice(&body.ok_or_else(missing)?).map_err(storage_error)?;
+        serde_json::from_slice(&body.ok_or_else(|| missing(id))?).map_err(storage_error)?;
     if attachment.id != id || attachment.spec.worktree != worktree {
         return Err(storage_error("attachment owner mismatch"));
     }
@@ -61,7 +62,7 @@ pub(super) async fn discard(
         }
     };
     if owner.as_deref() != Some(&caller.0[..]) {
-        return Err(missing());
+        return Err(missing(id));
     }
     let used: bool = {
         let mut statement = db
@@ -138,8 +139,4 @@ pub(super) async fn collect(db: &Connection, profile: Option<&Path>) {
     if let Err(error) = result {
         eprintln!("attachment cleanup failed: {error}");
     }
-}
-
-fn missing() -> Fault {
-    Fault::new(ErrorCode::NotFound, "attachment is unavailable")
 }
