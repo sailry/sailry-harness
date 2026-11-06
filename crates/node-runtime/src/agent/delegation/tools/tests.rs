@@ -126,7 +126,7 @@ mod prepare {
             ),
             (
                 json!({"task":"x","role":"writer"}),
-                "Select a role listed in this tool",
+                "Select a configured delegation role",
             ),
             (json!({"task":"  "}), "A delegation task is required"),
             (
