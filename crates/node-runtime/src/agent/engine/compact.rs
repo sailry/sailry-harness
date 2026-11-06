@@ -20,7 +20,9 @@ use goose_provider_types::{
 };
 use std::sync::{Arc, Mutex};
 
+mod handoff;
 mod input;
+mod loadout;
 #[cfg(test)]
 mod tests;
 
@@ -61,6 +63,7 @@ impl CompactionModel for Model {
     /// Only a complete, parseable structured summary is accepted. A response
     /// cut off at the output limit or without the JSON document fails the
     /// compaction instead of replacing history with partial or raw text.
+    /// The accepted document is bounded before GDK renders it.
     async fn complete(
         &self,
         system: &str,
@@ -80,15 +83,20 @@ impl CompactionModel for Model {
                     observed.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
             });
-        let (message, usage) = collect_stream(Box::pin(stream)).await?;
+        let (mut message, usage) = collect_stream(Box::pin(stream)).await?;
         if limited.load(std::sync::atomic::Ordering::Relaxed) || truncated(&usage) {
             return Err(ProviderError::ExecutionError(
                 "compaction summary reached its output limit".into(),
             ));
         }
-        let summary = StructuredSummary::parse(&message.as_concat_text()).ok_or_else(|| {
+        let mut summary = StructuredSummary::parse(&message.as_concat_text()).ok_or_else(|| {
             ProviderError::ExecutionError("compaction summary was not a structured handoff".into())
         })?;
+        handoff::bound(&mut summary)
+            .map_err(|error| ProviderError::ExecutionError(error.to_string()))?;
+        let document = serde_json::to_string(&summary)
+            .map_err(|error| ProviderError::ExecutionError(error.to_string()))?;
+        message.content = vec![MessageContent::text(document)];
         *self.files.lock().unwrap() = summary
             .files
             .into_iter()
@@ -139,7 +147,12 @@ impl CompactionOutput for Output {
 }
 impl Compaction {
     /// `id` is the summary record identity announced by the in-progress status.
-    async fn compact(&self, conversation: &Conversation, id: &str) -> anyhow::Result<Vec<Effect>> {
+    async fn compact(
+        &self,
+        session: &Session,
+        conversation: &Conversation,
+        id: &str,
+    ) -> anyhow::Result<Vec<Effect>> {
         let model = Model {
             provider: self.provider.clone(),
             config: self.config.clone(),
@@ -174,9 +187,15 @@ impl Compaction {
         let preserved = if self.manual {
             None
         } else {
+            // An earlier summary is merged into the new one, never carried beside it.
             conversation.messages().iter().rev().find(|message| {
                 message.is_agent_visible()
                     && !message.is_turn_context()
+                    && !message
+                        .metadata
+                        .usage
+                        .as_ref()
+                        .is_some_and(|usage| usage.is_compaction)
                     && message.role == rmcp::model::Role::User
                     && message
                         .content
@@ -204,11 +223,13 @@ impl Compaction {
         } else {
             "Your context was compacted. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nContinue calling tools as necessary to complete the task."
         };
+        let loaded = session.context.loaded_tools.as_deref().unwrap_or_default();
         let mut effects = vec![
             Effect::Compaction {
                 summary: Box::new(summary),
                 usage,
                 files: std::mem::take(&mut *model.files.lock().unwrap()),
+                tools: loadout::retained(loaded, conversation),
             },
             Message::assistant()
                 .with_text(continuation)
@@ -265,7 +286,7 @@ impl Operation<Session, Effect> for Compaction {
     }
     async fn run(
         &self,
-        _: &Session,
+        session: &Session,
         conversation: &Conversation,
         emit: &Emitter,
     ) -> anyhow::Result<OperationResult<Effect>> {
@@ -317,7 +338,7 @@ impl Operation<Session, Effect> for Compaction {
                 tracing::warn!(error = %error.message, "compaction status could not be published");
             }
         }
-        match self.compact(&input, &id).await {
+        match self.compact(session, &input, &id).await {
             Ok(effects) if self.manual => yielded_with(effects),
             Ok(effects) => applied(effects),
             Err(error) => yielded_with([

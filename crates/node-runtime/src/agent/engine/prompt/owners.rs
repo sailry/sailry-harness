@@ -1,5 +1,5 @@
 //! Retained canonical owner context and matching request-only skill receipts.
-use crate::agent::canonical::{BlockKind, Record, ToolResponse, ToolStatus};
+use crate::agent::canonical::{BlockKind, Kind, Record, ToolResponse, ToolStatus};
 use goose_provider_types::conversation::message::{Message, MessageContent};
 use rmcp::model::ContentBlock;
 use serde_json::json;
@@ -7,6 +7,9 @@ use std::collections::BTreeMap;
 
 /// Leads every retained owner part.
 pub(super) const PREFIX: &str = "Retained owner context: ";
+/// Skill parts loaded before the latest compaction share this many characters,
+/// most recently loaded first, so retained context stays bounded.
+const SKILL_CHARS: usize = 24_000;
 
 pub(super) struct Owners<'a> {
     entries: BTreeMap<String, &'a ToolResponse>,
@@ -18,7 +21,11 @@ pub(super) fn collect(records: &[Record]) -> Owners<'_> {
         entries: BTreeMap::new(),
         sources: BTreeMap::new(),
     };
-    for record in records {
+    let boundary = records
+        .iter()
+        .rposition(|record| matches!(record.kind, Kind::Compaction(_)));
+    let mut loaded = BTreeMap::new();
+    for (index, record) in records.iter().enumerate() {
         for block in record
             .message()
             .into_iter()
@@ -35,9 +42,24 @@ pub(super) fn collect(records: &[Record]) -> Owners<'_> {
             let Some(key) = key(response) else {
                 continue;
             };
-            owners.entries.insert(key, response);
             if skill(response) {
                 owners.sources.insert((&record.id, &response.id), response);
+                loaded.insert(key.clone(), index);
+            }
+            owners.entries.insert(key, response);
+        }
+    }
+    if let Some(boundary) = boundary {
+        let mut earlier: Vec<_> = loaded
+            .into_iter()
+            .filter(|(_, index)| *index < boundary)
+            .collect();
+        earlier.sort_by_key(|(_, index)| std::cmp::Reverse(*index));
+        let mut size = 0;
+        for (key, _) in earlier {
+            size += part(&key, owners.entries[&key]).chars().count();
+            if size > SKILL_CHARS {
+                owners.entries.remove(&key);
             }
         }
     }

@@ -413,7 +413,10 @@ The result is user-role
 summary text; the parsed file ledger is retained on the canonical compaction
 record. Summary requests have no tools and retain their captured model and account,
 with a separate low supported reasoning effort and an output limit of at most
-8,000 tokens, including reasoning where the provider counts it. There is no total
+8,000 tokens, including reasoning where the provider counts it. The prompt asks
+for under 3,000 tokens; an accepted handoff above 4,000 rendered tokens loses the
+tail entries of its reference lists first, then has overlong entries shortened,
+and keeps goals, current state and next steps longest. There is no total
 compaction deadline; transport stall timeouts and user cancellation still apply.
 There is no background preparation, model-callable compaction tool, prefix
 checkpoint, mandatory-heading check or minimum-reduction gate.
@@ -421,7 +424,8 @@ Individual tool pairs do not trigger separate model summary requests.
 Original records and raw tool output remain intact. The request loader uses the
 latest summary and subsequent continuation, with older originals hidden from the
 agent. Goose's continuation and retained current input remain available after
-compaction; public history, fork and rewind still use canonical membership.
+compaction; an earlier summary is merged, never retained as that input. Public
+history, fork and rewind still use canonical membership.
 
 Policy, personal instructions, guides and selected capabilities form the stable
 system prompt. Environment, title, plugin turn state, plans, loaded skill resources
@@ -430,9 +434,11 @@ canonical writer persists it and inference appends a new one only when session
 state changes, so each request extends the previous request and provider prompt
 caches cover the history. Retained owner parts and the parts a package returns from
 `turn.initialize` are repeated only after compaction hides their earlier copy;
-package instructions stay in the stable system prompt. Adapted payload estimates
-attribute sources only for a newly appended context within the verified terminal
-text and captured ranges.
+package instructions stay in the stable system prompt. Skill parts loaded before
+the latest compaction share 24,000 characters, most recently loaded first; older
+skills return only when loaded again, while the latest plan is kept. Adapted
+payload estimates attribute sources only for a newly appended context within the
+verified terminal text and captured ranges.
 Compaction prepares a separate input projection from canonical history. It omits
 reasoning and bounds older tool results to their first and last 1,000 characters.
 The latest user turn keeps its non-reasoning transcript unshortened. If the rendered
@@ -628,8 +634,11 @@ discovered through `tool_search` from that catalog. Discovery adds declarations 
 context for later requests without executing tools or increasing permissions.
 The session state row owns loaded-tool membership and first-seen order. Newly
 loaded declarations append after the common tools and earlier discoveries without
-reordering them. Explicitly discovered and called tools stay loaded; tools exposed
-only by a work mode or assistant do not
+reordering them. Explicitly discovered and called tools stay loaded until
+compaction. The compaction record keeps, in their original order, the loaded tools
+called or discovered in the history it summarizes; that list replaces the
+membership, and calls before it no longer load declarations. Unloaded tools can be
+discovered again. Tools exposed only by a work mode or assistant do not
 become permanently loaded. Flagship and selected roles
 expose their delegation tools on the first request.
 Changed tool membership is intentional; unchanged loadouts retain the same request

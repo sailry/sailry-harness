@@ -5,7 +5,7 @@ use super::{Effect, Session};
 use crate::{
     agent::{
         attachments,
-        canonical::BlockKind,
+        canonical::{BlockKind, Kind},
         model::observation::{Context, Source},
         prompt::instructions,
     },
@@ -162,20 +162,32 @@ impl InferenceRequestPreparer<Session> for Preparer {
                 .collect(),
             contexts,
         );
-        let mut loaded = session.context.loaded_tools.clone().unwrap_or_default();
-        for record in &session.records {
-            if let Some(message) = record.message() {
-                for block in &message.content {
-                    if let BlockKind::ToolRequest(call) = &block.kind
-                        && !loaded.contains(&call.name)
-                    {
-                        loaded.push(call.name.clone());
-                    }
-                }
+        Ok(prepare(input, &loaded(session), &self.deferred, &owned))
+    }
+}
+
+/// Calls before the latest compaction no longer keep their declarations; that
+/// record already replaced the session's membership.
+fn loaded(session: &Session) -> Vec<String> {
+    let mut loaded = session.context.loaded_tools.clone().unwrap_or_default();
+    let start = session
+        .records
+        .iter()
+        .rposition(|record| matches!(record.kind, Kind::Compaction(_)))
+        .map_or(0, |index| index + 1);
+    for message in session.records[start..]
+        .iter()
+        .filter_map(|record| record.message())
+    {
+        for block in &message.content {
+            if let BlockKind::ToolRequest(call) = &block.kind
+                && !loaded.contains(&call.name)
+            {
+                loaded.push(call.name.clone());
             }
         }
-        Ok(prepare(input, &loaded, &self.deferred, &owned))
     }
+    loaded
 }
 
 impl Preparer {
@@ -332,5 +344,46 @@ mod tests {
         let request = prepare(declarations(), &[], &deferred, &[]);
         assert_eq!(request.tools.len(), 1);
         assert_eq!(request.tools[0].name, "always");
+    }
+
+    #[test]
+    fn ignores_calls_before_compaction() {
+        use crate::agent::canonical::{Block, Compaction, Message, Record, ToolRequest};
+        let call = |name: &str| {
+            let request = ToolRequest {
+                id: format!("{name}-call"),
+                name: name.into(),
+                arguments: serde_json::json!({}),
+                provider: None,
+                tool_meta: None,
+                error: None,
+            };
+            Record::new(
+                sailry_protocol::TurnId::new(),
+                Kind::Message(Message {
+                    part_count: 1,
+                    content: vec![Block {
+                        index: 0,
+                        kind: BlockKind::ToolRequest(request),
+                    }],
+                    ..Default::default()
+                }),
+            )
+        };
+        let now = chrono::Utc::now();
+        let compaction = Record::new(
+            sailry_protocol::TurnId::new(),
+            Kind::Compaction(Compaction {
+                boundary: "fixture-boundary".into(),
+                summary: Message::default(),
+                start: now,
+                end: now,
+                files: Vec::new(),
+            }),
+        );
+        let mut session = super::super::tests::session(Vec::new());
+        session.records = vec![call("alpha"), compaction, call("beta")];
+        session.context.loaded_tools = Some(vec!["gamma".into()]);
+        assert_eq!(loaded(&session), ["gamma", "beta"]);
     }
 }

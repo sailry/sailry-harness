@@ -1,14 +1,10 @@
 use super::*;
-use crate::agent::canonical::{Block, Kind, Message as StoredMessage, Role, ToolFormat};
+use crate::agent::canonical::{Block, Compaction, Message as StoredMessage, Role, ToolFormat};
 use rmcp::model::CallToolResult;
 use sailry_protocol::TurnId;
 use serde_json::Value;
 
-fn source(name: &str, id: &str, directory: &str, content: &str) -> (Record, Message) {
-    let value = json!({
-        "skill":"fixture:analysis","path":"SKILL.md","content":content,
-        "directory":directory,"python":"/fixture/python",
-    });
+fn stored(name: &str, id: &str, value: Value) -> Record {
     let response = ToolResponse {
         id: id.into(),
         name: name.into(),
@@ -22,7 +18,7 @@ fn source(name: &str, id: &str, directory: &str, content: &str) -> (Record, Mess
         format: ToolFormat::Json,
         meta: None,
     };
-    let record = Record::new(
+    Record::new(
         TurnId::new(),
         Kind::Message(StoredMessage {
             role: Role::User,
@@ -33,7 +29,15 @@ fn source(name: &str, id: &str, directory: &str, content: &str) -> (Record, Mess
             }],
             ..Default::default()
         }),
-    );
+    )
+}
+
+fn source(name: &str, id: &str, directory: &str, content: &str) -> (Record, Message) {
+    let value = json!({
+        "skill":"fixture:analysis","path":"SKILL.md","content":content,
+        "directory":directory,"python":"/fixture/python",
+    });
+    let record = stored(name, id, value.clone());
     let mut message = Message::user().with_tool_response(id, Ok(CallToolResult::structured(value)));
     message.id = Some(record.id.clone());
     (record, message)
@@ -181,4 +185,63 @@ fn requires_captured_directory_and_exact_result() {
         result(&messages[0]).structured_content.as_ref().unwrap()["content"],
         "Different result"
     );
+}
+
+#[test]
+fn bounds_skills_across_compactions() {
+    let skill = |name: &str| {
+        stored(
+            "load_skill",
+            name,
+            json!({
+                "skill":name,"path":"SKILL.md","content":"Skill body ".repeat(800),
+                "directory":format!("/package/{name}"),
+            }),
+        )
+    };
+    let compaction = || {
+        let now = chrono::Utc::now();
+        Record::new(
+            TurnId::new(),
+            Kind::Compaction(Compaction {
+                boundary: "fixture-boundary".into(),
+                summary: StoredMessage::default(),
+                start: now,
+                end: now,
+                files: Vec::new(),
+            }),
+        )
+    };
+    let mut records = vec![stored(
+        "update_plan",
+        "plan",
+        json!({"progress":{"title":"Plan","steps":[]}}),
+    )];
+    for index in 0..20 {
+        records.push(skill(&format!("fixture:skill-{index}")));
+        records.push(compaction());
+    }
+    records.push(skill("fixture:skill-0"));
+    records.push(compaction());
+    records.push(skill("fixture:current"));
+    let parts = collect(&records).parts();
+    // The reloaded skill is the most recent; older ones exceed the budget.
+    assert_eq!(
+        parts
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "plan",
+            "skill:fixture:current:SKILL.md",
+            "skill:fixture:skill-0:SKILL.md",
+            "skill:fixture:skill-19:SKILL.md",
+        ]
+    );
+    let earlier: usize = parts
+        .iter()
+        .filter(|(key, _)| key.starts_with("skill:fixture:skill-"))
+        .map(|(_, part)| part.chars().count())
+        .sum();
+    assert!(earlier <= SKILL_CHARS, "{earlier}");
 }

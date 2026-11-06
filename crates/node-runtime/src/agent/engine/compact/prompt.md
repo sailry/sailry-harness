@@ -14,12 +14,13 @@ Keep only what is needed to continue the work correctly:
 - Essential context: exact paths, symbols, commands, error strings, commit or task IDs, and where to retrieve original records again
 
 ## Rules
-- If the history starts with an earlier summary, merge it with the newer progress into one current handoff. Drop details that are resolved, stale, or duplicated
+- If the history starts with an earlier summary, merge it with the newer progress into one current handoff. Drop details that are resolved, stale, or duplicated. A merged handoff must not grow just because more work happened: reduce finished work to one line and drop it once it no longer affects the next steps
 - Do not copy full source files, diffs, long logs, tool argument lists, or documentation that can be read again. Reference them by path or command instead
-- Do not repeat system rules, environment details, skill bodies, or other instructions that are re-injected automatically
+- Do not repeat system rules, environment details, skill bodies, or other instructions that are re-injected automatically. Name a skill that is still in use instead of copying it
 - Keep key identifiers exact. Never state an unverified guess as a fact; mark uncertainty explicitly
 - List only the files needed to continue, usually no more than 15, not every file touched during the session
-- Aim for 3,000 to 6,000 tokens in total, and much less for a simple task
+- Order every list most important first
+- Keep the whole handoff under 3,000 tokens, and much less for a simple task. Anything beyond 4,000 tokens is cut from the end of the least essential sections
 
 ## Output
 Output exactly one ```json code block and nothing else, matching this schema:

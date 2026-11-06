@@ -529,6 +529,7 @@ async fn retains_completed_and_compacted_reasoning() {
             summary: Box::new(summary),
             usage: usage(),
             files: Vec::new(),
+            tools: Vec::new(),
         }],
     )
     .await
@@ -543,6 +544,63 @@ async fn retains_completed_and_compacted_reasoning() {
     assert_eq!(record.usage().unwrap().reasoning, Some(2));
     let decoded: Record = serde_json::from_slice(&serde_json::to_vec(record).unwrap()).unwrap();
     assert_eq!(decoded.usage().unwrap().reasoning, Some(2));
+}
+
+#[tokio::test]
+async fn replaces_loaded_tools_at_compaction() {
+    let (mut fixture, turn) = running().await;
+    let calls = |names: &[&str]| -> Vec<Effect> {
+        let mut request = GdkMessage::assistant().with_generated_id();
+        let mut response = GdkMessage::user().with_generated_id();
+        for name in names {
+            let id = format!("{name}-call");
+            request = request
+                .with_tool_request(id.clone(), Ok(CallToolRequestParams::new(name.to_string())));
+            response = response.with_tool_response(id, Ok(CallToolResult::success(vec![])));
+        }
+        vec![request.into(), response.into()]
+    };
+    let mut changes: Vec<Effect> = vec![
+        GdkMessage::user()
+            .with_generated_id()
+            .with_text("Task")
+            .into(),
+    ];
+    changes.extend(calls(&["alpha", "beta"]));
+    apply(&mut fixture, turn, changes).await.unwrap();
+    assert_eq!(
+        load(&fixture, turn).await.context.loaded_tools,
+        Some(vec!["alpha".into(), "beta".into()])
+    );
+    let summary = GdkMessage::user().with_generated_id().with_text("Handoff");
+    let id = summary.id.clone().unwrap();
+    apply(
+        &mut fixture,
+        turn,
+        vec![Effect::Compaction {
+            summary: Box::new(summary),
+            usage: usage(),
+            files: Vec::new(),
+            tools: vec!["beta".into()],
+        }],
+    )
+    .await
+    .unwrap();
+    let compacted = load(&fixture, turn).await;
+    assert_eq!(compacted.context.loaded_tools, Some(vec!["beta".into()]));
+    let record = compacted
+        .records
+        .iter()
+        .find(|record| record.id == id)
+        .unwrap();
+    assert!(!record.context().unwrap().captured);
+    apply(&mut fixture, turn, calls(&["gamma"])).await.unwrap();
+    let expected = Some(vec!["beta".into(), "gamma".into()]);
+    assert_eq!(load(&fixture, turn).await.context.loaded_tools, expected);
+    history::rebuild_session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(load(&fixture, turn).await.context.loaded_tools, expected);
 }
 
 #[tokio::test]

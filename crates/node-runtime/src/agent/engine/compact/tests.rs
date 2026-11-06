@@ -1,8 +1,11 @@
 use super::*;
 use crate::store::agent::Invocation;
 use goose_agent::machine::{StateMachine, Step};
-use goose_provider_types::{base::MessageStream, conversation::token_usage::Usage};
-use rmcp::model::Tool;
+use goose_provider_types::{
+    base::MessageStream,
+    conversation::{message::MessageUsage, token_usage::Usage},
+};
+use rmcp::model::{CallToolRequestParams, CallToolResult, Tool};
 use sailry_link::CancellationToken;
 use sailry_protocol::{conversation::RunKind, *};
 use std::{
@@ -272,6 +275,106 @@ async fn yields_managed_context_after_previous_error() {
     node.shutdown().await.unwrap();
 }
 
+/// One call and its result, visible to the agent unless `hidden`.
+fn exchange(id: &str, name: &str, result: CallToolResult, hidden: bool) -> [Message; 2] {
+    [
+        Message::assistant()
+            .with_generated_id()
+            .with_tool_request(id, Ok(CallToolRequestParams::new(name.to_owned()))),
+        Message::user()
+            .with_generated_id()
+            .with_tool_response(id, Ok(result)),
+    ]
+    .map(|message| {
+        if hidden {
+            message.with_visibility(false, false)
+        } else {
+            message
+        }
+    })
+}
+
+fn discovery(name: &str) -> CallToolResult {
+    CallToolResult::structured(serde_json::json!({
+        "tools":[{"name":name,"description":"Fixture"}],
+        "sailry_context":"",
+    }))
+}
+
+#[test]
+fn keeps_tools_used_since_compaction() {
+    let messages: Vec<_> = [
+        exchange("old", "alpha", CallToolResult::success(vec![]), true),
+        exchange("search", "tool_search", discovery("gamma"), false),
+        exchange("call", "beta", CallToolResult::success(vec![]), false),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let loaded = ["alpha", "beta", "delta", "gamma"].map(String::from);
+    assert_eq!(
+        loadout::retained(&loaded, &Conversation::new_unvalidated(messages)),
+        ["beta", "gamma"]
+    );
+}
+
+#[tokio::test]
+async fn drops_stale_tools_and_summaries() {
+    let directory = tempfile::tempdir().unwrap();
+    let node = crate::Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let stop = CancellationToken::new();
+    let invocation = invocation(&node);
+    let mut earlier = Message::user()
+        .with_generated_id()
+        .with_text("Earlier handoff")
+        .with_visibility(false, true);
+    earlier.metadata.usage = Some(Box::new(MessageUsage {
+        is_compaction: true,
+        ..Default::default()
+    }));
+    let messages = exchange("old", "alpha", CallToolResult::success(vec![]), true)
+        .into_iter()
+        .chain([earlier])
+        .chain(exchange("search", "tool_search", discovery("gamma"), false))
+        .chain(exchange(
+            "call",
+            "beta",
+            CallToolResult::success(vec![]),
+            false,
+        ))
+        .map(|message| (invocation.turn.id, message))
+        .collect();
+    let mut session = super::super::tests::session(messages);
+    session.context.loaded_tools = Some(
+        ["alpha", "beta", "delta", "gamma"]
+            .map(String::from)
+            .to_vec(),
+    );
+    let operation = Compaction {
+        provider: Scripted::new([reply(structured(
+            serde_json::json!({"user_intent":["Fix the parser"]}),
+        ))]),
+        config: ModelConfig::new("scripted-fixture"),
+        context: 64_000,
+        threshold: 0.8,
+        preparer: preparer(&node, &invocation, &stop),
+        manual: false,
+    };
+    let effects = operation
+        .compact(&session, &session.conversation, "summary-fixture")
+        .await
+        .unwrap();
+    // No carried input: the earlier handoff is merged, never repeated verbatim.
+    let [Effect::Compaction { summary, tools, .. }, _] = effects.as_slice() else {
+        panic!("summary and continuation expected")
+    };
+    assert!(summary.as_concat_text().contains("Fix the parser"));
+    assert_eq!(tools, &["beta", "gamma"]);
+    node.shutdown().await.unwrap();
+}
+
 mod summary {
     use super::*;
 
@@ -317,7 +420,45 @@ mod summary {
         assert!(system.contains("Fix the parser and keep the v1 wire format"));
         assert!(system.contains("merge it with the newer progress"));
         assert!(system.contains("usually no more than 15"));
+        assert!(system.contains("under 3,000 tokens"));
         assert!(!system.contains("{{ messages }}"));
+    }
+
+    #[tokio::test]
+    async fn bounds_oversized_handoff() {
+        let essential = serde_json::json!({
+            "user_intent":["Fix the parser"],
+            "user_messages":["Keep the v1 wire format"],
+            "pending_tasks":["Add a regression test"],
+            "next_step":"Run the parser tests",
+        });
+        let mut references = essential.clone();
+        references["current_work"] = "Parser fix modified".into();
+        references["technical_concepts"] = (0..400)
+            .map(|index| format!("Concept {index}: {}", "detail ".repeat(8)))
+            .collect();
+        let mut verbose = essential;
+        verbose["current_work"] = "状态更新 ".repeat(4_000).into();
+        let provider = Scripted::new([reply(structured(references)), reply(structured(verbose))]);
+        let model = model(provider);
+        let trimmed = summarize(&model, history()).await.unwrap();
+        let shortened = summarize(&model, history()).await.unwrap();
+        for text in [&trimmed, &shortened] {
+            let size = tokens::text(text);
+            assert!(size <= handoff::TOKENS, "{size}");
+            for kept in [
+                "- Fix the parser",
+                "- Keep the v1 wire format",
+                "- Add a regression test",
+                "Run the parser tests",
+            ] {
+                assert!(text.contains(kept), "{kept}");
+            }
+        }
+        // Lists lose their least important tails first.
+        assert!(trimmed.contains("Concept 0: "));
+        assert!(!trimmed.contains("Concept 399: "));
+        assert!(shortened.contains("状态更新"));
     }
 
     #[tokio::test]
