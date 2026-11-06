@@ -107,29 +107,10 @@ jobs:
       - name: Rust dependency caches
         uses: ./.workflow-tools/.github/actions/rust-cache
       - name: Native library cache
-        id: native-cache
         continue-on-error: true
         uses: ./.workflow-tools/.github/actions/native-cache
         with:
           target: ${{ matrix.target }}
-      - name: Verify distribution signing configuration
-        env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
-        run: |
-          python3 - <<'PY'
-          import os
-          names = ('APPLE_CERTIFICATE_P12', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_API_PRIVATE_KEY',
-                   'APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_API_KEY_ID',
-                   'APPLE_API_ISSUER_ID')
-          if not all(os.environ.get(name) for name in names):
-              raise SystemExit('The macOS distribution signing configuration is incomplete')
-          PY
       - name: Build prerequisites
         run: |
           brew install llvm@21 ripgrep
@@ -159,6 +140,143 @@ jobs:
           path: target/cargo-timings/*.html
           if-no-files-found: ignore
           retention-days: 14
+      - name: Collect Host debug symbols
+        # The only dsymutil pass for this binary; signing reuses it by matching UUIDs.
+        id: symbols
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py collect \
+            --binary target/release/sailry-host --target "$PACKAGE_TARGET" \
+            --output "target/debug-symbols/host/$PACKAGE_TARGET"
+      - name: Preserve Host debug symbols
+        if: always() && steps.symbols.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-symbols-host-${{ matrix.target }}
+          path: target/debug-symbols/host/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve unsigned Host
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-host-${{ matrix.target }}
+          path: target/release/sailry-host
+          if-no-files-found: error
+          retention-days: 14
+
+  gate:
+    name: Wait for Host readiness
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 320
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
+      - name: Require the Host gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component host --wait-ready
+
+  sign:
+    name: Sign macOS Host ${{ matrix.target }}
+    needs: [gate, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            architecture: arm64
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          submodules: recursive
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - name: Verify target and release version
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          rustup toolchain install
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = "$PACKAGE_TARGET"
+          python3 scripts/package/versions.py --tag "$RELEASE_TAG"
+      - name: Native library cache
+        id: native-cache
+        continue-on-error: true
+        uses: ./.workflow-tools/.github/actions/native-cache
+        with:
+          target: ${{ matrix.target }}
+      - name: Packaging prerequisites
+        run: brew install ripgrep jq
+      - name: Restore unsigned Host
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: native-host-${{ matrix.target }}
+          path: target/release/
+      - name: Restore Host debug symbols
+        # Matching UUIDs let packaging reuse the build job's dSYM instead of running dsymutil again.
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: debug-symbols-host-${{ matrix.target }}
+          path: target/debug-symbols/host/${{ matrix.target }}
+      - name: Verify unsigned Host
+        env:
+          PACKAGE_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          chmod 755 target/release/sailry-host
+          test "$(lipo -archs target/release/sailry-host)" = "$PACKAGE_ARCHITECTURE"
+      - name: Verify distribution signing configuration
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+        run: |
+          python3 - <<'PY'
+          import os
+          names = ('APPLE_CERTIFICATE_P12', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_API_PRIVATE_KEY',
+                   'APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_API_KEY_ID',
+                   'APPLE_API_ISSUER_ID')
+          if not all(os.environ.get(name) for name in names):
+              raise SystemExit('The macOS distribution signing configuration is incomplete')
+          PY
       - name: Use workflow packaging helper
         run: |
           python3 - <<'PYTHON'
@@ -194,6 +312,9 @@ jobs:
             rm SHA256SUMS
           )
           printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
+      - name: Remove temporary signing credentials
+        if: always()
+        run: python3 .workflow-tools/scripts/package/signing-credentials.py cleanup
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: host-macos-${{ matrix.target }}
@@ -202,38 +323,6 @@ jobs:
             ${{ steps.package.outputs.directory }}/SHA256SUMS-*
           if-no-files-found: error
           retention-days: 14
-      - name: Collect Host debug symbols
-        # Packaging already ran dsymutil for this binary; matching UUIDs reuse that result
-        # instead of a second pass before packaging.
-        id: symbols
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-        run: |
-          python3 .workflow-tools/scripts/package/debug-symbols.py collect \
-            --binary target/release/sailry-host --target "$PACKAGE_TARGET" \
-            --output "target/debug-symbols/host/$PACKAGE_TARGET"
-      - name: Preserve Host debug symbols
-        if: always() && steps.symbols.outcome == 'success'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: debug-symbols-host-${{ matrix.target }}
-          path: target/debug-symbols/host/${{ matrix.target }}
-          if-no-files-found: error
-          retention-days: 14
-      - name: Upload Host debug symbols
-        id: symbol-upload
-        continue-on-error: true
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
-        run: |
-          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
-            --symbols "target/debug-symbols/host/$PACKAGE_TARGET"
-      - name: Report symbol upload failure
-        if: steps.symbol-upload.outcome == 'failure'
-        run: echo '::warning::Host debug symbols were preserved, but Sentry upload failed'
       - name: Save native libraries
         # Packaging downloads the decision libraries; compilation alone provides only speech.
         if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
@@ -242,9 +331,6 @@ jobs:
         with:
           path: ${{ steps.native-cache.outputs.path }}
           key: ${{ steps.native-cache.outputs.key }}
-      - name: Remove temporary signing credentials
-        if: always()
-        run: python3 .workflow-tools/scripts/package/signing-credentials.py cleanup
 
   host:
     name: Linux Host ${{ matrix.target }}
@@ -326,20 +412,6 @@ jobs:
           path: target/debug-symbols/host/${{ matrix.target }}
           if-no-files-found: error
           retention-days: 14
-      - name: Upload Host debug symbols
-        id: symbol-upload
-        continue-on-error: true
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
-        run: |
-          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
-            --symbols "target/debug-symbols/host/$PACKAGE_TARGET"
-      - name: Report symbol upload failure
-        if: steps.symbol-upload.outcome == 'failure'
-        run: echo '::warning::Host debug symbols were preserved, but Sentry upload failed'
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -352,6 +424,7 @@ jobs:
       - name: Verify headless startup and shutdown
         run: python3 scripts/check-host.py 'target/host-artifacts/${{ matrix.target }}/sailry-host'
       - name: Package standalone Host
+        # Unsigned Linux archives hold no credentials; publication still waits for the gate.
         id: package
         run: |
           set -o pipefail
@@ -370,10 +443,53 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  symbols:
+    name: Upload Host debug symbols
+    needs: [gate, build, host]
+    if: always() && needs.gate.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+      - name: Restore Host debug symbols
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: debug-symbols-host-*
+          path: symbols
+      - name: Recover Linux debug symbols
+        if: inputs.linux_run != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINUX_RUN: ${{ inputs.linux_run }}
+        run: |
+          gh run download "$LINUX_RUN" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'debug-symbols-host-*-linux-gnu' --dir symbols
+      - name: Upload Host debug symbols
+        id: symbol-upload
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
+        run: python3 .workflow-tools/scripts/package/debug-symbols.py upload --symbols symbols
+      - name: Report symbol upload failure
+        if: steps.symbol-upload.outcome == 'failure'
+        run: echo '::warning::Host debug symbols were preserved, but Sentry upload failed'
+
   publish:
     name: Append Host assets to the published release
-    needs: [build, host]
-    if: ${{ always() && needs.build.result == 'success' && (needs.host.result == 'success' || (needs.host.result == 'skipped' && inputs.linux_run != '')) }}
+    needs: [sign, host]
+    if: ${{ always() && needs.sign.result == 'success' && (needs.host.result == 'success' || (needs.host.result == 'skipped' && inputs.linux_run != '')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 320
     permissions:

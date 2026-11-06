@@ -390,33 +390,67 @@ class Upload(unittest.TestCase):
             self.assertEqual(symbols.read_bytes(), b"retained native debug")
 
 
+def job(workflow, name):
+    source = (ROOT / ".github/workflows" / workflow).read_text()
+    return re.split(r"\n  [a-z_]+:\n", source.split(f"\n  {name}:\n", 1)[1], maxsplit=1)[0]
+
+
 class Workflow(unittest.TestCase):
-    def test_preserves_symbols_without_upload_credentials(self):
-        for name, job in [("release.yml", "build"), ("release-host.yml", "build"),
-                          ("release-host.yml", "host")]:
-            with self.subTest(workflow=name, job=job):
-                source = (ROOT / ".github/workflows" / name).read_text()
-                section = re.split(r"\n  [a-z_]+:\n", source.split(f"\n  {job}:\n", 1)[1], maxsplit=1)[0]
+    def test_collects_symbols_alongside_checks(self):
+        for name, build in [("release.yml", "build"), ("release-host.yml", "build"),
+                            ("release-host.yml", "host")]:
+            with self.subTest(workflow=name, job=build):
+                section = job(name, build)
                 self.assertIn("CARGO_PROFILE_RELEASE_DEBUG: line-tables-only", section)
                 self.assertIn("CARGO_PROFILE_RELEASE_STRIP: none", section)
                 collect = section.index("scripts/package/debug-symbols.py collect")
                 artifact = section.index("name: debug-symbols-")
-                upload = section.index("scripts/package/debug-symbols.py upload")
                 self.assertLess(collect, artifact)
-                self.assertLess(artifact, upload)
-                artifact_step = section[collect:upload]
+                artifact_step = section[collect:]
                 self.assertIn("if: always() && steps.symbols.outcome == 'success'", artifact_step)
                 self.assertIn("if-no-files-found: error", artifact_step)
-                self.assertNotIn("if: env.SENTRY", artifact_step)
-                self.assertIn("SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}", section)
-                self.assertIn("SENTRY_ORG:", section)
-                self.assertIn("SENTRY_PROJECT:", section)
+                self.assertNotIn("debug-symbols.py upload", section)
+                self.assertNotIn("SENTRY_AUTH_TOKEN", section)
+                self.assertNotIn("--wait-ready", section)
+                self.assertNotIn("debug-symbols/", section.split("      - name: Build", 1)[0])
+
+    def test_uploads_symbols_after_gate(self):
+        for name, upload in [("release.yml", "publish"), ("release-host.yml", "symbols")]:
+            with self.subTest(workflow=name, job=upload):
+                section = job(name, upload)
+                if upload == "publish":
+                    gate = section.index("--wait-ready")
+                else:
+                    self.assertIn("needs: [gate, build, host]", section)
+                    self.assertIn("if: always() && needs.gate.result == 'success'", section)
+                    gate = 0
+                start = section.index("      - name: Upload")
+                self.assertLess(gate, start)
+                step = section[start:].split("\n      - ", 1)[0]
+                self.assertIn("continue-on-error: true", step)
+                self.assertIn("SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}", step)
+                self.assertIn("SENTRY_ORG:", step)
+                self.assertIn("SENTRY_PROJECT:", step)
+                self.assertNotIn("GH_TOKEN", step)
                 self.assertNotIn("--include-sources", section)
-                upload_step = section.rfind("      - name: Upload", artifact, upload)
-                self.assertIn("continue-on-error: true", section[upload_step:upload])
                 self.assertIn("if: steps.symbol-upload.outcome == 'failure'", section)
                 self.assertIn("::warning::", section)
-                self.assertNotIn("debug-symbols/", section.split("      - name: Build", 1)[0])
+        signing = job("release-host.yml", "sign")
+        self.assertIn("needs: [gate, build]", signing)
+        self.assertNotIn("SENTRY", signing)
+
+    def test_packaging_reuses_collected_symbols(self):
+        for name, packaging, step in [("release.yml", "package", "Assemble ad-hoc Desktop"),
+                                      ("release-host.yml", "sign", "Sign, notarize and package"),
+                                      ("release-desktop-formal.yml", "sign", "Sign, notarize and package")]:
+            with self.subTest(workflow=name, job=packaging):
+                section = job(name, packaging)
+                self.assertNotIn("debug-symbols.py collect", section)
+                restored = re.search(r"--name \"debug-symbols-desktop-\$PACKAGE_TARGET\""
+                                     r"|name: debug-symbols-host-\$\{\{ matrix\.target \}\}", section)
+                self.assertIsNotNone(restored)
+                self.assertLess(restored.start(), section.index(f"name: {step}"))
+                self.assertIn("target/debug-symbols/", section[restored.start():section.index(f"name: {step}")])
 
     def test_local_packages_collect_without_uploading(self):
         for name in ("package-macos.sh", "package-host.sh", "package-windows.ps1"):

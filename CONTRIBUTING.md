@@ -366,16 +366,21 @@ hours; missing, failed, cancelled or incomplete Checks stop publication. A retry
 can reuse successful exact-source results; failed dispatches are not silently
 replayed. The remote tag is checked again after waiting.
 
-Once Checks are found or queued, the entry starts the
+Once the exact-source Checks `Test build` job passes, the entry starts the
 [Desktop](.github/workflows/release.yml) and [Host](.github/workflows/release-host.yml)
-builds, which run alongside Checks. After full Checks pass, it generates notes,
+builds, which then run alongside the remaining Checks; a failed `Test build`
+starts no builds. After full Checks pass, it repeats any flaky-test warnings from
+that Checks run in its own summary, generates notes,
 publishes the version release and starts Mobile and the changelog, because
-TestFlight upload and the changelog are publications. Desktop and Host build and
-package without waiting; each publish job then waits for its exact-source readiness
-gate, including strict lint and shared Node checks, and for the published version
-before uploading assets. It stops when the exact-source Checks end without full
-success. The release can contain only notes while products are still packaging,
-but it is not published while its initial full Checks are pending.
+TestFlight upload and the changelog are publications. Each product workflow first
+admits only a mutable version tag on main. Compilation, symbol collection and
+Desktop's credential-free ad-hoc packaging run without waiting. Host signing,
+notarization and packaging, every Sentry symbol upload and each publish job wait
+for the exact-source readiness gate, including strict lint and shared Node checks;
+publish jobs also wait for the published version before uploading assets. They
+stop when the exact-source Checks end without full success. The release can
+contain only notes while products are still packaging, but it is not published
+while its initial full Checks are pending.
 
 Desktop and Host recovery workflows select `main` and supply the exact version
 tag as their `tag` input. Every product job checks out its selected source; the
@@ -490,8 +495,8 @@ Desktop native recovery reuses preserved binaries for the exact product tag and
 builds only missing architectures. Each artifact retains its original workflow
 run, revision and checksum through formal signing. Symbol files are preserved
 before upload; an upload failure reports a warning without blocking packaging.
-macOS Host packaging runs `dsymutil` once; the required symbol collection after
-packaging reuses that result when the binary and symbol UUIDs match.
+See [debug symbols](docs/hosts.md#source-builds-and-debug-symbols) for how release jobs run
+`dsymutil` once per binary and architecture.
 
 For local verification, build native Desktop and Host, then package into a
 fresh `dist/` directory:

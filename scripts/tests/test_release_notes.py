@@ -123,10 +123,12 @@ class ReleaseWorkflows(unittest.TestCase):
             workflow = self.workflow(name)
             self.assertIn('test "$GITHUB_EVENT_NAME" = workflow_dispatch', workflow)
             self.assertIn('test "$GITHUB_REF" = refs/heads/main', workflow)
-            self.assertEqual(workflow.count("persist-credentials: false"),
-                             2 * workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}"))
-            self.assertEqual(workflow.count("ref: ${{ github.workflow_sha }}"),
-                             workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}"))
+            checkouts = workflow.count("uses: actions/checkout@")
+            self.assertEqual(workflow.count("persist-credentials: false"), checkouts)
+            self.assertEqual(checkouts, workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}")
+                             + workflow.count("ref: ${{ github.workflow_sha }}"))
+            self.assertGreaterEqual(workflow.count("ref: ${{ github.workflow_sha }}"),
+                                    workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}"))
             self.assertIn("uses: ./.workflow-tools/.github/actions/rust-cache", workflow)
             self.assertIn(".workflow-tools/scripts/ci-run.py", workflow)
             self.assertIn('--source "$GITHUB_WORKSPACE"', workflow)
@@ -194,10 +196,8 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("-p sailry-desktop -p sailry-release", build)
         self.assertNotIn("-p sailry-host", build)
         self.assertIn("name: Preserve native Desktop", build)
-        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", build)), {
-            "SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY",
-            "SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT",
-        })
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", build)), {"SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY"})
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", publish)), {"SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT"})
         self.assertIn("needs: [version, build]", packaging)
         self.assertIn("scripts/package-desktop-adhoc.py", packaging)
         self.assertNotIn("secrets.", packaging)
@@ -279,23 +279,34 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("release:", trigger)
         self.assertIn("group: host-release-${{ github.event_name }}-${{ inputs.tag || github.ref_name }}", workflow)
         self.assertIn("--component host --wait-ready --wait-published", workflow)
-        mac = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
-        linux = workflow.split("  host:\n", 1)[1].split("  publish:\n", 1)[0]
+        mac = workflow.split("  build:\n", 1)[1].split("  gate:\n", 1)[0]
+        gate = workflow.split("  gate:\n", 1)[1].split("  sign:\n", 1)[0]
+        signing = workflow.split("  sign:\n", 1)[1].split("  host:\n", 1)[0]
+        linux = workflow.split("  host:\n", 1)[1].split("  symbols:\n", 1)[0]
         publish = workflow.split("  publish:\n", 1)[1]
         self.assertIn("-p sailry-host", mac)
-        self.assertNotIn("sailry-desktop", mac)
-        self.assertNotIn("sailry-release", mac)
-        self.assertNotIn("SAILRY_UPDATE_SIGNING_KEY", mac)
-        self.assertIn("scripts/package-macos.sh release host", mac)
-        self.assertNotIn("*.dmg", mac)
-        self.assertIn('SHA256SUMS-${{ matrix.target }}', mac)
+        self.assertNotIn("sailry-desktop", mac + signing)
+        self.assertNotIn("sailry-release", mac + signing)
+        self.assertNotIn("SAILRY_UPDATE_SIGNING_KEY", mac + signing)
+        # Unsigned compilation runs alongside Checks; no signing input reaches it.
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", mac)), {"SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY"})
+        self.assertNotIn("APPLE_", mac)
+        self.assertNotIn("package-macos.sh", mac)
+        self.assertIn("--component host --wait-ready", gate)
+        self.assertNotIn("secrets.", gate)
+        self.assertIn("needs: [gate, build]", signing)
+        self.assertNotIn("cargo build", signing)
+        self.assertIn("scripts/package-macos.sh release host", signing)
+        self.assertNotIn("*.dmg", signing)
+        self.assertIn('SHA256SUMS-${{ matrix.target }}', signing)
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", linux)), {"SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY"})
         self.assertIn("ubuntu-24.04-arm", linux)
         self.assertIn("x86_64-unknown-linux-gnu", linux)
         self.assertIn("aarch64-unknown-linux-gnu", linux)
         self.assertIn("scripts/build-host.sh release", linux)
         self.assertIn("scripts/check-host.py", linux)
         self.assertIn("scripts/check-host-install.py", linux)
-        self.assertIn("needs: [build, host]", publish)
+        self.assertIn("needs: [sign, host]", publish)
         self.assertIn("pattern: host-*", publish)
         self.assertIn("SHA256SUMS-installer", publish)
         self.assertIn("--component host", publish)

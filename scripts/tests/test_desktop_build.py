@@ -222,6 +222,22 @@ class Restoration(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
+    def test_removes_credentials_before_uploads(self):
+        for name in ("release-host", "release-desktop-formal"):
+            workflow = (ROOT / f".github/workflows/{name}.yml").read_text()
+            signing = workflow.split("\n  sign:\n")[1].split("\n  publish:\n")[0].split("\n  host:\n")[0]
+            with self.subTest(workflow=name):
+                imported = signing.index("name: Import signing credentials")
+                removed = signing.index("name: Remove temporary signing credentials")
+                window = signing[imported:removed]
+                self.assertEqual(re.findall(r"^\s+(?:- )?uses: (\S+)", window, re.MULTILINE), [])
+                self.assertNotIn("SENTRY", signing)
+                self.assertNotIn("debug-symbols.py upload", signing)
+                self.assertLess(removed, signing.index("actions/upload-artifact", imported))
+                self.assertIn("if: always()", signing[removed:].split("\n      - ", 1)[0])
+                self.assertLess(signing.index("needs: [gate, build]" if name == "release-host" else "needs: version"),
+                                imported)
+
     def test_preserves_builds_before_secrets_and_signing(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         native = workflow.split("\n  build:\n")[1].split("\n  package:\n")[0]
@@ -236,7 +252,8 @@ class Workflow(unittest.TestCase):
         self.assertIn("GH_TOKEN: ${{ github.token }}", restore_step)
         before_preservation = native.split("      - name: Preserve native Desktop\n", 1)[0]
         self.assertNotIn("secrets.", before_preservation.replace(compile_step, "").replace(restore_step, ""))
-        self.assertLess(native.index("name: Preserve native Desktop"), native.index("name: Upload Desktop debug symbols"))
+        self.assertNotIn("SENTRY_AUTH_TOKEN", native)
+        self.assertNotIn("SENTRY_AUTH_TOKEN", initial)
         self.assertLess(native.index("name: Build native Desktop"), native.index("name: Preserve native Desktop"))
         self.assertIn("retention-days: 14", native)
         self.assertIn("needs: [version, build]", initial)

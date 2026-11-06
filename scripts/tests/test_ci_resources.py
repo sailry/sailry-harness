@@ -712,7 +712,7 @@ class Workflow(unittest.TestCase):
             self.assertIn("path: ${{ steps.native-cache.outputs.path }}", save)
             self.assertNotIn("always()", save)
         # Host packaging downloads the decision libraries, so its complete save follows packaging.
-        host = job_section((ROOT / ".github/workflows/release-host.yml").read_text(), "build")
+        host = job_section((ROOT / ".github/workflows/release-host.yml").read_text(), "sign")
         self.assertLess(host.index("name: Sign, notarize and package"), host.index("name: Save native libraries"))
 
     def test_caches_ghostty_inputs_for_compiling_jobs(self):
