@@ -153,5 +153,6 @@ fn status(kind: RepositoryKind) -> GitStatus {
         entries: vec![],
         truncated: false,
         omitted_paths: 0,
+        repositories: vec![],
     }
 }

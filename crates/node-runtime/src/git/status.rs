@@ -89,6 +89,7 @@ pub(super) fn inspect(root: &Path, control: &Control) -> Result<GitStatus, Fault
                 entries: vec![],
                 truncated: false,
                 omitted_paths: 0,
+                repositories: repositories(root, control)?,
             });
         }
         Err(error) => return Err(error),
@@ -189,7 +190,52 @@ pub(super) fn inspect(root: &Path, control: &Control) -> Result<GitStatus, Fault
         entries,
         truncated: scan.truncated,
         omitted_paths: scan.omitted_paths,
+        repositories: vec![],
     })
+}
+
+const MAX_REPOSITORY_ENTRIES: usize = 2_000;
+const MAX_REPOSITORIES: usize = 50;
+
+/// Lists visible direct children that carry Git metadata without descending
+/// further, following symlinks or failing the plain-directory status.
+fn repositories(root: &Path, control: &Control) -> Result<Vec<String>, Fault> {
+    let Ok(directory) = path::root(root) else {
+        return Ok(vec![]);
+    };
+    let Ok(children) = directory.entries() else {
+        return Ok(vec![]);
+    };
+    let mut found = Vec::new();
+    for child in children.take(MAX_REPOSITORY_ENTRIES) {
+        control.check()?;
+        let Ok(child) = child else {
+            continue;
+        };
+        let name = child.file_name();
+        let Some(name) = name.to_str().filter(|name| !name.starts_with('.')) else {
+            continue;
+        };
+        if !child.file_type().is_ok_and(|kind| kind.is_dir()) || valid_path(name).is_err() {
+            continue;
+        }
+        let Ok(child) = directory.open_dir_nofollow(name) else {
+            continue;
+        };
+        #[cfg(windows)]
+        if path::identity::directory(&child).is_err() {
+            continue;
+        }
+        if child
+            .symlink_metadata(".git")
+            .is_ok_and(|metadata| metadata.is_dir() || metadata.is_file())
+        {
+            found.push(name.to_owned());
+        }
+    }
+    found.sort();
+    found.truncate(MAX_REPOSITORIES);
+    Ok(found)
 }
 
 struct Candidates {
