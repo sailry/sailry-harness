@@ -276,7 +276,10 @@ Desktop logic and service-contract tests, and production-feature checks on Apple
 silicon with an explicit Xcode SDK. Intel packaging and compilation run in the
 release workflow.
 Mobile checks include Flutter analysis and controller logic tests, plus Dart FFI
-contracts against isolated real Nodes on Linux. Android builds an ARM64 release
+contracts against isolated real Nodes on Linux with PostgreSQL 17 and MySQL 8.4,
+the database versions the macOS Shared job installs. The macOS Mobile job runs the
+checkpoint contract that restores files from the Trash whenever those contracts are
+selected. Android builds an ARM64 release
 APK and checks its native libraries; iOS builds an unsigned application. Both
 mobile builds check the Rust dependency boundary. Actions and toolchains are
 pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every

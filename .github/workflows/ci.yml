@@ -553,7 +553,9 @@ jobs:
   mobile:
     name: Mobile
     needs: source
-    if: needs.source.outputs.mode == 'full' && needs.source.outputs.mobile == 'true' && needs.source.outputs.reuse_mobile != 'true'
+    if: >-
+      needs.source.outputs.mode == 'full' && (needs.source.outputs.mobile == 'true' || needs.source.outputs.mobile_ffi == 'true') &&
+      needs.source.outputs.reuse_mobile != 'true'
     runs-on: macos-15
     timeout-minutes: 120
     env:
@@ -568,6 +570,11 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: stable
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        if: needs.source.outputs.mobile_ffi == 'true'
+        with:
+          version: '0.16.0'
+          use-cache: false
       - name: Tool versions
         run: python3 scripts/ci.py tools flutter
       - name: Pinned Flutter dependencies
@@ -581,6 +588,19 @@ jobs:
       - name: Rust dependency caches
         id: rust-cache
         uses: ./.github/actions/rust-cache
+      - name: Ghostty build inputs
+        if: needs.source.outputs.mobile_ffi == 'true'
+        id: ghostty
+        continue-on-error: true
+        uses: ./.github/actions/ghostty-cache
+      - name: Native library cache
+        if: needs.source.outputs.mobile_ffi == 'true'
+        id: native-cache
+        continue-on-error: true
+        uses: ./.github/actions/native-cache
+        with:
+          target: aarch64-apple-darwin
+          libraries: speech
       - name: Mobile source fixtures
         if: needs.source.outputs.mobile == 'true'
         run: python3 scripts/ci.py check mobile-source
@@ -601,6 +621,30 @@ jobs:
         run: |
           flutter build ios --release --no-codesign --build-name="$(python3 ../../scripts/package/versions.py --apple)"
           git diff --exit-code -- pubspec.lock
+      - name: Dart FFI checkpoint recovery
+        if: ${{ !cancelled() && needs.source.outputs.mobile_ffi == 'true' }}
+        # Linux runs the other Dart FFI contracts; restoring from the Trash needs macOS.
+        env:
+          OPENSSL_NO_VENDOR: '1'
+          OPENSSL_STATIC: '1'
+        run: |
+          brew install openssl@3
+          export OPENSSL_DIR="$(brew --prefix openssl@3)"
+          python3 scripts/ci.py check mobile-checkpoints
+      - name: Save Ghostty build inputs
+        if: github.ref == 'refs/heads/main' && steps.ghostty.outcome == 'success' && steps.ghostty.outputs.hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.ghostty.outputs.path }}
+          key: ${{ steps.ghostty.outputs.key }}
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.native-cache.outputs.path }}
+          key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -647,24 +691,32 @@ jobs:
         with:
           version: '0.16.0'
           use-cache: false
-      - name: Android native prerequisites
-        if: needs.source.outputs.android == 'true'
-        run: |
-          printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
-          rustup toolchain install
-          rustup target add aarch64-linux-android
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes ripgrep
-      - name: Dart FFI prerequisites
-        if: needs.source.outputs.mobile_ffi == 'true'
+      - name: Native prerequisites
+        env:
+          ANDROID: ${{ needs.source.outputs.android }}
+          FFI: ${{ needs.source.outputs.mobile_ffi }}
         run: |
           rustup toolchain install
+          packages=(ripgrep)
+          if test "$ANDROID" = true; then
+            printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
+            rustup target add aarch64-linux-android
+          fi
+          if test "$FFI" = true; then
+            # The same database majors as the macOS Shared job: PostgreSQL 17 and MySQL 8.4 LTS.
+            sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+            curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | sudo gpg --dearmor --yes -o /usr/share/keyrings/mysql.gpg
+            gpg --show-keys --with-colons /usr/share/keyrings/mysql.gpg | grep -qx 'fpr:::::::::BCA43417C3B485DD128EC6D4B7B3B788A8D3785C:'
+            echo 'deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/ubuntu noble mysql-8.4-lts' |
+              sudo tee /etc/apt/sources.list.d/mysql.list > /dev/null
+            packages+=(build-essential pkg-config clang libssl-dev bubblewrap libx11-dev libxi-dev libxtst-dev
+              postgresql-17 'mysql-community-server-core=8.4.*')
+            echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+          fi
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes build-essential pkg-config clang libssl-dev ripgrep bubblewrap libx11-dev libxi-dev libxtst-dev
+          sudo apt-get install --no-install-recommends --yes "${packages[@]}"
           # Fixtures run private servers under /tmp; Ubuntu's mysqld profile only permits service paths.
           if test -e /etc/apparmor.d/usr.sbin.mysqld; then sudo apparmor_parser --remove /etc/apparmor.d/usr.sbin.mysqld || true; fi
-          # The runner image provides PostgreSQL and MySQL; initdb and postgres are not on PATH.
-          ls -d /usr/lib/postgresql/*/bin | sort -V | tail -n 1 >> "$GITHUB_PATH"
       - name: Tool versions
         run: python3 scripts/ci.py tools flutter rg
       - name: Rust dependency caches
@@ -709,8 +761,8 @@ jobs:
         env:
           OPENSSL_NO_VENDOR: '1'
         run: |
-          initdb --version
-          mysqld --version
+          initdb --version | grep -q ' 17\.'
+          mysqld --version | grep -q ' 8\.4\.'
           python3 scripts/ci.py check mobile-contract
       - name: Save Ghostty build inputs
         if: github.ref == 'refs/heads/main' && steps.ghostty.outcome == 'success' && steps.ghostty.outputs.hit != 'true'

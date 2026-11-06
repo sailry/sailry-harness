@@ -27,8 +27,9 @@ CHECK_JOBS = {
     "shared": {"shared", "host"},
     "desktop": {"desktop"},
     "host": {"host"},
-    "mobile": {"mobile"},
-    # Linux compiles the Dart FFI fixture and its real Node without using macOS capacity.
+    # macOS runs only the Dart FFI checkpoint contract that depends on the platform Trash.
+    "mobile": {"mobile", "mobile_ffi"},
+    # Linux compiles the remaining Dart FFI fixtures and their real Node without using macOS capacity.
     "android": {"android", "mobile_ffi"},
     "services": {"services"},
 }
@@ -382,6 +383,13 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
             (["cargo", "build", "--locked", "-p", "sailry-mobile-bridge", "--lib", *cargo_jobs], "."),
             (["cargo", "test", "--locked", "-p", "sailry-mobile-bridge", "--test", "dart", "--timings", *cargo_jobs, "--", "--ignored", "--skip", "mcp_peer::stdio_peer", "--test-threads=4", "--nocapture"], "."),
         ],
+        # Only macOS restores checkpointed files from the Trash; Linux covers every other contract.
+        "mobile-checkpoints": [
+            (["dart", "pub", "get", "--enforce-lockfile"], "tests/mobile-contract"),
+            (["cargo", "build", "--locked", "-p", "sailry-mobile-bridge", "--lib", *cargo_jobs], "."),
+            (["cargo", "test", "--locked", "-p", "sailry-mobile-bridge", "--test", "dart", *cargo_jobs, "--",
+              "--ignored", "--exact", "checkpoints::recovers_restore_receipts", "--nocapture"], "."),
+        ],
         "mobile-format": [(["dart", "format", "--output=none", "--set-exit-if-changed", "lib", "preview", "test", "tool"], "apps/mobile")],
         "mobile-check": [(["flutter", "analyze", "--no-pub"], "apps/mobile"), (["flutter", "test", "--no-pub"], "apps/mobile")],
         "services": [(["pnpm", task], "services/pairing-relay") for task in ("typecheck", "test", "build", "build:edgeone")],
@@ -498,7 +506,7 @@ def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None
     commands = check_commands(name, jobs, root, selection, env, threads, system)
     if name == "archive":
         (root / TEST_ARCHIVE).parent.mkdir(parents=True, exist_ok=True)
-    if name in {"tests", "archive", "shared", "shared-databases", "plugin-contracts", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
+    if name in {"tests", "archive", "shared", "shared-databases", "plugin-contracts", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract", "mobile-checkpoints"}:
         environment = os.environ if env is None else env
         archived = environment.get("CHECK_ARCHIVE") and name in {
             "tests", "shared", "shared-databases", "plugin-contracts", "desktop", "desktop-lifecycle",

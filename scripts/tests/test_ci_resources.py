@@ -643,14 +643,32 @@ class Workflow(unittest.TestCase):
         self.assertIn("flutter test --no-pub", mobile)
         self.assertIn("flutter build ios --release --no-codesign", mobile)
         self.assertIn("runs-on: macos-15", mobile)
-        # The Dart FFI fixture compiles its real Node on Linux rather than in the macOS Mobile job.
-        self.assertNotIn("--test dart", mobile)
-        self.assertNotIn("mobile_ffi", mobile)
+        # Linux runs the Dart FFI fixtures; macOS adds only the Trash-dependent checkpoint contract.
+        self.assertIn("needs.source.outputs.mobile_ffi == 'true'", mobile.split("    steps:\n", 1)[0])
+        self.assertNotIn("--test dart --timings", mobile)
+        checkpoints = mobile.split("      - name: Dart FFI checkpoint recovery\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("!cancelled()", checkpoints)
+        self.assertIn("--test dart --jobs", checkpoints)
+        self.assertIn("-- --ignored --exact checkpoints::recovers_restore_receipts --nocapture", checkpoints)
+        self.assertIn("OPENSSL_NO_VENDOR: '1'", checkpoints)
+        self.assertNotIn("OPENSSL_NO_VENDOR", mobile.split("    steps:\n", 1)[0])
+        for step in ("uses: ./.github/actions/ghostty-cache", "uses: ./.github/actions/native-cache",
+                     "uses: mlugg/setup-zig@"):
+            self.assertIn(step, mobile)
+        self.assertLess(mobile.index("Unsigned iOS application"), mobile.index("Dart FFI checkpoint recovery"))
         self.assertIn("runs-on: ubuntu-24.04", android)
         self.assertIn("--test dart --timings", android)
         self.assertIn("--skip mcp_peer::stdio_peer --test-threads=4", android)
+        prerequisites = android.split("      - name: Native prerequisites\n", 1)[1].split("      - ", 1)[0]
+        self.assertEqual(android.count("rustup toolchain install"), 1)
+        self.assertEqual(android.count("apt-get install"), 1)
+        for pinned in ("postgresql-17", "'mysql-community-server-core=8.4.*'", "noble mysql-8.4-lts",
+                       "BCA43417C3B485DD128EC6D4B7B3B788A8D3785C", "echo /usr/lib/postgresql/17/bin >> \"$GITHUB_PATH\""):
+            self.assertIn(pinned, prerequisites)
+        self.assertIn("initdb --version | grep -q ' 17\\.'", android)
+        self.assertIn("mysqld --version | grep -q ' 8\\.4\\.'", android)
         for section, title, lane in ((android, "Dart FFI contract fixtures", "mobile_ffi"),
-                                     (android, "Dart FFI prerequisites", "mobile_ffi"),
+                                     (mobile, "Dart FFI checkpoint recovery", "mobile_ffi"),
                                      (android, "ARM64 release APK", "android"),
                                      (android, "Rust boundary and Android initializer", "android"),
                                      (mobile, "Mobile source fixtures", "mobile"),
@@ -692,7 +710,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("path: ${{ steps.identity.outputs.path }}", action)
         # Compilation downloads only speech libraries, so jobs that do not package save that subset.
         for name, target in (("lint", "aarch64-apple-darwin"), ("build", "aarch64-apple-darwin"),
-                             ("android", "x86_64-unknown-linux-gnu")):
+                             ("mobile", "aarch64-apple-darwin"), ("android", "x86_64-unknown-linux-gnu")):
             section = job_section(workflow, name)
             self.assertIn("uses: ./.github/actions/native-cache", section)
             self.assertIn(f"target: {target}\n          libraries: speech", section)
@@ -702,7 +720,6 @@ class Workflow(unittest.TestCase):
             self.assertNotIn("llama-prebuilt", save)
             self.assertIn("path: ${{ steps.native-cache.outputs.path }}", save)
             self.assertNotIn("always()", save)
-        self.assertNotIn("native-cache", job_section(workflow, "mobile"))
         for name, libraries in (("release", "speech"), ("release-host", None)):
             release = (ROOT / f".github/workflows/{name}.yml").read_text()
             self.assertIn("uses: ./.workflow-tools/.github/actions/native-cache", release)
@@ -721,7 +738,7 @@ class Workflow(unittest.TestCase):
         action = (ROOT / ".github/actions/ghostty-cache/action.yml").read_text()
         self.assertIn("ci.py\" ghostty-key", action)
         self.assertIn("ci.py\" ghostty-source", action)
-        for name in ("lint", "build", "host", "android", "light_linux", "light_macos"):
+        for name in ("lint", "build", "host", "mobile", "android", "light_linux", "light_macos"):
             section = job_section(workflow, name)
             with self.subTest(job=name):
                 self.assertIn("uses: ./.github/actions/ghostty-cache", section)
@@ -733,7 +750,7 @@ class Workflow(unittest.TestCase):
                     self.assertIn("github.ref == 'refs/heads/main'", step)
                     self.assertIn("steps.ghostty.outputs.hit != 'true'", step)
                     self.assertIn("path: ${{ steps.ghostty.outputs.path }}", step)
-        for name in ("mobile", "shared", "desktop"):
+        for name in ("shared", "desktop"):
             self.assertNotIn("ghostty", job_section(workflow, name))
 
     def test_links_system_openssl_only_in_checks(self):
@@ -747,8 +764,14 @@ class Workflow(unittest.TestCase):
             self.assertIn('echo "OPENSSL_DIR=$(brew --prefix openssl@3)"', job_section(workflow, name))
         for name in ("host", "light_linux", "android"):
             self.assertIn("libssl-dev", job_section(workflow, name))
-        # Mobile release builds and iOS keep the vendored library selection.
-        self.assertNotIn("OPENSSL", job_section(workflow, "mobile"))
+        # Mobile release builds and iOS keep the vendored library selection; only the
+        # macOS Dart FFI checkpoint contract links the runner's OpenSSL.
+        mobile = job_section(workflow, "mobile")
+        title = "      - name: Dart FFI checkpoint recovery\n"
+        checkpoints = mobile.split(title, 1)[1].split("      - ", 1)[0]
+        self.assertNotIn("OPENSSL", mobile.replace(title + checkpoints, ""))
+        self.assertIn("OPENSSL_STATIC: '1'", checkpoints)
+        self.assertIn('export OPENSSL_DIR="$(brew --prefix openssl@3)"', checkpoints)
         for path in (ROOT / ".github/workflows").glob("release*.yml"):
             self.assertNotIn("OPENSSL", path.read_text(), path.name)
 
