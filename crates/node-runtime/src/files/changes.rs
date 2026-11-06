@@ -303,12 +303,20 @@ fn text_limit(text: &str) -> Result<(), Fault> {
 
 /// A source revision covers every byte, so binary files can still move or go to Trash.
 fn source(root: Scope<'_>, relative: &str, expected: &str, control: &Control) -> Result<(), Fault> {
-    let mut file = path::file(root, relative)?;
-    let size = file.metadata().map_err(io_error)?.len();
-    if content::revision(&mut file, size, Some(&control.cancelled))? != expected {
+    if revision(root, relative, control)? != expected {
         return Err(changed());
     }
     Ok(())
+}
+
+pub(super) fn revision(
+    root: Scope<'_>,
+    relative: &str,
+    control: &Control,
+) -> Result<String, Fault> {
+    let mut file = path::file(root, relative)?;
+    let size = file.metadata().map_err(io_error)?.len();
+    content::revision(&mut file, size, Some(&control.cancelled))
 }
 
 /// Missing parents are created for new files, so they also prove absence.

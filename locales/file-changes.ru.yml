@@ -1,4 +1,4 @@
-file_changes_approval: "Применить изменения к файлам: %{count}"
+file_changes_approval: "Применить патч к файлам: %{count}"
 file_changes_added: "Добавлен"
 file_changes_modified: "Изменён"
 file_changes_renamed: "Переименован"

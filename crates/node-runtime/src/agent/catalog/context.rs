@@ -15,6 +15,8 @@ pub(in crate::agent) struct CallContext {
     stop: CancellationToken,
     pub context: Context,
     pub(super) children: Option<crate::agent::engine::Children>,
+    /// Present for registrations that check the session's file observations.
+    pub observed: Option<Arc<super::Observed>>,
 }
 
 impl CallContext {
@@ -36,6 +38,7 @@ impl CallContext {
             stop,
             context,
             children: None,
+            observed: None,
             request: ToolIdentity {
                 id: Some(id.to_owned()),
                 name: call.name.to_string(),

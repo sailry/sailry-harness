@@ -14,6 +14,7 @@ pub(crate) use lines::bounded_at as index_text;
 pub(crate) mod media;
 pub(crate) mod mutations;
 pub(crate) mod notebook;
+pub(crate) mod patch;
 pub(crate) mod path;
 pub(crate) mod rename;
 mod save;

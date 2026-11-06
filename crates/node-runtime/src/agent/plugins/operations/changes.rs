@@ -1,46 +1,74 @@
-//! A change set is validated and previewed before its single approval. Rejected
-//! sets return per-entry reasons without an approval or a durable write.
+//! A patch is parsed and resolved into a structured change set in this tool layer,
+//! so the durable command and its controllers keep typed entries. The set is then
+//! validated and previewed before its single approval. Rejected sets return
+//! per-file reasons without an approval or a durable write.
 use super::*;
-use crate::files::changes::Planned;
+use crate::files::{changes::Planned, patch};
 use sailry_protocol::{
     ChangePreview, ChangesStatus, ErrorCode, Fault, GitDiff, GitDiffScope, MAX_PREVIEW_BYTES,
     Output, PreviewFile, conversation::Decision,
 };
 
 impl HostOperation {
-    pub(super) async fn apply_changes(
+    pub(super) async fn apply_patch(
         &self,
         context: &CallContext,
-        mut request: Request,
         arguments: Value,
+        authorized: Value,
     ) -> Result<Value, Fault> {
-        let Command::ApplyChanges { worktree, changes } = &request.command else {
-            return Err(Fault::invalid("change set command expected"));
-        };
         if self.mode == sailry_protocol::WorkMode::Plan {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
                 "planning turns cannot authorize tools with side effects",
             ));
         }
-        let root = self.ingress.worktree_root(*worktree).await?;
+        let hunks = patch::parse(&files::patch(arguments)?)?;
+        let worktree = self
+            .context
+            .worktree
+            .ok_or_else(|| Fault::invalid("file operation requires a worktree"))?;
+        let root = self.ingress.worktree_root(worktree).await?;
         let mut paths = Vec::new();
         let mut owners = Vec::new();
-        for (index, change) in changes.iter().enumerate() {
-            for path in std::iter::once(change.path()).chain(change.destination()) {
+        for (index, hunk) in hunks.iter().enumerate() {
+            for path in hunk.paths() {
                 paths.push((root.clone(), path.to_owned()));
                 owners.push(index);
             }
         }
-        let mut checked = vec![None; changes.len()];
+        let mut faults = vec![None; hunks.len()];
         for (index, fault) in owners
             .into_iter()
             .zip(self.ingress.validate_paths(paths).await?)
         {
-            if checked[index].is_none() {
-                checked[index] = fault;
+            if faults[index].is_none() {
+                faults[index] = fault;
             }
         }
+        let observations = context.observed.clone().unwrap_or_default();
+        let targets = hunks
+            .into_iter()
+            .zip(faults)
+            .map(|(hunk, fault)| {
+                let observed = hunk
+                    .paths()
+                    .next()
+                    .and_then(|path| observations.revision(path))
+                    .map(str::to_owned);
+                patch::Target {
+                    hunk,
+                    observed,
+                    fault,
+                }
+            })
+            .collect();
+        let (changes, checked): (Vec<_>, Vec<_>) = self
+            .ingress
+            .files
+            .resolve_patch(root.clone(), targets, self.stop.clone())
+            .await?
+            .into_iter()
+            .unzip();
         let planned = match self
             .ingress
             .files
@@ -50,6 +78,11 @@ impl HostOperation {
             Ok(planned) => planned,
             Err(rejected) => return self.finish(context, Output::FileChanges(rejected)),
         };
+        let mut request = Request::new(
+            self.transport.target(),
+            Command::ApplyChanges { worktree, changes },
+        )
+        .with_plugin(self.context.clone());
         let preview = tokio::task::spawn_blocking(move || preview(planned))
             .await
             .map_err(|_| Fault::new(ErrorCode::Internal, "file worker failed"))??;
@@ -61,7 +94,7 @@ impl HostOperation {
         let decision = tokio::select! {
             biased;
             _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "file change approval was cancelled")),
-            decision = self.ingress.confirm_changes(self.turn, context.request_with(arguments.clone()), binding, preview) => decision?,
+            decision = self.ingress.confirm_changes(self.turn, context.request_with(authorized.clone()), binding, preview) => decision?,
         };
         if !matches!(
             decision,
@@ -73,7 +106,7 @@ impl HostOperation {
             ));
         }
         request.id = self
-            .authorize(context, arguments, Some(request.command.clone()))
+            .authorize(context, authorized, Some(request.command.clone()))
             .await?;
         self.ingress
             .checkpoint_changes(self.turn, &request, self.stop.clone())

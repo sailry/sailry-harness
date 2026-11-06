@@ -129,6 +129,7 @@ pub(super) fn bind(
                 ToolRegistration::new(descriptor, tool, declaration.presentation)
             };
             registration.delegation = operation == Operation::DelegateAgent;
+            registration.observes = operation == Operation::ApplyChanges;
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
@@ -450,12 +451,13 @@ impl HostOperation {
         authorized_arguments: Value,
     ) -> Result<Value, Fault> {
         let work = async {
-            let mut request = self.prepare(arguments.clone()).await?;
+            // A patch becomes a change set only after reading its targets.
             if self.operation == Operation::ApplyChanges {
                 return self
-                    .apply_changes(context.as_ref(), request, authorized_arguments)
+                    .apply_patch(context.as_ref(), arguments, authorized_arguments)
                     .await;
             }
+            let mut request = self.prepare(arguments.clone()).await?;
             if let Command::RunCommand { access, .. } = &mut request.command {
                 let requested: sailry_protocol::process::Access = authorized_arguments
                     .get("access")

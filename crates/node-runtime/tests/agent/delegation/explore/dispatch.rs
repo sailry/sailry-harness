@@ -89,7 +89,7 @@ pub(super) async fn verify(fixture: &Fixture, child: &Session, package: &plugin:
         for (package, name) in [
             ("files", "write_file"),
             ("files", "edit_file"),
-            ("files", "apply_changes"),
+            ("files", "apply_patch"),
             ("commands", "run_command"),
             ("memory", "save_memory"),
         ] {

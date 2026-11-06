@@ -59,6 +59,14 @@ and PKCS#1 constraints to 0.10.0-rc.19 and 0.8.0-rc.5 and uses the upstream
 borrowed RsaPrivateKeyRef encoding type, with an ordinary key round-trip and
 signature regression. Its original RSA and SSH features remain enabled.
 
+OpenAI Codex patch format
+The apply_patch parser and hunk matching in crates/node-runtime/src/files/patch/
+are adapted from https://github.com/openai/codex at
+451787127c0e70247034c33e358536ffd2b89cf8, codex-rs/apply-patch/src/ (Apache-2.0,
+Copyright 2025 OpenAI). Provenance, the original NOTICE and the license text are
+in third_party_licenses/codex.md, third_party_licenses/codex-NOTICE and
+third_party_licenses/codex-LICENSE.
+
 Goose GDK agent and provider libraries
 Sailry uses goose-agent, goose-provider-types, goose-providers and
 goose-context-management from https://github.com/aaif-goose/goose at

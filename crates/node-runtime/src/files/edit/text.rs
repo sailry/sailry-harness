@@ -1,13 +1,13 @@
 use std::{borrow::Cow, ops::Range};
 
-pub(super) struct View<'a> {
+pub(in crate::files) struct View<'a> {
     raw: &'a str,
     normalized: Cow<'a, str>,
     removed: Vec<usize>,
 }
 
 impl<'a> View<'a> {
-    pub(super) fn new(raw: &'a str) -> Self {
+    pub(in crate::files) fn new(raw: &'a str) -> Self {
         let mut removed = Vec::new();
         for (position, _) in raw.match_indices("\r\n") {
             removed.push(position - removed.len());
@@ -24,13 +24,13 @@ impl<'a> View<'a> {
     }
 }
 
-pub(super) struct Pattern<'a> {
+pub(in crate::files) struct Pattern<'a> {
     text: Cow<'a, str>,
     raw: bool,
 }
 
 impl<'a> Pattern<'a> {
-    pub(super) fn new(text: &'a str) -> Self {
+    pub(in crate::files) fn new(text: &'a str) -> Self {
         // A lone carriage return is a literal edit, rather than a line terminator.
         let raw = text.bytes().enumerate().any(|(position, byte)| {
             byte == b'\r' && text.as_bytes().get(position + 1) != Some(&b'\n')
@@ -49,13 +49,13 @@ impl<'a> Pattern<'a> {
         if self.raw { view.raw } else { &view.normalized }
     }
 
-    pub(super) fn find(&self, view: &View<'_>, position: usize) -> Option<usize> {
+    pub(in crate::files) fn find(&self, view: &View<'_>, position: usize) -> Option<usize> {
         self.input(view)[position..]
             .find(self.text.as_ref())
             .map(|found| position + found)
     }
 
-    pub(super) fn following(&self, view: &View<'_>, position: usize) -> usize {
+    pub(in crate::files) fn following(&self, view: &View<'_>, position: usize) -> usize {
         position
             + self.input(view)[position..]
                 .chars()
@@ -64,7 +64,7 @@ impl<'a> Pattern<'a> {
                 .len_utf8()
     }
 
-    pub(super) fn range(&self, view: &View<'_>, position: usize) -> Range<usize> {
+    pub(in crate::files) fn range(&self, view: &View<'_>, position: usize) -> Range<usize> {
         let end = position + self.text.len();
         if self.raw {
             position..end
