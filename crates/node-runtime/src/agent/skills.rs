@@ -174,7 +174,7 @@ pub(super) fn bind(
                 registration.presentation = Presentation::Summary;
                 registration.display = Some(display);
                 // The most recently loaded skill selects the turn's Python interpreter.
-                registration.ordered = index == 0;
+                registration.concurrent = index != 0;
                 registration
             })
             .collect()

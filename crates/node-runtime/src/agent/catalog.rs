@@ -21,9 +21,9 @@ pub(super) struct Registration {
     pub managed: bool,
     pub deferred: bool,
     pub delegation: bool,
-    /// Read-only calls whose effects depend on call order, such as browser
-    /// navigation, never overlap other calls.
-    pub ordered: bool,
+    /// Read-only calls that neither change nor depend on state other calls of a
+    /// response observe, so they may run alongside each other.
+    pub concurrent: bool,
 }
 impl Registration {
     pub fn new(
@@ -41,7 +41,7 @@ impl Registration {
             managed: false,
             deferred: false,
             delegation: false,
-            ordered: false,
+            concurrent: false,
         }
     }
     pub fn managed(tool: Tool, provider: Arc<dyn ToolProvider<CallContext>>) -> Self {
@@ -57,10 +57,6 @@ impl Registration {
             .and_then(|value| value.read_only_hint)
             .unwrap_or(false)
     }
-    /// Whether calls may run alongside adjacent read-only calls of one response.
-    pub fn concurrent(&self) -> bool {
-        self.read_only() && !self.ordered
-    }
 }
 
 pub(super) struct Catalog {
@@ -70,6 +66,8 @@ pub(super) struct Catalog {
     entries: BTreeMap<String, Registration>,
     children: Option<super::engine::Children>,
     hooks: Option<Arc<crate::hooks::Binding>>,
+    /// Tool hook scripts run around each call, so every call runs alone.
+    serial: bool,
     metrics: Option<(std::path::PathBuf, Arc<crate::store::agent::Invocation>)>,
 }
 impl Catalog {
@@ -85,6 +83,7 @@ impl Catalog {
             entries: BTreeMap::new(),
             children: None,
             hooks: None,
+            serial: false,
             metrics: None,
         }
     }
@@ -93,6 +92,7 @@ impl Catalog {
         self
     }
     pub fn with_hooks(mut self, hooks: Option<Arc<crate::hooks::Binding>>) -> Self {
+        self.serial = hooks.as_ref().is_some_and(|hooks| hooks.wraps_tools());
         self.hooks = hooks;
         self
     }
@@ -130,14 +130,14 @@ impl Catalog {
             .map(|(name, entry)| (name.clone(), entry.presentation))
             .collect()
     }
-    /// Whether a call may overlap adjacent read-only calls. Tool hook scripts
-    /// run around each call, so they keep every call in order.
-    pub fn concurrent(&self, name: &str) -> bool {
-        !self
-            .hooks
-            .as_ref()
-            .is_some_and(|hooks| hooks.has_tool_scripts())
-            && self.entries.get(name).is_some_and(Registration::concurrent)
+    /// Whether a call may run alongside the adjacent concurrent calls of its
+    /// response.
+    pub fn concurrent(&self, call: &CallToolRequestParams) -> bool {
+        !self.serial
+            && self
+                .entries
+                .get(call.name.as_ref())
+                .is_some_and(|entry| entry.concurrent && entry.read_only())
     }
 }
 #[async_trait]
@@ -254,8 +254,8 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
         }
         result
     }
-    fn read_only(&self, _: &S, name: &str) -> bool {
-        self.concurrent(name)
+    fn concurrent(&self, _: &S, call: &CallToolRequestParams) -> bool {
+        self.concurrent(call)
     }
 }
 

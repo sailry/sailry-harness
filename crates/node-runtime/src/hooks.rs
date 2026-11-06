@@ -48,10 +48,8 @@ impl Binding {
         })
     }
 
-    pub(crate) fn has_tool_scripts(&self) -> bool {
-        [Phase::BeforeTool, Phase::AfterTool]
-            .into_iter()
-            .any(|phase| self.settings.scripts(phase).next().is_some())
+    pub(crate) fn wraps_tools(&self) -> bool {
+        wraps_tools(&self.settings)
     }
 
     pub(crate) async fn before(self: &Arc<Self>, tool: &str) -> Result<(), Fault> {
@@ -295,5 +293,44 @@ struct Lease {
 impl Drop for Lease {
     fn drop(&mut self) {
         self.controls.finish_operation(self.turn);
+    }
+}
+
+/// Whether enabled scripts run around each tool call.
+fn wraps_tools(settings: &Settings) -> bool {
+    [Phase::BeforeTool, Phase::AfterTool]
+        .into_iter()
+        .any(|phase| settings.scripts(phase).next().is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sailry_protocol::hooks::Script;
+
+    #[test]
+    fn requires_enabled_tool_scripts() {
+        let script = || Some(Script::default());
+        let settings = |before_tool, after_tool, turn_end| Settings {
+            revision: 1,
+            enabled: true,
+            before_tool,
+            after_tool,
+            turn_end,
+            additional: Vec::new(),
+        };
+
+        assert!(wraps_tools(&settings(script(), None, None)));
+        assert!(wraps_tools(&settings(None, script(), None)));
+        assert!(!wraps_tools(&settings(None, None, script())));
+        assert!(!wraps_tools(&Settings {
+            enabled: false,
+            ..settings(script(), script(), None)
+        }));
+        let disabled = Script {
+            enabled: false,
+            ..Script::default()
+        };
+        assert!(!wraps_tools(&settings(Some(disabled), None, None)));
     }
 }

@@ -141,16 +141,39 @@ impl Fixture {
     }
 }
 
-#[test]
-fn keeps_browser_reads_in_order() {
-    assert!(Operation::ReadExternalBrowser.read_only());
-    assert!(ordered(Operation::ReadExternalBrowser));
-    for operation in [
-        Operation::ReadFile,
-        Operation::SearchFiles,
-        Operation::ReadBrowser,
-    ] {
-        assert!(!ordered(operation), "{operation:?}");
+mod concurrency {
+    use super::*;
+
+    #[test]
+    fn keeps_browser_reads_in_order() {
+        for operation in [Operation::ReadBrowser, Operation::ReadExternalBrowser] {
+            assert!(operation.read_only(), "{operation:?}");
+            assert!(!concurrent(operation), "{operation:?}");
+        }
+    }
+
+    #[test]
+    fn allows_independent_reads() {
+        for operation in [
+            Operation::ReadFile,
+            Operation::SearchFiles,
+            Operation::ReadGitDiff,
+            Operation::SearchCode,
+            Operation::FetchWeb,
+        ] {
+            assert!(operation.read_only(), "{operation:?}");
+            assert!(concurrent(operation), "{operation:?}");
+        }
+        for operation in [
+            Operation::ReadComputer,
+            Operation::ReadCommand,
+            Operation::GetValue,
+            Operation::QueryDatabase,
+            Operation::WriteFile,
+            Operation::RunCommand,
+        ] {
+            assert!(!concurrent(operation), "{operation:?}");
+        }
     }
 }
 
