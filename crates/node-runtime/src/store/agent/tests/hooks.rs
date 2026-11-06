@@ -249,7 +249,7 @@ async fn keeps_uncertain_launch_receipts() {
         .path()
         .canonicalize()
         .unwrap()
-        .join("node.turso");
+        .join("storage/node.turso");
     let node = fixture.database.node;
     fixture.database.close().await.unwrap();
     let database = Database::open(&path, node, None).await.unwrap();

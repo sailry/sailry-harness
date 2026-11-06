@@ -16,7 +16,9 @@ impl Fixture {
     pub fn new() -> sailry_link::Pending<'static, Self> {
         Box::pin(async move {
             let root = tempfile::tempdir().unwrap();
-            let path = root.path().canonicalize().unwrap().join("node.turso");
+            let storage = root.path().canonicalize().unwrap().join("storage");
+            crate::profile::private_directory(&storage).unwrap();
+            let path = storage.join("node.turso");
             let mut database = Database::open(&path, NodeId([33; 32]), None).await.unwrap();
             let (events, _) = broadcast::channel(64);
             let Output::Project(project) = command(
