@@ -100,15 +100,33 @@ async fn copies_confirmed_files() {
             );
             assert!(!remote_files.join("escape").exists());
         }
-        assert_eq!(
-            client
-                .execute(client.prepare(command(Direction::Download, "missing.bin", "absent")))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::OutcomeUnknown
+        let missing = client.prepare(command(Direction::Download, "missing.bin", "absent"));
+        let error = client.execute(missing.clone()).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+        assert!(
+            error
+                .message
+                .contains("remote open: SFTP status=NoSuchFile (2)")
         );
+        assert_eq!(client.execute(missing).await.unwrap_err(), error);
         assert!(!fixture.root.join("missing.bin").exists());
+        let upload = client.prepare(command(
+            Direction::Upload,
+            "source.bin",
+            "missing-parent/destination.bin",
+        ));
+        let error = client.execute(upload.clone()).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+        assert!(
+            error
+                .message
+                .contains("remote open: SFTP status=NoSuchFile (2)")
+        );
+        assert!(!error.message.contains("remote stat:"));
+        let subsystems = server.subsystems.load(Ordering::SeqCst);
+        assert_eq!(client.execute(upload).await.unwrap_err(), error);
+        assert_eq!(server.subsystems.load(Ordering::SeqCst), subsystems);
+        assert!(!remote_files.join("missing-parent").exists());
         std::fs::write(remote_files.join("empty"), []).unwrap();
         assert_eq!(
             execute(client, command(Direction::Download, "empty", "empty")).await,
@@ -194,32 +212,28 @@ async fn requires_confirmed_close() {
         let upload = client.prepare(command(Direction::Upload, "source.bin"));
         let error = client.execute(upload.clone()).await.unwrap_err();
         assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+        assert!(error.message.contains("remote close: I/O kind=Other"));
+        assert!(!error.message.contains("SFTP status="));
         server.wait_processes(1).await;
         assert_eq!(
             std::fs::read(remote_files.join("unconfirmed.bin")).unwrap(),
             b"unconfirmed"
         );
         std::fs::write(fixture.root.join("source.bin"), b"changed").unwrap();
-        assert_eq!(
-            client.execute(upload).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
+        assert_eq!(client.execute(upload).await.unwrap_err(), error);
         assert_eq!(server.subsystems.load(Ordering::SeqCst), 1);
         assert_eq!(
             std::fs::read(remote_files.join("unconfirmed.bin")).unwrap(),
             b"unconfirmed"
         );
         let download = client.prepare(command(Direction::Download, "download.bin"));
-        assert_eq!(
-            client.execute(download.clone()).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
+        let error = client.execute(download.clone()).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+        assert!(error.message.contains("remote close: I/O kind=Other"));
+        assert!(!error.message.contains("SFTP status="));
         assert!(!fixture.root.join("download.bin").exists());
         server.wait_processes(1).await;
-        assert_eq!(
-            client.execute(download).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
+        assert_eq!(client.execute(download).await.unwrap_err(), error);
         assert_eq!(server.subsystems.load(Ordering::SeqCst), 2);
         assert!(server.commands.lock().unwrap().is_empty());
         assert!(!fixture.root.join("download.bin").exists());
