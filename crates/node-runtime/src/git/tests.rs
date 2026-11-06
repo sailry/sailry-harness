@@ -1,6 +1,8 @@
 use super::*;
 use std::{future::Future, task::Poll};
 
+#[cfg(windows)]
+mod probe;
 mod status;
 
 #[test]

@@ -1,5 +1,6 @@
 use super::*;
 
+#[path = "windows/wsl.rs"]
 mod wsl;
 
 #[tokio::test]
