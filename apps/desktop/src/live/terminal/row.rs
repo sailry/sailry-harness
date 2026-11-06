@@ -43,7 +43,7 @@ impl Shell {
             .child(entry.guides(
                 format!("live-terminal-{id}"),
                 running.then(|| {
-                    crate::ui::loading::mini()
+                    crate::ui::loading::small()
                         .debug_selector(move || format!("live-terminal-{id}-loading"))
                         .into_any_element()
                 }),

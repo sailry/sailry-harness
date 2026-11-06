@@ -12,6 +12,11 @@ pub(crate) fn mini() -> Div {
     dots(RING, 6.4)
 }
 
+/// The compact loader in a 12 px slot, keeping the 2.5 px dots of [`mini`].
+pub(crate) fn small() -> Div {
+    dots(RING, 4.8).size_3()
+}
+
 fn dots<const COLUMNS: usize>(phases: [[usize; COLUMNS]; 3], scale: f32) -> Div {
     div().size_4().flex_shrink_0().child(
         canvas(
