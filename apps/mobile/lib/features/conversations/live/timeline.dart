@@ -241,9 +241,10 @@ class _LiveTimelineState extends State<LiveTimeline> {
       final turnCalls = transcript.callsOf(run['turn']);
       final worktree = transcript.worktree(run['turn'], session);
       final active = activeRun(run);
-      final visible = transcript.rowsOf(run['turn']);
-      final inputs = transcript.inputsOf(run['turn']);
-      final last = visible.lastOrNull;
+      // Delivered input divides the reply; status and actions stay on the last.
+      final segments = transcript.segmentsOf(run['turn']);
+      if (segments.isEmpty) segments.add((inputs: [], rows: []));
+      final last = segments.last.rows.lastOrNull;
       final waiting = turnCalls.any(
         (call) =>
             object(call['approval'])['state'] == 'pending' ||
@@ -275,89 +276,15 @@ class _LiveTimelineState extends State<LiveTimeline> {
           : last?.$3['kind'] == 'text'
           ? 'conversationGenerating'
           : 'thinkingNow';
-      final split = visible.lastIndexWhere((row) => row.$3['work'] == true) + 1;
       final latestTurn = identical(run, transcript.latest);
       // Older settled answers trade text selection for long-press actions.
       final pressable = !active && !latestTurn && onTurnAction != null;
-      final steps = <Widget>[];
-      final answerParts = <Widget>[];
       final cards = <Widget>[];
       Widget? live;
-      var count = 0;
       final progressCall = turnCalls
           .where((call) => call['progress'] != null)
           .lastOrNull;
       var progressShown = false;
-      for (final (position, row) in visible.indexed) {
-        final (entry, index, value) = row;
-        final call = transcript.call(entry['id'], index);
-        final childReferences = objects(call?['children']);
-        if (call?['progress'] != null && progressShown) continue;
-        final continuing = continuingTools && row == last;
-        final work = position < split && value['kind'] != 'image';
-        final pending = work && call != null && pendingTool(call);
-        final childRuns = [
-          for (final reference in childReferences)
-            transcript.childRecords[reference['index'] as int],
-        ];
-        final rendered = call?['progress'] != null
-            ? ToolHeading(
-                key: ValueKey('progress-${run['turn']}'),
-                call: progressCall!,
-                running: continuingTools && lastCall['progress'] != null,
-              )
-            : childReferences.isNotEmpty
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final (position, reference) in childReferences.indexed)
-                    ChildTask(
-                      child: childRuns[position],
-                      continuing: continuing,
-                      title: text(
-                        object(object(value['data'])['summary'])['title'],
-                        text(
-                          childRuns[position]['name'],
-                          context.tr('conversationChild'),
-                        ),
-                      ),
-                      connected: connected,
-                      onOpen:
-                          onOpenChild == null ||
-                              childSession(host, reference) == null
-                          ? null
-                          : () => onOpenChild(reference),
-                    ),
-                ],
-              )
-            : part(
-                entry,
-                value,
-                index,
-                active && connected && row == last,
-                continuing: continuing,
-                interactive: !pending,
-                selectable: !pressable,
-              );
-        if (call?['progress'] != null) progressShown = true;
-        if (rendered is SizedBox) continue;
-        if (!work) {
-          answerParts.add(rendered);
-          continue;
-        }
-        steps.add(rendered);
-        if (call == null) continue;
-        count += childReferences.isEmpty ? 1 : childReferences.length;
-        if (!active) continue;
-        if (pending) {
-          // Decisions stay actionable below the answer while steps collapse.
-          cards.add(part(entry, value, index, false, continuing: continuing));
-        } else if (call['state'] == 'running' ||
-            continuing ||
-            childRuns.any((child) => activeRun(object(child['run'])))) {
-          live = rendered;
-        }
-      }
       final copy = rows
           .where((entry) => entry['author'] != 'user')
           .expand((entry) => objects(entry['parts']))
@@ -367,20 +294,94 @@ class _LiveTimelineState extends State<LiveTimeline> {
       final canEdit =
           canChangeHistory &&
           !noticeTurn(run) &&
-          inputs.any((input) => input.canonical);
+          segments.any(
+            (segment) => segment.inputs.any((input) => input.canonical),
+          );
       final canRewind =
           canChangeHistory && !noticeTurn(run) && run != transcript.runs.last;
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          BackgroundNotices(
-            items: objects(run['notices']),
-            children: children,
-            onOpenChild: onOpenChild,
-          ),
-          for (final (position, input) in inputs.indexed)
+      final body = <Widget>[];
+      for (final (segmentIndex, segment) in segments.indexed) {
+        final settled = segmentIndex < segments.length - 1;
+        final visible = segment.rows;
+        final split =
+            visible.lastIndexWhere((row) => row.$3['work'] == true) + 1;
+        final steps = <Widget>[];
+        final answerParts = <Widget>[];
+        var count = 0;
+        for (final (position, row) in visible.indexed) {
+          final (entry, index, value) = row;
+          final call = transcript.call(entry['id'], index);
+          final childReferences = objects(call?['children']);
+          if (call?['progress'] != null && progressShown) continue;
+          final continuing = continuingTools && row == last;
+          final work = position < split && value['kind'] != 'image';
+          final pending = work && call != null && pendingTool(call);
+          final childRuns = [
+            for (final reference in childReferences)
+              transcript.childRecords[reference['index'] as int],
+          ];
+          final rendered = call?['progress'] != null
+              ? ToolHeading(
+                  key: ValueKey('progress-${run['turn']}'),
+                  call: progressCall!,
+                  running: continuingTools && lastCall['progress'] != null,
+                )
+              : childReferences.isNotEmpty
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final (position, reference) in childReferences.indexed)
+                      ChildTask(
+                        child: childRuns[position],
+                        continuing: continuing,
+                        title: text(
+                          object(object(value['data'])['summary'])['title'],
+                          text(
+                            childRuns[position]['name'],
+                            context.tr('conversationChild'),
+                          ),
+                        ),
+                        connected: connected,
+                        onOpen:
+                            onOpenChild == null ||
+                                childSession(host, reference) == null
+                            ? null
+                            : () => onOpenChild(reference),
+                      ),
+                  ],
+                )
+              : part(
+                  entry,
+                  value,
+                  index,
+                  active && connected && row == last,
+                  continuing: continuing,
+                  interactive: !pending,
+                  selectable: !pressable,
+                );
+          if (call?['progress'] != null) progressShown = true;
+          if (rendered is SizedBox) continue;
+          if (!work) {
+            answerParts.add(rendered);
+            continue;
+          }
+          steps.add(rendered);
+          if (call == null) continue;
+          count += childReferences.isEmpty ? 1 : childReferences.length;
+          if (!active) continue;
+          if (pending) {
+            // Decisions stay actionable below the answer while steps collapse.
+            cards.add(part(entry, value, index, false, continuing: continuing));
+          } else if (call['state'] == 'running' ||
+              continuing ||
+              childRuns.any((child) => activeRun(object(child['run'])))) {
+            live = rendered;
+          }
+        }
+        body.addAll([
+          for (final (position, input) in segment.inputs.indexed)
             UserBubble(
-              key: ValueKey(('input', input.turn, position)),
+              key: ValueKey(('input', input.turn, segmentIndex, position)),
               onEdit:
                   onTurnAction == null || !canChangeHistory || !input.canonical
                   ? null
@@ -404,11 +405,17 @@ class _LiveTimelineState extends State<LiveTimeline> {
                     ),
             ),
           TurnFrame(
-            key: ValueKey('turn-${run['turn']}'),
+            key: ValueKey(
+              settled
+                  ? 'turn-${run['turn']}-$segmentIndex'
+                  : 'turn-${run['turn']}',
+            ),
             run: run,
             connected: connected,
             steps: steps,
             count: count,
+            segment: segmentIndex,
+            settled: settled,
             answer: [
               if (pressable && answerParts.isNotEmpty)
                 GestureDetector(
@@ -429,14 +436,27 @@ class _LiveTimelineState extends State<LiveTimeline> {
               else
                 ...answerParts,
             ],
-            current: cards.isEmpty
+            current: settled
+                ? null
+                : cards.isEmpty
                 ? live
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: cards,
                   ),
-            phase: phase,
+            phase: settled ? null : phase,
           ),
+        ]);
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          BackgroundNotices(
+            items: objects(run['notices']),
+            children: children,
+            onOpenChild: onOpenChild,
+          ),
+          ...body,
           PublicationDetails(
             key: ValueKey('publications-${run['turn']}'),
             calls: turnCalls,

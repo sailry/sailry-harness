@@ -10,8 +10,7 @@ class TranscriptIndex {
     : snapshot = object(view['snapshot']),
       calls = objects(view['calls']),
       children = object(object(view['children'])['sessions']),
-      _rows = object(view['rows']),
-      _inputs = object(view['inputs']) {
+      _segments = object(view['segments']) {
     page = object(snapshot['page']);
     runs = objects(page['runs']);
     // Client selects visible response owners in shared execution order.
@@ -64,8 +63,7 @@ class TranscriptIndex {
   /// The newest run that is not a compaction.
   late final Map<String, dynamic>? latest;
 
-  final Map<String, dynamic> _rows;
-  final Map<String, dynamic> _inputs;
+  final Map<String, dynamic> _segments;
   final _runs = <Object?, Map<String, dynamic>>{};
   final _entries = <Object?, Map<String, dynamic>>{};
   final _drafts = <Object?, Map<String, dynamic>>{};
@@ -87,11 +85,9 @@ class TranscriptIndex {
     ...?_turnDrafts[turn],
   ];
 
-  List<(Map<String, dynamic>, int, Map<String, dynamic>)> rowsOf(
-    Object? turn,
-  ) => selectedRows(_rows[turn], entries: _entries, drafts: _drafts);
-
-  List<InputContent> inputsOf(Object? turn) => inputContents(_inputs[turn]);
+  /// A response owner's inputs and rows, split where delivered input joined it.
+  List<SegmentContent> segmentsOf(Object? turn) =>
+      segmentContents(_segments[turn], entries: _entries, drafts: _drafts);
 
   /// Whether a referenced child started by this turn is still running.
   bool hasActiveChild(Object? turn) => _activeChildTurns.contains(turn);

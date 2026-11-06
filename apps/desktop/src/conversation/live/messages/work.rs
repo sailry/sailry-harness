@@ -13,10 +13,46 @@ pub(super) fn answer_from(blocks: &[Block<'_>]) -> usize {
     }))
 }
 
+/// Expansion key of one segment's work; the first keeps the turn's original key.
+pub(super) fn key(segment: usize) -> String {
+    match segment {
+        0 => "work".to_owned(),
+        segment => format!("work-{segment}"),
+    }
+}
+
+/// An earlier segment discloses its own work; only the last carries the turn status.
+pub(super) fn header(
+    turn: TurnId,
+    segment: usize,
+    open: bool,
+    cx: &mut Context<View>,
+) -> MessageHeader {
+    MessageHeader::new().content_inset(false).w_full().child(
+        v_flex()
+            .text_sm()
+            .w_full()
+            .gap_2()
+            .child(
+                crate::conversation::surface::trigger(
+                    format!("live-turn-work-{turn}-{segment}"),
+                    tr("turn_work"),
+                    tr("turn_work"),
+                    open,
+                    cx,
+                )
+                .on_click(
+                    cx.listener(move |view, _, _, cx| view.expand(turn, key(segment), !open, cx)),
+                ),
+            )
+            .child(Separator::horizontal()),
+    )
+}
+
 impl View {
-    pub(super) fn work_open(&self, turn: TurnId, active: bool) -> bool {
+    pub(super) fn work_open(&self, turn: TurnId, segment: usize, active: bool) -> bool {
         self.expanded
-            .get(&(turn, "work".to_owned()))
+            .get(&(turn, key(segment)))
             .copied()
             .unwrap_or(active)
     }

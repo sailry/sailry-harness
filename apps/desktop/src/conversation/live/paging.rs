@@ -148,21 +148,15 @@ impl View {
                     .filter(|item| item.guidance.is_some())
                     .map(|item| item.turn)
                     .collect();
-                let visible = sailry_client::conversation::turns::visible_turns(
-                    &snapshot.page,
-                    &snapshot.drafts,
-                );
                 let runs: std::collections::BTreeMap<_, _> = snapshot
                     .page
                     .runs
                     .iter()
                     .map(|run| (run.turn, run))
                     .collect();
-                self.history
-                    .timeline
-                    .iter()
-                    .filter_map(|turn| runs.get(turn).copied())
-                    .filter(|run| visible.contains(&run.turn))
+                sailry_client::conversation::transcript::owners(&self.history)
+                    .into_iter()
+                    .filter_map(|turn| runs.get(&turn).copied())
                     .filter(|run| {
                         (run.status != Status::Queued || child && !guidance.contains(&run.turn))
                             && (run.status != Status::Cancelled

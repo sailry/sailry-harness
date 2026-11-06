@@ -22,8 +22,11 @@ typedef InputContent = ({
   bool canonical,
 });
 
-List<InputContent> turnInputs(Map<String, dynamic> view, Object? turn) =>
-    inputContents(object(view['inputs'])[turn]);
+/// A reply row: its entry or draft, part index and displayed part.
+typedef SelectedRow = (Map<String, dynamic>, int, Map<String, dynamic>);
+
+/// Inputs followed by the reply rows produced before the next delivered input.
+typedef SegmentContent = ({List<InputContent> inputs, List<SelectedRow> rows});
 
 List<InputContent> inputContents(Object? inputs) => [
   for (final input in objects(inputs))
@@ -36,31 +39,27 @@ List<InputContent> inputContents(Object? inputs) => [
     ),
 ];
 
-/// Add Markdown citation links to the Client's selected rows and source offsets.
-List<(Map<String, dynamic>, int, Map<String, dynamic>)> displayRows(
-  Map<String, dynamic> view,
-  Object? turn,
-) {
-  final snapshot = object(view['snapshot']);
-  return selectedRows(
-    object(view['rows'])[turn],
-    entries: {
-      for (final entry in objects(object(snapshot['page'])['entries']))
-        entry['id']: entry,
-    },
-    drafts: {
-      for (final entry in objects(snapshot['drafts'])) entry['id']: entry,
-    },
-  );
-}
+/// Reads one turn's Client segments in transcript order.
+List<SegmentContent> segmentContents(
+  Object? segments, {
+  required Map<Object?, Map<String, dynamic>> entries,
+  required Map<Object?, Map<String, dynamic>> drafts,
+}) => [
+  for (final segment in objects(segments))
+    (
+      inputs: inputContents(segment['inputs']),
+      rows: selectedRows(segment['rows'], entries: entries, drafts: drafts),
+    ),
+];
 
-/// Resolves one turn's selected rows against entries and drafts keyed by id.
-List<(Map<String, dynamic>, int, Map<String, dynamic>)> selectedRows(
+/// Resolves selected rows against entries and drafts keyed by id, adding
+/// Markdown citation links at the Client's source offsets.
+List<SelectedRow> selectedRows(
   Object? selected, {
   required Map<Object?, Map<String, dynamic>> entries,
   required Map<Object?, Map<String, dynamic>> drafts,
 }) {
-  final rows = <(Map<String, dynamic>, int, Map<String, dynamic>)>[];
+  final rows = <SelectedRow>[];
   for (final row in objects(selected)) {
     final source = object(row['source']);
     final entry = (row['draft'] == true ? drafts : entries)[source['entry']]!;

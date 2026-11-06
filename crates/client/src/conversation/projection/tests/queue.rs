@@ -196,9 +196,12 @@ fn recovers_ordered_revision_checked_items() {
             }) as fn(&str),
         ),
         (
-            "guides_in_queue_order_until_canonical_input",
+            "keeps_guidance_pending_until_canonical_input",
             (|case_name| {
+                use super::super::super::guidance::{State as Guidance, project};
+
                 let (_, mut snapshot, mut first, _) = fixture();
+                first.turn = TurnId::new();
                 first.status = Status::Queued;
                 first.sequence = 2;
                 first.input = Some(sailry_protocol::conversation::SentInput {
@@ -210,24 +213,33 @@ fn recovers_ordered_revision_checked_items() {
                 second.sequence = 3;
                 second.input.as_mut().unwrap().message = "Second guide".into();
                 let page = Arc::make_mut(&mut snapshot.page);
+                let recipient = page.runs[0].turn;
                 page.runs.extend([first.clone(), second.clone()]);
                 let mut item = pending().items.remove(0);
                 item.turn = second.turn;
-                item.guidance = Some(page.runs[0].turn);
+                item.guidance = Some(recipient);
                 let mut other = item.clone();
                 other.turn = first.turn;
                 page.queue.items = vec![item, other];
-                let selected = super::super::super::turns::guided(page);
-                assert_eq!(
-                    selected.iter().map(|run| run.turn).collect::<Vec<_>>(),
-                    [second.turn, first.turn],
-                    "{case_name}"
-                );
-                assert_eq!(
-                    selected[0].input.as_ref().unwrap().message.text,
-                    "Second guide",
-                    "{case_name}"
-                );
+                let waiting = |page: &Page| {
+                    let states = project(page);
+                    page.queue
+                        .items
+                        .iter()
+                        .map(|item| item.turn)
+                        .filter(|turn| states.get(turn) == Some(&Guidance::Pending))
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(waiting(page), [second.turn, first.turn], "{case_name}");
+                page.queue.items.retain(|item| item.turn != second.turn);
+                let delivered = page
+                    .runs
+                    .iter_mut()
+                    .find(|run| run.turn == second.turn)
+                    .unwrap();
+                delivered.status = Status::Continued;
+                delivered.guidance = Some(recipient);
+                delivered.joined = Some(recipient);
                 std::sync::Arc::make_mut(&mut page.entries).push(Entry {
                     sequence: 1,
                     id: "guided-user".into(),
@@ -240,19 +252,14 @@ fn recovers_ordered_revision_checked_items() {
                     search_suggestions: None,
                     parts: vec![Part::Text("Second guide".into())],
                 });
+                assert_eq!(waiting(page), [first.turn], "{case_name}");
                 assert_eq!(
-                    super::super::super::turns::guided(page)
-                        .iter()
-                        .map(|run| run.turn)
-                        .collect::<Vec<_>>(),
-                    [first.turn],
+                    project(page).get(&second.turn),
+                    Some(&Guidance::Delivered),
                     "{case_name}"
                 );
-                page.queue.items[1].guidance = None;
-                assert!(
-                    super::super::super::turns::guided(page).is_empty(),
-                    "{case_name}"
-                );
+                page.queue.items[0].guidance = None;
+                assert!(waiting(page).is_empty(), "{case_name}");
             }) as fn(&str),
         ),
     ] {

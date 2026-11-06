@@ -8,43 +8,35 @@ import 'package:sailry_mobile/features/conversations/live/tool_display.dart';
 
 void main() {
   test('renders Client rows with their citation offsets', () {
-    final view = {
-      'snapshot': {
-        'page': {
-          'entries': [
-            {
-              'id': 'entry',
-              'citations': [
-                {'uri': 'https://example.com/source', 'end': 3},
-              ],
-            },
-          ],
-        },
-        'drafts': [
-          {'id': 'draft'},
-        ],
-      },
-      'rows': {
-        'turn': [
-          {
-            'source': {'entry': 'entry', 'index': 2},
-            'draft': false,
-            'part': {'kind': 'text', 'data': 'B'},
-            'text_offset': 2,
-            'text_last': true,
-            'work': false,
-          },
-          {
-            'source': {'entry': 'draft', 'index': 0},
-            'draft': true,
-            'part': {'kind': 'thinking', 'data': 'Working'},
-            'work': true,
-          },
-        ],
-      },
+    final entry = {
+      'id': 'entry',
+      'citations': [
+        {'uri': 'https://example.com/source', 'end': 3},
+      ],
     };
-    final before = jsonEncode(view);
-    final rows = displayRows(view, 'turn');
+    final draft = {'id': 'draft'};
+    final selected = [
+      {
+        'source': {'entry': 'entry', 'index': 2},
+        'draft': false,
+        'part': {'kind': 'text', 'data': 'B'},
+        'text_offset': 2,
+        'text_last': true,
+        'work': false,
+      },
+      {
+        'source': {'entry': 'draft', 'index': 0},
+        'draft': true,
+        'part': {'kind': 'thinking', 'data': 'Working'},
+        'work': true,
+      },
+    ];
+    final before = jsonEncode([entry, draft, selected]);
+    final rows = selectedRows(
+      selected,
+      entries: {'entry': entry},
+      drafts: {'draft': draft},
+    );
     expect(rows.first.$1['id'], 'entry');
     expect(rows.first.$2, 2);
     expect(rows.first.$3['data'], 'B [1](<https://example.com/source>)');
@@ -52,8 +44,8 @@ void main() {
     expect(rows.last.$1['id'], 'draft');
     expect(rows.last.$3['data'], 'Working');
     expect(rows.last.$3['work'], isTrue);
-    expect(displayRows(view, 'other'), isEmpty);
-    expect(jsonEncode(view), before);
+    expect(selectedRows(null, entries: {}, drafts: {}), isEmpty);
+    expect(jsonEncode([entry, draft, selected]), before);
   });
 
   test('business fields never establish execution failure', () {

@@ -13,6 +13,15 @@ mod failure;
 mod progress;
 mod reasoning;
 mod retry;
+mod segments;
+
+/// Every segment's blocks of one turn, in transcript order.
+fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
+    super::segments(turn, history)
+        .into_iter()
+        .flat_map(|segment| segment.blocks)
+        .collect()
+}
 
 #[test]
 fn canonical_content() {

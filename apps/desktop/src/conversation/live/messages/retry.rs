@@ -109,10 +109,15 @@ fn expansion(key: String, recovered: bool) -> String {
     }
 }
 
-pub(super) fn recovered(blocks: &[Block<'_>]) -> BTreeSet<String> {
+/// Retries followed by later output in the same turn, across its segments.
+pub(super) fn recovered<'a, 'b: 'a, I>(blocks: I) -> BTreeSet<String>
+where
+    I: IntoIterator<Item = &'a Block<'b>>,
+    I::IntoIter: DoubleEndedIterator,
+{
     let mut output = false;
     let mut recovered = BTreeSet::new();
-    for block in blocks.iter().rev() {
+    for block in blocks.into_iter().rev() {
         match block {
             Block::Retry(key, _) if output => {
                 recovered.insert(key.clone());

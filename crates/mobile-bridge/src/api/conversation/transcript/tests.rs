@@ -1,6 +1,7 @@
 use super::*;
+use sailry_client::conversation::guidance;
 use sailry_protocol::{
-    AttachmentId, NodeId, SessionId, WorktreeId,
+    AttachmentId, NodeId, SessionId, TurnId, WorktreeId,
     attachment::{Attachment, Spec},
     conversation::{
         Draft, Entry, Page, Part, Pending, Run, RunKind, SentInput, Snapshot, Status,
@@ -105,8 +106,29 @@ fn joined(primary: &Run, sequence: u64, message: &str) -> Run {
     }
 }
 
+fn segments(value: &Value, turn: TurnId) -> &Vec<Value> {
+    value["segments"][turn.to_string()].as_array().unwrap()
+}
+
+/// Inputs of every segment in transcript order.
+fn inputs(value: &Value, turn: TurnId) -> Vec<Value> {
+    segments(value, turn)
+        .iter()
+        .flat_map(|segment| segment["inputs"].as_array().unwrap().clone())
+        .collect()
+}
+
+fn texts(segment: &Value) -> Vec<Value> {
+    segment["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["part"]["data"].clone())
+        .collect()
+}
+
 #[test]
-fn groups_inputs_in_canonical_order() {
+fn splits_segments_at_canonical_inputs() {
     let mut page = fixture();
     let mut primary = page.runs[0].clone();
     primary.sequence = 3;
@@ -159,47 +181,52 @@ fn groups_inputs_in_canonical_order() {
         ),
     ]);
     let value = encoded(&page, vec![]);
-    let inputs = &value["inputs"][primary.turn.to_string()];
     assert_eq!(value["timeline"], json!([primary.turn]));
     assert_eq!(value["owners"][first.turn.to_string()], json!(primary.turn));
     assert_eq!(
         value["owners"][second.turn.to_string()],
         json!(primary.turn)
     );
+    let segments = segments(&value, primary.turn);
+    assert_eq!(segments.len(), 3);
     assert_eq!(
-        inputs,
-        &json!([
-            {
-                "turn": primary.turn,
-                "message": {"text":"Original task", "attachments":[]},
-                "attachments":[],
-                "canonical":true,
-            },
-            {
-                "turn": second.turn,
-                "message": {
-                    "text":text,
-                    "attachments":[attachment.id],
-                    "references":[reference],
-                },
-                "attachments":[attachment],
-                "canonical":true,
-            },
-            {
-                "turn": first.turn,
-                "message": {"text":"Earlier admitted guide", "attachments":[]},
-                "attachments":[],
-                "canonical":true,
-            },
-        ])
+        segments[0]["inputs"],
+        json!([{
+            "turn": primary.turn,
+            "message": {"text":"Original task", "attachments":[]},
+            "attachments":[],
+            "canonical":true,
+        }])
     );
     assert_eq!(
-        value["rows"][primary.turn.to_string()]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
+        segments[1]["inputs"],
+        json!([{
+            "turn": second.turn,
+            "message": {
+                "text":text,
+                "attachments":[attachment.id],
+                "references":[reference],
+            },
+            "attachments":[attachment],
+            "canonical":true,
+        }])
     );
+    assert_eq!(
+        segments[2]["inputs"],
+        json!([{
+            "turn": first.turn,
+            "message": {"text":"Earlier admitted guide", "attachments":[]},
+            "attachments":[],
+            "canonical":true,
+        }])
+    );
+    assert_eq!(texts(&segments[0]), [json!("Work")]);
+    assert_eq!(texts(&segments[1]), [json!("More work")]);
+    assert!(texts(&segments[2]).is_empty());
+    assert_eq!(segments[0]["rows"][0]["work"], false);
+    assert!(value["segments"].get(first.turn.to_string()).is_none());
+    assert!(value.get("rows").is_none());
+    assert!(value.get("inputs").is_none());
     assert_eq!(
         value["snapshot"]["page"],
         serde_json::to_value(&page).unwrap()
@@ -246,10 +273,11 @@ fn waits_for_canonical_guidance_and_claim() {
             }
             let value = encoded(&page, vec![]);
             assert_eq!(value["timeline"], json!([primary.turn]));
-            let inputs = value["inputs"][primary.turn.to_string()]
-                .as_array()
-                .unwrap();
-            assert_eq!(inputs.len(), if step == 2 { 2 } else { 1 });
+            assert_eq!(segments(&value, primary.turn).len(), 1);
+            assert_eq!(
+                inputs(&value, primary.turn).len(),
+                if step == 2 { 2 } else { 1 }
+            );
             assert_eq!(value["snapshot"]["page"]["queue"], json!(page.queue));
         }
         page.queue.items.clear();
@@ -271,23 +299,27 @@ fn waits_for_canonical_guidance_and_claim() {
         let reconnected = encoded(&page.clone(), vec![]);
         for value in [&streaming, &committed, &reconnected] {
             assert_eq!(value["timeline"], json!([primary.turn]));
-            let inputs = value["inputs"][primary.turn.to_string()]
-                .as_array()
-                .unwrap();
+            let segments = segments(value, primary.turn);
+            assert_eq!(segments.len(), 1);
+            let inputs = segments[0]["inputs"].as_array().unwrap();
             assert_eq!(inputs.len(), 2);
             assert_eq!(inputs[1]["turn"], json!(guide.turn));
             assert_eq!(inputs[1]["message"]["text"], "Canonical guidance");
             assert_eq!(inputs[1]["canonical"], true);
-            assert_eq!(
-                value["rows"][primary.turn.to_string()]
-                    .as_array()
-                    .unwrap()
-                    .len(),
-                1
-            );
+            assert_eq!(texts(&segments[0]), [json!("Streaming answer")]);
         }
-        assert_eq!(streaming["inputs"], committed["inputs"]);
-        assert_eq!(committed["inputs"], reconnected["inputs"]);
+        assert_eq!(
+            segments(&streaming, primary.turn)[0]["rows"][0]["draft"],
+            true
+        );
+        assert_eq!(
+            inputs(&streaming, primary.turn),
+            inputs(&committed, primary.turn)
+        );
+        assert_eq!(
+            inputs(&committed, primary.turn),
+            inputs(&reconnected, primary.turn)
+        );
     }
 }
 
@@ -330,38 +362,17 @@ fn keeps_queued_turns_and_unloaded_owners_distinct() {
     ));
     let value = encoded(&page, vec![]);
     assert_eq!(value["timeline"], json!([primary.turn, queued.turn]));
-    assert_eq!(
-        value["inputs"][primary.turn.to_string()]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    assert_eq!(
-        value["inputs"][queued.turn.to_string()]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(
-        value["inputs"][queued.turn.to_string()][0]["turn"],
-        json!(queued.turn)
-    );
-    assert_eq!(
-        value["inputs"][queued.turn.to_string()][0]["canonical"],
-        false
-    );
+    assert_eq!(inputs(&value, primary.turn).len(), 2);
+    let queued_inputs = inputs(&value, queued.turn);
+    assert_eq!(queued_inputs.len(), 1);
+    assert_eq!(queued_inputs[0]["turn"], json!(queued.turn));
+    assert_eq!(queued_inputs[0]["canonical"], false);
+    assert!(value["segments"].get(guide.turn.to_string()).is_none());
     page.runs.retain(|run| run.turn != primary.turn);
     let value = encoded(&page, vec![]);
     assert_eq!(value["timeline"], json!([guide.turn, queued.turn]));
     assert_eq!(value["owners"][guide.turn.to_string()], json!(guide.turn));
-    assert_eq!(
-        value["inputs"][guide.turn.to_string()][0]["turn"],
-        json!(guide.turn)
-    );
-    assert_eq!(
-        value["inputs"][guide.turn.to_string()][0]["message"]["text"],
-        "Delivered guidance"
-    );
+    let guide_inputs = inputs(&value, guide.turn);
+    assert_eq!(guide_inputs[0]["turn"], json!(guide.turn));
+    assert_eq!(guide_inputs[0]["message"]["text"], "Delivered guidance");
 }
