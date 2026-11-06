@@ -1,4 +1,4 @@
-use sailry_client::conversation::{View, transcript, turns};
+use sailry_client::conversation::{View, images, transcript, turns};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -23,6 +23,8 @@ pub(super) fn project(view: &View, value: &mut Value) -> Result<(), String> {
     )
     .map_err(super::error)?;
     value["timeline"] = serde_json::to_value(timeline).map_err(super::error)?;
+    value["images"] =
+        serde_json::to_value(images::referenced(page, &snapshot.drafts)).map_err(super::error)?;
     Ok(())
 }
 

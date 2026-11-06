@@ -244,6 +244,52 @@ fn splits_segments_at_canonical_inputs() {
 }
 
 #[test]
+fn resolves_referenced_images() {
+    let mut page = fixture();
+    let run = page.runs[0].clone();
+    let image = sailry_protocol::conversation::Image {
+        entry: "entry-2".into(),
+        part: 0,
+        index: 0,
+        attachment: Attachment {
+            id: AttachmentId::new(),
+            spec: Spec {
+                worktree: run.worktree,
+                name: "image-1.jpg".into(),
+                media_type: "image/jpeg".into(),
+                size: 64,
+                revision: "fixture-image-digest".into(),
+            },
+        },
+    };
+    Arc::make_mut(&mut page.entries).push(entry(
+        run.turn,
+        2,
+        "assistant",
+        vec![Part::ToolResult {
+            id: Some("call_1".into()),
+            name: "browser_screenshot".into(),
+            summary: Box::default(),
+            images: vec![image.clone()],
+        }],
+    ));
+    assert_eq!(encoded(&page, vec![])["images"], json!([]));
+    let draft = Draft {
+        id: "draft".into(),
+        turn: run.turn,
+        author: "assistant".into(),
+        branch: String::new(),
+        parts: vec![Part::Text(
+            "![Saved](sailry-image:call_1/0) ![Missing](sailry-image:call_2/0)".into(),
+        )],
+    };
+    assert_eq!(
+        encoded(&page, vec![draft])["images"],
+        json!([{"call":"call_1","index":0,"image":image}])
+    );
+}
+
+#[test]
 fn waits_for_canonical_guidance_and_claim() {
     for canonical_first in [false, true] {
         let mut page = fixture();

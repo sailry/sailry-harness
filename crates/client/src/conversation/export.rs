@@ -1,10 +1,11 @@
 //! Portable exports hydrate canonical history through the same authenticated Client.
+use super::images::Resolved;
 use crate::Client;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault, SessionId, TurnId,
     attachment::Attachment,
-    conversation::{Page, Part},
+    conversation::{Image, Page, Part},
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -99,13 +100,15 @@ impl Client {
             super::history::merge(&mut history.page, older.page, true)?;
             history.page.next_before = next;
         }
+        // A reply can show an image returned earlier in its conversation.
+        let images = super::images::referenced(&history.page, &[]);
         if let Some(turn) = turn {
             std::sync::Arc::make_mut(&mut history.page.entries).retain(|entry| entry.turn == turn);
             if history.page.entries.is_empty() {
                 return Err(Fault::invalid("Reply is unavailable"));
             }
         }
-        render(&history.page, title, format, assets)
+        compose(&history.page, &images, title, format, assets)
     }
 }
 
@@ -134,7 +137,24 @@ pub fn attachment_name(attachment: &Attachment) -> String {
     )
 }
 
+#[cfg(test)]
 fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Document, Fault> {
+    compose(
+        page,
+        &super::images::referenced(page, &[]),
+        title,
+        format,
+        assets,
+    )
+}
+
+fn compose(
+    page: &Page,
+    referenced: &[Resolved],
+    title: &str,
+    format: Format,
+    assets: &str,
+) -> Result<Document, Fault> {
     if assets.is_empty()
         || assets.chars().any(|character| character.is_control())
         || assets.contains(['\\', ':', '<', '>'])
@@ -187,7 +207,13 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
             }
             match part {
                 Part::Text(text) => {
-                    body.push_str(text);
+                    body.push_str(&embed(
+                        text,
+                        referenced,
+                        assets,
+                        &mut attachments,
+                        &mut images,
+                    )?);
                     text_run = true;
                 }
                 Part::Attachment(attachment) => {
@@ -274,6 +300,40 @@ fn attachment_link(
         attachment_name(attachment)
     ));
     Ok(())
+}
+
+/// Resolved conversation image references point at their exported asset files.
+fn embed(
+    text: &str,
+    referenced: &[Resolved],
+    assets: &str,
+    attachments: &mut BTreeMap<sailry_protocol::AttachmentId, Attachment>,
+    images: &mut BTreeMap<sailry_protocol::AttachmentId, Image>,
+) -> Result<String, Fault> {
+    let mut output = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for (range, reference) in super::images::spans(text) {
+        let Some(item) = referenced
+            .iter()
+            .find(|item| item.call == reference.call && item.index == reference.index)
+        else {
+            continue;
+        };
+        let attachment = &item.image.attachment;
+        if attachments
+            .get(&attachment.id)
+            .is_some_and(|previous| previous != attachment)
+        {
+            return Err(Fault::invalid("export attachment identity changed"));
+        }
+        attachments.insert(attachment.id, attachment.clone());
+        images.insert(attachment.id, item.image.clone());
+        output.push_str(&text[cursor..range.start]);
+        output.push_str(&format!("{assets}/{}", attachment_name(attachment)));
+        cursor = range.end;
+    }
+    output.push_str(&text[cursor..]);
+    Ok(output)
 }
 
 fn label(value: &str) -> String {
