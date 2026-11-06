@@ -68,6 +68,7 @@ impl Collector {
                     // Only the configured flag is retained by Control. There is
                     // no key, credential storage or reporting transport here.
                     key: Some(String::new()),
+                    revision: None,
                 },
             )),
             data: Mutex::new(Data::default()),

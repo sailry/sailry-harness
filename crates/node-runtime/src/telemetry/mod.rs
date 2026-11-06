@@ -59,11 +59,7 @@ impl Control {
             metrics_configured: config.key.is_some(),
             metadata: Mutex::new(Metadata {
                 installation_id: String::new(),
-                release: format!(
-                    "sailry@{}+{}",
-                    env!("SAILRY_HOST_VERSION"),
-                    option_env!("SAILRY_GIT_SHA").unwrap_or("unknown"),
-                ),
+                release: release(config.revision),
                 channel: if cfg!(debug_assertions) {
                     "dev"
                 } else {
@@ -154,6 +150,7 @@ impl Control {
                 allowed: permitted,
                 dsn: Some("synthetic".into()),
                 key: Some("synthetic".into()),
+                revision: None,
             },
         ));
         control.configure(&Settings {
@@ -187,26 +184,40 @@ impl Control {
     }
 }
 
+/// Compile-time inputs embedded by the application binary. Node Runtime never
+/// reads them at compile time, so Git state and local delivery keys cannot
+/// invalidate its build artifacts.
+#[derive(Clone, Copy, Default)]
+pub struct Build {
+    /// Abbreviated source revision, embedded only by release builds.
+    pub revision: Option<&'static str>,
+    /// Sentry DSN used when the runtime environment provides none.
+    pub dsn: Option<&'static str>,
+    /// Telemetry.sh key used when the runtime environment provides none.
+    pub key: Option<&'static str>,
+}
+
+fn release(revision: Option<&str>) -> String {
+    format!(
+        "sailry@{}+{}",
+        env!("SAILRY_HOST_VERSION"),
+        revision.unwrap_or("unknown")
+    )
+}
+
 struct Configuration {
     allowed: bool,
     dsn: Option<String>,
     key: Option<String>,
+    revision: Option<&'static str>,
 }
 
 impl Configuration {
-    fn read() -> Self {
-        Self::resolve(
-            |key| std::env::var(key).ok(),
-            option_env!("SAILRY_SENTRY_DSN"),
-            option_env!("SAILRY_TELEMETRY_KEY"),
-        )
+    fn read(build: &Build) -> Self {
+        Self::resolve(|key| std::env::var(key).ok(), build)
     }
 
-    fn resolve(
-        lookup: impl Fn(&str) -> Option<String>,
-        compiled_dsn: Option<&str>,
-        compiled_key: Option<&str>,
-    ) -> Self {
+    fn resolve(lookup: impl Fn(&str) -> Option<String>, build: &Build) -> Self {
         fn value(runtime: Option<String>, compiled: Option<&str>) -> Option<String> {
             runtime
                 .or_else(|| compiled.map(str::to_owned))
@@ -215,8 +226,9 @@ impl Configuration {
         Self {
             allowed: lookup("SAILRY_TELEMETRY").as_deref() != Some("off")
                 && lookup("DO_NOT_TRACK").as_deref() != Some("1"),
-            dsn: value(lookup("SAILRY_SENTRY_DSN"), compiled_dsn),
-            key: value(lookup("SAILRY_TELEMETRY_KEY"), compiled_key),
+            dsn: value(lookup("SAILRY_SENTRY_DSN"), build.dsn),
+            key: value(lookup("SAILRY_TELEMETRY_KEY"), build.key),
+            revision: build.revision,
         }
     }
 }
@@ -230,9 +242,13 @@ pub fn override_enabled(enabled: bool) {
     }
 }
 
-pub(crate) fn start(profile: &Path, application: crate::logging::Application) -> Arc<Control> {
+pub(crate) fn start(
+    profile: &Path,
+    application: crate::logging::Application,
+    build: &Build,
+) -> Arc<Control> {
     let process = PROCESS.get_or_init(|| {
-        let configuration = Configuration::read();
+        let configuration = Configuration::read(build);
         let control = Arc::new(Control::new(application, &configuration));
         let key = configuration.allowed.then_some(configuration.key).flatten();
         Process {
@@ -249,8 +265,8 @@ pub(crate) fn start(profile: &Path, application: crate::logging::Application) ->
     process.control.clone()
 }
 
-pub(crate) fn dsn() -> Option<String> {
-    let config = Configuration::read();
+pub(crate) fn dsn(build: &Build) -> Option<String> {
+    let config = Configuration::read(build);
     config.allowed.then_some(config.dsn).flatten()
 }
 
@@ -403,7 +419,7 @@ mod tests {
             (
                 "missing_configuration_disables_both_sinks",
                 (|scenario: &'static str| {
-                    let config = Configuration::resolve(|_| None, None, None);
+                    let config = Configuration::resolve(|_| None, &Build::default());
                     let control = Control::new(crate::logging::Application::Desktop, &config);
                     control.configure(&Settings::default());
                     assert!(control.permitted(), "{scenario}");
@@ -437,8 +453,11 @@ mod tests {
                                 }
                                 _ => None,
                             },
-                            Some("compiled-dsn"),
-                            Some("compiled-key"),
+                            &Build {
+                                revision: None,
+                                dsn: Some("compiled-dsn"),
+                                key: Some("compiled-key"),
+                            },
                         );
                         assert!(!config.allowed, "{scenario}");
                         assert_eq!(config.dsn.as_deref(), Some("runtime-dsn"), "{scenario}");
@@ -446,11 +465,53 @@ mod tests {
                     }
                     let empty = Configuration::resolve(
                         |_| Some(String::new()),
-                        Some("compiled"),
-                        Some("compiled"),
+                        &Build {
+                            revision: None,
+                            dsn: Some("compiled"),
+                            key: Some("compiled"),
+                        },
                     );
                     assert!(empty.dsn.is_none(), "{scenario}");
                     assert!(empty.key.is_none(), "{scenario}");
+                }),
+            ),
+            (
+                "application_values_apply_without_runtime_overrides",
+                (|scenario: &'static str| {
+                    let config = Configuration::resolve(
+                        |_| None,
+                        &Build {
+                            revision: None,
+                            dsn: Some("compiled-dsn"),
+                            key: Some("compiled-key"),
+                        },
+                    );
+                    assert!(config.allowed, "{scenario}");
+                    assert_eq!(config.dsn.as_deref(), Some("compiled-dsn"), "{scenario}");
+                    assert_eq!(config.key.as_deref(), Some("compiled-key"), "{scenario}");
+                }),
+            ),
+            (
+                "release_identifies_the_application_revision",
+                (|scenario: &'static str| {
+                    let version = env!("SAILRY_HOST_VERSION");
+                    for (revision, expected) in [
+                        (
+                            Some("0123456789ab"),
+                            format!("sailry@{version}+0123456789ab"),
+                        ),
+                        (None, format!("sailry@{version}+unknown")),
+                    ] {
+                        let config = Configuration::resolve(
+                            |_| None,
+                            &Build {
+                                revision,
+                                ..Build::default()
+                            },
+                        );
+                        let control = Control::new(crate::logging::Application::Host, &config);
+                        assert_eq!(control.metadata().release, expected, "{scenario}");
+                    }
                 }),
             ),
         ] {

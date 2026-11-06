@@ -458,7 +458,7 @@ async fn ingests_synthetic_metrics() {
     };
     use sailry_protocol::{WorkMode, search::Driver};
     assert!(
-        crate::telemetry::Configuration::read().allowed,
+        crate::telemetry::Configuration::read(&crate::telemetry::Build::default()).allowed,
         "live reporting is disabled"
     );
     let key = std::env::var("SAILRY_LIVE_TELEMETRY_KEY")
@@ -473,11 +473,7 @@ async fn ingests_synthetic_metrics() {
     );
     let metadata = crate::telemetry::Metadata {
         installation_id: uuid::Uuid::new_v4().to_string(),
-        release: format!(
-            "sailry@{}+{}",
-            env!("SAILRY_HOST_VERSION"),
-            env!("SAILRY_GIT_SHA")
-        ),
+        release: crate::telemetry::release(None),
         channel: "dev",
         application: "host",
         os: std::env::consts::OS,
