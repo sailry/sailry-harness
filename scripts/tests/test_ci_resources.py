@@ -1095,13 +1095,19 @@ class Profiles(unittest.TestCase):
 
     def test_reports_tests_that_pass_on_retry(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        for name, reports in (("shared", "target/nextest/ci/junit.xml target/nextest/databases/junit.xml"),
-                              ("desktop", "target/nextest/ci/junit.xml target/nextest/lifecycle/junit.xml"),
-                              ("host", "target/nextest/ci/junit.xml")):
-            step = job_section(workflow, name).split("      - name: Flaky tests\n", 1)[1].split("      - ", 1)[0]
+        for name, reports in (("shared", {"ci": "tests", "databases": "databases"}),
+                              ("desktop", {"ci": "tests", "lifecycle": "lifecycle"}),
+                              ("host", {"ci": "tests"})):
+            job = job_section(workflow, name)
+            step = job.split("      - name: Flaky tests\n", 1)[1].split("      - ", 1)[0]
+            command = " ".join(step.split("run:", 1)[1].replace(">-", "").split())
+            expected = " ".join(f'"target/nextest/{profile}/junit.xml=${{{{ steps.{step_id}.outcome }}}}"'
+                                for profile, step_id in reports.items())
             with self.subTest(job=name):
                 self.assertIn("if: always()", step)
-                self.assertIn(f"run: python3 scripts/ci.py flaky {reports}\n", step)
+                self.assertEqual(command, f"python3 scripts/ci.py flaky {expected}")
+                for step_id in reports.values():
+                    self.assertIn(f"        id: {step_id}\n", job)
 
 
 class FlakyReport(unittest.TestCase):
@@ -1125,7 +1131,7 @@ class FlakyReport(unittest.TestCase):
             report = Path(directory) / "junit.xml"
             report.write_text(self.REPORT)
             summary = Path(directory) / "summary.md"
-            with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), \
+            with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary), "GITHUB_ACTIONS": "true"}), \
                     patch("builtins.print") as output:
                 flaky = ci.report_flaky([report, Path(directory) / "missing.xml"])
             self.assertEqual(flaky, [("sailry-node-runtime::agent", "delegation::claim::preserves_fifo", 1)])
@@ -1141,6 +1147,47 @@ class FlakyReport(unittest.TestCase):
             with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), patch("builtins.print"):
                 self.assertEqual(ci.report_flaky([Path(directory) / "missing.xml"]), [])
             self.assertFalse(summary.exists())
+
+    def test_prints_plain_text_outside_actions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "junit.xml"
+            report.write_text(self.REPORT)
+            environment = {name: value for name, value in os.environ.items()
+                           if name not in {"GITHUB_ACTIONS", "GITHUB_STEP_SUMMARY"}}
+            with patch.dict(os.environ, environment, clear=True), patch("builtins.print") as output:
+                ci.report_flaky([report])
+            self.assertIn("Flaky test: sailry-node-runtime::agent delegation::claim::preserves_fifo "
+                          "passed after 1 failed attempt(s)", [call.args[0] for call in output.call_args_list])
+
+    def test_reports_missing_after_test_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            present = Path(directory) / "junit.xml"
+            present.write_text(self.REPORT)
+            missing = Path(directory) / "missing.xml"
+            cases = (
+                ({missing: "success"}, True, "::error title=Missing test report::"),
+                ({missing: "failure"}, False, "::warning title=Missing test report::"),
+                ({missing: "skipped", present: "success"}, False, None),
+            )
+            for outcomes, failed, prefix in cases:
+                with self.subTest(outcomes=list(outcomes.values())):
+                    with patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), patch("builtins.print") as output:
+                        self.assertEqual(ci.report_missing(outcomes), failed)
+                    printed = [call.args[0] for call in output.call_args_list]
+                    if prefix is None:
+                        self.assertEqual(printed, [])
+                    else:
+                        self.assertEqual(len(printed), 1)
+                        self.assertTrue(printed[0].startswith(prefix + str(missing)))
+
+    def test_fails_when_passing_step_left_no_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing.xml"
+            for outcome, code in (("success", 1), ("failure", 0), ("cancelled", 0)):
+                with self.subTest(outcome=outcome):
+                    result = subprocess.run([sys.executable, str(ROOT / "scripts/ci.py"), "flaky", f"{missing}={outcome}"],
+                                            capture_output=True, text=True, env={**os.environ, "GITHUB_STEP_SUMMARY": ""})
+                    self.assertEqual(result.returncode, code, result.stdout + result.stderr)
 
 
 class ToolVersions(unittest.TestCase):

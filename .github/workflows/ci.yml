@@ -365,6 +365,7 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ needs.source.outputs.reuse_archive_run || github.run_id }}
       - name: Shared and macOS Host contracts
+        id: tests
         # Archive settings stay on the steps that run archived binaries.
         env:
           CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
@@ -376,6 +377,7 @@ jobs:
           CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
         run: python3 scripts/ci.py check plugin-contracts
       - name: Isolated database engines
+        id: databases
         if: matrix.partition == 1 && needs.source.outputs.shared == 'true'
         env:
           CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
@@ -385,7 +387,9 @@ jobs:
           python3 scripts/ci.py check shared-databases
       - name: Flaky tests
         if: always()
-        run: python3 scripts/ci.py flaky target/nextest/ci/junit.xml target/nextest/databases/junit.xml
+        run: >-
+          python3 scripts/ci.py flaky "target/nextest/ci/junit.xml=${{ steps.tests.outcome }}"
+          "target/nextest/databases/junit.xml=${{ steps.databases.outcome }}"
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -439,17 +443,21 @@ jobs:
       - name: Desktop source fixtures
         run: python3 scripts/ci.py check desktop-source
       - name: Desktop logic and service contracts
+        id: tests
         # Process isolation permits bounded concurrency without shared global state.
         env:
           CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
         run: python3 scripts/ci.py check desktop
       - name: Desktop process lifecycle
+        id: lifecycle
         env:
           CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
         run: python3 scripts/ci.py check desktop-lifecycle
       - name: Flaky tests
         if: always()
-        run: python3 scripts/ci.py flaky target/nextest/ci/junit.xml target/nextest/lifecycle/junit.xml
+        run: >-
+          python3 scripts/ci.py flaky "target/nextest/ci/junit.xml=${{ steps.tests.outcome }}"
+          "target/nextest/lifecycle/junit.xml=${{ steps.lifecycle.outcome }}"
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -505,12 +513,13 @@ jobs:
       - name: Host source fixtures
         run: python3 scripts/ci.py check host-source
       - name: Host logic and service contracts
+        id: tests
         run: python3 scripts/ci.py check host
       - name: Host without test features
         run: python3 scripts/ci.py check host-production
       - name: Flaky tests
         if: always()
-        run: python3 scripts/ci.py flaky target/nextest/ci/junit.xml
+        run: python3 scripts/ci.py flaky "target/nextest/ci/junit.xml=${{ steps.tests.outcome }}"
       - name: Save Ghostty build inputs
         if: github.ref == 'refs/heads/main' && steps.ghostty.outcome == 'success' && steps.ghostty.outputs.hit != 'true'
         continue-on-error: true

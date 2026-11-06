@@ -637,12 +637,21 @@ def local(arguments):
     if mismatched:
         print("Local tool versions differ from CI: " + "; ".join(mismatched), file=sys.stderr)
         return 1
+    junit = target / "nextest/ci/junit.xml"
     for name in plan["checks"]:
+        if name == "tests":
+            junit.unlink(missing_ok=True)
         try:
             code = run_check(name, args.jobs, ROOT, source["selection"], env, args.test_threads, system)
         except OSError as error:
             print(f"Check {name} could not run: {error}", file=sys.stderr)
             return 1
+        if name == "tests":
+            # Retried integration tests pass silently otherwise; list them even when the check failed.
+            try:
+                report_flaky([junit])
+            except ElementTree.ParseError as error:
+                print(f"Test report could not be read: {error}", file=sys.stderr)
         if code:
             return code
     if args.candidate:
@@ -805,10 +814,28 @@ def flaky_tests(paths):
     return flaky
 
 
+def annotation(level, title, message):
+    """A workflow annotation in Actions, plain text elsewhere."""
+    return f"::{level} title={title}::{message}" if os.getenv("GITHUB_ACTIONS") == "true" else f"{title}: {message}"
+
+
+def report_missing(outcomes):
+    """Report JUnit files absent after their test step ran; true when a passing step left none."""
+    failed = False
+    for path, outcome in outcomes.items():
+        if outcome not in {"success", "failure"} or path.is_file():
+            continue
+        # A failed step may stop before nextest writes; a passing one must leave its report.
+        failed |= outcome == "success"
+        level = "error" if outcome == "success" else "warning"
+        print(annotation(level, "Missing test report", f"{path} after its test step reported {outcome}"))
+    return failed
+
+
 def report_flaky(paths):
     flaky = flaky_tests(paths)
     for suite, name, attempts in flaky:
-        print(f"::warning title=Flaky test::{suite} {name} passed after {attempts} failed attempt(s)")
+        print(annotation("warning", "Flaky test", f"{suite} {name} passed after {attempts} failed attempt(s)"))
     if flaky and os.getenv("GITHUB_STEP_SUMMARY"):
         lines = ["### Flaky tests", "", "These passed only on retry. Diagnose them; a retry is not a fix.", ""]
         lines += [f"- `{suite} {name}`: {attempts} failed attempt(s)" for suite, name, attempts in flaky]
@@ -980,10 +1007,14 @@ def main():
             raise SystemExit(str(error)) from error
         print("Fetched pinned Ghostty source" if fetched else "Reused cached Ghostty source")
     elif len(sys.argv) >= 2 and sys.argv[1] == "flaky":
+        # Each report may name its test step's outcome as `path=outcome`.
+        reports = [argument.partition("=") for argument in sys.argv[2:]]
         try:
-            report_flaky([Path(path) for path in sys.argv[2:]])
+            report_flaky([Path(path) for path, _, _ in reports])
         except (OSError, ElementTree.ParseError) as error:
             raise SystemExit(f"Test reports could not be read: {error}") from error
+        raise SystemExit(1 if report_missing({Path(path): outcome for path, separator, outcome in reports
+                                              if separator}) else 0)
     elif len(sys.argv) >= 2 and sys.argv[1] == "tools" and set(sys.argv[2:]) <= set(TOOLS):
         raise SystemExit(0 if report_tools(sys.argv[2:] or list(TOOLS)) else 1)
     elif len(sys.argv) == 3 and sys.argv[1] == "fixtures" and sys.argv[2] in FIXTURES:
@@ -1005,7 +1036,7 @@ def main():
     else:
         raise SystemExit(
             "Usage: ci.py local [fast|affected|pre-push] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint [linux|macos]|report [desktop|host|mobile]|fixtures <owner>|"
-            "speech-key|native-key <target> <shared|static>|ghostty-key|ghostty-source|flaky <junit>...|tools [name...]"
+            "speech-key|native-key <target> <shared|static>|ghostty-key|ghostty-source|flaky <junit[=outcome]>...|tools [name...]"
         )
 
 

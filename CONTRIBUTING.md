@@ -111,7 +111,11 @@ just test-backend   # Shared Rust tests and package runtime contracts
 just test-ui        # Desktop logic and service-contract tests
 ```
 
-`just test-backend` and `just test-ui` use CI's nextest profile. Install the pinned runner with
+`just test-backend`, `just test-ui` and the `tests` check of `just ci` use CI's
+nextest profile, including its retry and timeout settings: a failed integration test
+reruns once, and a hung test fails after five 60-second periods, so a test that hangs
+on both attempts takes about ten minutes. The `tests` check lists tests that passed
+only on retry, even when the check fails. Install the pinned runner with
 `cargo install --locked cargo-nextest --version 0.9.143` if it is not available.
 This selects nextest's execution settings, not Cargo's release build profile.
 Standard test commands skip provider backoff waits against fixture servers;
@@ -306,7 +310,9 @@ and backend test in its own process without compiling a binary per test.
 Desktop runs two tests concurrently. Integration-test binaries retry a failed test
 once and the job summary lists tests that passed only on retry; unit tests are not
 retried. A retry pass does not replace diagnosing the flaky test. Hung tests fail
-after five 60-second timeout periods.
+after five 60-second timeout periods; with the retry, one hung integration test can
+hold its slot for about ten minutes. A test step that passes without leaving its
+JUnit report fails the job; a failed step without a report adds a warning.
 Unit tests precede production-feature checks; the lifecycle suite builds its own
 required application executable. JUnit reports remain separate and include
 individual test durations.
