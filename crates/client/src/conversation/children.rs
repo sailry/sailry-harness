@@ -61,9 +61,10 @@ pub fn running(children: &[Child], parent: Option<SessionId>) -> Vec<&Child> {
 }
 
 /// Unfinished foreground children that hold a running turn's next model request.
-/// Execution waits for them only after the tool calls ending the latest segment
-/// (`rows`) settle; newer model output, a pending decision or delivered input
-/// means the parent is not waiting, and background children never hold it.
+/// Before each request execution waits for every unfinished foreground child of
+/// the turn, including after a text-only reply. The latest segment (`rows`) must
+/// end in settled model output: streaming drafts, unresolved tool calls, retries,
+/// compaction, pending decisions or pending guidance mean the parent is not waiting.
 pub fn waiting(view: &super::View, turn: TurnId, rows: &[Row<'_>]) -> Option<usize> {
     let snapshot = view.snapshot.as_deref()?;
     let page = &snapshot.page;
@@ -82,6 +83,7 @@ pub fn waiting(view: &super::View, turn: TurnId, rows: &[Row<'_>]) -> Option<usi
             .questions
             .iter()
             .any(|item| item.turn == turn && item.state == question::State::Pending)
+        || guided(view, page, turn)
     {
         return None;
     }
@@ -94,6 +96,7 @@ pub fn waiting(view: &super::View, turn: TurnId, rows: &[Row<'_>]) -> Option<usi
     let mut settled = false;
     for row in rows.iter().rev() {
         match row.part {
+            _ if row.draft => return None,
             Part::ToolCall { .. } => {
                 let call = calls.get(&(row.source.entry.as_str(), row.source.index))?;
                 if matches!(call.state, tools::State::Waiting | tools::State::Running) {
@@ -103,7 +106,12 @@ pub fn waiting(view: &super::View, turn: TurnId, rows: &[Row<'_>]) -> Option<usi
             }
             // Result images and unmatched results are tool output, not model output.
             Part::ToolResult { .. } => {}
-            _ => break,
+            // Calls before committed model output belong to an earlier response.
+            Part::Text(_) | Part::Thinking(_) | Part::Image(_) => {
+                settled = true;
+                break;
+            }
+            _ => return None,
         }
     }
     if !settled {
@@ -125,7 +133,24 @@ pub fn waiting(view: &super::View, turn: TurnId, rows: &[Row<'_>]) -> Option<usi
     (count > 0).then_some(count)
 }
 
-/// The delegating call's frozen selection; an unloaded call counts as foreground.
+/// Guidance queued for `turn` is handled before its foreground children are awaited.
+fn guided(view: &super::View, page: &Page, turn: TurnId) -> bool {
+    let runs = page.runs.iter().map(|run| {
+        let queued = page.queue.items.iter().find(|item| item.turn == run.turn);
+        (run.turn, run.guidance.or_else(|| queued?.guidance))
+    });
+    let queued = page
+        .queue
+        .items
+        .iter()
+        .map(|item| (item.turn, item.guidance));
+    runs.chain(queued).any(|(guide, recipient)| {
+        recipient == Some(turn)
+            && view.guidance.get(&guide) == Some(&super::guidance::State::Pending)
+    })
+}
+
+/// The delegating call's frozen selection; Node lists a child only with that entry loaded.
 fn background(page: &Page, child: &Child) -> bool {
     page.entries
         .iter()
