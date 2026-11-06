@@ -355,6 +355,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
       view: _view,
       session: widget.sessionId,
       command: _command,
+      submission: _submission,
       delegated: _session['delegation'] != null,
       mutate: _historyCommand,
       isPending: () => _historyPending != null,
@@ -416,8 +417,10 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
             widget.host.connected &&
             view['connected'] == true &&
             _error == null;
-        final queue = object(_page['queue']);
-        final outgoing = _submission.guidance;
+        final queued = summarize(view, _submission.guidance);
+        final queue = queued.count == 0
+            ? null
+            : QueueChip(state: queued, onOpen: _queue);
         final delegated = _session['delegation'] != null;
         final fault = object(view['error']);
         final hostFault = object(widget.host.error);
@@ -734,14 +737,11 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                   updates: _view,
                   onOpenChild: _openChild,
                 ),
-                if (outgoing != null &&
-                    !object(view['guidance']).containsKey(outgoing.turn))
-                  PendingGuidance(
-                    preview: outgoing.text,
-                    attachments: outgoing.attachments.length,
+                if (delegated && queue != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                    child: queue,
                   ),
-                if (delegated && objects(queue['items']).isNotEmpty)
-                  QueueSummary(queue: queue, onOpen: _queue),
                 if (!delegated)
                   MessageComposer(
                     controller: _draft,
@@ -765,9 +765,12 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                     onVoice: _voice,
                     onStop: _stop,
                     onSend: _send,
-                    priority: objects(queue['items']).isEmpty
+                    priority: queue == null
                         ? null
-                        : QueueSummary(queue: queue, onOpen: _queue),
+                        : Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: queue,
+                          ),
                   ),
               ],
             ),
