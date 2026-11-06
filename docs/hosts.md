@@ -134,8 +134,8 @@ PDB files when available, without rebuilding. Symbols stay under
 `target/debug-symbols/<component>/<target>` and outside application archives.
 
 In releases, each build job compiles alongside Checks and collects symbols
-immediately: one `dsymutil` pass per macOS binary and architecture, or one
-`objcopy` pass on Linux. `dsymutil` uses its parallel linker when available and
+immediately: one `dsymutil` pass per macOS binary and architecture, or `objcopy`
+on Linux. `dsymutil` uses its parallel linker when available and
 reruns once with the classic linker if that fails or produces symbols whose UUIDs
 or line tables do not match the binary. Signing and packaging jobs restore that
 artifact into the same directory, so packaging reuses it when UUIDs match instead
