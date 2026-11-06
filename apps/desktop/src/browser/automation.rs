@@ -65,7 +65,7 @@ impl Browser {
             | Action::Refresh { tab }
             | Action::Close { tab }
             | Action::Focus { tab }
-            | Action::Screenshot { tab }
+            | Action::Screenshot { tab, .. }
             | Action::Select { tab, .. }
             | Action::Hover { tab, .. }
             | Action::Key { tab, .. }
@@ -112,8 +112,14 @@ impl Browser {
         if let Action::Wait { timeout_ms: 0, .. } = &action {
             return Task::ready(Err(Fault::invalid("browser wait timeout must be positive")));
         }
-        if matches!(action, Action::Screenshot { .. }) {
-            return self.screenshot(tab, window, cx);
+        if let Action::Screenshot {
+            target,
+            scale,
+            format,
+            ..
+        } = action
+        {
+            return self.capture(tab, target, scale, format, window, cx);
         }
         let stop = self.stop.clone();
         cx.spawn_in(window, async move |browser, cx| {
@@ -142,36 +148,7 @@ impl Browser {
                         .timer(Duration::from_millis(100))
                         .await;
                 }
-                loop {
-                    let loading = browser
-                        .update_in(cx, |browser, _, _| {
-                            let tab = browser
-                                .tabs
-                                .iter()
-                                .find(|value| value.id as u64 == tab)
-                                .ok_or_else(unavailable)?;
-                            if tab.error.is_some() {
-                                return Err(Fault::new(
-                                    ErrorCode::Unavailable,
-                                    "browser page failed to load",
-                                ));
-                            }
-                            Ok(tab.loading)
-                        })
-                        .map_err(|_| unavailable())??;
-                    if !loading {
-                        break;
-                    }
-                    if Instant::now() >= deadline {
-                        return Err(Fault::new(
-                            ErrorCode::Unavailable,
-                            "browser page is still loading; read it again",
-                        ));
-                    }
-                    cx.background_executor()
-                        .timer(Duration::from_millis(50))
-                        .await;
-                }
+                loaded(&browser, tab, deadline, cx).await?;
                 if matches!(action, Action::Wait { .. }) {
                     loop {
                         let script = script(serde_json::to_value(&action).unwrap());
@@ -208,7 +185,7 @@ impl Browser {
             }
         })
     }
-    fn evaluate(
+    pub(super) fn evaluate(
         &self,
         tab: u64,
         script: &str,
@@ -233,16 +210,57 @@ impl Browser {
         Ok(receive)
     }
 }
-fn script(request: Value) -> String {
+/// Waits until the tab finishes loading or reports a load failure.
+pub(super) async fn loaded(
+    browser: &WeakEntity<Browser>,
+    tab: u64,
+    deadline: Instant,
+    cx: &mut AsyncWindowContext,
+) -> Result<(), Fault> {
+    loop {
+        let loading = browser
+            .update_in(cx, |browser, _, _| {
+                let tab = browser
+                    .tabs
+                    .iter()
+                    .find(|value| value.id as u64 == tab)
+                    .ok_or_else(unavailable)?;
+                if tab.error.is_some() {
+                    return Err(Fault::new(
+                        ErrorCode::Unavailable,
+                        "browser page failed to load",
+                    ));
+                }
+                Ok(tab.loading)
+            })
+            .map_err(|_| unavailable())??;
+        if !loading {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(Fault::new(
+                ErrorCode::Unavailable,
+                "browser page is still loading; read it again",
+            ));
+        }
+        cx.background_executor()
+            .timer(Duration::from_millis(50))
+            .await;
+    }
+}
+pub(super) fn script(request: Value) -> String {
     format!("({})({request})", include_str!("automation.js"))
 }
 pub(super) fn closed() -> Fault {
     Fault::new(ErrorCode::Cancelled, "browser is closed")
 }
-fn unavailable() -> Fault {
+pub(super) fn unavailable() -> Fault {
     Fault::new(ErrorCode::Unavailable, "browser page is unavailable")
 }
-async fn response(receive: oneshot::Receiver<String>, cx: &AsyncWindowContext) -> browser::Result {
+pub(super) async fn response(
+    receive: oneshot::Receiver<String>,
+    cx: &AsyncWindowContext,
+) -> browser::Result {
     let timer = cx.background_executor().timer(Duration::from_secs(5));
     let raw = tokio::select! {
         value = receive => value.map_err(|_| unavailable())?,
