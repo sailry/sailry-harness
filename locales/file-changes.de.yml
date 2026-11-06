@@ -1,4 +1,5 @@
 file_changes_approval: "Patch auf %{count} Dateien anwenden"
+file_changes_approval_one: "Patch auf 1 Datei anwenden"
 file_changes_added: "Hinzugefügt"
 file_changes_modified: "Geändert"
 file_changes_renamed: "Umbenannt"

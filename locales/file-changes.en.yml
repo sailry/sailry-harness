@@ -1,4 +1,5 @@
 file_changes_approval: "Apply patch to %{count} files"
+file_changes_approval_one: "Apply patch to 1 file"
 file_changes_added: "Added"
 file_changes_modified: "Modified"
 file_changes_renamed: "Renamed"

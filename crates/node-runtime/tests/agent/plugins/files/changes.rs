@@ -225,7 +225,7 @@ async fn requires_current_reads() {
         );
         assert_eq!(
             outputs[0]["data"]["files"][0]["error"]["message"],
-            "file has not been read in this session; read the file again"
+            "the current revision of this file has not been read; read the file again"
         );
         // A fresh read admits the patch; the session's own result admits the next one.
         assert_eq!(outputs[2]["data"]["status"], "applied", "{outputs:?}");
@@ -288,8 +288,20 @@ async fn rechecks_revisions_after_approval() {
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         let outputs = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 3);
+        let rejected = &outputs[2]["data"];
+        assert_eq!(rejected["status"], "rejected", "{outputs:?}");
         assert_eq!(
-            outputs[2]["error"]["code"], "revision_conflict",
+            rejected["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|file| file["status"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["not_attempted", "failed", "not_attempted"]
+        );
+        assert_eq!(rejected["files"][1]["path"], "b.txt");
+        assert_eq!(
+            rejected["files"][1]["error"]["code"], "revision_conflict",
             "{outputs:?}"
         );
         assert_eq!(

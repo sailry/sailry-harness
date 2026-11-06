@@ -9,13 +9,17 @@ Sailry's `apply_patch` agent tool accepts the patch format of
 grammar in `codex-rs/core/assets/tools/apply_patch.lark`.
 `crates/node-runtime/src/files/patch/update.rs` adapts `file_update.rs`,
 `text_file.rs` and `seek_sequence.rs` from the same directory.
+`crates/node-runtime/src/files/patch/tests.rs` adapts parser and update test
+cases from those files.
 
 Sailry's modifications: paths are worktree-relative strings for the confined
 file service; the `*** Environment ID:` preamble is not accepted; context and
 removed lines match exactly, without Codex's whitespace and Unicode punctuation
 fallbacks; a chunk whose lines also match before the next chunk is rejected as
-ambiguous; and updates become exact edits for Sailry's change-set engine instead
-of direct filesystem writes. Source modification notices remain in both files.
+ambiguous; added lines under an `@@` anchor without removed or context lines are
+inserted after the anchor; a move-only update is accepted; and updates become
+exact edits for Sailry's change-set engine instead of direct filesystem writes.
+Source modification notices remain in all three files.
 
 The original Apache-2.0 license is retained in [codex-LICENSE](codex-LICENSE) and
 the original Copyright 2025 OpenAI notice in [codex-NOTICE](codex-NOTICE).

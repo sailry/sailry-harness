@@ -5,12 +5,17 @@ use sailry_protocol::{ChangeKind, ChangeStatus, ChangesStatus, FileChanges};
 
 pub(super) fn project(original: &Value) -> Option<String> {
     let changes: FileChanges = serde_json::from_value(original.get("data")?.clone()).ok()?;
+    let applied = changes
+        .files
+        .iter()
+        .any(|file| file.status == ChangeStatus::Applied);
     let mut text = String::from(match changes.status {
         ChangesStatus::Applied => "All changes applied\n",
-        ChangesStatus::Rejected => "No changes applied; nothing was written\n",
-        ChangesStatus::Partial => {
+        ChangesStatus::Rejected => "No changes applied; no file content was changed\n",
+        ChangesStatus::Partial if applied => {
             "Changes partially applied; writing stopped at the first failure and earlier files were not rolled back\n"
         }
+        ChangesStatus::Partial => "Outcome unknown; writing stopped at an uncertain entry\n",
     });
     for file in &changes.files {
         match &file.destination {
@@ -122,6 +127,35 @@ mod tests {
         let text =
             project(&json!({"kind":"file_changes","data":FileChanges::new(vec![uncertain])}))
                 .unwrap();
+        assert!(text.starts_with("Outcome unknown;"), "{text}");
         assert!(text.contains("new.rs: outcome unknown (outcome_unknown): unconfirmed\nInspect this file before retrying\n"));
+    }
+
+    #[test]
+    fn keeps_applied_entries_before_uncertain_one() {
+        let applied = file("first.rs", ChangeKind::Modified, ChangeStatus::Applied);
+        let mut uncertain = file("second.rs", ChangeKind::Modified, ChangeStatus::Unknown);
+        uncertain.error = Some(Fault::new(ErrorCode::OutcomeUnknown, "unconfirmed"));
+        let changes = FileChanges::new(vec![
+            applied,
+            uncertain,
+            file("third.rs", ChangeKind::Deleted, ChangeStatus::NotAttempted),
+        ]);
+        assert_eq!(changes.status, ChangesStatus::Partial);
+        let text = project(&json!({"kind":"file_changes","data":changes})).unwrap();
+        assert!(text.starts_with("Changes partially applied"), "{text}");
+        assert!(text.contains("second.rs: outcome unknown (outcome_unknown): unconfirmed\nInspect this file before retrying\nthird.rs: not attempted\n"));
+    }
+
+    #[test]
+    fn rejection_does_not_claim_untouched_folders() {
+        let mut failed = file("a.rs", ChangeKind::Added, ChangeStatus::Failed);
+        failed.error = Some(Fault::new(ErrorCode::Conflict, "exists"));
+        let text =
+            project(&json!({"kind":"file_changes","data":FileChanges::new(vec![failed])})).unwrap();
+        assert!(
+            text.starts_with("No changes applied; no file content was changed\n"),
+            "{text}"
+        );
     }
 }

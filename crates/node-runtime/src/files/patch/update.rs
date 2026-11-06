@@ -4,10 +4,15 @@
 //! context lines follow Codex. Codex's trailing-whitespace, whitespace and Unicode
 //! punctuation fallbacks are omitted: context and removed lines match exactly, and a
 //! chunk whose lines also match before the next chunk (or the end of the file) is
-//! ambiguous. The result is expressed as exact edits so the change-set engine
-//! validates and writes it like any other edit.
+//! ambiguous. Unlike Codex, added lines under an `@@` anchor without removed or
+//! context lines are inserted after the anchor rather than appended to the file. The
+//! result is expressed as exact edits so the change-set engine validates and writes
+//! it like any other edit.
 use super::Chunk;
-use crate::files::edit::{self, text};
+use crate::files::{
+    Control,
+    edit::{self, text},
+};
 use sailry_protocol::{Fault, FileEdit};
 
 /// Replaces `old` lines from `start` with new line texts.
@@ -143,9 +148,14 @@ pub(super) fn apply<'a>(before: &'a str, chunks: &[Chunk]) -> Result<Update<'a>,
 /// A located chunk whose lines must not match again before the next chunk.
 struct Located<'a> {
     hunk: usize,
+    /// First line the chunk claims: its `@@` anchor or its match.
+    start: usize,
     from: usize,
-    at: usize,
     pattern: &'a [String],
+    /// The pattern is an `@@` line locating inserted lines.
+    anchor: bool,
+    /// End-of-file chunks are unique by position.
+    fixed: bool,
 }
 
 fn replacements(lines: &[Line<'_>], chunks: &[Chunk]) -> Result<Vec<Replacement>, Fault> {
@@ -154,6 +164,8 @@ fn replacements(lines: &[Line<'_>], chunks: &[Chunk]) -> Result<Vec<Replacement>
     let mut cursor = 0;
     for (index, chunk) in chunks.iter().enumerate() {
         let hunk = index + 1;
+        let previous = cursor;
+        let mut anchor = None;
         if let Some(context) = &chunk.context {
             let at =
                 seek(lines, std::slice::from_ref(context), cursor, false).ok_or_else(|| {
@@ -161,10 +173,25 @@ fn replacements(lines: &[Line<'_>], chunks: &[Chunk]) -> Result<Vec<Replacement>
                         "hunk {hunk}: @@ context line was not found: {context}"
                     ))
                 })?;
+            anchor = Some(at);
             cursor = at + 1;
         }
         if chunk.old.is_empty() {
-            replacements.push((lines.len(), 0, chunk.new.clone()));
+            // Added lines follow their anchor; a bare `@@` or an end-of-file chunk appends.
+            match (&chunk.context, anchor) {
+                (Some(context), Some(at)) if !chunk.end_of_file => {
+                    located.push(Located {
+                        hunk,
+                        start: at,
+                        from: previous,
+                        pattern: std::slice::from_ref(context),
+                        anchor: true,
+                        fixed: false,
+                    });
+                    replacements.push((cursor, 0, chunk.new.clone()));
+                }
+                _ => replacements.push((lines.len(), 0, chunk.new.clone())),
+            }
             continue;
         }
         // A trailing empty line may stand for the final newline, which is part of
@@ -190,12 +217,14 @@ fn replacements(lines: &[Line<'_>], chunks: &[Chunk]) -> Result<Vec<Replacement>
                 quote(&chunk.old)
             ))
         })?;
-        if !chunk.end_of_file && !pattern.is_empty() {
+        if !pattern.is_empty() {
             located.push(Located {
                 hunk,
+                start: anchor.unwrap_or(at),
                 from: cursor,
-                at,
                 pattern,
+                anchor: false,
+                fixed: chunk.end_of_file,
             });
         }
         // Context lines stay in place so their exact text and endings survive.
@@ -225,16 +254,26 @@ fn replacements(lines: &[Line<'_>], chunks: &[Chunk]) -> Result<Vec<Replacement>
         cursor = at + pattern.len();
     }
     for (position, chunk) in located.iter().enumerate() {
+        if chunk.fixed {
+            continue;
+        }
         let bound = located
             .get(position + 1)
-            .map_or(lines.len(), |next| next.at);
+            .map_or(lines.len(), |next| next.start);
         let count = (chunk.from..bound)
-            .filter(|&other| matches(lines, chunk.pattern, other))
+            .filter(|&other| {
+                other + chunk.pattern.len() <= bound && matches(lines, chunk.pattern, other)
+            })
             .count();
         if count > 1 {
             return Err(Fault::invalid(format!(
-                "hunk {}: expected lines match {count} locations; add context lines or an @@ line to identify one:\n{}",
+                "hunk {}: {} {count} locations; add context lines or an @@ line to identify one:\n{}",
                 chunk.hunk,
+                if chunk.anchor {
+                    "@@ context line matches"
+                } else {
+                    "expected lines match"
+                },
                 quote(chunk.pattern)
             )));
         }
@@ -282,15 +321,31 @@ struct Region {
 }
 
 impl Update<'_> {
+    /// Whether every replacement restores the line texts it replaces. Endings are not
+    /// compared, so an unchanged file keeps its original bytes.
+    pub(super) fn unchanged(&self) -> bool {
+        self.replacements.iter().all(|(start, length, new)| {
+            *length == new.len()
+                && self.source.lines[*start..start + length]
+                    .iter()
+                    .zip(new)
+                    .all(|(line, text)| line.text == text)
+        })
+    }
+
     /// Exact edits of `before` that the edit engine turns into [`Update::after`].
     /// Unchanged neighbors are added until each old text occurs once in the file.
-    /// `None` means edits cannot reproduce the result, such as for an empty file or
-    /// mixed line endings.
-    pub(super) fn edits(&self, before: &str, revision: &str) -> Option<Vec<FileEdit>> {
+    /// `Err` names why edits cannot reproduce the result.
+    pub(super) fn edits(
+        &self,
+        before: &str,
+        revision: &str,
+        control: &Control,
+    ) -> Result<Result<Vec<FileEdit>, String>, Fault> {
         let lines = &self.source.lines;
         let count = lines.len();
         if count == 0 {
-            return None;
+            return Ok(Err("an empty file has no text to anchor exact edits".into()));
         }
         let ending = self.source.preferred.as_str();
         let mut regions: Vec<Region> = self
@@ -327,11 +382,13 @@ impl Update<'_> {
         }
         let view = text::View::new(before);
         let mut checks = (SCAN_BYTES / before.len().max(1)).max(8);
+        let mut exhausted = false;
         let mut regions = merged;
         let mut index = 0;
         'regions: while index < regions.len() {
             let mut upward = true;
             loop {
+                control.check()?;
                 let region = &regions[index];
                 // The whole file occurs exactly once in itself.
                 if region.first == 0 && region.last == count {
@@ -339,6 +396,7 @@ impl Update<'_> {
                 }
                 if region.first < region.last {
                     if checks == 0 {
+                        exhausted = true;
                         regions = vec![Region {
                             first: 0,
                             last: count,
@@ -391,8 +449,16 @@ impl Update<'_> {
                 replace_all: false,
             })
             .collect();
-        let (after, _) = edit::apply(before, &edits, revision).ok()?;
-        (after == self.after).then_some(edits)
+        let cause = match edit::apply(before, &edits, revision) {
+            Ok((after, _)) if after == self.after => return Ok(Ok(edits)),
+            Ok(_) => "exact edits cannot reproduce the patched line endings".to_owned(),
+            Err(fault) => format!("exact edits were rejected: {}", fault.message),
+        };
+        Ok(Err(if exhausted {
+            format!("unique edit anchors were not found within the search budget; {cause}")
+        } else {
+            cause
+        }))
     }
 
     /// Original bytes of lines `first..last`, including their endings.

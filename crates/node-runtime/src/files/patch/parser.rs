@@ -132,10 +132,17 @@ impl Parser {
         Ok(self.hunks)
     }
 
-    /// An update needs at least one chunk, and its last chunk needs a line.
+    /// An update needs at least one chunk unless it only moves the file, and its last
+    /// chunk needs a line.
     fn nonempty(&self, line: &str) -> Result<(), Fault> {
-        if let Some(Hunk::Update { path, chunks, .. }) = self.hunks.last() {
+        if let Some(Hunk::Update {
+            path,
+            destination,
+            chunks,
+        }) = self.hunks.last()
+        {
             if chunks.is_empty()
+                && destination.is_none()
                 && let Mode::Update { header } = self.mode
             {
                 return Err(hunk(

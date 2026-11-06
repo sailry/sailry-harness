@@ -1,7 +1,10 @@
 //! Full file revisions shown to the model by its own file tools. They come from
 //! the model-visible tool results of the session the tool runs in, so a rewound,
-//! forked or compacted conversation keeps only what the model can still see.
+//! forked or compacted conversation keeps only what the model can still see. Only
+//! results of tools bound to Node file operations count; other tools may return
+//! lookalike values.
 use goose_provider_types::conversation::{Conversation, message::MessageContent};
+use sailry_protocol::tool::Operation;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -12,12 +15,43 @@ const PATHS: usize = 4096;
 pub(in crate::agent) struct Observed(HashMap<String, Option<String>>);
 
 impl Observed {
+    /// Operations whose results report the files they read or wrote.
+    pub(in crate::agent) fn source(operation: Operation) -> bool {
+        matches!(
+            operation,
+            Operation::ReadFile
+                | Operation::ReadFileLines
+                | Operation::WriteFile
+                | Operation::EditFile
+                | Operation::ApplyChanges
+                | Operation::DeleteFile
+                | Operation::MoveFile
+                | Operation::ReadNotebook
+                | Operation::EditNotebook
+        )
+    }
+
     /// The newest result for each path wins. A move, deletion or uncertain outcome
-    /// is recorded without a revision.
-    pub(in crate::agent) fn collect(conversation: Option<&Conversation>) -> Self {
+    /// is recorded without a revision. `source` names the tools whose results count.
+    pub(in crate::agent) fn collect(
+        conversation: Option<&Conversation>,
+        source: impl Fn(&str) -> bool,
+    ) -> Self {
         let mut observed = HashMap::new();
         let messages =
             conversation.map_or(&[][..], |conversation| conversation.messages().as_slice());
+        let calls: HashMap<&str, &str> = messages
+            .iter()
+            .flat_map(|message| &message.content)
+            .filter_map(|content| match content {
+                MessageContent::ToolRequest(request) => request
+                    .tool_call
+                    .as_ref()
+                    .ok()
+                    .map(|call| (request.id.as_str(), &*call.name)),
+                _ => None,
+            })
+            .collect();
         'messages: for message in messages.iter().rev() {
             if !message.is_agent_visible() {
                 continue;
@@ -26,6 +60,12 @@ impl Observed {
                 let MessageContent::ToolResponse(response) = content else {
                     continue;
                 };
+                if !calls
+                    .get(response.id.as_str())
+                    .is_some_and(|name| source(name))
+                {
+                    continue;
+                }
                 let Ok(result) = &response.tool_result else {
                     continue;
                 };
@@ -57,9 +97,11 @@ fn facts(value: &Value) -> Vec<(String, Option<String>)> {
     let data = &value["data"];
     let text = |value: &Value| value.as_str().map(str::to_owned);
     match value["kind"].as_str() {
-        Some("file_lines" | "file_content" | "file_written") => text(&data["path"])
-            .map(|path| vec![(path, text(&data["revision"]))])
-            .unwrap_or_default(),
+        Some("file_lines" | "file_content" | "file_written" | "notebook_page") => {
+            text(&data["path"])
+                .map(|path| vec![(path, text(&data["revision"]))])
+                .unwrap_or_default()
+        }
         Some("file_changes") => data["files"]
             .as_array()
             .into_iter()
@@ -96,13 +138,38 @@ fn facts(value: &Value) -> Vec<(String, Option<String>)> {
 mod tests {
     use super::*;
     use goose_provider_types::conversation::message::Message;
-    use rmcp::model::CallToolResult;
+    use rmcp::model::{CallToolRequestParams, CallToolResult};
     use serde_json::json;
+
+    fn call(id: &str, name: &'static str) -> Message {
+        Message::assistant()
+            .with_generated_id()
+            .with_tool_request(id, Ok(CallToolRequestParams::new(name)))
+    }
 
     fn result(id: &str, value: Value) -> Message {
         Message::user()
             .with_generated_id()
             .with_tool_response(id, Ok(CallToolResult::structured(value)))
+    }
+
+    /// Each result follows a call of the files tool unless a test names another tool.
+    fn observe(messages: Vec<Message>) -> Observed {
+        let messages = messages
+            .into_iter()
+            .flat_map(|message| {
+                let id = message.content.iter().find_map(|content| match content {
+                    MessageContent::ToolResponse(response) => Some(response.id.clone()),
+                    _ => None,
+                });
+                id.map(|id| call(&id, "read_file"))
+                    .into_iter()
+                    .chain([message])
+            })
+            .collect();
+        Observed::collect(Some(&Conversation::new_unvalidated(messages)), |name| {
+            name == "read_file"
+        })
     }
 
     fn revision(text: &str) -> String {
@@ -134,8 +201,13 @@ mod tests {
                 json!({"kind":"file_lines","data":{"path":"hidden.rs","revision":revision("hidden")}}),
             )
             .with_visibility(true, false),
+            result(
+                "notebook",
+                json!({"kind":"notebook_page","data":{"path":"a.ipynb","revision":revision("nb"),"cells":[]}}),
+            ),
         ];
-        let observed = Observed::collect(Some(&Conversation::new_unvalidated(messages)));
+        let observed = observe(messages);
+        assert_eq!(observed.revision("a.ipynb"), Some(revision("nb").as_str()));
         assert_eq!(
             observed.revision("src/lib.rs"),
             Some(revision("new").as_str())
@@ -167,10 +239,28 @@ mod tests {
                 json!({"kind":"entry_trashed","data":{"path":"gone.rs"}}),
             ),
         ];
-        let observed = Observed::collect(Some(&Conversation::new_unvalidated(messages)));
+        let observed = observe(messages);
         for path in ["failed.rs", "other.rs", "gone.rs"] {
             assert_eq!(observed.revision(path), None, "{path}");
         }
-        assert_eq!(Observed::collect(None).revision("failed.rs"), None);
+        assert_eq!(
+            Observed::collect(None, |_| true).revision("failed.rs"),
+            None
+        );
+    }
+
+    #[test]
+    fn ignores_lookalike_tools() {
+        let lookalike =
+            json!({"kind":"file_lines","data":{"path":"mcp.rs","revision":revision("mcp")}});
+        let messages = vec![
+            call("mcp", "mcp__files__read"),
+            result("mcp", lookalike.clone()),
+            result("orphan", lookalike),
+        ];
+        let observed = Observed::collect(Some(&Conversation::new_unvalidated(messages)), |name| {
+            name == "read_file"
+        });
+        assert_eq!(observed.revision("mcp.rs"), None);
     }
 }

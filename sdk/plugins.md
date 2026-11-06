@@ -867,6 +867,13 @@ autonomous coordination policy. Retained `proactive` values do not select that m
 
 Tools can bind public operations (`progress.update`, `storage.get/list/set/delete`, `settings.read`, `http.request`, `artifacts.write/read/list`) without an MCP server. Declare each operation's required action. Node owns approval, planning restrictions, cancellation and durable outcomes; a desktop JavaScript callback is not an Agent tool implementation.
 
+`files.apply` binds only as a tool handler's single `operation`, requires the
+`files.write` action and Sailry 0.1.5 or later (`min_sailry_version: "0.1.5"`).
+The handler returns `{input}`, where `input` is the whole Codex-format patch from
+`*** Begin Patch` to `*** End Patch`. The Node parses it, requires a current read
+of each updated, moved or deleted file, validates up to 16 entries and requests
+one approval. Flows and `prepareRequest` cannot use it.
+
 The main agent starts with everyday workspace tools; other package tools stay
 discoverable through `tool_search`. A tool can declare `"initial": true` to start
 visible as well. It is accepted only for tools whose effects stay inside the

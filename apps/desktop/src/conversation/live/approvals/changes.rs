@@ -3,16 +3,18 @@ use super::*;
 use sailry_protocol::{ChangeKind, ChangePreview};
 
 pub(super) fn preview(id: ApprovalId, changes: ChangePreview, cx: &App) -> AnyElement {
+    let title = match changes.files.len() {
+        1 => tr("file_changes_approval_one"),
+        count => rust_i18n::t!("file_changes_approval", count = count)
+            .to_string()
+            .into(),
+    };
     v_flex()
         .debug_selector(move || format!("live-approval-changes-{id}"))
         .w_full()
         .min_w_0()
         .gap_2()
-        .child(
-            div().whitespace_normal().child(
-                rust_i18n::t!("file_changes_approval", count = changes.files.len()).to_string(),
-            ),
-        )
+        .child(div().whitespace_normal().child(title))
         .children(changes.files.into_iter().enumerate().map(|(index, file)| {
             let kind = tr(match file.kind {
                 ChangeKind::Added => "file_changes_added",

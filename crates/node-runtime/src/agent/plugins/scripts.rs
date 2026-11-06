@@ -223,6 +223,7 @@ pub(super) async fn bind(
             };
             registration.delegation = delegation;
             registration.observes = operation == Some(tool::Operation::ApplyChanges);
+            registration.operation = operation;
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());

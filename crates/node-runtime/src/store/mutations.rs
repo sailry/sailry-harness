@@ -510,7 +510,7 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
         }
         Command::ApplyChanges { changes, .. } => {
             crate::files::changes::shape(changes)?;
-            // A rejected set is a recorded business outcome in which nothing was written.
+            // A rejected set is a recorded business outcome that changed no file content.
             let cancelled = sailry_link::CancellationToken::new();
             Ok(Output::FileChanges(
                 match crate::files::changes::plan(scope, changes, &[], &cancelled) {
