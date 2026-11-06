@@ -36,13 +36,14 @@ def collect(binary, target, output, optional=False):
         destination = output / source.name
         shutil.copy2(source, destination)
         return destination
-    if target.endswith("-apple-darwin"):
+    apple = target.endswith("-apple-darwin")
+    if apple:
         name = binary.name + ".dSYM"
-        command = ["dsymutil", str(binary), "-o"]
         inspector = shutil.which("dwarfdump")
         if inspector and (output / name).is_dir() and same_uuids(inspector, binary, output / name):
             # Release packaging and its workflow request the same symbols; dsymutil is slow.
             return output / name
+        commands = linkers(binary)
     elif target.endswith("-linux-gnu"):
         name = binary.name + ".debug"
         tool = shutil.which("llvm-objcopy") or shutil.which("objcopy")
@@ -50,7 +51,7 @@ def collect(binary, target, output, optional=False):
             if optional:
                 return None
             raise ValueError("Native symbol extraction requires llvm-objcopy or objcopy")
-        command = [tool, "--only-keep-debug", str(binary)]
+        commands = [[tool, "--only-keep-debug", str(binary)]]
         inspector = shutil.which("llvm-dwarfdump")
         if inspector is None and Path(tool).with_name("llvm-dwarfdump").is_file():
             inspector = str(Path(tool).with_name("llvm-dwarfdump"))
@@ -63,18 +64,29 @@ def collect(binary, target, output, optional=False):
     # Keep completed symbols outside the package and preserve them on upload failure.
     with tempfile.TemporaryDirectory(dir=output) as directory:
         staging = Path(directory) / name
-        try:
-            subprocess.run(command + [str(staging)], capture_output=True, check=True)
-            result = subprocess.run([inspector, "--debug-info", "--recurse-depth=0", str(staging)],
-                                    capture_output=True, check=True)
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        failure = None
+        for command in commands:
+            if staging.is_dir() and not staging.is_symlink():
+                shutil.rmtree(staging)
+            elif staging.exists() or staging.is_symlink():
+                staging.unlink()
+            try:
+                subprocess.run(command + [str(staging)], capture_output=True, check=True)
+                result = subprocess.run([inspector, "--debug-info", "--recurse-depth=0", str(staging)],
+                                        capture_output=True, check=True)
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                failure = "Native symbol extraction failed"
+                continue
+            if (not staging.exists() or b"DW_AT_stmt_list" not in result.stdout
+                    or (apple and not same_uuids(inspector, binary, staging))):
+                failure = "The native build did not produce debug symbols"
+                continue
+            failure = None
+            break
+        if failure is not None:
             if optional:
                 return None
-            raise ValueError("Native symbol extraction failed") from None
-        if not staging.exists() or b"DW_AT_stmt_list" not in result.stdout:
-            if optional:
-                return None
-            raise ValueError("The native build did not produce debug symbols")
+            raise ValueError(failure)
         destination = output / name
         if destination.is_dir():
             shutil.rmtree(destination)
@@ -82,6 +94,22 @@ def collect(binary, target, output, optional=False):
             destination.unlink()
         staging.replace(destination)
         return destination
+
+
+def linkers(binary):
+    """dsymutil commands in preference order: the parallel DWARF linker when offered, then classic.
+
+    Release binaries hold one architecture, so `--num-threads` would not add parallelism.
+    """
+    classic = ["dsymutil", str(binary), "-o"]
+    try:
+        options = subprocess.run(["dsymutil", "--help"], capture_output=True, text=True,
+                                 check=False, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return [classic]
+    if "--linker" not in (options or ""):
+        return [classic]
+    return [["dsymutil", "--linker", "parallel", str(binary), "-o"], classic]
 
 
 def same_uuids(inspector, binary, symbols):
