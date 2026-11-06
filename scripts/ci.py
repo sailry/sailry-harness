@@ -43,6 +43,11 @@ TOOLS = {
     "gh": (("gh", "--version"), None),
 }
 GHOSTTY_CACHE = Path(".runtime/ci/ghostty")
+# The libghostty-vt-sys build script reads the source override; Zig reads its global cache.
+GHOSTTY_SOURCE_ENV = "GHOSTTY_SOURCE_DIR"
+ZIG_CACHE_ENV = "ZIG_GLOBAL_CACHE_DIR"
+# A stalled fetch must end before the job timeout so the build script can clone instead.
+GHOSTTY_TIMEOUT = 600
 PRODUCTS = {
     "desktop": {"shared", "desktop"},
     "host": {"shared", "host"},
@@ -760,20 +765,22 @@ def ghostty_source(root, directory):
     repository, revision = ghostty_revision(root)
     with tempfile.TemporaryDirectory() as temporary:
         for command in (["init", "--quiet"], ["fetch", "--quiet", "--depth=1", repository, revision]):
-            subprocess.run(["git", *command], cwd=temporary, check=True)
+            subprocess.run(["git", *command], cwd=temporary, check=True, timeout=GHOSTTY_TIMEOUT)
         script = subprocess.run(["git", "show", f"{revision}:crates/libghostty-vt-sys/build.rs"], cwd=temporary,
-                                check=True, capture_output=True, text=True).stdout
+                                check=True, capture_output=True, text=True, timeout=GHOSTTY_TIMEOUT).stdout
     url = re.search(r'^const GHOSTTY_REPO: &str = "([^"\s]+)";$', script, re.MULTILINE)
     commit = re.search(r'^const GHOSTTY_COMMIT: &str = "([0-9a-f]{40})";$', script, re.MULTILINE)
     if url is None or commit is None:
         raise ValueError("The libghostty-vt-sys build script no longer names its Ghostty source")
+    if not re.search(rf'env::var(?:_os)?\("{GHOSTTY_SOURCE_ENV}"\)', script):
+        raise ValueError(f"The libghostty-vt-sys build script no longer reads {GHOSTTY_SOURCE_ENV}")
     partial = directory.with_name(directory.name + ".partial")
     shutil.rmtree(partial, ignore_errors=True)
     partial.parent.mkdir(parents=True, exist_ok=True)
     # Match the build script's own fetch so both paths compile the same tree.
     subprocess.run(["git", "clone", "--quiet", "--config", "core.longpaths=true", "--filter=blob:none",
-                    "--no-checkout", url.group(1), str(partial)], check=True)
-    subprocess.run(["git", "checkout", "--quiet", commit.group(1)], cwd=partial, check=True)
+                    "--no-checkout", url.group(1), str(partial)], check=True, timeout=GHOSTTY_TIMEOUT)
+    subprocess.run(["git", "checkout", "--quiet", commit.group(1)], cwd=partial, check=True, timeout=GHOSTTY_TIMEOUT)
     partial.rename(directory)
     return True
 
@@ -1010,8 +1017,8 @@ def main():
             fetched = ghostty_source(workspace, cache / "source")
             (cache / "zig").mkdir(parents=True, exist_ok=True)
             with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as target:
-                target.write(f"GHOSTTY_SOURCE_DIR={cache / 'source'}\nZIG_GLOBAL_CACHE_DIR={cache / 'zig'}\n")
-        except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
+                target.write(f"{GHOSTTY_SOURCE_ENV}={cache / 'source'}\n{ZIG_CACHE_ENV}={cache / 'zig'}\n")
+        except (OSError, ValueError, KeyError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             raise SystemExit(str(error)) from error
         print("Fetched pinned Ghostty source" if fetched else "Reused cached Ghostty source")
     elif len(sys.argv) >= 2 and sys.argv[1] == "flaky":

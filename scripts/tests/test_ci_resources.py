@@ -1300,19 +1300,54 @@ class GhosttyInputs(unittest.TestCase):
             (ghostty / "build.zig").write_text("// later\n")
             self.git("commit", "--quiet", "-am", "Later", cwd=ghostty)
             script = (f'const GHOSTTY_REPO: &str = "{ghostty.as_uri()}";\n'
-                      f'const GHOSTTY_COMMIT: &str = "{commit}";\n')
+                      f'const GHOSTTY_COMMIT: &str = "{commit}";\n'
+                      'fn main() { let _ = env::var("GHOSTTY_SOURCE_DIR"); }\n')
             bindings, revision = self.repository(root, "bindings", {"crates/libghostty-vt-sys/build.rs": script})
             workspace = root / "workspace"
             workspace.mkdir()
             self.lockfile(workspace, f"git+{bindings.as_uri()}?rev={revision}#{revision}")
             source = workspace / ci.GHOSTTY_CACHE / "source"
-            self.assertTrue(ci.ghostty_source(workspace, source))
+            with patch.object(ci.subprocess, "run", wraps=subprocess.run) as run:
+                self.assertTrue(ci.ghostty_source(workspace, source))
+            self.assertTrue(all(call.kwargs.get("timeout") == ci.GHOSTTY_TIMEOUT for call in run.call_args_list))
             self.assertEqual(self.git("rev-parse", "HEAD", cwd=source), commit)
             self.assertEqual((source / "build.zig").read_text(), "// pinned\n")
             self.assertFalse(source.with_name("source.partial").exists())
             # A restored checkout is reused without contacting either repository.
             with patch.object(ci.subprocess, "run", side_effect=AssertionError("unexpected fetch")):
                 self.assertFalse(ci.ghostty_source(workspace, source))
+
+    def test_requires_source_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ghostty, commit = self.repository(root, "ghostty", {"build.zig": "// pinned\n"})
+            script = (f'const GHOSTTY_REPO: &str = "{ghostty.as_uri()}";\n'
+                      f'const GHOSTTY_COMMIT: &str = "{commit}";\n'
+                      'fn main() { let _ = env::var("GHOSTTY_SOURCE_PATH"); }\n')
+            bindings, revision = self.repository(root, "bindings", {"crates/libghostty-vt-sys/build.rs": script})
+            workspace = root / "workspace"
+            workspace.mkdir()
+            self.lockfile(workspace, f"git+{bindings.as_uri()}?rev={revision}#{revision}")
+            source = workspace / ci.GHOSTTY_CACHE / "source"
+            with self.assertRaisesRegex(ValueError, "no longer reads GHOSTTY_SOURCE_DIR"):
+                ci.ghostty_source(workspace, source)
+            self.assertFalse(source.exists())
+            self.assertFalse(source.with_name("source.partial").exists())
+
+    def test_exports_build_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory).resolve()
+            cache = workspace / ci.GHOSTTY_CACHE
+            (cache / "source").mkdir(parents=True)
+            (cache / "source/build.zig").write_text("// cached\n")
+            environment = workspace / "github.env"
+            result = subprocess.run([sys.executable, str(ROOT / "scripts/ci.py"), "ghostty-source"],
+                                    capture_output=True, text=True,
+                                    env={**os.environ, "GITHUB_WORKSPACE": str(workspace), "GITHUB_ENV": str(environment)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(environment.read_text(),
+                             f"GHOSTTY_SOURCE_DIR={cache / 'source'}\nZIG_GLOBAL_CACHE_DIR={cache / 'zig'}\n")
+            self.assertTrue((cache / "zig").is_dir())
 
 
 if __name__ == "__main__":
