@@ -258,6 +258,65 @@ fn failure_does_not_select_success_preview() {
     assert_eq!(encoded["snapshot"], original);
 }
 
+#[test]
+fn exposes_validated_change_preview() {
+    use sailry_protocol::{ChangeKind, ChangePreview, PreviewFile};
+    let (mut view, _) = fixture(Presentation::Details, Value::Null);
+    pending(&mut view);
+    let changes = ChangePreview {
+        files: vec![
+            PreviewFile {
+                path: "src/edit.rs".into(),
+                destination: None,
+                kind: ChangeKind::Modified,
+                additions: 1,
+                deletions: 1,
+                diff: "@@ -1 +1 @@\n-old\n+new\n".into(),
+                truncated: false,
+            },
+            PreviewFile {
+                path: "old.rs".into(),
+                destination: Some("new.rs".into()),
+                kind: ChangeKind::Renamed,
+                additions: 0,
+                deletions: 0,
+                diff: String::new(),
+                truncated: true,
+            },
+        ],
+    };
+    Arc::make_mut(&mut view.calls)[0]
+        .approval
+        .as_mut()
+        .unwrap()
+        .changes = Some(changes.clone());
+    let snapshot = Arc::make_mut(view.snapshot.as_mut().unwrap());
+    Arc::make_mut(&mut snapshot.page).approvals[0].changes = Some(changes);
+    assert!(view.calls[0].approval_pending(&view.snapshot.as_ref().unwrap().page));
+    let encoded = serialized(&view);
+    assert_eq!(encoded["calls"][0]["approval"]["state"], "pending");
+    assert_eq!(
+        encoded["calls"][0]["approval_view"]["changes"]["files"],
+        json!([
+            {
+                "path": "src/edit.rs",
+                "kind": "modified",
+                "additions": 1,
+                "deletions": 1,
+                "diff": "@@ -1 +1 @@\n-old\n+new\n"
+            },
+            {
+                "path": "old.rs",
+                "destination": "new.rs",
+                "kind": "renamed",
+                "additions": 0,
+                "deletions": 0,
+                "truncated": true
+            }
+        ])
+    );
+}
+
 struct Backend {
     reference: DetailReference,
     detail: Arc<Detail>,

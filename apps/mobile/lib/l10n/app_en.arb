@@ -192,6 +192,19 @@
       }
     }
   },
+  "fileChangesApprovalOne": "Apply patch to 1 file",
+  "fileChangesApproval": "Apply patch to {count} files",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "Added",
+  "fileChangesModified": "Modified",
+  "fileChangesRenamed": "Renamed",
+  "fileChangesDeleted": "Deleted",
   "turnUndo": "Undo changes",
   "turnUndoAll": "Undo all",
   "turnUndoConfirm": "Undo these file changes from this turn? Conflicts with later changes will stop the operation",

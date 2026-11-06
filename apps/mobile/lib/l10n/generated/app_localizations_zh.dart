@@ -434,6 +434,26 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get fileChangesApprovalOne => '将补丁应用到 1 个文件';
+
+  @override
+  String fileChangesApproval(String count) {
+    return '将补丁应用到 $count 个文件';
+  }
+
+  @override
+  String get fileChangesAdded => '新增';
+
+  @override
+  String get fileChangesModified => '修改';
+
+  @override
+  String get fileChangesRenamed => '重命名';
+
+  @override
+  String get fileChangesDeleted => '删除';
+
+  @override
   String get turnUndo => '撤销修改';
 
   @override
@@ -2937,6 +2957,26 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String turnChangesCount(String count) {
     return '$count 個檔案';
   }
+
+  @override
+  String get fileChangesApprovalOne => '將修補程式套用到 1 個檔案';
+
+  @override
+  String fileChangesApproval(String count) {
+    return '將修補程式套用到 $count 個檔案';
+  }
+
+  @override
+  String get fileChangesAdded => '新增';
+
+  @override
+  String get fileChangesModified => '修改';
+
+  @override
+  String get fileChangesRenamed => '重新命名';
+
+  @override
+  String get fileChangesDeleted => '刪除';
 
   @override
   String get turnUndo => '撤銷修改';

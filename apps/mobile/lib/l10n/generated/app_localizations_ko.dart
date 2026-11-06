@@ -437,6 +437,26 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String get fileChangesApprovalOne => '파일 1개에 패치 적용';
+
+  @override
+  String fileChangesApproval(String count) {
+    return '파일 $count개에 패치 적용';
+  }
+
+  @override
+  String get fileChangesAdded => '추가';
+
+  @override
+  String get fileChangesModified => '수정';
+
+  @override
+  String get fileChangesRenamed => '이름 변경';
+
+  @override
+  String get fileChangesDeleted => '삭제';
+
+  @override
   String get turnUndo => '변경 사항 실행 취소';
 
   @override

@@ -6,6 +6,7 @@ import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
+import 'change_preview.dart';
 import 'presentation.dart';
 import 'question.dart';
 import 'tool_display.dart';
@@ -184,7 +185,10 @@ class _ToolRecordState extends State<ToolRecord> {
         ),
         if (pendingApproval)
           card([
-            if (approvalView['description'] != null)
+            // The validated file list replaces the package's generic prompt.
+            if (approvalView['changes'] != null)
+              ChangePreview(changes: object(approvalView['changes']))
+            else if (approvalView['description'] != null)
               approvalView['code'] == true
                   ? code(capturedLabel(context, approvalView['description']))
                   : SelectableText(

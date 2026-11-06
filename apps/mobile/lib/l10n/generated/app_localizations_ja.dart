@@ -436,6 +436,26 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get fileChangesApprovalOne => '1 個のファイルにパッチを適用';
+
+  @override
+  String fileChangesApproval(String count) {
+    return '$count 個のファイルにパッチを適用';
+  }
+
+  @override
+  String get fileChangesAdded => '追加';
+
+  @override
+  String get fileChangesModified => '変更';
+
+  @override
+  String get fileChangesRenamed => '名前変更';
+
+  @override
+  String get fileChangesDeleted => '削除';
+
+  @override
   String get turnUndo => '変更を無効にする';
 
   @override

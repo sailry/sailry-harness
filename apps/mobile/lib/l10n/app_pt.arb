@@ -192,6 +192,19 @@
       }
     }
   },
+  "fileChangesApprovalOne": "Aplicar patch em 1 arquivo",
+  "fileChangesApproval": "Aplicar patch em {count} arquivos",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "Adicionado",
+  "fileChangesModified": "Modificado",
+  "fileChangesRenamed": "Renomeado",
+  "fileChangesDeleted": "Excluído",
   "turnUndo": "Desfazer as alterações",
   "turnUndoAll": "Desfazer tudo",
   "turnUndoConfirm": "Conflitos com alterações posteriores irão parar a operação e o arquivo será desfeito",
