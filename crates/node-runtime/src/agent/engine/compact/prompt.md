@@ -11,7 +11,7 @@ Keep only what is needed to continue the work correctly:
 - State: what is done, in progress, or blocked. Say precisely whether a change was only modified, tested, committed, or verified live
 - Decisions: key choices with a short reason, including rejected options the user ruled out
 - Next steps: directly actionable steps that follow the user's latest instruction
-- Essential context: exact paths, symbols, commands, error strings, commit or task IDs, and where to retrieve original records again
+- Essential context: exact paths, symbols, commands, error strings, commit, task or child session IDs, and where to retrieve original records again
 
 ## Rules
 - If the history starts with an earlier summary, merge it with the newer progress into one current handoff. Drop details that are resolved, stale, or duplicated. A merged handoff must not grow just because more work happened: reduce finished work to one line and drop it once it no longer affects the next steps
