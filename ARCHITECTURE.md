@@ -831,8 +831,8 @@ Ordinary sessions without a project can delegate within their existing private
 worktree; resource-bound assistants and nested delegation remain excluded.
 Node owns the child concurrency setting (`team::Settings`), defaulting to eight and
 saved through revision-checked `ReadTeamSettings` and `SaveTeamSettings` commands.
-The service reads its current value when claiming work, and each claimed coordinator
-turn reports it in delegation turn context. Startup imports a value
+The service reads its current value when claiming work, and each claimed turn that
+declares `spawn_agent` reports it in delegation turn context. Startup imports a value
 configured in a formerly bundled delegation package once, then removes that
 package's installed bundled copy. Configuration
 changes affect queued work without rewriting its captured model or permissions.
