@@ -6,6 +6,8 @@ use serde_json::Value;
 mod active;
 #[path = "compaction/budget.rs"]
 mod budget;
+#[path = "compaction/loadout.rs"]
+mod loadout;
 #[path = "compaction/manual.rs"]
 mod manual;
 

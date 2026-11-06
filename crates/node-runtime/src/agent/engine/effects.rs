@@ -11,6 +11,8 @@ pub(crate) enum Effect {
         summary: Box<Message>,
         usage: ProviderUsage,
         files: Vec<crate::agent::canonical::CompactedFile>,
+        /// Loaded-tool membership that replaces the session's discoveries.
+        tools: Vec<String>,
     },
     Records(Vec<crate::agent::canonical::Record>),
     Approval {
@@ -68,10 +70,12 @@ impl Clone for Effect {
                 summary,
                 usage,
                 files,
+                tools,
             } => Self::Compaction {
                 summary: summary.clone(),
                 usage: usage.clone(),
                 files: files.clone(),
+                tools: tools.clone(),
             },
             Self::Records(records) => Self::Records(records.clone()),
             Self::Approval { request, binding } => Self::Approval {

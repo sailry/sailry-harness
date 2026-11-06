@@ -77,6 +77,7 @@ pub(super) struct Summary {
     pub start: chrono::DateTime<chrono::Utc>,
     pub end: chrono::DateTime<chrono::Utc>,
     pub files: Vec<records::CompactedFile>,
+    pub tools: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -147,7 +148,7 @@ async fn write(
                     let mut event = match event {
                         Input::Record(record) => *record,
                         Input::Summary(Summary {
-                            message, usage, boundary, start, end, files,
+                            message, usage, boundary, start, end, files, tools,
                         }) => {
                             let mut record = crate::agent::engine::history::capture(
                                 &transaction, turn, &message, &BTreeMap::new(),
@@ -158,6 +159,10 @@ async fn write(
                             };
                             record.kind = records::Kind::Compaction(records::Compaction {
                                 boundary, summary, start, end, files,
+                            });
+                            record.metadata.context = Some(records::Context {
+                                loaded_tools: Some(tools),
+                                ..Default::default()
                             });
                             record.provenance.author = "system".into();
                             record
@@ -577,6 +582,9 @@ async fn apply_state(db: &Connection, session: SessionId, event: &Record) -> Res
         };
         db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body", params![owner, key.as_str(), encode(value)?]).await.map_err(storage_error)?;
     }
+    if let Some(tools) = retained(event) {
+        return replace(db, session, tools).await;
+    }
     let mut names = context
         .and_then(|context| context.loaded_tools.clone())
         .unwrap_or_default();
@@ -591,6 +599,26 @@ async fn apply_state(db: &Connection, session: SessionId, event: &Record) -> Res
             }),
     );
     remember(db, session, names).await
+}
+
+/// A compaction record's loaded tools replace the membership it inherits.
+fn retained(event: &Record) -> Option<&[String]> {
+    if !matches!(event.kind, Kind::Compaction(_)) {
+        return None;
+    }
+    event.context()?.loaded_tools.as_deref()
+}
+
+async fn replace(db: &Connection, session: SessionId, tools: &[String]) -> Result<(), Fault> {
+    let mut loaded: Vec<&String> = Vec::new();
+    for name in tools {
+        if !loaded.contains(&name) {
+            loaded.push(name);
+        }
+    }
+    db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body",
+        params![session.to_string(), LOADED_TOOLS, encode(&loaded)?]).await.map_err(storage_error)?;
+    Ok(())
 }
 
 pub(in crate::store) async fn remember(
@@ -753,12 +781,16 @@ pub(in crate::store) async fn rebuild_session(
                     continue;
                 }
                 if key == LOADED_TOOLS {
-                    remember(
-                        db,
-                        session,
-                        serde_json::from_value(value).map_err(storage_error)?,
-                    )
-                    .await?;
+                    if let Some(tools) = retained(&event) {
+                        replace(db, session, tools).await?;
+                    } else {
+                        remember(
+                            db,
+                            session,
+                            serde_json::from_value(value).map_err(storage_error)?,
+                        )
+                        .await?;
+                    }
                     continue;
                 }
                 db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body",

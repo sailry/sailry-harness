@@ -659,8 +659,9 @@ pub(super) async fn effects(
                 summary,
                 usage,
                 files,
+                tools,
             } => pending.push(history::Input::Summary(summary_input(
-                &current, *summary, usage, files,
+                &current, *summary, usage, files, tools,
             )?)),
             Effect::Conversation(ConversationEffect::ReplaceConversation(_)) => {
                 return Err(Fault::invalid(
@@ -733,6 +734,7 @@ fn summary_input(
     mut summary: GdkMessage,
     usage: ProviderUsage,
     files: Vec<CompactedFile>,
+    tools: Vec<String>,
 ) -> Result<history::Summary, Fault> {
     let Some(boundary) = current
         .records
@@ -753,5 +755,6 @@ fn summary_input(
             .map_or(boundary.created, |record| record.created),
         end: boundary.created,
         files,
+        tools,
     })
 }
