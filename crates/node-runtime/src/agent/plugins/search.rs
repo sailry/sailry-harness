@@ -4,6 +4,9 @@ use crate::agent::catalog::CallContext;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+/// Canonical name of the discovery tool.
+pub(in crate::agent) const NAME: &str = "tool_search";
+
 struct Entry {
     name: String,
     description: String,
@@ -152,9 +155,18 @@ impl Search {
     }
 }
 
+/// Tool names that a discovery result produced by `Search::output` matched.
+pub(in crate::agent) fn discovered(output: &Value) -> impl Iterator<Item = &str> {
+    output["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| tool["name"].as_str())
+}
+
 impl Search {
     fn name(&self) -> &str {
-        "tool_search"
+        NAME
     }
 
     fn description(&self) -> &str {

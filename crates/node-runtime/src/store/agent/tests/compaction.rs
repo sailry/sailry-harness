@@ -922,6 +922,82 @@ async fn retains_input_capabilities() {
     }
 }
 
+mod loaded_tools {
+    use super::*;
+
+    fn discovered(name: &str) -> Record {
+        record(
+            "system",
+            Kind::Configuration(records::Configuration {
+                context: records::Context {
+                    loaded_tools: Some([name.into()].into()),
+                    ..Default::default()
+                },
+            }),
+        )
+    }
+
+    async fn membership(fixture: &Fixture, session: SessionId) -> serde_json::Value {
+        history::state(&fixture.database.connection, session)
+            .await
+            .unwrap()[LOADED_TOOLS]
+            .clone()
+    }
+
+    /// Loads alpha and beta, compacts to beta and then loads gamma.
+    async fn compacted(fixture: &mut Fixture) -> (TurnId, TurnId) {
+        let anchor = event("Completed discovery");
+        let first = fixture
+            .append([discovered("alpha"), discovered("beta"), anchor.clone()])
+            .await;
+        let mut compacted = summary(&anchor);
+        compacted.metadata.context = Some(records::Context {
+            loaded_tools: Some(["beta".into()].into()),
+            ..Default::default()
+        });
+        let head = fixture.append([compacted, discovered("gamma")]).await;
+        assert_eq!(
+            membership(fixture, fixture.session).await,
+            json!(["beta", "gamma"])
+        );
+        (first, head)
+    }
+
+    #[tokio::test]
+    async fn restores_membership_on_rewind() {
+        let mut fixture = Fixture::new().await;
+        let (first, head) = compacted(&mut fixture).await;
+        let source = fixture.session;
+        fixture.fork(source, head).await;
+        let Output::Rewound(_) = command(
+            &mut fixture.database,
+            &fixture.events,
+            Command::RewindConversation {
+                session: source,
+                through: Some(first),
+                expected_head: head,
+                expected_revision: 1,
+            },
+        )
+        .await
+        else {
+            panic!("rewind expected")
+        };
+        assert_eq!(membership(&fixture, source).await, json!(["alpha", "beta"]));
+    }
+
+    #[tokio::test]
+    async fn keeps_replacement_in_fork() {
+        let mut fixture = Fixture::new().await;
+        let (_, head) = compacted(&mut fixture).await;
+        let branch = fixture.fork(fixture.session, head).await;
+        assert_eq!(
+            membership(&fixture, branch.id).await,
+            json!(["beta", "gamma"])
+        );
+    }
+}
+
 #[tokio::test]
 async fn freezes_default_for_admitted_turns() {
     let mut fixture = fixture::Fixture::new().await;

@@ -375,6 +375,59 @@ async fn drops_stale_tools_and_summaries() {
     node.shutdown().await.unwrap();
 }
 
+#[tokio::test]
+async fn keeps_tools_called_earlier_in_turn() {
+    let directory = tempfile::tempdir().unwrap();
+    let node = crate::Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let stop = CancellationToken::new();
+    let invocation = invocation(&node);
+    let previous = TurnId::new();
+    let earlier = exchange("old", "alpha", CallToolResult::success(vec![]), true)
+        .map(|message| (previous, message));
+    let current = std::iter::once(
+        Message::user()
+            .with_generated_id()
+            .with_text("Use beta on every source file ".repeat(200)),
+    )
+    .chain(exchange(
+        "call",
+        "beta",
+        CallToolResult::success(vec![]),
+        false,
+    ))
+    .map(|message| (invocation.turn.id, message));
+    let mut session = super::super::tests::session(earlier.into_iter().chain(current).collect());
+    session.context.loaded_tools = Some(["alpha", "beta"].map(String::from).to_vec());
+    let operation = Compaction {
+        provider: Scripted::new([reply(structured(
+            serde_json::json!({"user_intent":["Use beta on every source file"]}),
+        ))]),
+        config: ModelConfig::new("scripted-fixture"),
+        context: 64_000,
+        threshold: 0.01,
+        preparer: preparer(&node, &invocation, &stop),
+        manual: false,
+    };
+    let (sender, _) = tokio::sync::mpsc::unbounded_channel();
+    let emit = Emitter::new(sender, stop.clone());
+    // The turn continues after its tool result, so compaction runs mid-turn.
+    let OperationResult::Applied(result) = operation
+        .run(&session, &session.conversation, &emit)
+        .await
+        .unwrap()
+    else {
+        panic!("automatic compaction expected")
+    };
+    let tools = result.effects.iter().find_map(|effect| match effect {
+        Effect::Compaction { tools, .. } => Some(tools.clone()),
+        _ => None,
+    });
+    assert_eq!(tools.unwrap(), ["beta"]);
+    node.shutdown().await.unwrap();
+}
+
 mod summary {
     use super::*;
 
@@ -459,6 +512,50 @@ mod summary {
         assert!(trimmed.contains("Concept 0: "));
         assert!(!trimmed.contains("Concept 399: "));
         assert!(shortened.contains("状态更新"));
+    }
+
+    #[tokio::test]
+    async fn keeps_constraints_and_tasks() {
+        let state = serde_json::json!({
+            "user_intent":["修复解析器"],
+            "user_messages":["保持 v1 协议格式", "不要修改公共接口"],
+            "pending_tasks":["添加回归测试", "更新架构文档"],
+            "problem_solving":["边界检查放在词法阶段"],
+            "current_work":"修改解析器的边界检查，".repeat(600),
+            "next_step":"运行解析器测试并检查输出，".repeat(600),
+        });
+        let mut crowded = state.clone();
+        crowded["user_messages"] = (0..40)
+            .map(|index| format!("约束 {index}：{}", "保持输出稳定并记录原因，".repeat(20)))
+            .collect();
+        crowded["pending_tasks"] = (0..40)
+            .map(|index| format!("任务 {index}：{}", "补充测试并核对结果，".repeat(20)))
+            .collect();
+        let provider = Scripted::new([reply(structured(state)), reply(structured(crowded))]);
+        let model = model(provider);
+        let shortened = summarize(&model, history()).await.unwrap();
+        let crowded = summarize(&model, history()).await.unwrap();
+        for text in [&shortened, &crowded] {
+            let size = tokens::text(text);
+            assert!(size <= handoff::TOKENS, "{size}");
+            assert!(text.contains("- 修复解析器"));
+            assert!(text.contains("修改解析器的边界检查"));
+            assert!(text.contains("运行解析器测试"));
+        }
+        // Long state is shortened before any constraint or task is dropped.
+        for kept in [
+            "- 保持 v1 协议格式",
+            "- 不要修改公共接口",
+            "- 添加回归测试",
+            "- 更新架构文档",
+        ] {
+            assert!(shortened.contains(kept), "{kept}");
+        }
+        assert!(!shortened.contains("边界检查放在词法阶段"));
+        // The first constraint and task survive even when their lists overflow.
+        assert!(crowded.contains("- 约束 0："));
+        assert!(crowded.contains("- 任务 0："));
+        assert!(!crowded.contains("任务 39："));
     }
 
     #[tokio::test]

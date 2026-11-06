@@ -159,7 +159,8 @@ impl Exposure {
                     }
                 }
                 MessageContentBlock::ToolResponse(response)
-                    if calls.get(&response.id).map(String::as_str) == Some("tool_search") =>
+                    if calls.get(&response.id).map(String::as_str)
+                        == Some(plugins::search::NAME) =>
                 {
                     if let Ok(result) = &mut response.tool_result {
                         plugins::search::project(result, |name| self.name(name).to_owned());

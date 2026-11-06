@@ -5,10 +5,11 @@ use goose_context_management::StructuredSummary;
 
 /// Rendered handoff limit; the prompt asks for less.
 pub(super) const TOKENS: usize = 4_000;
-/// Longer entries are shortened before essential entries are dropped.
-const LONG: usize = 2_000;
-/// Texts at or below this length are not shortened further.
-const SHORTEST: usize = 200;
+/// Tokens one goal, constraint, task, state or next-step text may keep before
+/// any of those entries is dropped.
+const SHARE: usize = TOKENS / 8;
+/// Texts at or below this many tokens are not shortened further.
+const SHORTEST: usize = 48;
 
 pub(super) fn bound(summary: &mut StructuredSummary) -> anyhow::Result<()> {
     summary.extra.clear();
@@ -29,7 +30,8 @@ pub(super) fn bound(summary: &mut StructuredSummary) -> anyhow::Result<()> {
 }
 
 /// Makes one reduction and returns its token count, or `None` once nothing
-/// more can be removed.
+/// more can be removed. References and decisions go first, then long texts
+/// are shortened, then goals, constraints and tasks beyond the first of each.
 fn trim(summary: &mut StructuredSummary) -> Option<usize> {
     for list in [
         &mut summary.technical_concepts,
@@ -46,40 +48,43 @@ fn trim(summary: &mut StructuredSummary) -> Option<usize> {
                 + file.key_code.as_deref().map_or(0, tokens::text),
         );
     }
-    if let Some(removed) = shorten(summary, LONG) {
+    if let Some(text) = summary.problem_solving.pop() {
+        return Some(tokens::text(&text));
+    }
+    if let Some(removed) = shorten(summary, SHARE) {
         return Some(removed);
     }
     for list in [
-        &mut summary.problem_solving,
-        &mut summary.user_messages,
         &mut summary.pending_tasks,
+        &mut summary.user_messages,
+        &mut summary.user_intent,
     ] {
-        if let Some(text) = list.pop() {
-            return Some(tokens::text(&text));
+        if list.len() > 1 {
+            return list.pop().map(|text| tokens::text(&text));
         }
-    }
-    if summary.user_intent.len() > 1 {
-        return summary.user_intent.pop().map(|text| tokens::text(&text));
     }
     shorten(summary, SHORTEST)
 }
 
-/// Halves the longest goal, decision, constraint, task, state or next-step
-/// text when it exceeds `minimum` characters.
+/// Halves the longest essential text, never below `minimum` tokens, and
+/// returns the tokens removed.
 fn shorten(summary: &mut StructuredSummary, minimum: usize) -> Option<usize> {
-    let text = summary
+    let (size, text) = summary
         .user_intent
         .iter_mut()
-        .chain(&mut summary.problem_solving)
         .chain(&mut summary.user_messages)
         .chain(&mut summary.pending_tasks)
         .chain(&mut summary.current_work)
         .chain(&mut summary.next_step)
-        .max_by_key(|text| text.chars().count())
-        .filter(|text| text.chars().count() > minimum)?;
-    let half = text.chars().count() / 2;
-    let removed: String = text.chars().skip(half).collect();
-    let kept: String = text.chars().take(half).collect();
+        .map(|text| (tokens::text(text), text))
+        .max_by_key(|(size, _)| *size)
+        .filter(|(size, _)| *size > minimum)?;
+    let target = (size / 2).max(minimum);
+    let characters = text.chars().count();
+    let kept: String = text
+        .chars()
+        .take((characters * target / size).max(1))
+        .collect();
     *text = format!("{}…", kept.trim_end_matches('…'));
-    Some(tokens::text(&removed))
+    Some(size.saturating_sub(tokens::text(text)))
 }
