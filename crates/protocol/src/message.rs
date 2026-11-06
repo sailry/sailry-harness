@@ -2089,7 +2089,7 @@ pub enum Output {
     LocalModel {
         id: String,
     },
-    Shells(Vec<String>),
+    Shells(Vec<crate::terminal::Shell>),
     TerminalTools(Vec<crate::terminal::ToolInfo>),
     MediaSettings(crate::media::Settings),
     MediaModels(Vec<crate::media::Candidate>),

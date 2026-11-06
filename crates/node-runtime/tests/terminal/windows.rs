@@ -1,5 +1,7 @@
 use super::*;
 
+mod wsl;
+
 #[tokio::test]
 async fn starts_cmd_in_selected_worktree() {
     let temporary = tempfile::tempdir().unwrap();
@@ -42,7 +44,7 @@ async fn starts_cmd_in_selected_worktree() {
     let shell = shells
         .into_iter()
         .find(|shell| {
-            std::path::Path::new(shell)
+            std::path::Path::new(&shell.path)
                 .file_name()
                 .and_then(std::ffi::OsStr::to_str)
                 .is_some_and(|name| name.eq_ignore_ascii_case("cmd.exe"))
@@ -50,7 +52,8 @@ async fn starts_cmd_in_selected_worktree() {
         .expect("Windows command interpreter expected");
     local
         .execute(local.prepare(Command::SaveTerminalSettings(Settings {
-            shell,
+            shell: shell.path,
+            shell_arguments: shell.arguments,
             ..Default::default()
         })))
         .await

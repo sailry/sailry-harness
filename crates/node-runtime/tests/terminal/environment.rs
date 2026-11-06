@@ -99,7 +99,7 @@ async fn shares_execution_login_and_setting_overrides() {
         else {
             panic!("shells expected")
         };
-        assert!(shells.iter().any(|shell| shell == "/bin/sh"));
+        assert!(shells.iter().any(|shell| shell.path == "/bin/sh"));
         let Output::TerminalTools(tools) = client
             .execute(client.prepare(Command::ListTerminalTools { worktree }))
             .await
@@ -122,6 +122,7 @@ async fn shares_execution_login_and_setting_overrides() {
             .execute(client.prepare(Command::SaveTerminalSettings(Settings {
                 revision: 0,
                 shell: "/bin/sh".into(),
+                shell_arguments: Vec::new(),
                 environment: Default::default(),
             })))
             .await
@@ -160,6 +161,7 @@ async fn shares_execution_login_and_setting_overrides() {
                 client.prepare(Command::SaveTerminalSettings(Settings {
                     revision: settings.revision,
                     shell: "/usr/bin/false".into(),
+                    shell_arguments: Vec::new(),
                     environment: [
                         ("PATH".into(), login.second.to_str().unwrap().into()),
                         ("EXPLICIT_FIXTURE".into(), "configured".into()),

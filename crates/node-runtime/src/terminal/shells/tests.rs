@@ -30,7 +30,37 @@ fn lists_executables_without_duplicates() {
     );
     assert_eq!(
         paths,
-        vec![first.to_str().unwrap(), second.to_str().unwrap()]
+        vec![first, second]
+            .into_iter()
+            .map(|path| Shell {
+                path: path.to_str().unwrap().into(),
+                arguments: Vec::new(),
+            })
+            .collect::<Vec<_>>()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn preserves_shell_invocation_names() {
+    let directory = tempfile::tempdir().unwrap();
+    let shell = directory.path().join("shell");
+    let alias = directory.path().join("shell-alias");
+    executable(&shell);
+    std::os::unix::fs::symlink(&shell, &alias).unwrap();
+    let shells = available(
+        vec![shell.clone(), alias.clone()],
+        &crate::process::Environment::filtered([]),
+    );
+    assert_eq!(
+        shells,
+        vec![shell, alias]
+            .into_iter()
+            .map(|path| Shell {
+                path: path.to_str().unwrap().into(),
+                arguments: Vec::new()
+            })
+            .collect::<Vec<_>>()
     );
 }
 
@@ -55,5 +85,11 @@ fn deduplicates_path_casing() {
         vec![shell.clone(), directory.path().join("SHELL.EXE")],
         &crate::process::Environment::filtered([]),
     );
-    assert_eq!(paths, vec![shell.to_str().unwrap()]);
+    assert_eq!(
+        paths,
+        vec![Shell {
+            path: shell.to_str().unwrap().into(),
+            arguments: Vec::new()
+        }]
+    );
 }

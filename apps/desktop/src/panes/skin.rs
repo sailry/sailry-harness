@@ -117,7 +117,7 @@ impl TabGroupRenderer for Group {
                             .child(title),
                     ),
             )
-            .child(pane.actions(multiple))
+            .children(pane.actions(multiple))
             .into_any_element()
     }
     fn render_drop_indicator(
@@ -144,52 +144,59 @@ impl TabGroupRenderer for Group {
 }
 
 impl Pane {
-    pub(super) fn actions(&self, multiple: bool) -> AnyElement {
+    pub(super) fn actions(&self, multiple: bool) -> Option<AnyElement> {
         let pane = self;
         let target = pane.target;
+        let search = if matches!(target, Target::Session(..)) {
+            pane.search.clone()
+        } else {
+            None
+        };
+        if !multiple && search.is_none() {
+            return None;
+        }
         let drag = Drag::panel(target, pane.title.clone()).payload();
         let focus_owner = pane.owner.clone();
         let close_owner = pane.owner.clone();
-        h_flex()
-            .gap_1()
-            .flex_shrink_0()
-            .when(matches!(target, Target::Session(..)), |header| {
-                header.children(pane.search.clone())
-            })
-            .when(multiple, |header| {
-                header.child(
-                    // Kit Button has no drag source API; its hitbox owns the drag gesture.
-                    div()
-                        .id("pane-drag")
-                        .debug_selector(move || format!("pane-drag-{target:?}"))
-                        .when(!pane.closing, |handle| {
-                            handle
-                                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                    cx.stop_propagation();
-                                    let _ = focus_owner.update(cx, |owner, cx| {
-                                        owner.focus(target, cx);
-                                        cx.emit(Event::Activate(target));
-                                    });
-                                })
-                                .on_drag(drag, |drag, _, _, cx| {
-                                    cx.new(|_| drag.value().downcast_ref::<Drag>().unwrap().clone())
-                                })
-                        })
-                        .child(
-                            Button::new("pane-drag-button")
-                                .ghost()
-                                .small()
-                                .cursor_grab()
-                                .icon(Icon::default().path(crate::assets::DRAG_ICON))
-                                .disabled(pane.closing)
-                                .tooltip(crate::tr("pane_drag"))
-                                .accessibility_label(crate::tr("pane_drag")),
-                        ),
-                )
-            })
-            .when(
-                multiple || matches!(target, Target::Terminal(..)),
-                |header| {
+        Some(
+            h_flex()
+                .gap_1()
+                .flex_shrink_0()
+                .children(search)
+                .when(multiple, |header| {
+                    header.child(
+                        // Kit Button has no drag source API; its hitbox owns the drag gesture.
+                        div()
+                            .id("pane-drag")
+                            .debug_selector(move || format!("pane-drag-{target:?}"))
+                            .when(!pane.closing, |handle| {
+                                handle
+                                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                        cx.stop_propagation();
+                                        let _ = focus_owner.update(cx, |owner, cx| {
+                                            owner.focus(target, cx);
+                                            cx.emit(Event::Activate(target));
+                                        });
+                                    })
+                                    .on_drag(drag, |drag, _, _, cx| {
+                                        cx.new(|_| {
+                                            drag.value().downcast_ref::<Drag>().unwrap().clone()
+                                        })
+                                    })
+                            })
+                            .child(
+                                Button::new("pane-drag-button")
+                                    .ghost()
+                                    .small()
+                                    .cursor_grab()
+                                    .icon(Icon::default().path(crate::assets::DRAG_ICON))
+                                    .disabled(pane.closing)
+                                    .tooltip(crate::tr("pane_drag"))
+                                    .accessibility_label(crate::tr("pane_drag")),
+                            ),
+                    )
+                })
+                .when(multiple, |header| {
                     header.child(
                         Button::new("pane-close")
                             .ghost()
@@ -204,8 +211,8 @@ impl Pane {
                                     close_owner.update(cx, |_, cx| cx.emit(Event::Close(target)));
                             }),
                     )
-                },
-            )
-            .into_any_element()
+                })
+                .into_any_element(),
+        )
     }
 }

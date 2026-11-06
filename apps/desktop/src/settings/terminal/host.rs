@@ -17,12 +17,15 @@ use gpui_kit::{
     },
     *,
 };
-use sailry_protocol::{Command, ErrorCode, Output, terminal::Settings};
+use sailry_protocol::{
+    Command, ErrorCode, Output,
+    terminal::{self, Settings},
+};
 
 pub(in crate::settings) struct Host {
     pub environment: Vec<(String, String)>,
     pub shell: Entity<SelectState<Vec<Shell>>>,
-    shells: Vec<String>,
+    shells: Vec<terminal::Shell>,
     binding: Option<Binding>,
     pub(super) saved: Option<Settings>,
     observed: Option<u64>,
@@ -58,7 +61,7 @@ impl Host {
         );
         let shell = cx.new(|cx| {
             SelectState::new(
-                vec![Shell(String::new())],
+                Shell::items(&[], &terminal::Shell::default()),
                 Some(IndexPath::new(0)),
                 window,
                 cx,
@@ -86,16 +89,11 @@ impl Host {
     }
 
     fn draft(&self, cx: &App) -> Settings {
-        Settings {
-            revision: self.saved.as_ref().map_or(0, |saved| saved.revision),
-            shell: self
-                .shell
-                .read(cx)
-                .selected_value()
-                .cloned()
-                .unwrap_or_default(),
-            environment: self.environment.iter().cloned().collect(),
-        }
+        snapshot(
+            self.saved.as_ref(),
+            self.shell.read(cx).selected_value(),
+            &self.environment,
+        )
     }
 
     fn dirty(&self, cx: &App) -> bool {
@@ -127,10 +125,14 @@ impl Host {
         self.submit(Command::ReadTerminalSettings, window, cx);
     }
 
-    fn select_shell(&mut self, value: &str, window: &mut Window, cx: &mut Context<Self>) {
+    fn select_shell(&mut self, saved: &Settings, window: &mut Window, cx: &mut Context<Self>) {
+        let value = terminal::Shell {
+            path: saved.shell.clone(),
+            arguments: saved.shell_arguments.clone(),
+        };
         self.shell.update(cx, |select, cx| {
-            select.set_items(Shell::items(&self.shells, value), window, cx);
-            select.set_selected_value(&value.to_owned(), window, cx);
+            select.set_items(Shell::items(&self.shells, &value), window, cx);
+            select.set_selected_value(&value, window, cx);
         });
     }
 
@@ -191,7 +193,7 @@ impl Host {
                             .iter()
                             .map(|(key, value)| (key.clone(), value.clone()))
                             .collect();
-                        this.select_shell(&saved.shell, window, cx);
+                        this.select_shell(&saved, window, cx);
                         this.saved = Some(saved);
                     }
                     Ok((Err(error), _)) => {
@@ -292,6 +294,20 @@ impl Render for Host {
     }
 }
 
+fn snapshot(
+    saved: Option<&Settings>,
+    selected: Option<&terminal::Shell>,
+    environment: &[(String, String)],
+) -> Settings {
+    let mut data = saved.cloned().unwrap_or_default();
+    data.environment = environment.iter().cloned().collect();
+    if let Some(shell) = selected {
+        data.shell = shell.path.clone();
+        data.shell_arguments = shell.arguments.clone();
+    }
+    data
+}
+
 fn edit(owner: Entity<Host>, index: Option<usize>, window: &mut Window, cx: &mut App) {
     let value = index
         .map(|index| owner.read(cx).environment[index].clone())
@@ -326,3 +342,7 @@ fn edit(owner: Entity<Host>, index: Option<usize>, window: &mut Window, cx: &mut
         cx,
     );
 }
+
+#[cfg(test)]
+#[path = "host_tests.rs"]
+mod tests;

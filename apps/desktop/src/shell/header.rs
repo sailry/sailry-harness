@@ -1,5 +1,6 @@
 //! Workspace header composition; drag and sizing live in the shared Header.
 use super::*;
+use gpui_kit::component::separator::Separator;
 
 impl Shell {
     fn header_title(
@@ -63,22 +64,40 @@ impl Shell {
             })
     }
 
-    fn header_actions(&self, pane_actions: Option<AnyElement>, cx: &mut Context<Self>) -> Div {
+    fn header_actions(
+        &self,
+        pane_actions: Option<AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
         let filters = self.header_has_filters(cx);
-        h_flex()
-            .debug_selector(|| "header-actions".into())
-            .flex_shrink_0()
-            .when(filters, |row| row.flex_1().min_w_0())
-            .gap_2()
-            .children(pane_actions)
-            .when(self.page == Page::Plugin, |row| {
-                row.children(
-                    self.extensions
-                        .as_ref()
-                        .and_then(|state| state.panel.as_ref())
-                        .and_then(|panel| panel.read(cx).header()),
-                )
-                .when_some(self.extension_settings(cx), |row, entry| {
+        let plugin_header = if self.page == Page::Plugin {
+            self.extensions
+                .as_ref()
+                .and_then(|state| state.panel.as_ref())
+                .and_then(|panel| panel.read(cx).header())
+                .filter(|header| !header.read(cx).is_empty())
+        } else {
+            None
+        };
+        let settings = if self.page == Page::Plugin {
+            self.extension_settings(cx)
+        } else {
+            None
+        };
+        let more =
+            self.page == Page::Project || (self.page == Page::Conversation && self.live.is_none());
+        if pane_actions.is_none() && plugin_header.is_none() && settings.is_none() && !more {
+            return None;
+        }
+        Some(
+            h_flex()
+                .debug_selector(|| "header-actions".into())
+                .flex_shrink_0()
+                .when(filters, |row| row.flex_1().min_w_0())
+                .gap_2()
+                .children(pane_actions)
+                .children(plugin_header)
+                .when_some(settings, |row, entry| {
                     row.child(
                         Button::new("plugin-settings")
                             .debug_selector(|| "plugin-settings".into())
@@ -92,11 +111,7 @@ impl Shell {
                             })),
                     )
                 })
-            })
-            .when(
-                self.page == Page::Project
-                    || (self.page == Page::Conversation && self.live.is_none()),
-                |row| {
+                .when(more, |row| {
                     row.child(
                         Button::new("more")
                             .debug_selector(|| "header-more".into())
@@ -113,8 +128,8 @@ impl Shell {
                                 }
                             }),
                     )
-                },
-            )
+                }),
+        )
     }
 
     fn details_toggle(&self, visible: bool, cx: &mut Context<Self>) -> Button {
@@ -192,7 +207,10 @@ impl Shell {
             && self.splits.read(cx).is_split(cx);
         let (pane_title, pane_actions) =
             if matches!(self.page, Page::Conversation | Page::Terminal) && self.live.is_some() {
-                self.splits.read(cx).single_header(cx).unzip()
+                self.splits
+                    .read(cx)
+                    .single_header(cx)
+                    .map_or((None, None), |(title, actions)| (Some(title), actions))
             } else {
                 (None, None)
             };
@@ -206,6 +224,12 @@ impl Shell {
         } else {
             self.header_title(pane_title, window, cx).into_any_element()
         };
+        let activity = self.activity_strip(width, cx);
+        let actions = self.header_actions(pane_actions, cx);
+        let details = self
+            .has_resource_panel(cx)
+            .then(|| self.details_toggle(visible, cx));
+        let has_actions = activity.is_some() || actions.is_some() || details.is_some();
         crate::header::Header::new("shell-module-header", cx)
             .bordered(false)
             .draggable(!cfg!(target_os = "windows"))
@@ -226,10 +250,11 @@ impl Shell {
                     .when(filters, |row| row.flex_1())
                     .justify_end()
                     .gap_2()
-                    .children(self.activity_strip(width, cx))
-                    .child(self.header_actions(pane_actions, cx))
-                    .when(self.has_resource_panel(cx), |row| {
-                        row.child(self.details_toggle(visible, cx))
+                    .children(activity)
+                    .children(actions)
+                    .children(details)
+                    .when(cfg!(target_os = "windows") && has_actions, |row| {
+                        row.child(Separator::vertical().relative().w_px().h_4())
                     }),
             )
     }

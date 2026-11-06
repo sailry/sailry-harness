@@ -15,6 +15,11 @@ fn discovers_common_installations() {
     let expected = [
         file(&system.join("System32/cmd.exe")),
         file(&system.join("System32/WindowsPowerShell/v1.0/powershell.exe")),
+        file(&system.join("SysWOW64/WindowsPowerShell/v1.0/powershell.exe")),
+        file(&programs.join("nu/bin/nu.exe")),
+        file(&programs.join("MSYS2/usr/bin/bash.exe")),
+        file(&programs.join("Cygwin/bin/bash.exe")),
+        file(&programs.join("Cygwin64/bin/bash.exe")),
         file(&programs.join("PowerShell/7/pwsh.exe")),
         file(&programs.join("PowerShell/7-preview/pwsh.exe")),
         file(&programs.join("Git/bin/bash.exe")),
@@ -34,11 +39,36 @@ fn discovers_common_installations() {
     assert_eq!(
         actual
             .into_iter()
-            .map(PathBuf::from)
+            .map(|shell| PathBuf::from(shell.path))
             .collect::<std::collections::BTreeSet<_>>(),
         expected
             .into_iter()
             .collect::<std::collections::BTreeSet<_>>()
+    );
+}
+
+#[test]
+fn discovers_drive_and_user_installations() {
+    let directory = tempfile::tempdir().unwrap();
+    let drive = directory.path().join("drive");
+    let local = directory.path().join("用户 AppData");
+    let expected = [
+        file(&drive.join("msys64/usr/bin/bash.exe")),
+        file(&drive.join("cygwin64/bin/bash.exe")),
+        file(&local.join("Programs/nushell/nu.exe")),
+        file(&local.join("Microsoft/WinGet/Links/nu.exe")),
+    ];
+    let paths = locations(|name| match name {
+        "SystemDrive" => Some(drive.as_os_str().into()),
+        "LOCALAPPDATA" => Some(local.as_os_str().into()),
+        _ => None,
+    });
+    assert_eq!(
+        super::super::available(paths, &Environment::filtered([]))
+            .into_iter()
+            .map(|shell| PathBuf::from(shell.path))
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected.into_iter().collect()
     );
 }
 
@@ -48,6 +78,63 @@ fn finds_portable_git_layouts() {
     for executable in ["cmd/git.exe", "bin/git.exe", "mingw64/bin/git.exe"] {
         assert_eq!(git_root(&root.join(executable)), Some(root));
     }
+}
+
+#[test]
+fn excludes_launchers_and_terminal_emulators() {
+    let directory = tempfile::tempdir().unwrap();
+    let paths = [
+        "Windows/System32/bash.exe",
+        "Windows/SysWOW64/bash.exe",
+        "Windows/Sysnative/bash.exe",
+        "Windows/System32/wsl.exe",
+        "Users/用户/AppData/Local/Microsoft/WindowsApps/bash.exe",
+        "Users/用户/AppData/Local/mIcRoSoFt/wInDoWsApPs/BaSh.ExE",
+        "Windows Terminal/WindowsTerminal.exe",
+        "wt.exe",
+        "iTerm2",
+    ]
+    .map(|path| file(&directory.path().join(path)));
+    assert!(super::super::available(paths.into(), &Environment::filtered([])).is_empty());
+}
+
+#[test]
+fn preserves_other_aliases_and_bash_installations() {
+    let directory = tempfile::tempdir().unwrap();
+    let paths = [
+        "Users/用户/AppData/Local/Microsoft/WindowsApps/pwsh.exe",
+        "Users/用户/AppData/Local/Microsoft/WindowsApps/nu.exe",
+        "Tools/WindowsApps/bash.exe",
+        "Microsoft/WindowsApps/MSYS2/usr/bin/bash.exe",
+    ]
+    .map(|path| file(&directory.path().join(path)));
+    let shells = super::super::available(paths.clone().into(), &Environment::filtered([]));
+    assert_eq!(
+        shells
+            .into_iter()
+            .map(|shell| PathBuf::from(shell.path))
+            .collect::<std::collections::BTreeSet<_>>(),
+        paths.into_iter().collect()
+    );
+}
+
+#[test]
+fn preserves_versions_and_architectures() {
+    let directory = tempfile::tempdir().unwrap();
+    let paths = [
+        "PowerShell/7/pwsh.exe",
+        "PowerShell/7-preview/pwsh.exe",
+        "Program Files (x86)/PowerShell/7/pwsh.exe",
+    ]
+    .map(|path| file(&directory.path().join(path)));
+    let shells = super::super::available(paths.clone().into(), &Environment::filtered([]));
+    assert_eq!(
+        shells
+            .into_iter()
+            .map(|shell| PathBuf::from(shell.path))
+            .collect::<std::collections::BTreeSet<_>>(),
+        paths.into_iter().collect()
+    );
 }
 
 #[test]

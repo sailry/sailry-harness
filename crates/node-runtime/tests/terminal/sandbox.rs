@@ -55,6 +55,7 @@ async fn preserves_access_when_reopening_shells() {
             .execute(current.prepare(Command::SaveTerminalSettings(Settings {
                 revision: 0,
                 shell: "/bin/sh".into(),
+                shell_arguments: Vec::new(),
                 environment: Default::default(),
             })))
             .await
@@ -186,6 +187,7 @@ async fn blocks_network_in_workspace_pty() {
             .execute(current.prepare(Command::SaveTerminalSettings(Settings {
                 revision: 0,
                 shell: "/bin/sh".into(),
+                shell_arguments: Vec::new(),
                 environment: Default::default(),
             })))
             .await

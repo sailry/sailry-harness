@@ -1,6 +1,9 @@
 use super::super::{failure, session::Message};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize};
-use sailry_protocol::{Fault, terminal::Viewport};
+use sailry_protocol::{
+    Fault,
+    terminal::{Settings, Viewport},
+};
 use std::{path::Path, sync::mpsc::SyncSender};
 
 #[cfg(unix)]
@@ -16,6 +19,8 @@ use crate::process::pty;
 mod ownership;
 #[cfg(test)]
 mod tests;
+#[cfg(windows)]
+mod windows;
 
 pub(in crate::terminal) struct Process {
     pub child: Box<dyn Child + Send + Sync>,
@@ -66,7 +71,7 @@ impl Process {
             command.env(key, value);
         }
         if tool.is_none() {
-            shell(&settings.shell, root, &mut command)?;
+            shell(&settings, root, &mut command)?;
         }
         let scratch = if access == sailry_protocol::process::Access::Workspace
             && crate::process::sandbox::SUPPORTED
@@ -96,7 +101,7 @@ impl Process {
             sandbox.apply_terminal(&mut command);
         }
         #[cfg(unix)]
-        let integration = if tool.is_none() {
+        let integration = if tool.is_none() && settings.shell_arguments.is_empty() {
             integration::configure(
                 &mut command,
                 sandbox.as_ref().map(|sandbox| sandbox.scratch()),
@@ -110,7 +115,9 @@ impl Process {
         let directory = crate::process::pty_directory(root);
         #[cfg(not(windows))]
         let directory = root;
-        command.cwd(&directory);
+        if command.get_cwd().is_none() {
+            command.cwd(&directory);
+        }
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
         command.env("TERM_PROGRAM", "ghostty");
@@ -220,18 +227,21 @@ impl Drop for Process {
     }
 }
 
-fn shell(configured: &str, root: &Path, command: &mut CommandBuilder) -> Result<(), Fault> {
+fn shell(settings: &Settings, root: &Path, command: &mut CommandBuilder) -> Result<(), Fault> {
+    settings.validate()?;
     #[cfg(unix)]
     {
-        login::configure(configured, root, command)
+        login::configure(&settings.shell, root, command)?;
+        if !settings.shell_arguments.is_empty() {
+            let shell = command.get_shell();
+            command.get_argv_mut().push(shell.into());
+            command.args(&settings.shell_arguments);
+        }
+        Ok(())
     }
     #[cfg(windows)]
     {
-        let _ = root;
-        if !configured.is_empty() {
-            command.get_argv_mut().push(configured.into());
-        }
-        Ok(())
+        windows::configure(settings, root, command)
     }
 }
 

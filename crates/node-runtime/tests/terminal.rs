@@ -5,6 +5,8 @@ use sailry_protocol::{terminal::*, *};
 use std::{sync::Arc, time::Duration};
 #[path = "terminal/activity.rs"]
 mod activity;
+#[path = "terminal/arguments.rs"]
+mod arguments;
 #[cfg(unix)]
 #[path = "terminal/environment.rs"]
 mod environment;
@@ -93,7 +95,7 @@ async fn configure_shell(client: &Client) {
     let shell = shells
         .into_iter()
         .find(|shell| {
-            std::path::Path::new(shell)
+            std::path::Path::new(&shell.path)
                 .file_name()
                 .and_then(std::ffi::OsStr::to_str)
                 .is_some_and(|name| name.eq_ignore_ascii_case("powershell.exe"))
@@ -101,7 +103,8 @@ async fn configure_shell(client: &Client) {
         .expect("Windows PowerShell expected");
     client
         .execute(client.prepare(Command::SaveTerminalSettings(Settings {
-            shell,
+            shell: shell.path,
+            shell_arguments: shell.arguments,
             ..Default::default()
         })))
         .await

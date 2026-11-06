@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 pub struct Settings {
     pub revision: u64,
     pub shell: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shell_arguments: Vec<String>,
     pub environment: BTreeMap<String, String>,
 }
 
@@ -16,6 +18,7 @@ impl std::fmt::Debug for Settings {
             .debug_struct("Settings")
             .field("revision", &self.revision)
             .field("shell", &self.shell)
+            .field("shell_argument_count", &self.shell_arguments.len())
             .field("environment", &self.environment.keys().collect::<Vec<_>>())
             .finish()
     }
@@ -25,6 +28,20 @@ impl Settings {
     pub fn validate(&self) -> Result<(), Fault> {
         if self.shell.len() > 4096 || self.shell.chars().any(char::is_control) {
             return Err(crate::Fault::invalid("invalid terminal shell path"));
+        }
+        if self.shell.is_empty() && !self.shell_arguments.is_empty() {
+            return Err(Fault::invalid(
+                "terminal shell arguments require a shell path",
+            ));
+        }
+        if self.shell_arguments.len() > 128
+            || self.shell_arguments.iter().map(String::len).sum::<usize>() > 64 * 1024
+            || self
+                .shell_arguments
+                .iter()
+                .any(|argument| argument.contains('\0'))
+        {
+            return Err(Fault::invalid("invalid terminal shell arguments"));
         }
         let mut size = 0;
         for (key, value) in &self.environment {

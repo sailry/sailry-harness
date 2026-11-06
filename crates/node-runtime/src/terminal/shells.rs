@@ -1,11 +1,38 @@
+use sailry_link::CancellationToken;
+use sailry_protocol::{Fault, terminal::Shell};
 use std::{collections::BTreeSet, path::PathBuf};
 
 #[cfg(test)]
 mod tests;
 #[cfg(windows)]
 mod windows;
+#[cfg(any(windows, test))]
+mod wsl;
 
-pub fn list(environment: &crate::process::Environment) -> Vec<String> {
+pub async fn list(
+    environment: &crate::process::Environment,
+    stop: &CancellationToken,
+) -> Result<Vec<Shell>, Fault> {
+    let source = environment.clone();
+    let shells = tokio::task::spawn_blocking(move || native(&source))
+        .await
+        .map_err(|_| super::failure("shell discovery worker failed"))?;
+    #[cfg(windows)]
+    let shells = {
+        let mut shells = shells;
+        if let Some(executable) = windows::wsl(environment) {
+            shells.extend(wsl::list(&executable, environment, stop).await?);
+        }
+        shells.sort();
+        shells.dedup();
+        shells
+    };
+    #[cfg(not(windows))]
+    let _ = stop;
+    Ok(shells)
+}
+
+fn native(environment: &crate::process::Environment) -> Vec<Shell> {
     let mut candidates = Vec::new();
     #[cfg(unix)]
     {
@@ -29,31 +56,41 @@ pub fn list(environment: &crate::process::Environment) -> Vec<String> {
     }
     #[cfg(windows)]
     candidates.extend(windows::candidates(environment));
-    #[cfg(windows)]
-    let names = ["pwsh.exe", "powershell.exe", "cmd.exe"];
     #[cfg(not(windows))]
-    let names = ["sh", "bash", "zsh", "fish", "nu", "pwsh"];
     candidates.extend(
-        names
+        ["sh", "bash", "zsh", "fish", "nu", "pwsh"]
             .into_iter()
             .filter_map(|name| which::which_in(name, environment.path(), "/").ok()),
     );
     available(candidates, environment)
 }
 
-fn available(candidates: Vec<PathBuf>, environment: &crate::process::Environment) -> Vec<String> {
+fn available(candidates: Vec<PathBuf>, environment: &crate::process::Environment) -> Vec<Shell> {
     let mut seen = BTreeSet::new();
     candidates
         .into_iter()
         .filter_map(|path| which::which_in(path, environment.path(), "/").ok())
-        .filter_map(|path| path.into_os_string().into_string().ok())
         .filter(|path| {
+            #[cfg(windows)]
+            let identity = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+            #[cfg(not(windows))]
+            let identity = path.clone();
+            #[cfg(windows)]
+            if !windows::is_shell(path) || !windows::is_shell(&identity) {
+                return false;
+            }
+            let key = identity.to_string_lossy();
             let key = if cfg!(windows) {
-                path.replace('/', "\\").to_lowercase()
+                key.replace('/', "\\").to_lowercase()
             } else {
-                path.clone()
+                key.into_owned()
             };
             seen.insert(key)
+        })
+        .filter_map(|path| path.into_os_string().into_string().ok())
+        .map(|path| Shell {
+            path,
+            arguments: Vec::new(),
         })
         .collect::<BTreeSet<_>>()
         .into_iter()

@@ -3,9 +3,8 @@ use super::*;
 #[tokio::test]
 async fn lists_and_preserves_shell_choices() {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start_empty(directory.path().join("node"))
-        .await
-        .unwrap();
+    let profile = directory.path().join("node");
+    let node = Node::start_empty(&profile).await.unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -26,14 +25,14 @@ async fn lists_and_preserves_shell_choices() {
     assert!(!shells.is_empty());
     assert!(shells.windows(2).all(|pair| pair[0] < pair[1]));
     assert!(shells.iter().all(|shell| {
-        let path = std::path::Path::new(shell);
+        let path = std::path::Path::new(&shell.path);
         path.is_absolute() && path.is_file()
     }));
     #[cfg(unix)]
-    assert!(shells.iter().any(|shell| shell == "/bin/sh"));
+    assert!(shells.iter().any(|shell| shell.path == "/bin/sh"));
     #[cfg(windows)]
     assert!(shells.iter().any(|shell| {
-        std::path::Path::new(shell)
+        std::path::Path::new(&shell.path)
             .file_name()
             .and_then(std::ffi::OsStr::to_str)
             .is_some_and(|name| name.eq_ignore_ascii_case("cmd.exe"))
@@ -47,16 +46,27 @@ async fn lists_and_preserves_shell_choices() {
     );
     let missing = directory.path().join("Removed Shell.exe");
     let mut settings = Settings::default();
-    for shell in [shells[0].as_str(), "", missing.to_str().unwrap()] {
-        settings.shell = shell.to_owned();
-        let Output::TerminalSettings(saved) = remote
-            .execute(remote.prepare(Command::SaveTerminalSettings(settings.clone())))
-            .await
-            .unwrap()
-        else {
+    let mut replays = Vec::new();
+    for (index, shell) in [
+        shells[0].clone(),
+        Shell::default(),
+        Shell {
+            path: missing.to_str().unwrap().into(),
+            arguments: vec!["--distribution".into(), "Removed 资料".into()],
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        settings.shell = shell.path.clone();
+        settings.shell_arguments = shell.arguments.clone();
+        let client = if index % 2 == 0 { &local } else { &remote };
+        let request = client.prepare(Command::SaveTerminalSettings(settings.clone()));
+        let Output::TerminalSettings(saved) = client.execute(request.clone()).await.unwrap() else {
             panic!("terminal settings expected")
         };
-        assert_eq!(saved.shell, shell);
+        assert_eq!(saved.shell, shell.path);
+        assert_eq!(saved.shell_arguments, shell.arguments);
         assert_eq!(saved.revision, settings.revision + 1);
         assert_eq!(
             local
@@ -65,7 +75,28 @@ async fn lists_and_preserves_shell_choices() {
                 .unwrap(),
             Output::TerminalSettings(saved.clone())
         );
+        replays.push((index % 2, request, Output::TerminalSettings(saved.clone())));
         settings = saved;
+    }
+    let node_id = node.id();
+    node.shutdown().await.unwrap();
+    controller.handle().disconnect(node_id).await;
+    let node = Node::start_empty(&profile).await.unwrap();
+    let clients = [
+        Client::new(node.local()),
+        Client::new(controller.handle().remote(node.link().address())),
+    ];
+    for client in &clients {
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ReadTerminalSettings))
+                .await
+                .unwrap(),
+            Output::TerminalSettings(settings.clone())
+        );
+    }
+    for (index, request, expected) in replays {
+        assert_eq!(clients[index].execute(request).await.unwrap(), expected);
     }
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
@@ -112,12 +143,12 @@ async fn applies_execution_settings() {
         let Output::Shells(shells) = client.execute(request).await.unwrap() else {
             panic!("shells expected")
         };
-        assert!(shells.iter().any(|shell| shell == "/bin/sh"));
+        assert!(shells.iter().any(|shell| shell.path == "/bin/sh"));
         assert!(shells.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(
             shells
                 .iter()
-                .all(|shell| std::path::Path::new(shell).is_file())
+                .all(|shell| std::path::Path::new(&shell.path).is_file())
         );
         let Output::TerminalSettings(mut settings) = client
             .execute(client.prepare(Command::ReadTerminalSettings))
