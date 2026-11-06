@@ -1,6 +1,5 @@
 //! A change set awaits one decision; each Node-validated file shows its bounded diff.
 use super::*;
-use gpui_kit::prelude::FluentBuilder as _;
 use sailry_protocol::{ChangeKind, ChangePreview};
 
 pub(super) fn preview(id: ApprovalId, changes: ChangePreview, cx: &App) -> AnyElement {

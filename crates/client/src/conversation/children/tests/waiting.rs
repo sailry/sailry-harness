@@ -231,6 +231,7 @@ fn requires_settled_running_parent() {
         startup: None,
         ssh: None,
         access: None,
+        changes: None,
     });
     assert_eq!(reported(&page, Vec::new(), parent.turn), [None]);
 
