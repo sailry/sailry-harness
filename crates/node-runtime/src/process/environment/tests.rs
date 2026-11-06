@@ -111,6 +111,24 @@ fn filters_sensitive_values() {
 
 #[cfg(windows)]
 #[test]
+fn preserves_terminal_username() {
+    for key in ["USERNAME", "UserName", "username"] {
+        let environment = Environment::filtered([
+            (key.into(), "fixture".into()),
+            ("OPENAI_API_KEY".into(), "private".into()),
+        ]);
+        assert_eq!(environment.terminal[OsStr::new(key)], "fixture");
+        assert!(!environment.values.contains_key(OsStr::new(key)));
+        assert!(
+            !environment
+                .terminal
+                .contains_key(OsStr::new("OPENAI_API_KEY"))
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
 fn keeps_cmd_for_agent_commands() {
     let environment = Environment::filtered([
         ("COMSPEC".into(), r"C:\Windows\System32\cmd.exe".into()),

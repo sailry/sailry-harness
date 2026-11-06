@@ -276,6 +276,7 @@ fn terminal_variable(key: &OsStr) -> bool {
             | "__CF_USER_TEXT_ENCODING"
             | "LANGUAGE"
     ) || key.starts_with("LC_")
+        || cfg!(windows) && key.eq_ignore_ascii_case("USERNAME")
 }
 
 #[cfg(target_os = "macos")]
