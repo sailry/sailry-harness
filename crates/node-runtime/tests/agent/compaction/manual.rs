@@ -1062,15 +1062,26 @@ async fn preserves_cancelled_configuration() {
     }
 }
 
-#[tokio::test]
-async fn accepts_larger_handoffs() {
-    for remote in [false, true] {
-        let handoff = "Verified complete handoff. ".repeat(1_000);
-        let server = Server::compaction_text(false, handoff.clone()).await;
+mod handoffs {
+    use super::*;
+
+    /// Rendered handoff limit that the Node enforces on accepted summaries.
+    const TOKENS: usize = 4_000;
+
+    fn tokens(text: &str) -> usize {
+        tiktoken_rs::o200k_base_singleton()
+            .encode_with_special_tokens(text)
+            .len()
+    }
+
+    /// Compacts one short turn with `handoff` as the summary text and returns
+    /// the stored summary and the summary request transcript.
+    async fn compacted(remote: bool, handoff: &str) -> (String, String) {
+        let server = Server::compaction_text(false, handoff.into()).await;
         let fixture = fixture(remote, &server).await;
         std::fs::write(
             fixture.root.join("source.txt"),
-            "Exact synthetic source evidence.\n".repeat(200),
+            "Exact synthetic source evidence.\n".repeat(100),
         )
         .unwrap();
         let (_, _, before) = submit(
@@ -1092,18 +1103,42 @@ async fn accepts_larger_handoffs() {
             .iter()
             .flat_map(|entry| &entry.parts)
             .find_map(|part| match part {
-                Part::Compaction(text) => Some(text),
+                Part::Compaction(text) => Some(text.clone()),
                 _ => None,
             })
             .unwrap();
-        assert!(summary.contains(&handoff));
-        {
+        let transcript = {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 3);
-            let transcript = prompt(&requests[2]);
-            assert!(handoff.len() > transcript.len());
-        }
+            prompt(&requests[2]).to_owned()
+        };
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
+        (summary, transcript)
+    }
+
+    #[tokio::test]
+    async fn accepts_larger_handoffs() {
+        let handoff = "Verified complete handoff. ".repeat(600);
+        assert!(tokens(&handoff) < TOKENS * 3 / 4);
+        for remote in [false, true] {
+            let (summary, transcript) = compacted(remote, &handoff).await;
+            assert!(summary.contains(&handoff));
+            assert!(handoff.len() > transcript.len());
+        }
+    }
+
+    #[tokio::test]
+    async fn bounds_oversized_handoffs() {
+        let handoff = "Verified complete handoff. ".repeat(2_000);
+        assert!(tokens(&handoff) > TOKENS * 3 / 2);
+        for remote in [false, true] {
+            let (summary, _) = compacted(remote, &handoff).await;
+            // The only goal is shortened rather than the handoff rejected.
+            assert!(summary.contains("Verified complete handoff. Verified"));
+            assert!(summary.contains('…'));
+            assert!(summary.len() < handoff.len());
+            assert!(tokens(&summary) <= TOKENS, "{}", tokens(&summary));
+        }
     }
 }
