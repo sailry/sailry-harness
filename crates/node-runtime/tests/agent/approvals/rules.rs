@@ -12,57 +12,61 @@ pub(crate) async fn observe(
     observe_within(client, session, predicate, Duration::from_secs(10)).await
 }
 
+/// Each update restarts `window`, so slower hosts may take longer in total while
+/// a conversation that stops publishing still fails.
 async fn observe_within(
     client: &Client,
     session: SessionId,
     predicate: impl Fn(&Page) -> bool,
-    budget: Duration,
+    window: Duration,
 ) -> Page {
-    let mut last = None;
-    let result = tokio::time::timeout(budget, async {
-        let mut stream = client.subscribe_conversation(session).await.unwrap();
-        let mut projection =
-            sailry_client::conversation::Projection::new(client.target(), session, 0);
-        loop {
-            let update = stream.next().await.unwrap();
-            assert_ne!(
-                projection.apply(0, update).unwrap(),
-                sailry_client::Apply::Recover
-            );
-            let Some(snapshot) = projection.snapshot() else {
-                continue;
-            };
-            last = Some((
-                snapshot
-                    .page
-                    .runs
-                    .iter()
-                    .map(|run| (run.turn, run.status))
-                    .collect::<Vec<_>>(),
-                snapshot.page.entries.len(),
-                snapshot.page.approvals.len(),
-                snapshot.page.questions.len(),
-            ));
-            assert!(
-                snapshot
-                    .page
-                    .runs
-                    .iter()
-                    .all(|run| run.status != Status::Failed),
-                "{:?}",
-                snapshot.page.runs
-            );
-            if predicate(&snapshot.page) {
-                return snapshot.page.as_ref().clone();
-            }
-        }
-    })
-    .await;
-    result.unwrap_or_else(|error| {
+    fn stalled(window: Duration, last: &impl std::fmt::Debug) -> ! {
         panic!(
-            "conversation update deadline: {error:?}; last (runs, entries, approvals, questions): {last:?}"
+            "conversation made no progress for {window:?}; last (runs, entries, approvals, questions): {last:?}"
         )
-    })
+    }
+    let mut last = None;
+    let mut stream = tokio::time::timeout(window, client.subscribe_conversation(session))
+        .await
+        .unwrap_or_else(|_| stalled(window, &last))
+        .unwrap();
+    let mut projection = sailry_client::conversation::Projection::new(client.target(), session, 0);
+    loop {
+        let update = tokio::time::timeout(window, stream.next())
+            .await
+            .unwrap_or_else(|_| stalled(window, &last))
+            .unwrap();
+        assert_ne!(
+            projection.apply(0, update).unwrap(),
+            sailry_client::Apply::Recover
+        );
+        let Some(snapshot) = projection.snapshot() else {
+            continue;
+        };
+        last = Some((
+            snapshot
+                .page
+                .runs
+                .iter()
+                .map(|run| (run.turn, run.status))
+                .collect::<Vec<_>>(),
+            snapshot.page.entries.len(),
+            snapshot.page.approvals.len(),
+            snapshot.page.questions.len(),
+        ));
+        assert!(
+            snapshot
+                .page
+                .runs
+                .iter()
+                .all(|run| run.status != Status::Failed),
+            "{:?}",
+            snapshot.page.runs
+        );
+        if predicate(&snapshot.page) {
+            return snapshot.page.as_ref().clone();
+        }
+    }
 }
 
 pub(crate) async fn pending(client: &Client, session: SessionId) -> Approval {

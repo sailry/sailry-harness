@@ -51,10 +51,6 @@ name = "resources"
 path = "tests/suites/resources.rs"
 
 [[test]]
-name = "knowledge"
-path = "tests/suites/knowledge.rs"
-
-[[test]]
 name = "code_index"
 path = "tests/code_index.rs"
 

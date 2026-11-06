@@ -20,6 +20,8 @@ mod host_info;
 mod host_processes;
 #[path = "../json_storage.rs"]
 mod json_storage;
+#[path = "../knowledge/mod.rs"]
+mod knowledge;
 #[path = "../memory.rs"]
 mod memory;
 #[path = "../office.rs"]
