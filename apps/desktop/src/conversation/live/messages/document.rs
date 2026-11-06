@@ -9,6 +9,7 @@ impl View {
     pub(super) fn document_card(
         &self,
         artifact: sailry_protocol::artifact::Summary,
+        turn: TurnId,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let source = cx.entity().downgrade();
@@ -21,7 +22,7 @@ impl View {
         let summary = artifact.summary.clone();
         let exportable = self.connected()
             && (self.document_visible(&artifact) || self.document_listed(&artifact, cx));
-        v_flex()
+        let card = v_flex()
             .w_full()
             .min_w_0()
             .rounded(cx.theme().radius_2xl())
@@ -29,7 +30,8 @@ impl View {
             .border_color(cx.theme().border)
             .bg(cx.theme().group_box.opacity(0.8))
             .overflow_hidden()
-            .debug_selector(move || format!("artifact-document-{id}-{revision}"))
+            .debug_selector(move || format!("artifact-document-{id}-{revision}"));
+        self.with_thumbnail(card, &artifact, turn, cx)
             .child(
                 h_flex()
                     .w_full()

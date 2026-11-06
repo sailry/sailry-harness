@@ -563,8 +563,18 @@ Desktop renders it in the existing native preview adapter's opaque-origin
 sandbox, not the privileged document surface. It receives no Node, tool,
 credential, filesystem or conversation-form bridge. Parent and child CSP restrict
 resource loading and navigation; this is not an OS-level zero-egress guarantee.
+The wrapper supplies the controller theme as `--sailry-*` CSS variables and a
+matching `color-scheme`; authored CSS may override them.
 Preview HTML exports preserve that wrapper and original source, not transient
 browser state. Preview PNG export is unavailable; document exports are unchanged.
+
+On macOS and Windows, Desktop message cards also show a bounded image of a
+preview revision. One controller-owned hidden WebView renders the same sandboxed
+wrapper without a native message channel, polls the content box the frame
+reports, captures a PNG and caches it in memory by Node, artifact, revision,
+theme, width bucket and scale. It reads the HTML through the ordinary artifact
+command; Host never renders thumbnails. Failures, timeouts and Linux keep the
+ordinary card, and a click opens the side panel.
 
 Forks and rewind backups preserve canonical document receipts with their original
 write owner. Reads captured to another live conversation expose only revisions

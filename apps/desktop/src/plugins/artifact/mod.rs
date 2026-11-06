@@ -65,6 +65,28 @@ impl Panel {
         );
     }
 
+    /// Reads a visible card's captured revision through the ordinary local or
+    /// remote command, with the same identity checks as card exports.
+    pub(crate) fn read_document(
+        source: &Entity<Chat>,
+        artifact: Summary,
+        cx: &App,
+    ) -> Option<sailry_link::Pending<'static, Result<Content, &'static str>>> {
+        let session = source.read(cx).session()?;
+        let resource = Resource {
+            binding: source.read(cx).binding(),
+            session,
+            artifact,
+            source: source.downgrade(),
+        };
+        let options = export::Options {
+            artifact: resource.artifact.id,
+            revision: resource.artifact.revision,
+            format: export::Format::Html,
+        };
+        export::read_card(&resource, &options, cx).ok()
+    }
+
     pub(crate) fn document(
         source: Entity<Chat>,
         artifact: Summary,

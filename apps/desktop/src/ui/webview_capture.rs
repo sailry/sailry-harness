@@ -9,8 +9,9 @@ pub(crate) struct Buffer {
 
 pub(crate) type Pending = oneshot::Receiver<Result<Buffer, ()>>;
 
+/// `fresh` waits for the next screen update, so recent DOM changes are included.
 #[cfg(target_os = "macos")]
-pub(crate) fn capture(page: &wry::WebView, width: Option<f64>) -> Result<Pending, ()> {
+pub(crate) fn capture(page: &wry::WebView, width: Option<f64>, fresh: bool) -> Result<Pending, ()> {
     use objc2::MainThreadOnly;
     use objc2_app_kit::NSImage;
     use objc2_foundation::{NSError, NSNumber};
@@ -44,7 +45,7 @@ pub(crate) fn capture(page: &wry::WebView, width: Option<f64>) -> Result<Pending
     unsafe {
         let config = WKSnapshotConfiguration::new(view.mtm());
         config.setSnapshotWidth(width.map(NSNumber::new_f64).as_deref());
-        config.setAfterScreenUpdates(false);
+        config.setAfterScreenUpdates(fresh);
         view.takeSnapshotWithConfiguration_completionHandler(Some(&config), &callback);
     }
     Ok(receive)
@@ -52,11 +53,16 @@ pub(crate) fn capture(page: &wry::WebView, width: Option<f64>) -> Result<Pending
 
 #[cfg(target_os = "windows")]
 pub(crate) fn snapshot(page: &wry::WebView) -> Result<Pending, ()> {
-    capture(page, None)
+    capture(page, None, false)
 }
 
+/// CapturePreview always copies the latest composed frame.
 #[cfg(target_os = "windows")]
-pub(crate) fn capture(page: &wry::WebView, _width: Option<f64>) -> Result<Pending, ()> {
+pub(crate) fn capture(
+    page: &wry::WebView,
+    _width: Option<f64>,
+    _fresh: bool,
+) -> Result<Pending, ()> {
     use webview2_com::{
         CapturePreviewCompletedHandler,
         Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
@@ -132,6 +138,10 @@ pub(crate) fn capture(page: &wry::WebView, _width: Option<f64>) -> Result<Pendin
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub(crate) fn capture(_page: &wry::WebView, _width: Option<f64>) -> Result<Pending, ()> {
+pub(crate) fn capture(
+    _page: &wry::WebView,
+    _width: Option<f64>,
+    _fresh: bool,
+) -> Result<Pending, ()> {
     Err(())
 }
