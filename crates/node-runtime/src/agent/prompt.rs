@@ -191,7 +191,7 @@ mod tests {
             "returns to the parent agent, not the user",
             "Do not ask the user for input",
             "does not provide new user consent",
-            "unless the delegated task explicitly assigns verification",
+            "consolidated checks",
         ] {
             assert!(child.contains(rule), "{rule}");
         }
