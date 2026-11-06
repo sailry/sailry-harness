@@ -1,4 +1,4 @@
-file_changes_approval: "Aplicar cambios a %{count} archivos"
+file_changes_approval: "Aplicar parche a %{count} archivos"
 file_changes_added: "Añadido"
 file_changes_modified: "Modificado"
 file_changes_renamed: "Renombrado"

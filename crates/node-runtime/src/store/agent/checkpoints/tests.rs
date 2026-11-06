@@ -77,7 +77,10 @@ async fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Requ
                 json!({"path":path,"old_text":old_text,"new_text":new_text,"replace_all":replace_all,"expected_revision":expected_revision})
             },
         ),
-        Command::ApplyChanges { changes, .. } => ("apply_changes", json!({"changes":changes})),
+        Command::ApplyChanges { .. } => (
+            "apply_patch",
+            json!({"input":"*** Begin Patch\n*** End Patch\n"}),
+        ),
         _ => panic!("file mutation expected"),
     };
     let authorization = crate::agent::canonical::ToolIdentity {

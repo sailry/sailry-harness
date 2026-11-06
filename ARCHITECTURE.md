@@ -749,8 +749,13 @@ result. Multi-file change sets validate every entry before one approval lists ea
 file and its bounded diff; any invalid entry rejects the set unwritten. Entries then
 apply in order with per-file revision checks and stop at the first failure without
 cross-file rollback. Each content entry keeps its own checkpoint under that approval;
-moves and Trash deletions keep their single-file recovery. Plugin flows cannot
-compose change sets. Background commands may use a PTY and accept durably admitted input;
+moves and Trash deletions keep their single-file recovery. The agent's `apply_patch`
+tool accepts the Codex patch format; its Node tool layer resolves a patch into
+structured entries before approval, so the durable command keeps typed entries for
+controllers. Hunk context must match the current file exactly and identify one place.
+An updated, moved or deleted file must still have the latest revision shown by the
+session's model-visible file results; otherwise the model reads it again. Plugin
+flows cannot compose change sets. Background commands may use a PTY and accept durably admitted input;
 completion, stop and replay retain the original command identity.
 
 Public web reads and search run on the execution Node. Direct web reads validate

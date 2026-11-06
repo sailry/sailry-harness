@@ -91,7 +91,7 @@ async fn install(fixture: &process::Fixture) -> plugin::Info {
             ("read_file", "read", Some(Operation::ReadFile)),
             ("write_file", "write", Some(Operation::WriteFile)),
             ("edit_file", "edit", Some(Operation::EditFile)),
-            ("apply_changes", "apply", Some(Operation::ApplyChanges)),
+            ("apply_patch", "apply", Some(Operation::ApplyChanges)),
             ("delete_file", "remove", Some(Operation::DeleteFile)),
             ("move_file", "move", Some(Operation::MoveFile)),
             (
@@ -472,7 +472,7 @@ async fn preserves_ask_and_plan_policy() {
             "search_files",
             "write_file",
             "edit_file",
-            "apply_changes",
+            "apply_patch",
         ] {
             assert!(names.contains(&visible));
         }

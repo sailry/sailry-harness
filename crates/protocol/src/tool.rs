@@ -839,12 +839,12 @@ mod flow_tests {
                 (|scenario: &'static str| {
                     let handler = json!({"name":"apply","parameters":{"type":"object"},"operation":"files.apply"});
                     let declaration: Declaration = serde_json::from_value(
-                        json!({"name":"apply_changes","description":"Apply changes","handler":handler}),
+                        json!({"name":"apply_patch","description":"Apply a patch","handler":handler}),
                     )
                     .unwrap();
                     assert!(declaration.valid(), "{scenario}");
                     let flow: Declaration = serde_json::from_value(json!({
-                        "name":"apply_changes","description":"Apply changes",
+                        "name":"apply_patch","description":"Apply a patch",
                         "handler":{"name":"apply","parameters":{"type":"object"},"flow":{"operations":["files.apply"]}}
                     }))
                     .unwrap();

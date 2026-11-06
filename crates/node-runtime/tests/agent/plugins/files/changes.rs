@@ -1,30 +1,55 @@
 use super::*;
 use sailry_protocol::ChangeKind;
 
-fn revision(text: &str) -> String {
-    blake3::hash(text.as_bytes()).to_hex().to_string()
+fn patch(body: &str) -> Value {
+    json!({"input":format!("*** Begin Patch\n{body}*** End Patch\n")})
+}
+
+fn read_file(path: &str) -> (String, Value) {
+    (name("read_file"), json!({"path":path}))
 }
 
 #[tokio::test]
-async fn applies_one_approved_change_set() {
+async fn applies_one_approved_patch() {
     for remote in [false, true] {
         let server = Server::tools(vec![
+            read_file("src/lib.rs"),
+            read_file("README.md"),
+            read_file("old.txt"),
+            read_file("dead.txt"),
             (
-                name("apply_changes"),
-                json!({"changes":[
-                    {"kind":"create","path":"src/new.rs","text":"pub fn new() {}\n"},
-                    {"kind":"write","path":"README.md","text":"# Replaced\n","expected_revision":revision("# Original\n")},
-                    {"kind":"edit","path":"src/lib.rs","expected_revision":revision("fn old() {}\n"),"edits":[{"old_text":"old","new_text":"renamed"}]},
-                    {"kind":"move","path":"old.txt","destination":"src/moved.txt","expected_revision":revision("moved\n")},
-                    {"kind":"delete","path":"dead.txt","expected_revision":revision("dead\n")}
-                ]}),
+                name("apply_patch"),
+                patch(
+                    "*** Add File: src/new.rs
++pub fn new() {}
+*** Update File: README.md
+@@
+-# Original
++# Replaced
+*** Update File: src/lib.rs
+@@
+-fn old() {}
++fn renamed() {}
+*** Update File: old.txt
+*** Move to: src/moved.txt
+@@
+ moved
+*** Delete File: dead.txt
+",
+                ),
             ),
+            // The session's own result establishes the new revision of src/lib.rs.
             (
-                name("apply_changes"),
-                json!({"changes":[
-                    {"kind":"edit","path":"src/lib.rs","expected_revision":revision("fn renamed() {}\n"),"edits":[{"old_text":"renamed","new_text":"again"}]},
-                    {"kind":"create","path":"README.md","text":"Never\n"}
-                ]}),
+                name("apply_patch"),
+                patch(
+                    "*** Update File: src/lib.rs
+@@
+-fn renamed() {}
++fn again() {}
+*** Add File: README.md
++Never
+",
+                ),
             ),
         ])
         .await;
@@ -67,7 +92,7 @@ async fn applies_one_approved_change_set() {
             (preview.files[4].additions, preview.files[4].deletions),
             (0, 1)
         );
-        // One decision covers the set; nothing is written while it is pending.
+        // One decision covers the patch; nothing is written while it is pending.
         assert!(!fixture.root.join("src/new.rs").exists());
         assert_eq!(read("README.md"), "# Original\n");
         process::decide(&fixture.client, &approval, Decision::Approve).await;
@@ -80,16 +105,16 @@ async fn applies_one_approved_change_set() {
         assert_eq!(
             page.approvals.len(),
             1,
-            "a rejected set requests no approval"
+            "a rejected patch requests no approval"
         );
         let outputs = results(&fixture.client, &page).await;
-        assert_eq!(outputs.len(), 2, "{outputs:?}");
-        assert_eq!(outputs[0]["kind"], "file_changes");
-        assert_eq!(outputs[0]["data"]["status"], "applied", "{outputs:?}");
-        assert_eq!(outputs[1]["data"]["status"], "rejected");
-        assert_eq!(outputs[1]["data"]["files"][0]["status"], "not_attempted");
-        assert_eq!(outputs[1]["data"]["files"][1]["status"], "failed");
-        assert_eq!(outputs[1]["data"]["files"][1]["error"]["code"], "conflict");
+        assert_eq!(outputs.len(), 6, "{outputs:?}");
+        assert_eq!(outputs[4]["kind"], "file_changes");
+        assert_eq!(outputs[4]["data"]["status"], "applied", "{outputs:?}");
+        assert_eq!(outputs[5]["data"]["status"], "rejected");
+        assert_eq!(outputs[5]["data"]["files"][0]["status"], "not_attempted");
+        assert_eq!(outputs[5]["data"]["files"][1]["status"], "failed");
+        assert_eq!(outputs[5]["data"]["files"][1]["error"]["code"], "conflict");
         assert_eq!(read("src/new.rs"), "pub fn new() {}\n");
         assert_eq!(read("README.md"), "# Replaced\n");
         assert_eq!(read("src/lib.rs"), "fn renamed() {}\n");
@@ -97,9 +122,9 @@ async fn applies_one_approved_change_set() {
         assert!(!fixture.root.join("old.txt").exists());
         assert!(!fixture.root.join("dead.txt").exists());
         let view = crate::progress::observe(&fixture.client, fixture.session.id).await;
-        assert!(view.calls[0].failure.is_none());
+        assert!(view.calls[4].failure.is_none());
         assert_eq!(
-            view.calls[1]
+            view.calls[5]
                 .failure
                 .as_ref()
                 .and_then(|failure| failure.code),
@@ -162,16 +187,93 @@ async fn applies_one_approved_change_set() {
 }
 
 #[tokio::test]
+async fn requires_current_reads() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![
+            (
+                name("apply_patch"),
+                patch("*** Update File: note.txt\n@@\n-first\n+second\n"),
+            ),
+            read_file("note.txt"),
+            (
+                name("apply_patch"),
+                patch("*** Update File: note.txt\n@@\n-first\n+second\n"),
+            ),
+            (
+                name("apply_patch"),
+                patch("*** Update File: note.txt\n@@\n-second\n+third\n"),
+            ),
+        ])
+        .await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
+        install(&fixture).await;
+        std::fs::write(fixture.root.join("note.txt"), "first\n").unwrap();
+        configure(&mut fixture, Permission::Project, WorkMode::Code).await;
+        let turn = submit(&fixture).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{page:?}"
+        );
+        let outputs = results(&fixture.client, &page).await;
+        assert_eq!(outputs.len(), 4, "{outputs:?}");
+        assert_eq!(outputs[0]["data"]["status"], "rejected");
+        assert_eq!(
+            outputs[0]["data"]["files"][0]["error"]["code"],
+            "revision_conflict"
+        );
+        assert_eq!(
+            outputs[0]["data"]["files"][0]["error"]["message"],
+            "file has not been read in this session; read the file again"
+        );
+        // A fresh read admits the patch; the session's own result admits the next one.
+        assert_eq!(outputs[2]["data"]["status"], "applied", "{outputs:?}");
+        assert_eq!(outputs[3]["data"]["status"], "applied", "{outputs:?}");
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("note.txt")).unwrap(),
+            "third\n"
+        );
+        assert_eq!(page.approvals.len(), 2);
+        assert!(
+            page.approvals
+                .iter()
+                .all(|approval| approval.source == ApprovalSource::Project)
+        );
+        assert_eq!(
+            checkpoints(&fixture.client, fixture.session.id, turn.id)
+                .await
+                .len(),
+            2
+        );
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn rechecks_revisions_after_approval() {
     for remote in [false, true] {
-        let server = Server::tools(vec![(
-            name("apply_changes"),
-            json!({"changes":[
-                {"kind":"edit","path":"a.txt","expected_revision":revision("A\n"),"edits":[{"old_text":"A","new_text":"A2"}]},
-                {"kind":"edit","path":"b.txt","expected_revision":revision("B\n"),"edits":[{"old_text":"B","new_text":"B2"}]},
-                {"kind":"create","path":"c.txt","text":"C\n"}
-            ]}),
-        )])
+        let server = Server::tools(vec![
+            read_file("a.txt"),
+            read_file("b.txt"),
+            (
+                name("apply_patch"),
+                patch(
+                    "*** Update File: a.txt
+@@
+-A
++A2
+*** Update File: b.txt
+@@
+-B
++B2
+*** Add File: c.txt
++C
+",
+                ),
+            ),
+        ])
         .await;
         let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
@@ -185,9 +287,9 @@ async fn rechecks_revisions_after_approval() {
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         let outputs = results(&fixture.client, &page).await;
-        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs.len(), 3);
         assert_eq!(
-            outputs[0]["error"]["code"], "revision_conflict",
+            outputs[2]["error"]["code"], "revision_conflict",
             "{outputs:?}"
         );
         assert_eq!(
@@ -213,8 +315,8 @@ async fn rechecks_revisions_after_approval() {
 async fn follows_plan_and_project_permissions() {
     for remote in [false, true] {
         let server = Server::turn_tools(vec![(
-            name("apply_changes"),
-            json!({"changes":[{"kind":"create","path":"planned.txt","text":"Planned\n"}]}),
+            name("apply_patch"),
+            patch("*** Add File: planned.txt\n+Planned\n"),
         )])
         .await;
         let mut fixture = process::Fixture::packages(remote, &server, &[]).await;

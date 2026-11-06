@@ -10,6 +10,8 @@ mod context;
 pub(in crate::agent) use context::CallContext;
 pub(crate) use context::CatalogSession;
 pub(super) mod display;
+mod observed;
+pub(in crate::agent) use observed::Observed;
 
 pub(super) struct Registration {
     pub tool: Tool,
@@ -21,6 +23,8 @@ pub(super) struct Registration {
     pub managed: bool,
     pub deferred: bool,
     pub delegation: bool,
+    /// The call receives the file revisions its session has observed.
+    pub observes: bool,
 }
 impl Registration {
     pub fn new(
@@ -38,6 +42,7 @@ impl Registration {
             managed: false,
             deferred: false,
             delegation: false,
+            observes: false,
         }
     }
     pub fn managed(tool: Tool, provider: Arc<dyn ToolProvider<CallContext>>) -> Self {
@@ -167,6 +172,9 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
             session.context().clone(),
         )?;
         context.children = self.children.clone();
+        if entry.observes {
+            context.observed = Some(Arc::new(Observed::collect(session.conversation())));
+        }
         let name = entry.tool.name.as_ref();
         let metric = self.metrics.as_ref().and_then(|(profile, invocation)| {
             if !crate::telemetry::metrics_enabled(Some(profile)) {

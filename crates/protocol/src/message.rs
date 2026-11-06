@@ -1458,7 +1458,8 @@ pub enum Command {
         expected_revision: String,
     },
     /// Validates every entry before writing any file, then applies them in order.
-    /// A later failure stops the set without rolling back earlier entries.
+    /// A later failure stops the set without rolling back earlier entries. The
+    /// agent's `apply_patch` tool resolves a patch into these entries before approval.
     ApplyChanges {
         worktree: WorktreeId,
         changes: Vec<crate::FileChange>,

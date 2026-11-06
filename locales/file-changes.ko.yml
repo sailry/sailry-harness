@@ -1,4 +1,4 @@
-file_changes_approval: "파일 %{count}개에 변경 사항 적용"
+file_changes_approval: "파일 %{count}개에 패치 적용"
 file_changes_added: "추가"
 file_changes_modified: "수정"
 file_changes_renamed: "이름 변경"

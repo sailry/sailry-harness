@@ -3,7 +3,7 @@ use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, FileEdit, FileWritten, MAX_EDIT_BYTES};
 use std::{borrow::Cow, cmp::Reverse, collections::BinaryHeap, ops::Range};
 mod excerpt;
-mod text;
+pub(super) mod text;
 
 pub(crate) fn changes<'a>(
     old_text: Option<&str>,
