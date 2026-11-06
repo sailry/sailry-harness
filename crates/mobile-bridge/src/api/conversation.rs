@@ -8,6 +8,7 @@ use sailry_protocol::SessionId;
 use std::sync::Arc;
 use tokio::{sync::watch, task::JoinHandle};
 mod tools;
+mod transcript;
 
 #[frb(opaque)]
 pub struct ConversationUpdates {

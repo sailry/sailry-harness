@@ -6,6 +6,8 @@ pub use features::*;
 pub use graphics::*;
 mod screen;
 mod settings;
+#[cfg(test)]
+mod tests;
 mod tools;
 use crate::{NodeId, TerminalId, WorktreeId};
 pub use input::*;
@@ -20,6 +22,12 @@ pub const MAX_SCROLLBACK_ROWS: usize = 1000;
 pub const MAX_INPUT_BYTES: usize = 64 * 1024;
 pub const MAX_KEY_UTF8_BYTES: usize = 64;
 pub const FUNCTION_KEY_COUNT: usize = 25;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct Shell {
+    pub path: String,
+    pub arguments: Vec<String>,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Viewport {

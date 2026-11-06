@@ -170,7 +170,7 @@ async fn preserves_records_when_adding_capture_column() {
         .path()
         .canonicalize()
         .unwrap()
-        .join("node.turso");
+        .join("storage/node.turso");
     let node = fixture.database.node;
     let body: Vec<u8> = fixture
         .database
@@ -214,7 +214,7 @@ async fn preserves_records_when_adding_capture_column() {
             .unwrap()
             .is_none()
     );
-    let backups = std::fs::read_dir(fixture._root.path().join("backups"))
+    let backups = std::fs::read_dir(fixture._root.path().join("storage/backups"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .collect::<Vec<_>>();
@@ -284,7 +284,7 @@ async fn rejects_invalid_capture_before_upgrade() {
         .path()
         .canonicalize()
         .unwrap()
-        .join("node.turso");
+        .join("storage/node.turso");
     let node = fixture.database.node;
     fixture
         .database
@@ -307,5 +307,5 @@ async fn rejects_invalid_capture_before_upgrade() {
     assert!(error.to_string().contains("agent_runs.input"));
     assert!(!error.to_string().contains("invalid input"));
     assert_eq!(std::fs::read(&path).unwrap(), before);
-    assert!(!fixture._root.path().join("backups").exists());
+    assert!(!fixture._root.path().join("storage/backups").exists());
 }

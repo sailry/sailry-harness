@@ -96,6 +96,10 @@ pub(super) async fn verify(fixture: &Fixture, child: &Session, package: &plugin:
             assert!(!names.contains(&plugin_tool(package, name).as_str()));
         }
     }
+    unchanged(fixture, child, package).await;
+}
+
+async fn unchanged(fixture: &Fixture, child: &Session, package: &plugin::Info) {
     assert_eq!(
         std::fs::read_to_string(fixture.root().join("source.txt")).unwrap(),
         EVIDENCE
@@ -131,6 +135,101 @@ pub(super) async fn verify(fixture: &Fixture, child: &Session, package: &plugin:
         assert!(value.is_null());
         assert!(!present);
         assert_eq!(revision, 0);
+    }
+}
+
+#[tokio::test]
+async fn discovers_hosted_reads_without_explicit_selection() {
+    for remote in [false, true] {
+        let canonical = plugin_tool(PACKAGE, "inspect");
+        let parent = Server::turn_tools(vec![(
+            "spawn_agent".to_string(),
+            json!({"role":"review","task":"Inspect the captured evidence without changing it"}),
+        )])
+        .await;
+        let child = Server::turn_tools(vec![
+            ("tool_search".into(), json!({"query":canonical,"limit":1})),
+            (
+                "tool_search".into(),
+                json!({"query":"verify blocked mutations","limit":1}),
+            ),
+            (canonical.clone(), json!({})),
+        ])
+        .await;
+        let mut fixture = Fixture::start(remote, parent, child).await;
+        let package = install(&fixture).await;
+        std::fs::write(fixture.root().join("source.txt"), EVIDENCE).unwrap();
+        let mut role = fixture.role.clone();
+        role.read_only = true;
+        assert!(role.tools.is_none());
+        let revision = role.revision;
+        let Output::Role(role) = execute(
+            &fixture.client,
+            Command::PutRole {
+                role,
+                expected_revision: revision,
+            },
+        )
+        .await
+        else {
+            panic!("role expected")
+        };
+        let Output::Session(session) = execute(
+            &fixture.client,
+            Command::SetSessionRoles {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                roles: vec![role.reference()],
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let turn = fixture.push("Delegate a read-only inspection").await;
+        let parent = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(parent.runs[0].status, Status::Completed);
+        let child = children(&fixture.client, fixture.session.id, 1)
+            .await
+            .pop()
+            .unwrap();
+        assert_eq!(child.config.mode, WorkMode::Plan);
+        assert_eq!(child.delegation.as_ref().unwrap().role, Some(role.id));
+        let page = history(&fixture.client, child.id).await;
+        assert_eq!(page.runs[0].status, Status::Completed);
+        assert!(page.runs[0].error.is_none());
+        assert!(page.approvals.is_empty());
+        assert!(page.questions.is_empty());
+        let details = tool_details(&fixture.client, &page).await;
+        assert_eq!(details.len(), 3);
+        for (name, detail) in &details[..2] {
+            assert_eq!(name, "tool_search");
+            let result = detail.result.as_ref().unwrap();
+            assert_eq!(result["tools"][0]["name"], canonical, "{result}");
+        }
+        assert_eq!(details[2].0, canonical);
+        let result = details[2].1.result.as_ref().unwrap();
+        assert_eq!(result["errors"], json!(vec!["permission_denied"; 4]));
+        assert!(result["file"].to_string().contains(EVIDENCE));
+        assert!(result["value"]["value"].is_null());
+        {
+            let requests = fixture.child.requests.lock().unwrap();
+            assert_eq!(requests.len(), 4);
+            for (index, request) in requests.iter().enumerate() {
+                let names: Vec<_> = request["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|tool| tool["function"]["name"].as_str().unwrap())
+                    .collect();
+                assert!(names.contains(&"tool_search"));
+                assert_eq!(names.contains(&"inspect"), index > 0);
+                assert!(!names.contains(&"spawn_agent"));
+            }
+        }
+        unchanged(&fixture, &child, &package).await;
+        fixture.close().await;
     }
 }
 

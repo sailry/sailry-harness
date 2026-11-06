@@ -1,3 +1,4 @@
+use super::super::tests::storage;
 use super::*;
 
 #[test]
@@ -18,20 +19,20 @@ fn preserves_storage_contracts() {
                 std::fs::write(directory.path().join("node.turso-log"), "unrelated file").unwrap();
                 std::fs::write(directory.path().join("node.sqlite3"), "old database").unwrap();
                 let snapshot = preview(&source).unwrap();
+                let storage = snapshot.path().parent().unwrap();
+                #[cfg(windows)]
+                {
+                    crate::profile::private_directory(storage).unwrap();
+                    crate::profile::windows::validate_database(snapshot.path()).unwrap();
+                }
                 for (path, body) in crate::profile::database_files(snapshot.path())
                     .into_iter()
                     .zip(bodies)
                 {
                     assert_eq!(std::fs::read_to_string(path).unwrap(), body, "{scenario}");
                 }
-                assert!(
-                    !snapshot.directory.path().join("node.turso-log").exists(),
-                    "{scenario}"
-                );
-                assert!(
-                    !snapshot.directory.path().join("node.sqlite3").exists(),
-                    "{scenario}"
-                );
+                assert!(!storage.join("node.turso-log").exists(), "{scenario}");
+                assert!(!storage.join("node.sqlite3").exists(), "{scenario}");
                 assert_eq!(
                     std::fs::read_to_string(directory.path().join("node.turso-log")).unwrap(),
                     "unrelated file",
@@ -42,7 +43,7 @@ fn preserves_storage_contracts() {
                     "old database",
                     "{scenario}"
                 );
-                let root = snapshot.directory.path().to_owned();
+                let root = snapshot._directory.path().to_owned();
                 drop(snapshot);
                 assert!(!root.exists(), "{scenario}");
             }) as fn(&'static str),
@@ -124,6 +125,34 @@ fn preserves_storage_contracts() {
                 std::fs::write(&source, "source bytes").unwrap();
                 std::fs::write(&crate::profile::database_files(&source)[1], b"").unwrap();
                 let saved = save(&source).unwrap();
+                let published = saved.parent().unwrap();
+                let backups = directory.path().join("backups");
+                assert_eq!(published.parent(), Some(backups.as_path()), "{scenario}");
+                assert_eq!(saved.file_name(), source.file_name(), "{scenario}");
+                assert!(
+                    published
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .strip_prefix("node-before-upgrade-")
+                        .and_then(|suffix| uuid::Uuid::parse_str(suffix).ok())
+                        .is_some(),
+                    "{scenario}"
+                );
+                assert_eq!(
+                    std::fs::read_dir(&backups)
+                        .unwrap()
+                        .map(|entry| entry.unwrap().path())
+                        .collect::<Vec<_>>(),
+                    vec![published.to_owned()],
+                    "{scenario}"
+                );
+                #[cfg(windows)]
+                {
+                    crate::profile::private_directory(published).unwrap();
+                    crate::profile::windows::validate_database(&saved).unwrap();
+                }
                 assert_eq!(
                     std::fs::read_to_string(&saved).unwrap(),
                     "source bytes",
@@ -207,8 +236,8 @@ fn preserves_storage_contracts() {
 
 #[tokio::test]
 async fn opens_snapshots_read_only() {
-    let directory = tempfile::tempdir().unwrap();
-    let source = directory.path().join("node.turso");
+    let (_directory, storage) = storage();
+    let source = storage.join("node.turso");
     let handle = crate::store::database::Handle::new(
         source.clone(),
         crate::store::database::engine(&source).await.unwrap(),
@@ -221,7 +250,7 @@ async fn opens_snapshots_read_only() {
     drop(connection);
     drop(handle.pause().await.unwrap());
     let snapshot = preview(&source).unwrap();
-    assert!(snapshot.directory.path().join("node.db-log").is_file());
+    assert!(snapshot.path().with_extension("db-log").is_file());
     let database = turso::Builder::new_local(snapshot.path().to_str().unwrap())
         .experimental_index_method(true)
         .read_only(true)

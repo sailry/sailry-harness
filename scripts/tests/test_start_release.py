@@ -1,8 +1,9 @@
-"""Version publication precedes independent exact-tag builds without network writes."""
+"""Full exact-source Checks precede publication and independent product builds."""
 
 import copy
 import importlib.util
 import json
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -15,6 +16,11 @@ starter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(starter)
 TAG = "v0.1.0-alpha.1"
 REPOSITORY = "fixture/product"
+CHECK_JOBS = (
+    "Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)",
+    "Desktop", "Host", "Mobile", "Mobile Android", "Pairing service",
+    "Desktop ready", "Host ready", "Mobile ready", "Checks passed",
+)
 
 
 def metadata(draft=False):
@@ -29,6 +35,10 @@ class FakeGitHub:
         self.release = copy.deepcopy(release)
         self.failed = failed
         self.calls = []
+        self.runs = [{"id": 42, "head_sha": commit, "head_branch": TAG, "event": "workflow_dispatch",
+                      "status": "completed", "conclusion": "success"}]
+        self.jobs = [{"id": index, "name": name, "status": "completed", "conclusion": "success"}
+                     for index, name in enumerate(CHECK_JOBS, 1)]
 
     def api(self, method, endpoint, payload=None, missing=False):
         self.calls.append((method, endpoint, payload))
@@ -36,6 +46,15 @@ class FakeGitHub:
             if any(f"/{workflow}/" in endpoint for workflow in self.failed):
                 raise RuntimeError("Fixture dispatch failure")
             return None
+        if "/actions/workflows/ci.yml/runs?" in endpoint:
+            return {"workflow_runs": copy.deepcopy(self.runs)}
+        if "/actions/runs/" in endpoint:
+            run_id = int(endpoint.split("/actions/runs/", 1)[1].split("/", 1)[0])
+            if "/jobs?" in endpoint:
+                return {"jobs": copy.deepcopy(self.jobs)}
+            if "/artifacts?" in endpoint:
+                return {"artifacts": []}
+            return copy.deepcopy(next(run for run in self.runs if run["id"] == run_id))
         if "/commits/" in endpoint:
             return {"sha": self.commit}
         if "/releases?" in endpoint:
@@ -53,6 +72,7 @@ class FakeGitHub:
 
 class Publication(unittest.TestCase):
     def setUp(self):
+        self.selection = self.enterContext(patch.object(starter.publication.ci_reuse, "source_selection"))
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
@@ -101,13 +121,14 @@ class Publication(unittest.TestCase):
         return [(path.rsplit("/", 2)[1], payload)
                 for method, path, payload in client.calls if path.endswith("/dispatches")]
 
-    def test_publishes_before_independent_product_dispatches(self):
+    def test_checks_precede_publication_and_product_dispatches(self):
         client = FakeGitHub(self.commit)
         with patch.object(starter.publication, "wait_ready") as wait, \
                 patch.object(starter.publication, "readiness") as ready:
             self.start(client)
         wait.assert_not_called()
         ready.assert_not_called()
+        self.selection.assert_called_once_with(REPOSITORY, client.jobs[0])
         creation = next(call for call in client.calls if call[0] == "POST" and call[1].endswith("/releases"))
         self.assertEqual(creation[2]["target_commitish"], self.commit)
         self.assertFalse(creation[2]["draft"])
@@ -126,6 +147,8 @@ class Publication(unittest.TestCase):
         ])
         first = next(index for index, call in enumerate(client.calls) if call[1].endswith("/dispatches"))
         self.assertLess(client.calls.index(creation), first)
+        checked = next(index for index, call in enumerate(client.calls) if "/jobs?" in call[1])
+        self.assertLess(checked, client.calls.index(creation))
         self.assertTrue(any(call[0] == "GET" and "/releases/tags/" in call[1]
                             for call in client.calls[client.calls.index(creation) + 1:first]))
 
@@ -204,10 +227,165 @@ class Publication(unittest.TestCase):
         self.assertFalse(self.dispatches(client))
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
+    def test_failed_checks_never_publish_or_queue_products(self):
+        for error in (ValueError("Checks failed"), TimeoutError("Checks timed out"),
+                      RuntimeError("Checks dispatch failed")):
+            client = FakeGitHub(self.commit)
+            with self.subTest(error=type(error).__name__), \
+                    patch.object(starter, "require_checks", side_effect=error), self.assertRaises(type(error)):
+                self.start(client)
+            self.assertIsNone(client.release)
+            self.assertTrue(all(method == "GET" for method, _, _ in client.calls))
+
+    def test_rechecks_tag_after_waiting(self):
+        client = FakeGitHub(self.commit)
+        def move(*_):
+            client.commit = "a" * 40
+            return 42
+        with patch.object(starter, "require_checks", side_effect=move), \
+                self.assertRaisesRegex(ValueError, "remote release tag differs"):
+            self.start(client)
+        self.assertIsNone(client.release)
+        self.assertTrue(all(method == "GET" for method, _, _ in client.calls))
+
     def test_latest_uses_server_side_version_selection(self):
         self.assertEqual(starter.latest_flag("v1.0.0"), "legacy")
         self.assertEqual(starter.latest_flag("v3.0.0"), "legacy")
         self.assertEqual(starter.latest_flag(TAG), "false")
+
+
+class FullChecks(unittest.TestCase):
+    def setUp(self):
+        self.commit = "a" * 40
+        self.client = FakeGitHub(self.commit)
+        self.logs = self.enterContext(patch.object(
+            starter.publication.ci_reuse, "download", return_value=(
+                b"Check mode: full\nSelected checks: android, desktop, host, mobile, mobile_ffi, services, shared\n")))
+        self.enterContext(patch("builtins.print"))
+
+    def ready(self):
+        return starter.publication.ready_run(self.client, REPOSITORY, self.commit, "checks", tag=TAG)
+
+    def require(self):
+        return starter.require_checks(self.client, REPOSITORY, TAG, self.commit)
+
+    def writes(self):
+        return [call for call in self.client.calls if call[0] != "GET"]
+
+    def test_reuses_only_exact_successful_main_or_tag(self):
+        for branch in ("main", TAG):
+            with self.subTest(branch=branch):
+                self.client.runs[0]["head_branch"] = branch
+                self.assertEqual(self.require(), 42)
+                self.assertFalse(self.writes())
+        self.assertEqual(self.logs.call_count, 2)
+
+    def test_rejects_unrelated_or_unfinished_runs(self):
+        original = self.client.runs[0]
+        for changes in ({"head_sha": "b" * 40}, {"head_branch": "topic"}, {"head_branch": "v0.2.0"},
+                        {"event": "pull_request"}, {"event": "push"}, {"status": "in_progress"},
+                        {"conclusion": "failure"}, {"conclusion": "cancelled"}, {"conclusion": "skipped"}):
+            with self.subTest(changes=changes):
+                self.client.runs = [{**original, **changes}]
+                self.assertIsNone(self.ready())
+        self.logs.assert_not_called()
+
+    def test_requires_every_job_and_fresh_gates(self):
+        original = self.client.jobs
+        for job in original:
+            for state in ("missing", "failure", "cancelled", "skipped", "in_progress"):
+                with self.subTest(job=job["name"], state=state):
+                    self.client.jobs = copy.deepcopy(original)
+                    changed = next(entry for entry in self.client.jobs if entry["id"] == job["id"])
+                    if state == "missing":
+                        self.client.jobs.remove(changed)
+                    elif state == "in_progress":
+                        changed.update(status=state, conclusion=None)
+                    else:
+                        changed["conclusion"] = state
+                    self.assertIsNone(self.ready())
+        self.logs.assert_not_called()
+
+    def test_requires_full_source_selection(self):
+        for content in (b"Check mode: light\nSelected checks: desktop\n",
+                        b"Check mode: full\nSelected checks: desktop\n", b""):
+            self.logs.return_value = content
+            with self.subTest(content=content), self.assertRaisesRegex(ValueError, "every product input"):
+                self.ready()
+
+    def test_retains_verified_job_reuse(self):
+        self.client.runs[0]["head_branch"] = "main"
+        names = {"Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)"}
+        for job in self.client.jobs:
+            if job["name"] in names:
+                job["conclusion"] = "skipped"
+        with patch.object(starter.publication.ci_reuse, "verified_jobs", return_value=names) as reuse:
+            self.assertEqual(self.ready(), 42)
+            reuse.assert_called_once_with(self.client, REPOSITORY, self.commit, 42)
+            reuse.return_value = names - {"Test build"}
+            self.assertIsNone(self.ready())
+            reuse.side_effect = ValueError("Invalid reuse evidence")
+            with self.assertRaisesRegex(ValueError, "Invalid reuse evidence"):
+                self.ready()
+
+    def test_dispatches_once_despite_old_failed_runs(self):
+        successful = {**self.client.runs[0], "id": 43}
+        self.client.runs[0]["conclusion"] = "failure"
+        def complete(_):
+            self.client.runs.append(successful)
+        with patch.object(starter.publication.time, "sleep", side_effect=complete) as sleep:
+            self.assertEqual(self.require(), 43)
+        sleep.assert_called_once_with(60)
+        self.assertEqual(self.writes(), [
+            ("POST", f"repos/{REPOSITORY}/actions/workflows/ci.yml/dispatches", {"ref": TAG}),
+        ])
+
+    def test_waits_for_existing_run_without_dispatch(self):
+        self.client.runs[0].update(status="in_progress", conclusion=None)
+        jobs, self.client.jobs = self.client.jobs, []
+        def complete(_):
+            self.client.runs[0].update(status="completed", conclusion="success")
+            self.client.jobs = jobs
+        with patch.object(starter.publication.time, "sleep", side_effect=complete) as sleep:
+            self.assertEqual(self.require(), 42)
+        sleep.assert_called_once_with(60)
+        self.assertFalse(self.writes())
+
+    def test_new_failure_never_dispatches_again(self):
+        failed = {**self.client.runs[0], "conclusion": "failure"}
+        self.client.runs = []
+        def complete(_):
+            self.client.runs = [failed]
+        with patch.object(starter.publication.time, "sleep", side_effect=complete) as sleep, \
+                self.assertRaisesRegex(ValueError, "ended without"):
+            self.require()
+        sleep.assert_called_once_with(60)
+        self.assertEqual(len(self.writes()), 1)
+
+    def test_missing_run_times_out_without_recovery(self):
+        self.client.runs = []
+        with patch.object(starter.publication.time, "monotonic", side_effect=[0, 18000]), \
+                patch.object(starter.publication.time, "sleep") as sleep, \
+                patch.object(starter.publication, "recovered_run") as recovered, \
+                self.assertRaisesRegex(TimeoutError, "five hours"):
+            self.require()
+        sleep.assert_not_called()
+        recovered.assert_not_called()
+        self.assertEqual(len(self.writes()), 1)
+
+    def test_dispatch_failure_stops_without_retry(self):
+        self.client.runs = []
+        self.client.failed = ("ci.yml",)
+        with patch.object(starter.publication, "wait_ready") as wait, self.assertRaises(RuntimeError):
+            self.require()
+        wait.assert_not_called()
+        self.assertEqual(len(self.writes()), 1)
+
+    def test_run_status_is_rechecked_after_success(self):
+        with patch.object(starter.publication, "ready_run", return_value=42), \
+                self.assertRaisesRegex(ValueError, "does not match"):
+            self.client.runs[0]["conclusion"] = "cancelled"
+            starter.publication.wait_ready(self.client, REPOSITORY, self.commit, "checks", tag=TAG)
 
 
 class Workflows(unittest.TestCase):
@@ -220,7 +398,8 @@ class Workflows(unittest.TestCase):
         self.assertIn("ref: refs/tags/${{ env.RELEASE_TAG }}", entry)
         self.assertIn("ref: ${{ github.workflow_sha }}", entry)
         self.assertIn('scripts/start-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG"', entry)
-        self.assertNotIn("wait-ready", entry)
+        self.assertIn("timeout-minutes: 310", entry)
+        self.assertIn("Require full Checks before publication and product builds", entry)
         self.assertNotIn("cargo build", entry)
         self.assertNotIn("secrets.", entry)
         for name in ("release", "release-host", "release-mobile"):
@@ -229,6 +408,18 @@ class Workflows(unittest.TestCase):
                 self.assertIn("workflow_dispatch", trigger)
                 self.assertNotIn("push:", trigger)
                 self.assertNotIn("release:", trigger)
+
+    def test_preserves_only_release_and_website_automation(self):
+        for path in (ROOT / ".github/workflows").glob("*.yml"):
+            trigger = path.read_text().split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+            events = set(re.findall(r"^  ([a-z_]+):", trigger, re.MULTILINE))
+            automatic = events - {"workflow_dispatch"}
+            expected = {"release-version": {"push"}, "website": {"push"}, "changelog": {"release"}}.get(path.stem, set())
+            with self.subTest(workflow=path.stem):
+                self.assertEqual(automatic, expected)
+        website = (ROOT / ".github/workflows/website.yml").read_text()
+        self.assertIn("branches: [main]", website)
+        self.assertIn("paths:", website)
 
 
 if __name__ == "__main__":

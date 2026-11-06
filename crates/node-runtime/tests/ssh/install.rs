@@ -17,7 +17,11 @@ async fn updates_only_the_selected_existing_host() {
     use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
 
     for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
+        // The control socket must fit sun_path even when TMPDIR is long.
+        let directory = tempfile::Builder::new()
+            .prefix("sailry-ssh-")
+            .tempdir_in("/tmp")
+            .unwrap();
         downloads(directory.path());
         let node = Node::start_empty(directory.path().join("node"))
             .await

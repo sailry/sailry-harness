@@ -8,7 +8,10 @@ use tokio::{
     task::JoinHandle,
 };
 
+mod encoding;
 mod retained;
+use encoding::Decoder;
+pub(crate) use encoding::Encoding;
 pub(crate) use retained::{Budget, COMMAND_LIMIT, Retained, clear};
 
 const LIMIT: usize = 64 * 1024;
@@ -92,15 +95,19 @@ pub(super) struct Buffer {
     truncated: bool,
     tail: bool,
     finished: bool,
+    offset: usize,
+    decoder: Decoder,
 }
 
 impl Buffer {
     pub(super) fn append(&mut self, bytes: &[u8]) {
+        self.decoder.append(bytes);
         if self.tail {
             self.bytes.extend_from_slice(bytes);
             if self.bytes.len() > LIMIT {
-                let (_, discard) = edges(&self.bytes, 0, LIMIT);
+                let discard = self.bytes.len() - LIMIT;
                 self.bytes.drain(..discard);
+                self.offset += discard;
                 self.truncated = true;
             }
             return;
@@ -111,15 +118,18 @@ impl Buffer {
     }
 
     pub(super) fn capture(&self) -> Capture {
-        let mut bytes = self.bytes.as_slice();
-        if !self.finished || self.truncated && !self.tail {
-            let (end, _) = edges(bytes, bytes.len(), 0);
-            bytes = &bytes[..end];
-        }
+        let range = self.decoder.bounds(
+            &self.bytes,
+            self.offset,
+            self.finished && (!self.truncated || self.tail),
+        );
+        let (text, invalid_utf8) = self
+            .decoder
+            .decode(&self.bytes[range.clone()], self.offset + range.start);
         Capture {
-            text: String::from_utf8_lossy(bytes).into_owned(),
+            text,
             truncated: self.truncated,
-            invalid_utf8: std::str::from_utf8(bytes).is_err(),
+            invalid_utf8,
         }
     }
 
@@ -131,6 +141,7 @@ impl Buffer {
     }
 
     pub(super) fn finish(&mut self) {
+        self.decoder.finish();
         self.finished = true;
     }
 }
@@ -145,9 +156,15 @@ impl Reader {
         mut pipe: impl AsyncRead + Unpin + Send + 'static,
         tail: bool,
         retained: Option<(Arc<Retained>, sailry_protocol::process::OutputStream)>,
+        encoding: Encoding,
     ) -> Self {
         let buffer = Arc::new(Mutex::new(Buffer {
             tail,
+            decoder: Decoder::new(
+                encoding,
+                if tail { 0 } else { LIMIT },
+                if tail { LIMIT } else { 0 },
+            ),
             ..Buffer::default()
         }));
         let output = buffer.clone();
@@ -156,7 +173,7 @@ impl Reader {
             loop {
                 let count = pipe.read(&mut bytes).await?;
                 if count == 0 {
-                    output.lock().unwrap().finished = true;
+                    output.lock().unwrap().finish();
                     return Ok(());
                 }
                 output.lock().unwrap().append(&bytes[..count]);
@@ -194,6 +211,19 @@ impl Drain {
         tail: bool,
         retained: Option<Arc<Retained>>,
     ) -> Self {
+        Self::with_encoding(stdout, stderr, tail, retained, Encoding::default())
+    }
+
+    pub fn with_encoding(
+        stdout: impl AsyncRead + Unpin + Send + 'static,
+        stderr: impl AsyncRead + Unpin + Send + 'static,
+        tail: bool,
+        retained: Option<Arc<Retained>>,
+        encoding: Encoding,
+    ) -> Self {
+        if let Some(retained) = &retained {
+            retained.configure(encoding);
+        }
         Self {
             stdout: Reader::new(
                 stdout,
@@ -201,11 +231,13 @@ impl Drain {
                 retained
                     .clone()
                     .map(|record| (record, sailry_protocol::process::OutputStream::Stdout)),
+                encoding,
             ),
             stderr: Reader::new(
                 stderr,
                 tail,
                 retained.map(|record| (record, sailry_protocol::process::OutputStream::Stderr)),
+                encoding,
             ),
         }
     }

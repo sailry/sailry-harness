@@ -40,7 +40,7 @@ mod environment_fixture;
 mod external_browser;
 #[path = "agent/forks.rs"]
 mod forks;
-#[cfg(all(unix, feature = "test-support"))]
+#[cfg(feature = "test-support")]
 #[path = "support/github.rs"]
 mod github_fixture;
 #[cfg(unix)]
@@ -49,7 +49,6 @@ mod goals;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[path = "agent/hooks.rs"]
 mod hooks;
-#[cfg(unix)]
 #[path = "agent/mcp/mod.rs"]
 mod mcp;
 #[path = "agent/media.rs"]
@@ -71,14 +70,15 @@ mod permissions;
 #[cfg(unix)]
 #[path = "agent/plan_storage.rs"]
 mod plan_storage;
-#[cfg(unix)]
 #[path = "agent/planning.rs"]
 mod planning;
 #[path = "agent/plugins.rs"]
 mod plugins;
 #[path = "agent/process.rs"]
 mod process;
-#[cfg(unix)]
+#[cfg(windows)]
+#[path = "agent/process_windows.rs"]
+mod process_windows;
 #[path = "agent/progress.rs"]
 mod progress;
 #[path = "agent_support/provider.rs"]

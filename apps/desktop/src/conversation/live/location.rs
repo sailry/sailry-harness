@@ -5,6 +5,9 @@ use gpui_kit::prelude::FluentBuilder as _;
 use sailry_protocol::Project;
 use sailry_protocol::plugin::ui::Intent;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 struct Location {
     owner: WeakEntity<View>,
@@ -95,7 +98,19 @@ impl View {
     }
 
     pub(super) fn sync_location(&mut self, cx: &mut Context<Self>) {
-        let Some(session) = &self.session else { return };
+        let Some(session) = &self.session else {
+            if self.resource.is_none()
+                && self.assistant.is_none()
+                && !self.busy()
+                && let Some(snapshot) = self.node.snapshot.as_ref()
+                && self.binding.refresh_project(snapshot)
+            {
+                self.repository = Default::default();
+                cx.emit(Event::LocationChanged);
+                cx.notify();
+            }
+            return;
+        };
         self.binding.project = session.project;
         if self.resource.is_some() || self.assistant.is_some() || session.project.is_none() {
             self.binding.worktree = Some(session.worktree);
@@ -205,17 +220,12 @@ impl View {
                 if !self.can_retarget() {
                     return;
                 }
-                let Some(tree) = self
+                let Some((project, tree)) = self
                     .node
                     .snapshot
                     .as_ref()
-                    .and_then(|snapshot| {
-                        snapshot
-                            .worktrees
-                            .iter()
-                            .find(|tree| tree.project == Some(project.id) && tree.main)
-                    })
-                    .cloned()
+                    .and_then(|snapshot| registered_project(snapshot, project.id))
+                    .map(|(project, tree)| (project.clone(), tree.clone()))
                 else {
                     return;
                 };
@@ -275,6 +285,47 @@ impl View {
             cx.emit(Event::LocationChanged);
         }
     }
+}
+
+impl Binding {
+    pub(super) fn project_available(&self, snapshot: Option<&sailry_protocol::Snapshot>) -> bool {
+        self.project.is_none_or(|project| {
+            snapshot.is_some_and(|snapshot| {
+                snapshot.node == self.client.target()
+                    && snapshot.projects.iter().any(|entry| entry.id == project)
+            })
+        })
+    }
+
+    fn refresh_project(&mut self, snapshot: &sailry_protocol::Snapshot) -> bool {
+        if snapshot.node != self.client.target() {
+            return false;
+        }
+        let Some(project) = self.project else {
+            return false;
+        };
+        if let Some(project) = snapshot.projects.iter().find(|entry| entry.id == project) {
+            self.project_name = project.name.clone().into();
+            return false;
+        }
+        self.project = None;
+        self.worktree = None;
+        self.project_name = SharedString::default();
+        self.branch = SharedString::default();
+        true
+    }
+}
+
+fn registered_project(
+    snapshot: &sailry_protocol::Snapshot,
+    project: sailry_protocol::ProjectId,
+) -> Option<(&Project, &sailry_protocol::Worktree)> {
+    let project = snapshot.projects.iter().find(|entry| entry.id == project)?;
+    let tree = snapshot
+        .worktrees
+        .iter()
+        .find(|tree| tree.project == Some(project.id) && tree.main)?;
+    Some((project, tree))
 }
 
 impl Picker {

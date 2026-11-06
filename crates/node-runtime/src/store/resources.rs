@@ -6,15 +6,53 @@ use sailry_protocol::*;
 use std::{panic::AssertUnwindSafe, sync::Arc};
 use tokio::{runtime::Handle, sync::oneshot};
 
-pub(super) async fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
+pub(super) async fn prepare(
+    database: &Database,
+    request: &Request,
+) -> Result<Option<sailry_link::LinkHandle>, Fault> {
+    if matches!(
+        request.command,
+        Command::InstallWslHost { .. }
+            | Command::ReadWslHostInstall { .. }
+            | Command::CancelWslHostInstall { .. }
+    ) && request.plugin.is_some()
+    {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "WSL Host setup requires a controller",
+        ));
+    }
+    if let Command::InstallWslHost {
+        distribution,
+        network,
+    } = &request.command
+    {
+        crate::wsl::validate(distribution)?;
+        if let Some(selection) = network {
+            super::network::transport(selection).validate()?;
+        }
+        return database
+            .network_link
+            .lock()
+            .unwrap()
+            .clone()
+            .map(Some)
+            .ok_or_else(super::unavailable);
+    }
+    if matches!(
+        request.command,
+        Command::ReadWslHostInstall { .. } | Command::CancelWslHostInstall { .. }
+    ) {
+        return Ok(None);
+    }
     if let Command::CheckPluginMcp { package, server } = &request.command {
         return super::plugins::mcp::prepare(&database.connection, package, server)
             .await
-            .map(|_| ());
+            .map(|_| None);
     }
     if let Command::CloseTerminal { worktree, .. } = &request.command {
         database.worktree_root(*worktree).await?;
-        return Ok(());
+        return Ok(None);
     }
     if matches!(
         request.command,
@@ -22,13 +60,17 @@ pub(super) async fn prepare(database: &Database, request: &Request) -> Result<()
             | Command::RestoreBackup { .. }
             | Command::RestoreBackupFile { .. }
     ) {
-        return super::backup::prepare(database, request).await;
+        return super::backup::prepare(database, request)
+            .await
+            .map(|_| None);
     }
     if matches!(
         request.command,
         Command::InstallLocalModel { .. } | Command::DeleteLocalModel { .. }
     ) {
-        return super::local_models::approvals::check(&database.connection, request).await;
+        return super::local_models::approvals::check(&database.connection, request)
+            .await
+            .map(|_| None);
     }
     let (session, worktree) = match &request.command {
         Command::UseBrowser {
@@ -74,7 +116,7 @@ pub(super) async fn prepare(database: &Database, request: &Request) -> Result<()
         ));
     }
     database.worktree_root(worktree).await?;
-    Ok(())
+    Ok(None)
 }
 
 pub(super) fn turn(request: &Request) -> Option<TurnId> {
@@ -95,6 +137,7 @@ pub(super) struct Execution {
     pub caller: NodeId,
     pub request: Request,
     pub reply: oneshot::Sender<Response>,
+    pub link: Option<sailry_link::LinkHandle>,
 }
 
 pub(super) struct Worker {
@@ -124,11 +167,38 @@ impl Worker {
         } else {
             self.ingress.closed.child_token()
         };
+        let installation = if matches!(execution.request.command, Command::InstallWslHost { .. }) {
+            Some(
+                self.ingress
+                    .wsl
+                    .begin(execution.caller, &execution.request, &stop),
+            )
+        } else {
+            None
+        };
         self.pending += 1;
         let ingress = self.ingress.clone();
         self.runtime.spawn(async move {
             let operation = async {
                 match &execution.request.command {
+                    Command::InstallWslHost { network, .. } => {
+                        let installation = installation.expect("WSL installation was prepared")?;
+                        let link = execution.link.as_ref().ok_or_else(super::unavailable)?;
+                        installation
+                            .execute(&ingress.environment, link, network.as_ref())
+                            .await
+                            .map(Output::HostInstallation)
+                    }
+                    Command::ReadWslHostInstall { request } => {
+                        ingress
+                            .wsl
+                            .progress(execution.caller, *request, &execution.request.plugin)
+                    }
+                    Command::CancelWslHostInstall { request } => {
+                        ingress
+                            .wsl
+                            .cancel(execution.caller, *request, &execution.request.plugin)
+                    }
                     Command::CheckPluginMcp { package, server } => {
                         crate::agent::check_mcp(&ingress, package, server, &stop)
                             .await

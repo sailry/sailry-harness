@@ -78,7 +78,7 @@ impl Shell {
             && live.selected == binding.client.target()
             && live.project.is_none()
         {
-            live.project = binding.project;
+            live.restore_scope(binding.project, binding.worktree);
         }
         let live = self.live.as_ref().unwrap();
         let hosts = std::iter::once(live.services.local.target())
@@ -136,11 +136,7 @@ impl Shell {
                 if live.selected != binding.client.target() {
                     live.select(binding.client.target(), cx);
                 }
-                live.project = binding.project;
-                if let (Some(project), Some(worktree)) = (binding.project, binding.worktree) {
-                    live.worktree_choices
-                        .insert((live.selected, project), worktree);
-                }
+                live.restore_scope(binding.project, binding.worktree);
             }
         }
     }
@@ -156,15 +152,6 @@ impl Shell {
         if live.selected != binding.client.target() {
             live.select(binding.client.target(), cx);
         }
-        live.project = binding.project;
-        live.unassigned_worktree = if binding.project.is_none() {
-            binding.worktree
-        } else {
-            None
-        };
-        if let (Some(project), Some(worktree)) = (binding.project, binding.worktree) {
-            live.worktree_choices
-                .insert((live.selected, project), worktree);
-        }
+        live.restore_scope(binding.project, binding.worktree);
     }
 }

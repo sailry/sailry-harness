@@ -68,7 +68,7 @@ def admit(source=None, tooling=None):
     repository = os.environ["GITHUB_REPOSITORY"]
     if values["tag"]:
         publication.release(client, repository, values["tag"], revision, published=True)
-    checked = publication.wait_ready(client, repository, revision, "mobile")
+    checked = publication.wait_ready(client, repository, revision, "mobile", tag=values["tag"] or None)
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         for key, value in values.items():
             output.write(f"{key}={value}\n")

@@ -9,7 +9,7 @@ mod tests;
 
 pub(in crate::store) struct Preview {
     path: PathBuf,
-    directory: tempfile::TempDir,
+    _directory: tempfile::TempDir,
 }
 
 impl Preview {
@@ -32,14 +32,13 @@ fn snapshot(path: &Path, parent: &Path) -> Result<Preview, Error> {
         temporary.permissions(std::fs::Permissions::from_mode(0o700));
     }
     let directory = temporary.tempdir_in(parent)?;
-    crate::profile::private_directory(directory.path())?;
-    let target = directory
-        .path()
-        .join(path.file_name().ok_or_else(unavailable)?);
+    let storage = directory.path().join("storage");
+    crate::profile::private_directory(&storage)?;
+    let target = storage.join(path.file_name().ok_or_else(unavailable)?);
     copy(path, &target)?;
     Ok(Preview {
         path: target,
-        directory,
+        _directory: directory,
     })
 }
 
@@ -104,7 +103,7 @@ pub(in crate::store) fn save(path: &Path) -> Result<PathBuf, Error> {
     crate::profile::private_directory(&directory)?;
     let snapshot = snapshot(path, &directory)?;
     let target = directory.join(format!("node-before-upgrade-{}", uuid::Uuid::new_v4()));
-    std::fs::rename(snapshot.directory.path(), &target)?;
+    std::fs::rename(snapshot.path().parent().ok_or_else(unavailable)?, &target)?;
     Ok(target.join(path.file_name().ok_or_else(unavailable)?))
 }
 

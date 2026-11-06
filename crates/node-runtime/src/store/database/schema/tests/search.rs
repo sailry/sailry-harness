@@ -17,8 +17,8 @@ async fn value(connection: &Connection) -> Vec<u8> {
 #[tokio::test]
 async fn restores_missing_metadata_with_backup() {
     for corpus in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("node.turso");
+        let (_directory, storage) = storage();
+        let path = storage.join("node.turso");
         let node = NodeId([43; 32]);
         let database = Database::open(&path, node, None).await.unwrap();
         let connection = &database.connection;
@@ -85,7 +85,7 @@ async fn restores_missing_metadata_with_backup() {
         search::validate(connection).await.unwrap();
         database.close().await.unwrap();
 
-        let backups = std::fs::read_dir(directory.path().join("backups"))
+        let backups = std::fs::read_dir(storage.join("backups"))
             .unwrap()
             .map(|entry| entry.unwrap().path().join("node.turso"))
             .collect::<Vec<_>>();

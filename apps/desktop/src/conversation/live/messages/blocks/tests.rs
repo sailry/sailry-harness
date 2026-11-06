@@ -11,6 +11,7 @@ mod chronology;
 mod compact;
 mod failure;
 mod progress;
+mod reasoning;
 mod retry;
 
 #[test]

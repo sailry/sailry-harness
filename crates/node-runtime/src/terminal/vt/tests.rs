@@ -1,5 +1,6 @@
 use super::*;
 
+mod colors;
 mod narrowing;
 
 mod cursor {

@@ -77,18 +77,7 @@ pub(super) fn view(
                 .collect::<std::collections::BTreeMap<_, _>>(),
         )
         .map_err(super::error)?;
-        value["inputs"] = serde_json::to_value(
-            page.runs
-                .iter()
-                .map(|run| {
-                    (
-                        run.turn,
-                        sailry_client::conversation::turns::inputs(page, run.turn),
-                    )
-                })
-                .collect::<std::collections::BTreeMap<_, _>>(),
-        )
-        .map_err(super::error)?;
+        super::transcript::project(view, &mut value)?;
         let calls = value["calls"]
             .as_array_mut()
             .expect("serialized calls are an array");

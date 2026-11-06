@@ -2,6 +2,9 @@ use crate::store::database::{encode, storage_error};
 use sailry_protocol::{terminal::Settings, *};
 use turso::Connection;
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) async fn read(db: &Connection) -> Result<Settings, Fault> {
     let body: Option<Vec<u8>> = {
         let mut statement = db

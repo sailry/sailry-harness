@@ -1,6 +1,9 @@
 //! A role selects declarations; mounting never grants execution authority.
 use super::*;
-use sailry_protocol::{plugin::conversation::Tool as Selection, tool::Operation};
+use sailry_protocol::{
+    plugin::{Action, conversation::Tool as Selection},
+    tool::Operation,
+};
 
 pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) -> Result<(), Fault> {
     let Some(child) = &invocation.child else {
@@ -46,7 +49,7 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         };
         extension.tools.iter().any(|tool| {
             operations::alias(&package.summary.name, &tool.name) == entry.tool.name.as_ref()
-                && standard(tool)
+                && standard(tool, &extension.actions)
         })
     });
     Ok(())
@@ -145,12 +148,21 @@ pub(super) fn declared(
             if *owner == package.summary.name && *name == tool.name)
         })
     } else {
-        standard(tool)
+        package
+            .extension
+            .as_ref()
+            .is_some_and(|extension| standard(tool, &extension.actions))
     }
 }
 
-/// The delegated catalog retains its standard execution authority.
-fn standard(tool: &sailry_protocol::tool::Declaration) -> bool {
+/// The delegated catalog retains standard operations and hosted read-only capabilities.
+fn standard(tool: &sailry_protocol::tool::Declaration, actions: &[Action]) -> bool {
+    if let Some(handler) = &tool.handler
+        && handler.operation.is_none()
+        && handler.flow.is_none()
+    {
+        return scripts::read_only(handler, actions);
+    }
     declares(tool, |operation| {
         visible_operation(operation)
             || matches!(
@@ -252,7 +264,7 @@ mod tests {
             Operation::ListArtifacts,
             Operation::ListArtifactRevisions,
         ] {
-            assert!(standard(&tool(operation)));
+            assert!(standard(&tool(operation), &[]));
         }
         for operation in [
             Operation::ReadBrowser,
@@ -263,7 +275,7 @@ mod tests {
             Operation::StorageTransaction,
             Operation::WriteArtifact,
         ] {
-            assert!(!standard(&tool(operation)));
+            assert!(!standard(&tool(operation), &[]));
         }
         for operation in [
             Operation::ReadFile,
@@ -293,7 +305,7 @@ mod tests {
             Operation::ListArtifacts,
             Operation::ListWorktrees,
         ] {
-            assert!(standard(&tool(operation)));
+            assert!(standard(&tool(operation), &[]));
             assert!(!visible(&tool(operation)));
         }
         let mut declared = tool(Operation::StorageTransaction);

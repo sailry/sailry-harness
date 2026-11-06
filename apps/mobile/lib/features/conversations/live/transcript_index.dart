@@ -14,15 +14,14 @@ class TranscriptIndex {
       _inputs = object(view['inputs']) {
     page = object(snapshot['page']);
     runs = objects(page['runs']);
-    // Client's shared execution order; admission order is only a fallback.
+    // Client selects visible response owners in shared execution order.
     final byTurn = {for (final run in runs) run['turn']: run};
     timeline = [
       for (final turn in (view['timeline'] as List? ?? const []))
         if (byTurn[turn] case final Map<String, dynamic> run) run,
     ];
-    if (timeline.length != runs.length) timeline = runs;
     childRecords = objects(page['children']);
-    latest = runs.where((run) => run['kind'] != 'compaction').lastOrNull;
+    latest = timeline.where((run) => run['kind'] != 'compaction').lastOrNull;
     for (final run in runs) {
       _runs.putIfAbsent(run['turn'], () => run);
     }

@@ -37,7 +37,7 @@ impl Fixture {
         let identity = Identity::open(directory.path()).unwrap();
         let id = identity.id();
         let store = Store::start_ready(
-            directory.path().join("node.turso"),
+            profile.path.join("node.turso"),
             id,
             Some(profile.path.clone()),
             Services {
@@ -218,7 +218,7 @@ async fn shutdown_drains() {
         "first"
     );
     let store = Store::start_ready(
-        fixture.directory.path().join("node.turso"),
+        fixture.profile.path.join("node.turso"),
         first.target,
         Some(fixture.profile.path.clone()),
         Services {

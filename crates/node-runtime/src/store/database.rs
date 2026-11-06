@@ -505,11 +505,12 @@ impl Database {
                 }
             } else if effect == Some(super::routing::Effect::Resources) {
                 match super::resources::prepare(self, &request).await {
-                    Ok(()) => {
+                    Ok(link) => {
                         return Some(Work::Resources(super::resources::Execution {
                             caller,
                             request,
                             reply: completion,
+                            link,
                         }));
                     }
                     Err(error) => {
@@ -860,7 +861,21 @@ impl Database {
                 super::agent::approvals::prune(self, events).await?;
             }
             let external = super::routing::external(&request.command);
-            let write = if request.command.durable() {
+            let write = if matches!(
+                &request.command,
+                Command::UpdateProject { expected, path, .. } if path != &expected.path
+            ) {
+                // Drain admissions before checking pending opens and rebinding their shared root.
+                Some(
+                    self.writes
+                        .clone()
+                        .acquire_many_owned(WRITE_CONCURRENCY as u32)
+                        .await
+                        .map_err(|_| {
+                            Fault::new(ErrorCode::Unavailable, "Node storage is closing")
+                        })?,
+                )
+            } else if request.command.durable() {
                 Some(self.write().await?)
             } else {
                 None

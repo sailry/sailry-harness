@@ -1,0 +1,7 @@
+host_wsl: "WSL"
+host_wsl_distribution: "배포판"
+host_wsl_requirement: "WSL2, GNU Linux x64/arm64 및 systemd 필요"
+host_wsl_empty: "설치된 WSL2 배포판 없음"
+host_wsl_lifetime: "WSL이 중지되면 Host도 중지됨"
+host_wsl_refresh: "새로 고침"
+host_wsl_load_failed: "WSL 배포판을 불러올 수 없음"

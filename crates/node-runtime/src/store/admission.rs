@@ -338,14 +338,12 @@ impl Ingress {
                     sailry_protocol::Command::InspectHost => {
                         sailry_protocol::Output::HostInfo(self.host.inspect(self.node).await?)
                     }
-                    sailry_protocol::Command::ListShells => {
-                        let environment = self.environment.clone();
-                        sailry_protocol::Output::Shells(
-                            tokio::task::spawn_blocking(move || {
-                                crate::terminal::shells::list(&environment)
-                            })
-                            .await
-                            .map_err(|_| unavailable())?,
+                    sailry_protocol::Command::ListShells => sailry_protocol::Output::Shells(
+                        crate::terminal::shells::list(&self.environment, &self.closed).await?,
+                    ),
+                    sailry_protocol::Command::ListWslDistributions => {
+                        sailry_protocol::Output::WslDistributions(
+                            self.wsl.list(&self.environment, &self.closed).await?,
                         )
                     }
                     sailry_protocol::Command::ReadHostMetrics { detailed } => {

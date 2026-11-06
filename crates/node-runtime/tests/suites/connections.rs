@@ -27,3 +27,5 @@ mod ssh;
 mod terminal;
 #[path = "../watch.rs"]
 mod watch;
+#[path = "../wsl.rs"]
+mod wsl;

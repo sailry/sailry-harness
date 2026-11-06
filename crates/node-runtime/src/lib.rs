@@ -37,6 +37,7 @@ pub mod telemetry;
 mod terminal;
 mod web;
 mod workspaces;
+mod wsl;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -623,6 +624,16 @@ impl Node {
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
+    /// Replaces only WSL discovery and its executable in isolated service fixtures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_wsl_fixture(
+        &self,
+        executable: PathBuf,
+        distributions: Vec<sailry_protocol::wsl::Distribution>,
+    ) {
+        self.ingress.wsl.fixture(executable, distributions);
     }
 
     /// Pins a public test hostname to an isolated HTTP server after public-IP validation.

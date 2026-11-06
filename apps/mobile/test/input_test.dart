@@ -14,6 +14,7 @@ void main() {
       'inputs': {
         'turn': [
           {
+            'turn': 'turn',
             'message': {
               'text': 'Original input 中文 🙂',
               'references': [reference],
@@ -22,6 +23,7 @@ void main() {
             'canonical': false,
           },
           {
+            'turn': 'joined-turn',
             'message': {'text': '', 'references': []},
             'attachments': [attachment],
             'canonical': true,
@@ -31,14 +33,25 @@ void main() {
     };
     final before = jsonEncode(view);
     final inputs = turnInputs(view, 'turn');
+    expect(inputs.first.turn, 'turn');
     expect(inputs.first.text, 'Original input 中文 🙂');
     expect(inputs.first.references, [reference]);
     expect(inputs.first.attachments, [attachment]);
     expect(inputs.first.canonical, isFalse);
+    expect(inputs.last.turn, 'joined-turn');
     expect(inputs.last.text, isEmpty);
     expect(inputs.last.canonical, isTrue);
     expect(turnInputs(view, 'other'), isEmpty);
     expect(jsonEncode(view), before);
+  });
+
+  test('search uses the Client response owner', () {
+    final view = {
+      'owners': {'guidance': 'primary', 'primary': 'primary'},
+    };
+    expect(turnOwner(view, 'guidance'), 'primary');
+    expect(turnOwner(view, 'primary'), 'primary');
+    expect(turnOwner(view, 'unloaded'), 'unloaded');
   });
 
   test('history actions preserve canonical text boundaries', () {

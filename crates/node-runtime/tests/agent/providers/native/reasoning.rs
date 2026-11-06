@@ -642,6 +642,95 @@ async fn preserves_streamed_whitespace(fixture: &mut Fixture, remote: bool, case
 }
 
 #[tokio::test]
+async fn preserves_inline_thinking() {
+    let thinking = "Consider the greeting";
+    let answer = "你好！有什么我可以帮你？";
+    let prompts = ["Say hello", "Continue the greeting"];
+    for remote in [false, true] {
+        let server = Server::start(
+            ModelApi::ChatCompletions,
+            Reply::Dynamic(Arc::new(move |index| {
+                let id = format!("inline-thinking-{index}");
+                let events = [
+                    serde_json::json!({
+                        "id":id, "object":"chat.completion.chunk", "created":1, "model":"fixture-a",
+                        "choices":[{"index":0,"delta":{"content":format!("<think>{thinking}</think>{answer}")},"finish_reason":null}]
+                    }),
+                    serde_json::json!({
+                        "id":id, "object":"chat.completion.chunk", "created":1, "model":"fixture-a",
+                        "choices":[{"index":0,"delta":{},"finish_reason":"stop"}]
+                    }),
+                ];
+                let mut body = events
+                    .into_iter()
+                    .map(|event| format!("data: {event}\n\n"))
+                    .collect::<String>();
+                body.push_str("data: [DONE]\n\n");
+                server::Script {
+                    bytes: format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .into_bytes(),
+                    ending: server::Ending::Close,
+                }
+            })),
+        )
+        .await;
+        let fixture = Fixture::empty(remote, ModelApi::ChatCompletions, &server.endpoint).await;
+        let expected = vec![Part::Text(answer.into()), Part::Thinking(thinking.into())];
+        let mut turns = Vec::new();
+        for prompt in prompts {
+            let turn = fixture.submit(prompt).await;
+            turns.push(turn);
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let run = page.runs.iter().find(|run| run.turn == turn).unwrap();
+            assert_eq!(run.status, Status::Completed, "remote={remote}: {run:?}");
+            assert!(run.error.is_none(), "remote={remote}: {run:?}");
+            for &recorded in &turns {
+                let entries = page
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.turn == recorded && entry.author == "assistant")
+                    .collect::<Vec<_>>();
+                assert_eq!(entries.len(), 1, "remote={remote}, turn={recorded}");
+                assert_eq!(
+                    entries[0].parts, expected,
+                    "remote={remote}, turn={recorded}"
+                );
+            }
+        }
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2, "remote={remote}");
+        for request in &requests {
+            assert_eq!(request.path, "/v1/chat/completions", "remote={remote}");
+            assert_eq!(request.body["stream"], true, "remote={remote}");
+        }
+        let messages = requests[1].body["messages"].as_array().unwrap();
+        let assistants = messages
+            .iter()
+            .enumerate()
+            .filter(|(_, message)| message["role"] == "assistant")
+            .collect::<Vec<_>>();
+        assert_eq!(assistants.len(), 1, "remote={remote}");
+        let (position, assistant) = assistants[0];
+        assert_eq!(assistant["content"], answer, "remote={remote}");
+        assert_eq!(assistant["reasoning_content"], thinking, "remote={remote}");
+        let [first, follow_up] = prompts.map(|prompt| {
+            messages
+                .iter()
+                .position(|message| {
+                    message["role"] == "user" && message["content"].to_string().contains(prompt)
+                })
+                .unwrap_or_else(|| panic!("user prompt missing: {prompt}, remote={remote}"))
+        });
+        assert!(first < position && position < follow_up, "remote={remote}");
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn choices() {
     use futures::FutureExt;
     for remote in [false, true] {

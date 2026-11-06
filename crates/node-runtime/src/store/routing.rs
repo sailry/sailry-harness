@@ -148,7 +148,8 @@ pub(super) fn route(command: &Command) -> Route {
         | Command::ReadHostMetrics { .. }
         | Command::ReadComputerPermissions
         | Command::RequestComputerPermission { .. }
-        | Command::ListShells => Route::Host,
+        | Command::ListShells
+        | Command::ListWslDistributions => Route::Host,
         _ => Route::Store,
     }
 }
@@ -181,6 +182,7 @@ pub(crate) fn observes(command: &Command) -> bool {
             | Command::ReadHostMetrics { .. }
             | Command::ReadComputerPermissions
             | Command::ListShells
+            | Command::ListWslDistributions
     )
 }
 
@@ -359,7 +361,10 @@ pub(super) fn effect(command: &Command) -> Option<Effect> {
         | Command::CallPlugin { .. }
         | Command::ReadPluginCallback { .. }
         | Command::CancelPluginCall { .. } => Effect::Plugin,
-        Command::CloseTerminal { .. }
+        Command::InstallWslHost { .. }
+        | Command::ReadWslHostInstall { .. }
+        | Command::CancelWslHostInstall { .. }
+        | Command::CloseTerminal { .. }
         | Command::CheckPluginMcp { .. }
         | Command::RestoreBackupFile { .. }
         | Command::ExportBackup { .. }

@@ -41,9 +41,9 @@ def main():
     if args.wait_ready:
         if args.component is None:
             parser.error("Waiting requires a product component")
-        publication.wait_ready(client, repository, commit, args.component)
+        publication.wait_ready(client, repository, commit, args.component, tag=args.tag)
     if args.component:
-        run = publication.readiness(client, repository, commit, args.component)
+        run = publication.readiness(client, repository, commit, args.component, tag=args.tag)
         print(f"Verified {args.component.title()} ready in Checks run {run}")
     if args.event:
         if not args.published:

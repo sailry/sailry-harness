@@ -224,7 +224,9 @@ impl Environment {
         #[cfg(unix)]
         command.args(["-c", &launch.command]);
         #[cfg(windows)]
-        command.args(["/D", "/S", "/C", &launch.command]);
+        command
+            .args(["/D", "/S", "/C"])
+            .raw_arg(format!("\"{}\"", launch.command));
         self.apply(&mut command);
         if let Some(python) = &launch.python {
             command.envs(python.variables());
@@ -274,6 +276,7 @@ fn terminal_variable(key: &OsStr) -> bool {
             | "__CF_USER_TEXT_ENCODING"
             | "LANGUAGE"
     ) || key.starts_with("LC_")
+        || cfg!(windows) && key.eq_ignore_ascii_case("USERNAME")
 }
 
 #[cfg(target_os = "macos")]

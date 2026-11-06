@@ -673,6 +673,7 @@ impl Render for View {
 
         self.prune_tool_texts();
         self.sync_question(window, cx);
+        self.sync_location(cx);
         self.contribution_metadata = self.contributions.update(cx, |registry, cx| {
             registry.sync(
                 &self.binding,

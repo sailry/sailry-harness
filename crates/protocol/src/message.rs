@@ -372,6 +372,18 @@ pub enum Command {
         expected_revision: u64,
         key: crate::ssh::HostKey,
     },
+    ListWslDistributions,
+    InstallWslHost {
+        distribution: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        network: Option<crate::network::Selection>,
+    },
+    ReadWslHostInstall {
+        request: RequestId,
+    },
+    CancelWslHostInstall {
+        request: RequestId,
+    },
     InstallHost {
         profile: crate::SshId,
         expected_revision: u64,
@@ -1658,6 +1670,8 @@ impl Command {
                 | Self::OpenPort { .. }
                 | Self::CancelPort { .. }
                 | Self::ReadHostInstall { .. }
+                | Self::ListWslDistributions
+                | Self::ReadWslHostInstall { .. }
                 | Self::BrowseSshDirectory { .. }
                 | Self::DownloadSshFile { .. }
                 | Self::StageSshUpload(_)
@@ -1982,6 +1996,11 @@ pub enum Output {
     SshProfiles(Vec<crate::ssh::Profile>),
     SshProfile(crate::ssh::Profile),
     HostInstallProgress(crate::ssh::InstallProgress),
+    WslDistributions(Vec<crate::wsl::Distribution>),
+    HostInstallation(crate::host::installation::Outcome),
+    WslHostInstallCancelled {
+        request: RequestId,
+    },
     SshOutcome(crate::ssh::Outcome),
     SshUpload(crate::ssh::Upload),
     SshCancelled {
@@ -2089,7 +2108,7 @@ pub enum Output {
     LocalModel {
         id: String,
     },
-    Shells(Vec<String>),
+    Shells(Vec<crate::terminal::Shell>),
     TerminalTools(Vec<crate::terminal::ToolInfo>),
     MediaSettings(crate::media::Settings),
     MediaModels(Vec<crate::media::Candidate>),

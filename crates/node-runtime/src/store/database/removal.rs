@@ -76,6 +76,7 @@ impl Database {
         let path = match command {
             Command::CreateProject(draft) => Path::new(&draft.path),
             Command::RegisterProject { path, .. }
+            | Command::UpdateProject { path, .. }
             | Command::RegisterWorktree { path, .. }
             | Command::CreateWorktree { path, .. } => Path::new(path),
             _ => return Ok(()),

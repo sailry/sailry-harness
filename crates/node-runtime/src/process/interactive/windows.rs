@@ -2,6 +2,7 @@ use super::failure;
 use sailry_protocol::Fault;
 use std::{
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
+    path::{Component, Path, PathBuf, Prefix},
     sync::Arc,
 };
 use windows_sys::Win32::System::JobObjects::{
@@ -40,6 +41,22 @@ impl Job {
 
     pub(crate) fn configure(&self, command: &mut portable_pty::CommandBuilder) {
         command.set_windows_job(self.0.clone());
+    }
+}
+
+pub(crate) fn directory(directory: &Path) -> PathBuf {
+    let mut components = directory.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return directory.to_owned();
+    };
+    let Prefix::VerbatimDisk(drive) = prefix.kind() else {
+        return directory.to_owned();
+    };
+    let path = PathBuf::from(format!("{}:", char::from(drive))).join(components.as_path());
+    if std::path::absolute(&path).is_ok_and(|absolute| absolute == path) {
+        path
+    } else {
+        directory.to_owned()
     }
 }
 

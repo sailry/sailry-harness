@@ -4,7 +4,7 @@ use sailry_protocol::{
     process::{Access, Outcome, Status},
 };
 
-fn info() -> Info {
+pub(super) fn info() -> Info {
     Info {
         id: RequestId::new(),
         session: SessionId::new(),

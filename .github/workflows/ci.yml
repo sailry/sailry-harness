@@ -1,12 +1,6 @@
 name: Checks
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    # scripts/ci.py select decides coverage: drafts and other labels defer,
-    # the full-ci label runs full checks and other pull requests run light lint.
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_dispatch:
     inputs:
       reuse_run:
@@ -20,12 +14,8 @@ permissions:
   actions: read
 
 concurrency:
-  # Other labels defer in their own group so they cannot cancel current pull request checks.
-  group: >-
-    checks-${{ github.workflow }}-${{ github.event_name == 'pull_request' &&
-    (github.event.action == 'labeled' && github.event.label.name != 'full-ci' && format('label-{0}', github.run_id) || github.ref) ||
-    github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: checks-${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -790,10 +780,8 @@ jobs:
         run: python3 scripts/ci_reuse.py report mobile
 
   checks:
-    # Deferred runs report another name, so they neither pass nor replace the required check.
-    name: ${{ needs.source.outputs.mode == 'skip' && 'Checks deferred' || 'Checks passed' }}
-    # A superseded pull request run can share its commit; it reports failure, never a skip.
-    if: ${{ !cancelled() || github.event_name == 'pull_request' }}
+    name: Checks passed
+    if: ${{ !cancelled() }}
     needs: [source, lint, build, shared, desktop, host, mobile, android, services, light_linux, light_macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5

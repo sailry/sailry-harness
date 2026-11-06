@@ -1,0 +1,7 @@
+host_wsl: "WSL"
+host_wsl_distribution: "Distribuição"
+host_wsl_requirement: "Requer WSL2, GNU Linux x64/arm64 e systemd"
+host_wsl_empty: "Nenhuma distribuição WSL2 instalada"
+host_wsl_lifetime: "O Host para quando o WSL para"
+host_wsl_refresh: "Atualizar"
+host_wsl_load_failed: "Não foi possível carregar as distribuições WSL"

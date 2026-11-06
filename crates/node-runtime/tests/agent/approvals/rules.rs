@@ -1,4 +1,3 @@
-#![cfg(unix)]
 use super::*;
 use process::Fixture;
 use sailry_protocol::{conversation::ApprovalChoice, plugin};

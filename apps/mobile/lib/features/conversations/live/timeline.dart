@@ -378,12 +378,13 @@ class _LiveTimelineState extends State<LiveTimeline> {
             children: children,
             onOpenChild: onOpenChild,
           ),
-          for (final input in inputs)
+          for (final (position, input) in inputs.indexed)
             UserBubble(
+              key: ValueKey(('input', input.turn, position)),
               onEdit:
                   onTurnAction == null || !canChangeHistory || !input.canonical
                   ? null
-                  : () => onTurnAction('edit', run['turn'] as String),
+                  : () => onTurnAction('edit', input.turn),
               text: input.text,
               attachment: input.attachments.isEmpty && input.references.isEmpty
                   ? null
@@ -394,7 +395,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                           MessageReferences(
                             documents: _documents,
                             host: host,
-                            worktree: worktree,
+                            worktree: transcript.worktree(input.turn, session),
                             references: input.references,
                           ),
                         for (final attachment in input.attachments)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish an exact version release before starting independent product builds."""
+"""Require full exact-source Checks before publishing and starting product builds."""
 
 import argparse
 from datetime import datetime, timezone
@@ -64,6 +64,20 @@ def dispatch(client, repository, tag):
         raise RuntimeError("The version release is published; workflow dispatch failed: " + ", ".join(failed))
 
 
+def require_checks(client, repository, tag, commit):
+    ready = publication.ready_run(client, repository, commit, "checks", tag=tag)
+    if ready is not None:
+        return ready
+    runs = publication.ci_reuse.pages(
+        client, f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}", "workflow_runs")
+    matching = [run for run in runs if publication.checks_run(run, commit, tag)]
+    completed = {run["id"] for run in matching if run.get("status") == "completed"}
+    if len(completed) == len(matching):
+        client.api("POST", f"repos/{repository}/actions/workflows/ci.yml/dispatches", {"ref": tag})
+        print(f"Queued full Checks for {tag} at exact source {commit}", flush=True)
+    return publication.wait_ready(client, repository, commit, "checks", tag=tag, ignored_runs=completed)
+
+
 def start(tag, source, tooling, environment, client=None):
     commit = candidate(tag, source, tooling, environment)
     repository = environment["GITHUB_REPOSITORY"]
@@ -71,6 +85,11 @@ def start(tag, source, tooling, environment, client=None):
     metadata = publication.release(client, repository, tag, commit)
     if metadata is not None and metadata.get("immutable"):
         raise ValueError("Product packages require a mutable version release")
+    checked = require_checks(client, repository, tag, commit)
+    metadata = publication.release(client, repository, tag, commit)
+    if metadata is not None and metadata.get("immutable"):
+        raise ValueError("Product packages require a mutable version release")
+    print(f"Verified full Checks for exact source {commit} in run {checked}", flush=True)
     if metadata is None or metadata.get("draft"):
         body = notes.generate(source, tag, f"{environment['GITHUB_SERVER_URL']}/{repository}",
                               datetime.now(timezone.utc).date().isoformat(),

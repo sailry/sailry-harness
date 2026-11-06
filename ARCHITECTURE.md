@@ -1096,13 +1096,19 @@ headless process, using a private profile and explicit network/pairing options.
 Only one process may own that profile. Pairing is opt-in for Host; established
 peer trust survives restart. Host release archives are independent from Desktop;
 the official installer verifies tag-bound assets and starts systemd or launchd.
-A version workflow validates an exact product tag against trusted main history,
-generates its notes and publishes the version release before dispatching Desktop,
-Host, Mobile and changelog workflows independently. Each product waits for its
-readiness gate at its exact source in main Checks, including strict lint and shared
-Node checks, before building distribution packages. Unrelated product jobs can
-finish independently. A newly published release can
-initially contain only notes; its packages appear as each product finishes.
+Ordinary branch pushes and pull requests do not start Checks. A version workflow
+validates an exact product tag against trusted main history and requires a
+completed full Checks run for that exact SHA before publication. It reuses a
+verified full result or explicitly dispatches Checks on the tag and waits within
+the existing five-hour limit. Missing, failed, cancelled or incomplete checks do
+not permit publication. Manual Checks remain available for diagnosis without
+publishing. After rechecking the tag, the version workflow generates its notes,
+publishes the version release and dispatches Desktop, Host, Mobile and changelog
+workflows independently. Each product retains its readiness gate at its exact
+source in main or selected-tag Checks, including strict lint and shared Node
+checks, before building distribution packages. Product packaging can finish
+independently. A newly published release can initially contain only notes after
+full Checks have passed; its packages appear as each product finishes.
 Desktop appends explicitly named ad-hoc macOS arm64 and x64 packages, then starts
 formal signing from its preserved native artifacts. Formal signing adds signed
 and notarized canonical packages and publishes the release's signed

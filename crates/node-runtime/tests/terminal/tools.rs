@@ -64,6 +64,7 @@ async fn restores_execution_receipt() {
             local.prepare(Command::SaveTerminalSettings(Settings {
                 revision: 0,
                 shell: "/usr/bin/false".into(),
+                shell_arguments: Vec::new(),
                 environment: [
                     ("PATH".into(), programs.to_str().unwrap().into()),
                     ("CLI_FIXTURE".into(), "execution-node".into()),
@@ -78,6 +79,7 @@ async fn restores_execution_receipt() {
         .execute(other.prepare(Command::SaveTerminalSettings(Settings {
             revision: 0,
             shell: String::new(),
+            shell_arguments: Vec::new(),
             environment: [("PATH".into(), empty.to_str().unwrap().into())].into(),
         })))
         .await

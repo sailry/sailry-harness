@@ -447,7 +447,8 @@ class GateWaiting(unittest.TestCase):
     def setUp(self):
         spec = importlib.util.spec_from_file_location("waiting_gate", ROOT / "scripts/package/publication.py")
         self.gate = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.gate)
+        with patch.object(sys, "path", [str(ROOT / "scripts/package"), *sys.path]):
+            spec.loader.exec_module(self.gate)
         self.client = Mock()
         self.pending = {"id": 7, "head_sha": "a" * 40, "head_branch": "main", "event": "push", "status": "queued"}
 
@@ -562,6 +563,7 @@ class GateWaiting(unittest.TestCase):
                     patch.object(gate.publication, "release", return_value={}) as release:
                 gate.main()
             self.assertEqual(wait.call_args.args[2:], ("a" * 40, component))
+            self.assertEqual(wait.call_args.kwargs, {"tag": "v0.1.0"})
             self.assertTrue(release.call_args.kwargs["published"])
 
     def test_missing_publication_fails_before_waiting(self):

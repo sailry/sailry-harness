@@ -361,11 +361,7 @@ impl View {
         let continuing_tools =
             self.history.connected && frame::continuing_tools(run, &snapshot.page, &blocks);
         let compacting = frame::compacting(&blocks);
-        let mut blocks = if self.message_display == crate::preferences::MessageDisplay::Compact {
-            blocks::compact(blocks)
-        } else {
-            blocks
-        };
+        let mut blocks = blocks::compact(blocks);
         // The phase row presents compaction; it is not a content row.
         blocks.retain(|block| !matches!(block, Block::Compacting(_)));
         let copy = blocks

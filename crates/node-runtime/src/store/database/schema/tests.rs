@@ -6,9 +6,16 @@ mod indexes;
 mod references;
 mod search;
 
-async fn fixture(ddl: &str) -> (tempfile::TempDir, turso::Database, Connection) {
+pub(super) fn storage() -> (tempfile::TempDir, std::path::PathBuf) {
     let directory = tempfile::tempdir().unwrap();
-    let database = super::super::engine(&directory.path().join("node.turso"))
+    let storage = directory.path().join("storage");
+    crate::profile::private_directory(&storage).unwrap();
+    (directory, storage)
+}
+
+async fn fixture(ddl: &str) -> (tempfile::TempDir, turso::Database, Connection) {
+    let (directory, storage) = storage();
+    let database = super::super::engine(&storage.join("node.turso"))
         .await
         .unwrap();
     let connection = super::super::connect(&database).await.unwrap();
@@ -17,6 +24,19 @@ async fn fixture(ddl: &str) -> (tempfile::TempDir, turso::Database, Connection) 
 }
 
 const CURRENT: &str = "CREATE TABLE records(id INTEGER PRIMARY KEY,value TEXT DEFAULT 'Kept'); CREATE INDEX records_value ON records(value)";
+
+#[cfg(windows)]
+#[tokio::test]
+async fn builds_reference_with_default_temp_security() {
+    let reference = expected(CURRENT, &[]).await.unwrap();
+    assert_eq!(
+        reference.keys().cloned().collect::<Vec<_>>(),
+        vec![
+            ("index".into(), "records_value".into()),
+            ("table".into(), "records".into()),
+        ]
+    );
+}
 
 #[tokio::test]
 async fn accepts_matching_definitions() {

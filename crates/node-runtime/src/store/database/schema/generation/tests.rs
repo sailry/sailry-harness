@@ -1,8 +1,9 @@
+use super::super::tests::storage;
 use super::*;
 
 async fn fixture(columns: &str, value: &str) -> (tempfile::TempDir, turso::Database, Connection) {
-    let directory = tempfile::tempdir().unwrap();
-    let database = crate::store::database::engine(&directory.path().join("node.turso"))
+    let (directory, storage) = storage();
+    let database = crate::store::database::engine(&storage.join("node.turso"))
         .await
         .unwrap();
     let connection = crate::store::database::connect(&database).await.unwrap();

@@ -275,8 +275,9 @@ async fn expected(ddl: &str, definitions: &[String]) -> Result<Objects, Error> {
         temporary.permissions(std::fs::Permissions::from_mode(0o700));
     }
     let directory = temporary.tempdir()?;
-    crate::profile::private_directory(directory.path())?;
-    let database = super::engine(&directory.path().join("reference.turso")).await?;
+    let storage = directory.path().join("storage");
+    crate::profile::private_directory(&storage)?;
+    let database = super::engine(&storage.join("reference.turso")).await?;
     let connection = super::connect(&database).await?;
     connection.execute("BEGIN", ()).await?;
     connection.execute_batch(ddl).await?;

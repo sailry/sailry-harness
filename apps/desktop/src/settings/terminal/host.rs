@@ -1,3 +1,4 @@
+use super::shell::Shell;
 use crate::feedback::Recovery as _;
 use crate::{
     settings::{
@@ -11,37 +12,20 @@ use crate::{
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
-        searchable_list::SearchableListItem,
         select::{Select, SelectEvent, SelectState},
         *,
     },
     *,
 };
-use sailry_protocol::{Command, ErrorCode, Output, terminal::Settings};
-
-#[derive(Clone)]
-pub(in crate::settings) struct Shell(pub String);
-
-impl SearchableListItem for Shell {
-    type Value = String;
-
-    fn title(&self) -> SharedString {
-        if self.0.is_empty() {
-            tr("terminal_shell_default")
-        } else {
-            self.0.clone().into()
-        }
-    }
-
-    fn value(&self) -> &String {
-        &self.0
-    }
-}
+use sailry_protocol::{
+    Command, ErrorCode, Output,
+    terminal::{self, Settings},
+};
 
 pub(in crate::settings) struct Host {
     pub environment: Vec<(String, String)>,
     pub shell: Entity<SelectState<Vec<Shell>>>,
-    shells: Vec<String>,
+    shells: Vec<terminal::Shell>,
     binding: Option<Binding>,
     pub(super) saved: Option<Settings>,
     observed: Option<u64>,
@@ -77,7 +61,7 @@ impl Host {
         );
         let shell = cx.new(|cx| {
             SelectState::new(
-                vec![Shell(String::new())],
+                Shell::items(&[], &terminal::Shell::default()),
                 Some(IndexPath::new(0)),
                 window,
                 cx,
@@ -105,16 +89,11 @@ impl Host {
     }
 
     fn draft(&self, cx: &App) -> Settings {
-        Settings {
-            revision: self.saved.as_ref().map_or(0, |saved| saved.revision),
-            shell: self
-                .shell
-                .read(cx)
-                .selected_value()
-                .cloned()
-                .unwrap_or_default(),
-            environment: self.environment.iter().cloned().collect(),
-        }
+        snapshot(
+            self.saved.as_ref(),
+            self.shell.read(cx).selected_value(),
+            &self.environment,
+        )
     }
 
     fn dirty(&self, cx: &App) -> bool {
@@ -146,15 +125,14 @@ impl Host {
         self.submit(Command::ReadTerminalSettings, window, cx);
     }
 
-    fn select_shell(&mut self, value: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let mut items = vec![Shell(String::new())];
-        items.extend(self.shells.iter().cloned().map(Shell));
-        if !items.iter().any(|item| item.0 == value) {
-            items.push(Shell(value.to_owned()));
-        }
+    fn select_shell(&mut self, saved: &Settings, window: &mut Window, cx: &mut Context<Self>) {
+        let value = terminal::Shell {
+            path: saved.shell.clone(),
+            arguments: saved.shell_arguments.clone(),
+        };
         self.shell.update(cx, |select, cx| {
-            select.set_items(items, window, cx);
-            select.set_selected_value(&value.to_owned(), window, cx);
+            select.set_items(Shell::items(&self.shells, &value), window, cx);
+            select.set_selected_value(&value, window, cx);
         });
     }
 
@@ -215,7 +193,7 @@ impl Host {
                             .iter()
                             .map(|(key, value)| (key.clone(), value.clone()))
                             .collect();
-                        this.select_shell(&saved.shell, window, cx);
+                        this.select_shell(&saved, window, cx);
                         this.saved = Some(saved);
                     }
                     Ok((Err(error), _)) => {
@@ -316,6 +294,20 @@ impl Render for Host {
     }
 }
 
+fn snapshot(
+    saved: Option<&Settings>,
+    selected: Option<&terminal::Shell>,
+    environment: &[(String, String)],
+) -> Settings {
+    let mut data = saved.cloned().unwrap_or_default();
+    data.environment = environment.iter().cloned().collect();
+    if let Some(shell) = selected {
+        data.shell = shell.path.clone();
+        data.shell_arguments = shell.arguments.clone();
+    }
+    data
+}
+
 fn edit(owner: Entity<Host>, index: Option<usize>, window: &mut Window, cx: &mut App) {
     let value = index
         .map(|index| owner.read(cx).environment[index].clone())
@@ -350,3 +342,7 @@ fn edit(owner: Entity<Host>, index: Option<usize>, window: &mut Window, cx: &mut
         cx,
     );
 }
+
+#[cfg(test)]
+#[path = "host_tests.rs"]
+mod tests;

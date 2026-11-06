@@ -171,7 +171,11 @@ impl View {
                             v_flex()
                                 .debug_selector(move || format!("live-approval-command-{id}"))
                                 .rounded_md()
-                                .bg(cx.theme().background)
+                                .bg(if cx.theme().is_dark() {
+                                    cx.theme().background
+                                } else {
+                                    cx.theme().background.blend(cx.theme().muted)
+                                })
                                 .max_h_32()
                                 .flex_shrink_0()
                                 .child(

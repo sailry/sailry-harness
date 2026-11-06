@@ -980,6 +980,9 @@ pub(super) fn execute<'a>(
         | Command::WriteCommand { .. }
         | Command::StopCommands { .. }
         | Command::InstallHost { .. }
+        | Command::InstallWslHost { .. }
+        | Command::ReadWslHostInstall { .. }
+        | Command::CancelWslHostInstall { .. }
         | Command::UpdateSshHost { .. }
         | Command::ReadHostInstall { .. }
         | Command::CheckSsh { .. }
@@ -1025,6 +1028,7 @@ pub(super) fn execute<'a>(
         | Command::RefreshModelCatalog
         | Command::InspectHost
         | Command::ListShells
+        | Command::ListWslDistributions
         | Command::ReadHostMetrics { .. }
         | Command::ReadComputerPermissions
         | Command::RequestComputerPermission { .. }

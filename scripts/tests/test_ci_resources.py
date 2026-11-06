@@ -522,15 +522,19 @@ class Workflow(unittest.TestCase):
         for name in ("mode", *ci.LIGHT_JOBS):
             self.assertIn(f"{name}: ${{{{ steps.scope.outputs.{name} }}}}", source)
 
-    def test_triggers_and_defers_label_events(self):
+    def test_requires_explicit_dispatch_for_full_checks(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, labeled]", workflow)
-        group = workflow.split("concurrency:\n", 1)[1].split("\n  cancel-in-progress:", 1)[0]
-        self.assertIn(f"github.event.label.name != '{ci.FULL_LABEL}'", group)
-        self.assertIn("github.run_id", group)
+        trigger = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertEqual(re.findall(r"^  ([a-z_]+):", trigger, re.MULTILINE), ["workflow_dispatch"])
+        self.assertIn("reuse_run:", trigger)
+        self.assertEqual(ci.select_outputs("workflow_dispatch", None), {
+            **ci.outputs(ci.LANES), "mode": "full", "light_linux": "false", "light_macos": "false",
+        })
+        self.assertIn("group: checks-${{ github.workflow }}-${{ github.sha }}", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
         checks = job_section(workflow, "checks")
-        self.assertIn("name: ${{ needs.source.outputs.mode == 'skip' && 'Checks deferred' || 'Checks passed' }}", checks)
-        self.assertIn("if: ${{ !cancelled() || github.event_name == 'pull_request' }}", checks)
+        self.assertIn("name: Checks passed", checks)
+        self.assertIn("if: ${{ !cancelled() }}", checks)
 
     def test_merges_host_lifecycle_into_shared(self):
         workflow = workflow_source()

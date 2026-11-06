@@ -215,7 +215,7 @@ impl Workspaces {
             })
     }
     /// The Shell owns the single-pane title band; split groups keep their own headers.
-    pub fn single_header(&self, cx: &App) -> Option<(SharedString, AnyElement)> {
+    pub fn single_header(&self, cx: &App) -> Option<(SharedString, Option<AnyElement>)> {
         let target = self.active?;
         if self.members(self.workspace(target, cx)?, cx).len() != 1 {
             return None;
