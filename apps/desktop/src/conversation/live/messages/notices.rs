@@ -14,14 +14,18 @@ fn outcome(value: Outcome) -> &'static str {
         Outcome::TimedOut => "background_outcome_timed_out",
         Outcome::Interrupted => "background_outcome_interrupted",
         Outcome::Unknown => "background_outcome_unknown",
+        Outcome::Stalled => "background_outcome_stalled",
     }
 }
 
 fn row(notice: &Notice, cx: &App) -> AnyElement {
-    let failed = matches!(
-        notice.outcome,
-        Outcome::Failed | Outcome::TimedOut | Outcome::Interrupted | Outcome::Unknown
-    );
+    let tone = match notice.outcome {
+        Outcome::Failed | Outcome::TimedOut | Outcome::Interrupted | Outcome::Unknown => {
+            cx.theme().danger
+        }
+        Outcome::Stalled => cx.theme().warning,
+        Outcome::Completed | Outcome::Cancelled | Outcome::Stopped => cx.theme().muted_foreground,
+    };
     h_flex()
         .w_full()
         .min_w_0()
@@ -44,11 +48,7 @@ fn row(notice: &Notice, cx: &App) -> AnyElement {
         .child(
             div()
                 .flex_shrink_0()
-                .text_color(if failed {
-                    cx.theme().danger
-                } else {
-                    cx.theme().muted_foreground
-                })
+                .text_color(tone)
                 .child(tr(outcome(notice.outcome))),
         )
         .into_any_element()

@@ -107,6 +107,48 @@ fn recovers_revisions_and_validates_captured_identity() {
             }) as fn(&str),
         ),
         (
+            "accepts_stall_evidence_beside_running_command",
+            (|case_name| {
+                let (mut projection, snapshot, run, _) = fixture();
+                projection
+                    .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
+                    .unwrap();
+                let command = task(&snapshot, &run);
+                let Kind::Command { id } = &command.kind else {
+                    unreachable!()
+                };
+                let mut stalled = command.clone();
+                stalled.id = format!("stall:{id}");
+                stalled.state = State::Pending;
+                stalled.outcome = Some(Outcome::Stalled);
+                stalled.finished_ms = Some(2000);
+                projection
+                    .apply(1, frame(&snapshot, 11, Change::Background(command.clone())))
+                    .unwrap();
+                projection
+                    .apply(1, frame(&snapshot, 12, Change::Background(stalled.clone())))
+                    .unwrap();
+                let mut foreign = stalled.clone();
+                foreign.id = format!("stall:{}", RequestId::new());
+                let mut finished = stalled.clone();
+                finished.revision += 1;
+                finished.outcome = Some(Outcome::Completed);
+                for task in [foreign, finished] {
+                    assert!(
+                        projection
+                            .apply(1, frame(&snapshot, 13, Change::Background(task)))
+                            .is_err(),
+                        "{case_name}"
+                    );
+                }
+                assert_eq!(
+                    projection.snapshot().unwrap().page.background,
+                    [command, stalled],
+                    "{case_name}"
+                );
+            }) as fn(&str),
+        ),
+        (
             "keeps_child_identity_across_guidance_results",
             (|case_name| {
                 let (mut projection, mut snapshot, run, _) = fixture();

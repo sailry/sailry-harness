@@ -336,6 +336,12 @@ impl Node {
         *self.ingress.agents.question_timeout.lock().unwrap() = Some(timeout);
     }
 
+    /// Shortens the silence that marks a background command stalled in isolated fixtures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_command_stall_fixture(&self, window: std::time::Duration) {
+        self.ingress.commands.set_stall_window(window);
+    }
+
     /// Observes an actual expiry request without guessing its scheduling delay.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn wait_approval_expiry_fixture(&self) {

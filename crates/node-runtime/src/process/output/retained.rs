@@ -420,6 +420,7 @@ fn failure(error: std::io::Error) -> Fault {
 pub(crate) struct Retained {
     stdout: Mutex<Stream>,
     stderr: Mutex<Stream>,
+    updated: Mutex<std::time::Instant>,
 }
 
 impl Retained {
@@ -435,6 +436,7 @@ impl Retained {
         Self {
             stdout: Mutex::new(Stream::new(create(), budget.clone(), STREAM_LIMIT)),
             stderr: Mutex::new(Stream::new(create(), budget, STREAM_LIMIT)),
+            updated: Mutex::new(std::time::Instant::now()),
         }
     }
 
@@ -460,6 +462,14 @@ impl Retained {
 
     pub(crate) fn append(&self, stream: OutputStream, bytes: &[u8]) {
         self.stream(stream).lock().unwrap().append(bytes);
+        if !bytes.is_empty() {
+            *self.updated.lock().unwrap() = std::time::Instant::now();
+        }
+    }
+
+    /// When output last arrived, or when retention began if there was none.
+    pub(crate) fn updated(&self) -> std::time::Instant {
+        *self.updated.lock().unwrap()
     }
 
     pub(crate) fn finish(&self) {

@@ -307,6 +307,29 @@ mod promotion {
     }
 
     #[tokio::test]
+    async fn promoted_silence_reports_stall() {
+        let fixture = Fixture::new();
+        fixture
+            .commands
+            .set_stall_window(Duration::from_millis(300));
+        let (sink, mut stalls) = mpsc::unbounded_channel();
+        fixture.commands.set_stall_sink(sink);
+        let output = fixture
+            .run("sleep 30", tokio::time::sleep(Duration::from_millis(200)))
+            .await
+            .unwrap();
+        assert!(matches!(output, Output::CommandStarted(_)));
+        let stalled = tokio::time::timeout(Duration::from_secs(10), stalls.recv())
+            .await
+            .expect("promoted silence was not reported")
+            .unwrap();
+        assert_eq!(stalled.snapshot.info.id, fixture.id);
+        assert_eq!(stalled.snapshot.info.status, Status::Running);
+        fixture.commands.stop(fixture.session, fixture.id).unwrap();
+        fixture.commands.close().await;
+    }
+
+    #[tokio::test]
     async fn holds_completion_until_receipt() {
         let mut fixture = Fixture::new();
         let (open, gate) = oneshot::channel();

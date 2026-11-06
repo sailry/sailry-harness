@@ -25,6 +25,8 @@ pub enum Outcome {
     TimedOut,
     Interrupted,
     Unknown,
+    /// A running command produced no output for the Node's stall window.
+    Stalled,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

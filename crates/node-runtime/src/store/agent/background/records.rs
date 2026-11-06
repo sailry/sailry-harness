@@ -218,20 +218,69 @@ pub(in crate::store) async fn command_finished(
         process::Status::Finished(process::Outcome::Unknown(_)) => Outcome::Unknown,
         process::Status::Finished(_) | process::Status::Failed(_) => Outcome::Failed,
     };
+    let summary = retain_output(&mut record, snapshot).or_else(|| match &snapshot.info.status {
+        process::Status::Failed(message) => Some(message.clone()),
+        _ => None,
+    });
+    record.elapsed_ms = elapsed_ms;
+    terminal(db, &mut record, outcome, summary).await?;
+    Ok(Some(record.task))
+}
+
+/// Keeps bounded output tails and returns a summary that prefers stderr.
+fn retain_output(record: &mut Record, snapshot: &process::Snapshot) -> Option<String> {
     record.stdout = Some(tail(&snapshot.stdout.text, 2048));
     record.stderr = Some(tail(&snapshot.stderr.text, 2048));
-    record.elapsed_ms = elapsed_ms;
-    let summary = if !snapshot.stderr.text.is_empty() {
-        Some(tail(&snapshot.stderr.text, 512))
-    } else if !snapshot.stdout.text.is_empty() {
-        Some(tail(&snapshot.stdout.text, 512))
-    } else {
-        match &snapshot.info.status {
-            process::Status::Failed(message) => Some(message.clone()),
-            _ => None,
-        }
+    [&snapshot.stderr.text, &snapshot.stdout.text]
+        .into_iter()
+        .find(|text| !text.is_empty())
+        .map(|text| tail(text, 512))
+}
+
+/// Separate evidence asks the owning session to decide about a silent, still-running
+/// command; the command's own record remains running until it finishes.
+pub(in crate::store) async fn command_stalled(
+    db: &Connection,
+    snapshot: &process::Snapshot,
+    elapsed_ms: u64,
+) -> Result<Option<Task>, Fault> {
+    // Commands outside Agent turns, or promoted before their receipt commits, have no record.
+    let Some(command) = get(db, &format!("command:{}", snapshot.info.id)).await? else {
+        return Ok(None);
     };
-    terminal(db, &mut record, outcome, summary).await?;
+    if command.task.session != snapshot.info.session || command.task.turn != snapshot.info.turn {
+        return Err(storage_error("background command ownership changed"));
+    }
+    if command.task.state != State::Running {
+        return Ok(None);
+    }
+    let id = format!("stall:{}", snapshot.info.id);
+    let mut record = match get(db, &id).await? {
+        // A reservation must keep the evidence its notice input was rendered from.
+        Some(record) if record.task.state == State::Pending && record.task.delivery.is_some() => {
+            return Ok(None);
+        }
+        Some(mut record) => {
+            if record.task.state != State::Pending {
+                record.task.delivery = None;
+                record.task.recovered = false;
+                record.task.suppressed = false;
+            }
+            record
+        }
+        None => running(
+            id,
+            command.task.session,
+            command.task.turn,
+            command.task.kind.clone(),
+            command.task.title.clone(),
+            command.task.started_ms,
+        ),
+    };
+    record.follow_up = command.follow_up;
+    record.elapsed_ms = Some(elapsed_ms);
+    let summary = retain_output(&mut record, snapshot);
+    terminal(db, &mut record, Outcome::Stalled, summary).await?;
     Ok(Some(record.task))
 }
 

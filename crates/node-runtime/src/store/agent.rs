@@ -145,6 +145,7 @@ pub(super) enum Operation {
         reply: oneshot::Sender<Result<Status, Fault>>,
     },
     CommandFinished(crate::process::background::Finished),
+    CommandStalled(crate::process::background::Stalled),
     ConsumeCommand {
         parent: TurnId,
         snapshot: sailry_protocol::process::Snapshot,
@@ -766,6 +767,43 @@ pub(super) fn execute<'a>(
             .await;
             if let Err(error) = result {
                 eprintln!("background completion persistence failed: {error}");
+            }
+        }),
+        Operation::CommandStalled(stalled) => Box::pin(async move {
+            let publication = database.publication.clone();
+            let result = (async || -> Result<(), Fault> {
+                let tx = database
+                    .connection
+                    .unchecked_transaction()
+                    .await
+                    .map_err(storage_error)?;
+                let task =
+                    background::command_stalled(&tx, &stalled.snapshot, stalled.elapsed_ms).await?;
+                let scheduled = match &task {
+                    Some(task) => background::schedule(&tx, database.node, task.session).await?,
+                    None => None,
+                };
+                let _publication = publication.lock().await;
+                super::database::conflict::commit(tx).await?;
+                background::publish(database, task).await;
+                if let Some(turn) = scheduled {
+                    feed::run(database, runs::get(&database.connection, turn.id).await?).await;
+                    database.feeds.publish(
+                        database.node,
+                        turn.session,
+                        Change::Queue(queue::read(&database.connection, turn.session).await?),
+                    );
+                    background::publish(
+                        database,
+                        background::list(&database.connection, turn.session).await?,
+                    )
+                    .await;
+                }
+                Ok(())
+            })()
+            .await;
+            if let Err(error) = result {
+                eprintln!("background stall persistence failed: {error}");
             }
         }),
         Operation::ConsumeCommand {
