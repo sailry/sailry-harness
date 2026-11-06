@@ -114,7 +114,7 @@ class PublishedFiles extends StatelessWidget {
               ),
               trailing: IconButton(
                 tooltip: context.tr('more'),
-                icon: const AppIcon('more', size: 18),
+                icon: const AppIcon('ellipsis', size: 18),
                 onPressed: !enabled || !host.connected
                     ? null
                     : () => _actions(context, file),

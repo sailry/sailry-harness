@@ -3,39 +3,72 @@ import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
+import 'glass_chip.dart';
 import 'presentation.dart' show ConversationCommand, failureLabel;
 import 'guidance.dart';
+import 'turn_draft.dart';
 
-class QueueSummary extends StatelessWidget {
-  const QueueSummary({super.key, required this.queue, required this.onOpen});
+/// The optimistic preview stays until the projection shows its admitted turn.
+GuidancePreview? outgoingGuidance(
+  GuidancePreview? preview,
+  Map<String, dynamic> view,
+) => preview == null || object(view['guidance']).containsKey(preview.turn)
+    ? null
+    : preview;
 
-  final Map<String, dynamic> queue;
-  final VoidCallback onOpen;
+typedef QueueState = ({int count, bool paused, bool guiding});
 
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 14),
-    child: Surface(
-      radius: 18,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      onTap: onOpen,
-      child: Row(
-        children: [
-          const AppIcon('clock', size: 17),
-          const SizedBox(width: 7),
-          Expanded(
-            child: Text(
-              '${context.tr('queueShort')}  ${objects(queue['items']).length}',
-            ),
-          ),
-          if (queue['paused'] == true) Text(context.tr('pauseQueue')),
-          const AppIcon('chevron', size: 14),
-        ],
-      ),
-    ),
+/// Counts queued input with guidance still awaiting admission; [guiding]
+/// marks input waiting to join the running turn.
+QueueState summarize(Map<String, dynamic> view, GuidancePreview? outgoing) {
+  final queue = object(object(object(view['snapshot'])['page'])['queue']);
+  final items = objects(queue['items']);
+  final guidance = object(view['guidance']);
+  final preview = outgoingGuidance(outgoing, view);
+  return (
+    count: items.length + (preview == null ? 0 : 1),
+    paused: queue['paused'] == true,
+    guiding:
+        preview != null ||
+        items.any((item) => guidance[item['turn']] == 'pending'),
   );
 }
 
+/// Queue state in the same capsule as the activity above the composer.
+class QueueChip extends StatelessWidget {
+  const QueueChip({super.key, required this.state, required this.onOpen});
+
+  final QueueState state;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final count = '${state.count}';
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: GlassChip(
+        onTap: onOpen,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 6,
+          children: [
+            AppIcon('chat', size: 15, color: colors.onSurfaceVariant),
+            if (state.paused)
+              Text(context.tr('queuePaused').replaceAll('{count}', count))
+            else ...[
+              Text(context.tr('queueShort')),
+              Text(count, style: TextStyle(color: colors.onSurface)),
+            ],
+            if (state.guiding) const GuidanceStatus(state: 'pending'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Guidance awaiting admission has no queue identity to act on yet.
 class PendingGuidance extends StatelessWidget {
   const PendingGuidance({
     super.key,
@@ -48,10 +81,10 @@ class PendingGuidance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 14),
+    padding: const EdgeInsets.only(bottom: 10),
     child: Surface(
-      radius: 18,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      radius: 16,
+      padding: const EdgeInsets.all(12),
       child: Row(
         children: [
           Expanded(
@@ -59,6 +92,7 @@ class PendingGuidance extends StatelessWidget {
               preview.trim().isEmpty ? context.tr('attachment') : preview,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
+              style: const TextStyle(height: 1.5),
             ),
           ),
           if (attachments > 0) ...[
@@ -79,6 +113,7 @@ class LiveQueue extends StatefulWidget {
     required this.view,
     required this.session,
     required this.command,
+    this.submission,
     this.delegated = false,
     this.mutate,
     this.isPending,
@@ -87,6 +122,9 @@ class LiveQueue extends StatefulWidget {
   final ValueNotifier<Map<String, dynamic>> view;
   final String session;
   final ConversationCommand command;
+
+  /// Lists its guidance until the queue projection admits it.
+  final TurnDraft? submission;
   final bool delegated;
   final Future<bool> Function(String, Map<String, dynamic>)? mutate;
   final bool Function()? isPending;
@@ -221,14 +259,16 @@ class _LiveQueueState extends State<LiveQueue> {
   }
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder(
-    valueListenable: widget.view,
-    builder: (context, view, _) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([widget.view, widget.submission]),
+    builder: (context, _) {
+      final view = widget.view.value;
       final page = object(object(view['snapshot'])['page']);
       final queue = object(page['queue']);
       final recipient = runningRecipient(page);
       final guidance = object(view['guidance']);
       final items = objects(queue['items']);
+      final outgoing = outgoingGuidance(widget.submission?.guidance, view);
       final enabled = !_busy && !_pending && view['connected'] == true;
       return Column(
         mainAxisSize: MainAxisSize.min,
@@ -239,7 +279,12 @@ class _LiveQueueState extends State<LiveQueue> {
               onPressed: !_busy && view['connected'] == true ? _check : null,
               child: Text(context.tr('conversationCheckResult')),
             ),
-          if (items.isEmpty)
+          if (outgoing != null)
+            PendingGuidance(
+              preview: outgoing.text,
+              attachments: outgoing.attachments.length,
+            ),
+          if (items.isEmpty && outgoing == null)
             EmptyState(icon: 'chat', message: context.tr('queueEmpty')),
           for (final (index, item) in items.indexed)
             Padding(

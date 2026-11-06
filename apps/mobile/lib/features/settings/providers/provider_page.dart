@@ -131,7 +131,7 @@ class _MoreMenu extends StatelessWidget {
       ),
     ],
     builder: (context, controller, _) => RoundButton(
-      icon: 'more',
+      icon: 'ellipsis',
       tooltip: context.tr('more'),
       onPressed: () =>
           controller.isOpen ? controller.close() : controller.open(),
