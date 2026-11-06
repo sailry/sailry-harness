@@ -5,7 +5,7 @@ use sailry_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Metadata {
@@ -73,6 +73,9 @@ pub(crate) struct Presentation {
     pub displays: BTreeMap<String, tool::Display>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tools: BTreeMap<String, tool::Presentation>,
+    /// Tools that admit child agents, including package aliases.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub delegations: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub failures: Vec<ToolFailure>,
 }

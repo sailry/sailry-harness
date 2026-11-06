@@ -247,6 +247,8 @@ fn preserves_storage_contracts() {
                     "spawn_agent".into(),
                     json!({"task":"Inspect","background":true}),
                 );
+                assert!(!raw.summary().delegation.background, "{scenario}");
+                raw.delegation = true;
                 assert!(raw.summary().delegation.background, "{scenario}");
                 for arguments in [
                     json!({"task":"Inspect"}),
@@ -256,6 +258,12 @@ fn preserves_storage_contracts() {
                     raw.arguments = arguments;
                     assert!(!raw.summary().delegation.background, "{scenario}");
                 }
+                let command = Raw::new(
+                    Some("command".into()),
+                    "run_command".into(),
+                    json!({"command":"sleep 5","background":true}),
+                );
+                assert!(!command.summary().delegation.background, "{scenario}");
             }),
         ),
         (

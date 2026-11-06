@@ -1,10 +1,10 @@
 //! Foreground delegation holds the parent's next model request.
 use crate::conversation::{View, guidance, tools, transcript, turns};
 use sailry_protocol::{
-    ApprovalId, Delegation, NodeId, SessionId, TurnId, WorktreeId,
+    ApprovalId, Delegation, NodeId, QuestionId, SessionId, TurnId, WorktreeId,
     conversation::{
         Approval, ApprovalSource, ApprovalState, Child, Draft, Entry, Page, Part, Run, RunKind,
-        SentInput, Snapshot, Status,
+        SentInput, Snapshot, Status, question,
     },
     tool::detail::{self, Summary},
 };
@@ -161,6 +161,41 @@ fn append(page: &mut Page, entries: impl IntoIterator<Item = Entry>) {
     Arc::make_mut(&mut page.entries).extend(entries);
 }
 
+/// Guidance for `parent`; delivery joins it and records its canonical input.
+fn guide(page: &mut Page, parent: &Run, delivered: bool) {
+    let guide = Run {
+        turn: TurnId::new(),
+        sequence: 2,
+        status: if delivered {
+            Status::Continued
+        } else {
+            Status::Queued
+        },
+        started_ms: None,
+        finished_ms: delivered.then_some(3),
+        guidance: Some(parent.turn),
+        joined: delivered.then_some(parent.turn),
+        input: Some(SentInput {
+            message: "Check the fixture".into(),
+            attachments: Vec::new(),
+        }),
+        ..parent.clone()
+    };
+    if delivered {
+        let sequence = page.entries.len() as u64 + 1;
+        append(
+            page,
+            [entry(
+                sequence,
+                guide.turn,
+                "user",
+                vec![Part::Text("Check the fixture".into())],
+            )],
+        );
+    }
+    page.runs.push(guide);
+}
+
 #[test]
 fn counts_unfinished_foreground_children() {
     let (parent, mut page) = delegated([false, false]);
@@ -179,7 +214,7 @@ fn clears_after_children_finish() {
 }
 
 #[test]
-fn clears_when_model_resumes() {
+fn follows_model_replies() {
     let (parent, mut page) = delegated([false, false]);
     let draft = Draft {
         id: "draft".into(),
@@ -189,13 +224,43 @@ fn clears_when_model_resumes() {
         parts: vec![Part::Thinking("Reviewing".into())],
     };
     assert_eq!(reported(&page, vec![draft], parent.turn), [None]);
+    guide(&mut page, &parent, true);
+    assert_eq!(reported(&page, Vec::new(), parent.turn), [None, None]);
+    append(
+        &mut page,
+        [entry(
+            4,
+            parent.turn,
+            "assistant",
+            vec![Part::Text("Interim report".into())],
+        )],
+    );
+    assert_eq!(reported(&page, Vec::new(), parent.turn), [None, Some(2)]);
+}
+
+#[test]
+fn clears_for_pending_guidance() {
+    let (parent, mut page) = delegated([false, false]);
+    guide(&mut page, &parent, false);
+    assert_eq!(
+        guidance::project(&page).values().collect::<Vec<_>>(),
+        [&guidance::State::Pending]
+    );
+    assert_eq!(reported(&page, Vec::new(), parent.turn), [None]);
+}
+
+#[test]
+fn clears_for_retries() {
+    let (parent, mut page) = delegated([false, false]);
     append(
         &mut page,
         [entry(
             3,
             parent.turn,
             "assistant",
-            vec![Part::Text("Interim report".into())],
+            vec![Part::Resource(
+                serde_json::json!({"type":"model_retry","attempt":1,"limit":5}),
+            )],
         )],
     );
     assert_eq!(reported(&page, Vec::new(), parent.turn), [None]);
@@ -236,6 +301,21 @@ fn requires_settled_running_parent() {
     assert_eq!(reported(&page, Vec::new(), parent.turn), [None]);
 
     let (parent, mut page) = delegated([false, false]);
+    page.questions.push(question::Question {
+        id: QuestionId::new(),
+        session: parent.session,
+        turn: parent.turn,
+        entry: "entry-1".into(),
+        index: 1,
+        state: question::State::Pending,
+    });
+    assert_eq!(reported(&page, Vec::new(), parent.turn), [None]);
+
+    let (parent, mut page) = delegated([false, false]);
+    page.runs[0].kind = RunKind::Compaction;
+    assert_eq!(reported(&page, Vec::new(), parent.turn), [None]);
+
+    let (parent, mut page) = delegated([false, false]);
     append(
         &mut page,
         [entry(
@@ -259,32 +339,49 @@ fn requires_settled_running_parent() {
 }
 
 #[test]
-fn reports_latest_segment_only() {
+fn ignores_other_turns() {
     let (parent, mut page) = delegated([false, false]);
-    let guide = Run {
-        turn: TurnId::new(),
-        sequence: 2,
-        status: Status::Continued,
-        started_ms: None,
-        finished_ms: Some(3),
-        guidance: Some(parent.turn),
-        joined: Some(parent.turn),
-        input: Some(SentInput {
-            message: "Check the fixture".into(),
-            attachments: Vec::new(),
-        }),
-        ..parent.clone()
-    };
-    page.runs.push(guide.clone());
+    page.children[1].origin.turn = TurnId::new();
+    assert_eq!(reported(&page, Vec::new(), parent.turn), [Some(1)]);
+    page.children[0].origin.turn = TurnId::new();
+    assert_eq!(reported(&page, Vec::new(), parent.turn), [None]);
+}
+
+#[test]
+fn clears_for_unmatched_calls() {
+    let (parent, mut page) = delegated([false, false]);
     append(
         &mut page,
         [entry(
             3,
-            guide.turn,
-            "user",
-            vec![Part::Text("Check the fixture".into())],
+            parent.turn,
+            "tool",
+            vec![result("orphan", "read_file")],
         )],
     );
+    assert_eq!(reported(&page, Vec::new(), parent.turn), [Some(2)]);
+    append(
+        &mut page,
+        [entry(
+            4,
+            parent.turn,
+            "assistant",
+            vec![Part::ToolCall {
+                id: None,
+                name: "read_file".into(),
+                summary: Box::default(),
+                presentation: Default::default(),
+                grouping: Default::default(),
+            }],
+        )],
+    );
+    assert_eq!(reported(&page, Vec::new(), parent.turn), [None]);
+}
+
+#[test]
+fn reports_latest_segment_only() {
+    let (parent, mut page) = delegated([false, false]);
+    guide(&mut page, &parent, true);
     assert_eq!(reported(&page, Vec::new(), parent.turn), [None, None]);
     append(
         &mut page,

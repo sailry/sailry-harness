@@ -149,6 +149,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         .with_thinking(binding.config.thinking_effort())
         .with_groupings(catalog.groupings())
         .with_displays(catalog.displays())
+        .with_delegations(catalog.delegations())
         .with_connection_context(bindings.clone(), invocation.connections.resources())
         .with_presentations(catalog.presentations());
     let id = invocation.turn.session.to_string();

@@ -27,6 +27,8 @@ pub(in crate::store::agent) struct Raw {
     pub grouping: Grouping,
     pub images: Vec<sailry_protocol::conversation::Image>,
     pub failure: Option<Failure>,
+    /// The call's tool admitted child agents when it was recorded.
+    pub delegation: bool,
 }
 
 impl Raw {
@@ -43,6 +45,7 @@ impl Raw {
             grouping: Default::default(),
             images: Vec::new(),
             failure: None,
+            delegation: false,
         }
     }
 
@@ -132,7 +135,7 @@ impl Raw {
             title: text(&self.arguments, "title", 200),
             resource: text(&self.arguments, "skill", 200),
             summary_id: text(result, "summary_id", 200),
-            delegation: delegation(&self.arguments),
+            delegation: delegation(self),
             question,
             progress: progress(self),
         }
@@ -212,7 +215,8 @@ pub(in crate::store::agent) fn value(format: ToolFormat, result: &Value) -> &Val
     }
 }
 
-fn delegation(arguments: &Value) -> Delegation {
+fn delegation(raw: &Raw) -> Delegation {
+    let arguments = &raw.arguments;
     let session = arguments
         .get("session")
         .map(|value| serde_json::from_value(value.clone()));
@@ -225,7 +229,8 @@ fn delegation(arguments: &Value) -> Delegation {
             || worktree.as_ref().is_some_and(Result::is_err),
         session: session.and_then(Result::ok),
         worktree: worktree.and_then(Result::ok),
-        background: arguments.get("background").and_then(Value::as_bool) == Some(true),
+        background: raw.delegation
+            && arguments.get("background").and_then(Value::as_bool) == Some(true),
     }
 }
 

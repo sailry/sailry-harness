@@ -90,6 +90,13 @@ impl Sessions {
         self.presentation.displays = displays;
         self
     }
+    pub(crate) fn with_delegations(
+        mut self,
+        delegations: std::collections::BTreeSet<String>,
+    ) -> Self {
+        self.presentation.delegations = delegations;
+        self
+    }
     pub(crate) fn with_thinking(mut self, thinking: Option<ThinkingEffort>) -> Self {
         self.thinking = thinking;
         self
