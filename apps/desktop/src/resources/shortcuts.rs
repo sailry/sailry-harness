@@ -38,9 +38,12 @@ impl Shell {
         if self.page != crate::preview::Page::Conversation {
             return Vec::new();
         }
-        self.current_chat()
-            .map(|chat| chat.read(cx).renderer_shortcuts(cx))
-            .unwrap_or_default()
+        let (Some(chat), Some(scope)) = (self.current_chat(), self.conversation_scope(cx)) else {
+            return Vec::new();
+        };
+        let mut shortcuts = chat.read(cx).renderer_shortcuts(cx);
+        shortcuts.retain(|(resource, _)| scope.offers(Destination::from(*resource)));
+        shortcuts
     }
 
     pub(crate) fn open_resource_shortcut(

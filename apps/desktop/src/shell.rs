@@ -512,10 +512,13 @@ impl Shell {
             return;
         }
         if self.page == Page::Conversation {
-            if self.layout.panel_open[0] && self.side_resource.is_some() {
+            let launcher = self
+                .conversation_scope(cx)
+                .is_none_or(|scope| scope.session);
+            if self.side_resource.is_some() && (self.layout.panel_open[0] || !launcher) {
                 // Closing destroys the page; reopening starts from the launcher.
                 self.close_file_panel(window, cx);
-            } else {
+            } else if launcher {
                 let plugins = self.current_chat().cloned().map(|source| {
                     let panel = cx.new(|cx| crate::plugins::Panel::new(source, cx));
                     Self::observe_plugin_conversations(&panel, window, cx);

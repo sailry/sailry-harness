@@ -7,12 +7,34 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Destination {
     Review,
     Terminal,
     Browser,
     Files,
+}
+
+/// Conversation state that decides what the resource panel can open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Scope {
+    /// Node has created the conversation.
+    pub session: bool,
+    /// The conversation is bound to a worktree, including an ordinary session's private one.
+    pub worktree: bool,
+}
+
+impl Scope {
+    /// A new conversation offers no launcher; a resource it opened stays closable.
+    pub(crate) fn panel(self, open: bool) -> bool {
+        self.session || open
+    }
+
+    /// Only the browser opens without a worktree. Node reserves an ordinary
+    /// conversation's private worktree when it creates the session, so its draft has none.
+    pub(crate) fn offers(self, destination: Destination) -> bool {
+        destination == Destination::Browser || self.worktree
+    }
 }
 
 impl Destination {
@@ -58,6 +80,15 @@ impl From<sailry_protocol::plugin::desktop::ResourceKind> for Destination {
 }
 
 impl Shell {
+    /// The current live conversation's resource state; preview data has none.
+    pub(crate) fn conversation_scope(&self, cx: &App) -> Option<Scope> {
+        let chat = self.current_chat()?.read(cx);
+        Some(Scope {
+            session: chat.session().is_some(),
+            worktree: chat.binding().worktree.is_some(),
+        })
+    }
+
     pub(crate) fn open_destination(
         &mut self,
         destination: Destination,
@@ -162,6 +193,9 @@ impl Shell {
             controls.push((package.name, Destination::Review, label));
         } else if self.live.is_none() {
             controls.push(("git".into(), Destination::Review, tr("git").to_string()));
+        }
+        if let Some(scope) = self.conversation_scope(cx) {
+            controls.retain(|(_, destination, _)| scope.offers(*destination));
         }
         controls.sort_by_key(|(_, destination, _)| match destination {
             Destination::Browser => 0,
@@ -359,5 +393,66 @@ impl Shell {
         self.side_resource = Some(SideResource::Artifact(panel));
         self.layout.panel_open[0] = true;
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod scope {
+    use super::*;
+    use core::prelude::v1::test;
+
+    const ALL: [Destination; 4] = [
+        Destination::Review,
+        Destination::Terminal,
+        Destination::Browser,
+        Destination::Files,
+    ];
+
+    fn offered(scope: Scope) -> Vec<Destination> {
+        ALL.into_iter()
+            .filter(|destination| scope.offers(*destination))
+            .collect()
+    }
+
+    #[test]
+    fn hides_panel_until_created() {
+        for worktree in [false, true] {
+            let draft = Scope {
+                session: false,
+                worktree,
+            };
+            assert!(!draft.panel(false));
+            assert!(draft.panel(true), "an opened resource stays closable");
+        }
+    }
+
+    #[test]
+    fn limits_unbound_drafts_to_browser() {
+        let ordinary = Scope {
+            session: false,
+            worktree: false,
+        };
+        assert_eq!(offered(ordinary), [Destination::Browser]);
+    }
+
+    #[test]
+    fn keeps_project_draft_resources() {
+        let project = Scope {
+            session: false,
+            worktree: true,
+        };
+        assert_eq!(offered(project), ALL);
+    }
+
+    #[test]
+    fn offers_every_resource_in_sessions() {
+        // Project sessions keep their worktree; ordinary ones receive a private one.
+        let session = Scope {
+            session: true,
+            worktree: true,
+        };
+        assert!(session.panel(false));
+        assert!(session.panel(true));
+        assert_eq!(offered(session), ALL);
     }
 }
