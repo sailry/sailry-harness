@@ -71,6 +71,10 @@ impl View {
                 cx.emit(Event::HostPage(self.binding.client.target()));
                 return;
             }
+            Target::Attachment(id) => {
+                self.open_attachment(*id, &reference.label, turn, window, cx);
+                return;
+            }
             Target::Project => {
                 let project = if turn.is_some() {
                     self.reference_worktree(turn).and_then(|worktree| {
@@ -200,6 +204,66 @@ impl View {
             }
         };
         show(reference.label, tr(kind).to_string(), detail, window, cx);
+    }
+
+    /// A selection previews its first image, such as an element capture, before
+    /// saving another attachment.
+    fn open_attachment(
+        &mut self,
+        id: sailry_protocol::AttachmentId,
+        label: &str,
+        turn: Option<TurnId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (references, attachments) = match turn {
+            Some(turn) => self
+                .history
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| {
+                    sailry_client::conversation::turns::input(&snapshot.page, turn)
+                })
+                .map(|input| (input.message.references, input.attachments))
+                .unwrap_or_default(),
+            None => (
+                self.references.selected.clone(),
+                self.attachments.published(),
+            ),
+        };
+        let mut selected = sailry_client::conversation::references::selection(&references, label);
+        if !selected.contains(&id) {
+            selected = vec![id];
+        }
+        let sources: Vec<_> = selected
+            .iter()
+            .filter_map(|id| attachments.iter().find(|attachment| attachment.id == *id))
+            .map(crate::content::images::ImageSource::from)
+            .collect();
+        if let Some(image) = sources.iter().find(|source| source.kind().is_some()) {
+            crate::content::images::Images::open_on_close(
+                &self.images,
+                image.clone(),
+                |_, _| {},
+                window,
+                cx,
+            );
+        } else if let Some(source) = sources.first() {
+            source.download(
+                self.binding.client.clone(),
+                self.binding.runtime.clone(),
+                window,
+                cx,
+            );
+        } else {
+            crate::feedback::error(
+                "reference_unavailable",
+                "",
+                &tr("reference_unavailable"),
+                window,
+                cx,
+            );
+        }
     }
 
     fn reference_worktree(&self, turn: Option<TurnId>) -> Option<WorktreeId> {

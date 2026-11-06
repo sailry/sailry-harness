@@ -146,6 +146,16 @@ impl Drafts {
             .all(|item| !item.pending && !item.removing && matches!(item.status, Status::Ready(_)))
     }
 
+    pub(super) fn published(&self) -> Vec<Attachment> {
+        self.items
+            .iter()
+            .filter_map(|item| match &item.status {
+                Status::Ready(attachment) => Some(attachment.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub(super) fn ids(&self) -> Vec<AttachmentId> {
         self.items
             .iter()

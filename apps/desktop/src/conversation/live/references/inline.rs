@@ -10,6 +10,14 @@ pub(in crate::conversation::live) fn marker(reference: &Reference) -> String {
 }
 
 fn id(reference: &Reference) -> SharedString {
+    // Attachment references sharing a label are one selection behind one token.
+    if matches!(reference.target, Target::Attachment(_)) {
+        return format!(
+            "reference:selection:{}",
+            blake3::hash(reference.label.as_bytes())
+        )
+        .into();
+    }
     let target = serde_json::to_vec(&reference.target).expect("reference target serializes");
     format!("reference:{}", blake3::hash(&target)).into()
 }

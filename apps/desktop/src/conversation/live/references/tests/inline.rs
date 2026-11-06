@@ -172,3 +172,25 @@ fn markers_and_native_identity() {
         check(scenario);
     }
 }
+
+#[test]
+fn selections_share_one_token() {
+    let [image, context] = [(); 2].map(|_| sailry_protocol::AttachmentId::new());
+    let selection = |id| Reference {
+        target: Target::Attachment(id),
+        label: "Submit button".into(),
+    };
+    let catalog = vec![
+        selection(image),
+        selection(context),
+        Reference {
+            target: Target::Attachment(sailry_protocol::AttachmentId::new()),
+            label: "Card".into(),
+        },
+    ];
+    assert_eq!(token(&catalog[0]).id(), token(&catalog[1]).id());
+    assert_ne!(token(&catalog[0]).id(), token(&catalog[2]).id());
+    let restored = content("Fix @Submit button", &catalog).unwrap();
+    assert_eq!(restored.tokens().len(), 1);
+    assert_eq!(active_content(&restored, &catalog), catalog[..2].to_vec());
+}

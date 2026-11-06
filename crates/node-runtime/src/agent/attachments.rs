@@ -84,7 +84,7 @@ pub(crate) fn render(
         blocks.push(BlockKind::Text { text: text.into() });
     }
     if !input.references.is_empty() {
-        blocks.push(BlockKind::Text{text:format!("User-selected references (plugin and skill targets are explicit capability requests; other targets are context identifiers, not contents. Use read_file/list_directory for paths and read_session for conversations before describing them):\n{}",serde_json::to_string(&input.references).map_err(|error|Fault::invalid(error.to_string()))?)});
+        blocks.push(BlockKind::Text{text:format!("User-selected references (plugin and skill targets are explicit capability requests; attachment targets identify attachments of this message by id, and references sharing a label form one selection; other targets are context identifiers, not contents. Use read_file/list_directory for paths and read_session for conversations before describing them):\n{}",serde_json::to_string(&input.references).map_err(|error|Fault::invalid(error.to_string()))?)});
     }
     if !input.text.is_empty() {
         blocks.push(BlockKind::Text {

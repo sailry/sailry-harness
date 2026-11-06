@@ -9,6 +9,7 @@ mod identity_tests;
 pub mod modes;
 mod observer;
 mod projection;
+pub mod references;
 mod removal;
 pub mod reply;
 pub mod rows;

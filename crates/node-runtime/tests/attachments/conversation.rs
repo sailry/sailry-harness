@@ -16,6 +16,8 @@ mod office;
 mod provider;
 #[path = "conversation/queue.rs"]
 mod queue;
+#[path = "conversation/references.rs"]
+mod references;
 use crate::agent_support as server;
 #[path = "conversation/tool_images.rs"]
 mod tool_images;
