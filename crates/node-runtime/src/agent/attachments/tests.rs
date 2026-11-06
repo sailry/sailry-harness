@@ -151,6 +151,17 @@ fn accepts_only_owned_references() {
 }
 
 #[test]
+fn reports_each_miss_once() {
+    let reported = Reported::default();
+    let missing = AttachmentId::new();
+    let other = AttachmentId::new();
+    assert!(reported.first(missing));
+    assert!(!reported.first(missing));
+    assert!(reported.first(other));
+    assert!(!reported.first(missing));
+}
+
+#[test]
 fn filters_images_for_text_models() {
     let message = GdkMessage::assistant()
         .with_text("Generated image")

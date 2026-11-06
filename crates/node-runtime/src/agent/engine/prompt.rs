@@ -98,6 +98,8 @@ pub(super) struct Preparer {
     /// Plugin parts that `pending` skips once a persisted context holds them.
     pub parts: Vec<String>,
     pub sources: crate::agent::model::observation::Sources,
+    /// Unavailable history warns once per attachment across this turn's requests.
+    pub reported: attachments::Reported,
 }
 #[async_trait]
 impl InferenceRequestPreparer<Session> for Preparer {
@@ -210,6 +212,7 @@ impl Preparer {
         attachments::hydrate(
             &self.ingress,
             &self.invocation,
+            &self.reported,
             conversation,
             model.is_some_and(|model| model.vision),
             api,

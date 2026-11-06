@@ -231,6 +231,7 @@ fn preparer(
         images: vec![],
         parts: vec![],
         sources: Default::default(),
+        reported: Default::default(),
     })
 }
 
