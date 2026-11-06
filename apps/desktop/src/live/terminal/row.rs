@@ -18,6 +18,12 @@ impl Shell {
         let node = live.selected;
         let activity = sailry_client::activity::terminal_activity(&info);
         let running = activity == Some(sailry_client::activity::Lane::Running);
+        let title = self.terminal_title(node, info.worktree.unwrap(), id, cx);
+        let accessible: SharedString = if running {
+            format!("{title} · {}", tr("activity_running")).into()
+        } else {
+            title.clone()
+        };
         let row = self
             .sidebar_row(
                 SharedString::from(format!("live-terminal-{id}")),
@@ -30,17 +36,26 @@ impl Shell {
                         == Some(&id),
                 cx,
             )
+            .accessibility_label(accessible)
             .pl(entry.indent())
             .when(running, |row| row.text_color(cx.theme().sidebar_foreground))
             .relative()
-            .child(entry.guides(format!("live-terminal-{id}"), cx))
+            .child(entry.guides(
+                format!("live-terminal-{id}"),
+                running.then(|| {
+                    crate::ui::loading::mini()
+                        .debug_selector(move || format!("live-terminal-{id}-loading"))
+                        .into_any_element()
+                }),
+                cx,
+            ))
             .on_drag(
                 crate::panes::Drag {
                     target: crate::panes::Target::Terminal(node, info.worktree.unwrap(), id),
                     session: None,
                     terminal: Some(info.clone()),
                     project,
-                    title: self.terminal_title(node, info.worktree.unwrap(), id, cx),
+                    title: title.clone(),
                 }
                 .payload(),
                 |drag, _, _, cx| {
@@ -78,25 +93,17 @@ impl Shell {
                             .min_w_0()
                             .truncate()
                             .debug_selector(move || format!("live-terminal-{id}-label"))
-                            .child(self.terminal_title(node, info.worktree.unwrap(), id, cx)),
+                            .child(title),
                     )
                     .child(
                         div()
                             .flex_shrink_0()
-                            .debug_selector(move || {
-                                format!(
-                                    "live-terminal-{id}-{}",
-                                    if running { "loading" } else { "icon" }
-                                )
-                            })
-                            .child(if running {
-                                crate::ui::loading::mini().into_any_element()
-                            } else {
+                            .debug_selector(move || format!("live-terminal-{id}-icon"))
+                            .child(
                                 Icon::new(IconName::SquareTerminal)
                                     .size_4()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .into_any_element()
-                            }),
+                                    .text_color(cx.theme().muted_foreground),
+                            ),
                     ),
             );
         self.split_destination(row, entry, cx)
