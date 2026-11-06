@@ -53,18 +53,13 @@ impl Palette {
         }
     }
 
+    #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
     pub(crate) fn scheme(&self) -> &'static str {
         if self.dark { "dark" } else { "light" }
     }
 
-    pub(crate) fn value(&self, name: &str) -> Option<&str> {
-        self.variables
-            .iter()
-            .find(|(key, _)| *key == name)
-            .map(|(_, value)| value.as_str())
-    }
-
     /// One `:root` rule whose values cannot close the surrounding style element.
+    #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
     pub(crate) fn rule(&self) -> String {
         let mut rule = format!(":root{{color-scheme:{};", self.scheme());
         for (name, value) in &self.variables {
@@ -174,18 +169,18 @@ mod tests {
             for (mode, dark) in [(ThemeMode::Light, false), (ThemeMode::Dark, true)] {
                 Theme::change(mode, None, cx);
                 let palette = Palette::of(cx);
-                assert_eq!(palette.dark, dark);
-                assert_eq!(
-                    palette.value("background"),
-                    Some(rgba(cx.theme().background).as_str())
-                );
-                assert_eq!(
-                    palette.value("chart-1"),
-                    Some(rgba(cx.theme().chart_1).as_str())
-                );
-                assert!(
+                let value = |name: &str| {
                     palette
-                        .value("font-family")
+                        .variables
+                        .iter()
+                        .find(|(key, _)| *key == name)
+                        .map(|(_, value)| value.clone())
+                };
+                assert_eq!(palette.dark, dark);
+                assert_eq!(value("background"), Some(rgba(cx.theme().background)));
+                assert_eq!(value("chart-1"), Some(rgba(cx.theme().chart_1)));
+                assert!(
+                    value("font-family")
                         .is_some_and(|family| family.ends_with("system-ui, sans-serif"))
                 );
             }
